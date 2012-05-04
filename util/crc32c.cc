@@ -7,6 +7,9 @@
 
 #include "util/crc32c.h"
 
+#ifdef __SSE4_2__
+#include <nmmintrin.h>
+#endif
 #include <stdint.h>
 #include "util/coding.h"
 
@@ -283,6 +286,10 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
+static inline uint64_t LE_LOAD64(const uint8_t *p) {
+  return DecodeFixed64(reinterpret_cast<const char*>(p));
+}
+
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   const uint8_t *p = reinterpret_cast<const uint8_t *>(buf);
   const uint8_t *e = p + size;
@@ -303,7 +310,12 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
         table1_[(c >> 16) & 0xff] ^             \
         table0_[c >> 24];                       \
 } while (0)
+
+#ifdef __SSE4_2__
+#define STEP8 do { l = _mm_crc32_u64(l, LE_LOAD64(p)); p += 8; } while(0)
+#else
 #define STEP8 do { STEP4; STEP4; } while(0)
+#endif
 
   // Point x at first 16-byte aligned byte in string.  This might be
   // just past the end of the string.
