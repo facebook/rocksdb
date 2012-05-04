@@ -104,6 +104,9 @@ class SkipList {
   // values are ok.
   port::AtomicPointer max_height_;   // Height of the entire list
 
+  // Used for optimizing sequential insert patterns
+  Node* prev_[kMaxHeight];
+
   inline int GetMaxHeight() const {
     return static_cast<int>(
         reinterpret_cast<intptr_t>(max_height_.NoBarrier_Load()));
@@ -258,6 +261,15 @@ bool SkipList<Key,Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
 template<typename Key, class Comparator>
 typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOrEqual(const Key& key, Node** prev)
     const {
+  // Use prev as an optimization hint and fallback to slow path
+  if (prev && !KeyIsAfterNode(key, prev[0]->Next(0))) {
+    Node* x = prev[0];
+    Node* next = x->Next(0);
+    if ((x == head_) || KeyIsAfterNode(key, x)) {
+      return next;
+    }
+  }
+  // Normal lookup
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   while (true) {
@@ -327,6 +339,7 @@ SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena)
       rnd_(0xdeadbeef) {
   for (int i = 0; i < kMaxHeight; i++) {
     head_->SetNext(i, NULL);
+    prev_[i] = head_;
   }
 }
 
@@ -334,8 +347,7 @@ template<typename Key, class Comparator>
 void SkipList<Key,Comparator>::Insert(const Key& key) {
   // TODO(opt): We can use a barrier-free variant of FindGreaterOrEqual()
   // here since Insert() is externally synchronized.
-  Node* prev[kMaxHeight];
-  Node* x = FindGreaterOrEqual(key, prev);
+  Node* x = FindGreaterOrEqual(key, prev_);
 
   // Our data structure does not allow duplicate insertion
   assert(x == NULL || !Equal(key, x->key));
@@ -343,7 +355,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
   int height = RandomHeight();
   if (height > GetMaxHeight()) {
     for (int i = GetMaxHeight(); i < height; i++) {
-      prev[i] = head_;
+      prev_[i] = head_;
     }
     //fprintf(stderr, "Change height from %d to %d\n", max_height_, height);
 
@@ -361,9 +373,10 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
   for (int i = 0; i < height; i++) {
     // NoBarrier_SetNext() suffices since we will add a barrier when
     // we publish a pointer to "x" in prev[i].
-    x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));
-    prev[i]->SetNext(i, x);
+    x->NoBarrier_SetNext(i, prev_[i]->NoBarrier_Next(i));
+    prev_[i]->SetNext(i, x);
   }
+  prev_[0] = x;
 }
 
 template<typename Key, class Comparator>
