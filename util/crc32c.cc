@@ -286,7 +286,10 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   const uint8_t *p = reinterpret_cast<const uint8_t *>(buf);
   const uint8_t *e = p + size;
-  uint32_t l = crc ^ 0xffffffffu;
+  uint64_t l = crc ^ 0xffffffffu;
+
+// Align n to (1 << m) byte boundary
+#define ALIGN(n, m) 		((n + ((1 << m) - 1)) & ~((1 << m) - 1))
 
 #define STEP1 do {                              \
     int c = (l & 0xff) ^ *p++;                  \
@@ -300,31 +303,34 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
         table1_[(c >> 16) & 0xff] ^             \
         table0_[c >> 24];                       \
 } while (0)
+#define STEP8 do { STEP4; STEP4; } while(0)
 
-  // Point x at first 4-byte aligned byte in string.  This might be
+  // Point x at first 16-byte aligned byte in string.  This might be
   // just past the end of the string.
   const uintptr_t pval = reinterpret_cast<uintptr_t>(p);
-  const uint8_t* x = reinterpret_cast<const uint8_t*>(((pval + 3) >> 2) << 2);
+  const uint8_t* x = reinterpret_cast<const uint8_t*>(ALIGN(pval, 4));
   if (x <= e) {
-    // Process bytes until finished or p is 4-byte aligned
+    // Process bytes until finished or p is 16-byte aligned
     while (p != x) {
       STEP1;
     }
   }
   // Process bytes 16 at a time
   while ((e-p) >= 16) {
-    STEP4; STEP4; STEP4; STEP4;
+    STEP8; STEP8;
   }
-  // Process bytes 4 at a time
-  while ((e-p) >= 4) {
-    STEP4;
+  // Process bytes 8 at a time
+  while ((e-p) >= 8) {
+    STEP8;
   }
   // Process the last few bytes
   while (p != e) {
     STEP1;
   }
+#undef STEP8
 #undef STEP4
 #undef STEP1
+#undef ALIGN
   return l ^ 0xffffffffu;
 }
 
