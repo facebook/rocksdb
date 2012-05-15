@@ -1,0 +1,3 @@
+* How to compile using fbcode and jemalloc
+  source fbcode.sh
+  make 
