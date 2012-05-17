@@ -267,12 +267,12 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
   }
 }
 
-static const int kNumShardBits = 4;
-static const int kNumShards = 1 << kNumShardBits;
+static int kNumShardBits = 4;         // default values, can be overridden
+static int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
  private:
-  LRUCache shard_[kNumShards];
+  LRUCache* shard_;
   port::Mutex id_mutex_;
   uint64_t last_id_;
 
@@ -284,13 +284,24 @@ class ShardedLRUCache : public Cache {
     return hash >> (32 - kNumShardBits);
   }
 
- public:
-  explicit ShardedLRUCache(size_t capacity)
-      : last_id_(0) {
+  void init(size_t capacity, int numShardBits) {
+    kNumShardBits = numShardBits;
+    kNumShards = 1 << kNumShardBits;
+    shard_ = new LRUCache[kNumShards];
     const size_t per_shard = (capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
       shard_[s].SetCapacity(per_shard);
     }
+  }
+
+ public:
+  explicit ShardedLRUCache(size_t capacity)
+      : last_id_(0) {
+    init(capacity, kNumShardBits);
+  }
+  ShardedLRUCache(size_t capacity, int numShardBits)
+     : last_id_(0) {
+    init(capacity, numShardBits);
   }
   virtual ~ShardedLRUCache() { }
   virtual Handle* Insert(const Slice& key, void* value, size_t charge,
@@ -323,6 +334,10 @@ class ShardedLRUCache : public Cache {
 
 Cache* NewLRUCache(size_t capacity) {
   return new ShardedLRUCache(capacity);
+}
+
+Cache* NewLRUCache(size_t capacity, int numShardBits) {
+  return new ShardedLRUCache(capacity, numShardBits);
 }
 
 }  // namespace leveldb

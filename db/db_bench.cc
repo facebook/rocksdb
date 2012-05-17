@@ -102,6 +102,11 @@ static bool FLAGS_use_existing_db = false;
 // Use the db with the following name.
 static const char* FLAGS_db = "/tmp/dbbench";
 
+// Number of shards for the block cache is 2 ** FLAGS_cache_numshardbits.
+// Negative means use default settings. This is applied only
+// if FLAGS_cache_size is non-negative.
+static int FLAGS_cache_numshardbits = -1;
+
 namespace leveldb {
 
 namespace {
@@ -390,7 +395,10 @@ class Benchmark {
 
  public:
   Benchmark()
-  : cache_(FLAGS_cache_size >= 0 ? NewLRUCache(FLAGS_cache_size) : NULL),
+  : cache_(FLAGS_cache_size >= 0 ? 
+           (FLAGS_cache_numshardbits >= 1 ? 
+            NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits) : 
+            NewLRUCache(FLAGS_cache_size)) : NULL),
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                    : NULL),
@@ -955,6 +963,8 @@ int main(int argc, char** argv) {
       FLAGS_write_buffer_size = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &n, &junk) == 1) {
       FLAGS_cache_size = n;
+    } else if (sscanf(argv[i], "--cache_numshardbits=%d%c", &n, &junk) == 1) {
+      FLAGS_cache_numshardbits = n;
     } else if (sscanf(argv[i], "--bloom_bits=%d%c", &n, &junk) == 1) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {

@@ -28,6 +28,7 @@ class Cache;
 // Create a new cache with a fixed size capacity.  This implementation
 // of Cache uses a least-recently-used eviction policy.
 extern Cache* NewLRUCache(size_t capacity);
+extern Cache* NewLRUCache(size_t capacity, int numShardBits);
 
 class Cache {
  public:
