@@ -107,6 +107,9 @@ static const char* FLAGS_db = "/tmp/dbbench";
 // if FLAGS_cache_size is non-negative.
 static int FLAGS_cache_numshardbits = -1;
 
+// Verify checksum for every block read from storage
+static bool FLAGS_verify_checksum = false;
+
 namespace leveldb {
 
 namespace {
@@ -751,7 +754,7 @@ class Benchmark {
   }
 
   void ReadSequential(ThreadState* thread) {
-    Iterator* iter = db_->NewIterator(ReadOptions());
+    Iterator* iter = db_->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
     int i = 0;
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
@@ -764,7 +767,7 @@ class Benchmark {
   }
 
   void ReadReverse(ThreadState* thread) {
-    Iterator* iter = db_->NewIterator(ReadOptions());
+    Iterator* iter = db_->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
     int i = 0;
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
@@ -777,7 +780,7 @@ class Benchmark {
   }
 
   void ReadRandom(ThreadState* thread) {
-    ReadOptions options;
+    ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
     int found = 0;
     for (int i = 0; i < reads_; i++) {
@@ -795,7 +798,7 @@ class Benchmark {
   }
 
   void ReadMissing(ThreadState* thread) {
-    ReadOptions options;
+    ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
     for (int i = 0; i < reads_; i++) {
       char key[100];
@@ -807,7 +810,7 @@ class Benchmark {
   }
 
   void ReadHot(ThreadState* thread) {
-    ReadOptions options;
+    ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
     const int range = (FLAGS_num + 99) / 100;
     for (int i = 0; i < reads_; i++) {
@@ -820,7 +823,7 @@ class Benchmark {
   }
 
   void SeekRandom(ThreadState* thread) {
-    ReadOptions options;
+    ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
     int found = 0;
     for (int i = 0; i < reads_; i++) {
@@ -971,6 +974,9 @@ int main(int argc, char** argv) {
       FLAGS_open_files = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
+    } else if (sscanf(argv[i], "--verify_checksum=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_verify_checksum = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

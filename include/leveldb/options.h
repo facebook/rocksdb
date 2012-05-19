@@ -163,6 +163,10 @@ struct ReadOptions {
         fill_cache(true),
         snapshot(NULL) {
   }
+  ReadOptions(bool cksum, bool cache) :
+              verify_checksums(cksum), fill_cache(cache),
+              snapshot(NULL) {
+  }
 };
 
 // Options that control write operations
