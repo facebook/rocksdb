@@ -61,10 +61,10 @@ static const char* FLAGS_benchmarks =
     ;
 
 // Number of key/values to place in database
-static int FLAGS_num = 1000000;
+static long FLAGS_num = 1000000;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
-static int FLAGS_reads = -1;
+static long FLAGS_reads = -1;
 
 // Number of concurrent threads to run.
 static int FLAGS_threads = 1;
@@ -171,7 +171,7 @@ class Stats {
   double start_;
   double finish_;
   double seconds_;
-  int done_;
+  long done_;
   int next_report_;
   int64_t bytes_;
   double last_op_finish_;
@@ -235,7 +235,7 @@ class Stats {
       else if (next_report_ < 100000) next_report_ += 10000;
       else if (next_report_ < 500000) next_report_ += 50000;
       else                            next_report_ += 100000;
-      fprintf(stderr, "... finished %d ops%30s\r", done_, "");
+      fprintf(stderr, "... finished %ld ops%30s\r", done_, "");
       fflush(stderr);
     }
   }
@@ -288,8 +288,8 @@ struct SharedState {
   //    (3) running
   //    (4) done
 
-  int num_initialized;
-  int num_done;
+  long num_initialized;
+  long num_done;
   bool start;
 
   SharedState() : cv(&mu) { }
@@ -315,11 +315,11 @@ class Benchmark {
   Cache* cache_;
   const FilterPolicy* filter_policy_;
   DB* db_;
-  int num_;
+  long num_;
   int value_size_;
   int entries_per_batch_;
   WriteOptions write_options_;
-  int reads_;
+  long reads_;
   int heap_counter_;
 
   void PrintHeader() {
@@ -329,7 +329,7 @@ class Benchmark {
     fprintf(stdout, "Values:     %d bytes each (%d bytes after compression)\n",
             FLAGS_value_size,
             static_cast<int>(FLAGS_value_size * FLAGS_compression_ratio + 0.5));
-    fprintf(stdout, "Entries:    %d\n", num_);
+    fprintf(stdout, "Entries:    %ld\n", num_);
     fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
             ((static_cast<int64_t>(kKeySize + FLAGS_value_size) * num_)
              / 1048576.0));
@@ -755,7 +755,7 @@ class Benchmark {
 
   void ReadSequential(ThreadState* thread) {
     Iterator* iter = db_->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
-    int i = 0;
+    long i = 0;
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
@@ -768,7 +768,7 @@ class Benchmark {
 
   void ReadReverse(ThreadState* thread) {
     Iterator* iter = db_->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
-    int i = 0;
+    long i = 0;
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
       bytes += iter->key().size() + iter->value().size();
@@ -783,7 +783,7 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
     int found = 0;
-    for (int i = 0; i < reads_; i++) {
+    for (long i = 0; i < reads_; i++) {
       char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
       snprintf(key, sizeof(key), "%016d", k);
@@ -800,7 +800,7 @@ class Benchmark {
   void ReadMissing(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
-    for (int i = 0; i < reads_; i++) {
+    for (long i = 0; i < reads_; i++) {
       char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
       snprintf(key, sizeof(key), "%016d.", k);
@@ -812,8 +812,8 @@ class Benchmark {
   void ReadHot(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
-    const int range = (FLAGS_num + 99) / 100;
-    for (int i = 0; i < reads_; i++) {
+    const long range = (FLAGS_num + 99) / 100;
+    for (long i = 0; i < reads_; i++) {
       char key[100];
       const int k = thread->rand.Next() % range;
       snprintf(key, sizeof(key), "%016d", k);
@@ -826,7 +826,7 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
     int found = 0;
-    for (int i = 0; i < reads_; i++) {
+    for (long i = 0; i < reads_; i++) {
       Iterator* iter = db_->NewIterator(options);
       char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
@@ -943,6 +943,7 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
+    long l;
     char junk;
     if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
       FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
@@ -954,8 +955,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--use_existing_db=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_use_existing_db = n;
-    } else if (sscanf(argv[i], "--num=%d%c", &n, &junk) == 1) {
-      FLAGS_num = n;
+    } else if (sscanf(argv[i], "--num=%ld%c", &l, &junk) == 1) {
+      FLAGS_num = l;
     } else if (sscanf(argv[i], "--reads=%d%c", &n, &junk) == 1) {
       FLAGS_reads = n;
     } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
