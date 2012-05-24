@@ -110,6 +110,8 @@ static int FLAGS_cache_numshardbits = -1;
 // Verify checksum for every block read from storage
 static bool FLAGS_verify_checksum = false;
 
+extern bool useOsBuffer;
+
 namespace leveldb {
 
 namespace {
@@ -782,7 +784,7 @@ class Benchmark {
   void ReadRandom(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
-    int found = 0;
+    long found = 0;
     for (long i = 0; i < reads_; i++) {
       char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
@@ -793,7 +795,7 @@ class Benchmark {
       thread->stats.FinishedSingleOp();
     }
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
+    snprintf(msg, sizeof(msg), "(%ld of %ld found)", found, num_);
     thread->stats.AddMessage(msg);
   }
 
@@ -825,7 +827,7 @@ class Benchmark {
   void SeekRandom(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
-    int found = 0;
+    long found = 0;
     for (long i = 0; i < reads_; i++) {
       Iterator* iter = db_->NewIterator(options);
       char key[100];
@@ -837,7 +839,7 @@ class Benchmark {
       thread->stats.FinishedSingleOp();
     }
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%d of %d found)", found, num_);
+    snprintf(msg, sizeof(msg), "(%ld of %ld found)", found, num_);
     thread->stats.AddMessage(msg);
   }
 
@@ -978,6 +980,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--verify_checksum=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_verify_checksum = n;
+    } else if (sscanf(argv[i], "--bufferedio=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      useOsBuffer = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

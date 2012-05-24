@@ -25,6 +25,8 @@
 #include "util/logging.h"
 #include "util/posix_logger.h"
 
+bool useOsBuffer = 1;     // cache data in OS buffers 
+
 namespace leveldb {
 
 namespace {
@@ -85,6 +87,9 @@ class PosixRandomAccessFile: public RandomAccessFile {
     if (r < 0) {
       // An error: return a non-ok status
       s = IOError(filename_, errno);
+    }
+    if (!useOsBuffer) {
+      posix_fadvise(fd_, offset, n, POSIX_FADV_DONTNEED); // free OS pages
     }
     return s;
   }
@@ -329,7 +334,7 @@ class PosixEnv : public Env {
     int fd = open(fname.c_str(), O_RDONLY);
     if (fd < 0) {
       s = IOError(fname, errno);
-    } else if (sizeof(void*) >= 8) {
+    } else if (useOsBuffer && sizeof(void*) >= 8) {
       // Use mmap when virtual address-space is plentiful.
       uint64_t size;
       s = GetFileSize(fname, &size);
