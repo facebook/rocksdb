@@ -7,10 +7,12 @@
 #include <stdlib.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
+#include "db/db_statistics.h"
 #include "leveldb/cache.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/write_batch.h"
+#include "leveldb/statistics.h"
 #include "port/port.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
@@ -109,6 +111,10 @@ static int FLAGS_cache_numshardbits = -1;
 
 // Verify checksum for every block read from storage
 static bool FLAGS_verify_checksum = false;
+
+// Database statistics
+static bool FLAGS_statistics = false;
+static class leveldb::DBStatistics* dbstats = NULL;
 
 extern bool useOsBuffer;
 
@@ -398,6 +404,15 @@ class Benchmark {
 #endif
   }
 
+  void PrintStatistics() {
+    if (FLAGS_statistics) {
+      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n",
+              dbstats->getNumFileOpens(),
+              dbstats->getNumFileCloses(),
+              dbstats->getNumFileErrors());
+    }
+  }
+
  public:
   Benchmark()
   : cache_(FLAGS_cache_size >= 0 ? 
@@ -542,6 +557,7 @@ class Benchmark {
         RunBenchmark(num_threads, name, method);
       }
     }
+    PrintStatistics();
   }
 
  private:
@@ -710,6 +726,8 @@ class Benchmark {
     options.block_cache = cache_;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.filter_policy = filter_policy_;
+    options.max_open_files = FLAGS_open_files;
+    options.statistics = dbstats;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -983,6 +1001,12 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--bufferedio=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useOsBuffer = n;
+    } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      if (n == 1) {
+        dbstats = new leveldb::DBStatistics();
+        FLAGS_statistics = true;
+      }
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

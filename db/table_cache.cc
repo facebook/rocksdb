@@ -5,6 +5,7 @@
 #include "db/table_cache.h"
 
 #include "db/filename.h"
+#include "db/db_statistics.h"
 #include "leveldb/env.h"
 #include "leveldb/table.h"
 #include "util/coding.h"
@@ -16,10 +17,13 @@ struct TableAndFile {
   Table* table;
 };
 
+static class DBStatistics* dbstatistics;
+
 static void DeleteEntry(const Slice& key, void* value) {
   TableAndFile* tf = reinterpret_cast<TableAndFile*>(value);
   delete tf->table;
   delete tf->file;
+  dbstatistics ? dbstatistics->incNumFileCloses() : (void)0;
   delete tf;
 }
 
@@ -36,6 +40,7 @@ TableCache::TableCache(const std::string& dbname,
       dbname_(dbname),
       options_(options),
       cache_(NewLRUCache(entries)) {
+  dbstatistics = (DBStatistics*)options->statistics;
 }
 
 TableCache::~TableCache() {
@@ -48,12 +53,14 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
   Slice key(buf, sizeof(buf));
+  DBStatistics* stats = (DBStatistics*) options_->statistics;
   *handle = cache_->Lookup(key);
   if (*handle == NULL) {
     std::string fname = TableFileName(dbname_, file_number);
     RandomAccessFile* file = NULL;
     Table* table = NULL;
     s = env_->NewRandomAccessFile(fname, &file);
+    stats ? stats->incNumFileOpens() : (void)0;
     if (s.ok()) {
       s = Table::Open(*options_, file, file_size, &table);
     }
@@ -61,6 +68,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
     if (!s.ok()) {
       assert(table == NULL);
       delete file;
+      stats ? stats->incNumFileErrors() : (void)0;
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
