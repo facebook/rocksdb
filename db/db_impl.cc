@@ -1243,6 +1243,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mutex_.Unlock();
       env_->SleepForMicroseconds(1000);
       allow_delay = false;  // Do not delay a single write more than once
+      Log(options_.info_log, "delaying write...\n");
       mutex_.Lock();
     } else if (!force &&
                (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {

@@ -116,6 +116,12 @@ static bool FLAGS_verify_checksum = false;
 static bool FLAGS_statistics = false;
 static class leveldb::DBStatistics* dbstats = NULL;
 
+// Number of write operations to do.  If negative, do FLAGS_num reads.
+static long FLAGS_writes = -1;
+
+// Sync all writes to disk
+static bool FLAGS_sync = false;
+
 extern bool useOsBuffer;
 
 namespace leveldb {
@@ -328,6 +334,7 @@ class Benchmark {
   int entries_per_batch_;
   WriteOptions write_options_;
   long reads_;
+  long writes_;
   int heap_counter_;
 
   void PrintHeader() {
@@ -427,6 +434,7 @@ class Benchmark {
     value_size_(FLAGS_value_size),
     entries_per_batch_(1),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
+    writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
     heap_counter_(0) {
     std::vector<std::string> files;
     Env::Default()->GetChildren(FLAGS_db, &files);
@@ -465,9 +473,13 @@ class Benchmark {
       // Reset parameters that may be overriddden bwlow
       num_ = FLAGS_num;
       reads_ = (FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads);
+      writes_ = (FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes);
       value_size_ = FLAGS_value_size;
       entries_per_batch_ = 1;
       write_options_ = WriteOptions();
+      if (FLAGS_sync) {
+        write_options_.sync = true;
+      }
 
       void (Benchmark::*method)(ThreadState*) = NULL;
       bool fresh_db = false;
@@ -754,7 +766,7 @@ class Benchmark {
     WriteBatch batch;
     Status s;
     int64_t bytes = 0;
-    for (int i = 0; i < num_; i += entries_per_batch_) {
+    for (int i = 0; i < writes_; i += entries_per_batch_) {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
         const int k = seq ? i+j : (thread->rand.Next() % FLAGS_num);
@@ -1007,6 +1019,11 @@ int main(int argc, char** argv) {
         dbstats = new leveldb::DBStatistics();
         FLAGS_statistics = true;
       }
+    } else if (sscanf(argv[i], "--writes=%d%c", &n, &junk) == 1) {
+      FLAGS_writes = n;
+    } else if (sscanf(argv[i], "--sync=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_sync = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
