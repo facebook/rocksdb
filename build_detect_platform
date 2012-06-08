@@ -148,6 +148,21 @@ EOF
     fi
 fi
 
+# shall we use HDFS?
+
+if test "$USE_HDFS"; then
+  if test -z "$JAVA_HOME"; then
+    echo "JAVA_HOME has to be set for HDFS usage."
+    exit 1
+  fi
+  HDFS_CCFLAGS+=" -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
+  HDFS_LDFLAGS+=" -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64"
+  HDFS_LDFLAGS+=" -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
+  HDFS_LDFLAGS+=" -ldl -lverify -ljava -ljvm"
+  COMMON_FLAGS+=$HDFS_CCFLAGS
+  PLATFORM_LDFLAGS+=$HDFS_LDFLAGS
+fi
+
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 

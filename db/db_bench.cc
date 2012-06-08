@@ -19,6 +19,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/testutil.h"
+#include "hdfs/env_hdfs.h"
 
 // Comma-separated list of operations to run in the specified order
 //   Actual benchmarks:
@@ -122,6 +123,9 @@ static long FLAGS_writes = -1;
 // Sync all writes to disk
 static bool FLAGS_sync = false;
 
+// posix or hdfs environment
+static leveldb::Env* FLAGS_env = leveldb::Env::Default();
+
 extern bool useOsBuffer;
 
 namespace leveldb {
@@ -202,7 +206,7 @@ class Stats {
     done_ = 0;
     bytes_ = 0;
     seconds_ = 0;
-    start_ = Env::Default()->NowMicros();
+    start_ = FLAGS_env->NowMicros();
     finish_ = start_;
     message_.clear();
   }
@@ -220,7 +224,7 @@ class Stats {
   }
 
   void Stop() {
-    finish_ = Env::Default()->NowMicros();
+    finish_ = FLAGS_env->NowMicros();
     seconds_ = (finish_ - start_) * 1e-6;
   }
 
@@ -230,7 +234,7 @@ class Stats {
 
   void FinishedSingleOp() {
     if (FLAGS_histogram) {
-      double now = Env::Default()->NowMicros();
+      double now = FLAGS_env->NowMicros();
       double micros = now - last_op_finish_;
       hist_.Add(micros);
       if (micros > 20000) {
@@ -437,10 +441,10 @@ class Benchmark {
     writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
     heap_counter_(0) {
     std::vector<std::string> files;
-    Env::Default()->GetChildren(FLAGS_db, &files);
+    FLAGS_env->GetChildren(FLAGS_db, &files);
     for (int i = 0; i < files.size(); i++) {
       if (Slice(files[i]).starts_with("heap-")) {
-        Env::Default()->DeleteFile(std::string(FLAGS_db) + "/" + files[i]);
+        FLAGS_env->DeleteFile(std::string(FLAGS_db) + "/" + files[i]);
       }
     }
     if (!FLAGS_use_existing_db) {
@@ -623,7 +627,7 @@ class Benchmark {
       arg[i].shared = &shared;
       arg[i].thread = new ThreadState(i);
       arg[i].thread->shared = &shared;
-      Env::Default()->StartThread(ThreadBody, &arg[i]);
+      FLAGS_env->StartThread(ThreadBody, &arg[i]);
     }
 
     shared.mu.Lock();
@@ -740,6 +744,7 @@ class Benchmark {
     options.filter_policy = filter_policy_;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
+    options.env = FLAGS_env;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -758,7 +763,7 @@ class Benchmark {
   void DoWrite(ThreadState* thread, bool seq) {
     if (num_ != FLAGS_num) {
       char msg[100];
-      snprintf(msg, sizeof(msg), "(%d ops)", num_);
+      snprintf(msg, sizeof(msg), "(%ld ops)", num_);
       thread->stats.AddMessage(msg);
     }
 
@@ -952,7 +957,7 @@ class Benchmark {
     char fname[100];
     snprintf(fname, sizeof(fname), "%s/heap-%04d", FLAGS_db, ++heap_counter_);
     WritableFile* file;
-    Status s = Env::Default()->NewWritableFile(fname, &file);
+    Status s = FLAGS_env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       fprintf(stderr, "%s\n", s.ToString().c_str());
       return;
@@ -961,7 +966,7 @@ class Benchmark {
     delete file;
     if (!ok) {
       fprintf(stderr, "heap profiling not supported\n");
-      Env::Default()->DeleteFile(fname);
+      FLAGS_env->DeleteFile(fname);
     }
   }
 };
@@ -977,6 +982,7 @@ int main(int argc, char** argv) {
     int n;
     long l;
     char junk;
+    char hdfsname[2048];
     if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
       FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
     } else if (sscanf(argv[i], "--compression_ratio=%lf%c", &d, &junk) == 1) {
@@ -1024,6 +1030,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--sync=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_sync = n;
+    } else if (sscanf(argv[i], "--hdfs=%s", &hdfsname) == 1) {
+      FLAGS_env  = new leveldb::HdfsEnv(hdfsname);
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
