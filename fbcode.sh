@@ -18,8 +18,12 @@ if test "$USE_HDFS"; then
   HDFSLIB+=" -ldl -lverify -ljava -ljvm "
 fi
 
+# location of snappy headers and libraries
+SNAPPY_INCLUDE=" -I ./snappy"
+SNAPPY_LIBS=" -L./snappy/libs"
+
 CC="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.6.2-glibc-2.13/bin/gcc" 
-CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.6.2-glibc-2.13/bin/g++ $JINCLUDE"
+CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.6.2-glibc-2.13/bin/g++ $JINCLUDE $SNAPPY_INCLUDE"
 AR=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ar
 RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
 
@@ -28,6 +32,6 @@ CFLAGS+=" -I $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-2.2.5/96de4f9/include -DHAVE_
 
 EXEC_LDFLAGS=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-2.2.4/96de4f9/lib/libjemalloc.a "
 EXEC_LDFLAGS+="-Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-20100810/4bc2c16/lib/libunwind.a"
-EXEC_LDFLAGS+=$HDFSLIB
+EXEC_LDFLAGS+="$HDFSLIB $SNAPPY_LIBS"
 
 export CC CXX AR RANLIB CFLAGS EXEC_LDFLAGS
