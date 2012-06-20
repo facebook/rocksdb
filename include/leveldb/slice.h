@@ -77,7 +77,7 @@ class Slice {
             (memcmp(data_, x.data_, x.size_) == 0));
   }
 
- private:
+ // private: make these public for leveldbjni access
   const char* data_;
   size_t size_;
 
