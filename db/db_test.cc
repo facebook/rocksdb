@@ -137,6 +137,7 @@ class DBTest {
   enum OptionConfig {
     kDefault,
     kFilter,
+    kNumLevel_3,
     kEnd
   };
   int option_config_;
@@ -183,6 +184,9 @@ class DBTest {
       case kFilter:
         options.filter_policy = filter_policy_;
         break;
+      case kNumLevel_3:
+	options.num_levels = 3;
+	break;
       default:
         break;
     }
@@ -324,7 +328,7 @@ class DBTest {
 
   int TotalTableFiles() {
     int result = 0;
-    for (int level = 0; level < config::kNumLevels; level++) {
+    for (int level = 0; level < db_->NumberLevels(); level++) {
       result += NumTableFilesAtLevel(level);
     }
     return result;
@@ -334,7 +338,7 @@ class DBTest {
   std::string FilesPerLevel() {
     std::string result;
     int last_non_zero_offset = 0;
-    for (int level = 0; level < config::kNumLevels; level++) {
+    for (int level = 0; level < db_->NumberLevels(); level++) {
       int f = NumTableFilesAtLevel(level);
       char buf[100];
       snprintf(buf, sizeof(buf), "%s%d", (level ? "," : ""), f);
@@ -377,7 +381,7 @@ class DBTest {
   // Prevent pushing of new sstables into deeper levels by adding
   // tables that cover a specified range to all levels.
   void FillLevels(const std::string& smallest, const std::string& largest) {
-    MakeTables(config::kNumLevels, smallest, largest);
+    MakeTables(db_->NumberLevels(), smallest, largest);
   }
 
   void DumpFileCounts(const char* label) {
@@ -385,7 +389,7 @@ class DBTest {
     fprintf(stderr, "maxoverlap: %lld\n",
             static_cast<long long>(
                 dbfull()->TEST_MaxNextLevelOverlappingBytes()));
-    for (int level = 0; level < config::kNumLevels; level++) {
+    for (int level = 0; level < db_->NumberLevels(); level++) {
       int num = NumTableFilesAtLevel(level);
       if (num > 0) {
         fprintf(stderr, "  level %3d : %d files\n", level, num);
@@ -891,6 +895,42 @@ TEST(DBTest, CompactionsGenerateMultipleFiles) {
   }
 }
 
+TEST(DBTest, CompactionTrigger) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100<<10; //100KB
+  options.num_levels = 3;
+  options.max_mem_compaction_level = 0;
+  options.level0_file_num_compaction_trigger = 3;
+  Reopen(&options);
+
+  Random rnd(301);
+
+  for (int num = 0;
+		num < options.level0_file_num_compaction_trigger - 1;
+		num++)
+  {
+    std::vector<std::string> values;
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      values.push_back(RandomString(&rnd, 10000));
+      ASSERT_OK(Put(Key(i), values[i]));
+    }
+    dbfull()->TEST_WaitForCompactMemTable();
+    ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
+  }
+
+  //generate one more file in level-0, and should trigger level-0 compaction
+  std::vector<std::string> values;
+  for (int i = 0; i < 12; i++) {
+    values.push_back(RandomString(&rnd, 10000));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+}
+
 TEST(DBTest, RepeatedWritesToSameKey) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -899,7 +939,8 @@ TEST(DBTest, RepeatedWritesToSameKey) {
 
   // We must have at most one file per level except for level-0,
   // which may have up to kL0_StopWritesTrigger files.
-  const int kMaxFiles = config::kNumLevels + config::kL0_StopWritesTrigger;
+  const int kMaxFiles = dbfull()->NumberLevels() +
+		dbfull()->Level0StopWriteTrigger();
 
   Random rnd(301);
   std::string value = RandomString(&rnd, 2 * options.write_buffer_size);
@@ -1134,7 +1175,7 @@ TEST(DBTest, HiddenValuesAreRemoved) {
 TEST(DBTest, DeletionMarkers1) {
   Put("foo", "v1");
   ASSERT_OK(dbfull()->TEST_CompactMemTable());
-  const int last = config::kMaxMemCompactLevel;
+  const int last = dbfull()->MaxMemCompactionLevel();
   ASSERT_EQ(NumTableFilesAtLevel(last), 1);   // foo => v1 is now in last level
 
   // Place a table at level last-1 to prevent merging with preceding mutation
@@ -1163,7 +1204,7 @@ TEST(DBTest, DeletionMarkers1) {
 TEST(DBTest, DeletionMarkers2) {
   Put("foo", "v1");
   ASSERT_OK(dbfull()->TEST_CompactMemTable());
-  const int last = config::kMaxMemCompactLevel;
+  const int last = dbfull()->MaxMemCompactionLevel();
   ASSERT_EQ(NumTableFilesAtLevel(last), 1);   // foo => v1 is now in last level
 
   // Place a table at level last-1 to prevent merging with preceding mutation
@@ -1188,7 +1229,8 @@ TEST(DBTest, DeletionMarkers2) {
 
 TEST(DBTest, OverlapInLevel0) {
   do {
-    ASSERT_EQ(config::kMaxMemCompactLevel, 2) << "Fix test to match config";
+	int tmp = dbfull()->MaxMemCompactionLevel();
+    ASSERT_EQ(tmp, 2) << "Fix test to match config";
 
     // Fill levels 1 and 2 to disable the pushing of new memtables to levels > 0.
     ASSERT_OK(Put("100", "v100"));
@@ -1349,7 +1391,7 @@ TEST(DBTest, CustomComparator) {
 }
 
 TEST(DBTest, ManualCompaction) {
-  ASSERT_EQ(config::kMaxMemCompactLevel, 2)
+  ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
       << "Need to update this test to match kMaxMemCompactLevel";
 
   MakeTables(3, "p", "q");
@@ -1433,7 +1475,7 @@ TEST(DBTest, NoSpace) {
   const int num_files = CountFiles();
   env_->no_space_.Release_Store(env_);   // Force out-of-space errors
   for (int i = 0; i < 10; i++) {
-    for (int level = 0; level < config::kNumLevels-1; level++) {
+    for (int level = 0; level < dbfull()->NumberLevels()-1; level++) {
       dbfull()->TEST_CompactRange(level, NULL, NULL);
     }
   }
@@ -1668,6 +1710,21 @@ class ModelDB: public DB {
   virtual void CompactRange(const Slice* start, const Slice* end) {
   }
 
+  virtual int NumberLevels()
+  {
+	return 1;
+  }
+
+  virtual int MaxMemCompactionLevel()
+  {
+	return 1;
+  }
+
+  virtual int Level0StopWriteTrigger()
+  {
+	return -1;
+  }
+
  private:
   class ModelIter: public Iterator {
    public:
@@ -1858,7 +1915,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
   Options options;
   VersionSet vset(dbname, &options, NULL, &cmp);
   ASSERT_OK(vset.Recover());
-  VersionEdit vbase;
+  VersionEdit vbase(vset.NumberLevels());
   uint64_t fnum = 1;
   for (int i = 0; i < num_base_files; i++) {
     InternalKey start(MakeKey(2*fnum), 1, kTypeValue);
@@ -1870,7 +1927,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
   uint64_t start_micros = env->NowMicros();
 
   for (int i = 0; i < iters; i++) {
-    VersionEdit vedit;
+    VersionEdit vedit(vset.NumberLevels());
     vedit.DeleteFile(2, fnum);
     InternalKey start(MakeKey(2*fnum), 1, kTypeValue);
     InternalKey limit(MakeKey(2*fnum+1), 1, kTypeDeletion);

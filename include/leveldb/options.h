@@ -113,6 +113,55 @@ struct Options {
   // Default: 16
   int block_restart_interval;
 
+  // Number of levels for this database
+  int num_levels;
+
+  // Number of files to trigger level-0 compaction. A value <0 means that
+  // level-0 compaction will not be triggered by number of files at all.
+  int level0_file_num_compaction_trigger;
+
+  // Soft limit on number of level-0 files. We slow down writes at this point.
+  // A value <0 means that no writing slow down will be triggered by number
+  // of files in level-0.
+  int level0_slowdown_writes_trigger;
+
+  // Maximum number of level-0 files.  We stop writes at this point.
+  int level0_stop_writes_trigger;
+
+  // Maximum level to which a new compacted memtable is pushed if it
+  // does not create overlap.  We try to push to level 2 to avoid the
+  // relatively expensive level 0=>1 compactions and to avoid some
+  // expensive manifest file operations.  We do not push all the way to
+  // the largest level since that can generate a lot of wasted disk
+  // space if the same key space is being repeatedly overwritten.
+  int max_mem_compaction_level;
+
+  // Target file size for compaction. Target file size for level L is
+  // (target_file_size_base)^(target_file_size_multiplier).
+  // For example, if target_file_size_base is 20MB and
+  // target_file_size_multiplier is 2^10, then target file size on level 1
+  // will be 200MB, and wiil be 2GB on level 2.
+
+  int target_file_size_base;
+  int target_file_size_multiplier;
+
+  // Control maximum number of bytes in all compacted files for one level.
+  // Maximum number of bytes for level L is
+  // (max_bytes_for_level_base)^(max_bytes_for_level_multiplier).
+
+  int max_bytes_for_level_base;
+	int max_bytes_for_level_multiplier;
+
+	// Maximum number of bytes in all compacted files.  We avoid expanding
+	// the lower level file set of a compaction if it would make the
+	// total compaction cover more than
+	// (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
+	int expanded_compaction_factor;
+
+	// Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
+	// stop building a single file in a level->level+1 compaction.
+	int max_grandparent_overlap_factor;
+
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //

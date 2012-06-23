@@ -119,7 +119,7 @@ class Version {
   int refs_;                    // Number of live refs to this version
 
   // List of files per level
-  std::vector<FileMetaData*> files_[config::kNumLevels];
+  std::vector<FileMetaData*>* files_;
 
   // Next file to compact based on seek stats.
   FileMetaData* file_to_compact_;
@@ -131,13 +131,7 @@ class Version {
   double compaction_score_;
   int compaction_level_;
 
-  explicit Version(VersionSet* vset)
-      : vset_(vset), next_(this), prev_(this), refs_(0),
-        file_to_compact_(NULL),
-        file_to_compact_level_(-1),
-        compaction_score_(-1),
-        compaction_level_(-1) {
-  }
+  explicit Version(VersionSet* vset);
 
   ~Version();
 
@@ -197,6 +191,8 @@ class VersionSet {
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
   uint64_t PrevLogNumber() const { return prev_log_number_; }
+
+  int NumberLevels() const { return options_->num_levels; }
 
   // Pick level and inputs for a new compaction.
   // Returns NULL if there is no compaction to be done.
@@ -266,6 +262,14 @@ class VersionSet {
 
   void AppendVersion(Version* v);
 
+  double MaxBytesForLevel(int level);
+
+  uint64_t MaxFileSizeForLevel(int level);
+
+  uint64_t ExpandedCompactionByteSizeLimit(int level);
+
+  uint64_t MaxGrandParentOverlapBytes(int level);
+
   Env* const env_;
   const std::string dbname_;
   const Options* const options_;
@@ -285,7 +289,13 @@ class VersionSet {
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
-  std::string compact_pointer_[config::kNumLevels];
+  std::string* compact_pointer_;
+
+  // Per-level target file size.
+  uint64_t* max_file_size_;
+
+  // Per-level max bytes
+  uint64_t* level_max_bytes_;
 
   // No copying allowed
   VersionSet(const VersionSet&);
@@ -303,7 +313,7 @@ class Compaction {
 
   // Return the object that holds the edits to the descriptor done
   // by this compaction.
-  VersionEdit* edit() { return &edit_; }
+  VersionEdit* edit() { return edit_; }
 
   // "which" must be either 0 or 1
   int num_input_files(int which) const { return inputs_[which].size(); }
@@ -338,12 +348,15 @@ class Compaction {
   friend class Version;
   friend class VersionSet;
 
-  explicit Compaction(int level);
+  explicit Compaction(int level, uint64_t target_file_size,
+		uint64_t max_grandparent_overlap_bytes, int number_levels);
 
   int level_;
   uint64_t max_output_file_size_;
+  uint64_t maxGrandParentOverlapBytes_;
   Version* input_version_;
-  VersionEdit edit_;
+  VersionEdit* edit_;
+  int number_levels_;
 
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData*> inputs_[2];      // The two sets of inputs
@@ -362,7 +375,7 @@ class Compaction {
   // is that we are positioned at one of the file ranges for each
   // higher level than the ones involved in this compaction (i.e. for
   // all L >= level_ + 2).
-  size_t level_ptrs_[config::kNumLevels];
+  size_t* level_ptrs_;
 };
 
 }  // namespace leveldb

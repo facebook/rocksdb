@@ -140,6 +140,16 @@ class DB {
   //    db->CompactRange(NULL, NULL);
   virtual void CompactRange(const Slice* begin, const Slice* end) = 0;
 
+  // Number of levels used for this DB.
+  virtual int NumberLevels() = 0;
+
+  // Maximum level to which a new compacted memtable is pushed if it
+  // does not create overlap.
+  virtual int MaxMemCompactionLevel() = 0;
+
+  // Number of files in level-0 that would stop writes.
+  virtual int Level0StopWriteTrigger() = 0;
+
  private:
   // No copying allowed
   DB(const DB&);

@@ -27,7 +27,10 @@ struct FileMetaData {
 
 class VersionEdit {
  public:
-  VersionEdit() { Clear(); }
+  VersionEdit(int number_levels) :
+	number_levels_(number_levels) {
+	Clear();
+  }
   ~VersionEdit() { }
 
   void Clear();
@@ -86,6 +89,9 @@ class VersionEdit {
 
   typedef std::set< std::pair<int, uint64_t> > DeletedFileSet;
 
+  bool GetLevel(Slice* input, int* level);
+
+  int number_levels_;
   std::string comparator_;
   uint64_t log_number_;
   uint64_t prev_log_number_;

@@ -40,6 +40,9 @@ class DBImpl : public DB {
   virtual bool GetProperty(const Slice& property, std::string* value);
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
   virtual void CompactRange(const Slice* begin, const Slice* end);
+  virtual int NumberLevels();
+  virtual int MaxMemCompactionLevel();
+  virtual int Level0StopWriteTrigger();
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -48,6 +51,12 @@ class DBImpl : public DB {
 
   // Force current memtable contents to be compacted.
   Status TEST_CompactMemTable();
+
+  // Wait for memtable compaction
+  Status TEST_WaitForCompactMemTable();
+
+  // Wait for any compaction
+  Status TEST_WaitForCompact();
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
@@ -171,7 +180,7 @@ class DBImpl : public DB {
       this->bytes_written += c.bytes_written;
     }
   };
-  CompactionStats stats_[config::kNumLevels];
+  CompactionStats* stats_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

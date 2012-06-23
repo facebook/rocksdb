@@ -22,7 +22,19 @@ Options::Options()
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
-      filter_policy(NULL) {
+      num_levels(7),
+      level0_file_num_compaction_trigger(4),
+      level0_slowdown_writes_trigger(8),
+      level0_stop_writes_trigger(12),
+      max_mem_compaction_level(2),
+      target_file_size_base(2 * 1048576),
+      target_file_size_multiplier(10),
+      max_bytes_for_level_base(10 * 1048576.0),
+      max_bytes_for_level_multiplier(10),
+      expanded_compaction_factor(25),
+      max_grandparent_overlap_factor(10),
+      filter_policy(NULL),
+      statistics(NULL) {
 }
 
 

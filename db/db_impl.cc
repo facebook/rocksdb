@@ -134,6 +134,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   mem_->Ref();
   has_imm_.Release_Store(NULL);
 
+  stats_ = new CompactionStats[options.num_levels];
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options.max_open_files - 10;
   table_cache_ = new TableCache(dbname_, &options_, table_cache_size);
@@ -162,6 +163,7 @@ DBImpl::~DBImpl() {
   delete log_;
   delete logfile_;
   delete table_cache_;
+  delete[] stats_;
 
   if (owns_info_log_) {
     delete options_.info_log;
@@ -172,7 +174,7 @@ DBImpl::~DBImpl() {
 }
 
 Status DBImpl::NewDB() {
-  VersionEdit new_db;
+  VersionEdit new_db(NumberLevels());
   new_db.SetComparatorName(user_comparator()->Name());
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
@@ -488,7 +490,7 @@ Status DBImpl::CompactMemTable() {
   assert(imm_ != NULL);
 
   // Save the contents of the memtable as a new Table
-  VersionEdit edit;
+  VersionEdit edit(NumberLevels());
   Version* base = versions_->current();
   base->Ref();
   Status s = WriteLevel0Table(imm_, &edit, base);
@@ -521,7 +523,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   {
     MutexLock l(&mutex_);
     Version* base = versions_->current();
-    for (int level = 1; level < config::kNumLevels; level++) {
+    for (int level = 1; level < NumberLevels(); level++) {
       if (base->OverlapInLevel(level, begin, end)) {
         max_level_with_files = level;
       }
@@ -533,9 +535,20 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   }
 }
 
+int DBImpl::NumberLevels() {
+	return options_.num_levels;
+}
+
+int DBImpl::MaxMemCompactionLevel() {
+	return options_.max_mem_compaction_level;
+}
+
+int DBImpl::Level0StopWriteTrigger() {
+	return options_.level0_stop_writes_trigger;
+}
+
 void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   assert(level >= 0);
-  assert(level + 1 < config::kNumLevels);
 
   InternalKey begin_storage, end_storage;
 
@@ -573,15 +586,31 @@ Status DBImpl::TEST_CompactMemTable() {
   Status s = Write(WriteOptions(), NULL);
   if (s.ok()) {
     // Wait until the compaction completes
-    MutexLock l(&mutex_);
-    while (imm_ != NULL && bg_error_.ok()) {
-      bg_cv_.Wait();
-    }
-    if (imm_ != NULL) {
-      s = bg_error_;
-    }
+	s = TEST_WaitForCompactMemTable();
   }
   return s;
+}
+
+Status DBImpl::TEST_WaitForCompactMemTable() {
+	Status s;
+	// Wait until the compaction completes
+	MutexLock l(&mutex_);
+	while (imm_ != NULL && bg_error_.ok()) {
+		bg_cv_.Wait();
+	}
+	if (imm_ != NULL) {
+		s = bg_error_;
+	}
+	return s;
+}
+
+Status DBImpl::TEST_WaitForCompact() {
+	// Wait until the compaction completes
+	MutexLock l(&mutex_);
+	while (bg_compaction_scheduled_ && bg_error_.ok()) {
+		bg_cv_.Wait();
+	}
+	return bg_error_;
 }
 
 void DBImpl::MaybeScheduleCompaction() {
@@ -1226,6 +1255,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   assert(!writers_.empty());
   bool allow_delay = !force;
   Status s;
+
   while (true) {
     if (!bg_error_.ok()) {
       // Yield previous error
@@ -1233,7 +1263,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       break;
     } else if (
         allow_delay &&
-        versions_->NumLevelFiles(0) >= config::kL0_SlowdownWritesTrigger) {
+        versions_->NumLevelFiles(0) >=
+					options_.level0_slowdown_writes_trigger) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -1253,7 +1284,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       bg_cv_.Wait();
-    } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
+    } else if (versions_->NumLevelFiles(0) >=
+		options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
       Log(options_.info_log, "waiting...\n");
       bg_cv_.Wait();
@@ -1295,7 +1327,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     in.remove_prefix(strlen("num-files-at-level"));
     uint64_t level;
     bool ok = ConsumeDecimalNumber(&in, &level) && in.empty();
-    if (!ok || level >= config::kNumLevels) {
+    if (!ok || level >= NumberLevels()) {
       return false;
     } else {
       char buf[100];
@@ -1312,7 +1344,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
              "--------------------------------------------------\n"
              );
     value->append(buf);
-    for (int level = 0; level < config::kNumLevels; level++) {
+    for (int level = 0; level < NumberLevels(); level++) {
       int files = versions_->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
         snprintf(
@@ -1384,7 +1416,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
 
   DBImpl* impl = new DBImpl(options, dbname);
   impl->mutex_.Lock();
-  VersionEdit edit;
+  VersionEdit edit(impl->NumberLevels());
   Status s = impl->Recover(&edit); // Handles create_if_missing, error_if_exists
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();

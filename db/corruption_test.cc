@@ -295,7 +295,7 @@ TEST(CorruptionTest, CompactionInputError) {
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_CompactMemTable();
-  const int last = config::kMaxMemCompactLevel;
+  const int last = dbi->MaxMemCompactionLevel();
   ASSERT_EQ(1, Property("leveldb.num-files-at-level" + NumberToString(last)));
 
   Corrupt(kTableFile, 100, 1);
@@ -314,7 +314,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 
   // Fill levels >= 1 so memtable compaction outputs to level 1
-  for (int level = 1; level < config::kNumLevels; level++) {
+  for (int level = 1; level < dbi->NumberLevels(); level++) {
     dbi->Put(WriteOptions(), "", "begin");
     dbi->Put(WriteOptions(), "~", "end");
     dbi->TEST_CompactMemTable();

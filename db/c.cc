@@ -444,6 +444,60 @@ void leveldb_options_set_block_restart_interval(leveldb_options_t* opt, int n) {
   opt->rep.block_restart_interval = n;
 }
 
+void leveldb_options_set_target_file_size_base(
+		leveldb_options_t* opt, uint64_t n) {
+  opt->rep.target_file_size_base = n;
+}
+
+void leveldb_options_set_target_file_size_multiplier(
+    leveldb_options_t* opt, int n) {
+  opt->rep.target_file_size_multiplier = n;
+}
+
+void leveldb_options_set_max_bytes_for_level_base(
+		leveldb_options_t* opt, uint64_t n) {
+  opt->rep.max_bytes_for_level_base = n;
+}
+
+void leveldb_options_set_max_bytes_for_level_multiplier(
+		leveldb_options_t* opt, int n) {
+  opt->rep.max_bytes_for_level_multiplier = n;
+}
+
+void leveldb_options_set_expanded_compaction_factor(
+		leveldb_options_t* opt, int n) {
+  opt->rep.expanded_compaction_factor = n;
+}
+
+void leveldb_options_set_max_grandparent_overlap_factor(
+		leveldb_options_t* opt, int n) {
+  opt->rep.max_grandparent_overlap_factor = n;
+}
+
+void leveldb_options_set_num_levels(leveldb_options_t* opt, int n) {
+	opt->rep.num_levels = n;
+}
+
+void leveldb_options_set_level0_file_num_compaction_trigger(
+		leveldb_options_t* opt, int n) {
+	opt->rep.level0_file_num_compaction_trigger = n;
+}
+
+void leveldb_options_set_level0_slowdown_writes_trigger(
+		leveldb_options_t* opt, int n) {
+	opt->rep.level0_slowdown_writes_trigger = n;
+}
+
+void leveldb_options_set_level0_stop_writes_trigger(
+		leveldb_options_t* opt, int n) {
+	opt->rep.level0_stop_writes_trigger = n;
+}
+
+void leveldb_options_set_max_mem_compaction_level(
+		leveldb_options_t* opt, int n) {
+	opt->rep.max_mem_compaction_level = n;
+}
+
 void leveldb_options_set_compression(leveldb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
 }

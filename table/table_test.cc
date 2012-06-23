@@ -717,7 +717,7 @@ TEST(Harness, RandomizedLongDB) {
 
   // We must have created enough data to force merging
   int files = 0;
-  for (int level = 0; level < config::kNumLevels; level++) {
+  for (int level = 0; level < db()->NumberLevels(); level++) {
     std::string value;
     char name[100];
     snprintf(name, sizeof(name), "leveldb.num-files-at-level%d", level);

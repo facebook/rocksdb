@@ -55,10 +55,12 @@ class Repairer {
         next_file_number_(1) {
     // TableCache can be small since we expect each table to be opened once.
     table_cache_ = new TableCache(dbname_, &options_, 10);
+    edit_ = new VersionEdit(options.num_levels);
   }
 
   ~Repairer() {
     delete table_cache_;
+    delete edit_;
     if (owns_info_log_) {
       delete options_.info_log;
     }
@@ -105,7 +107,7 @@ class Repairer {
   bool owns_info_log_;
   bool owns_cache_;
   TableCache* table_cache_;
-  VersionEdit edit_;
+  VersionEdit* edit_;
 
   std::vector<std::string> manifests_;
   std::vector<uint64_t> table_numbers_;
@@ -315,15 +317,15 @@ class Repairer {
       }
     }
 
-    edit_.SetComparatorName(icmp_.user_comparator()->Name());
-    edit_.SetLogNumber(0);
-    edit_.SetNextFile(next_file_number_);
-    edit_.SetLastSequence(max_sequence);
+    edit_->SetComparatorName(icmp_.user_comparator()->Name());
+    edit_->SetLogNumber(0);
+    edit_->SetNextFile(next_file_number_);
+    edit_->SetLastSequence(max_sequence);
 
     for (size_t i = 0; i < tables_.size(); i++) {
       // TODO(opt): separate out into multiple levels
       const TableInfo& t = tables_[i];
-      edit_.AddFile(0, t.meta.number, t.meta.file_size,
+      edit_->AddFile(0, t.meta.number, t.meta.file_size,
                     t.meta.smallest, t.meta.largest);
     }
 
@@ -331,7 +333,7 @@ class Repairer {
     {
       log::Writer log(file);
       std::string record;
-      edit_.EncodeTo(&record);
+      edit_->EncodeTo(&record);
       status = log.AddRecord(record);
     }
     if (status.ok()) {
