@@ -142,6 +142,18 @@ inline bool Snappy_Uncompress(
   return false;
 }
 
+inline bool Zlib_Compress(const char* input, size_t length,
+    ::std::string* output, int level = -1, int strategy = 0) {
+  return false;
+}
+
+inline bool Zlib_Uncompress(
+    const char* input_data,
+    size_t input_length,
+    char* output) {
+  return false;
+}
+
 inline uint64_t ThreadIdentifier() {
   pthread_t tid = pthread_self();
   uint64_t r = 0;

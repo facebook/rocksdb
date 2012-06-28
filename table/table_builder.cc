@@ -136,6 +136,11 @@ void TableBuilder::Flush() {
   }
 }
 
+static bool GoodCompressionRatio(int compressed_size, int raw_size) {
+  // Check to see if compressed less than 12.5%
+  return compressed_size < raw_size - (raw_size / 8u);
+}
+
 void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
@@ -147,7 +152,6 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 
   Slice block_contents;
   CompressionType type = r->options.compression;
-  // TODO(postrelease): Support more compression options: zlib?
   switch (type) {
     case kNoCompression:
       block_contents = raw;
@@ -156,16 +160,28 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
     case kSnappyCompression: {
       std::string* compressed = &r->compressed_output;
       if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
-          compressed->size() < raw.size() - (raw.size() / 8u)) {
+          GoodCompressionRatio(compressed->size(), raw.size())) {
         block_contents = *compressed;
       } else {
-        // Snappy not supported, or compressed less than 12.5%, so just
+        // Snappy not supported, or not good compression ratio, so just
         // store uncompressed form
         block_contents = raw;
         type = kNoCompression;
       }
       break;
     }
+    case kZlibCompression:
+      std::string* compressed = &r->compressed_output;
+      if (port::Zlib_Compress(raw.data(), raw.size(), compressed) &&
+          GoodCompressionRatio(compressed->size(), raw.size())) {
+        block_contents = *compressed;
+      } else {
+        // Zlib not supported, or not good compression ratio, so just
+        // store uncompressed form
+        block_contents = raw;
+        type = kNoCompression;
+      }
+      break;
   }
   WriteRawBlock(block_contents, type, handle);
   r->compressed_output.clear();

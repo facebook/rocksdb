@@ -396,6 +396,18 @@ class DBConstructor: public Constructor {
   DB* db_;
 };
 
+static bool SnappyCompressionSupported() {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::Snappy_Compress(in.data(), in.size(), &out);
+}
+
+static bool ZlibCompressionSupported() {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::Zlib_Compress(in.data(), in.size(), &out);
+}
+
 enum TestType {
   TABLE_TEST,
   BLOCK_TEST,
@@ -407,32 +419,47 @@ struct TestArgs {
   TestType type;
   bool reverse_compare;
   int restart_interval;
+  CompressionType compression;
 };
 
-static const TestArgs kTestArgList[] = {
-  { TABLE_TEST, false, 16 },
-  { TABLE_TEST, false, 1 },
-  { TABLE_TEST, false, 1024 },
-  { TABLE_TEST, true, 16 },
-  { TABLE_TEST, true, 1 },
-  { TABLE_TEST, true, 1024 },
 
-  { BLOCK_TEST, false, 16 },
-  { BLOCK_TEST, false, 1 },
-  { BLOCK_TEST, false, 1024 },
-  { BLOCK_TEST, true, 16 },
-  { BLOCK_TEST, true, 1 },
-  { BLOCK_TEST, true, 1024 },
+static std::vector<TestArgs> Generate_Arg_List()
+{
+  std::vector<TestArgs> ret;
+  TestType test_type[4] = {TABLE_TEST, BLOCK_TEST, MEMTABLE_TEST, DB_TEST};
+  int test_type_len = 4;
+  bool reverse_compare[2] = {false, true};
+  int reverse_compare_len = 2;
+  int restart_interval[3] = {16, 1, 1024};
+  int restart_interval_len = 3;
 
-  // Restart interval does not matter for memtables
-  { MEMTABLE_TEST, false, 16 },
-  { MEMTABLE_TEST, true, 16 },
+  // Only add compression if it is supported
+  std::vector<CompressionType> compression_types;
+  compression_types.push_back(kNoCompression);
+#ifdef SNAPPY
+  if (SnappyCompressionSupported())
+    compression_types.push_back(kSnappyCompression);
+#endif
 
-  // Do not bother with restart interval variations for DB
-  { DB_TEST, false, 16 },
-  { DB_TEST, true, 16 },
-};
-static const int kNumTestArgs = sizeof(kTestArgList) / sizeof(kTestArgList[0]);
+#ifdef ZLIB
+  if (ZlibCompressionSupported())
+    compression_types.push_back(kZlibCompression);
+#endif
+
+  for(int i =0; i < test_type_len; i++)
+    for (int j =0; j < reverse_compare_len; j++)
+      for (int k =0; k < restart_interval_len; k++)
+	for (int n =0; n < compression_types.size(); n++) {
+	  TestArgs one_arg;
+	  one_arg.type = test_type[i];
+	  one_arg.reverse_compare = reverse_compare[j];
+	  one_arg.restart_interval = restart_interval[k];
+	  one_arg.compression = compression_types[n];
+	  ret.push_back(one_arg);
+	}
+
+  return ret;
+}
 
 class Harness {
  public:
@@ -444,6 +471,7 @@ class Harness {
     options_ = Options();
 
     options_.block_restart_interval = args.restart_interval;
+    options_.compression = args.compression;
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
     options_.block_size = 256;
@@ -646,8 +674,9 @@ class Harness {
 
 // Test the empty key
 TEST(Harness, SimpleEmptyKey) {
-  for (int i = 0; i < kNumTestArgs; i++) {
-    Init(kTestArgList[i]);
+  std::vector<TestArgs> args = Generate_Arg_List();
+  for (int i = 0; i < args.size(); i++) {
+    Init(args[i]);
     Random rnd(test::RandomSeed() + 1);
     Add("", "v");
     Test(&rnd);
@@ -655,8 +684,9 @@ TEST(Harness, SimpleEmptyKey) {
 }
 
 TEST(Harness, SimpleSingle) {
-  for (int i = 0; i < kNumTestArgs; i++) {
-    Init(kTestArgList[i]);
+  std::vector<TestArgs> args = Generate_Arg_List();
+  for (int i = 0; i < args.size(); i++) {
+    Init(args[i]);
     Random rnd(test::RandomSeed() + 2);
     Add("abc", "v");
     Test(&rnd);
@@ -664,8 +694,9 @@ TEST(Harness, SimpleSingle) {
 }
 
 TEST(Harness, SimpleMulti) {
-  for (int i = 0; i < kNumTestArgs; i++) {
-    Init(kTestArgList[i]);
+  std::vector<TestArgs> args = Generate_Arg_List();
+  for (int i = 0; i < args.size(); i++) {
+    Init(args[i]);
     Random rnd(test::RandomSeed() + 3);
     Add("abc", "v");
     Add("abcd", "v");
@@ -675,8 +706,9 @@ TEST(Harness, SimpleMulti) {
 }
 
 TEST(Harness, SimpleSpecialKey) {
-  for (int i = 0; i < kNumTestArgs; i++) {
-    Init(kTestArgList[i]);
+  std::vector<TestArgs> args = Generate_Arg_List();
+  for (int i = 0; i < args.size(); i++) {
+    Init(args[i]);
     Random rnd(test::RandomSeed() + 4);
     Add("\xff\xff", "v3");
     Test(&rnd);
@@ -684,14 +716,15 @@ TEST(Harness, SimpleSpecialKey) {
 }
 
 TEST(Harness, Randomized) {
-  for (int i = 0; i < kNumTestArgs; i++) {
-    Init(kTestArgList[i]);
+  std::vector<TestArgs> args = Generate_Arg_List();
+  for (int i = 0; i < args.size(); i++) {
+    Init(args[i]);
     Random rnd(test::RandomSeed() + 5);
     for (int num_entries = 0; num_entries < 2000;
          num_entries += (num_entries < 50 ? 1 : 200)) {
       if ((num_entries % 10) == 0) {
         fprintf(stderr, "case %d of %d: num_entries = %d\n",
-                (i + 1), int(kNumTestArgs), num_entries);
+                (i + 1), int(args.size()), num_entries);
       }
       for (int e = 0; e < num_entries; e++) {
         std::string v;
@@ -705,7 +738,7 @@ TEST(Harness, Randomized) {
 
 TEST(Harness, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
-  TestArgs args = { DB_TEST, false, 16 };
+  TestArgs args = { DB_TEST, false, 16, kNoCompression };
   Init(args);
   int num_entries = 100000;
   for (int e = 0; e < num_entries; e++) {
@@ -797,18 +830,7 @@ TEST(TableTest, ApproximateOffsetOfPlain) {
 
 }
 
-static bool SnappyCompressionSupported() {
-  std::string out;
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Snappy_Compress(in.data(), in.size(), &out);
-}
-
-TEST(TableTest, ApproximateOffsetOfCompressed) {
-  if (!SnappyCompressionSupported()) {
-    fprintf(stderr, "skipping compression tests\n");
-    return;
-  }
-
+static void Do_Compression_Test(CompressionType comp) {
   Random rnd(301);
   TableConstructor c(BytewiseComparator());
   std::string tmp;
@@ -820,7 +842,7 @@ TEST(TableTest, ApproximateOffsetOfCompressed) {
   KVMap kvmap;
   Options options;
   options.block_size = 1024;
-  options.compression = kSnappyCompression;
+  options.compression = comp;
   c.Finish(options, &keys, &kvmap);
 
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"),       0,      0));
@@ -829,6 +851,30 @@ TEST(TableTest, ApproximateOffsetOfCompressed) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"),    2000,   3000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"),    2000,   3000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),    4000,   6000));
+}
+
+TEST(TableTest, ApproximateOffsetOfCompressed) {
+  CompressionType compression_state[2];
+  int valid = 0;
+  if (!SnappyCompressionSupported()) {
+    fprintf(stderr, "skipping snappy compression tests\n");
+  } else {
+    compression_state[valid] = kSnappyCompression;
+    valid++;
+  }
+
+  if (!ZlibCompressionSupported()) {
+    fprintf(stderr, "skipping zlib compression tests\n");
+  } else {
+    compression_state[valid] = kZlibCompression;
+    valid++;
+  }
+
+  for(int i =0; i < valid; i++)
+  {
+    Do_Compression_Test(compression_state[i]);
+  }
+
 }
 
 }  // namespace leveldb

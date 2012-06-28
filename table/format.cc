@@ -98,6 +98,7 @@ Status ReadBlock(RandomAccessFile* file,
     }
   }
 
+  char* ubuf = NULL;
   switch (data[n]) {
     case kNoCompression:
       if (data != buf) {
@@ -122,7 +123,7 @@ Status ReadBlock(RandomAccessFile* file,
         delete[] buf;
         return Status::Corruption("corrupted compressed block contents");
       }
-      char* ubuf = new char[ulength];
+      ubuf = new char[ulength];
       if (!port::Snappy_Uncompress(data, n, ubuf)) {
         delete[] buf;
         delete[] ubuf;
@@ -134,6 +135,18 @@ Status ReadBlock(RandomAccessFile* file,
       result->cachable = true;
       break;
     }
+    case kZlibCompression:
+      int decompress_size;
+      ubuf = port::Zlib_Uncompress(data, n, &decompress_size);
+      if (!ubuf) {
+        delete[] buf;
+        return Status::Corruption("corrupted compressed block contents");
+      }
+      delete[] buf;
+      result->data = Slice(ubuf, decompress_size);
+      result->heap_allocated = true;
+      result->cachable = true;
+      break;
     default:
       delete[] buf;
       return Status::Corruption("bad block type");

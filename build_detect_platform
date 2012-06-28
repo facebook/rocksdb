@@ -51,7 +51,7 @@ case "$TARGET_OS" in
         ;;
     Linux)
         PLATFORM=OS_LINUX
-        COMMON_FLAGS="-fno-builtin-memcmp -pthread -DOS_LINUX -fPIC"
+        COMMON_FLAGS="-I/usr/include -fno-builtin-memcmp -pthread -DOS_LINUX -fPIC"
         PLATFORM_LDFLAGS="-pthread"
         PORT_FILE=port/port_posix.cc
         ;;
@@ -137,6 +137,16 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy"
+    fi
+
+    # Test whether zlib library is installed
+    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <zlib.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DZLIB"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lz"
     fi
 
     # Test whether tcmalloc is available
