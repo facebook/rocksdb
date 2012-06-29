@@ -143,14 +143,23 @@ inline bool Snappy_Uncompress(
 }
 
 inline bool Zlib_Compress(const char* input, size_t length,
-    ::std::string* output, int level = -1, int strategy = 0) {
+    ::std::string* output, int windowBits = 15, int level = -1,
+     int strategy = 0) {
   return false;
 }
 
-inline bool Zlib_Uncompress(
-    const char* input_data,
-    size_t input_length,
-    char* output) {
+inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
+    int* decompress_size, int windowBits = 15) {
+  return false;
+}
+
+inline bool BZip2_Compress(const char* input, size_t length,
+    ::std::string* output) {
+  return false;
+}
+
+inline char* BZip2_Uncompress( const char* input_data, size_t input_length,
+    int* decompress_size) {
   return false;
 }
 

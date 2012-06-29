@@ -27,9 +27,15 @@
 #ifdef SNAPPY
 #include <snappy.h>
 #endif
+
 #ifdef ZLIB
 #include <zlib.h>
 #endif
+
+#ifdef BZIP2
+#include <bzlib.h>
+#endif
+
 #include <stdint.h>
 #include <string>
 #include <string.h>
@@ -242,6 +248,120 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   return output;
 #endif
 
+  return false;
+}
+
+inline bool BZip2_Compress(const char* input, size_t length,
+    ::std::string* output) {
+#ifdef BZIP2
+  bz_stream _stream;
+  memset(&_stream, 0, sizeof(bz_stream));
+
+  // Block size 1 is 100K.
+  // 0 is for silent.
+  // 30 is the default workFactor
+  int st = BZ2_bzCompressInit(&_stream, 1, 0, 30);
+  if (st != BZ_OK) {
+    return false;
+  }
+
+  // Resize output to be the plain data length.
+  // This may not be big enough if the compression actually expands data.
+  output->resize(length);
+
+  // Compress the input, and put compressed data in output.
+  _stream.next_in = (char *)input;
+  _stream.avail_in = length;
+
+  // Initialize the output size.
+  _stream.next_out = (char *)&(*output)[0];
+  _stream.avail_out = length;
+
+  int old_sz =0, new_sz =0;
+  while(_stream.next_in != NULL && _stream.avail_in != 0) {
+    int st = BZ2_bzCompress(&_stream, BZ_FINISH);
+    switch (st) {
+      case BZ_STREAM_END:
+        break;
+      case BZ_FINISH_OK:
+        // No output space. Increase the output space by 20%.
+        // (Should we fail the compression since it expands the size?)
+        old_sz = output->size();
+        new_sz = output->size() * 1.2;
+        output->resize(new_sz);
+        // Set more output.
+        _stream.next_out = (char *)&(*output)[old_sz];
+        _stream.avail_out = new_sz - old_sz;
+        break;
+      case Z_BUF_ERROR:
+      default:
+        BZ2_bzCompressEnd(&_stream);
+        return false;
+    }
+  }
+
+  output->resize(output->size() - _stream.avail_out);
+  BZ2_bzCompressEnd(&_stream);
+  return true;
+  return output;
+#endif
+  return false;
+}
+
+inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
+    int* decompress_size) {
+#ifdef BZIP2
+  bz_stream _stream;
+  memset(&_stream, 0, sizeof(bz_stream));
+
+  int st = BZ2_bzDecompressInit(&_stream, 0, 0);
+  if (st != BZ_OK) {
+    return NULL;
+  }
+
+  _stream.next_in = (char *)input_data;
+  _stream.avail_in = input_length;
+
+  // Assume the decompressed data size will be 5x of compressed size.
+  int output_len = input_length * 5;
+  char* output = new char[output_len];
+  int old_sz = output_len;
+
+  _stream.next_out = (char *)output;
+  _stream.avail_out = output_len;
+
+  char* tmp = NULL;
+
+  while(_stream.next_in != NULL && _stream.avail_in != 0) {
+    int st = BZ2_bzDecompress(&_stream);
+    switch (st) {
+      case BZ_STREAM_END:
+        break;
+      case Z_OK:
+        // No output space. Increase the output space by 20%.
+        old_sz = output_len;
+        output_len = output_len * 1.2;
+        tmp = new char[output_len];
+        memcpy(tmp, output, old_sz);
+        delete[] output;
+        output = tmp;
+
+        // Set more output.
+        _stream.next_out = (char *)(output + old_sz);
+        _stream.avail_out = output_len - old_sz;
+        break;
+      case Z_BUF_ERROR:
+      default:
+        delete[] output;
+        BZ2_bzDecompressEnd(&_stream);
+        return NULL;
+    }
+  }
+
+  *decompress_size = output_len - _stream.avail_out;
+  BZ2_bzDecompressEnd(&_stream);
+  return output;
+#endif
   return false;
 }
 

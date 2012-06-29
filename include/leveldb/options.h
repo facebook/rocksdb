@@ -26,7 +26,8 @@ enum CompressionType {
   // part of the persistent format on disk.
   kNoCompression     = 0x0,
   kSnappyCompression = 0x1,
-  kZlibCompression =0x2
+  kZlibCompression = 0x2,
+  kBZip2Compression = 0x3
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

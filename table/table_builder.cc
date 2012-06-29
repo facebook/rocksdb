@@ -151,6 +151,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   Slice raw = block->Finish();
 
   Slice block_contents;
+  std::string* compressed = &r->compressed_output;
   CompressionType type = r->options.compression;
   switch (type) {
     case kNoCompression:
@@ -171,12 +172,22 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
       break;
     }
     case kZlibCompression:
-      std::string* compressed = &r->compressed_output;
       if (port::Zlib_Compress(raw.data(), raw.size(), compressed) &&
           GoodCompressionRatio(compressed->size(), raw.size())) {
         block_contents = *compressed;
       } else {
         // Zlib not supported, or not good compression ratio, so just
+        // store uncompressed form
+        block_contents = raw;
+        type = kNoCompression;
+      }
+      break;
+    case kBZip2Compression:
+      if (port::BZip2_Compress(raw.data(), raw.size(), compressed) &&
+          GoodCompressionRatio(compressed->size(), raw.size())) {
+        block_contents = *compressed;
+      } else {
+        // BZip not supported, or not good compression ratio, so just
         // store uncompressed form
         block_contents = raw;
         type = kNoCompression;

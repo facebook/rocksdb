@@ -408,6 +408,12 @@ static bool ZlibCompressionSupported() {
   return port::Zlib_Compress(in.data(), in.size(), &out);
 }
 
+static bool BZip2CompressionSupported() {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::BZip2_Compress(in.data(), in.size(), &out);
+}
+
 enum TestType {
   TABLE_TEST,
   BLOCK_TEST,
@@ -444,6 +450,11 @@ static std::vector<TestArgs> Generate_Arg_List()
 #ifdef ZLIB
   if (ZlibCompressionSupported())
     compression_types.push_back(kZlibCompression);
+#endif
+
+#ifdef BZIP2
+  if (BZip2CompressionSupported())
+    compression_types.push_back(kBZip2Compression);
 #endif
 
   for(int i =0; i < test_type_len; i++)
