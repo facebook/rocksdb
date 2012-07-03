@@ -101,15 +101,21 @@ esac
 # of all files matching either rule, so we need to append -print to make the
 # prune take effect.
 DIRS="util db table"
+if test "$USE_THRIFT"; then
+  DIRS+=" thrift/gen-cpp thrift/server_utils.cpp"
+  THRIFTSERVER=leveldb_server
+fi
 set -f # temporarily disable globbing so that our patterns aren't expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *_bench.cc -prune"
 PORTABLE_FILES=`find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
+PORTABLE_CPP=`find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
 set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port
 # file.
 echo "SOURCES=$PORTABLE_FILES $PORT_FILE" >> $OUTPUT
+echo "SOURCESCPP=$PORTABLE_CPP" >> $OUTPUT
 echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> $OUTPUT
 
 if [ "$PLATFORM" = "OS_ANDROID_CROSSCOMPILE" ]; then
@@ -136,7 +142,7 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy -L./snappy/libs"
     fi
 
     # Test whether zlib library is installed
@@ -183,6 +189,14 @@ if test "$USE_HDFS"; then
   PLATFORM_LDFLAGS+=$HDFS_LDFLAGS
 fi
 
+# shall we build thrift server
+if test "$USE_THRIFT"; then
+  THRIFT_CCFLAGS=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp -I/usr/include -std=gnu++0x"
+  THRIFT_LDFLAGS=" -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
+  COMMON_FLAGS+=$THRIFT_CCFLAGS
+  PLATFORM_LDFLAGS+=$THRIFT_LDFLAGS
+fi
+
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 
@@ -193,3 +207,4 @@ echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> $OUTPUT
 echo "PLATFORM_SHARED_CFLAGS=$PLATFORM_SHARED_CFLAGS" >> $OUTPUT
 echo "PLATFORM_SHARED_EXT=$PLATFORM_SHARED_EXT" >> $OUTPUT
 echo "PLATFORM_SHARED_LDFLAGS=$PLATFORM_SHARED_LDFLAGS" >> $OUTPUT
+echo "THRIFTSERVER=$THRIFTSERVER" >> $OUTPUT

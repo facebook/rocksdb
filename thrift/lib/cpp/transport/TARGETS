@@ -1,0 +1,88 @@
+# TARGETS file for thrift/lib/cpp/transport
+
+cpp_library(
+  name = "transport",
+  srcs = [
+          "TFileTransport.cpp",
+          "TFDTransport.cpp",
+          "THttpClient.cpp",
+          "THttpServer.cpp",
+          "THttpTransport.cpp",
+          "TServerSocket.cpp",
+          "TSimpleFileTransport.cpp",
+          "TSocket.cpp",
+          "TSocketAddress.cpp",
+          "TSocketPool.cpp",
+          "TTransportException.cpp",
+          "TTransportUtils.cpp",
+          "TBufferTransports.cpp",
+          "TMemPagedFactory.cpp",
+          "TMemPagedTransport.cpp",
+         ],
+  deps = [
+         "@/thrift/lib/cpp:thrift_base",
+         "@/thrift/lib/cpp/concurrency",
+         "@/external/google_base",
+         ],
+  preprocessor_flags = [ "-DTCP_LOW_MIN_RTO=15" ],
+)
+
+cpp_library(
+  name = "transport_ssl",
+  srcs = [
+          "TSSLSocket.cpp",
+          "TSSLServerSocket.cpp",
+         ],
+  deps = [
+          ":transport",
+          "@/thrift/lib/cpp/concurrency",
+         ],
+  external_deps = [ ('openssl', None, 'ssl') ],
+)
+
+cpp_library(
+  name = "header",
+  srcs = [ "THeaderTransport.cpp",
+           "THeader.cpp" ],
+  deps = [
+          ":transport",
+          "@/folly/experimental/io:io",
+          "@/thrift/lib/cpp/util:internal_util",
+         ],
+  external_deps = [ ('zlib', None, 'z'),
+                    ('snappy', None)
+                  ],
+)
+
+cpp_library(
+  name = "zlib",
+  srcs = [ "TZlibTransport.cpp" ],
+  deps = [
+          ":transport",
+         ],
+  external_deps = [ ('zlib', None, 'z') ],
+)
+
+cpp_library(
+  name = "hdfs_transport",
+  srcs = [ "HDFS.cpp",
+           "THDFSFileTransport.cpp",
+         ],
+
+  system_deps = [ "-Lexternal/hadoop/latest/",
+                  "-L$(JAVA_HOME)/jre/lib/amd64/server/",
+                  "-Lexternal/jvm/",
+                  "-ljvm",
+                  "-lhdfs"
+                ],
+  preprocessor_flags = [ "-I@@@JAVA_HOME@@@/include",
+                         "-I@@@JAVA_HOME@@@/include/linux",
+                         "-Iexternal/hadoop/latest",
+                       ],
+  shared_system_deps = [ "hdfs",
+                         "jvm",
+                ],
+  deps = [
+          "@/thrift/lib/cpp:thrift_base",
+         ],
+)

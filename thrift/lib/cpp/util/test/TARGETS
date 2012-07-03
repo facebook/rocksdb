@@ -1,0 +1,17 @@
+cpp_unittest(
+  name = 'ServerCreatorTest',
+  srcs = [
+    'ServerCreatorTest.cpp',
+  ],
+  deps = [
+    '@/thrift/lib/cpp/util:async',
+    '@/thrift/lib/cpp/util:nonblocking',
+    '@/thrift/perf/cpp:load-handler',
+    '@/thrift/perf/cpp:async-load-handler',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)

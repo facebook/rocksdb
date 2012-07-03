@@ -1,0 +1,46 @@
+# TARGETS file for thrift/lib/cpp
+
+cpp_library (
+  name = "thrift_exception",
+  srcs = [
+          "TApplicationException.cpp",
+         ],
+  external_deps = [
+          ('boost', None),
+          ],
+)
+
+cpp_library (
+  name = "thrift",
+  srcs = [
+          "VirtualProfiling.cpp",
+         ],
+  deps = [
+          "@/thrift/lib/cpp:thrift_base",
+          "@/thrift/lib/cpp/concurrency",
+          "@/thrift/lib/cpp/processor",
+          "@/thrift/lib/cpp/protocol",
+          "@/thrift/lib/cpp/server",
+          "@/thrift/lib/cpp/transport",
+          "@/thrift/lib/cpp:thrift_exception",
+         ]
+)
+
+cpp_library (
+  name = "thrift_base",
+  srcs = [
+          "Thrift.cpp",
+          "EventHandlerBase.cpp",
+         ],
+  external_deps = [
+          ('boost', None),
+         ],
+)
+
+cpp_library(
+  name = "reflection",
+  srcs = [],
+  deps = [
+    "@/thrift/lib/thrift:reflection-cpp",
+  ],
+)

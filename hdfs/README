@@ -16,7 +16,7 @@ If you want to compile leveldb with hdfs support, please set the following
 enviroment variables appropriately:
    USE_HDFS=1
    JAVA_HOME=/usr/local/jdk-6u22-64
-   LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$JAVA_HOME/jre/lib/amd64/server:$JAVA_HOME/jre/lib/amd64/:./snappy/libs
+   LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/jdk-6u22-64/jre/lib/amd64/server:/usr/local/jdk-6u22-64/jre/lib/amd64/:./snappy/libs
    make clean all db_bench
 
 To run dbbench,

@@ -1,0 +1,41 @@
+# Copyright 2011 Facebook
+# @author Tudor Bosman (tudorb@fb.com)
+
+thrift_library(
+  name = "if",
+  thrift_srcs = {
+    "neutronium_test.thrift" : [],
+  },
+  languages = ["cpp"],
+  thrift_cpp_options = "templates=only,neutronium",
+  cpp_deps = [],
+)
+
+cpp_unittest(
+  name = "intern_table_test",
+  srcs = ["InternTableTest.cpp"],
+  deps = [
+    "@/thrift/lib/cpp/protocol/neutronium",
+    "@/external/gflags",
+  ],
+  external_deps = [
+    ("gtest", None, "gtest_main"),
+  ],
+  type = 'gtest',
+)
+
+cpp_unittest(
+  name = "neutronium_test",
+  srcs = ["NeutroniumTest.cpp"],
+  deps = [
+    "@/thrift/lib/cpp/protocol/neutronium",
+    "@/thrift/lib/cpp/util",
+    ":if-cpp",
+    "@/common/fbunit:old_folly_benchmark",
+  ],
+  external_deps = [
+    ("gtest", None),
+  ],
+  type = 'gtest',
+)
+

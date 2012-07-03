@@ -37,5 +37,4 @@ Options::Options()
       statistics(NULL) {
 }
 
-
 }  // namespace leveldb

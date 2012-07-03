@@ -1,0 +1,167 @@
+cpp_unittest(
+  name = 'TEventBaseTest',
+  srcs = [
+    'TEventBaseTest.cpp',
+  ],
+  deps = [
+    ':util',
+    '@/thrift/lib/cpp/async',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TAsyncChannelTest',
+  srcs = [
+    'TAsyncChannelTest.cpp',
+  ],
+  deps = [
+    ':util',
+    '@/thrift/lib/cpp/async',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TAsyncChannelClientTest',
+  srcs = [
+    'TAsyncChannelClientTest.cpp',
+  ],
+  deps = [
+    ':util',
+    '@/thrift/lib/cpp/async:zlib',
+    '@/thrift/lib/cpp/util:nonblocking',
+    '@/thrift/lib/cpp/util:httpparser',
+    '@/thrift/perf/cpp:load-handler',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TAsyncSocketTest',
+  srcs = [
+    'TAsyncSocketTest.cpp',
+  ],
+  deps = [
+    ':util',
+    '@/thrift/lib/cpp/async',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TAsyncSSLSocketTest',
+  srcs = [
+    'TAsyncSSLSocketTest.cpp',
+  ],
+  deps = [
+    ':util',
+    '@/thrift/lib/cpp/async:async_ssl',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['ti-bugs@lists.facebook.com',
+            'thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TAsyncTimeoutSetTest',
+  srcs = [
+    'TAsyncTimeoutSetTest.cpp',
+  ],
+  deps = [
+    ':util',
+    '@/thrift/lib/cpp/async:async_cxx11',
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TNotificationQueueTest',
+  srcs = [
+    'TNotificationQueueTest.cpp',
+  ],
+  deps = [
+    ':async_util',
+    '@/thrift/lib/cpp/async:async_cxx11',
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TNotificationPipeTest',
+  srcs = [
+    'TNotificationPipeTest.cpp',
+  ],
+  deps = [
+    ':async_util',
+    ':util',
+    '@/thrift/lib/cpp/async',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_library(
+  name = 'util',
+  srcs = [
+    'NetworkUtil.cpp',
+    'SocketPair.cpp',
+    'TimeUtil.cpp',
+  ],
+  deps = [
+    '@/thrift/lib/cpp/transport',
+  ],
+)
+
+cpp_library(
+  name = 'async_util',
+  srcs = [
+    'ScopedEventBaseThread.cpp',
+  ],
+  deps = [
+    '@/thrift/lib/cpp/async',
+    '@/thrift/lib/cpp/concurrency',
+  ],
+)
+
+cpp_library (
+  name = "DebugProtocolLib",
+  thrift_srcs = {
+        "DebugProtocolTest.thrift" : "DebugProtocolService"
+        },
+  thrift_cpp_options = "templates"
+)
+
+cpp_binary (
+  name = "DebugProtocol",
+  srcs = [
+           "DebugProtocolTest.cpp",
+         ],
+  deps = [
+        ":DebugProtocolLib",
+        ],
+)

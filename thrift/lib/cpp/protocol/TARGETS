@@ -1,0 +1,18 @@
+# TARGETS file for thrift/lib/cpp/protocol
+
+cpp_library (
+  name = "protocol",
+  srcs = [
+          "TBase64Utils.cpp",
+          "TDebugProtocol.cpp",
+          "TJSONProtocol.cpp",
+          "TSimpleJSONProtocol.cpp",
+          "THeaderProtocol.cpp",
+          "TPhpSerializeProtocol.cpp",
+         ],
+  deps = [
+           "@/thrift/lib/cpp/transport",
+           "@/thrift/lib/cpp/transport:header",
+           "@/thrift/lib/cpp:thrift_exception",
+         ],
+)

@@ -1,0 +1,9 @@
+# TARGETS file for thrift/lib/cpp/processor
+
+cpp_library (
+  name = "processor",
+  srcs = [
+          "PeekProcessor.cpp"
+         ],
+  deps = [ "@/thrift/lib/cpp/transport" ]
+)

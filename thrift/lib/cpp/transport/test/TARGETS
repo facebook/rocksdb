@@ -1,0 +1,69 @@
+cpp_unittest(
+  name = 'THeaderTest',
+  srcs = [
+          'THeaderTest.cpp',
+          ],
+  deps = [
+          '@/thrift/lib/cpp/transport:header',
+          ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TSocketAddressTest',
+  srcs = [
+    'TSocketAddressTest.cpp',
+  ],
+  deps = [
+    '@/thrift/lib/cpp/transport',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = ['thrift-team@lists.facebook.com'],
+)
+
+cpp_unittest(
+  name = 'TSSLSocketTest',
+  srcs = [
+    'TSSLSocketTest.cpp',
+  ],
+  deps = [
+    '@/thrift/lib/cpp/transport:transport_ssl',
+    '@/thrift/lib/cpp/util',
+  ],
+  external_deps = [
+    ('boost', '>= 1.37', 'boost_unit_test_framework'),
+  ],
+  type = 'boost',
+  emails = [
+  'ti-bugs@lists.facebook.com',
+  'thrift-team@lists.facebook.com',
+  ],
+)
+
+cpp_unittest (
+  name = "TSocketPoolTest",
+  srcs = [
+           "TSocketPoolTest.cpp",
+         ],
+  deps = [
+           '@/common/fbunit',
+           '@/thrift/lib/cpp/transport',
+         ],
+)
+
+cpp_binary (
+  name = "ttransport_test",
+  srcs = [
+          "TransportTest.cpp",
+         ],
+  deps = [
+          "@/thrift/lib/cpp/transport",
+         ]
+)
