@@ -169,7 +169,7 @@ inline bool Zlib_Compress(const char* input, size_t length,
         // No output space. Increase the output space by 20%.
         // (Should we fail the compression since it expands the size?)
         old_sz = output->size();
-        new_sz = output->size() * 1.2;
+        new_sz = (int)(output->size() * 1.2);
         output->resize(new_sz);
         // Set more output.
         _stream.next_out = (Bytef *)&(*output)[old_sz];
@@ -225,7 +225,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
       case Z_OK:
         // No output space. Increase the output space by 20%.
         old_sz = output_len;
-        output_len = output_len * 1.2;
+        output_len = (int)(output_len * 1.2);
         tmp = new char[output_len];
         memcpy(tmp, output, old_sz);
         delete[] output;
@@ -287,7 +287,7 @@ inline bool BZip2_Compress(const char* input, size_t length,
         // No output space. Increase the output space by 20%.
         // (Should we fail the compression since it expands the size?)
         old_sz = output->size();
-        new_sz = output->size() * 1.2;
+        new_sz = (int)(output->size() * 1.2);
         output->resize(new_sz);
         // Set more output.
         _stream.next_out = (char *)&(*output)[old_sz];
@@ -340,7 +340,7 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
       case Z_OK:
         // No output space. Increase the output space by 20%.
         old_sz = output_len;
-        output_len = output_len * 1.2;
+        output_len = (int)(output_len * 1.2);
         tmp = new char[output_len];
         memcpy(tmp, output, old_sz);
         delete[] output;
