@@ -244,8 +244,13 @@ struct WriteOptions {
   // Default: false
   bool sync;
 
+  // If true, writes will not first go to the write ahead log,
+  // and the write may got lost after a crash.
+  bool disableWAL;
+
   WriteOptions()
-      : sync(false) {
+      : sync(false),
+        disableWAL(false) {
   }
 };
 

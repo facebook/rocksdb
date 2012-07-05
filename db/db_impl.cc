@@ -40,6 +40,7 @@ struct DBImpl::Writer {
   Status status;
   WriteBatch* batch;
   bool sync;
+  bool disableWAL;
   bool done;
   port::CondVar cv;
 
@@ -1140,6 +1141,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   Writer w(&mutex_);
   w.batch = my_batch;
   w.sync = options.sync;
+  w.disableWAL = options.disableWAL;
   w.done = false;
 
   MutexLock l(&mutex_);
@@ -1166,9 +1168,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     // into mem_.
     {
       mutex_.Unlock();
-      status = log_->AddRecord(WriteBatchInternal::Contents(updates));
-      if (status.ok() && options.sync) {
-        status = logfile_->Sync();
+      if (!options.disableWAL) {
+        status = log_->AddRecord(WriteBatchInternal::Contents(updates));
+        if (status.ok() && options.sync) {
+          status = logfile_->Sync();
+        }
       }
       if (status.ok()) {
         status = WriteBatchInternal::InsertInto(updates, mem_);
@@ -1224,6 +1228,12 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
     Writer* w = *iter;
     if (w->sync && !first->sync) {
       // Do not include a sync write into a batch handled by a non-sync write.
+      break;
+    }
+
+    if (!w->disableWAL && first->disableWAL) {
+      // Do not include a write that needs WAL into a batch that has
+      // WAL disabled.
       break;
     }
 

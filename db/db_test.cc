@@ -779,6 +779,39 @@ TEST(DBTest, Recover) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, WAL) {
+  Options options = CurrentOptions();
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
+  ASSERT_OK(dbfull()->Put(writeOpt, "baz", "v1"));
+
+  Reopen();
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ("NOT_FOUND", Get("baz"));
+
+  writeOpt.disableWAL = false;
+  ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v2"));
+  writeOpt.disableWAL = true;
+  ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v2"));
+
+  Reopen();
+  // We garantee the 'bar' will be there
+  // because its put has WAL enabled.
+  // But 'foo' may or may not be there.
+  ASSERT_EQ("v2", Get("bar"));
+
+  writeOpt.disableWAL = true;
+  ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v3"));
+  writeOpt.disableWAL = false;
+  ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v3"));
+
+  Reopen();
+  // 'foo' should be there because its put
+  // has WAL enabled.
+  ASSERT_EQ("v3", Get("foo"));
+}
+
 TEST(DBTest, RecoveryWithEmptyLog) {
   do {
     ASSERT_OK(Put("foo", "v1"));
