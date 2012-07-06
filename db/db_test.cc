@@ -784,11 +784,11 @@ TEST(DBTest, WAL) {
   WriteOptions writeOpt = WriteOptions();
   writeOpt.disableWAL = true;
   ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
-  ASSERT_OK(dbfull()->Put(writeOpt, "baz", "v1"));
+  ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
 
   Reopen();
   ASSERT_EQ("NOT_FOUND", Get("foo"));
-  ASSERT_EQ("NOT_FOUND", Get("baz"));
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
 
   writeOpt.disableWAL = false;
   ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v2"));
@@ -810,6 +810,40 @@ TEST(DBTest, WAL) {
   // 'foo' should be there because its put
   // has WAL enabled.
   ASSERT_EQ("v3", Get("foo"));
+}
+
+TEST(DBTest, FLUSH) {
+  Options options = CurrentOptions();
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
+  // this will not flush the last 2 writes
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
+
+  Reopen();
+  ASSERT_EQ("v1", Get("foo"));
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+
+  writeOpt.disableWAL = true;
+  ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v2"));
+  ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v2"));
+  dbfull()->Flush(FlushOptions());
+
+  Reopen();
+  ASSERT_EQ("v2", Get("bar"));
+  ASSERT_EQ("v2", Get("foo"));
+
+  writeOpt.disableWAL = false;
+  ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v3"));
+  ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v3"));
+  dbfull()->Flush(FlushOptions());
+
+  Reopen();
+  // 'foo' should be there because its put
+  // has WAL enabled.
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v3", Get("bar"));
 }
 
 TEST(DBTest, RecoveryWithEmptyLog) {
@@ -1756,6 +1790,11 @@ class ModelDB: public DB {
   virtual int Level0StopWriteTrigger()
   {
 	return -1;
+  }
+
+  virtual Status Flush(const leveldb::FlushOptions& options) {
+    Status ret;
+    return ret;
   }
 
  private:

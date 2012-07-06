@@ -19,6 +19,7 @@ static const int kMinorVersion = 4;
 struct Options;
 struct ReadOptions;
 struct WriteOptions;
+struct FlushOptions;
 class WriteBatch;
 
 // Abstract handle to particular state of a DB.
@@ -149,6 +150,9 @@ class DB {
 
   // Number of files in level-0 that would stop writes.
   virtual int Level0StopWriteTrigger() = 0;
+
+  // Flush all mem-table data.
+  virtual Status Flush(const FlushOptions& options) = 0;
 
  private:
   // No copying allowed

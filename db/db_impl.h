@@ -43,6 +43,7 @@ class DBImpl : public DB {
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
+  virtual Status Flush(const FlushOptions& options);
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -99,6 +100,12 @@ class DBImpl : public DB {
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */);
   WriteBatch* BuildBatchGroup(Writer** last_writer);
+
+  // Force current memtable contents to be flushed.
+  Status FlushMemTable(const FlushOptions& options);
+
+  // Wait for memtable compaction
+  Status WaitForCompactMemTable();
 
   void MaybeScheduleCompaction();
   static void BGWork(void* db);

@@ -548,6 +548,11 @@ int DBImpl::Level0StopWriteTrigger() {
 	return options_.level0_stop_writes_trigger;
 }
 
+Status DBImpl::Flush(const FlushOptions& options) {
+  Status status = FlushMemTable(options);
+  return status;
+}
+
 void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   assert(level >= 0);
 
@@ -582,27 +587,36 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   }
 }
 
-Status DBImpl::TEST_CompactMemTable() {
+Status DBImpl::FlushMemTable(const FlushOptions& options) {
   // NULL batch means just wait for earlier writes to be done
   Status s = Write(WriteOptions(), NULL);
-  if (s.ok()) {
+  if (s.ok() && options.wait) {
     // Wait until the compaction completes
-	s = TEST_WaitForCompactMemTable();
+    s = WaitForCompactMemTable();
   }
   return s;
 }
 
+Status DBImpl::WaitForCompactMemTable() {
+    Status s;
+    // Wait until the compaction completes
+    MutexLock l(&mutex_);
+    while (imm_ != NULL && bg_error_.ok()) {
+        bg_cv_.Wait();
+    }
+    if (imm_ != NULL) {
+        s = bg_error_;
+    }
+    return s;
+}
+
+
+Status DBImpl::TEST_CompactMemTable() {
+  return FlushMemTable(FlushOptions());
+}
+
 Status DBImpl::TEST_WaitForCompactMemTable() {
-	Status s;
-	// Wait until the compaction completes
-	MutexLock l(&mutex_);
-	while (imm_ != NULL && bg_error_.ok()) {
-		bg_cv_.Wait();
-	}
-	if (imm_ != NULL) {
-		s = bg_error_;
-	}
-	return s;
+	return WaitForCompactMemTable();
 }
 
 Status DBImpl::TEST_WaitForCompact() {

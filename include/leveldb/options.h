@@ -254,6 +254,17 @@ struct WriteOptions {
   }
 };
 
+// Options that control flush operations
+struct FlushOptions {
+  // If true, the flush will wait until the flush is done.
+  // Default: true
+  bool wait;
+
+  FlushOptions()
+      : wait(true) {
+  }
+};
+
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_INCLUDE_OPTIONS_H_
