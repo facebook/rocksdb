@@ -77,6 +77,16 @@ struct TEnumTraits {
    * Note the use of helper function 'findValue(...)', below.
    */
   static bool findValue(const char* name, T* outValue);
+
+  /**
+   * Return the minimum value.
+   */
+  static constexpr T min();
+
+  /**
+   * Return the maximum value.
+   */
+  static constexpr T max();
  private:
   /**
    * Helper method used by codegen implementation of findName, Supports
@@ -216,6 +226,12 @@ extern TOutput GlobalOutput;
  * Should never be instantiated, only caught.
  */
 class TException : public std::exception {
+public:
+  TException() {}
+  TException(TException&&) {}
+  TException(const TException&) {}
+  TException& operator=(const TException&) { return *this; }
+  TException& operator=(TException&&) { return *this; }
 };
 
 /**

@@ -103,6 +103,12 @@ class TAsyncChannel {
     return sendAndRecvMessage(cob, cob, sendBuf, recvBuf);
   }
 
+  /**
+   * Cancel pending callbacks. Use this when the channel is closing because the
+   * server had been shut down.
+   */
+  virtual void cancelCallbacks() = 0;
+
   // TODO(dreiss): Make this nonvirtual when TFramedSocketAsyncChannel gets
   // renamed to TFramedAsyncChannel.
   virtual boost::shared_ptr<TAsyncTransport> getTransport() = 0;

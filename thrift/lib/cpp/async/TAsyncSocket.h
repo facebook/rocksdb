@@ -285,6 +285,32 @@ class TAsyncSocket : public TAsyncTransport,
     return sendTimeout_;
   }
 
+  /**
+   * Set the maximum number of reads to execute from the underlying
+   * socket each time the TEventBase detects that new ingress data is
+   * available. The default is unlimited, but callers can use this method
+   * to limit the amount of data read from the socket per event loop
+   * iteration.
+   *
+   * @param maxReads  Maximum number of reads per data-available event;
+   *                  a value of zero means unlimited.
+   */
+  void setMaxReadsPerEvent(uint16_t maxReads) {
+    maxReadsPerEvent_ = maxReads;
+  }
+
+  /**
+   * Get the maximum number of reads this object will execute from
+   * the underlying socket each time the TEventBase detects that new
+   * ingress data is available.
+   *
+   * @returns Maximum number of reads per data-available event; a value
+   *          of zero means unlimited.
+   */
+  uint16_t getMaxReadsPerEvent() const {
+    return maxReadsPerEvent_;
+  }
+
   // Methods inherited from TAsyncTransport
   // See the documentation in TAsyncTransport.h
   virtual void setReadCallback(ReadCallback* callback);
@@ -298,6 +324,7 @@ class TAsyncSocket : public TAsyncTransport,
 
   virtual void close();
   virtual void closeNow();
+  virtual void closeWithReset();
   virtual void shutdownWrite();
   virtual void shutdownWriteNow();
 
@@ -332,6 +359,24 @@ class TAsyncSocket : public TAsyncTransport,
    *         or a non-zero errno value on error.
    */
   int setNoDelay(bool noDelay);
+
+  /*
+   * Forces ACKs to be sent immediately
+   *
+   * @return Returns 0 if the TCP_QUICKACK flag was successfully updated,
+   *         or a non-zero errno value on error.
+   */
+  int setQuickAck(bool quickack);
+
+  /**
+   * Set the send bufsize
+   */
+  int setSendBufSize(size_t bufsize);
+
+  /**
+   * Set the recv bufsize
+   */
+  int setRecvBufSize(size_t bufsize);
 
   /**
    * Generic API for reading a socket option.
@@ -460,6 +505,19 @@ class TAsyncSocket : public TAsyncTransport,
   virtual ssize_t performRead(void* buf, size_t buflen);
 
   /**
+   * Populate an iovec array from an IOBuf and attempt to write it.
+   *
+   * @param callback Write completion/error callback.
+   * @param vec      Target iovec array; caller retains ownership.
+   * @param count    Number of IOBufs to write, beginning at start of buf.
+   * @param buf      Chain of iovecs.
+   * @param cork     Whether to delay the output until a subsequent
+   *                 non-corked write.
+   */
+  void writeChainImpl(WriteCallback* callback, iovec* vec,
+      size_t count, std::unique_ptr<folly::IOBuf>&& buf, bool cork);
+
+  /**
    * Write as much data as possible to the socket without blocking,
    * and queue up any leftover data to send when the socket can
    * handle writes again.
@@ -536,6 +594,7 @@ class TAsyncSocket : public TAsyncTransport,
   uint16_t eventFlags_;                 ///< TEventBase::HandlerFlags settings
   int fd_;                              ///< The socket file descriptor
   uint32_t sendTimeout_;                ///< The send timeout, in milliseconds
+  uint16_t maxReadsPerEvent_;           ///< Max reads per event loop iteration
   TEventBase* eventBase_;               ///< The TEventBase
   WriteTimeout writeTimeout_;           ///< A timeout for connect and write
   IoHandler ioHandler_;                 ///< A TEventHandler to monitor the fd

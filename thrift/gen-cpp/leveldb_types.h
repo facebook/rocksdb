@@ -28,6 +28,19 @@ extern const std::map<int, const char*> _CompressionType_VALUES_TO_NAMES;
 
 extern const std::map<const char*, int, apache::thrift::ltstr> _CompressionType_NAMES_TO_VALUES;
 
+} // namespace
+namespace apache { namespace thrift { 
+template<>
+inline constexpr  ::Tleveldb::CompressionType TEnumTraits< ::Tleveldb::CompressionType>::min() {
+return  ::Tleveldb::CompressionType::kNoCompression;
+}
+template<>
+inline constexpr  ::Tleveldb::CompressionType TEnumTraits< ::Tleveldb::CompressionType>::max() {
+return  ::Tleveldb::CompressionType::kSnappyCompression;
+}
+}} // apache:thrift
+
+namespace Tleveldb {
 enum Code {
   kOk = 0,
   kNotFound = 1,
@@ -42,6 +55,19 @@ extern const std::map<int, const char*> _Code_VALUES_TO_NAMES;
 
 extern const std::map<const char*, int, apache::thrift::ltstr> _Code_NAMES_TO_VALUES;
 
+} // namespace
+namespace apache { namespace thrift { 
+template<>
+inline constexpr  ::Tleveldb::Code TEnumTraits< ::Tleveldb::Code>::min() {
+return  ::Tleveldb::Code::kOk;
+}
+template<>
+inline constexpr  ::Tleveldb::Code TEnumTraits< ::Tleveldb::Code>::max() {
+return  ::Tleveldb::Code::kEnd;
+}
+}} // apache:thrift
+
+namespace Tleveldb {
 enum IteratorType {
   seekToFirst = 0,
   seekToLast = 1,
@@ -52,6 +78,19 @@ extern const std::map<int, const char*> _IteratorType_VALUES_TO_NAMES;
 
 extern const std::map<const char*, int, apache::thrift::ltstr> _IteratorType_NAMES_TO_VALUES;
 
+} // namespace
+namespace apache { namespace thrift { 
+template<>
+inline constexpr  ::Tleveldb::IteratorType TEnumTraits< ::Tleveldb::IteratorType>::min() {
+return  ::Tleveldb::IteratorType::seekToFirst;
+}
+template<>
+inline constexpr  ::Tleveldb::IteratorType TEnumTraits< ::Tleveldb::IteratorType>::max() {
+return  ::Tleveldb::IteratorType::seekToKey;
+}
+}} // apache:thrift
+
+namespace Tleveldb {
 typedef std::string Text;
 
 typedef std::string Bytes;

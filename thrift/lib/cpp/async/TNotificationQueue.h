@@ -175,7 +175,7 @@ class TNotificationQueue {
                               FdType fdType = FdType::EVENTFD)
     : spinlock_(),
       eventfd_(-1),
-      pipeFds_({-1, -1}),
+      pipeFds_{-1, -1},
       advisoryMaxQueueSize_(maxSize),
       queue_() {
     if (fdType == FdType::EVENTFD) {

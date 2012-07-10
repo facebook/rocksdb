@@ -279,7 +279,7 @@ class THeaderProtocol
     const boost::shared_ptr<TTransport>& outTrans,
     std::bitset<CLIENT_TYPES_LEN>* clientTypes) {
     assert(dynamic_cast<THeaderTransport*>(inTrans.get()) == NULL
-        && dynamic_cast<THeaderTransport*>(outTrans.get()) == NULL);
+           && dynamic_cast<THeaderTransport*>(outTrans.get()) == NULL);
 
     return boost::shared_ptr<THeaderTransport>(
       new THeaderTransport(inTrans, outTrans, clientTypes)

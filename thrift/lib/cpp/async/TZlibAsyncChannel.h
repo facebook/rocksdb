@@ -26,7 +26,8 @@ namespace apache { namespace thrift { namespace async {
 
 class TZlibAsyncChannel : public TAsyncEventChannel {
  public:
-  TZlibAsyncChannel(const boost::shared_ptr<TAsyncEventChannel>& channel);
+  explicit TZlibAsyncChannel(
+      const boost::shared_ptr<TAsyncEventChannel>& channel);
 
   /**
    * Helper function to create a shared_ptr<TZlibAsyncChannel>.
@@ -85,6 +86,11 @@ class TZlibAsyncChannel : public TAsyncEventChannel {
     channel_->setRecvTimeout(milliseconds);
   }
 
+  virtual void cancelCallbacks() {
+    sendRequest_.cancelCallbacks();
+    recvRequest_.cancelCallbacks();
+  }
+
  protected:
   /**
    * Protected destructor.
@@ -108,6 +114,11 @@ class TZlibAsyncChannel : public TAsyncEventChannel {
              transport::TMemoryBuffer* message);
 
     void send(TAsyncEventChannel* channel);
+
+    void cancelCallbacks() {
+      callback_ = NULL;
+      errorCallback_ = NULL;
+    }
 
    private:
     void invokeCallback(VoidCallback callback);
@@ -136,6 +147,11 @@ class TZlibAsyncChannel : public TAsyncEventChannel {
              transport::TMemoryBuffer* message);
 
     void recv(TAsyncEventChannel* channel);
+
+    void cancelCallbacks() {
+      callback_ = NULL;
+      errorCallback_ = NULL;
+    }
 
    private:
     void invokeCallback(VoidCallback callback);

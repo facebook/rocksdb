@@ -110,8 +110,18 @@ class Thread {
 class ThreadFactory {
 
  public:
+  enum DetachState {
+    ATTACHED,
+    DETACHED
+  };
+
   virtual ~ThreadFactory() {}
-  virtual boost::shared_ptr<Thread> newThread(boost::shared_ptr<Runnable> runnable) const = 0;
+  virtual boost::shared_ptr<Thread> newThread(
+      const boost::shared_ptr<Runnable>& runnable) const = 0;
+
+  virtual boost::shared_ptr<Thread> newThread(
+      const boost::shared_ptr<Runnable>& runnable,
+      DetachState detachState) const = 0;
 
   /** Gets the current thread id or unknown_thread_id if the current thread is not a thrift thread */
 

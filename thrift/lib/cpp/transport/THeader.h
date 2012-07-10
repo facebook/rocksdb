@@ -23,6 +23,7 @@
 #include <tr1/functional>
 
 #include "thrift/lib/cpp/protocol/TBinaryProtocol.h"
+#include "thrift/lib/cpp/protocol/TCompactProtocol.h"
 #include "thrift/lib/cpp/protocol/TProtocolTypes.h"
 
 #include "folly/experimental/io/IOBuf.h"
@@ -34,14 +35,15 @@
 #include <unistd.h>
 
 // Don't include the unknown client.
-#define CLIENT_TYPES_LEN 4
+#define CLIENT_TYPES_LEN 5
 
 enum CLIENT_TYPE {
   THRIFT_HEADER_CLIENT_TYPE = 0,
   THRIFT_FRAMED_DEPRECATED = 1,
   THRIFT_UNFRAMED_DEPRECATED = 2,
   THRIFT_HTTP_CLIENT_TYPE = 3,
-  THRIFT_UNKNOWN_CLIENT_TYPE = 4,
+  THRIFT_FRAMED_COMPACT = 4,
+  THRIFT_UNKNOWN_CLIENT_TYPE = 5,
 };
 
 namespace apache { namespace thrift { namespace transport {
@@ -269,6 +271,12 @@ class THeader {
    * Returns the maximum number of bytes that write k/v headers can take
    */
   size_t getMaxWriteHeadersSize() const;
+
+  /**
+   * Returns whether the 1st byte of the protocol payload should be hadled
+   * as compact framed.
+   */
+  bool compactFramed(uint32_t magic);
 
   struct infoIdType {
     enum idType {

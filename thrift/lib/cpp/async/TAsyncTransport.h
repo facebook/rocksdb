@@ -287,6 +287,20 @@ class TAsyncTransport {
   virtual void closeNow() = 0;
 
   /**
+   * Reset the transport immediately.
+   *
+   * This closes the transport immediately, sending a reset to the remote peer
+   * if possible to indicate abnormal shutdown.
+   *
+   * Note that not all subclasses implement this reset functionality: some
+   * subclasses may treat reset() the same as closeNow().  Subclasses that use
+   * TCP transports should terminate the connection with a TCP reset.
+   */
+  virtual void closeWithReset() {
+    closeNow();
+  }
+
+  /**
    * Perform a half-shutdown of the write side of the transport.
    *
    * The caller should not make any more calls to write() or writev() after

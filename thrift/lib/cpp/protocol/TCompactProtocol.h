@@ -37,6 +37,8 @@ class TCompactProtocolT
   static const int8_t  VERSION_N = 2;
   static const int8_t  VERSION_LOW = 1;
   static const int8_t  VERSION_DOUBLE_BE = 2;
+  static const int8_t  PROTOCOL_ID = static_cast<int8_t>(0x82);
+  static const int8_t  VERSION_MASK = 0x1f; // 0001 1111
 
  protected:
   // Normally we can define static const data members of integral
@@ -44,10 +46,8 @@ class TCompactProtocolT
   // high bit is set (http://gcc.gnu.org/bugzilla/show_bug.cgi?id=49896)
   // unless we cast to a value that fits in an int8_t (0x82 and 0xE0 are
   // uint8_t)
-  static const int8_t  PROTOCOL_ID = static_cast<int8_t>(0x82);
-  static const int8_t  TYPE_MASK = static_cast<int8_t>(0xE0);
 
-  static const int8_t  VERSION_MASK = 0x1f; // 0001 1111
+  static const int8_t  TYPE_MASK = static_cast<int8_t>(0xE0);
   static const int32_t TYPE_SHIFT_AMOUNT = 5;
 
   Transport_* trans_;

@@ -129,6 +129,9 @@ class TEventWorker :
    */
   ConnectionMap activeConnectionMap_;
 
+  // Max number of active connections
+  int32_t maxNumActiveConnections_;
+
  public:
 
   /**
@@ -156,7 +159,8 @@ class TEventWorker :
     server_(server),
     eventBase_(),
     workerID_(workerID),
-    transportType_(TEventServer::FRAMED) {
+    transportType_(TEventServer::FRAMED),
+    maxNumActiveConnections_(0) {
 
     setDuplexProtocolFactory(protocolFactory);
     transportType_ = server->getTransportType();
@@ -174,7 +178,7 @@ class TEventWorker :
    * of freeing up memory, so nothing to be done here but release the
    * connection stack.
    */
-    virtual ~TEventWorker();
+  virtual ~TEventWorker();
 
   /**
    * Get my TAsyncProcessorFactory object.
@@ -210,6 +214,14 @@ class TEventWorker :
    */
   int32_t getID() {
     return workerID_;
+  }
+
+  void setMaxNumActiveConnections(int32_t numActiveConnections) {
+    maxNumActiveConnections_ = numActiveConnections;
+  }
+
+  int32_t getMaxNumActiveConnections() const {
+    return maxNumActiveConnections_;
   }
 
   /**

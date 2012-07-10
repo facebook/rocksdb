@@ -121,6 +121,14 @@ class TAsyncSSLSocket : public TAsyncSocket {
   };
 
   /**
+   * These are passed to the application via errno, so values have to be
+   * outside the valid errno range
+   */
+  enum SSLError {
+    SSL_CLIENT_RENEGOTIATION_ATTEMPT = 0x8001
+  };
+
+  /**
    * Create a client TAsyncSSLSocket
    */
   TAsyncSSLSocket(const boost::shared_ptr<transport::SSLContext> &ctx,
@@ -128,6 +136,8 @@ class TAsyncSSLSocket : public TAsyncSocket {
       TAsyncSocket(evb),
       corked_(false),
       server_(false),
+      handshakeComplete_(false),
+      renegotiateAttempted_(false),
       sslState_(STATE_UNINIT),
       ctx_(ctx),
       handshakeCallback_(NULL),
@@ -176,7 +186,7 @@ class TAsyncSSLSocket : public TAsyncSocket {
   }
 
   /**
-   * TODO: implement support for SSL renegosiation.
+   * TODO: implement support for SSL renegotiation.
    *
    * This involves proper handling of the SSL_ERROR_WANT_READ/WRITE
    * code as a result of SSL_write/read(), instead of returning an
@@ -293,6 +303,41 @@ class TAsyncSSLSocket : public TAsyncSocket {
    */
   bool getSSLSessionReused() const;
 
+  /**
+   * Get the negociated cipher name for this SSL connection.
+   * Returns the cipher used or the constant value "NONE" when no SSL session
+   * has been established.
+   */
+  const char *getNegotiatedCipherName() const;
+
+  /**
+   * Get the SSL version for this connection.
+   * Possible return values are SSL2_VERSION, SSL3_VERSION, TLS1_VERSION,
+   * with hexa representations 0x200, 0x300, 0x301,
+   * or 0 if no SSL session has been established.
+   */
+  int getSSLVersion() const;
+
+  /* Get the number of bytes read from the wire (including protocol
+   * overhead). Returns 0 once the connection has been closed.
+   */
+  unsigned long getBytesRead() const {
+    if (ssl_ != NULL) {
+      return BIO_number_read(SSL_get_rbio(ssl_));
+    }
+    return 0;
+  }
+
+  /* Get the number of bytes written to the wire (including protocol
+   * overhead).  Returns 0 once the connection has been closed.
+   */
+  unsigned long getBytesWritten() const {
+    if (ssl_ != NULL) {
+      return BIO_number_written(SSL_get_wbio(ssl_));
+    }
+    return 0;
+  }
+
   virtual void attachEventBase(TEventBase* eventBase) {
     TAsyncSocket::attachEventBase(eventBase);
     handshakeTimeout_.attachEventBase(eventBase);
@@ -339,10 +384,18 @@ class TAsyncSSLSocket : public TAsyncSocket {
 
   void invokeHandshakeCallback();
 
+  static void sslInfoCallback(const SSL *ssl, int type, int val);
+
   // Whether we've applied the TCP_CORK option to the socket
   bool corked_;
   // SSL related members.
   bool server_;
+  // Used to prevent client-initiated renegotiation.  Note that TAsyncSSLSocket
+  // doesn't fully support renegotiation, so we could just fail all attempts
+  // to enforce this.  Once it is supported, we should make it an option
+  // to disable client-initiated renegotiation.
+  bool handshakeComplete_;
+  bool renegotiateAttempted_;
   SSLStateEnum sslState_;
   boost::shared_ptr<transport::SSLContext> ctx_;
   // Callback for SSL_accept() or SSL_connect()

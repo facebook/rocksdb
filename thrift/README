@@ -1,5 +1,7 @@
 This directory has the thrift server code that exposes leveldb apis.
 
+The thrift api is specified in thrift/if/leveldb.thrift. 
+
 The thrift header files are in ./thrift/lib. These are part of 
 Apache Thrift code base and are needed for compilation of the leveldb
 thrift server. The thrift libraries are copied into ./thrift/libs.
@@ -15,4 +17,9 @@ enviroment variables appropriately:
 
 You can run the leveldb server unit tests by
   ./leveldb_server_test
+
+You can regenerate the thrift cpp files by doing the following
+
+cd ./thrift
+thrift --gen cpp if/leveldb.thrift
 

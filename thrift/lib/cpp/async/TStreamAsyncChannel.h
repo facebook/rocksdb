@@ -194,7 +194,8 @@ class TStreamAsyncChannel : public TAsyncEventChannel,
                             protected TAsyncTransport::WriteCallback,
                             protected TAsyncTimeout {
  public:
-  TStreamAsyncChannel(const boost::shared_ptr<TAsyncTransport>& transport);
+  explicit TStreamAsyncChannel(
+      const boost::shared_ptr<TAsyncTransport>& transport);
 
   /**
    * Helper function to create a shared_ptr<TStreamAsyncChannel>.
@@ -329,6 +330,15 @@ class TStreamAsyncChannel : public TAsyncEventChannel,
   }
 
   /**
+   * Cancel pending callbacks. Use this when the channel is closing because the
+   * server had been shut down.
+   */
+  virtual void cancelCallbacks() {
+    readCallback_ = NULL;
+    readErrorCallback_ = NULL;
+  }
+
+  /**
    * Get the TAsyncTransport used by this channel.
    */
   virtual boost::shared_ptr<TAsyncTransport> getTransport() {
@@ -405,6 +415,11 @@ class TStreamAsyncChannel : public TAsyncEventChannel,
       writeReqTail_ = NULL;
     }
     return req;
+  }
+
+  void clearCallbacks() {
+    readCallback_ = NULL;
+    readErrorCallback_ = NULL;
   }
 
   void failAllReads();

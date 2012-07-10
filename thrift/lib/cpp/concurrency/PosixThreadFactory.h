@@ -68,27 +68,37 @@ class PosixThreadFactory : public ThreadFactory {
     DECREMENT = 8
   };
 
+  static const POLICY kDefaultPolicy = ROUND_ROBIN;
+  static const PRIORITY kDefaultPriority = NORMAL;
+  static const int kDefaultStackSizeMB = 1;
+
   /**
-   * Posix thread (pthread) factory.  All threads created by a factory are reference-counted
-   * via boost::shared_ptr and boost::weak_ptr.  The factory guarantees that threads and
-   * the Runnable tasks they host will be properly cleaned up once the last strong reference
-   * to both is given up.
+   * Posix thread (pthread) factory.  All threads created by a factory are
+   * reference-counted via boost::shared_ptr and boost::weak_ptr.  The factory
+   * guarantees that threads and the Runnable tasks they host will be properly
+   * cleaned up once the last strong reference to both is given up.
    *
-   * Threads are created with the specified policy, priority, stack-size and detachable-mode
-   * detached means the thread is free-running and will release all system resources the
-   * when it completes.  A detachable thread is not joinable.  The join method
-   * of a detachable thread will return immediately with no error.
+   * Threads are created with the specified policy, priority, stack-size and
+   * detachable-mode detached means the thread is free-running and will release
+   * all system resources the when it completes.  A detachable thread is not
+   * joinable.  The join method of a detachable thread will return immediately
+   * with no error.
    *
    * By default threads are not joinable.
    */
-
-  explicit PosixThreadFactory(POLICY policy=ROUND_ROBIN,
-                              PRIORITY priority=NORMAL,
-                              int stackSize=1,
+  explicit PosixThreadFactory(POLICY policy=kDefaultPolicy,
+                              PRIORITY priority=kDefaultPriority,
+                              int stackSize=kDefaultStackSizeMB,
                               bool detached=true);
 
+  explicit PosixThreadFactory(DetachState detached);
+
   // From ThreadFactory;
-  boost::shared_ptr<Thread> newThread(boost::shared_ptr<Runnable> runnable) const;
+  boost::shared_ptr<Thread> newThread(
+      const boost::shared_ptr<Runnable>& runnable) const;
+  boost::shared_ptr<Thread> newThread(
+      const boost::shared_ptr<Runnable>& runnable,
+      DetachState detachState) const;
 
   // From ThreadFactory;
   Thread::id_t getCurrentThreadId() const;
@@ -121,6 +131,7 @@ class PosixThreadFactory : public ThreadFactory {
    * Sets detached mode of threads
    */
   virtual void setDetached(bool detached);
+  virtual void setDetached(DetachState detached);
 
   /**
    * Gets current detached mode

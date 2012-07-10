@@ -247,6 +247,11 @@ class TEventServer : public apache::thrift::server::TServer {
   uint32_t maxNumMsgsInPipe_;
 
   /**
+   * The max number of active connections for each worker
+   */
+  int32_t maxNumActiveConnectionsPerWorker_;
+
+  /**
    * The transport type to use
    */
   TransportType transportType_;
@@ -320,6 +325,7 @@ class TEventServer : public apache::thrift::server::TServer {
     queuingMode_(false),
     acceptRateAdjustSpeed_(0),
     maxNumMsgsInPipe_(T_MAX_NUM_MESSAGES_IN_PIPE),
+    maxNumActiveConnectionsPerWorker_(0),
     transportType_(T_ASYNC_DEFAULT_TRANSPORT_TYPE) {
     processor->setAsyncServer(this);
   }
@@ -360,6 +366,7 @@ class TEventServer : public apache::thrift::server::TServer {
     queuingMode_(false),
     acceptRateAdjustSpeed_(0),
     maxNumMsgsInPipe_(T_MAX_NUM_MESSAGES_IN_PIPE),
+    maxNumActiveConnectionsPerWorker_(0),
     transportType_(T_ASYNC_DEFAULT_TRANSPORT_TYPE) {
     processor->setAsyncServer(this);
 
@@ -407,6 +414,7 @@ class TEventServer : public apache::thrift::server::TServer {
     queuingMode_(false),
     acceptRateAdjustSpeed_(0),
     maxNumMsgsInPipe_(T_MAX_NUM_MESSAGES_IN_PIPE),
+    maxNumActiveConnectionsPerWorker_(0),
     transportType_(T_ASYNC_DEFAULT_TRANSPORT_TYPE) {
     processor->setAsyncServer(this);
 
@@ -452,6 +460,7 @@ class TEventServer : public apache::thrift::server::TServer {
     queuingMode_(false),
     acceptRateAdjustSpeed_(0),
     maxNumMsgsInPipe_(T_MAX_NUM_MESSAGES_IN_PIPE),
+    maxNumActiveConnectionsPerWorker_(0),
     transportType_(T_ASYNC_DEFAULT_TRANSPORT_TYPE) {
     processor->setAsyncServer(this);
 
@@ -498,6 +507,7 @@ class TEventServer : public apache::thrift::server::TServer {
     queuingMode_(true),
     acceptRateAdjustSpeed_(0),
     maxNumMsgsInPipe_(T_MAX_NUM_MESSAGES_IN_PIPE),
+    maxNumActiveConnectionsPerWorker_(0),
     transportType_(T_ASYNC_DEFAULT_TRANSPORT_TYPE) {
     setProtocolFactory(protocolFactory);
     setThreadManager(threadManager);
@@ -542,6 +552,7 @@ class TEventServer : public apache::thrift::server::TServer {
     queuingMode_(true),
     acceptRateAdjustSpeed_(0),
     maxNumMsgsInPipe_(T_MAX_NUM_MESSAGES_IN_PIPE),
+    maxNumActiveConnectionsPerWorker_(0),
     transportType_(T_ASYNC_DEFAULT_TRANSPORT_TYPE) {
     setDuplexProtocolFactory(duplexProtocolFactory);
     setThreadManager(threadManager);
@@ -669,6 +680,21 @@ class TEventServer : public apache::thrift::server::TServer {
    */
   void setMaxNumMessagesInPipe(uint32_t num) {
     maxNumMsgsInPipe_ = num;
+  }
+
+  /**
+   * Get the maxmum number of active connections each TAsyncWorker can have
+   */
+  int32_t getMaxNumActiveConnectionsPerWorker() const {
+    return maxNumActiveConnectionsPerWorker_;
+  }
+
+  /**
+   * Set the maxmum number of active connections each TAsyncWorker can have.
+   * Zero means unlimited
+   */
+  void setMaxNumActiveConnectionsPerWorker(int32_t num) {
+    maxNumActiveConnectionsPerWorker_ = num;
   }
 
   /**
