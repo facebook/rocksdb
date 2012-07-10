@@ -18,14 +18,25 @@ class BloomFilterPolicy : public FilterPolicy {
  private:
   size_t bits_per_key_;
   size_t k_;
+  uint32_t (*hash_func_)(const Slice& key);
 
- public:
-  explicit BloomFilterPolicy(int bits_per_key)
-      : bits_per_key_(bits_per_key) {
+  void initialize() {
     // We intentionally round down to reduce probing cost a little bit
-    k_ = static_cast<size_t>(bits_per_key * 0.69);  // 0.69 =~ ln(2)
+    k_ = static_cast<size_t>(bits_per_key_ * 0.69);  // 0.69 =~ ln(2)
     if (k_ < 1) k_ = 1;
     if (k_ > 30) k_ = 30;
+  }
+
+ public:
+  explicit BloomFilterPolicy(int bits_per_key, 
+                             uint32_t (*hash_func)(const Slice& key))
+      : bits_per_key_(bits_per_key), hash_func_(hash_func) {
+    initialize();
+  }
+  explicit BloomFilterPolicy(int bits_per_key)
+      : bits_per_key_(bits_per_key) {
+    hash_func_ = BloomHash;
+    initialize();
   }
 
   virtual const char* Name() const {
@@ -50,7 +61,7 @@ class BloomFilterPolicy : public FilterPolicy {
     for (size_t i = 0; i < n; i++) {
       // Use double-hashing to generate a sequence of hash values.
       // See analysis in [Kirsch,Mitzenmacher 2006].
-      uint32_t h = BloomHash(keys[i]);
+      uint32_t h = hash_func_(keys[i]);
       const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
       for (size_t j = 0; j < k_; j++) {
         const uint32_t bitpos = h % bits;
@@ -76,7 +87,7 @@ class BloomFilterPolicy : public FilterPolicy {
       return true;
     }
 
-    uint32_t h = BloomHash(key);
+    uint32_t h = hash_func_(key);
     const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
     for (size_t j = 0; j < k; j++) {
       const uint32_t bitpos = h % bits;
