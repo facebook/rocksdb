@@ -17,6 +17,7 @@
 #include <util/TEventServerCreator.h>
 #include <leveldb_types.h>
 #include "openhandles.h"
+#include "server_options.h"
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
@@ -30,10 +31,13 @@ using namespace apache::thrift::async;
 using namespace  Tleveldb;
 using boost::shared_ptr;
 
-extern "C" void startServer(int port);
+extern "C" void startServer(int argc, char** argv);
 extern "C" void stopServer(int port);
 
 static boost::shared_ptr<TServer> tServer;
+
+// The global object that stores the default configuration of the server
+ServerOptions server_options;
 
 class DBHandler : virtual public DBIf {
  public:
@@ -43,9 +47,21 @@ class DBHandler : virtual public DBIf {
 
   void Open(DBHandle& _return, const Text& dbname, 
     const DBOptions& dboptions) {
-    printf("Open\n");
+    printf("Open %s\n", dbname.c_str());
+    if (!server_options.isValidName(dbname)) {
+      LeveldbException e;
+      e.errorCode = Code::kInvalidArgument;
+      e.message = "Bad DB name";
+      fprintf(stderr, "Bad DB name %s\n", dbname.c_str());
+      throw e;
+    }
+    std::string dbdir = server_options.getDataDirectory(dbname);
     leveldb::Options options;
-    leveldb::DB* db;
+
+    // fill up per-server options
+    options.block_cache = server_options.getCache();
+
+    // fill up  per-DB options
     options.create_if_missing = dboptions.create_if_missing;
     options.error_if_exists = dboptions.error_if_exists;
     options.write_buffer_size = dboptions.write_buffer_size;
@@ -57,7 +73,7 @@ class DBHandler : virtual public DBIf {
     } else if (dboptions.compression == kSnappyCompression) {
       options.compression = leveldb::kSnappyCompression;
     }
-    int64_t session = openHandles->add(options, dbname);
+    int64_t session = openHandles->add(options, dbname, dbdir);
     _return.dbname = dbname;
     _return.handleid = session;
   }
@@ -280,6 +296,14 @@ class DBHandler : virtual public DBIf {
       return;
     }
 
+    // if iterator has encountered any corruption
+    if (!it->status().ok()) {
+       thishandle->removeIterator(iterator.iteratorid);
+       delete it;                  // cleanup
+      _return.status = Code::kIOError; // error in data
+      return;
+    }
+
     // find current key-value
     leveldb::Slice key = it->key();
     leveldb::Slice value = it->value();
@@ -372,7 +396,21 @@ class DBHandler : virtual public DBIf {
 };
 
 // Starts a very simple thrift server
-void startServer(int port) {
+void startServer(int argc, char** argv) {
+
+  // process command line options
+  if (!server_options.parseOptions(argc, argv)) {
+    exit(1);
+  }
+
+  // create directories for server
+  if (!server_options.createDirectories()) {
+    exit(1);
+  }
+  // create the server's block cache
+  server_options.createCache();
+
+  int port = server_options.getPort();
   shared_ptr<DBHandler> handler(new DBHandler());
   shared_ptr<TProcessor> processor(new DBProcessor(handler));
   shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
@@ -380,6 +418,8 @@ void startServer(int port) {
   shared_ptr<TProtocolFactory> protocolFactory(new TBinaryProtocolFactory());
 
   TSimpleServer tServer(processor, serverTransport, transportFactory, protocolFactory);
+  fprintf(stderr, "Server started on port %d\n", port);
+
   tServer.serve();
 }
 

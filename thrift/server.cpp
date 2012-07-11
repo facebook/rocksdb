@@ -13,6 +13,7 @@
 #include <transport/TBufferTransports.h>
 #include <leveldb_types.h>
 #include "openhandles.h"
+#include "server_options.h"
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
@@ -24,23 +25,22 @@ using namespace apache::thrift::server;
 using namespace  Tleveldb;
 using boost::shared_ptr;
 
-extern "C" void startServer(int port);
+extern "C" void startServer(int argc, char** argv);
 extern "C" void stopServer(int port);
-
-static int port = 9090;
+extern ServerOptions server_options;
 
 void signal_handler(int sig) {
   switch (sig) {
   case SIGINT:
     fprintf(stderr, "Received SIGINT, stopping leveldb server");
-    stopServer(port);
+    stopServer(server_options.getPort());
     break;
   }
 }
 
 int main(int argc, char **argv) {
   signal(SIGINT, signal_handler);
-  startServer(port);
+  startServer(argc, argv);
   return 0;
 }
 

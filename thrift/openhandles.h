@@ -4,6 +4,9 @@
  * Copyright 2012 Facebook
  */
 
+#ifndef THRIFT_LEVELDB_SERVER_H_
+#define THRIFT_LEVELDB_SERVER_H_
+
 #include <unordered_map>
 #include <atomic>
 #include "DB.h"
@@ -142,15 +145,15 @@ class OpenHandles {
   // Inserts a new database into the list.
   // If the database is already open, increase refcount.  
   // If the database is not already open, open and insert into list.
-  int64_t add(leveldb::Options& options, Text dbname) {
+  int64_t add(leveldb::Options& options, Text dbname, std::string dbdir) {
     struct onehandle* found = head_[dbname];
     if (found == NULL) {
       found = new onehandle;
       found->name = dbname;
       found->uniqueid = dbnum_++;
-      fprintf(stderr, "openhandle.add: Opening leveldb directory %s\n", 
+      fprintf(stderr, "openhandle.add: Opening leveldb DB %s\n", 
               dbname.c_str());
-      leveldb::Status status = leveldb::DB::Open(options, dbname, &found->onedb);
+      leveldb::Status status = leveldb::DB::Open(options, dbdir, &found->onedb);
       if (!status.ok()) {
         LeveldbException e;
         e.errorCode = Code::kIOError;
@@ -223,5 +226,6 @@ class OpenHandles {
   }
 };
 
+#endif // THRIFT_LEVELDB_SERVER_H_
 
    

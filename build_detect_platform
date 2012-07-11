@@ -102,7 +102,7 @@ esac
 # prune take effect.
 DIRS="util db table"
 if test "$USE_THRIFT"; then
-  DIRS+=" thrift/gen-cpp thrift/server_utils.cpp"
+  DIRS+=" thrift/gen-cpp thrift/server_utils.cpp thrift/server_options.cpp"
   THRIFTSERVER=leveldb_server
 fi
 set -f # temporarily disable globbing so that our patterns aren't expanded

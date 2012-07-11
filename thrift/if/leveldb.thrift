@@ -121,7 +121,8 @@ exception LeveldbException {
 // The Database service
 service DB {
   
-  // opens the database
+  // opens the database. The database name cannot have "/"
+  // in its name.
   DBHandle Open(1:Text dbname, 2:DBOptions dboptions)
     throws (1:LeveldbException se),
 

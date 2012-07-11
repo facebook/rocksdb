@@ -8,6 +8,7 @@
 #include <transport/TBufferTransports.h>
 #include <DB.h>
 #include <leveldb_types.h>
+#include "server_options.h"
 
 using namespace apache::thrift;
 using namespace apache::thrift::protocol;
@@ -15,14 +16,24 @@ using namespace apache::thrift::transport;
 using boost::shared_ptr;
 using namespace Tleveldb;
 
-extern "C" void startServer(int port);
+extern "C" void startServer(int argc, char**argv);
 extern "C" void stopServer(int port);
+extern  ServerOptions server_options;
 
 static DBHandle dbhandle;
 static DBClient* dbclient;
-static const Text dbname = "/tmp/leveldb/test";
-static const int myport = 9091;
+static const Text dbname = "test";
 static pthread_t serverThread;
+static int ARGC;
+static char** ARGV;
+
+static void cleanupDir(std::string dir) {
+  // remove old data, if any
+  int ret = unlink(dir.c_str());
+  char* cleanup = new char[100];
+  snprintf(cleanup, 100, "rm -rf %s", dir.c_str());
+  system(cleanup);
+}
 
 static void createDatabase() {
   DBOptions options;
@@ -33,6 +44,8 @@ static void createDatabase() {
   options.block_size = 4096;
   options.block_restart_interval = 16;
   options.compression = kSnappyCompression;
+
+  cleanupDir(server_options.getDataDirectory(dbname));
 
   // create the database
   dbclient->Open(dbhandle, dbname, options);
@@ -185,27 +198,26 @@ static void testClient(int port) {
 
 
 static void* startTestServer(void *arg) {
-  printf("Server starting on port %d...\n", myport);
-  startServer(myport);
+  printf("Server test server\n");
+  startServer(ARGC, ARGV);
 }
 
 int main(int argc, char **argv) {
 
-  // remove old data, if any
-  int ret = unlink(dbname.c_str());
-  char* cleanup = new char[100];
-  snprintf(cleanup, 100, "rm -rf %s", dbname.c_str());
-  system(cleanup);
+  ARGC = argc;
+  ARGV = argv;
 
   // create a server
   int rc = pthread_create(&serverThread, NULL, startTestServer, NULL);
   printf("Server thread created.\n");
 
   // give some time to the server to initialize itself
-  sleep(1);
+  while (server_options.getPort() == 0) {
+    sleep(1);
+  }
 
   // test client
-  testClient(myport);
+  testClient(server_options.getPort());
 
   return 0;
 }
