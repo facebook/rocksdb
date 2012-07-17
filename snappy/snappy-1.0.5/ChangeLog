@@ -1,0 +1,1217 @@
+------------------------------------------------------------------------
+r60 | snappy.mirrorbot@gmail.com | 2012-02-23 18:00:36 +0100 (Thu, 23 Feb 2012) | 57 lines
+
+For 32-bit platforms, do not try to accelerate multiple neighboring
+32-bit loads with a 64-bit load during compression (it's not a win).
+
+The main target for this optimization is ARM, but 32-bit x86 gets
+a small gain, too, although there is noise in the microbenchmarks.
+It's a no-op for 64-bit x86. It does not affect decompression.
+
+Microbenchmark results on a Cortex-A9 1GHz, using g++ 4.6.2 (from
+Ubuntu/Linaro), -O2 -DNDEBUG -Wa,-march=armv7a -mtune=cortex-a9
+-mthumb-interwork, minimum 1000 iterations:
+
+  Benchmark            Time(ns)    CPU(ns) Iterations
+  ---------------------------------------------------
+  BM_ZFlat/0            1158277    1160000       1000 84.2MB/s  html (23.57 %)    [ +4.3%]
+  BM_ZFlat/1           14861782   14860000       1000 45.1MB/s  urls (50.89 %)    [ +1.1%]
+  BM_ZFlat/2             393595     390000       1000 310.5MB/s  jpg (99.88 %)    [ +0.0%]
+  BM_ZFlat/3             650583     650000       1000 138.4MB/s  pdf (82.13 %)    [ +3.1%]
+  BM_ZFlat/4            4661480    4660000       1000 83.8MB/s  html4 (23.55 %)   [ +4.3%]
+  BM_ZFlat/5             491973     490000       1000 47.9MB/s  cp (48.12 %)      [ +2.0%]
+  BM_ZFlat/6             193575     192678       1038 55.2MB/s  c (42.40 %)       [ +9.0%]
+  BM_ZFlat/7              62343      62754       3187 56.5MB/s  lsp (48.37 %)     [ +2.6%]
+  BM_ZFlat/8           17708468   17710000       1000 55.5MB/s  xls (41.34 %)     [ -0.3%]
+  BM_ZFlat/9            3755345    3760000       1000 38.6MB/s  txt1 (59.81 %)    [ +8.2%]
+  BM_ZFlat/10           3324217    3320000       1000 36.0MB/s  txt2 (64.07 %)    [ +4.2%]
+  BM_ZFlat/11          10139932   10140000       1000 40.1MB/s  txt3 (57.11 %)    [ +6.4%]
+  BM_ZFlat/12          13532109   13530000       1000 34.0MB/s  txt4 (68.35 %)    [ +5.0%]
+  BM_ZFlat/13           4690847    4690000       1000 104.4MB/s  bin (18.21 %)    [ +4.1%]
+  BM_ZFlat/14            830682     830000       1000 43.9MB/s  sum (51.88 %)     [ +1.2%]
+  BM_ZFlat/15             84784      85011       2235 47.4MB/s  man (59.36 %)     [ +1.1%]
+  BM_ZFlat/16           1293254    1290000       1000 87.7MB/s  pb (23.15 %)      [ +2.3%]
+  BM_ZFlat/17           2775155    2780000       1000 63.2MB/s  gaviota (38.27 %) [+12.2%]
+
+Core i7 in 32-bit mode (only one run and 100 iterations, though, so noisy):
+
+  Benchmark            Time(ns)    CPU(ns) Iterations
+  ---------------------------------------------------
+  BM_ZFlat/0             227582     223464       3043 437.0MB/s  html (23.57 %)    [ +7.4%]
+  BM_ZFlat/1            2982430    2918455        233 229.4MB/s  urls (50.89 %)    [ +2.9%]
+  BM_ZFlat/2              46967      46658      15217 2.5GB/s  jpg (99.88 %)       [ +0.0%]
+  BM_ZFlat/3             115298     114864       5833 783.2MB/s  pdf (82.13 %)     [ +1.5%]
+  BM_ZFlat/4             913440     899743        778 434.2MB/s  html4 (23.55 %)   [ +0.3%]
+  BM_ZFlat/5             110302     108571       7000 216.1MB/s  cp (48.12 %)      [ +0.0%]
+  BM_ZFlat/6              44409      43372      15909 245.2MB/s  c (42.40 %)       [ +0.8%]
+  BM_ZFlat/7              15713      15643      46667 226.9MB/s  lsp (48.37 %)     [ +2.7%]
+  BM_ZFlat/8            2625539    2602230        269 377.4MB/s  xls (41.34 %)     [ +1.4%]
+  BM_ZFlat/9             808884     811429        875 178.8MB/s  txt1 (59.81 %)    [ -3.9%]
+  BM_ZFlat/10            709532     700000       1000 170.5MB/s  txt2 (64.07 %)    [ +0.0%]
+  BM_ZFlat/11           2177682    2162162        333 188.2MB/s  txt3 (57.11 %)    [ -1.4%]
+  BM_ZFlat/12           2849640    2840000        250 161.8MB/s  txt4 (68.35 %)    [ -1.4%]
+  BM_ZFlat/13            849760     835476        778 585.8MB/s  bin (18.21 %)     [ +1.2%]
+  BM_ZFlat/14            165940     164571       4375 221.6MB/s  sum (51.88 %)     [ +1.4%]
+  BM_ZFlat/15             20939      20571      35000 196.0MB/s  man (59.36 %)     [ +2.1%]
+  BM_ZFlat/16            239209     236544       2917 478.1MB/s  pb (23.15 %)      [ +4.2%]
+  BM_ZFlat/17            616206     610000       1000 288.2MB/s  gaviota (38.27 %) [ -1.6%]
+
+R=sanjay
+
+------------------------------------------------------------------------
+r59 | snappy.mirrorbot@gmail.com | 2012-02-21 18:02:17 +0100 (Tue, 21 Feb 2012) | 107 lines
+
+Enable the use of unaligned loads and stores for ARM-based architectures 
+where they are available (ARMv7 and higher). This gives a significant 
+speed boost on ARM, both for compression and decompression. 
+It should not affect x86 at all. 
+ 
+There are more changes possible to speed up ARM, but it might not be 
+that easy to do without hurting x86 or making the code uglier. 
+Also, we de not try to use NEON yet. 
+ 
+Microbenchmark results on a Cortex-A9 1GHz, using g++ 4.6.2 (from Ubuntu/Linaro), 
+-O2 -DNDEBUG -Wa,-march=armv7a -mtune=cortex-a9 -mthumb-interwork: 
+ 
+Benchmark            Time(ns)    CPU(ns) Iterations
+---------------------------------------------------
+BM_UFlat/0             524806     529100        378 184.6MB/s  html            [+33.6%]
+BM_UFlat/1            5139790    5200000        100 128.8MB/s  urls            [+28.8%]
+BM_UFlat/2              86540      84166       1901 1.4GB/s  jpg               [ +0.6%]
+BM_UFlat/3             215351     210176        904 428.0MB/s  pdf             [+29.8%]
+BM_UFlat/4            2144490    2100000        100 186.0MB/s  html4           [+33.3%]
+BM_UFlat/5             194482     190000       1000 123.5MB/s  cp              [+36.2%]
+BM_UFlat/6              91843      90175       2107 117.9MB/s  c               [+38.6%]
+BM_UFlat/7              28535      28426       6684 124.8MB/s  lsp             [+34.7%]
+BM_UFlat/8            9206600    9200000        100 106.7MB/s  xls             [+42.4%]
+BM_UFlat/9            1865273    1886792        106 76.9MB/s  txt1             [+32.5%]
+BM_UFlat/10           1576809    1587301        126 75.2MB/s  txt2             [+32.3%]
+BM_UFlat/11           4968450    4900000        100 83.1MB/s  txt3             [+32.7%]
+BM_UFlat/12           6673970    6700000        100 68.6MB/s  txt4             [+32.8%]
+BM_UFlat/13           2391470    2400000        100 203.9MB/s  bin             [+29.2%]
+BM_UFlat/14            334601     344827        522 105.8MB/s  sum             [+30.6%]
+BM_UFlat/15             37404      38080       5252 105.9MB/s  man             [+33.8%]
+BM_UFlat/16            535470     540540        370 209.2MB/s  pb              [+31.2%]
+BM_UFlat/17           1875245    1886792        106 93.2MB/s  gaviota          [+37.8%]
+BM_UValidate/0         178425     179533       1114 543.9MB/s  html            [ +2.7%]
+BM_UValidate/1        2100450    2000000        100 334.8MB/s  urls            [ +5.0%]
+BM_UValidate/2           1039       1044     172413 113.3GB/s  jpg             [ +3.4%]
+BM_UValidate/3          59423      59470       3363 1.5GB/s  pdf               [ +7.8%]
+BM_UValidate/4         760716     766283        261 509.8MB/s  html4           [ +6.5%]
+BM_ZFlat/0            1204632    1204819        166 81.1MB/s  html (23.57 %)   [+32.8%]
+BM_ZFlat/1           15656190   15600000        100 42.9MB/s  urls (50.89 %)   [+27.6%]
+BM_ZFlat/2             403336     410677        487 294.8MB/s  jpg (99.88 %)   [+16.5%]
+BM_ZFlat/3             664073     671140        298 134.0MB/s  pdf (82.13 %)   [+28.4%]
+BM_ZFlat/4            4961940    4900000        100 79.7MB/s  html4 (23.55 %)  [+30.6%]
+BM_ZFlat/5             500664     501253        399 46.8MB/s  cp (48.12 %)     [+33.4%]
+BM_ZFlat/6             217276     215982        926 49.2MB/s  c (42.40 %)      [+25.0%]
+BM_ZFlat/7              64122      65487       3054 54.2MB/s  lsp (48.37 %)    [+36.1%]
+BM_ZFlat/8           18045730   18000000        100 54.6MB/s  xls (41.34 %)    [+34.4%]
+BM_ZFlat/9            4051530    4000000        100 36.3MB/s  txt1 (59.81 %)   [+25.0%]
+BM_ZFlat/10           3451800    3500000        100 34.1MB/s  txt2 (64.07 %)   [+25.7%]
+BM_ZFlat/11          11052340   11100000        100 36.7MB/s  txt3 (57.11 %)   [+24.3%]
+BM_ZFlat/12          14538690   14600000        100 31.5MB/s  txt4 (68.35 %)   [+24.7%]
+BM_ZFlat/13           5041850    5000000        100 97.9MB/s  bin (18.21 %)    [+32.0%]
+BM_ZFlat/14            908840     909090        220 40.1MB/s  sum (51.88 %)    [+22.2%]
+BM_ZFlat/15             86921      86206       1972 46.8MB/s  man (59.36 %)    [+42.2%]
+BM_ZFlat/16           1312315    1315789        152 86.0MB/s  pb (23.15 %)     [+34.5%]
+BM_ZFlat/17           3173120    3200000        100 54.9MB/s  gaviota (38.27%) [+28.1%]
+
+
+The move from 64-bit to 32-bit operations for the copies also affected 32-bit x86;
+positive on the decompression side, and slightly negative on the compression side
+(unless that is noise; I only ran once):
+
+Benchmark              Time(ns)    CPU(ns) Iterations
+-----------------------------------------------------
+BM_UFlat/0                86279      86140       7778 1.1GB/s  html             [ +7.5%]
+BM_UFlat/1               839265     822622        778 813.9MB/s  urls           [ +9.4%]
+BM_UFlat/2                 9180       9143      87500 12.9GB/s  jpg             [ +1.2%]
+BM_UFlat/3                35080      35000      20000 2.5GB/s  pdf              [+10.1%]
+BM_UFlat/4               350318     345000       2000 1.1GB/s  html4            [ +7.0%]
+BM_UFlat/5                33808      33472      21212 701.0MB/s  cp             [ +9.0%]
+BM_UFlat/6                15201      15214      46667 698.9MB/s  c              [+14.9%]
+BM_UFlat/7                 4652       4651     159091 762.9MB/s  lsp            [ +7.5%]
+BM_UFlat/8              1285551    1282528        538 765.7MB/s  xls            [+10.7%]
+BM_UFlat/9               282510     281690       2414 514.9MB/s  txt1           [+13.6%]
+BM_UFlat/10              243494     239286       2800 498.9MB/s  txt2           [+14.4%]
+BM_UFlat/11              743625     740000       1000 550.0MB/s  txt3           [+14.3%]
+BM_UFlat/12              999441     989717        778 464.3MB/s  txt4           [+16.1%]
+BM_UFlat/13              412402     410076       1707 1.2GB/s  bin              [ +7.3%]
+BM_UFlat/14               54876      54000      10000 675.3MB/s  sum            [+13.0%]
+BM_UFlat/15                6146       6100     100000 660.8MB/s  man            [+14.8%]
+BM_UFlat/16               90496      90286       8750 1.2GB/s  pb               [ +4.0%]
+BM_UFlat/17              292650     292000       2500 602.0MB/s  gaviota        [+18.1%]
+BM_UValidate/0            49620      49699      14286 1.9GB/s  html             [ +0.0%]
+BM_UValidate/1           501371     500000       1000 1.3GB/s  urls             [ +0.0%]
+BM_UValidate/2              232        227    3043478 521.5GB/s  jpg            [ +1.3%]
+BM_UValidate/3            17250      17143      43750 5.1GB/s  pdf              [ -1.3%]
+BM_UValidate/4           198643     200000       3500 1.9GB/s  html4            [ -0.9%]
+BM_ZFlat/0               227128     229415       3182 425.7MB/s  html (23.57 %) [ -1.4%]
+BM_ZFlat/1              2970089    2960000        250 226.2MB/s  urls (50.89 %) [ -1.9%]
+BM_ZFlat/2                45683      44999      15556 2.6GB/s  jpg (99.88 %)    [ +2.2%]
+BM_ZFlat/3               114661     113136       6364 795.1MB/s  pdf (82.13 %)  [ -1.5%]
+BM_ZFlat/4               919702     914286        875 427.2MB/s  html4 (23.55%) [ -1.3%]
+BM_ZFlat/5               108189     108422       6364 216.4MB/s  cp (48.12 %)   [ -1.2%]
+BM_ZFlat/6                44525      44000      15909 241.7MB/s  c (42.40 %)    [ -2.9%]
+BM_ZFlat/7                15973      15857      46667 223.8MB/s  lsp (48.37 %)  [ +0.0%]
+BM_ZFlat/8              2677888    2639405        269 372.1MB/s  xls (41.34 %)  [ -1.4%]
+BM_ZFlat/9               800715     780000       1000 186.0MB/s  txt1 (59.81 %) [ -0.4%]
+BM_ZFlat/10              700089     700000       1000 170.5MB/s  txt2 (64.07 %) [ -2.9%]
+BM_ZFlat/11             2159356    2138365        318 190.3MB/s  txt3 (57.11 %) [ -0.3%]
+BM_ZFlat/12             2796143    2779923        259 165.3MB/s  txt4 (68.35 %) [ -1.4%]
+BM_ZFlat/13              856458     835476        778 585.8MB/s  bin (18.21 %)  [ -0.1%]
+BM_ZFlat/14              166908     166857       4375 218.6MB/s  sum (51.88 %)  [ -1.4%]
+BM_ZFlat/15               21181      20857      35000 193.3MB/s  man (59.36 %)  [ -0.8%]
+BM_ZFlat/16              244009     239973       2917 471.3MB/s  pb (23.15 %)   [ -1.4%]
+BM_ZFlat/17              596362     590000       1000 297.9MB/s  gaviota (38.27%) [ +0.0%]
+
+R=sanjay
+
+------------------------------------------------------------------------
+r58 | snappy.mirrorbot@gmail.com | 2012-02-11 23:11:22 +0100 (Sat, 11 Feb 2012) | 9 lines
+
+Lower the size allocated in the "corrupted input" unit test from 256 MB
+to 2 MB. This fixes issues with running the unit test on platforms with
+little RAM (e.g. some ARM boards).
+
+Also, reactivate the 2 MB test for 64-bit platforms; there's no good
+reason why it shouldn't be.
+
+R=sanjay
+
+------------------------------------------------------------------------
+r57 | snappy.mirrorbot@gmail.com | 2012-01-08 18:55:48 +0100 (Sun, 08 Jan 2012) | 2 lines
+
+Minor refactoring to accomodate changes in Google's internal code tree.
+
+------------------------------------------------------------------------
+r56 | snappy.mirrorbot@gmail.com | 2012-01-04 14:10:46 +0100 (Wed, 04 Jan 2012) | 19 lines
+
+Fix public issue r57: Fix most warnings with -Wall, mostly signed/unsigned
+warnings. There are still some in the unit test, but the main .cc file should
+be clean. We haven't enabled -Wall for the default build, since the unit test
+is still not clean.
+
+This also fixes a real bug in the open-source implementation of
+ReadFileToStringOrDie(); it would not detect errors correctly.
+
+I had to go through some pains to avoid performance loss as the types
+were changed; I think there might still be some with 32-bit if and only if LFS
+is enabled (ie., size_t is 64-bit), but for regular 32-bit and 64-bit I can't
+see any losses, and I've diffed the generated GCC assembler between the old and
+new code without seeing any significant choices. If anything, it's ever so
+slightly faster.
+
+This may or may not enable compression of very large blocks (>2^32 bytes)
+when size_t is 64-bit, but I haven't checked, and it is still not a supported
+case.
+
+------------------------------------------------------------------------
+r55 | snappy.mirrorbot@gmail.com | 2012-01-04 11:46:39 +0100 (Wed, 04 Jan 2012) | 6 lines
+
+Add a framing format description. We do not have any implementation of this at
+the current point, but there seems to be enough of a general interest in the
+topic (cf. public bug #34).
+
+R=csilvers,sanjay
+
+------------------------------------------------------------------------
+r54 | snappy.mirrorbot@gmail.com | 2011-12-05 22:27:26 +0100 (Mon, 05 Dec 2011) | 81 lines
+
+Speed up decompression by moving the refill check to the end of the loop.
+
+This seems to work because in most of the branches, the compiler can evaluate
+“ip_limit_ - ip” in a more efficient way than reloading ip_limit_ from memory
+(either by already having the entire expression in a register, or reconstructing
+it from “avail”, or something else). Memory loads, even from L1, are seemingly
+costly in the big picture at the current decompression speeds.
+
+Microbenchmarks (64-bit, opt mode):
+
+Westmere (Intel Core i7):
+
+  Benchmark     Time(ns)    CPU(ns) Iterations
+  --------------------------------------------
+  BM_UFlat/0       74492      74491     187894 1.3GB/s  html      [ +5.9%]
+  BM_UFlat/1      712268     712263      19644 940.0MB/s  urls    [ +3.8%]
+  BM_UFlat/2       10591      10590    1000000 11.2GB/s  jpg      [ -6.8%]
+  BM_UFlat/3       29643      29643     469915 3.0GB/s  pdf       [ +7.9%]
+  BM_UFlat/4      304669     304667      45930 1.3GB/s  html4     [ +4.8%]
+  BM_UFlat/5       28508      28507     490077 823.1MB/s  cp      [ +4.0%]
+  BM_UFlat/6       12415      12415    1000000 856.5MB/s  c       [ +8.6%]
+  BM_UFlat/7        3415       3415    4084723 1039.0MB/s  lsp    [+18.0%]
+  BM_UFlat/8      979569     979563      14261 1002.5MB/s  xls    [ +5.8%]
+  BM_UFlat/9      230150     230148      60934 630.2MB/s  txt1    [ +5.2%]
+  BM_UFlat/10     197167     197166      71135 605.5MB/s  txt2    [ +4.7%]
+  BM_UFlat/11     607394     607390      23041 670.1MB/s  txt3    [ +5.6%]
+  BM_UFlat/12     808502     808496      17316 568.4MB/s  txt4    [ +5.0%]
+  BM_UFlat/13     372791     372788      37564 1.3GB/s  bin       [ +3.3%]
+  BM_UFlat/14      44541      44541     313969 818.8MB/s  sum     [ +5.7%]
+  BM_UFlat/15       4833       4833    2898697 834.1MB/s  man     [ +4.8%]
+  BM_UFlat/16      79855      79855     175356 1.4GB/s  pb        [ +4.8%]
+  BM_UFlat/17     245845     245843      56838 715.0MB/s  gaviota [ +5.8%]
+
+Clovertown (Intel Core 2):
+
+  Benchmark     Time(ns)    CPU(ns) Iterations
+  --------------------------------------------
+  BM_UFlat/0      107911     107890     100000 905.1MB/s  html    [ +2.2%]
+  BM_UFlat/1     1011237    1011041      10000 662.3MB/s  urls    [ +2.5%]
+  BM_UFlat/2       26775      26770     523089 4.4GB/s  jpg       [ +0.0%]
+  BM_UFlat/3       48103      48095     290618 1.8GB/s  pdf       [ +3.4%]
+  BM_UFlat/4      437724     437644      31937 892.6MB/s  html4   [ +2.1%]
+  BM_UFlat/5       39607      39600     358284 592.5MB/s  cp      [ +2.4%]
+  BM_UFlat/6       18227      18224     768191 583.5MB/s  c       [ +2.7%]
+  BM_UFlat/7        5171       5170    2709437 686.4MB/s  lsp     [ +3.9%]
+  BM_UFlat/8     1560291    1559989       8970 629.5MB/s  xls     [ +3.6%]
+  BM_UFlat/9      335401     335343      41731 432.5MB/s  txt1    [ +3.0%]
+  BM_UFlat/10     287014     286963      48758 416.0MB/s  txt2    [ +2.8%]
+  BM_UFlat/11     888522     888356      15752 458.1MB/s  txt3    [ +2.9%]
+  BM_UFlat/12    1186600    1186378      10000 387.3MB/s  txt4    [ +3.1%]
+  BM_UFlat/13     572295     572188      24468 855.4MB/s  bin     [ +2.1%]
+  BM_UFlat/14      64060      64049     218401 569.4MB/s  sum     [ +4.1%]
+  BM_UFlat/15       7264       7263    1916168 555.0MB/s  man     [ +1.4%]
+  BM_UFlat/16     108853     108836     100000 1039.1MB/s  pb     [ +1.7%]
+  BM_UFlat/17     364289     364223      38419 482.6MB/s  gaviota [ +4.9%]
+
+Barcelona (AMD Opteron):
+
+  Benchmark     Time(ns)    CPU(ns) Iterations
+  --------------------------------------------
+  BM_UFlat/0      103900     103871     100000 940.2MB/s  html    [ +8.3%]
+  BM_UFlat/1     1000435    1000107      10000 669.5MB/s  urls    [ +6.6%]
+  BM_UFlat/2       24659      24652     567362 4.8GB/s  jpg       [ +0.1%]
+  BM_UFlat/3       48206      48193     291121 1.8GB/s  pdf       [ +5.0%]
+  BM_UFlat/4      421980     421850      33174 926.0MB/s  html4   [ +7.3%]
+  BM_UFlat/5       40368      40357     346994 581.4MB/s  cp      [ +8.7%]
+  BM_UFlat/6       19836      19830     708695 536.2MB/s  c       [ +8.0%]
+  BM_UFlat/7        6100       6098    2292774 581.9MB/s  lsp     [ +9.0%]
+  BM_UFlat/8     1693093    1692514       8261 580.2MB/s  xls     [ +8.0%]
+  BM_UFlat/9      365991     365886      38225 396.4MB/s  txt1    [ +7.1%]
+  BM_UFlat/10     311330     311238      44950 383.6MB/s  txt2    [ +7.6%]
+  BM_UFlat/11     975037     974737      14376 417.5MB/s  txt3    [ +6.9%]
+  BM_UFlat/12    1303558    1303175      10000 352.6MB/s  txt4    [ +7.3%]
+  BM_UFlat/13     517448     517290      27144 946.2MB/s  bin     [ +5.5%]
+  BM_UFlat/14      66537      66518     210352 548.3MB/s  sum     [ +7.5%]
+  BM_UFlat/15       7976       7974    1760383 505.6MB/s  man     [ +5.6%]
+  BM_UFlat/16     103121     103092     100000 1097.0MB/s  pb     [ +8.7%]
+  BM_UFlat/17     391431     391314      35733 449.2MB/s  gaviota [ +6.5%]
+
+R=sanjay
+
+------------------------------------------------------------------------
+r53 | snappy.mirrorbot@gmail.com | 2011-11-23 12:14:17 +0100 (Wed, 23 Nov 2011) | 88 lines
+
+Speed up decompression by making the fast path for literals faster.
+
+We do the fast-path step as soon as possible; in fact, as soon as we know the
+literal length. Since we usually hit the fast path, we can then skip the checks
+for long literals and available input space (beyond what the fast path check
+already does).
+
+Note that this changes the decompression Writer API; however, it does not
+change the ABI, since writers are always templatized and as such never
+cross compilation units. The new API is slightly more general, in that it
+doesn't hard-code the value 16. Note that we also take care to check
+for len <= 16 first, since the other two checks almost always succeed
+(so we don't want to waste time checking for them until we have to).
+
+The improvements are most marked on Nehalem, but are generally positive
+on other platforms as well. All microbenchmarks are 64-bit, opt.
+
+Clovertown (Core 2):
+
+  Benchmark     Time(ns)    CPU(ns) Iterations
+  --------------------------------------------
+  BM_UFlat/0      110226     110224     100000 886.0MB/s  html    [ +1.5%]
+  BM_UFlat/1     1036523    1036508      10000 646.0MB/s  urls    [ -0.8%]
+  BM_UFlat/2       26775      26775     522570 4.4GB/s  jpg       [ +0.0%]
+  BM_UFlat/3       49738      49737     280974 1.8GB/s  pdf       [ +0.3%]
+  BM_UFlat/4      446790     446792      31334 874.3MB/s  html4   [ +0.8%]
+  BM_UFlat/5       40561      40562     350424 578.5MB/s  cp      [ +1.3%]
+  BM_UFlat/6       18722      18722     746903 568.0MB/s  c       [ +1.4%]
+  BM_UFlat/7        5373       5373    2608632 660.5MB/s  lsp     [ +8.3%]
+  BM_UFlat/8     1615716    1615718       8670 607.8MB/s  xls     [ +2.0%]
+  BM_UFlat/9      345278     345281      40481 420.1MB/s  txt1    [ +1.4%]
+  BM_UFlat/10     294855     294855      47452 404.9MB/s  txt2    [ +1.6%]
+  BM_UFlat/11     914263     914263      15316 445.2MB/s  txt3    [ +1.1%]
+  BM_UFlat/12    1222694    1222691      10000 375.8MB/s  txt4    [ +1.4%]
+  BM_UFlat/13     584495     584489      23954 837.4MB/s  bin     [ -0.6%]
+  BM_UFlat/14      66662      66662     210123 547.1MB/s  sum     [ +1.2%]
+  BM_UFlat/15       7368       7368    1881856 547.1MB/s  man     [ +4.0%]
+  BM_UFlat/16     110727     110726     100000 1021.4MB/s  pb     [ +2.3%]
+  BM_UFlat/17     382138     382141      36616 460.0MB/s  gaviota [ -0.7%]
+
+Westmere (Core i7):
+
+  Benchmark     Time(ns)    CPU(ns) Iterations
+  --------------------------------------------
+  BM_UFlat/0       78861      78853     177703 1.2GB/s  html      [ +2.1%]
+  BM_UFlat/1      739560     739491      18912 905.4MB/s  urls    [ +3.4%]
+  BM_UFlat/2        9867       9866    1419014 12.0GB/s  jpg      [ +3.4%]
+  BM_UFlat/3       31989      31986     438385 2.7GB/s  pdf       [ +0.2%]
+  BM_UFlat/4      319406     319380      43771 1.2GB/s  html4     [ +1.9%]
+  BM_UFlat/5       29639      29636     472862 791.7MB/s  cp      [ +5.2%]
+  BM_UFlat/6       13478      13477    1000000 789.0MB/s  c       [ +2.3%]
+  BM_UFlat/7        4030       4029    3475364 880.7MB/s  lsp     [ +8.7%]
+  BM_UFlat/8     1036585    1036492      10000 947.5MB/s  xls     [ +6.9%]
+  BM_UFlat/9      242127     242105      57838 599.1MB/s  txt1    [ +3.0%]
+  BM_UFlat/10     206499     206480      67595 578.2MB/s  txt2    [ +3.4%]
+  BM_UFlat/11     641635     641570      21811 634.4MB/s  txt3    [ +2.4%]
+  BM_UFlat/12     848847     848769      16443 541.4MB/s  txt4    [ +3.1%]
+  BM_UFlat/13     384968     384938      36366 1.2GB/s  bin       [ +0.3%]
+  BM_UFlat/14      47106      47101     297770 774.3MB/s  sum     [ +4.4%]
+  BM_UFlat/15       5063       5063    2772202 796.2MB/s  man     [ +7.7%]
+  BM_UFlat/16      83663      83656     167697 1.3GB/s  pb        [ +1.8%]
+  BM_UFlat/17     260224     260198      53823 675.6MB/s  gaviota [ -0.5%]
+
+Barcelona (Opteron):
+
+  Benchmark     Time(ns)    CPU(ns) Iterations
+  --------------------------------------------
+  BM_UFlat/0      112490     112457     100000 868.4MB/s  html    [ -0.4%]
+  BM_UFlat/1     1066719    1066339      10000 627.9MB/s  urls    [ +1.0%]
+  BM_UFlat/2       24679      24672     563802 4.8GB/s  jpg       [ +0.7%]
+  BM_UFlat/3       50603      50589     277285 1.7GB/s  pdf       [ +2.6%]
+  BM_UFlat/4      452982     452849      30900 862.6MB/s  html4   [ -0.2%]
+  BM_UFlat/5       43860      43848     319554 535.1MB/s  cp      [ +1.2%]
+  BM_UFlat/6       21419      21413     653573 496.6MB/s  c       [ +1.0%]
+  BM_UFlat/7        6646       6645    2105405 534.1MB/s  lsp     [ +0.3%]
+  BM_UFlat/8     1828487    1827886       7658 537.3MB/s  xls     [ +2.6%]
+  BM_UFlat/9      391824     391714      35708 370.3MB/s  txt1    [ +2.2%]
+  BM_UFlat/10     334913     334816      41885 356.6MB/s  txt2    [ +1.7%]
+  BM_UFlat/11    1042062    1041674      10000 390.7MB/s  txt3    [ +1.1%]
+  BM_UFlat/12    1398902    1398456      10000 328.6MB/s  txt4    [ +1.7%]
+  BM_UFlat/13     545706     545530      25669 897.2MB/s  bin     [ -0.4%]
+  BM_UFlat/14      71512      71505     196035 510.0MB/s  sum     [ +1.4%]
+  BM_UFlat/15       8422       8421    1665036 478.7MB/s  man     [ +2.6%]
+  BM_UFlat/16     112053     112048     100000 1009.3MB/s  pb     [ -0.4%]
+  BM_UFlat/17     416723     416713      33612 421.8MB/s  gaviota [ -2.0%]
+
+R=sanjay
+
+------------------------------------------------------------------------
+r52 | snappy.mirrorbot@gmail.com | 2011-11-08 15:46:39 +0100 (Tue, 08 Nov 2011) | 5 lines
+
+Fix public issue #53: Update the README to the API we actually open-sourced
+with.
+
+R=sanjay
+
+------------------------------------------------------------------------
+r51 | snappy.mirrorbot@gmail.com | 2011-10-05 14:27:12 +0200 (Wed, 05 Oct 2011) | 5 lines
+
+In the format description, use a clearer example to emphasize that varints are
+stored in little-endian. Patch from Christian von Roques.
+
+R=csilvers
+
+------------------------------------------------------------------------
+r50 | snappy.mirrorbot@gmail.com | 2011-09-15 21:34:06 +0200 (Thu, 15 Sep 2011) | 4 lines
+
+Release Snappy 1.0.4.
+
+R=sanjay
+
+------------------------------------------------------------------------
+r49 | snappy.mirrorbot@gmail.com | 2011-09-15 11:50:05 +0200 (Thu, 15 Sep 2011) | 5 lines
+
+Fix public issue #50: Include generic byteswap macros.
+Also include Solaris 10 and FreeBSD versions.
+
+R=csilvers
+
+------------------------------------------------------------------------
+r48 | snappy.mirrorbot@gmail.com | 2011-08-10 20:57:27 +0200 (Wed, 10 Aug 2011) | 5 lines
+
+Partially fix public issue 50: Remove an extra comma from the end of some
+enum declarations, as it seems the Sun compiler does not like it.
+
+Based on patch by Travis Vitek.
+
+------------------------------------------------------------------------
+r47 | snappy.mirrorbot@gmail.com | 2011-08-10 20:44:16 +0200 (Wed, 10 Aug 2011) | 4 lines
+
+Use the right #ifdef test for sys/mman.h.
+
+Based on patch by Travis Vitek.
+
+------------------------------------------------------------------------
+r46 | snappy.mirrorbot@gmail.com | 2011-08-10 03:22:09 +0200 (Wed, 10 Aug 2011) | 6 lines
+
+Fix public issue #47: Small comment cleanups in the unit test.
+
+Originally based on a patch by Patrick Pelletier.
+
+R=sanjay
+
+------------------------------------------------------------------------
+r45 | snappy.mirrorbot@gmail.com | 2011-08-10 03:14:43 +0200 (Wed, 10 Aug 2011) | 8 lines
+
+Fix public issue #46: Format description said "3-byte offset"
+instead of "4-byte offset" for the longest copies.
+
+Also fix an inconsistency in the heading for section 2.2.3.
+Both patches by Patrick Pelletier.
+
+R=csilvers
+
+------------------------------------------------------------------------
+r44 | snappy.mirrorbot@gmail.com | 2011-06-28 13:40:25 +0200 (Tue, 28 Jun 2011) | 8 lines
+
+Fix public issue #44: Make the definition and declaration of CompressFragment
+identical, even regarding cv-qualifiers.
+
+This is required to work around a bug in the Solaris Studio C++ compiler
+(it does not properly disregard cv-qualifiers when doing name mangling).
+
+R=sanjay
+
+------------------------------------------------------------------------
+r43 | snappy.mirrorbot@gmail.com | 2011-06-04 12:19:05 +0200 (Sat, 04 Jun 2011) | 7 lines
+
+Correct an inaccuracy in the Snappy format description. 
+(I stumbled into this when changing the way we decompress literals.) 
+
+R=csilvers
+
+Revision created by MOE tool push_codebase.
+
+------------------------------------------------------------------------
+r42 | snappy.mirrorbot@gmail.com | 2011-06-03 22:53:06 +0200 (Fri, 03 Jun 2011) | 50 lines
+
+Speed up decompression by removing a fast-path attempt.
+
+Whenever we try to enter a copy fast-path, there is a certain cost in checking
+that all the preconditions are in place, but it's normally offset by the fact
+that we can usually take the cheaper path. However, in a certain path we've
+already established that "avail < literal_length", which usually means that
+either the available space is small, or the literal is big. Both will disqualify
+us from taking the fast path, and thus we take the hit from the precondition
+checking without gaining much from having a fast path. Thus, simply don't try
+the fast path in this situation -- we're already on a slow path anyway
+(one where we need to refill more data from the reader).
+
+I'm a bit surprised at how much this gained; it could be that this path is
+more common than I thought, or that the simpler structure somehow makes the
+compiler happier. I haven't looked at the assembler, but it's a win across
+the board on both Core 2, Core i7 and Opteron, at least for the cases we
+typically care about. The gains seem to be the largest on Core i7, though.
+Results from my Core i7 workstation:
+
+
+  Benchmark            Time(ns)    CPU(ns) Iterations
+  ---------------------------------------------------
+  BM_UFlat/0              73337      73091     190996 1.3GB/s  html      [ +1.7%]
+  BM_UFlat/1             696379     693501      20173 965.5MB/s  urls    [ +2.7%]
+  BM_UFlat/2               9765       9734    1472135 12.1GB/s  jpg      [ +0.7%]
+  BM_UFlat/3              29720      29621     472973 3.0GB/s  pdf       [ +1.8%]
+  BM_UFlat/4             294636     293834      47782 1.3GB/s  html4     [ +2.3%]
+  BM_UFlat/5              28399      28320     494700 828.5MB/s  cp      [ +3.5%]
+  BM_UFlat/6              12795      12760    1000000 833.3MB/s  c       [ +1.2%]
+  BM_UFlat/7               3984       3973    3526448 893.2MB/s  lsp     [ +5.7%]
+  BM_UFlat/8             991996     989322      14141 992.6MB/s  xls     [ +3.3%]
+  BM_UFlat/9             228620     227835      61404 636.6MB/s  txt1    [ +4.0%]
+  BM_UFlat/10            197114     196494      72165 607.5MB/s  txt2    [ +3.5%]
+  BM_UFlat/11            605240     603437      23217 674.4MB/s  txt3    [ +3.7%]
+  BM_UFlat/12            804157     802016      17456 573.0MB/s  txt4    [ +3.9%]
+  BM_UFlat/13            347860     346998      40346 1.4GB/s  bin       [ +1.2%]
+  BM_UFlat/14             44684      44559     315315 818.4MB/s  sum     [ +2.3%]
+  BM_UFlat/15              5120       5106    2739726 789.4MB/s  man     [ +3.3%]
+  BM_UFlat/16             76591      76355     183486 1.4GB/s  pb        [ +2.8%]
+  BM_UFlat/17            238564     237828      58824 739.1MB/s  gaviota [ +1.6%]
+  BM_UValidate/0          42194      42060     333333 2.3GB/s  html      [ -0.1%]
+  BM_UValidate/1         433182     432005      32407 1.5GB/s  urls      [ -0.1%]
+  BM_UValidate/2            197        196   71428571 603.3GB/s  jpg     [ +0.5%]
+  BM_UValidate/3          14494      14462     972222 6.1GB/s  pdf       [ +0.5%]
+  BM_UValidate/4         168444     167836      83832 2.3GB/s  html4     [ +0.1%]
+	
+R=jeff
+
+Revision created by MOE tool push_codebase.
+
+------------------------------------------------------------------------
+r41 | snappy.mirrorbot@gmail.com | 2011-06-03 22:47:14 +0200 (Fri, 03 Jun 2011) | 43 lines
+
+Speed up decompression by not needing a lookup table for literal items.
+
+Looking up into and decoding the values from char_table has long shown up as a
+hotspot in the decompressor. While it turns out that it's hard to make a more
+efficient decoder for the copy ops, the literals are simple enough that we can
+decode them without needing a table lookup. (This means that 1/4 of the table
+is now unused, although that in itself doesn't buy us anything.)
+
+The gains are small, but definitely present; some tests win as much as 10%,
+but 1-4% is more typical. These results are from Core i7, in 64-bit mode;
+Core 2 and Opteron show similar results. (I've run with more iterations
+than unusual to make sure the smaller gains don't drown entirely in noise.)
+
+  Benchmark            Time(ns)    CPU(ns) Iterations
+  ---------------------------------------------------
+  BM_UFlat/0              74665      74428     182055 1.3GB/s  html      [ +3.1%]
+  BM_UFlat/1             714106     711997      19663 940.4MB/s  urls    [ +4.4%]
+  BM_UFlat/2               9820       9789    1427115 12.1GB/s  jpg      [ -1.2%]
+  BM_UFlat/3              30461      30380     465116 2.9GB/s  pdf       [ +0.8%]
+  BM_UFlat/4             301445     300568      46512 1.3GB/s  html4     [ +2.2%]
+  BM_UFlat/5              29338      29263     479452 801.8MB/s  cp      [ +1.6%]
+  BM_UFlat/6              13004      12970    1000000 819.9MB/s  c       [ +2.1%]
+  BM_UFlat/7               4180       4168    3349282 851.4MB/s  lsp     [ +1.3%]
+  BM_UFlat/8            1026149    1024000      10000 959.0MB/s  xls     [+10.7%]
+  BM_UFlat/9             237441     236830      59072 612.4MB/s  txt1    [ +0.3%]
+  BM_UFlat/10            203966     203298      69307 587.2MB/s  txt2    [ +0.8%]
+  BM_UFlat/11            627230     625000      22400 651.2MB/s  txt3    [ +0.7%]
+  BM_UFlat/12            836188     833979      16787 551.0MB/s  txt4    [ +1.3%]
+  BM_UFlat/13            351904     350750      39886 1.4GB/s  bin       [ +3.8%]
+  BM_UFlat/14             45685      45562     308370 800.4MB/s  sum     [ +5.9%]
+  BM_UFlat/15              5286       5270    2656546 764.9MB/s  man     [ +1.5%]
+  BM_UFlat/16             78774      78544     178117 1.4GB/s  pb        [ +4.3%]
+  BM_UFlat/17            242270     241345      58091 728.3MB/s  gaviota [ +1.2%]
+  BM_UValidate/0          42149      42000     333333 2.3GB/s  html      [ -3.0%]
+  BM_UValidate/1         432741     431303      32483 1.5GB/s  urls      [ +7.8%]
+  BM_UValidate/2            198        197   71428571 600.7GB/s  jpg     [+16.8%]
+  BM_UValidate/3          14560      14521     965517 6.1GB/s  pdf       [ -4.1%]
+  BM_UValidate/4         169065     168671      83832 2.3GB/s  html4     [ -2.9%]
+
+R=jeff
+
+Revision created by MOE tool push_codebase.
+
+------------------------------------------------------------------------
+r40 | snappy.mirrorbot@gmail.com | 2011-06-03 00:57:41 +0200 (Fri, 03 Jun 2011) | 2 lines
+
+Release Snappy 1.0.3.
+
+------------------------------------------------------------------------
+r39 | snappy.mirrorbot@gmail.com | 2011-06-02 20:06:54 +0200 (Thu, 02 Jun 2011) | 11 lines
+
+Remove an unneeded goto in the decompressor; it turns out that the
+state of ip_ after decompression (or attempted decompresion) is
+completely irrelevant, so we don't need the trailer.
+
+Performance is, as expected, mostly flat -- there's a curious ~3-5%
+loss in the "lsp" test, but that test case is so short it is hard to say
+anything definitive about why (most likely, it's some sort of
+unrelated effect).
+
+R=jeff
+
+------------------------------------------------------------------------
+r38 | snappy.mirrorbot@gmail.com | 2011-06-02 19:59:40 +0200 (Thu, 02 Jun 2011) | 52 lines
+
+Speed up decompression by caching ip_.
+
+It is seemingly hard for the compiler to understand that ip_, the current input
+pointer into the compressed data stream, can not alias on anything else, and
+thus using it directly will incur memory traffic as it cannot be kept in a
+register. The code already knew about this and cached it into a local
+variable, but since Step() only decoded one tag, it had to move ip_ back into
+place between every tag. This seems to have cost us a significant amount of
+performance, so changing Step() into a function that decodes as much as it can
+before it saves ip_ back and returns. (Note that Step() was already inlined,
+so it is not the manual inlining that buys the performance here.)
+
+The wins are about 3-6% for Core 2, 6-13% on Core i7 and 5-12% on Opteron
+(for plain array-to-array decompression, in 64-bit opt mode).
+
+There is a tiny difference in the behavior here; if an invalid literal is
+encountered (ie., the writer refuses the Append() operation), ip_ will now
+point to the byte past the tag byte, instead of where the literal was
+originally thought to end. However, we don't use ip_ for anything after
+DecompressAllTags() has returned, so this should not change external behavior
+in any way.
+
+Microbenchmark results for Core i7, 64-bit (Opteron results are similar):
+
+Benchmark            Time(ns)    CPU(ns) Iterations
+---------------------------------------------------
+BM_UFlat/0              79134      79110       8835 1.2GB/s  html      [ +6.2%]
+BM_UFlat/1             786126     786096        891 851.8MB/s  urls    [+10.0%]
+BM_UFlat/2               9948       9948      69125 11.9GB/s  jpg      [ -1.3%]
+BM_UFlat/3              31999      31998      21898 2.7GB/s  pdf       [ +6.5%]
+BM_UFlat/4             318909     318829       2204 1.2GB/s  html4     [ +6.5%]
+BM_UFlat/5              31384      31390      22363 747.5MB/s  cp      [ +9.2%]
+BM_UFlat/6              14037      14034      49858 757.7MB/s  c       [+10.6%]
+BM_UFlat/7               4612       4612     151395 769.5MB/s  lsp     [ +9.5%]
+BM_UFlat/8            1203174    1203007        582 816.3MB/s  xls     [+19.3%]
+BM_UFlat/9             253869     253955       2757 571.1MB/s  txt1    [+11.4%]
+BM_UFlat/10            219292     219290       3194 544.4MB/s  txt2    [+12.1%]
+BM_UFlat/11            672135     672131       1000 605.5MB/s  txt3    [+11.2%]
+BM_UFlat/12            902512     902492        776 509.2MB/s  txt4    [+12.5%]
+BM_UFlat/13            372110     371998       1881 1.3GB/s  bin       [ +5.8%]
+BM_UFlat/14             50407      50407      10000 723.5MB/s  sum     [+13.5%]
+BM_UFlat/15              5699       5701     100000 707.2MB/s  man     [+12.4%]
+BM_UFlat/16             83448      83424       8383 1.3GB/s  pb        [ +5.7%]
+BM_UFlat/17            256958     256963       2723 684.1MB/s  gaviota [ +7.9%]
+BM_UValidate/0          42795      42796      16351 2.2GB/s  html      [+25.8%]
+BM_UValidate/1         490672     490622       1427 1.3GB/s  urls      [+22.7%]
+BM_UValidate/2            237        237    2950297 499.0GB/s  jpg     [+24.9%]
+BM_UValidate/3          14610      14611      47901 6.0GB/s  pdf       [+26.8%]
+BM_UValidate/4         171973     171990       4071 2.2GB/s  html4     [+25.7%]
+
+
+
+------------------------------------------------------------------------
+r37 | snappy.mirrorbot@gmail.com | 2011-05-17 10:48:25 +0200 (Tue, 17 May 2011) | 10 lines
+
+
+Fix the numbering of the headlines in the Snappy format description.
+
+R=csilvers
+DELTA=4  (0 added, 0 deleted, 4 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1906
+
+------------------------------------------------------------------------
+r36 | snappy.mirrorbot@gmail.com | 2011-05-16 10:59:18 +0200 (Mon, 16 May 2011) | 12 lines
+
+
+Fix public issue #32: Add compressed format documentation for Snappy.
+This text is new, but an earlier version from Zeev Tarantov was used
+as reference.
+
+R=csilvers
+DELTA=112  (111 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1867
+
+------------------------------------------------------------------------
+r35 | snappy.mirrorbot@gmail.com | 2011-05-09 23:29:02 +0200 (Mon, 09 May 2011) | 12 lines
+
+
+Fix public issue #39: Pick out the median runs based on CPU time,
+not real time. Also, use nth_element instead of sort, since we
+only need one element.
+
+R=csilvers
+DELTA=5  (3 added, 0 deleted, 2 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1799
+
+------------------------------------------------------------------------
+r34 | snappy.mirrorbot@gmail.com | 2011-05-09 23:28:45 +0200 (Mon, 09 May 2011) | 19 lines
+
+
+Fix public issue #38: Make the microbenchmark framework handle
+properly cases where gettimeofday() can stand return the same
+result twice (as sometimes on GNU/Hurd) or go backwards
+(as when the user adjusts the clock). We avoid a division-by-zero,
+and put a lower bound on the number of iterations -- the same
+amount as we use to calibrate.
+
+We should probably use CLOCK_MONOTONIC for platforms that support
+it, to be robust against clock adjustments; we already use Windows'
+monotonic timers. However, that's for a later changelist.
+
+R=csilvers
+DELTA=7  (5 added, 0 deleted, 2 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1798
+
+------------------------------------------------------------------------
+r33 | snappy.mirrorbot@gmail.com | 2011-05-04 01:22:52 +0200 (Wed, 04 May 2011) | 11 lines
+
+
+Fix public issue #37: Only link snappy_unittest against -lz and other autodetected
+libraries, not libsnappy.so (which doesn't need any such dependency).
+
+R=csilvers
+DELTA=20  (14 added, 0 deleted, 6 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1710
+
+------------------------------------------------------------------------
+r32 | snappy.mirrorbot@gmail.com | 2011-05-04 01:22:33 +0200 (Wed, 04 May 2011) | 11 lines
+
+
+Release Snappy 1.0.2, to get the license change and various other fixes into
+a release.
+
+R=csilvers
+DELTA=239  (236 added, 0 deleted, 3 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1709
+
+------------------------------------------------------------------------
+r31 | snappy.mirrorbot@gmail.com | 2011-04-26 14:34:55 +0200 (Tue, 26 Apr 2011) | 15 lines
+
+
+Fix public issue #30: Stop using gettimeofday() altogether on Win32,
+as MSVC doesn't include it. Replace with QueryPerformanceCounter(),
+which is monotonic and probably reasonably high-resolution.
+(Some machines have traditionally had bugs in QPC, but they should
+be relatively rare these days, and there's really no much better
+alternative that I know of.)
+
+R=csilvers
+DELTA=74  (55 added, 19 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1556
+
+------------------------------------------------------------------------
+r30 | snappy.mirrorbot@gmail.com | 2011-04-26 14:34:37 +0200 (Tue, 26 Apr 2011) | 11 lines
+
+
+Fix public issue #31: Don't reset PATH in autogen.sh; instead, do the trickery
+we need for our own build system internally.
+
+R=csilvers
+DELTA=16  (13 added, 1 deleted, 2 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1555
+
+------------------------------------------------------------------------
+r29 | snappy.mirrorbot@gmail.com | 2011-04-16 00:55:56 +0200 (Sat, 16 Apr 2011) | 12 lines
+
+
+When including <windows.h>, define WIN32_LEAN_AND_MEAN first,
+so we won't pull in macro definitions of things like min() and max(),
+which can conflict with <algorithm>.
+
+R=csilvers
+DELTA=1  (1 added, 0 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1485
+
+------------------------------------------------------------------------
+r28 | snappy.mirrorbot@gmail.com | 2011-04-11 11:07:01 +0200 (Mon, 11 Apr 2011) | 15 lines
+
+
+Fix public issue #29: Write CPU timing code for Windows, based on GetProcessTimes()
+instead of getursage().
+
+I thought I'd already committed this patch, so that the 1.0.1 release already
+would have a Windows-compatible snappy_unittest, but I'd seemingly deleted it
+instead, so this is a reconstruction.
+
+R=csilvers
+DELTA=43  (39 added, 3 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1295
+
+------------------------------------------------------------------------
+r27 | snappy.mirrorbot@gmail.com | 2011-04-08 11:51:53 +0200 (Fri, 08 Apr 2011) | 22 lines
+
+
+Include C bindings of Snappy, contributed by Martin Gieseking.
+
+I've made a few changes since Martin's version; mostly style nits, but also
+a semantic change -- most functions that return bool in the C++ version now
+return an enum, to better match typical C (and zlib) semantics.
+
+I've kept the copyright notice, since Martin is obviously the author here;
+he has signed the contributor license agreement, though, so this should not
+hinder Google's use in the future.
+
+We'll need to update the libtool version number to match the added interface,
+but as of http://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
+I'm going to wait until public release.
+
+R=csilvers
+DELTA=238  (233 added, 0 deleted, 5 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1294
+
+------------------------------------------------------------------------
+r26 | snappy.mirrorbot@gmail.com | 2011-04-07 18:36:43 +0200 (Thu, 07 Apr 2011) | 13 lines
+
+
+Replace geo.protodata with a newer version.
+
+The data compresses/decompresses slightly faster than the old data, and has
+similar density.
+
+R=lookingbill
+DELTA=1  (0 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1288
+
+------------------------------------------------------------------------
+r25 | snappy.mirrorbot@gmail.com | 2011-03-30 22:27:53 +0200 (Wed, 30 Mar 2011) | 12 lines
+
+
+Fix public issue #27: Add HAVE_CONFIG_H tests around the config.h
+inclusion in snappy-stubs-internal.h, which eases compiling outside the
+automake/autoconf framework.
+
+R=csilvers
+DELTA=5  (4 added, 1 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1152
+
+------------------------------------------------------------------------
+r24 | snappy.mirrorbot@gmail.com | 2011-03-30 22:27:39 +0200 (Wed, 30 Mar 2011) | 13 lines
+
+
+Fix public issue #26: Take memory allocation and reallocation entirely out of the
+Measure() loop. This gives all algorithms a small speed boost, except Snappy which
+already didn't do reallocation (so the measurements were slightly biased in its
+favor).
+
+R=csilvers
+DELTA=92  (69 added, 9 deleted, 14 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1151
+
+------------------------------------------------------------------------
+r23 | snappy.mirrorbot@gmail.com | 2011-03-30 22:25:09 +0200 (Wed, 30 Mar 2011) | 18 lines
+
+
+Renamed "namespace zippy" to "namespace snappy" to reduce
+the differences from the opensource code.  Will make it easier
+in the future to mix-and-match third-party code that uses
+snappy with google code.
+
+Currently, csearch shows that the only external user of
+"namespace zippy" is some bigtable code that accesses
+a TEST variable, which is temporarily kept in the zippy
+namespace.
+
+R=sesse
+DELTA=123  (18 added, 3 deleted, 102 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1150
+
+------------------------------------------------------------------------
+r22 | snappy.mirrorbot@gmail.com | 2011-03-29 00:17:04 +0200 (Tue, 29 Mar 2011) | 11 lines
+
+
+Put back the final few lines of what was truncated during the
+license header change.
+
+R=csilvers
+DELTA=5  (4 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1094
+
+------------------------------------------------------------------------
+r21 | snappy.mirrorbot@gmail.com | 2011-03-26 03:34:34 +0100 (Sat, 26 Mar 2011) | 20 lines
+
+
+Change on 2011-03-25 19:18:00-07:00 by sesse
+
+	Replace the Apache 2.0 license header by the BSD-type license header;
+	somehow a lot of the files were missed in the last round.
+
+	R=dannyb,csilvers
+	DELTA=147  (74 added, 2 deleted, 71 changed)
+
+Change on 2011-03-25 19:25:07-07:00 by sesse
+
+	Unbreak the build; the relicensing removed a bit too much (only comments
+	were intended, but I also accidentially removed some of the top lines of
+	the actual source).
+
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1072
+
+------------------------------------------------------------------------
+r20 | snappy.mirrorbot@gmail.com | 2011-03-25 17:14:41 +0100 (Fri, 25 Mar 2011) | 10 lines
+
+
+Change Snappy from the Apache 2.0 to a BSD-type license.
+
+R=dannyb
+DELTA=328  (80 added, 184 deleted, 64 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1061
+
+------------------------------------------------------------------------
+r19 | snappy.mirrorbot@gmail.com | 2011-03-25 01:39:01 +0100 (Fri, 25 Mar 2011) | 11 lines
+
+
+Release Snappy 1.0.1, to soup up all the various small changes
+that have been made since release.
+
+R=csilvers
+DELTA=266  (260 added, 0 deleted, 6 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1057
+
+------------------------------------------------------------------------
+r18 | snappy.mirrorbot@gmail.com | 2011-03-24 20:15:54 +0100 (Thu, 24 Mar 2011) | 11 lines
+
+
+Fix a microbenchmark crash on mingw32; seemingly %lld is not universally
+supported on Windows, and %I64d is recommended instead.
+
+R=csilvers
+DELTA=6  (5 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1034
+
+------------------------------------------------------------------------
+r17 | snappy.mirrorbot@gmail.com | 2011-03-24 20:15:27 +0100 (Thu, 24 Mar 2011) | 13 lines
+
+
+Fix public issue #19: Fix unit test when Google Test is installed but the
+gflags package isn't (Google Test is not properly initialized).
+
+Patch by Martin Gieseking.
+
+R=csilvers
+DELTA=2  (1 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1033
+
+------------------------------------------------------------------------
+r16 | snappy.mirrorbot@gmail.com | 2011-03-24 20:13:57 +0100 (Thu, 24 Mar 2011) | 15 lines
+
+
+Make the unit test work on systems without mmap(). This is required for,
+among others, Windows support. For Windows in specific, we could have used
+CreateFileMapping/MapViewOfFile, but this should at least get us a bit closer
+to compiling, and is of course also relevant for embedded systems with no MMU.
+
+(Part 2/2)
+
+R=csilvers
+DELTA=15  (12 added, 3 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1032
+
+------------------------------------------------------------------------
+r15 | snappy.mirrorbot@gmail.com | 2011-03-24 20:12:27 +0100 (Thu, 24 Mar 2011) | 15 lines
+
+
+Make the unit test work on systems without mmap(). This is required for,
+among others, Windows support. For Windows in specific, we could have used
+CreateFileMapping/MapViewOfFile, but this should at least get us a bit closer
+to compiling, and is of course also relevant for embedded systems with no MMU.
+
+(Part 1/2)
+
+R=csilvers
+DELTA=9  (8 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1031
+
+------------------------------------------------------------------------
+r14 | snappy.mirrorbot@gmail.com | 2011-03-24 00:17:36 +0100 (Thu, 24 Mar 2011) | 14 lines
+
+
+Fix public issue #12: Don't keep autogenerated auto* files in Subversion;
+it causes problems with others sending patches etc..
+
+We can't get this 100% hermetic anyhow, due to files like lt~obsolete.m4,
+so we can just as well go cleanly in the other direction.
+
+R=csilvers
+DELTA=21038  (0 added, 21036 deleted, 2 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=1012
+
+------------------------------------------------------------------------
+r13 | snappy.mirrorbot@gmail.com | 2011-03-23 18:50:49 +0100 (Wed, 23 Mar 2011) | 11 lines
+
+
+Fix public issue tracker bug #3: Call AC_SUBST([LIBTOOL_DEPS]), or the rule
+to rebuild libtool in Makefile.am won't work.
+
+R=csilvers
+DELTA=1  (1 added, 0 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=997
+
+------------------------------------------------------------------------
+r12 | snappy.mirrorbot@gmail.com | 2011-03-23 12:16:39 +0100 (Wed, 23 Mar 2011) | 11 lines
+
+
+Fix public issue #10: Don't add GTEST_CPPFLAGS to snappy_unittest_CXXFLAGS;
+it's not needed (CPPFLAGS are always included when compiling).
+
+R=csilvers
+DELTA=1  (0 added, 1 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=994
+
+------------------------------------------------------------------------
+r11 | snappy.mirrorbot@gmail.com | 2011-03-23 12:16:18 +0100 (Wed, 23 Mar 2011) | 11 lines
+
+
+Fix public issue #9: Add -Wall -Werror to automake flags.
+(This concerns automake itself, not the C++ compiler.)
+
+R=csilvers
+DELTA=4  (3 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=993
+
+------------------------------------------------------------------------
+r10 | snappy.mirrorbot@gmail.com | 2011-03-23 12:13:37 +0100 (Wed, 23 Mar 2011) | 10 lines
+
+
+Fix a typo in the Snappy README file.
+
+R=csilvers
+DELTA=1  (0 added, 0 deleted, 1 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=992
+
+------------------------------------------------------------------------
+r9 | snappy.mirrorbot@gmail.com | 2011-03-23 12:13:13 +0100 (Wed, 23 Mar 2011) | 11 lines
+
+
+Fix public issue #6: Add a --with-gflags for disabling gflags autodetection
+and using a manually given setting (use/don't use) instead.
+
+R=csilvers
+DELTA=16  (13 added, 0 deleted, 3 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=991
+
+------------------------------------------------------------------------
+r8 | snappy.mirrorbot@gmail.com | 2011-03-23 12:12:44 +0100 (Wed, 23 Mar 2011) | 12 lines
+
+
+Fix public issue #5: Replace the EXTRA_LIBSNAPPY_LDFLAGS setup with something
+slightly more standard, that also doesn't leak libtool command-line into
+configure.ac.
+
+R=csilvers
+DELTA=7  (0 added, 4 deleted, 3 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=990
+
+------------------------------------------------------------------------
+r7 | snappy.mirrorbot@gmail.com | 2011-03-23 12:12:22 +0100 (Wed, 23 Mar 2011) | 10 lines
+
+
+Fix public issue #4: Properly quote all macro arguments in configure.ac.
+
+R=csilvers
+DELTA=16  (0 added, 0 deleted, 16 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=989
+
+------------------------------------------------------------------------
+r6 | snappy.mirrorbot@gmail.com | 2011-03-23 12:11:54 +0100 (Wed, 23 Mar 2011) | 11 lines
+
+
+Fix public issue #7: Don't use internal variables named ac_*, as those belong
+to autoconf's namespace.
+
+R=csilvers
+DELTA=6  (0 added, 0 deleted, 6 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=988
+
+------------------------------------------------------------------------
+r5 | snappy.mirrorbot@gmail.com | 2011-03-23 12:11:09 +0100 (Wed, 23 Mar 2011) | 10 lines
+
+
+Add missing licensing headers to a few files. (Part 2/2.)
+
+R=csilvers
+DELTA=12  (12 added, 0 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=987
+
+------------------------------------------------------------------------
+r4 | snappy.mirrorbot@gmail.com | 2011-03-23 12:10:39 +0100 (Wed, 23 Mar 2011) | 10 lines
+
+
+Add mising licensing headers to a few files. (Part 1/2.)
+
+R=csilvers
+DELTA=24  (24 added, 0 deleted, 0 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=986
+
+------------------------------------------------------------------------
+r3 | snappy.mirrorbot@gmail.com | 2011-03-23 12:10:04 +0100 (Wed, 23 Mar 2011) | 11 lines
+
+
+Use the correct license file for the Apache 2.0 license;
+spotted by Florian Weimer.
+
+R=csilvers
+DELTA=202  (174 added, 0 deleted, 28 changed)
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=985
+
+------------------------------------------------------------------------
+r2 | snappy.mirrorbot@gmail.com | 2011-03-18 18:14:15 +0100 (Fri, 18 Mar 2011) | 6 lines
+
+
+
+
+Revision created by MOE tool push_codebase.
+MOE_MIGRATION=
+
+------------------------------------------------------------------------
+r1 | sesse@google.com | 2011-03-18 18:13:52 +0100 (Fri, 18 Mar 2011) | 2 lines
+
+Create trunk directory.
+
+------------------------------------------------------------------------
