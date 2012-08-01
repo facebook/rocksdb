@@ -34,7 +34,7 @@ namespace apache { namespace thrift { namespace transport {
  */
 class THttpTransport : public TVirtualTransport<THttpTransport> {
  public:
-  THttpTransport(boost::shared_ptr<TTransport> transport);
+  explicit THttpTransport(boost::shared_ptr<TTransport> transport);
 
   virtual ~THttpTransport();
 
@@ -61,6 +61,10 @@ class THttpTransport : public TVirtualTransport<THttpTransport> {
   void write(const uint8_t* buf, uint32_t len);
 
   virtual void flush() = 0;
+
+  boost::shared_ptr<TTransport> getUnderlyingTransport() {
+    return transport_;
+  }
 
  protected:
 

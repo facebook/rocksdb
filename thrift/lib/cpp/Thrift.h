@@ -272,6 +272,12 @@ void profile_print_info();
 void profile_write_pprof(FILE* gen_calls_f, FILE* virtual_calls_f);
 #endif
 
+template <class ThriftContainer>
+inline void reallyClear(ThriftContainer& container) {
+  ThriftContainer emptyContainer;
+  swap(container, emptyContainer);
+}
+
 }} // apache::thrift
 
 #endif // #ifndef THRIFT_THRIFT_H_

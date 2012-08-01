@@ -435,7 +435,7 @@ class TAsyncServerSocket : public TDelayedDestruction,
   /**
    * Get the number of connections dropped by the TAsyncServerSocket
    */
-  double getNumDroppedConnections() const {
+  uint64_t getNumDroppedConnections() const {
     return numDroppedConnections_;
   }
 
@@ -502,7 +502,7 @@ class TAsyncServerSocket : public TDelayedDestruction,
   double acceptRateAdjustSpeed_;  //0 to disable auto adjust
   double acceptRate_;
   int64_t lastAccepTimestamp_;  // milliseconds
-  int64_t numDroppedConnections_;
+  uint64_t numDroppedConnections_;
   uint32_t callbackIndex_;
   BackoffTimeout *backoffTimeout_;
   std::vector<CallbackInfo> callbacks_;

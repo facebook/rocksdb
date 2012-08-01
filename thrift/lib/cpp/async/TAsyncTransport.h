@@ -180,6 +180,9 @@ class TAsyncTransport {
    * If a ReadCallback is already installed, it is replaced with the new
    * callback.
    *
+   * Note that setReadCallback() may invoke the ReadCallback immediately,
+   * before returning.
+   *
    * @param callback    The callback to invoke when data is available.
    *                    This parameter may be NULL to uninstall the current
    *                    read callback.

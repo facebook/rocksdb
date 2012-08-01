@@ -361,6 +361,14 @@ class TAsyncSocket : public TAsyncTransport,
   int setNoDelay(bool noDelay);
 
   /*
+   * Set the Flavor of Congestion Control to be used for this Socket
+   * Please check '/lib/modules/<kernel>/kernel/net/ipv4' for tcp_*.ko
+   * first to make sure the module is available for plugging in
+   * Alternatively you can choose from net.ipv4.tcp_allowed_congestion_control
+   */
+  int setCongestionFlavor(const std::string &cname);
+
+  /*
    * Forces ACKs to be sent immediately
    *
    * @return Returns 0 if the TCP_QUICKACK flag was successfully updated,
@@ -486,6 +494,7 @@ class TAsyncSocket : public TAsyncTransport,
 
   // event notification methods
   void ioReady(uint16_t events) THRIFT_NOEXCEPT;
+  virtual void checkForImmediateRead() THRIFT_NOEXCEPT;
   virtual void handleInitialReadWrite() THRIFT_NOEXCEPT;
   virtual void handleRead() THRIFT_NOEXCEPT;
   virtual void handleWrite() THRIFT_NOEXCEPT;

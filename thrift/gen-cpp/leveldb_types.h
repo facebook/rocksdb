@@ -91,6 +91,32 @@ return  ::Tleveldb::IteratorType::seekToKey;
 }} // apache:thrift
 
 namespace Tleveldb {
+enum AssocVisibility {
+  VISIBLE = 0,
+  DELETED = 1,
+  UNUSED1 = 2,
+  HIDDEN = 3,
+  UNUSED2 = 4,
+  HARD_DELETE = 4
+};
+
+extern const std::map<int, const char*> _AssocVisibility_VALUES_TO_NAMES;
+
+extern const std::map<const char*, int, apache::thrift::ltstr> _AssocVisibility_NAMES_TO_VALUES;
+
+} // namespace
+namespace apache { namespace thrift { 
+template<>
+inline constexpr  ::Tleveldb::AssocVisibility TEnumTraits< ::Tleveldb::AssocVisibility>::min() {
+return  ::Tleveldb::AssocVisibility::VISIBLE;
+}
+template<>
+inline constexpr  ::Tleveldb::AssocVisibility TEnumTraits< ::Tleveldb::AssocVisibility>::max() {
+return  ::Tleveldb::AssocVisibility::HARD_DELETE;
+}
+}} // apache:thrift
+
+namespace Tleveldb {
 typedef std::string Text;
 
 typedef std::string Bytes;
@@ -460,7 +486,7 @@ class DBHandle {
 
   static const uint64_t _reflection_id = 8973827971994157004U;
   static void _reflection_register(::apache::thrift::reflection::Schema&);
-  DBHandle() : dbname(""), handleid(0) {
+  DBHandle() : dbname("") {
   }
 
   DBHandle(const DBHandle&) = default;
@@ -470,30 +496,24 @@ class DBHandle {
 
   void __clear() {
     dbname = "";
-    handleid = 0;
     __isset.__clear();
   }
 
   virtual ~DBHandle() throw() {}
 
   Text dbname;
-  int64_t handleid;
 
   struct __isset {
     __isset() { __clear(); } 
     void __clear() {
       dbname = false;
-      handleid = false;
     }
     bool dbname;
-    bool handleid;
   } __isset;
 
   bool operator == (const DBHandle & rhs) const
   {
     if (!(this->dbname == rhs.dbname))
-      return false;
-    if (!(this->handleid == rhs.handleid))
       return false;
     return true;
   }
@@ -900,6 +920,140 @@ class LeveldbException : public apache::thrift::TException {
 
 class LeveldbException;
 void swap(LeveldbException &a, LeveldbException &b);
+
+class IOError : public apache::thrift::TException {
+ public:
+
+  static const uint64_t _reflection_id = 8460881927871070060U;
+  static void _reflection_register(::apache::thrift::reflection::Schema&);
+  IOError() : message("") {
+  }
+
+  IOError(const IOError&) = default;
+  IOError& operator=(const IOError&) = default;
+  IOError(IOError&&) = default;
+  IOError& operator=(IOError&&) = default;
+
+  void __clear() {
+    message = "";
+    __isset.__clear();
+  }
+
+  virtual ~IOError() throw() {}
+
+  std::string message;
+
+  struct __isset {
+    __isset() { __clear(); } 
+    void __clear() {
+      message = false;
+    }
+    bool message;
+  } __isset;
+
+  bool operator == (const IOError & rhs) const
+  {
+    if (!(this->message == rhs.message))
+      return false;
+    return true;
+  }
+  bool operator != (const IOError &rhs) const {
+    return !(*this == rhs);
+  }
+
+  bool operator < (const IOError & ) const;
+
+  uint32_t read(apache::thrift::protocol::TProtocol* iprot);
+  uint32_t write(apache::thrift::protocol::TProtocol* oprot) const;
+
+  virtual const char* what() const throw() {
+    return "IOError";
+  }
+
+};
+
+class IOError;
+void swap(IOError &a, IOError &b);
+
+class TaoAssocGetResult {
+ public:
+
+  static const uint64_t _reflection_id = 6301164048086986412U;
+  static void _reflection_register(::apache::thrift::reflection::Schema&);
+  TaoAssocGetResult() : id2(0), id1Type(0), id2Type(0), time(0), dataVersion(0), data("") {
+  }
+
+  TaoAssocGetResult(const TaoAssocGetResult&) = default;
+  TaoAssocGetResult& operator=(const TaoAssocGetResult&) = default;
+  TaoAssocGetResult(TaoAssocGetResult&&) = default;
+  TaoAssocGetResult& operator=(TaoAssocGetResult&&) = default;
+
+  void __clear() {
+    id2 = 0;
+    id1Type = 0;
+    id2Type = 0;
+    time = 0;
+    dataVersion = 0;
+    data = "";
+    __isset.__clear();
+  }
+
+  virtual ~TaoAssocGetResult() throw() {}
+
+  int64_t id2;
+  int64_t id1Type;
+  int64_t id2Type;
+  int64_t time;
+  int64_t dataVersion;
+  Text data;
+
+  struct __isset {
+    __isset() { __clear(); } 
+    void __clear() {
+      id2 = false;
+      id1Type = false;
+      id2Type = false;
+      time = false;
+      dataVersion = false;
+      data = false;
+    }
+    bool id2;
+    bool id1Type;
+    bool id2Type;
+    bool time;
+    bool dataVersion;
+    bool data;
+  } __isset;
+
+  bool operator == (const TaoAssocGetResult & rhs) const
+  {
+    if (!(this->id2 == rhs.id2))
+      return false;
+    if (!(this->id1Type == rhs.id1Type))
+      return false;
+    if (!(this->id2Type == rhs.id2Type))
+      return false;
+    if (!(this->time == rhs.time))
+      return false;
+    if (!(this->dataVersion == rhs.dataVersion))
+      return false;
+    if (!(this->data == rhs.data))
+      return false;
+    return true;
+  }
+  bool operator != (const TaoAssocGetResult &rhs) const {
+    return !(*this == rhs);
+  }
+
+  bool operator < (const TaoAssocGetResult & ) const;
+
+  uint32_t read(apache::thrift::protocol::TProtocol* iprot);
+  uint32_t write(apache::thrift::protocol::TProtocol* oprot) const;
+
+};
+
+class TaoAssocGetResult;
+void swap(TaoAssocGetResult &a, TaoAssocGetResult &b);
 
 } // namespace
 

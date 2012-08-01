@@ -340,7 +340,7 @@ class TEventServer : public apache::thrift::server::TServer {
   */
   template<typename AsyncProcessor>
   TEventServer(boost::shared_ptr<AsyncProcessor> processor,
-               boost::shared_ptr<apache::thrift::server::TProtocolFactory>
+               boost::shared_ptr<apache::thrift::protocol::TProtocolFactory>
                 protocolFactory,
                int port,
                int nWorkers = T_ASYNC_DEFAULT_WORKER_THREADS,
@@ -386,9 +386,9 @@ class TEventServer : public apache::thrift::server::TServer {
   */
   template<typename AsyncProcessor>
   TEventServer(boost::shared_ptr<AsyncProcessor> processor,
-               boost::shared_ptr<apache::thrift::server::TProtocolFactory>
+               boost::shared_ptr<apache::thrift::protocol::TProtocolFactory>
                 inputProtocolFactory,
-               boost::shared_ptr<apache::thrift::server::TProtocolFactory>
+               boost::shared_ptr<apache::thrift::protocol::TProtocolFactory>
                 outputProtocolFactory,
                int port,
                int nWorkers = T_ASYNC_DEFAULT_WORKER_THREADS,
@@ -433,12 +433,13 @@ class TEventServer : public apache::thrift::server::TServer {
       @param nWorkers the number of worker threads
   */
   template<typename AsyncProcessor>
-  TEventServer(boost::shared_ptr<AsyncProcessor> processor,
-               boost::shared_ptr<apache::thrift::server::TDuplexProtocolFactory>
-                duplexProtocolFactory,
-               int port,
-               int nWorkers = T_ASYNC_DEFAULT_WORKER_THREADS,
-               THRIFT_OVERLOAD_IF(AsyncProcessor, TAsyncProcessor)):
+  TEventServer(
+      boost::shared_ptr<AsyncProcessor> processor,
+      boost::shared_ptr<apache::thrift::protocol::TDuplexProtocolFactory>
+        duplexProtocolFactory,
+      int port,
+      int nWorkers = T_ASYNC_DEFAULT_WORKER_THREADS,
+      THRIFT_OVERLOAD_IF(AsyncProcessor, TAsyncProcessor)):
     apache::thrift::server::TServer(boost::shared_ptr<TProcessor>()),
     maxConnectionPoolSize_(T_ASYNC_MAX_CONNECTION_POOL_SIZE),
     asyncProcessorFactory_(new TAsyncSingletonProcessorFactory(processor)),
@@ -479,8 +480,8 @@ class TEventServer : public apache::thrift::server::TServer {
   */
   template<typename Processor>
   TEventServer(
-      boost::shared_ptr<Processor>& processor,
-      boost::shared_ptr<apache::thrift::server::TProtocolFactory>&
+      boost::shared_ptr<Processor> processor,
+      boost::shared_ptr<apache::thrift::protocol::TProtocolFactory>
        protocolFactory,
       int port,
       boost::shared_ptr<concurrency::ThreadManager> const& threadManager =
@@ -524,9 +525,9 @@ class TEventServer : public apache::thrift::server::TServer {
   */
   template<typename Processor>
   TEventServer(
-      boost::shared_ptr<Processor>& processor,
-      boost::shared_ptr<apache::thrift::server::TDuplexProtocolFactory>&
-       duplexProtocolFactory,
+      boost::shared_ptr<Processor> processor,
+      boost::shared_ptr<apache::thrift::protocol::TDuplexProtocolFactory>
+        duplexProtocolFactory,
       int port,
       boost::shared_ptr<concurrency::ThreadManager> const& threadManager =
         boost::shared_ptr<concurrency::ThreadManager>(),
@@ -714,7 +715,7 @@ class TEventServer : public apache::thrift::server::TServer {
   /**
    * Get the number of connections dropped by the TAsyncServerSocket
    */
-  void getNumDroppedConnections() const;
+  uint64_t getNumDroppedConnections() const;
 
   /** Reset the maximum number of inactive connection objects to the default.
   */

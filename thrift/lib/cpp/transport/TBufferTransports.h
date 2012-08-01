@@ -199,6 +199,9 @@ class TBufferedTransport
     : transport_(transport)
     , rBufSize_(DEFAULT_BUFFER_SIZE)
     , wBufSize_(DEFAULT_BUFFER_SIZE)
+    , wBufResetSize_(0)
+    , wBufResetEveryN_(0)
+    , wBufResetCount_(0)
     , rBuf_(new uint8_t[rBufSize_])
     , wBuf_(new uint8_t[wBufSize_])
   {
@@ -210,17 +213,34 @@ class TBufferedTransport
     : transport_(transport)
     , rBufSize_(sz)
     , wBufSize_(sz)
+    , wBufResetSize_(0)
+    , wBufResetEveryN_(0)
+    , wBufResetCount_(0)
     , rBuf_(new uint8_t[rBufSize_])
     , wBuf_(new uint8_t[wBufSize_])
   {
     initPointers();
   }
 
-  /// Use specified read and write buffer sizes.
-  TBufferedTransport(boost::shared_ptr<TTransport> transport, uint32_t rsz, uint32_t wsz)
+  /**
+   * Ctor with initial read and write buffer sizes and write buffer reset
+   * behaviour settings.
+   *
+   * @param transport Underlying transport.
+   * @param sz Initial buffer size.
+   * @param reset_sz Buffer size after a reset.  See also reset_every_n.
+   * @param reset_every_n Reset the buffer after every N calls to flush().
+   *                      If set to zero (default), no reset is done.
+   */
+  TBufferedTransport(boost::shared_ptr<TTransport> transport, uint32_t rsz,
+                     uint32_t wsz, uint32_t reset_sz = 0,
+                     uint32_t reset_every_n = 0)
     : transport_(transport)
     , rBufSize_(rsz)
     , wBufSize_(wsz)
+    , wBufResetSize_(reset_sz)
+    , wBufResetEveryN_(reset_every_n)
+    , wBufResetCount_(0)
     , rBuf_(new uint8_t[rBufSize_])
     , wBuf_(new uint8_t[wBufSize_])
   {
@@ -291,6 +311,9 @@ class TBufferedTransport
 
   uint32_t rBufSize_;
   uint32_t wBufSize_;
+  uint32_t wBufResetSize_;
+  uint32_t wBufResetEveryN_;
+  uint32_t wBufResetCount_;
   boost::scoped_array<uint8_t> rBuf_;
   boost::scoped_array<uint8_t> wBuf_;
 };
@@ -336,19 +359,36 @@ class TFramedTransport
     : transport_(transport)
     , rBufSize_(0)
     , wBufSize_(DEFAULT_BUFFER_SIZE)
+    , wBufResetSize_(0)
+    , wBufResetEveryN_(0)
+    , wBufResetCount_(0)
     , rBuf_()
     , wBuf_(new uint8_t[wBufSize_])
   {
     initPointers();
   }
 
-  TFramedTransport(boost::shared_ptr<TTransport> transport, uint32_t sz)
+  /**
+   * Ctor with initial buffer size and write buffer reset behaviour settings.
+   *
+   * @param transport Underlying transport.
+   * @param sz Initial buffer size.
+   * @param reset_sz Buffer size after a reset.  See also reset_every_n.
+   * @param reset_every_n Reset the buffer after every N calls to flush().
+   *                      If set to zero (default), no reset is done.
+   */
+  TFramedTransport(boost::shared_ptr<TTransport> transport, uint32_t sz,
+                   uint32_t reset_sz = 0, uint32_t reset_every_n = 0)
     : transport_(transport)
     , rBufSize_(0)
     , wBufSize_(sz)
+    , wBufResetSize_(reset_sz)
+    , wBufResetEveryN_(reset_every_n)
+    , wBufResetCount_(0)
     , rBuf_()
     , wBuf_(new uint8_t[wBufSize_])
   {
+    assert(wBufResetSize_ == 0 || wBufSize_ <= wBufResetSize_);
     initPointers();
   }
 
@@ -396,6 +436,9 @@ class TFramedTransport
   TFramedTransport()
     : rBufSize_(0)
     , wBufSize_(DEFAULT_BUFFER_SIZE)
+    , wBufResetSize_(0)
+    , wBufResetEveryN_(0)
+    , wBufResetCount_(0)
     , rBuf_()
     , wBuf_(new uint8_t[wBufSize_])
   {
@@ -426,6 +469,9 @@ class TFramedTransport
 
   uint32_t rBufSize_;
   uint32_t wBufSize_;
+  uint32_t wBufResetSize_;
+  uint32_t wBufResetEveryN_;
+  uint32_t wBufResetCount_;
   boost::scoped_array<uint8_t> rBuf_;
   boost::scoped_array<uint8_t> wBuf_;
 };

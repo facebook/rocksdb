@@ -167,6 +167,9 @@ class ServerCreatorBase : public ServerCreator {
    */
   virtual boost::shared_ptr<protocol::TProtocolFactory> getProtocolFactory();
 
+  virtual boost::shared_ptr<protocol::TDuplexProtocolFactory>
+  getDuplexProtocolFactory();
+
   bool strictRead_;
   bool strictWrite_;
   int32_t stringLimit_;

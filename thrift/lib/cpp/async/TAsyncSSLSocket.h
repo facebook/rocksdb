@@ -372,6 +372,7 @@ class TAsyncSSLSocket : public TAsyncSocket {
   void invalidState(HandshakeCallback* callback);
   bool willBlock(int ret, int *errorOut) THRIFT_NOEXCEPT;
 
+  virtual void checkForImmediateRead() THRIFT_NOEXCEPT;
   // TAsyncSocket calls this at the wrong time for SSL
   void handleInitialReadWrite() THRIFT_NOEXCEPT {}
 

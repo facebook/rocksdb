@@ -137,6 +137,15 @@ class TAsyncTimeout : private boost::noncopyable {
   static void libeventCallback(int fd, short events, void* arg);
 
   struct event event_;
+
+  /*
+   * In debug builds, store a pointer to the TEventBase.  We only use this
+   * for some assert() statements, to make sure that TAsyncTimeout is always
+   * used from the correct thread.
+   */
+#ifndef NDEBUG
+  TEventBase* eventBase_;
+#endif
 };
 
 }}} // apache::thrift::async

@@ -27,7 +27,7 @@ class DBIf {
   virtual void GetPrev(ResultPair& _return, const DBHandle& dbhandle, const Iterator& iterator) = 0;
   virtual void GetSnapshot(ResultSnapshot& _return, const DBHandle& dbhandle) = 0;
   virtual Code ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapshot) = 0;
-  virtual Code CompactRange(const DBHandle& dbhandle, const Slice& begin, const Slice& end) = 0;
+  virtual Code CompactRange(const DBHandle& dbhandle, const Slice& start, const Slice& endhere) = 0;
 };
 
 class DBIfFactory {
@@ -99,7 +99,7 @@ class DBNull : virtual public DBIf {
     Code _return = (Code)0;
     return _return;
   }
-  Code CompactRange(const DBHandle& /* dbhandle */, const Slice& /* begin */, const Slice& /* end */) {
+  Code CompactRange(const DBHandle& /* dbhandle */, const Slice& /* start */, const Slice& /* endhere */) {
     Code _return = (Code)0;
     return _return;
   }
@@ -1808,36 +1808,36 @@ class DB_CompactRange_args {
 
   void __clear() {
     dbhandle.__clear();
-    begin.__clear();
-    end.__clear();
+    start.__clear();
+    endhere.__clear();
     __isset.__clear();
   }
 
   virtual ~DB_CompactRange_args() throw() {}
 
   DBHandle dbhandle;
-  Slice begin;
-  Slice end;
+  Slice start;
+  Slice endhere;
 
   struct __isset {
     __isset() { __clear(); } 
     void __clear() {
       dbhandle = false;
-      begin = false;
-      end = false;
+      start = false;
+      endhere = false;
     }
     bool dbhandle;
-    bool begin;
-    bool end;
+    bool start;
+    bool endhere;
   } __isset;
 
   bool operator == (const DB_CompactRange_args & rhs) const
   {
     if (!(this->dbhandle == rhs.dbhandle))
       return false;
-    if (!(this->begin == rhs.begin))
+    if (!(this->start == rhs.start))
       return false;
-    if (!(this->end == rhs.end))
+    if (!(this->endhere == rhs.endhere))
       return false;
     return true;
   }
@@ -1861,8 +1861,8 @@ class DB_CompactRange_pargs {
   virtual ~DB_CompactRange_pargs() throw() {}
 
   const DBHandle* dbhandle;
-  const Slice* begin;
-  const Slice* end;
+  const Slice* start;
+  const Slice* endhere;
 
   uint32_t write(apache::thrift::protocol::TProtocol* oprot) const;
 
@@ -1999,8 +1999,8 @@ class DBClient : virtual public DBIf, virtual public apache::thrift::TClientBase
   Code ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapshot);
   void send_ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapshot);
   Code recv_ReleaseSnapshot();
-  Code CompactRange(const DBHandle& dbhandle, const Slice& begin, const Slice& end);
-  void send_CompactRange(const DBHandle& dbhandle, const Slice& begin, const Slice& end);
+  Code CompactRange(const DBHandle& dbhandle, const Slice& start, const Slice& endhere);
+  void send_CompactRange(const DBHandle& dbhandle, const Slice& start, const Slice& endhere);
   Code recv_CompactRange();
 
   /**
@@ -2209,13 +2209,13 @@ class DBMultiface : virtual public DBIf {
     return ifaces_[i]->ReleaseSnapshot(dbhandle, snapshot);
   }
 
-  Code CompactRange(const DBHandle& dbhandle, const Slice& begin, const Slice& end) {
+  Code CompactRange(const DBHandle& dbhandle, const Slice& start, const Slice& endhere) {
     uint32_t i;
     uint32_t sz = ifaces_.size();
     for (i = 0; i < sz - 1; ++i) {
-      ifaces_[i]->CompactRange(dbhandle, begin, end);
+      ifaces_[i]->CompactRange(dbhandle, start, endhere);
     }
-    return ifaces_[i]->CompactRange(dbhandle, begin, end);
+    return ifaces_[i]->CompactRange(dbhandle, start, endhere);
   }
 
 };

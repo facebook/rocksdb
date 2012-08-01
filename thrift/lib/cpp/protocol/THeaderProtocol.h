@@ -202,7 +202,10 @@ class THeaderProtocol
 
   uint32_t writeDouble(const double dub);
 
-  uint32_t writeString(const std::string& str);
+  template<typename StrType>
+  uint32_t writeString(const StrType& str) {
+    return proto_->writeString(str);
+  }
 
   uint32_t writeBinary(const std::string& str);
 
@@ -255,7 +258,10 @@ class THeaderProtocol
 
   uint32_t readDouble(double& dub);
 
-  uint32_t readString(std::string& str);
+  template<typename StrType>
+  uint32_t readString(StrType& str) {
+    return proto_->readString(str);
+  }
 
   uint32_t readBinary(std::string& binary);
 

@@ -142,15 +142,15 @@ class ContextStack {
 };
 
 class EventHandlerBase {
- private:
-  int setEventHandlerPos_;
-  ContextStack* s_;
-
  public:
   EventHandlerBase()
-      : setEventHandlerPos_(-1)
-      , s_(NULL)
-    {}
+    : setEventHandlerPos_(-1) {}
+
+  EventHandlerBase(const EventHandlerBase& original)
+    : handlers_(original.handlers_),
+      eventHandler_(original.eventHandler_),
+      setEventHandlerPos_(original.setEventHandlerPos_),
+      s_() {}
 
   void addEventHandler(
       const boost::shared_ptr<TProcessorEventHandler>& handler) {
@@ -191,13 +191,18 @@ class EventHandlerBase {
    * The generated code should be the ONLY user of s_.  All other functions
    * should just use the ContextStack parameter.
    */
-  ContextStack* getContextStack() {
-    return s_;
+  void generateClientContextStack(const char* fn_name,
+                                  TConnectionContext* connectionContext) {
+    auto s = getContextStack(fn_name, connectionContext);
+    s_ = std::move(s);
   }
 
-  // Context only freed by freer, this is only used across function calls.
-  void setContextStack(ContextStack* s) {
-    s_ = s;
+  void clearClientContextStack() {
+    s_.reset();
+  }
+
+  ContextStack* getClientContextStack() {
+    return s_.get();
   }
 
  protected:
@@ -259,8 +264,14 @@ class EventHandlerBase {
     }
   }
 
+ public:
   std::vector<boost::shared_ptr<TProcessorEventHandler>> handlers_;
   boost::shared_ptr<TProcessorEventHandler> eventHandler_;
+
+ private:
+  int setEventHandlerPos_;
+  std::unique_ptr<ContextStack> s_;
+
 };
 
 class TProcessorEventHandlerFactory {

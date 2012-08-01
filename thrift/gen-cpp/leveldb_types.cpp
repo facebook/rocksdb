@@ -108,6 +108,42 @@ return findValue( ::Tleveldb::_IteratorType_NAMES_TO_VALUES, name, out);
 }} // apache::thrift 
 
 namespace Tleveldb {
+int _kAssocVisibilityValues[] = {
+  VISIBLE,
+  DELETED,
+  UNUSED1,
+  HIDDEN,
+  UNUSED2,
+  HARD_DELETE
+};
+
+const char* _kAssocVisibilityNames[] = {
+  "VISIBLE",
+  "DELETED",
+  "UNUSED1",
+  "HIDDEN",
+  "UNUSED2",
+  "HARD_DELETE"
+};
+
+const std::map<int, const char*> _AssocVisibility_VALUES_TO_NAMES(apache::thrift::TEnumIterator<int>(6, _kAssocVisibilityValues, _kAssocVisibilityNames), apache::thrift::TEnumIterator<int>(-1, NULL, NULL));
+
+const std::map<const char*, int, apache::thrift::ltstr> _AssocVisibility_NAMES_TO_VALUES(apache::thrift::TEnumInverseIterator<int>(6, _kAssocVisibilityValues, _kAssocVisibilityNames), apache::thrift::TEnumInverseIterator<int>(-1, NULL, NULL));
+
+} // namespace
+namespace apache { namespace thrift {
+template<>
+const char* TEnumTraits< ::Tleveldb::AssocVisibility>::findName( ::Tleveldb::AssocVisibility value) {
+return findName( ::Tleveldb::_AssocVisibility_VALUES_TO_NAMES, value);
+} 
+
+template<>
+bool TEnumTraits< ::Tleveldb::AssocVisibility>::findValue(const char* name,  ::Tleveldb::AssocVisibility* out) {
+return findValue( ::Tleveldb::_AssocVisibility_NAMES_TO_VALUES, name, out);
+} 
+}} // apache::thrift 
+
+namespace Tleveldb {
 // Reflection initializer for struct leveldb.Slice
 namespace {
 void reflectionInitializer_2199896239461470156(::apache::thrift::reflection::Schema& schema) {
@@ -831,13 +867,6 @@ void reflectionInitializer_8973827971994157004(::apache::thrift::reflection::Sch
     f.name = "dbname";
     dt.fields[1] = f;
   }
-  {
-    ::apache::thrift::reflection::StructField f;
-    f.isRequired = true;
-    f.type = 6U;
-    f.name = "handleid";
-    dt.fields[2] = f;
-  }
   schema.dataTypes[id] = dt;
   schema.names[dt.name] = id;
 }
@@ -875,14 +904,6 @@ uint32_t DBHandle::read(apache::thrift::protocol::TProtocol* iprot) {
           xfer += iprot->skip(ftype);
         }
         break;
-      case 2:
-        if (ftype == apache::thrift::protocol::T_I64) {
-          xfer += iprot->readI64(this->handleid);
-          this->__isset.handleid = true;
-        } else {
-          xfer += iprot->skip(ftype);
-        }
-        break;
       default:
         xfer += iprot->skip(ftype);
         break;
@@ -901,9 +922,6 @@ uint32_t DBHandle::write(apache::thrift::protocol::TProtocol* oprot) const {
   xfer += oprot->writeFieldBegin("dbname", apache::thrift::protocol::T_STRING, 1);
   xfer += oprot->writeBinary(this->dbname);
   xfer += oprot->writeFieldEnd();
-  xfer += oprot->writeFieldBegin("handleid", apache::thrift::protocol::T_I64, 2);
-  xfer += oprot->writeI64(this->handleid);
-  xfer += oprot->writeFieldEnd();
   xfer += oprot->writeFieldStop();
   xfer += oprot->writeStructEnd();
   return xfer;
@@ -914,7 +932,6 @@ void swap(DBHandle &a, DBHandle &b) {
   (void)a;
   (void)b;
   swap(a.dbname, b.dbname);
-  swap(a.handleid, b.handleid);
   swap(a.__isset, b.__isset);
 }
 
@@ -1650,6 +1667,267 @@ void swap(LeveldbException &a, LeveldbException &b) {
   (void)b;
   swap(a.message, b.message);
   swap(a.errorCode, b.errorCode);
+  swap(a.__isset, b.__isset);
+}
+
+// Reflection initializer for struct leveldb.IOError
+namespace {
+void reflectionInitializer_8460881927871070060(::apache::thrift::reflection::Schema& schema) {
+  const uint64_t id = 8460881927871070060U;
+  if (schema.dataTypes.count(id)) return;
+  ::apache::thrift::reflection::DataType dt;
+  dt.name = "struct leveldb.IOError";
+    dt.__isset.fields = true;
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 1U;
+    f.name = "message";
+    dt.fields[1] = f;
+  }
+  schema.dataTypes[id] = dt;
+  schema.names[dt.name] = id;
+}
+}  // namespace
+
+const uint64_t IOError::_reflection_id;
+void IOError::_reflection_register(::apache::thrift::reflection::Schema& schema) {
+  reflectionInitializer_8460881927871070060(schema);
+}
+uint32_t IOError::read(apache::thrift::protocol::TProtocol* iprot) {
+
+  uint32_t xfer = 0;
+  std::string fname;
+  apache::thrift::protocol::TType ftype;
+  int16_t fid;
+
+  xfer += iprot->readStructBegin(fname);
+
+  using apache::thrift::protocol::TProtocolException;
+
+
+  while (true)
+  {
+    xfer += iprot->readFieldBegin(fname, ftype, fid);
+    if (ftype == apache::thrift::protocol::T_STOP) {
+      break;
+    }
+    switch (fid)
+    {
+      case 1:
+        if (ftype == apache::thrift::protocol::T_STRING) {
+          xfer += iprot->readString(this->message);
+          this->__isset.message = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      default:
+        xfer += iprot->skip(ftype);
+        break;
+    }
+    xfer += iprot->readFieldEnd();
+  }
+
+  xfer += iprot->readStructEnd();
+
+  return xfer;
+}
+
+uint32_t IOError::write(apache::thrift::protocol::TProtocol* oprot) const {
+  uint32_t xfer = 0;
+  xfer += oprot->writeStructBegin("IOError");
+  xfer += oprot->writeFieldBegin("message", apache::thrift::protocol::T_STRING, 1);
+  xfer += oprot->writeString(this->message);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldStop();
+  xfer += oprot->writeStructEnd();
+  return xfer;
+}
+
+void swap(IOError &a, IOError &b) {
+  using ::std::swap;
+  (void)a;
+  (void)b;
+  swap(a.message, b.message);
+  swap(a.__isset, b.__isset);
+}
+
+// Reflection initializer for struct leveldb.TaoAssocGetResult
+namespace {
+void reflectionInitializer_6301164048086986412(::apache::thrift::reflection::Schema& schema) {
+  const uint64_t id = 6301164048086986412U;
+  if (schema.dataTypes.count(id)) return;
+  ::apache::thrift::reflection::DataType dt;
+  dt.name = "struct leveldb.TaoAssocGetResult";
+    dt.__isset.fields = true;
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 6U;
+    f.name = "id2";
+    dt.fields[1] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 6U;
+    f.name = "id1Type";
+    dt.fields[2] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 6U;
+    f.name = "id2Type";
+    dt.fields[3] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 6U;
+    f.name = "time";
+    dt.fields[4] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 6U;
+    f.name = "dataVersion";
+    dt.fields[5] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 1U;
+    f.name = "data";
+    dt.fields[6] = f;
+  }
+  schema.dataTypes[id] = dt;
+  schema.names[dt.name] = id;
+}
+}  // namespace
+
+const uint64_t TaoAssocGetResult::_reflection_id;
+void TaoAssocGetResult::_reflection_register(::apache::thrift::reflection::Schema& schema) {
+  reflectionInitializer_6301164048086986412(schema);
+}
+uint32_t TaoAssocGetResult::read(apache::thrift::protocol::TProtocol* iprot) {
+
+  uint32_t xfer = 0;
+  std::string fname;
+  apache::thrift::protocol::TType ftype;
+  int16_t fid;
+
+  xfer += iprot->readStructBegin(fname);
+
+  using apache::thrift::protocol::TProtocolException;
+
+
+  while (true)
+  {
+    xfer += iprot->readFieldBegin(fname, ftype, fid);
+    if (ftype == apache::thrift::protocol::T_STOP) {
+      break;
+    }
+    switch (fid)
+    {
+      case 1:
+        if (ftype == apache::thrift::protocol::T_I64) {
+          xfer += iprot->readI64(this->id2);
+          this->__isset.id2 = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 2:
+        if (ftype == apache::thrift::protocol::T_I64) {
+          xfer += iprot->readI64(this->id1Type);
+          this->__isset.id1Type = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 3:
+        if (ftype == apache::thrift::protocol::T_I64) {
+          xfer += iprot->readI64(this->id2Type);
+          this->__isset.id2Type = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 4:
+        if (ftype == apache::thrift::protocol::T_I64) {
+          xfer += iprot->readI64(this->time);
+          this->__isset.time = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 5:
+        if (ftype == apache::thrift::protocol::T_I64) {
+          xfer += iprot->readI64(this->dataVersion);
+          this->__isset.dataVersion = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 6:
+        if (ftype == apache::thrift::protocol::T_STRING) {
+          xfer += iprot->readBinary(this->data);
+          this->__isset.data = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      default:
+        xfer += iprot->skip(ftype);
+        break;
+    }
+    xfer += iprot->readFieldEnd();
+  }
+
+  xfer += iprot->readStructEnd();
+
+  return xfer;
+}
+
+uint32_t TaoAssocGetResult::write(apache::thrift::protocol::TProtocol* oprot) const {
+  uint32_t xfer = 0;
+  xfer += oprot->writeStructBegin("TaoAssocGetResult");
+  xfer += oprot->writeFieldBegin("id2", apache::thrift::protocol::T_I64, 1);
+  xfer += oprot->writeI64(this->id2);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("id1Type", apache::thrift::protocol::T_I64, 2);
+  xfer += oprot->writeI64(this->id1Type);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("id2Type", apache::thrift::protocol::T_I64, 3);
+  xfer += oprot->writeI64(this->id2Type);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("time", apache::thrift::protocol::T_I64, 4);
+  xfer += oprot->writeI64(this->time);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("dataVersion", apache::thrift::protocol::T_I64, 5);
+  xfer += oprot->writeI64(this->dataVersion);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("data", apache::thrift::protocol::T_STRING, 6);
+  xfer += oprot->writeBinary(this->data);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldStop();
+  xfer += oprot->writeStructEnd();
+  return xfer;
+}
+
+void swap(TaoAssocGetResult &a, TaoAssocGetResult &b) {
+  using ::std::swap;
+  (void)a;
+  (void)b;
+  swap(a.id2, b.id2);
+  swap(a.id1Type, b.id1Type);
+  swap(a.id2Type, b.id2Type);
+  swap(a.time, b.time);
+  swap(a.dataVersion, b.dataVersion);
+  swap(a.data, b.data);
   swap(a.__isset, b.__isset);
 }
 

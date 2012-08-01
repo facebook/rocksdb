@@ -5,6 +5,7 @@
  *  @generated
  */
 #include "DB.h"
+#include "folly/ScopeGuard.h"
 
 namespace Tleveldb {
 
@@ -2246,16 +2247,16 @@ uint32_t DB_CompactRange_args::read(apache::thrift::protocol::TProtocol* iprot) 
         break;
       case 2:
         if (ftype == apache::thrift::protocol::T_STRUCT) {
-          xfer += this->begin.read(iprot);
-          this->__isset.begin = true;
+          xfer += this->start.read(iprot);
+          this->__isset.start = true;
         } else {
           xfer += iprot->skip(ftype);
         }
         break;
       case 3:
         if (ftype == apache::thrift::protocol::T_STRUCT) {
-          xfer += this->end.read(iprot);
-          this->__isset.end = true;
+          xfer += this->endhere.read(iprot);
+          this->__isset.endhere = true;
         } else {
           xfer += iprot->skip(ftype);
         }
@@ -2278,11 +2279,11 @@ uint32_t DB_CompactRange_args::write(apache::thrift::protocol::TProtocol* oprot)
   xfer += oprot->writeFieldBegin("dbhandle", apache::thrift::protocol::T_STRUCT, 1);
   xfer += this->dbhandle.write(oprot);
   xfer += oprot->writeFieldEnd();
-  xfer += oprot->writeFieldBegin("begin", apache::thrift::protocol::T_STRUCT, 2);
-  xfer += this->begin.write(oprot);
+  xfer += oprot->writeFieldBegin("start", apache::thrift::protocol::T_STRUCT, 2);
+  xfer += this->start.write(oprot);
   xfer += oprot->writeFieldEnd();
-  xfer += oprot->writeFieldBegin("end", apache::thrift::protocol::T_STRUCT, 3);
-  xfer += this->end.write(oprot);
+  xfer += oprot->writeFieldBegin("endhere", apache::thrift::protocol::T_STRUCT, 3);
+  xfer += this->endhere.write(oprot);
   xfer += oprot->writeFieldEnd();
   xfer += oprot->writeFieldStop();
   xfer += oprot->writeStructEnd();
@@ -2295,11 +2296,11 @@ uint32_t DB_CompactRange_pargs::write(apache::thrift::protocol::TProtocol* oprot
   xfer += oprot->writeFieldBegin("dbhandle", apache::thrift::protocol::T_STRUCT, 1);
   xfer += (*(this->dbhandle)).write(oprot);
   xfer += oprot->writeFieldEnd();
-  xfer += oprot->writeFieldBegin("begin", apache::thrift::protocol::T_STRUCT, 2);
-  xfer += (*(this->begin)).write(oprot);
+  xfer += oprot->writeFieldBegin("start", apache::thrift::protocol::T_STRUCT, 2);
+  xfer += (*(this->start)).write(oprot);
   xfer += oprot->writeFieldEnd();
-  xfer += oprot->writeFieldBegin("end", apache::thrift::protocol::T_STRUCT, 3);
-  xfer += (*(this->end)).write(oprot);
+  xfer += oprot->writeFieldBegin("endhere", apache::thrift::protocol::T_STRUCT, 3);
+  xfer += (*(this->endhere)).write(oprot);
   xfer += oprot->writeFieldEnd();
   xfer += oprot->writeFieldStop();
   xfer += oprot->writeStructEnd();
@@ -2418,20 +2419,20 @@ int32_t DBClient::getNextRecvSequenceId()
 
 void DBClient::Open(DBHandle& _return, const Text& dbname, const DBOptions& dboptions)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.Open", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.Open", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_Open(dbname, dboptions);
     recv_Open(_return);
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.Open");
+    this->handlerError(this->getClientContextStack(), "DB.Open");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.Open");
+      this->handlerError(this->getClientContextStack(), "DB.Open");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -2441,7 +2442,7 @@ void DBClient::Open(DBHandle& _return, const Text& dbname, const DBOptions& dbop
 
 void DBClient::send_Open(const Text& dbname, const DBOptions& dboptions)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.Open");
   oprot_->writeMessageBegin("Open", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -2459,7 +2460,7 @@ void DBClient::send_Open(const Text& dbname, const DBOptions& dboptions)
 
 void DBClient::recv_Open(DBHandle& _return)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -2512,20 +2513,20 @@ void DBClient::recv_Open(DBHandle& _return)
 
 Code DBClient::Close(const DBHandle& dbhandle, const Text& dbname)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.Close", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.Close", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_Close(dbhandle, dbname);
     return recv_Close();
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.Close");
+    this->handlerError(this->getClientContextStack(), "DB.Close");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.Close");
+      this->handlerError(this->getClientContextStack(), "DB.Close");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -2535,7 +2536,7 @@ Code DBClient::Close(const DBHandle& dbhandle, const Text& dbname)
 
 void DBClient::send_Close(const DBHandle& dbhandle, const Text& dbname)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.Close");
   oprot_->writeMessageBegin("Close", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -2553,7 +2554,7 @@ void DBClient::send_Close(const DBHandle& dbhandle, const Text& dbname)
 
 Code DBClient::recv_Close()
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -2603,20 +2604,20 @@ Code DBClient::recv_Close()
 
 Code DBClient::Put(const DBHandle& dbhandle, const kv& keyvalue, const WriteOptions& options)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.Put", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.Put", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_Put(dbhandle, keyvalue, options);
     return recv_Put();
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.Put");
+    this->handlerError(this->getClientContextStack(), "DB.Put");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.Put");
+      this->handlerError(this->getClientContextStack(), "DB.Put");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -2626,7 +2627,7 @@ Code DBClient::Put(const DBHandle& dbhandle, const kv& keyvalue, const WriteOpti
 
 void DBClient::send_Put(const DBHandle& dbhandle, const kv& keyvalue, const WriteOptions& options)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.Put");
   oprot_->writeMessageBegin("Put", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -2645,7 +2646,7 @@ void DBClient::send_Put(const DBHandle& dbhandle, const kv& keyvalue, const Writ
 
 Code DBClient::recv_Put()
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -2695,20 +2696,20 @@ Code DBClient::recv_Put()
 
 Code DBClient::Delete(const DBHandle& dbhandle, const Slice& key, const WriteOptions& options)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.Delete", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.Delete", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_Delete(dbhandle, key, options);
     return recv_Delete();
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.Delete");
+    this->handlerError(this->getClientContextStack(), "DB.Delete");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.Delete");
+      this->handlerError(this->getClientContextStack(), "DB.Delete");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -2718,7 +2719,7 @@ Code DBClient::Delete(const DBHandle& dbhandle, const Slice& key, const WriteOpt
 
 void DBClient::send_Delete(const DBHandle& dbhandle, const Slice& key, const WriteOptions& options)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.Delete");
   oprot_->writeMessageBegin("Delete", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -2737,7 +2738,7 @@ void DBClient::send_Delete(const DBHandle& dbhandle, const Slice& key, const Wri
 
 Code DBClient::recv_Delete()
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -2787,20 +2788,20 @@ Code DBClient::recv_Delete()
 
 Code DBClient::Write(const DBHandle& dbhandle, const std::vector<kv> & batch, const WriteOptions& options)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.Write", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.Write", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_Write(dbhandle, batch, options);
     return recv_Write();
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.Write");
+    this->handlerError(this->getClientContextStack(), "DB.Write");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.Write");
+      this->handlerError(this->getClientContextStack(), "DB.Write");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -2810,7 +2811,7 @@ Code DBClient::Write(const DBHandle& dbhandle, const std::vector<kv> & batch, co
 
 void DBClient::send_Write(const DBHandle& dbhandle, const std::vector<kv> & batch, const WriteOptions& options)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.Write");
   oprot_->writeMessageBegin("Write", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -2829,7 +2830,7 @@ void DBClient::send_Write(const DBHandle& dbhandle, const std::vector<kv> & batc
 
 Code DBClient::recv_Write()
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -2879,20 +2880,20 @@ Code DBClient::recv_Write()
 
 void DBClient::Get(ResultItem& _return, const DBHandle& dbhandle, const Slice& inputkey, const ReadOptions& options)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.Get", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.Get", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_Get(dbhandle, inputkey, options);
     recv_Get(_return);
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.Get");
+    this->handlerError(this->getClientContextStack(), "DB.Get");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.Get");
+      this->handlerError(this->getClientContextStack(), "DB.Get");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -2902,7 +2903,7 @@ void DBClient::Get(ResultItem& _return, const DBHandle& dbhandle, const Slice& i
 
 void DBClient::send_Get(const DBHandle& dbhandle, const Slice& inputkey, const ReadOptions& options)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.Get");
   oprot_->writeMessageBegin("Get", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -2921,7 +2922,7 @@ void DBClient::send_Get(const DBHandle& dbhandle, const Slice& inputkey, const R
 
 void DBClient::recv_Get(ResultItem& _return)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -2971,20 +2972,20 @@ void DBClient::recv_Get(ResultItem& _return)
 
 void DBClient::NewIterator(ResultIterator& _return, const DBHandle& dbhandle, const ReadOptions& options, IteratorType iteratorType, const Slice& target)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.NewIterator", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.NewIterator", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_NewIterator(dbhandle, options, iteratorType, target);
     recv_NewIterator(_return);
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.NewIterator");
+    this->handlerError(this->getClientContextStack(), "DB.NewIterator");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.NewIterator");
+      this->handlerError(this->getClientContextStack(), "DB.NewIterator");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -2994,7 +2995,7 @@ void DBClient::NewIterator(ResultIterator& _return, const DBHandle& dbhandle, co
 
 void DBClient::send_NewIterator(const DBHandle& dbhandle, const ReadOptions& options, IteratorType iteratorType, const Slice& target)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.NewIterator");
   oprot_->writeMessageBegin("NewIterator", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -3014,7 +3015,7 @@ void DBClient::send_NewIterator(const DBHandle& dbhandle, const ReadOptions& opt
 
 void DBClient::recv_NewIterator(ResultIterator& _return)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -3064,20 +3065,20 @@ void DBClient::recv_NewIterator(ResultIterator& _return)
 
 Code DBClient::DeleteIterator(const DBHandle& dbhandle, const Iterator& iterator)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.DeleteIterator", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.DeleteIterator", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_DeleteIterator(dbhandle, iterator);
     return recv_DeleteIterator();
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.DeleteIterator");
+    this->handlerError(this->getClientContextStack(), "DB.DeleteIterator");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.DeleteIterator");
+      this->handlerError(this->getClientContextStack(), "DB.DeleteIterator");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -3087,7 +3088,7 @@ Code DBClient::DeleteIterator(const DBHandle& dbhandle, const Iterator& iterator
 
 void DBClient::send_DeleteIterator(const DBHandle& dbhandle, const Iterator& iterator)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.DeleteIterator");
   oprot_->writeMessageBegin("DeleteIterator", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -3105,7 +3106,7 @@ void DBClient::send_DeleteIterator(const DBHandle& dbhandle, const Iterator& ite
 
 Code DBClient::recv_DeleteIterator()
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -3155,20 +3156,20 @@ Code DBClient::recv_DeleteIterator()
 
 void DBClient::GetNext(ResultPair& _return, const DBHandle& dbhandle, const Iterator& iterator)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.GetNext", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.GetNext", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_GetNext(dbhandle, iterator);
     recv_GetNext(_return);
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.GetNext");
+    this->handlerError(this->getClientContextStack(), "DB.GetNext");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.GetNext");
+      this->handlerError(this->getClientContextStack(), "DB.GetNext");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -3178,7 +3179,7 @@ void DBClient::GetNext(ResultPair& _return, const DBHandle& dbhandle, const Iter
 
 void DBClient::send_GetNext(const DBHandle& dbhandle, const Iterator& iterator)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.GetNext");
   oprot_->writeMessageBegin("GetNext", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -3196,7 +3197,7 @@ void DBClient::send_GetNext(const DBHandle& dbhandle, const Iterator& iterator)
 
 void DBClient::recv_GetNext(ResultPair& _return)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -3246,20 +3247,20 @@ void DBClient::recv_GetNext(ResultPair& _return)
 
 void DBClient::GetPrev(ResultPair& _return, const DBHandle& dbhandle, const Iterator& iterator)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.GetPrev", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.GetPrev", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_GetPrev(dbhandle, iterator);
     recv_GetPrev(_return);
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.GetPrev");
+    this->handlerError(this->getClientContextStack(), "DB.GetPrev");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.GetPrev");
+      this->handlerError(this->getClientContextStack(), "DB.GetPrev");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -3269,7 +3270,7 @@ void DBClient::GetPrev(ResultPair& _return, const DBHandle& dbhandle, const Iter
 
 void DBClient::send_GetPrev(const DBHandle& dbhandle, const Iterator& iterator)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.GetPrev");
   oprot_->writeMessageBegin("GetPrev", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -3287,7 +3288,7 @@ void DBClient::send_GetPrev(const DBHandle& dbhandle, const Iterator& iterator)
 
 void DBClient::recv_GetPrev(ResultPair& _return)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -3337,20 +3338,20 @@ void DBClient::recv_GetPrev(ResultPair& _return)
 
 void DBClient::GetSnapshot(ResultSnapshot& _return, const DBHandle& dbhandle)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.GetSnapshot", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.GetSnapshot", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_GetSnapshot(dbhandle);
     recv_GetSnapshot(_return);
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.GetSnapshot");
+    this->handlerError(this->getClientContextStack(), "DB.GetSnapshot");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.GetSnapshot");
+      this->handlerError(this->getClientContextStack(), "DB.GetSnapshot");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -3360,7 +3361,7 @@ void DBClient::GetSnapshot(ResultSnapshot& _return, const DBHandle& dbhandle)
 
 void DBClient::send_GetSnapshot(const DBHandle& dbhandle)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.GetSnapshot");
   oprot_->writeMessageBegin("GetSnapshot", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -3377,7 +3378,7 @@ void DBClient::send_GetSnapshot(const DBHandle& dbhandle)
 
 void DBClient::recv_GetSnapshot(ResultSnapshot& _return)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -3427,20 +3428,20 @@ void DBClient::recv_GetSnapshot(ResultSnapshot& _return)
 
 Code DBClient::ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapshot)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.ReleaseSnapshot", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.ReleaseSnapshot", NULL);
 
   try {
-    this->setContextStack(ctx.get());
     send_ReleaseSnapshot(dbhandle, snapshot);
     return recv_ReleaseSnapshot();
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.ReleaseSnapshot");
+    this->handlerError(this->getClientContextStack(), "DB.ReleaseSnapshot");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.ReleaseSnapshot");
+      this->handlerError(this->getClientContextStack(), "DB.ReleaseSnapshot");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -3450,7 +3451,7 @@ Code DBClient::ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapsho
 
 void DBClient::send_ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapshot)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.ReleaseSnapshot");
   oprot_->writeMessageBegin("ReleaseSnapshot", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
@@ -3468,7 +3469,7 @@ void DBClient::send_ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& sn
 
 Code DBClient::recv_ReleaseSnapshot()
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -3516,22 +3517,22 @@ Code DBClient::recv_ReleaseSnapshot()
   throw apache::thrift::TApplicationException(apache::thrift::TApplicationException::MISSING_RESULT, "ReleaseSnapshot failed: unknown result");
 }
 
-Code DBClient::CompactRange(const DBHandle& dbhandle, const Slice& begin, const Slice& end)
+Code DBClient::CompactRange(const DBHandle& dbhandle, const Slice& start, const Slice& endhere)
 {
-  std::unique_ptr<apache::thrift::ContextStack> ctx(this->getContextStack("DB.CompactRange", NULL));
+  folly::ScopeGuard g = folly::makeGuard([&] { this->clearClientContextStack(); });
+  this->generateClientContextStack("DB.CompactRange", NULL);
 
   try {
-    this->setContextStack(ctx.get());
-    send_CompactRange(dbhandle, begin, end);
+    send_CompactRange(dbhandle, start, endhere);
     return recv_CompactRange();
   } catch(apache::thrift::transport::TTransportException& ex) {
-    this->handlerError(ctx.get(), "DB.CompactRange");
+    this->handlerError(this->getClientContextStack(), "DB.CompactRange");
     iprot_->getTransport()->close();
     oprot_->getTransport()->close();
     throw;
   } catch(apache::thrift::TApplicationException& ex) {
     if (ex.getType() == apache::thrift::TApplicationException::BAD_SEQUENCE_ID) {
-      this->handlerError(ctx.get(), "DB.CompactRange");
+      this->handlerError(this->getClientContextStack(), "DB.CompactRange");
       iprot_->getTransport()->close();
       oprot_->getTransport()->close();
     }
@@ -3539,16 +3540,16 @@ Code DBClient::CompactRange(const DBHandle& dbhandle, const Slice& begin, const 
   }
 }
 
-void DBClient::send_CompactRange(const DBHandle& dbhandle, const Slice& begin, const Slice& end)
+void DBClient::send_CompactRange(const DBHandle& dbhandle, const Slice& start, const Slice& endhere)
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   this->preWrite(ctx, "DB.CompactRange");
   oprot_->writeMessageBegin("CompactRange", apache::thrift::protocol::T_CALL, getNextSendSequenceId());
 
   DB_CompactRange_pargs args;
   args.dbhandle = &dbhandle;
-  args.begin = &begin;
-  args.end = &end;
+  args.start = &start;
+  args.endhere = &endhere;
   args.write(oprot_);
 
   oprot_->writeMessageEnd();
@@ -3560,7 +3561,7 @@ void DBClient::send_CompactRange(const DBHandle& dbhandle, const Slice& begin, c
 
 Code DBClient::recv_CompactRange()
 {
-  apache::thrift::ContextStack* ctx = this->getContextStack();
+  apache::thrift::ContextStack* ctx = this->getClientContextStack();
   uint32_t bytes;
   int32_t rseqid = 0;
   int32_t eseqid = getNextRecvSequenceId();
@@ -4125,7 +4126,7 @@ void DBProcessor::process_CompactRange(int32_t seqid, apache::thrift::protocol::
 
   DB_CompactRange_result result;
   try {
-    result.success = iface_->CompactRange(args.dbhandle, args.begin, args.end);
+    result.success = iface_->CompactRange(args.dbhandle, args.start, args.endhere);
     result.__isset.success = true;
   } catch (const std::exception& e) {
     this->handlerError(ctx.get(), "DB.CompactRange");

@@ -60,7 +60,6 @@ struct onehandle {
   Text name;
   leveldb::DB* onedb;    // locate the localleveldb instance
   int refcount;          // currently not used
-  int64_t uniqueid;      // unique identifier
   std::atomic<uint64_t> currentSnapshotId; // valid snapshotids > 0
   std::atomic<uint64_t> currentIteratorId; // valid iterators > 0
   unordered_map<uint64_t, struct snapshotEntry*> snaplist; 
@@ -139,7 +138,7 @@ struct onehandle {
 class OpenHandles {
  public:
 
-  OpenHandles() : dbnum_(1) {
+  OpenHandles() {
   }
 
   // Inserts a new database into the list.
@@ -150,7 +149,6 @@ class OpenHandles {
     if (found == NULL) {
       found = new onehandle;
       found->name = dbname;
-      found->uniqueid = dbnum_++;
       fprintf(stderr, "openhandle.add: Opening leveldb DB %s\n", 
               dbname.c_str());
       leveldb::Status status = leveldb::DB::Open(options, dbdir, &found->onedb);
@@ -166,20 +164,15 @@ class OpenHandles {
       head_[dbname] = found;
     }
     found->refcount++;
-    return found->uniqueid;
   }
 
-  leveldb::DB* get(Text dbname, int64_t uniqueid, struct onehandle** f) {
+  leveldb::DB* get(Text dbname, struct onehandle** f) {
     auto p = head_.find(dbname);
     if (p == head_.end()) {
       fprintf(stderr, "get:No db with name\n");
       return NULL;
     }
     struct onehandle* found = p->second;
-    if (found->uniqueid != uniqueid) {
-      fprintf(stderr, "get:Uniqueid does not match\n.");
-      return NULL;
-    }
     if (found->refcount <= 0) {
       fprintf(stderr, "get:bad refcount\n.");
       return NULL;
@@ -191,17 +184,13 @@ class OpenHandles {
     return found->onedb;
   }
 
-  bool remove(Text dbname, int64_t uniqueid) {
+  bool remove(Text dbname) {
     auto p = head_.find(dbname);
     if (p == head_.end()) {
       fprintf(stderr, "get:No db with name\n");
       return false;
     }
     struct onehandle* found = p->second;
-    if (found->uniqueid != uniqueid) {
-      fprintf(stderr, "remove:Uniqueid does not match\n.");
-      return false;
-    }
     if (found->refcount == 1) {
       delete found->onedb; // close database
       int numRemoved = head_.erase(dbname);
@@ -214,7 +203,6 @@ class OpenHandles {
 
  private:
   unordered_map<std::string, struct onehandle*> head_; // all open databases
-  std::atomic<uint64_t> dbnum_;
 
   struct onehandle* lookup(Text dbname) {
     auto p = head_.find(dbname);

@@ -67,10 +67,9 @@ struct ReadOptions {
   3:Snapshot snapshot
 }
 
-// Represents a open database object
+// Represents a database object
 struct DBHandle {
-  1:Text dbname;        //name of the database
-  2:i64 handleid        // server generated
+  1:Text dbname        //name of the database
 }
 
 struct Iterator {
@@ -177,5 +176,196 @@ service DB {
   // compact a range of keys
   // begin.size == 0 to start at a range earlier than the first existing key
   // end.size == 0 to end at a range later than the last existing key
-  Code CompactRange(1:DBHandle dbhandle, 2:Slice begin, 3:Slice end),
+  Code CompactRange(1:DBHandle dbhandle, 2:Slice start, 3:Slice endhere),
 }
+
+// ******************  FACEBOOK specific stuff ********************
+
+//
+// An IOError exception from an assoc operation
+//
+exception IOError {
+  1:string message
+}
+
+//
+// Visibility state for assoc
+//
+enum AssocVisibility
+{
+  VISIBLE = 0, // live object, include in lookups and count
+  DELETED = 1, // exclude from lookup queries and count, ok to
+               // delete permanently from persistent store 
+  UNUSED1 = 2,  // not used
+  HIDDEN = 3,  // exclude from lookup queries and count
+  UNUSED2 = 4, // not used
+  HARD_DELETE = 4 // deleted by calling expunge, will be swept
+                  // as soon as possible
+}
+
+/**
+ * Holds the assoc get result of a id2
+ */
+struct TaoAssocGetResult {
+  /** id2 of assoc */
+  1:i64 id2,
+
+  /** id1 type of assoc */
+  2:i64 id1Type,
+
+  /** id2 type of assoc */
+  3:i64 id2Type,
+
+  /** time stamp of the assoc */
+  4:i64 time,
+
+  /** version of the data blob */
+  5:i64 dataVersion,
+
+  /** serialized data of the asoc */
+  6:Text data,
+}
+
+//
+// Service
+//
+service AssocService {
+
+  /**
+   * TAO Assoc Put operation.
+   * Note that currently the argument visibility has no effect.
+   *
+   * @if update_count is true, then return the updated count for this assoc
+   * @if update_count is false, then return 0
+   * @return negative number if failure
+   */
+  i64 taoAssocPut(
+    /** name of table */
+    1:Text tableName,
+
+    /** type assoc */
+    2:i64 assocType,
+
+    /** id1 of assoc */
+    3:i64 id1,
+
+    /** id2 of assoc */
+    4:i64 id2,
+
+    /** id1Type of assoc */
+    5:i64 id1Type,
+
+    /** id2Type of assoc */
+    6:i64 id2Type,
+
+    /** timestamp of assoc */
+    7:i64 timestamp,
+
+    /** visibility */
+    8:AssocVisibility visibility,
+
+    /** whether to keep the count or not */
+    9:bool update_count,
+
+    /** version of the data blob */
+    10:i64 dataVersion,
+
+    /** serialized data of assoc */
+    11:Text data,
+
+    /** wormhole comment */
+    12:Text wormhole_comment
+  ) throws (1:IOError io)
+
+ /**
+  * TAO Assoc Delete operation.
+  *
+  * @return the updated count for this assoc
+  */
+  i64 taoAssocDelete(
+    /** name of table */
+    1:Text tableName,
+
+    /** type assoc */
+    2:i64 assocType,
+
+    /** id1 of assoc */
+    3:i64 id1,
+
+    /** id2 of assoc */
+    4:i64 id2,
+
+    /** visibility flag for this delete */
+    5:AssocVisibility visibility,
+
+    /** whether to keep the count or not */
+    6:bool update_count,
+
+    /** wormhole comment */
+    7:Text wormhole_comment
+  ) throws (1:IOError io)
+
+  /**
+   * TAO Assoc RangeGet operation.
+   * Obtain assocs in bewteen start_time and end_time in reverse time order.
+   * The range check is inclusive: start_time >= time && time >= end_time.
+   * And yes, start_time >= end_time.
+   */
+  list<TaoAssocGetResult> taoAssocRangeGet(
+    /** name of table */
+    1:Text tableName,
+
+    /** type of assoc */
+    2:i64 assocType,
+
+    /** id1 of assoc */
+    3:i64 id1,
+
+    /** maximum timestamp of assocs to retrieve */
+    4:i64 start_time,
+
+    /** minimum timestamp of assocs to retrieve */
+    5:i64 end_time,
+
+    /** number of assocs to skip from start */
+    6:i64 offset,
+
+    /** max number of assocs (columns) returned */
+    7:i64 limit
+  ) throws (1:IOError io)
+
+  /**
+   * TAO Assoc Get operation.
+   */
+  list<TaoAssocGetResult> taoAssocGet(
+    /** name of table */
+    1:Text tableName,
+
+    /** type of assoc */
+    2:i64 assocType,
+
+    /** id1 of assoc */
+    3:i64 id1,
+
+    /** list of id2 need to be fetch */
+    4:list<i64> id2s
+  ) throws (1:IOError io)
+
+  /**
+   * TAO Assoc Count Get operation.
+   * Returns the number of assocs for given id1 and assoc type
+   */
+  i64 taoAssocCount(
+    /** name of table */
+    1:Text tableName,
+
+    /** type of assoc */
+    2:i64 assocType,
+
+    /** id1 of assoc */
+    3:i64 id1,
+
+  ) throws (1:IOError io)
+}
+
+

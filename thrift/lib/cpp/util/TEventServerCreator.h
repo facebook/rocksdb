@@ -25,6 +25,12 @@
 
 namespace apache { namespace thrift {
 
+class TProcessor;
+
+namespace concurrency {
+class ThreadManager;
+}
+
 namespace async {
 class TAsyncProcessor;
 class TEventServer;
@@ -36,8 +42,11 @@ class TEventServerCreator : public ServerCreatorBase {
  public:
   typedef async::TEventServer ServerType;
 
-  /// Use 8 worker threads by default.
-  static const size_t DEFAULT_NUM_THREADS = 8;
+  /// Use 8 IO worker threads by default.
+  static const size_t DEFAULT_NUM_IO_THREADS = 8;
+
+  /// Use 8 task worker threads by default.
+  static const size_t DEFAULT_NUM_TASK_THREADS = 8;
 
   /// Default limit on the size of each worker's idle connection pool
   static const uint32_t DEFAULT_CONN_POOL_SIZE = 64;
@@ -78,17 +87,44 @@ class TEventServerCreator : public ServerCreatorBase {
   static const int DEFAULT_RESIZE_EVERY_N = 64;
 
   /**
-   * Create a new TEventServerCreator.
+   * Create a new TEventServerCreator to be used for building a native-mode
+   * TEventServer.
    */
-  TEventServerCreator(const boost::shared_ptr<async::TAsyncProcessor>& proc,
-                            uint16_t port,
-                            size_t numThreads = DEFAULT_NUM_THREADS);
+  TEventServerCreator(
+      const boost::shared_ptr<async::TAsyncProcessor>& asyncProcessor,
+      uint16_t port,
+      size_t numIoThreads = DEFAULT_NUM_IO_THREADS);
 
   /**
-   * Set the number of threads to use.
+   * Create a new TEventServerCreator to be used for building a queuing-mode
+   * TEventServer.
    */
-  void setNumThreads(size_t numThreads) {
-    numThreads_ = numThreads;
+  TEventServerCreator(
+      const boost::shared_ptr<TProcessor>& syncProcessor,
+      uint16_t port,
+      size_t numIoThreads = DEFAULT_NUM_IO_THREADS,
+      size_t numTaskThreads = DEFAULT_NUM_TASK_THREADS);
+
+  /**
+   * Set the number of IO threads to use.
+   */
+  void setNumIoThreads(size_t numIoThreads) {
+    numIoThreads_ = numIoThreads;
+  }
+
+  /**
+   * Set the number of task threads to use.
+   */
+  void setNumTaskThreads(size_t numTaskThreads) {
+    numTaskThreads_ = numTaskThreads;
+  }
+
+  /**
+   * Set the thread manager to use for task queue threads.
+   */
+  void setTaskQueueThreadManager(
+      const boost::shared_ptr<concurrency::ThreadManager>& threadManager) {
+    taskQueueThreadManager_ = threadManager;
   }
 
   /**
@@ -176,9 +212,12 @@ class TEventServerCreator : public ServerCreatorBase {
   boost::shared_ptr<async::TEventServer> createEventServer();
 
  private:
-  boost::shared_ptr<async::TAsyncProcessor> processor_;
+  boost::shared_ptr<TProcessor> syncProcessor_;
+  boost::shared_ptr<async::TAsyncProcessor> asyncProcessor_;
+  boost::shared_ptr<concurrency::ThreadManager> taskQueueThreadManager_;
   uint16_t port_;
-  size_t numThreads_;
+  size_t numIoThreads_;
+  size_t numTaskThreads_;
   uint32_t maxConnPoolSize_;
   int recvTimeout_;
   uint32_t maxFrameSize_;

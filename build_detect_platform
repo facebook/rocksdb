@@ -102,7 +102,7 @@ esac
 # prune take effect.
 DIRS="util db table"
 if test "$USE_THRIFT"; then
-  DIRS+=" thrift/gen-cpp thrift/server_utils.cpp thrift/server_options.cpp"
+  DIRS+=" thrift/gen-cpp thrift/server_utils.cpp "
   THRIFTSERVER=leveldb_server
 fi
 set -f # temporarily disable globbing so that our patterns aren't expanded
@@ -192,7 +192,7 @@ fi
 # shall we build thrift server
 if test "$USE_THRIFT"; then
   THRIFT_CCFLAGS=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp -I/usr/include -std=gnu++0x"
-  THRIFT_LDFLAGS=" -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
+  THRIFT_LDFLAGS=" -lexample -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
   COMMON_FLAGS+=$THRIFT_CCFLAGS
   PLATFORM_LDFLAGS+=$THRIFT_LDFLAGS
 fi

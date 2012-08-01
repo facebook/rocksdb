@@ -18,6 +18,7 @@
 #include <leveldb_types.h>
 #include "openhandles.h"
 #include "server_options.h"
+#include "assoc.h"
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
@@ -34,15 +35,16 @@ using boost::shared_ptr;
 extern "C" void startServer(int argc, char** argv);
 extern "C" void stopServer(int port);
 
-static boost::shared_ptr<TServer> tServer;
+static boost::shared_ptr<TServer> baseServer;
+static boost::shared_ptr<TServer> assocServer;
 
 // The global object that stores the default configuration of the server
 ServerOptions server_options;
 
 class DBHandler : virtual public DBIf {
  public:
-  DBHandler() {
-    openHandles = new OpenHandles();
+  DBHandler(OpenHandles* oh) {
+    openHandles = oh;
   }
 
   void Open(DBHandle& _return, const Text& dbname, 
@@ -73,19 +75,15 @@ class DBHandler : virtual public DBIf {
     } else if (dboptions.compression == kSnappyCompression) {
       options.compression = leveldb::kSnappyCompression;
     }
-    int64_t session = openHandles->add(options, dbname, dbdir);
+    openHandles->add(options, dbname, dbdir);
     _return.dbname = dbname;
-    _return.handleid = session;
   }
 
   Code Close(const DBHandle& dbhandle, const Text& dbname) {
-    /**
-     * We do not close any handles for now, otherwise we have to do
-     * some locking that will degrade performance in the normal case.
-    if (openHandles->remove(dbname, dbhandle.handleid) == false) {
-       return Code::kIOError;
-    }
-    */
+    //
+    // We do not close any handles for now, otherwise we have to do
+    // some locking that will degrade performance in the normal case.
+    //
     return Code::kNotSupported;
   }
 
@@ -98,7 +96,7 @@ class DBHandler : virtual public DBIf {
     key.size_ = kv.key.size;
     value.data_ = kv.value.data.data();
     value.size_ = kv.value.size;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, NULL);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
@@ -116,7 +114,7 @@ class DBHandler : virtual public DBIf {
     leveldb::Slice key;
     key.data_ = kv.data.data();
     key.size_ = kv.size;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, NULL);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
@@ -141,7 +139,7 @@ class DBHandler : virtual public DBIf {
       value.size_ = one.value.size;
       lbatch.Put(key, value);
     }
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, NULL);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
@@ -160,8 +158,7 @@ class DBHandler : virtual public DBIf {
     leveldb::Slice ikey;
     ikey.data_ = inputkey.data.data();
     ikey.size_ = inputkey.size;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, 
-                                       &thishandle);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
@@ -192,8 +189,7 @@ class DBHandler : virtual public DBIf {
      const Slice& target)  {
     struct onehandle* thishandle;
     _return.status = Code::kNotFound;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, 
-                                       &thishandle);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
@@ -245,8 +241,7 @@ class DBHandler : virtual public DBIf {
   Code DeleteIterator(const DBHandle& dbhandle, const Iterator& iterator) {
     // find the db
     struct onehandle* thishandle;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, 
-                                       &thishandle);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return kNotFound;
     }
@@ -271,8 +266,7 @@ class DBHandler : virtual public DBIf {
     // find the db
     struct onehandle* thishandle;
     _return.status = Code::kNotFound;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, 
-                                       &thishandle);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
@@ -338,8 +332,7 @@ class DBHandler : virtual public DBIf {
   void GetSnapshot(ResultSnapshot& _return, const DBHandle& dbhandle) {
     _return.status = kIOError;
     struct onehandle* thishandle;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid,
-                                       &thishandle);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
@@ -354,8 +347,7 @@ class DBHandler : virtual public DBIf {
 
   Code ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapshot) {
     struct onehandle* thishandle;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid,
-                                       &thishandle);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return kNotFound;
     }
@@ -369,7 +361,7 @@ class DBHandler : virtual public DBIf {
 
   Code CompactRange(const DBHandle& dbhandle, const Slice& begin, 
     const Slice& end) {
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, dbhandle.handleid, NULL);
+    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
@@ -395,6 +387,14 @@ class DBHandler : virtual public DBIf {
   OpenHandles* openHandles;
 };
 
+//
+// starts a service
+static void* startOneService(void *arg) {
+  TSimpleServer* t = (TSimpleServer *)arg;
+  t->serve();
+}
+
+
 // Starts a very simple thrift server
 void startServer(int argc, char** argv) {
 
@@ -410,17 +410,43 @@ void startServer(int argc, char** argv) {
   // create the server's block cache
   server_options.createCache();
 
-  int port = server_options.getPort();
-  shared_ptr<DBHandler> handler(new DBHandler());
-  shared_ptr<TProcessor> processor(new DBProcessor(handler));
-  shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
+  // data structure to record ope databases
+  OpenHandles* openHandles = new OpenHandles();
+
   shared_ptr<TTransportFactory> transportFactory(new TBufferedTransportFactory());
   shared_ptr<TProtocolFactory> protocolFactory(new TBinaryProtocolFactory());
 
-  TSimpleServer tServer(processor, serverTransport, transportFactory, protocolFactory);
-  fprintf(stderr, "Server started on port %d\n", port);
+  // create the service to process the normal get/put to leveldb.
+  int port = server_options.getPort();
+  fprintf(stderr, "Server starting on port %d\n", port);
+  shared_ptr<TServerTransport> serverTransport(new TServerSocket(port));
+  shared_ptr<DBHandler> handler(new DBHandler(openHandles));
+  shared_ptr<TProcessor> processor(new DBProcessor(handler));
+  TSimpleServer* baseServer = new TSimpleServer(processor, serverTransport, 
+                                             transportFactory, protocolFactory);
+  pthread_t dbServerThread;
+  int rc = pthread_create(&dbServerThread, NULL, startOneService, 
+                          (void *)baseServer);
+  if (rc != 0) {
+    fprintf(stderr, "Unable to start DB server on port %d\n.", port);
+    exit(1);
+  }
 
-  tServer.serve();
+  // create the service to process the assoc get/put to leveldb.
+  int assocport = server_options.getAssocPort();
+  fprintf(stderr, "Server starting on port %d\n", assocport);
+  shared_ptr<TServerTransport> assocTransport(new TServerSocket(assocport));
+  shared_ptr<AssocServiceHandler> assocHandler(new AssocServiceHandler(openHandles));
+  shared_ptr<TProcessor> assocProcessor(new AssocServiceProcessor(assocHandler));
+  TSimpleServer* assocServer = new TSimpleServer(assocProcessor, 
+                     assocTransport, transportFactory, protocolFactory);
+  pthread_t assocServerThread;
+  rc = pthread_create(&assocServerThread, NULL, startOneService, 
+                      (void *)assocServer);
+  if (rc != 0) {
+    fprintf(stderr, "Unable to start assoc server on port %d\n.", port);
+    exit(1);
+  }
 }
 
 /**
@@ -436,5 +462,6 @@ void startEventServer(int port) {
 
 // Stops the thrift server
 void stopServer(int port) {
-  tServer->stop();
+  baseServer->stop();
+  assocServer->stop();
 }

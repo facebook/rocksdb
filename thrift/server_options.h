@@ -41,24 +41,20 @@ class ServerOptions {
   // default port
   const static int DEFAULT_PORT = 6666;
 
-  // default machine name
-  const static std::string DEFAULT_HOST;
-
-  // default directory where the server stores all its data
-  const static std::string DEFAULT_ROOTDIR;
-
 public:
   ServerOptions() : num_threads_(DEFAULT_threads),
                     cache_numshardbits_(DEFAULT_cache_numshardbits),
                     cache_size_(DEFAULT_cache_size),
                     port_(DEFAULT_PORT),
-                    hostname_(DEFAULT_HOST),
-                    rootdir_(DEFAULT_ROOTDIR + DEFAULT_HOST),
                     cache_(NULL) {
-    char buf[100];
-    if (gethostname(buf, sizeof(buf)) == 0) {
+    char* buf = new char[HOST_NAME_MAX];
+    if (gethostname(buf, HOST_NAME_MAX) == 0) {
       hostname_ = buf;
+    } else {
+      hostname_ = "unknownhost";
+      delete buf;
     }
+    rootdir_ = "/tmp"; // default rootdir
   }
 
   //
@@ -121,9 +117,16 @@ public:
     }
   }
 
-  // Returns the server port
+  // Returns the base server port
   int getPort() {
     return port_;
+  }
+
+  // Returns the assoc server port. Currently, it is one more than the base
+  // server port. In fiture, the assoc service would be supported on multiple
+  // ports, each port serving a distinct range of keys.
+  int getAssocPort() {
+    return port_ + 1;
   }
 
   // Returns the cache
