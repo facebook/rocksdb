@@ -26,13 +26,11 @@ static DBHandle dbhandle;
 static DBClient* dbclient;
 static AssocServiceClient* aclient;
 static const Text dbname = "test-dhruba";
-static pthread_t serverThread;
 static int ARGC;
 static char** ARGV;
 
 static void cleanupDir(std::string dir) {
   // remove old data, if any
-  int ret = unlink(dir.c_str());
   char* cleanup = new char[100];
   snprintf(cleanup, 100, "rm -rf %s", dir.c_str());
   system(cleanup);
@@ -247,10 +245,10 @@ static void testAssocs() {
   aclient->taoAssocGet(readback, dbname,
                        assocType, id1, id2list);
   printf("AssocGet suceeded.\n");
-  printf("size = %lld\n", readback.size());
+  printf("size = %lu\n", readback.size());
   ASSERT_EQ(1, readback.size());
   ASSERT_EQ(id1Type, readback[0].id1Type);
-  printf("XXX %lld %lld\n", id1Type, readback[0].id1Type);
+  printf("XXX %ld %ld\n", id1Type, readback[0].id1Type);
   ASSERT_EQ(id2Type, readback[0].id2Type);
   ASSERT_EQ(ts, readback[0].time);
   ASSERT_EQ(dataVersion, readback[0].dataVersion);

@@ -131,7 +131,7 @@ class DBHandler : virtual public DBIf {
     leveldb::WriteBatch lbatch;
     woptions.sync = options.sync;
     leveldb::Slice key, value;
-    for (int i = 0; i < batch.size(); i++) {
+    for (unsigned int i = 0; i < batch.size(); i++) {
       kv one = batch[i];
       key.data_ = one.key.data.data();
       key.size_ = one.key.size;
@@ -374,10 +374,10 @@ class DBHandler : virtual public DBIf {
     
     // check special ranges.
     if (start->size_ == 0) {
-      start == NULL;
+      start = NULL;
     }
     if (stop->size_ == 0) {
-      stop == NULL;
+      stop = NULL;
     }
     db->CompactRange(start, stop);
     return Code::kOk;
@@ -392,6 +392,7 @@ class DBHandler : virtual public DBIf {
 static void* startOneService(void *arg) {
   TSimpleServer* t = (TSimpleServer *)arg;
   t->serve();
+  return NULL;
 }
 
 

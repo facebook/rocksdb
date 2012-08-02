@@ -62,16 +62,15 @@ public:
   // otherwise returns false.
   bool parseOptions(int argc, char** argv) {
     int n;
-    long l;
+    uint64_t l;
     char junk;
-    char* cports = NULL;
     for (int i = 1; i < argc; i++) {
       if (sscanf(argv[i], "--port=%d%c", &n, &junk) == 1) {
         port_ = n;
       } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
         num_threads_ = n;
-      } else if (sscanf(argv[i], "--cache_size=%ld%c", &n, &junk) == 1) {
-        cache_size_ = n;
+      } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
+        cache_size_ = l;
       } else if (sscanf(argv[i], "--cache_numshardbits=%d%c", &n, &junk) == 1) {
         cache_numshardbits_ = n;
       } else if (strncmp(argv[i], "--hostname=", 10) == 0) {

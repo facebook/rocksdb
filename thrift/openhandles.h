@@ -83,7 +83,7 @@ struct onehandle {
   const leveldb::Snapshot* lookupSnapshot(int64_t id) {
     auto p = snaplist.find(id);
     if (p == snaplist.end()) {
-      fprintf(stderr, "get:No snaphot with id %d\n", id);
+      fprintf(stderr, "get:No snaphot with id %ld\n", id);
       return NULL;
     }
     return p->second->lsnap;
@@ -113,7 +113,7 @@ struct onehandle {
   leveldb::Iterator* lookupIterator(int64_t id) {
     auto p = iterlist.find(id);
     if (p == iterlist.end()) {
-      fprintf(stderr, "lookupIterator:No iterator with id %d\n", id);
+      fprintf(stderr, "lookupIterator:No iterator with id %ld\n", id);
       return NULL;
     }
     return p->second->liter;
@@ -144,7 +144,7 @@ class OpenHandles {
   // Inserts a new database into the list.
   // If the database is already open, increase refcount.  
   // If the database is not already open, open and insert into list.
-  int64_t add(leveldb::Options& options, Text dbname, std::string dbdir) {
+  void add(leveldb::Options& options, Text dbname, std::string dbdir) {
     struct onehandle* found = head_[dbname];
     if (found == NULL) {
       found = new onehandle;

@@ -55,6 +55,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
                          int64_t id2, AssocVisibility visibility, bool update_count, 
                          const Text& wormhole_comment) {
     printf("taoAssocDelete\n");
+    return 0;
   }
 
   void taoAssocRangeGet(std::vector<TaoAssocGetResult> & _return, 
@@ -254,7 +255,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
              assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
     }
     if (value.size() != sizeof(int64_t)) {
-      printf("expected %lld got %lld\n", sizeof(int64_t), value.size());
+      printf("expected %ld got %ld\n", sizeof(int64_t), value.size());
       throw generate_exception(tableName, Code::kNotFound,
              "Bad sizes for count ",
              assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
@@ -286,7 +287,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     char* keybuf = &dummy[0];
     int rowkeysize = makeRowKey(keybuf, id1, assocType);
 
-    for (int index = 0; index < id2s.size(); index++) {
+    for (unsigned int index = 0; index < id2s.size(); index++) {
       int64_t id2 = id2s[index];
 
       // query column 'm'$id2
@@ -308,7 +309,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
         continue;
       }
       ASSERT_NE(ts, 0);
-      printf("XXX ts = %lld\n", ts);
+      printf("XXX ts = %ld\n", ts);
 
       // this assoc is visible, scan 'p'$ts$id2 to retrieve payload.
       keysize = appendRowKeyForPayload(rowkeysize, keybuf, ts, id2); 
@@ -406,7 +407,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   //
   inline char* copy_int64_switch_endian(char* dest, int64_t id) {
     char* src = (char *)&id + sizeof(id) - 1;
-    for (int i = 0; i < sizeof(id); i++) {
+    for (unsigned int i = 0; i < sizeof(id); i++) {
       *dest++ = *src--;      
     }
     return dest;
@@ -415,7 +416,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   // extracts a int64 type from the char stream. Swaps endianness.
   inline void extract_int64(int64_t* dest, char* src) {
     src += sizeof(int64_t) - 1;
-    for (int i = 0; i < sizeof(uint64_t); i++) {
+    for (unsigned int i = 0; i < sizeof(uint64_t); i++) {
       *dest++ = *src--;      
     }
   }
@@ -434,7 +435,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
                       int64_t ts, AssocVisibility vis) {
     char result[1024];
     sprintf(result, 
-            "id1=%d assocType=%d id2=%d id1Type=%d id2Type=%d ts=%d vis=%d ", 
+            "id1=%ld assocType=%ld id2=%ld id1Type=%ld id2Type=%ld ts=%ld vis=%d ", 
             id1, assocType, id2, id1Type, id2Type, ts, vis);
     fprintf(stderr, "assoc_server error table %s: %s errorCode=%d %s",
             tableName.c_str(), message, errorCode, result);
