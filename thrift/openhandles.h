@@ -67,7 +67,8 @@ struct onehandle {
   unordered_map<uint64_t, struct iteratorEntry*> iterlist; 
                         // list of iterators for this database
 
-  onehandle() : currentSnapshotId(1), currentIteratorId(1) {
+  onehandle() : onedb(NULL), 
+                refcount(0), currentSnapshotId(1), currentIteratorId(1) {
   }
 
   // stores a new leveldb snapshot and returns an unique id

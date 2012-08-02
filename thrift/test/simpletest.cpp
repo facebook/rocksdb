@@ -245,15 +245,12 @@ static void testAssocs() {
   aclient->taoAssocGet(readback, dbname,
                        assocType, id1, id2list);
   printf("AssocGet suceeded.\n");
-  printf("size = %lu\n", readback.size());
-  ASSERT_EQ(1, readback.size());
+  ASSERT_EQ((unsigned int)1, readback.size());
   ASSERT_EQ(id1Type, readback[0].id1Type);
-  printf("XXX %ld %ld\n", id1Type, readback[0].id1Type);
   ASSERT_EQ(id2Type, readback[0].id2Type);
   ASSERT_EQ(ts, readback[0].time);
   ASSERT_EQ(dataVersion, readback[0].dataVersion);
-  ASSERT_EQ(readback[0].data.compare(wormhole_comments), 0);
-
+  ASSERT_EQ(readback[0].data.compare(data), 0);
 }
 
 //
