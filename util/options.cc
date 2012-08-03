@@ -34,7 +34,8 @@ Options::Options()
       expanded_compaction_factor(25),
       max_grandparent_overlap_factor(10),
       filter_policy(NULL),
-      statistics(NULL) {
+      statistics(NULL),
+      disableDataSync(false) {
 }
 
 }  // namespace leveldb

@@ -810,7 +810,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   compact->builder = NULL;
 
   // Finish and check for file errors
-  if (s.ok()) {
+  if (s.ok() && !options_.disableDataSync) {
     s = compact->outfile->Sync();
   }
   if (s.ok()) {

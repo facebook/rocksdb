@@ -190,6 +190,14 @@ struct Options {
   // If non-null, then we should collect metrics about database operations
   Statistics* statistics;
 
+  // If true, then the contents of data files are not synced
+  // to stable storage. Their contents remain in the OS buffers till the
+  // OS decides to flush them. This option is good for bulk-loading
+  // of data. Once the bulk-loading is complete, please issue a
+  // sync to the OS to flush all dirty buffesrs to stable storage.
+  // Default: false
+  bool disableDataSync;
+
   // Create an Options object with default values for all fields.
   Options();
 };
