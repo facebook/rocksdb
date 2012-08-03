@@ -435,7 +435,7 @@ void startServer(int argc, char** argv) {
 
   // create the service to process the assoc get/put to leveldb.
   int assocport = server_options.getAssocPort();
-  fprintf(stderr, "Server starting on port %d\n", assocport);
+  fprintf(stderr, "Assoc Service starting on port %d\n", assocport);
   shared_ptr<TServerTransport> assocTransport(new TServerSocket(assocport));
   shared_ptr<AssocServiceHandler> assocHandler(new AssocServiceHandler(openHandles));
   shared_ptr<TProcessor> assocProcessor(new AssocServiceProcessor(assocHandler));

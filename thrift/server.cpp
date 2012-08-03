@@ -41,6 +41,7 @@ void signal_handler(int sig) {
 int main(int argc, char **argv) {
   signal(SIGINT, signal_handler);
   startServer(argc, argv);
+  sleep(100000000L);
   return 0;
 }
 
