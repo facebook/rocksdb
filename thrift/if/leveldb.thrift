@@ -309,7 +309,9 @@ service AssocService {
    * TAO Assoc RangeGet operation.
    * Obtain assocs in bewteen start_time and end_time in reverse time order.
    * The range check is inclusive: start_time >= time && time >= end_time.
-   * And yes, start_time >= end_time.
+   * And yes, start_time >= end_time because this range scan is a backward
+   * scan in time, starting with most recent time and scanning backwards
+   * for the most recent n assocs.
    */
   list<TaoAssocGetResult> taoAssocRangeGet(
     /** name of table */

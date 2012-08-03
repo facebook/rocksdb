@@ -207,6 +207,34 @@ static void testClient() {
   printf("Iterator scan-selective backward passes.\n");
 }
 
+// clean up all data that we inserted as part of this test
+void clearDatabase() {
+  WriteOptions writeOptions;
+  ReadOptions readOptions;
+  readOptions.snapshot.snapshotid = 0;
+  printf("Clearing entire database.\n");
+
+  ResultIterator ri;
+  Slice dummy;
+  dbclient->NewIterator(ri, dbhandle, readOptions,
+                        IteratorType::seekToFirst, dummy);
+  ASSERT_TRUE(ri.status == Code::kOk);
+  while (true) {
+    ResultPair pair;
+    dbclient->GetNext(pair, dbhandle, ri.iterator);
+    if (pair.status == Code::kOk) {
+      Slice key = pair.keyvalue.key;
+      Code code = dbclient->Delete(dbhandle, key, writeOptions); 
+      ASSERT_EQ(code, Code::kOk);
+    } else {
+      break;
+    }
+  }
+  // no need to invoke DeleteIterator because we scanned
+  // till the end using the iterator and ist is auto-deleted
+  // by the server.
+}
+
 //
 // Run assoc tests
 //
@@ -231,7 +259,7 @@ static void testAssocs() {
            ts, vis, update_count,
            dataVersion, data, wormhole_comments);
   ASSERT_GE(count, 0);
-  printf("Put AssocPut suceeded.\n");
+  printf("AssocPut first record suceeded.\n");
 
   // verify assoc counts.
   int64_t cnt = aclient->taoAssocCount(dbname, assocType, id1); 
@@ -251,6 +279,25 @@ static void testAssocs() {
   ASSERT_EQ(ts, readback[0].time);
   ASSERT_EQ(dataVersion, readback[0].dataVersion);
   ASSERT_EQ(readback[0].data.compare(data), 0);
+
+  // add one more assoc
+  const Text data1 = "data1......";
+  count = aclient->taoAssocPut(dbname, assocType,
+           id1, id2+2, id1Type+1, id2Type+1, 
+           ts+1, vis, update_count,
+           dataVersion+1, data1, wormhole_comments);
+  ASSERT_EQ(count, 2);
+  printf("AssocPut second record suceeded.\n");
+
+  // do a range get for id1+type and verify that there
+  // are two assocs.
+  readback.clear();
+  int64_t offset = 0;
+  int64_t limit = 1000;
+  aclient->taoAssocRangeGet(readback, dbname, assocType,
+                            id1, LONG_MAX, 0,
+                            offset, limit);
+  ASSERT_EQ((unsigned int)2, readback.size());
 }
 
 //
@@ -282,7 +329,10 @@ int main(int argc, char **argv) {
 
   // run all tests
   testClient();
+  clearDatabase();
+
   testAssocs();
+  clearDatabase();
 
   // done all tests
   close();

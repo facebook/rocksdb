@@ -12,7 +12,7 @@ compiled thrift libraries.
 If you want to compile leveldb with thrift-server support, please set the following
 enviroment variables appropriately:
    USE_THRIFT=1
-   LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./thrift/libs
+   LD_LIBRARY_PATH=$LD_LIBRARY_PATH:./thrift/libs:./snappy/libs
    make clean leveldb_server leveldb_server_test
 
 You can run the leveldb server unit tests by

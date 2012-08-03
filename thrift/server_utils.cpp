@@ -280,7 +280,7 @@ class DBHandler : virtual public DBIf {
       return;
     }
 
-    // If the iterator has reached the endm close it rightaway.
+    // If the iterator has reached the end close it rightaway.
     // There is no need for the application to make another thrift
     // call to cleanup the iterator.
     if (!it->Valid()) {
@@ -302,19 +302,19 @@ class DBHandler : virtual public DBIf {
     leveldb::Slice key = it->key();
     leveldb::Slice value = it->value();
 
+    // pack results back to client
+    _return.keyvalue.key.data.assign(key.data_, key.size_);
+    _return.keyvalue.key.size = key.size_;
+    _return.keyvalue.value.data.assign(value.data_, value.size_);
+    _return.keyvalue.value.size = value.size_;
+    _return.status = Code::kOk;  // success
+
     // move to next or previous value
     if (doNext) {
       it->Next();
     } else {
       it->Prev();
     }
-
-    // pack results back to client
-    _return.keyvalue.key.data = key.data_;
-    _return.keyvalue.key.size = key.size_;
-    _return.keyvalue.value.data = value.data_;
-    _return.keyvalue.value.size = value.size_;
-    _return.status = Code::kOk;  // success
   }
 
   // read the next value from the iterator

@@ -56,7 +56,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   int64_t taoAssocDelete(const Text& tableName, int64_t assocType, int64_t id1, 
                          int64_t id2, AssocVisibility visibility, bool update_count, 
                          const Text& wormhole_comment) {
-    printf("taoAssocDelete\n");
+    printf("taoAssocDelete not implemented yet\n");
     return 0;
   }
 
@@ -64,7 +64,14 @@ class AssocServiceHandler : virtual public AssocServiceIf {
                         const Text& tableName, int64_t assocType, int64_t id1, 
                         int64_t start_time, int64_t end_time, int64_t offset, 
                         int64_t limit) {
-    printf("taoAssocRangeGet\n");
+    leveldb::DB* db = openhandles_->get(tableName, NULL);
+    if (db == NULL) {
+      throw generate_exception(tableName, Code::kNotFound,
+               "taoAssocRangeGet: Unable to open database " ,
+               assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+    }
+    assocRangeGetBytimeInternal(_return, tableName, db, assocType, id1,
+                              start_time, end_time, offset, limit);
   }
 
   void taoAssocGet(std::vector<TaoAssocGetResult> & _return, 
@@ -73,10 +80,10 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     leveldb::DB* db = openhandles_->get(tableName, NULL);
     if (db == NULL) {
       throw generate_exception(tableName, Code::kNotFound,
-               "Unable to database " ,
+               "taoAssocGet:Unable to open database " ,
                assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
     }
-    taoAssocGetInternal(_return, tableName, db, assocType, id1, id2s);
+    assocGetInternal(_return, tableName, db, assocType, id1, id2s);
   }
 
   int64_t taoAssocCount(const Text& tableName, int64_t assocType, int64_t id1) {
@@ -84,17 +91,22 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     if (db == NULL) {
       return Code::kNotFound;
     }
-    return taoAssocCountInternal(tableName, db, assocType, id1);
+    return assocCountInternal(tableName, db, assocType, id1);
   }
 
  private:
   OpenHandles* openhandles_;
 
+  // the maximum values returned in a rangeget/multiget call.
+  const static unsigned int MAX_RANGE_SIZE = 10000;
+
   //
-  // inserts an assoc
-  // Returns true if the iinsertion is successful, otherwise return false.
+  // Inserts an assoc
+  // If update_count, returns the updated count of the assoc.
+  // If update_count, return zero.
+  // On failure, return negative number.
   // 
-  bool assocPutInternal(const Text& tableName, leveldb::DB* db,
+  int64_t assocPutInternal(const Text& tableName, leveldb::DB* db,
                       int64_t assocType, int64_t id1, 
                       int64_t id2, int64_t id1Type, int64_t id2Type, 
                       int64_t ts, AssocVisibility vis, 
@@ -102,6 +114,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
                       const Text& wormhole_comment) {
     leveldb::WriteOptions woptions;
     woptions.sync = true;
+    ts = convertTime(ts); // change time to numberofmillis till MAXLONG
 
     // create the payload for this assoc
     int payloadsize = sizeof(id1Type) + sizeof(id2Type) + sizeof(dataVersion) +
@@ -174,10 +187,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
 
     // if ts != oldts, then delete 'p'$old_ts$id2
     if (!newassoc) {
-      char* val = (char *)value.c_str();
-      extract_int64(&oldts, val);
-      extract_int8(&oldvis, val + sizeof(int64_t));
-
+      extractTsVisString(&oldts, &oldvis, (char *)value.c_str());
       if (ts != oldts) {
         if (!db->Delete(woptions, pkey).ok()) {
           throw generate_exception(tableName, Code::kNotFound,
@@ -231,7 +241,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     return 0;
   }
 
-  int64_t taoAssocCountInternal(const Text& tableName, leveldb::DB* db,
+  int64_t assocCountInternal(const Text& tableName, leveldb::DB* db,
                                 int64_t assocType, int64_t id1) {
     // create key to query
     int maxkeysize = sizeof(id1) + sizeof(assocType) + 1;
@@ -268,21 +278,86 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     return count;
   }
 
-  void taoAssocGetInternal(std::vector<TaoAssocGetResult> & _return, 
+  void assocRangeGetBytimeInternal(std::vector<TaoAssocGetResult> & _return, 
+                        const Text& tableName, leveldb::DB* db,
+                        int64_t assocType, int64_t id1, 
+                        int64_t start_time, int64_t end_time, int64_t offset, 
+                        int64_t limit) {
+    if (start_time < end_time) {
+      throw generate_exception(tableName, Code::kNotFound,
+             "assocRangeGetBytimeInternal:Bad starttime and endtime\n",
+             assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+    }
+    
+    int64_t ts, id2;
+    const leveldb::ReadOptions options;
+    std::string wormhole;
+
+    // convert times to time-till-LONGMAX
+    int64_t startTime = convertTime(start_time);
+    int64_t endTime = convertTime(end_time);
+
+    // create max key to query
+    int maxkeysize = sizeof(id1) + sizeof(assocType) + 1 + sizeof(ts) +
+                     sizeof(id2);
+    std::string dummy;
+    dummy.reserve(maxkeysize);
+    dummy.resize(maxkeysize);
+
+    // create rowkey
+    char* keybuf = &dummy[0];
+    int rowkeysize = makeRowKey(keybuf, id1, assocType);
+
+    // Position scan at 'p'$ts$id2 where ts = startTime and id2 = 0
+    id2 = 0;
+    leveldb::Iterator* iter = db->NewIterator(options);
+    int keysize = appendRowKeyForPayload(rowkeysize, keybuf, startTime, id2); 
+    leveldb::Slice pkey(keybuf, keysize);
+
+    for (iter->Seek(pkey); iter->Valid() && limit > 0 ; iter->Next()) {
+      // skip over records that the caller is not interested in
+      if (offset > 0) {
+        offset--;
+        continue;
+      }
+      printf("XXX server key found %s\n", iter->key().ToString().c_str());
+      ASSERT_GE(iter->key().size_, (unsigned int)rowkeysize);
+
+      // extract the timestamp and id1 from the key
+      extractRowKeyP(&ts, &id2, rowkeysize, (char*)(iter->key().data_));
+      ASSERT_GE(ts, startTime);
+      if (ts > endTime) {
+        break;
+      }
+
+      // allocate a new slot in the result set.
+      _return.resize(_return.size() + 1);
+      TaoAssocGetResult* result = &_return.back();
+
+      // Fill up new element in result set. 
+      result->id2 = id2;
+      result->time = convertTime(ts);
+      extractPayload((char*)iter->value().data_, &result->id1Type,
+                     &result->id2Type,
+                     &result->dataVersion, result->data, wormhole);
+      limit--;
+    }
+  }
+
+  void assocGetInternal(std::vector<TaoAssocGetResult> & _return, 
                    const Text& tableName, 
                    leveldb::DB* db,
                    int64_t assocType, int64_t id1, 
                    const std::vector<int64_t> & id2s) {
     int64_t ts, id2;
 
-    if (id2s.size() > 10000) {
+    if (id2s.size() > MAX_RANGE_SIZE) {
       throw generate_exception(tableName, Code::kNotFound,
                "Ids2 cannot be gteater than 10K.",
                assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
     }
     // allocate the entire result buffer.
     _return.reserve(id2s.size());
-
 
     // create max key to query
     int maxkeysize = sizeof(id1) + sizeof(assocType) + 1 + sizeof(ts) +
@@ -344,7 +419,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
 
       // Fill up new element in result set. 
       result->id2 = id2;
-      result->time = ts;
+      result->time = convertTime(ts);
       extractPayload((char*)value.c_str(), &result->id1Type, 
                      &result->id2Type,
                      &result->dataVersion, result->data, wormhole);
@@ -374,6 +449,17 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     dest = copy_int64_switch_endian(dest, id2);
     return rowkeysize + sizeof(ts) + sizeof(id2) + 1;
   }
+
+  // extract the timestamp and id2 from the key p$ts$id2
+  inline void extractRowKeyP(int64_t* ts, int64_t* id, 
+                             int rowkeysize, char* src) {
+    src += rowkeysize; // skip over the rowkey
+    ASSERT_EQ(*src, 'p');
+    src++;
+    extract_int64(ts, src); src += sizeof(*ts);
+    extract_int64(id, src); src += sizeof(*id);
+  }
+
   // fill the row key +'m' + id2 and returns the size of the key
   inline int appendRowKeyForMeta(int rowkeysize, char* dest, 
                                  int64_t id2) {
@@ -477,6 +563,14 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   // extracts a 1 byte integer from the char stream.
   inline void extract_int8(int8_t* dest, char* src) {
     *dest = *(int8_t *)src;
+  }
+
+  // convert a timestamp from an ever-increasing number to
+  // a decreasing number. All stored timestamps in this database
+  // are MAXLONG - timestamp. Thus, a backward-scan in time
+  // is converted to a forward scan in the database.
+  inline int64_t convertTime(int64_t ts) {
+    return LONG_MAX - ts;
   }
 
 
