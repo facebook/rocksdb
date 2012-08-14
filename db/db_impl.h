@@ -7,12 +7,20 @@
 
 #include <deque>
 #include <set>
+#include <atomic>
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "port/port.h"
+#include "util/stats_logger.h"
+
+#ifdef USE_SCRIBE
+#include "scribe/scribe_logger.h"
+#endif
+
+#include <boost/lexical_cast.hpp>
 
 namespace leveldb {
 
@@ -107,6 +115,9 @@ class DBImpl : public DB {
   // Wait for memtable compaction
   Status WaitForCompactMemTable();
 
+  void MaybeScheduleLogDBDeployStats();
+  static void LogDBDeployStats(void* db);
+
   void MaybeScheduleCompaction();
   static void BGWork(void* db);
   void BackgroundCall();
@@ -144,6 +155,8 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   log::Writer* log_;
 
+  std::string host_name_;
+
   // Queue of writers.
   std::deque<Writer*> writers_;
   WriteBatch* tmp_batch_;
@@ -171,6 +184,10 @@ class DBImpl : public DB {
 
   // Have we encountered a background error in paranoid mode?
   Status bg_error_;
+
+  StatsLogger* logger_;
+
+  std::atomic<int64_t> last_log_ts;
 
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".

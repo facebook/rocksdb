@@ -144,6 +144,20 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
   versions_ = new VersionSet(dbname_, &options_, table_cache_,
                              &internal_comparator_);
+
+#ifdef USE_SCRIBE
+  logger_ = new ScribeLogger("localhost", 1456);
+#endif
+
+  char name[100];
+  Status st = env_->GetHostName(name, 100);
+  if(st.ok()) {
+    host_name_ = name;
+  } else {
+    Log(options_.info_log, "Can't get hostname, use localhost as host name.");
+    host_name_ = "localhost";
+  }
+  last_log_ts = 0;
 }
 
 DBImpl::~DBImpl() {
@@ -536,6 +550,7 @@ Status DBImpl::CompactMemTable() {
     imm_ = NULL;
     has_imm_.Release_Store(NULL);
     DeleteObsoleteFiles();
+    MaybeScheduleLogDBDeployStats();
   }
 
   return s;
@@ -559,15 +574,15 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
 }
 
 int DBImpl::NumberLevels() {
-	return options_.num_levels;
+  return options_.num_levels;
 }
 
 int DBImpl::MaxMemCompactionLevel() {
-	return options_.max_mem_compaction_level;
+  return options_.max_mem_compaction_level;
 }
 
 int DBImpl::Level0StopWriteTrigger() {
-	return options_.level0_stop_writes_trigger;
+  return options_.level0_stop_writes_trigger;
 }
 
 Status DBImpl::Flush(const FlushOptions& options) {
@@ -620,34 +635,33 @@ Status DBImpl::FlushMemTable(const FlushOptions& options) {
 }
 
 Status DBImpl::WaitForCompactMemTable() {
-    Status s;
-    // Wait until the compaction completes
-    MutexLock l(&mutex_);
-    while (imm_ != NULL && bg_error_.ok()) {
-        bg_cv_.Wait();
-    }
-    if (imm_ != NULL) {
-        s = bg_error_;
-    }
-    return s;
+  Status s;
+  // Wait until the compaction completes
+  MutexLock l(&mutex_);
+  while (imm_ != NULL && bg_error_.ok()) {
+    bg_cv_.Wait();
+  }
+  if (imm_ != NULL) {
+    s = bg_error_;
+  }
+  return s;
 }
-
 
 Status DBImpl::TEST_CompactMemTable() {
   return FlushMemTable(FlushOptions());
 }
 
 Status DBImpl::TEST_WaitForCompactMemTable() {
-	return WaitForCompactMemTable();
+  return WaitForCompactMemTable();
 }
 
 Status DBImpl::TEST_WaitForCompact() {
-	// Wait until the compaction completes
-	MutexLock l(&mutex_);
-	while (bg_compaction_scheduled_ && bg_error_.ok()) {
-		bg_cv_.Wait();
-	}
-	return bg_error_;
+  // Wait until the compaction completes
+  MutexLock l(&mutex_);
+  while (bg_compaction_scheduled_ && bg_error_.ok()) {
+    bg_cv_.Wait();
+  }
+  return bg_error_;
 }
 
 void DBImpl::MaybeScheduleCompaction() {
@@ -677,6 +691,8 @@ void DBImpl::BackgroundCall() {
     BackgroundCompaction();
   }
   bg_compaction_scheduled_ = false;
+
+  MaybeScheduleLogDBDeployStats();
 
   // Previous compaction may have produced too many files in a level,
   // so reschedule another compaction if needed.
@@ -1482,6 +1498,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
     if (s.ok()) {
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleCompaction();
+      impl->MaybeScheduleLogDBDeployStats();
     }
   }
   impl->mutex_.Unlock();

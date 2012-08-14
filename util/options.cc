@@ -35,7 +35,8 @@ Options::Options()
       max_grandparent_overlap_factor(10),
       filter_policy(NULL),
       statistics(NULL),
-      disableDataSync(false) {
+      disableDataSync(false),
+      db_stats_log_interval(1800) {
 }
 
 }  // namespace leveldb

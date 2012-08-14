@@ -198,6 +198,12 @@ struct Options {
   // Default: false
   bool disableDataSync;
 
+  // This number controls how often a new scribe log about
+  // db deploy stats is written out.
+  // -1 indicates no logging at all.
+  // Default value is 1800 (half an hour).
+  int db_stats_log_interval;
+
   // Create an Options object with default values for all fields.
   Options();
 };

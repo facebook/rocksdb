@@ -537,6 +537,43 @@ class PosixEnv : public Env {
     usleep(micros);
   }
 
+  virtual Status GetHostName(char* name, uint len) {
+    int ret = gethostname(name, len);
+    if (ret < 0) {
+      if (errno == EFAULT || errno == EINVAL)
+        return Status::InvalidArgument(strerror(errno));
+      else
+        return IOError("GetHostName", errno);
+    }
+    return Status::OK();
+  }
+
+  virtual Status GetCurrentTime(int64_t* unix_time) {
+    time_t ret = time(NULL);
+    if (ret == (time_t) -1) {
+      return IOError("GetCurrentTime", errno);
+    }
+    *unix_time = (int64_t) ret;
+    return Status::OK();
+  }
+
+  virtual Status GetAbsolutePath(const std::string& db_path,
+      std::string* output_path) {
+    if (db_path.find('/') == 0) {
+      *output_path = db_path;
+      return Status::OK();
+    }
+
+    char the_path[256];
+    char* ret = getcwd(the_path, 256);
+    if (ret == NULL) {
+      return Status::IOError(strerror(errno));
+    }
+
+    *output_path = ret;
+    return Status::OK();
+  }
+
  private:
   void PthreadCall(const char* label, int result) {
     if (result != 0) {

@@ -1145,6 +1145,21 @@ const char* VersionSet::LevelSummary(LevelSummaryStorage* scratch) const {
   return scratch->buffer;
 }
 
+const char* VersionSet::LevelDataSizeSummary(
+    LevelSummaryStorage* scratch) const {
+  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files_size[");
+  for (int i = 0; i < NumberLevels(); i++) {
+    int sz = sizeof(scratch->buffer) - len;
+    int ret = snprintf(scratch->buffer + len, sz, "%ld ",
+        NumLevelBytes(i));
+    if (ret < 0 || ret >= sz)
+      break;
+    len += ret;
+  }
+  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
+  return scratch->buffer;
+}
+
 uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   uint64_t result = 0;
   for (int level = 0; level < NumberLevels(); level++) {
