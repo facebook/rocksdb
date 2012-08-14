@@ -52,8 +52,7 @@ TESTS = \
 	table_test \
 	version_edit_test \
 	version_set_test \
-	write_batch_test \
-        leveldb_server_test
+	write_batch_test
 
 PROGRAMS = db_bench $(TESTS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
