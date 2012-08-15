@@ -152,17 +152,17 @@ struct Options {
   // (max_bytes_for_level_base)^(max_bytes_for_level_multiplier).
 
   int max_bytes_for_level_base;
-	int max_bytes_for_level_multiplier;
+  int max_bytes_for_level_multiplier;
 
-	// Maximum number of bytes in all compacted files.  We avoid expanding
-	// the lower level file set of a compaction if it would make the
-	// total compaction cover more than
-	// (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
-	int expanded_compaction_factor;
+  // Maximum number of bytes in all compacted files.  We avoid expanding
+  // the lower level file set of a compaction if it would make the
+  // total compaction cover more than
+  // (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
+  int expanded_compaction_factor;
 
-	// Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-	// stop building a single file in a level->level+1 compaction.
-	int max_grandparent_overlap_factor;
+  // Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
+  // stop building a single file in a level->level+1 compaction.
+  int max_grandparent_overlap_factor;
 
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
