@@ -47,12 +47,23 @@ struct DBOptions {
   4:i32 max_open_files;
   5:i32 block_size;
   6:i32 block_restart_interval;
-  7:CompressionType compression
+  7:CompressionType compression,
+  8:i32 num_levels,
+  9:i32 level0_file_num_compaction_trigger,
+  10:i32 level0_slowdown_writes_trigger,
+  11:i32 level0_stop_writes_trigger,
+  12:i32 target_file_size_base,
+  13:i32 target_file_size_multiplier,
+  14:i32 max_bytes_for_level_base,
+  15:i32 max_bytes_for_level_multiplier,
+  16:i32 max_grandparent_overlap_factor,
+  17:bool disableDataSync
 }
 
 // Options for writing
 struct WriteOptions {
-  1:bool sync
+  1:bool sync,
+  2:bool disableWAL
 }
 
 struct Snapshot {

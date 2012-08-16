@@ -422,6 +422,76 @@ void reflectionInitializer_6731746507948871532(::apache::thrift::reflection::Sch
     f.name = "compression";
     dt.fields[7] = f;
   }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "num_levels";
+    dt.fields[8] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "level0_file_num_compaction_trigger";
+    dt.fields[9] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "level0_slowdown_writes_trigger";
+    dt.fields[10] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "level0_stop_writes_trigger";
+    dt.fields[11] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "target_file_size_base";
+    dt.fields[12] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "target_file_size_multiplier";
+    dt.fields[13] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "max_bytes_for_level_base";
+    dt.fields[14] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "max_bytes_for_level_multiplier";
+    dt.fields[15] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 5U;
+    f.name = "max_grandparent_overlap_factor";
+    dt.fields[16] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 2U;
+    f.name = "disableDataSync";
+    dt.fields[17] = f;
+  }
   schema.dataTypes[id] = dt;
   schema.names[dt.name] = id;
 }
@@ -509,6 +579,86 @@ uint32_t DBOptions::read(apache::thrift::protocol::TProtocol* iprot) {
           xfer += iprot->skip(ftype);
         }
         break;
+      case 8:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->num_levels);
+          this->__isset.num_levels = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 9:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->level0_file_num_compaction_trigger);
+          this->__isset.level0_file_num_compaction_trigger = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 10:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->level0_slowdown_writes_trigger);
+          this->__isset.level0_slowdown_writes_trigger = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 11:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->level0_stop_writes_trigger);
+          this->__isset.level0_stop_writes_trigger = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 12:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->target_file_size_base);
+          this->__isset.target_file_size_base = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 13:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->target_file_size_multiplier);
+          this->__isset.target_file_size_multiplier = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 14:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->max_bytes_for_level_base);
+          this->__isset.max_bytes_for_level_base = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 15:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->max_bytes_for_level_multiplier);
+          this->__isset.max_bytes_for_level_multiplier = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 16:
+        if (ftype == apache::thrift::protocol::T_I32) {
+          xfer += iprot->readI32(this->max_grandparent_overlap_factor);
+          this->__isset.max_grandparent_overlap_factor = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
+      case 17:
+        if (ftype == apache::thrift::protocol::T_BOOL) {
+          xfer += iprot->readBool(this->disableDataSync);
+          this->__isset.disableDataSync = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
       default:
         xfer += iprot->skip(ftype);
         break;
@@ -545,6 +695,36 @@ uint32_t DBOptions::write(apache::thrift::protocol::TProtocol* oprot) const {
   xfer += oprot->writeFieldBegin("compression", apache::thrift::protocol::T_I32, 7);
   xfer += oprot->writeI32((int32_t)this->compression);
   xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("num_levels", apache::thrift::protocol::T_I32, 8);
+  xfer += oprot->writeI32(this->num_levels);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("level0_file_num_compaction_trigger", apache::thrift::protocol::T_I32, 9);
+  xfer += oprot->writeI32(this->level0_file_num_compaction_trigger);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("level0_slowdown_writes_trigger", apache::thrift::protocol::T_I32, 10);
+  xfer += oprot->writeI32(this->level0_slowdown_writes_trigger);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("level0_stop_writes_trigger", apache::thrift::protocol::T_I32, 11);
+  xfer += oprot->writeI32(this->level0_stop_writes_trigger);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("target_file_size_base", apache::thrift::protocol::T_I32, 12);
+  xfer += oprot->writeI32(this->target_file_size_base);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("target_file_size_multiplier", apache::thrift::protocol::T_I32, 13);
+  xfer += oprot->writeI32(this->target_file_size_multiplier);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("max_bytes_for_level_base", apache::thrift::protocol::T_I32, 14);
+  xfer += oprot->writeI32(this->max_bytes_for_level_base);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("max_bytes_for_level_multiplier", apache::thrift::protocol::T_I32, 15);
+  xfer += oprot->writeI32(this->max_bytes_for_level_multiplier);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("max_grandparent_overlap_factor", apache::thrift::protocol::T_I32, 16);
+  xfer += oprot->writeI32(this->max_grandparent_overlap_factor);
+  xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("disableDataSync", apache::thrift::protocol::T_BOOL, 17);
+  xfer += oprot->writeBool(this->disableDataSync);
+  xfer += oprot->writeFieldEnd();
   xfer += oprot->writeFieldStop();
   xfer += oprot->writeStructEnd();
   return xfer;
@@ -561,6 +741,16 @@ void swap(DBOptions &a, DBOptions &b) {
   swap(a.block_size, b.block_size);
   swap(a.block_restart_interval, b.block_restart_interval);
   swap(a.compression, b.compression);
+  swap(a.num_levels, b.num_levels);
+  swap(a.level0_file_num_compaction_trigger, b.level0_file_num_compaction_trigger);
+  swap(a.level0_slowdown_writes_trigger, b.level0_slowdown_writes_trigger);
+  swap(a.level0_stop_writes_trigger, b.level0_stop_writes_trigger);
+  swap(a.target_file_size_base, b.target_file_size_base);
+  swap(a.target_file_size_multiplier, b.target_file_size_multiplier);
+  swap(a.max_bytes_for_level_base, b.max_bytes_for_level_base);
+  swap(a.max_bytes_for_level_multiplier, b.max_bytes_for_level_multiplier);
+  swap(a.max_grandparent_overlap_factor, b.max_grandparent_overlap_factor);
+  swap(a.disableDataSync, b.disableDataSync);
   swap(a.__isset, b.__isset);
 }
 
@@ -578,6 +768,13 @@ void reflectionInitializer_8830325115029814540(::apache::thrift::reflection::Sch
     f.type = 2U;
     f.name = "sync";
     dt.fields[1] = f;
+  }
+  {
+    ::apache::thrift::reflection::StructField f;
+    f.isRequired = true;
+    f.type = 2U;
+    f.name = "disableWAL";
+    dt.fields[2] = f;
   }
   schema.dataTypes[id] = dt;
   schema.names[dt.name] = id;
@@ -616,6 +813,14 @@ uint32_t WriteOptions::read(apache::thrift::protocol::TProtocol* iprot) {
           xfer += iprot->skip(ftype);
         }
         break;
+      case 2:
+        if (ftype == apache::thrift::protocol::T_BOOL) {
+          xfer += iprot->readBool(this->disableWAL);
+          this->__isset.disableWAL = true;
+        } else {
+          xfer += iprot->skip(ftype);
+        }
+        break;
       default:
         xfer += iprot->skip(ftype);
         break;
@@ -634,6 +839,9 @@ uint32_t WriteOptions::write(apache::thrift::protocol::TProtocol* oprot) const {
   xfer += oprot->writeFieldBegin("sync", apache::thrift::protocol::T_BOOL, 1);
   xfer += oprot->writeBool(this->sync);
   xfer += oprot->writeFieldEnd();
+  xfer += oprot->writeFieldBegin("disableWAL", apache::thrift::protocol::T_BOOL, 2);
+  xfer += oprot->writeBool(this->disableWAL);
+  xfer += oprot->writeFieldEnd();
   xfer += oprot->writeFieldStop();
   xfer += oprot->writeStructEnd();
   return xfer;
@@ -644,6 +852,7 @@ void swap(WriteOptions &a, WriteOptions &b) {
   (void)a;
   (void)b;
   swap(a.sync, b.sync);
+  swap(a.disableWAL, b.disableWAL);
   swap(a.__isset, b.__isset);
 }
 
