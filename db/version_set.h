@@ -238,6 +238,9 @@ class VersionSet {
   };
   const char* LevelSummary(LevelSummaryStorage* scratch) const;
 
+  // printf contents (for debugging)
+  Status DumpManifest(Options& options, std::string& manifestFileName);
+
  private:
   class Builder;
 

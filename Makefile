@@ -54,7 +54,10 @@ TESTS = \
 	version_set_test \
 	write_batch_test
 
-PROGRAMS = db_bench $(TESTS)
+TOOLS = \
+	manifest_dump
+
+PROGRAMS = db_bench $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
 
 LIBRARY = libleveldb.a
@@ -81,7 +84,7 @@ endif
 
 all: $(SHARED) $(LIBRARY) $(THRIFTSERVER)
 
-check: all $(PROGRAMS) $(TESTS)
+check: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 
 clean:
@@ -167,6 +170,9 @@ leveldb_server: thrift/server.o $(LIBRARY)
 
 leveldb_server_test: thrift/test/simpletest.o $(LIBRARY) 
 	$(CXX) thrift/test/simpletest.o $(LIBRARY) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
+
+manifest_dump: tools/manifest_dump.o $(LIBOBJECTS)
+	$(CXX) tools/manifest_dump.o $(LIBOBJECTS) -o $@ $(LDFLAGS)
 
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and

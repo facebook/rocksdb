@@ -939,6 +939,119 @@ Status VersionSet::Recover() {
   return s;
 }
 
+Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
+  struct LogReporter : public log::Reader::Reporter {
+    Status* status;
+    virtual void Corruption(size_t bytes, const Status& s) {
+      if (this->status->ok()) *this->status = s;
+    }
+  };
+
+  // Open the specified manifest file.
+  SequentialFile* file;
+  Status s = options.env->NewSequentialFile(dscname, &file);
+  if (!s.ok()) {
+    return s;
+  }
+
+  bool have_log_number = false;
+  bool have_prev_log_number = false;
+  bool have_next_file = false;
+  bool have_last_sequence = false;
+  uint64_t next_file = 0;
+  uint64_t last_sequence = 0;
+  uint64_t log_number = 0;
+  uint64_t prev_log_number = 0;
+  VersionSet::Builder builder(this, current_);
+
+  {
+    LogReporter reporter;
+    reporter.status = &s;
+    log::Reader reader(file, &reporter, true/*checksum*/, 0/*initial_offset*/);
+    Slice record;
+    std::string scratch;
+    while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+      VersionEdit edit(NumberLevels());
+      s = edit.DecodeFrom(record);
+      if (s.ok()) {
+        if (edit.has_comparator_ &&
+            edit.comparator_ != icmp_.user_comparator()->Name()) {
+          s = Status::InvalidArgument(
+              edit.comparator_ + "does not match existing comparator ",
+              icmp_.user_comparator()->Name());
+        }
+      }
+
+      if (s.ok()) {
+        builder.Apply(&edit);
+      }
+
+      if (edit.has_log_number_) {
+        log_number = edit.log_number_;
+        have_log_number = true;
+      }
+
+      if (edit.has_prev_log_number_) {
+        prev_log_number = edit.prev_log_number_;
+        have_prev_log_number = true;
+      }
+
+      if (edit.has_next_file_number_) {
+        next_file = edit.next_file_number_;
+        have_next_file = true;
+      }
+
+      if (edit.has_last_sequence_) {
+        last_sequence = edit.last_sequence_;
+        have_last_sequence = true;
+      }
+    }
+  }
+  delete file;
+  file = NULL;
+
+  if (s.ok()) {
+    if (!have_next_file) {
+      s = Status::Corruption("no meta-nextfile entry in descriptor");
+      printf("no meta-nextfile entry in descriptor");
+    } else if (!have_log_number) {
+      s = Status::Corruption("no meta-lognumber entry in descriptor");
+      printf("no meta-lognumber entry in descriptor");
+    } else if (!have_last_sequence) {
+      printf("no last-sequence-number entry in descriptor");
+      s = Status::Corruption("no last-sequence-number entry in descriptor");
+    }
+
+    if (!have_prev_log_number) {
+      prev_log_number = 0;
+    }
+
+    MarkFileNumberUsed(prev_log_number);
+    MarkFileNumberUsed(log_number);
+  }
+
+  if (s.ok()) {
+    Version* v = new Version(this);
+    builder.SaveTo(v);
+    // Install recovered version
+    Finalize(v);
+    AppendVersion(v);
+    manifest_file_number_ = next_file;
+    next_file_number_ = next_file + 1;
+    last_sequence_ = last_sequence;
+    log_number_ = log_number;
+    prev_log_number_ = prev_log_number;
+    
+    printf("manifest_file_number %d next_file_number %d last_sequence %d log_number %d  prev_log_number %d\n",
+           manifest_file_number_, next_file_number_, 
+           last_sequence, log_number, prev_log_number);
+    printf("%s \n", v->DebugString().c_str());
+  }
+  
+
+  return s;
+}
+
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
   if (next_file_number_ <= number) {
     next_file_number_ = number + 1;
