@@ -60,8 +60,10 @@ std::string InfoLogFileName(const std::string& dbname) {
 }
 
 // Return the name of the old info log file for "dbname".
-std::string OldInfoLogFileName(const std::string& dbname) {
-  return dbname + "/LOG.old";
+std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts) {
+  char buf[50];
+  snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(ts));
+  return dbname + "/LOG.old." + buf;
 }
 
 
@@ -69,7 +71,7 @@ std::string OldInfoLogFileName(const std::string& dbname) {
 //    dbname/CURRENT
 //    dbname/LOCK
 //    dbname/LOG
-//    dbname/LOG.old
+//    dbname/LOG.old.[0-9]+
 //    dbname/MANIFEST-[0-9]+
 //    dbname/[0-9]+.(log|sst)
 bool ParseFileName(const std::string& fname,
@@ -82,8 +84,16 @@ bool ParseFileName(const std::string& fname,
   } else if (rest == "LOCK") {
     *number = 0;
     *type = kDBLockFile;
-  } else if (rest == "LOG" || rest == "LOG.old") {
+  } else if (rest == "LOG") {
     *number = 0;
+    *type = kInfoLogFile;
+  } else if (rest.starts_with("LOG.old.")) {
+    uint64_t ts_suffix;
+    rest.remove_prefix(sizeof("LOG.old."));
+    if (!ConsumeDecimalNumber(&rest, &ts_suffix)) {
+      return false;
+    }
+    *number = ts_suffix;
     *type = kInfoLogFile;
   } else if (rest.starts_with("MANIFEST-")) {
     rest.remove_prefix(strlen("MANIFEST-"));

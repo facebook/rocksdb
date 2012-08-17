@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <vector>
+#include <algorithm>
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -99,7 +100,8 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.info_log == NULL) {
     // Open a log file in the same directory as the db
     src.env->CreateDir(dbname);  // In case it does not exist
-    src.env->RenameFile(InfoLogFileName(dbname), OldInfoLogFileName(dbname));
+    src.env->RenameFile(InfoLogFileName(dbname),
+        OldInfoLogFileName(dbname, src.env->NowMicros()));
     Status s = src.env->NewLogger(InfoLogFileName(dbname), &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
@@ -224,6 +226,7 @@ void DBImpl::DeleteObsoleteFiles() {
   env_->GetChildren(dbname_, &filenames); // Ignoring errors on purpose
   uint64_t number;
   FileType type;
+  std::vector<uint64_t> old_log_files_ts;
   for (size_t i = 0; i < filenames.size(); i++) {
     if (ParseFileName(filenames[i], &number, &type)) {
       bool keep = true;
@@ -245,9 +248,14 @@ void DBImpl::DeleteObsoleteFiles() {
           // be recorded in pending_outputs_, which is inserted into "live"
           keep = (live.find(number) != live.end());
           break;
+        case kInfoLogFile:
+          keep = true;
+          if (number != 0) {
+            old_log_files_ts.push_back(number);
+          }
+          break;
         case kCurrentFile:
         case kDBLockFile:
-        case kInfoLogFile:
           keep = true;
           break;
       }
@@ -261,6 +269,20 @@ void DBImpl::DeleteObsoleteFiles() {
             static_cast<unsigned long long>(number));
         env_->DeleteFile(dbname_ + "/" + filenames[i]);
       }
+    }
+  }
+
+  // Delete old log files.
+  int old_log_file_count = old_log_files_ts.size();
+  if (old_log_file_count >= KEEP_LOG_FILE_NUM) {
+    std::sort(old_log_files_ts.begin(), old_log_files_ts.end());
+    for (int i = 0; i >= (old_log_file_count - KEEP_LOG_FILE_NUM); i++) {
+      uint64_t ts = old_log_files_ts.at(i);
+      std::string to_delete = OldInfoLogFileName(dbname_, ts);
+      Log(options_.info_log, "Delete type=%d #%lld\n",
+          int(kInfoLogFile),
+          static_cast<unsigned long long>(ts));
+      env_->DeleteFile(dbname_ + "/" + to_delete);
     }
   }
 }

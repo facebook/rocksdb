@@ -189,6 +189,8 @@ class DBImpl : public DB {
   };
   CompactionStats* stats_;
 
+  static const int KEEP_LOG_FILE_NUM = 1000;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);

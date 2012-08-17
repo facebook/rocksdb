@@ -779,6 +779,22 @@ TEST(DBTest, Recover) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, RollLog) {
+  do {
+    ASSERT_OK(Put("foo", "v1"));
+    ASSERT_OK(Put("baz", "v5"));
+
+    Reopen();
+    for (int i = 0; i < 10; i++) {
+      Reopen();
+    }
+    ASSERT_OK(Put("foo", "v4"));
+    for (int i = 0; i < 10; i++) {
+      Reopen();
+    }
+  } while (ChangeOptions());
+}
+
 TEST(DBTest, WAL) {
   Options options = CurrentOptions();
   WriteOptions writeOpt = WriteOptions();
