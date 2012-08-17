@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
 
   // parse command line options
   int n;
-  char junk; 
+  char junk;
   int foundfile = 0;
   std::string manifestfile;
   for (int i = 1; i < argc; i++) {
@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
   TableCache* tc = new TableCache(dbname, &options, 10);
   const InternalKeyComparator* cmp = new InternalKeyComparator(options.comparator);
 
-  VersionSet* versions = new VersionSet(dbname, &options, 
+  VersionSet* versions = new VersionSet(dbname, &options,
                                    tc, cmp);
   Status s = versions->DumpManifest(options, file);
   if (!s.ok()) {

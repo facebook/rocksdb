@@ -1042,13 +1042,13 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
     last_sequence_ = last_sequence;
     log_number_ = log_number;
     prev_log_number_ = prev_log_number;
-    
+
     printf("manifest_file_number %d next_file_number %d last_sequence %d log_number %d  prev_log_number %d\n",
-           manifest_file_number_, next_file_number_, 
+           manifest_file_number_, next_file_number_,
            last_sequence, log_number, prev_log_number);
     printf("%s \n", v->DebugString().c_str());
   }
-  
+
 
   return s;
 }
