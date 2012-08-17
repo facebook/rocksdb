@@ -75,6 +75,26 @@ class DBHandler : virtual public DBIf {
     } else if (dboptions.compression == kSnappyCompression) {
       options.compression = leveldb::kSnappyCompression;
     }
+    if (dboptions.num_levels > 0)
+      options.num_levels = dboptions.num_levels;
+    if (dboptions.level0_file_num_compaction_trigger > 0) 
+      options.level0_file_num_compaction_trigger = dboptions.level0_file_num_compaction_trigger;
+    if (dboptions.level0_slowdown_writes_trigger > 0)
+      options.level0_slowdown_writes_trigger = dboptions.level0_slowdown_writes_trigger;
+    if (dboptions.level0_stop_writes_trigger) 
+      options.level0_stop_writes_trigger = dboptions.level0_stop_writes_trigger;
+    if (dboptions.target_file_size_base > 0) 
+      options.target_file_size_base = dboptions.target_file_size_base;
+    if (dboptions.target_file_size_multiplier > 0)
+      options.target_file_size_multiplier = dboptions.target_file_size_multiplier;
+    if (dboptions.max_bytes_for_level_base) 
+      options.max_bytes_for_level_base = dboptions.max_bytes_for_level_base;
+    if (dboptions.max_bytes_for_level_multiplier)
+      options.max_bytes_for_level_multiplier = dboptions.max_bytes_for_level_multiplier;
+    if (dboptions.max_grandparent_overlap_factor)
+      options.max_grandparent_overlap_factor = dboptions.max_grandparent_overlap_factor;
+    if (dboptions.disableDataSync) 
+      options.disableDataSync = dboptions.disableDataSync;
     openHandles->add(options, dbname, dbdir);
     _return.dbname = dbname;
   }
@@ -91,6 +111,7 @@ class DBHandler : virtual public DBIf {
     const WriteOptions& options) {
     leveldb::WriteOptions woptions;
     woptions.sync = options.sync;
+    woptions.disableWAL = options.disableWAL;
     leveldb::Slice key, value;
     key.data_ = kv.key.data.data();
     key.size_ = kv.key.size;
@@ -111,6 +132,7 @@ class DBHandler : virtual public DBIf {
     const WriteOptions& options) {
     leveldb::WriteOptions woptions;
     woptions.sync = options.sync;
+    woptions.disableWAL = options.disableWAL;
     leveldb::Slice key;
     key.data_ = kv.data.data();
     key.size_ = kv.size;
@@ -130,6 +152,7 @@ class DBHandler : virtual public DBIf {
     leveldb::WriteOptions woptions;
     leveldb::WriteBatch lbatch;
     woptions.sync = options.sync;
+    woptions.disableWAL = options.disableWAL;
     leveldb::Slice key, value;
     for (unsigned int i = 0; i < batch.size(); i++) {
       kv one = batch[i];

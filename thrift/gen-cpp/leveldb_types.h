@@ -238,7 +238,7 @@ class DBOptions {
 
   static const uint64_t _reflection_id = 6731746507948871532U;
   static void _reflection_register(::apache::thrift::reflection::Schema&);
-  DBOptions() : create_if_missing(0), error_if_exists(0), write_buffer_size(0), max_open_files(0), block_size(0), block_restart_interval(0), compression(static_cast<CompressionType>(0)) {
+  DBOptions() : create_if_missing(0), error_if_exists(0), write_buffer_size(0), max_open_files(0), block_size(0), block_restart_interval(0), compression(static_cast<CompressionType>(0)), num_levels(0), level0_file_num_compaction_trigger(0), level0_slowdown_writes_trigger(0), level0_stop_writes_trigger(0), target_file_size_base(0), target_file_size_multiplier(0), max_bytes_for_level_base(0), max_bytes_for_level_multiplier(0), max_grandparent_overlap_factor(0), disableDataSync(0) {
   }
 
   DBOptions(const DBOptions&) = default;
@@ -254,6 +254,16 @@ class DBOptions {
     block_size = 0;
     block_restart_interval = 0;
     compression = static_cast<CompressionType>(0);
+    num_levels = 0;
+    level0_file_num_compaction_trigger = 0;
+    level0_slowdown_writes_trigger = 0;
+    level0_stop_writes_trigger = 0;
+    target_file_size_base = 0;
+    target_file_size_multiplier = 0;
+    max_bytes_for_level_base = 0;
+    max_bytes_for_level_multiplier = 0;
+    max_grandparent_overlap_factor = 0;
+    disableDataSync = 0;
     __isset.__clear();
   }
 
@@ -266,6 +276,16 @@ class DBOptions {
   int32_t block_size;
   int32_t block_restart_interval;
   CompressionType compression;
+  int32_t num_levels;
+  int32_t level0_file_num_compaction_trigger;
+  int32_t level0_slowdown_writes_trigger;
+  int32_t level0_stop_writes_trigger;
+  int32_t target_file_size_base;
+  int32_t target_file_size_multiplier;
+  int32_t max_bytes_for_level_base;
+  int32_t max_bytes_for_level_multiplier;
+  int32_t max_grandparent_overlap_factor;
+  bool disableDataSync;
 
   struct __isset {
     __isset() { __clear(); } 
@@ -277,6 +297,16 @@ class DBOptions {
       block_size = false;
       block_restart_interval = false;
       compression = false;
+      num_levels = false;
+      level0_file_num_compaction_trigger = false;
+      level0_slowdown_writes_trigger = false;
+      level0_stop_writes_trigger = false;
+      target_file_size_base = false;
+      target_file_size_multiplier = false;
+      max_bytes_for_level_base = false;
+      max_bytes_for_level_multiplier = false;
+      max_grandparent_overlap_factor = false;
+      disableDataSync = false;
     }
     bool create_if_missing;
     bool error_if_exists;
@@ -285,6 +315,16 @@ class DBOptions {
     bool block_size;
     bool block_restart_interval;
     bool compression;
+    bool num_levels;
+    bool level0_file_num_compaction_trigger;
+    bool level0_slowdown_writes_trigger;
+    bool level0_stop_writes_trigger;
+    bool target_file_size_base;
+    bool target_file_size_multiplier;
+    bool max_bytes_for_level_base;
+    bool max_bytes_for_level_multiplier;
+    bool max_grandparent_overlap_factor;
+    bool disableDataSync;
   } __isset;
 
   bool operator == (const DBOptions & rhs) const
@@ -302,6 +342,26 @@ class DBOptions {
     if (!(this->block_restart_interval == rhs.block_restart_interval))
       return false;
     if (!(this->compression == rhs.compression))
+      return false;
+    if (!(this->num_levels == rhs.num_levels))
+      return false;
+    if (!(this->level0_file_num_compaction_trigger == rhs.level0_file_num_compaction_trigger))
+      return false;
+    if (!(this->level0_slowdown_writes_trigger == rhs.level0_slowdown_writes_trigger))
+      return false;
+    if (!(this->level0_stop_writes_trigger == rhs.level0_stop_writes_trigger))
+      return false;
+    if (!(this->target_file_size_base == rhs.target_file_size_base))
+      return false;
+    if (!(this->target_file_size_multiplier == rhs.target_file_size_multiplier))
+      return false;
+    if (!(this->max_bytes_for_level_base == rhs.max_bytes_for_level_base))
+      return false;
+    if (!(this->max_bytes_for_level_multiplier == rhs.max_bytes_for_level_multiplier))
+      return false;
+    if (!(this->max_grandparent_overlap_factor == rhs.max_grandparent_overlap_factor))
+      return false;
+    if (!(this->disableDataSync == rhs.disableDataSync))
       return false;
     return true;
   }
@@ -324,7 +384,7 @@ class WriteOptions {
 
   static const uint64_t _reflection_id = 8830325115029814540U;
   static void _reflection_register(::apache::thrift::reflection::Schema&);
-  WriteOptions() : sync(0) {
+  WriteOptions() : sync(0), disableWAL(0) {
   }
 
   WriteOptions(const WriteOptions&) = default;
@@ -334,24 +394,30 @@ class WriteOptions {
 
   void __clear() {
     sync = 0;
+    disableWAL = 0;
     __isset.__clear();
   }
 
   virtual ~WriteOptions() throw() {}
 
   bool sync;
+  bool disableWAL;
 
   struct __isset {
     __isset() { __clear(); } 
     void __clear() {
       sync = false;
+      disableWAL = false;
     }
     bool sync;
+    bool disableWAL;
   } __isset;
 
   bool operator == (const WriteOptions & rhs) const
   {
     if (!(this->sync == rhs.sync))
+      return false;
+    if (!(this->disableWAL == rhs.disableWAL))
       return false;
     return true;
   }
