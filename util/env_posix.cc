@@ -3,6 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <deque>
+#include <set>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -30,6 +31,10 @@ bool useOsBuffer = 1;     // cache data in OS buffers
 namespace leveldb {
 
 namespace {
+
+// list of pathnames that are locked
+static std::set<std::string> lockedFiles;
+static port::Mutex mutex_lockedFiles;
 
 static Status IOError(const std::string& context, int err_number) {
   return Status::IOError(context, strerror(err_number));
@@ -291,7 +296,28 @@ class PosixMmapFile : public WritableFile {
   }
 };
 
-static int LockOrUnlock(int fd, bool lock) {
+static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
+  mutex_lockedFiles.Lock();
+  if (lock) {
+    // If it already exists in the lockedFiles set, then it is already locked,
+    // and fail this lock attempt. Otherwise, insert it into lockedFiles.
+    // This check is needed because fcntl() does not detect lock conflict
+    // if the fcntl is issued by the same thread that earlier acquired
+    // this lock.
+    if (lockedFiles.insert(fname).second == false) {
+      mutex_lockedFiles.Unlock();
+      errno = ENOLCK;
+      return -1;
+    }
+  } else {
+    // If we are unlocking, then verify that we had locked it earlier,
+    // it should already exist in lockedFiles. Remove it from lockedFiles.
+    if (lockedFiles.erase(fname) != 1) {
+      mutex_lockedFiles.Unlock();
+      errno = ENOLCK;
+      return -1;
+    }
+  }
   errno = 0;
   struct flock f;
   memset(&f, 0, sizeof(f));
@@ -299,12 +325,19 @@ static int LockOrUnlock(int fd, bool lock) {
   f.l_whence = SEEK_SET;
   f.l_start = 0;
   f.l_len = 0;        // Lock/unlock entire file
-  return fcntl(fd, F_SETLK, &f);
+  int value = fcntl(fd, F_SETLK, &f);
+  if (value == -1 && lock) {
+    // if there is an error in locking, then remove the pathname from lockedfiles
+    lockedFiles.erase(fname);
+  }
+  mutex_lockedFiles.Unlock();
+  return value;
 }
 
 class PosixFileLock : public FileLock {
  public:
   int fd_;
+  std::string filename;
 };
 
 class PosixEnv : public Env {
@@ -435,12 +468,13 @@ class PosixEnv : public Env {
     int fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
     if (fd < 0) {
       result = IOError(fname, errno);
-    } else if (LockOrUnlock(fd, true) == -1) {
+    } else if (LockOrUnlock(fname, fd, true) == -1) {
       result = IOError("lock " + fname, errno);
       close(fd);
     } else {
       PosixFileLock* my_lock = new PosixFileLock;
       my_lock->fd_ = fd;
+      my_lock->filename = fname;
       *lock = my_lock;
     }
     return result;
@@ -449,7 +483,7 @@ class PosixEnv : public Env {
   virtual Status UnlockFile(FileLock* lock) {
     PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
     Status result;
-    if (LockOrUnlock(my_lock->fd_, false) == -1) {
+    if (LockOrUnlock(my_lock->filename, my_lock->fd_, false) == -1) {
       result = IOError("unlock", errno);
     }
     close(my_lock->fd_);

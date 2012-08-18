@@ -52,7 +52,8 @@ TESTS = \
 	table_test \
 	version_edit_test \
 	version_set_test \
-	write_batch_test
+	write_batch_test \
+	filelock_test
 
 TOOLS = \
 	manifest_dump
@@ -173,6 +174,10 @@ leveldb_server_test: thrift/test/simpletest.o $(LIBRARY)
 
 manifest_dump: tools/manifest_dump.o $(LIBOBJECTS)
 	$(CXX) tools/manifest_dump.o $(LIBOBJECTS) -o $@ $(LDFLAGS)
+
+filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
+
 
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and

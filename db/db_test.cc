@@ -213,6 +213,10 @@ class DBTest {
     ASSERT_OK(TryReopen(options));
   }
 
+  Status PureReopen(Options* options, DB** db) {
+    return DB::Open(*options, dbname_, db);
+  }
+
   Status TryReopen(Options* options) {
     delete db_;
     db_ = NULL;
@@ -826,6 +830,13 @@ TEST(DBTest, WAL) {
   // 'foo' should be there because its put
   // has WAL enabled.
   ASSERT_EQ("v3", Get("foo"));
+}
+
+TEST(DBTest, CheckLock) {
+  DB* localdb;
+  Options options = CurrentOptions();
+  ASSERT_TRUE(TryReopen(&options).ok());
+  ASSERT_TRUE(!(PureReopen(&options, &localdb).ok())); // second open should fail
 }
 
 TEST(DBTest, FLUSH) {
