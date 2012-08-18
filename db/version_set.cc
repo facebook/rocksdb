@@ -1443,4 +1443,37 @@ void Compaction::ReleaseInputs() {
   }
 }
 
+static void InputSummary(std::vector<FileMetaData*>& files,
+    char* output,
+    int len) {
+  int write = 0;
+  for (int i = 0; i < files.size(); i++) {
+    int sz = len - write;
+    int ret = snprintf(output + write, sz, "%llu(%llu) ",
+        files.at(i)->number,
+        files.at(i)->file_size);
+    if (ret < 0 || ret >= sz)
+      break;
+    write += ret;
+  }
+}
+
+void Compaction::Summary(char* output, int len) {
+  int write = snprintf(output, len, "Base level %d, inputs:", level_);
+  if(write < 0 || write > len)
+    return;
+
+  char level_low_summary[100];
+  InputSummary(inputs_[0], level_low_summary, 100);
+  char level_up_summary[100];
+  if (inputs_[1].size()) {
+    InputSummary(inputs_[1], level_up_summary, 100);
+  } else {
+    level_up_summary[0] = '\0';
+  }
+
+  snprintf(output + write, len - write, "[%s],[%s]",
+      level_low_summary, level_up_summary);
+}
+
 }  // namespace leveldb

@@ -344,6 +344,8 @@ class Compaction {
   // is successful.
   void ReleaseInputs();
 
+  void Summary(char* output, int len);
+
  private:
   friend class Version;
   friend class VersionSet;
