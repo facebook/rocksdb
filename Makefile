@@ -56,7 +56,6 @@ TESTS = \
 	write_batch_test \
 	filelock_test
 
-
 TOOLS = \
 	manifest_dump \
 	leveldb_shell \
@@ -197,6 +196,10 @@ sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 # recreate the version file with the latest git revision
 $(VERSIONFILE):	build_detect_version
 	$(shell ./build_detect_platform build_config.mk)
+
+filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
+
 
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and
