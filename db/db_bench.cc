@@ -128,6 +128,9 @@ static bool FLAGS_sync = false;
 // If true, do not wait until data is synced to disk.
 static bool FLAGS_disable_data_sync = false;
 
+// If true, do not write WAL for write.
+static bool FLAGS_disable_wal = false;
+
 // Target level-0 file size for compaction
 static int FLAGS_target_file_size_base = 2 * 1048576;
 
@@ -139,6 +142,12 @@ static int FLAGS_max_bytes_for_level_base = 10 * 1048576;
 
 // A multiplier to compute max bytes for level-N
 static int FLAGS_max_bytes_for_level_multiplier = 10;
+
+// Number of files in level-0 that will trigger put stop.
+static int FLAGS_level0_stop_writes_trigger = 12;
+
+// Nulber of files in level-0 that will slow down writes.
+static int FLAGS_level0_slowdown_writes_trigger = 4;
 
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
@@ -502,6 +511,8 @@ class Benchmark {
         write_options_.sync = true;
       }
 
+      write_options_.disableWAL = FLAGS_disable_wal;
+
       void (Benchmark::*method)(ThreadState*) = NULL;
       bool fresh_db = false;
       int num_threads = FLAGS_threads;
@@ -768,6 +779,9 @@ class Benchmark {
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
+    options.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
+    options.level0_slowdown_writes_trigger =
+      FLAGS_level0_slowdown_writes_trigger;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1056,6 +1070,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_data_sync = n;
+    } else if (sscanf(argv[i], "--disable_wal=%d%c", &n, &junk) == 1 &&
+	(n == 0 || n == 1)) {
+      FLAGS_disable_wal = n;
     } else if (sscanf(argv[i], "--hdfs=%s", &hdfsname) == 1) {
       FLAGS_env  = new leveldb::HdfsEnv(hdfsname);
     } else if (sscanf(argv[i], "--target_file_size_base=%d%c",
@@ -1070,6 +1087,12 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--max_bytes_for_level_multiplier=%d%c",
         &n, &junk) == 1) {
       FLAGS_max_bytes_for_level_multiplier = n;
+    } else if (sscanf(argv[i],"--level0_stop_writes_trigger=%d%c",
+        &n, &junk) == 1) {
+      FLAGS_level0_stop_writes_trigger = n;
+    } else if (sscanf(argv[i],"--level0_slowdown_writes_trigger=%d%c",
+        &n, &junk) == 1) {
+      FLAGS_level0_slowdown_writes_trigger = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
