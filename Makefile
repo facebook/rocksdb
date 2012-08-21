@@ -87,7 +87,6 @@ $(SHARED1): $(SHARED3)
 	ln -fs $(SHARED3) $(SHARED1)
 endif
 
-
 all: $(VERSIONFILE) $(SHARED) $(LIBRARY) $(THRIFTSERVER) $(TOOLS)
 
 check: all $(PROGRAMS) $(TESTS) $(TOOLS)
@@ -200,6 +199,9 @@ $(VERSIONFILE):	build_detect_version
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
 
+# recreate the version file with the latest git revision
+$(VERSIONFILE):	build_detect_version
+	$(shell ./build_detect_platform build_config.mk)
 
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and

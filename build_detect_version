@@ -22,4 +22,3 @@ fi
 date | awk 'BEGIN {} {print "const char * leveldb_build_git_datetime = \"leveldb_build_git_datetime:"$0"\";"} END {} ' >> ${VFILE}
 echo "const char * leveldb_build_compile_date = __DATE__;" >> ${VFILE}
 echo "const char * leveldb_build_compile_time = __TIME__;" >> ${VFILE}
-
