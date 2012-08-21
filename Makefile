@@ -60,6 +60,7 @@ TOOLS = \
 
 PROGRAMS = db_bench $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
+VERSIONFILE=util/build_version.cc
 
 LIBRARY = libleveldb.a
 MEMENVLIBRARY = libmemenv.a
@@ -83,13 +84,13 @@ $(SHARED1): $(SHARED3)
 	ln -fs $(SHARED3) $(SHARED1)
 endif
 
-all: $(SHARED) $(LIBRARY) $(THRIFTSERVER)
+all: $(VERSIONFILE) $(SHARED) $(LIBRARY) $(THRIFTSERVER)
 
 check: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 
 clean:
-	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk
+	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk $(VERSIONFILE)
 	-rm -rf ios-x86/* ios-arm/*
 
 $(LIBRARY): $(LIBOBJECTS)
@@ -178,6 +179,9 @@ manifest_dump: tools/manifest_dump.o $(LIBOBJECTS)
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
 
+# recreate the version file with the latest git revision
+$(VERSIONFILE):	build_detect_version
+	$(shell ./build_detect_platform build_config.mk)
 
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and

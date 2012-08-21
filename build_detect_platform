@@ -96,6 +96,8 @@ case "$TARGET_OS" in
         exit 1
 esac
 
+./build_detect_version
+
 # We want to make a list of all cc files within util, db, table, and helpers
 # except for the test and benchmark files. By default, find will output a list
 # of all files matching either rule, so we need to append -print to make the

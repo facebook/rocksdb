@@ -33,6 +33,7 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/build_version.h"
 
 namespace leveldb {
 
@@ -1542,6 +1543,15 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
   }
   return result;
+}
+
+//
+// A global method that can dump out the build version
+void printLeveldbBuildVersion() {
+  printf("Git sha %s", leveldb_build_git_sha);
+  printf("Git datetime %s", leveldb_build_git_datetime);
+  printf("Compile time %s", leveldb_build_compile_time);
+  printf("Compile date %s", leveldb_build_compile_date);
 }
 
 }  // namespace leveldb
