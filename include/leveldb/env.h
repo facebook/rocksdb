@@ -324,6 +324,17 @@ class EnvWrapper : public Env {
   void SleepForMicroseconds(int micros) {
     target_->SleepForMicroseconds(micros);
   }
+  Status GetHostName(char* name, uint len) {
+    return target_->GetHostName(name, len);
+  }
+  Status GetCurrentTime(int64_t* unix_time) {
+    return target_->GetCurrentTime(unix_time);
+  }
+  Status GetAbsolutePath(const std::string& db_path,
+      std::string* output_path) {
+    return target_->GetAbsolutePath(db_path, output_path);
+  }
+
  private:
   Env* target_;
 };
