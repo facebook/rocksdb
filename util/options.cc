@@ -6,6 +6,7 @@
 
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
+#include "leveldb/filter_policy.h"
 
 namespace leveldb {
 
@@ -38,5 +39,26 @@ Options::Options()
       disableDataSync(false),
       db_stats_log_interval(1800) {
 }
+
+void
+Options::Dump(
+    Logger * log) const
+{
+    Log(log,"            Options.comparator: %s", comparator->Name());
+    Log(log,"     Options.create_if_missing: %d", create_if_missing);
+    Log(log,"       Options.error_if_exists: %d", error_if_exists);
+    Log(log,"       Options.paranoid_checks: %d", paranoid_checks);
+    Log(log,"                   Options.env: %p", env);
+    Log(log,"              Options.info_log: %p", info_log);
+    Log(log,"     Options.write_buffer_size: %zd", write_buffer_size);
+    Log(log,"        Options.max_open_files: %d", max_open_files);
+    Log(log,"           Options.block_cache: %p", block_cache);
+    Log(log,"            Options.block_size: %zd", block_size);
+    Log(log,"Options.block_restart_interval: %d", block_restart_interval);
+    Log(log,"           Options.compression: %d", compression);
+    Log(log,"         Options.filter_policy: %s", filter_policy == NULL ? "NULL" : filter_policy->Name());
+
+}   // Options::Dump
+
 
 }  // namespace leveldb
