@@ -7,7 +7,6 @@
 
 #include <deque>
 #include <set>
-#include <atomic>
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
@@ -187,7 +186,7 @@ class DBImpl : public DB {
 
   StatsLogger* logger_;
 
-  std::atomic<int64_t> last_log_ts;
+  int64_t volatile last_log_ts;
 
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
