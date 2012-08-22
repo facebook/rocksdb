@@ -702,15 +702,16 @@ VersionSet::VersionSet(const std::string& dbname,
 	compact_pointer_ = new std::string[options_->num_levels];
 	max_file_size_ = new uint64_t[options_->num_levels];
 	level_max_bytes_ = new uint64_t[options->num_levels];
-	max_file_size_[0] = options_->target_file_size_base;
-	level_max_bytes_[0] = options_->max_bytes_for_level_base;
 	int target_file_size_multiplier = options_->target_file_size_multiplier;
 	int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
-	int i = 1;
-	while (i < options_->num_levels) {
-		max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
-		level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
-		i++;
+	for (int i = 0; i < options_->num_levels; i++) {
+	  if (i > 1) {
+	    max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
+	    level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
+	  } else {
+	    max_file_size_[i] = options_->target_file_size_base;
+	    level_max_bytes_[i] = options_->max_bytes_for_level_base;
+	  }
 	}
   AppendVersion(new Version(this));
 }
