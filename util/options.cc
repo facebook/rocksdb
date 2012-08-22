@@ -28,7 +28,7 @@ Options::Options()
       level0_stop_writes_trigger(12),
       max_mem_compaction_level(2),
       target_file_size_base(2 * 1048576),
-      target_file_size_multiplier(10),
+      target_file_size_multiplier(1),
       max_bytes_for_level_base(10 * 1048576),
       max_bytes_for_level_multiplier(10),
       expanded_compaction_factor(25),

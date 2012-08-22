@@ -146,8 +146,8 @@ static int FLAGS_max_bytes_for_level_multiplier = 10;
 // Number of files in level-0 that will trigger put stop.
 static int FLAGS_level0_stop_writes_trigger = 12;
 
-// Nulber of files in level-0 that will slow down writes.
-static int FLAGS_level0_slowdown_writes_trigger = 4;
+// Number of files in level-0 that will slow down writes.
+static int FLAGS_level0_slowdown_writes_trigger = 8;
 
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
@@ -1071,7 +1071,7 @@ int main(int argc, char** argv) {
         (n == 0 || n == 1)) {
       FLAGS_disable_data_sync = n;
     } else if (sscanf(argv[i], "--disable_wal=%d%c", &n, &junk) == 1 &&
-	(n == 0 || n == 1)) {
+        (n == 0 || n == 1)) {
       FLAGS_disable_wal = n;
     } else if (sscanf(argv[i], "--hdfs=%s", &hdfsname) == 1) {
       FLAGS_env  = new leveldb::HdfsEnv(hdfsname);
