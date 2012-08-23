@@ -285,7 +285,12 @@ void DBImpl::DeleteObsoleteFiles() {
         Log(options_.info_log, "Delete type=%d #%lld\n",
             int(type),
             static_cast<unsigned long long>(number));
-        env_->DeleteFile(dbname_ + "/" + filenames[i]);
+        Status st = env_->DeleteFile(dbname_ + "/" + filenames[i]);
+        if(!st.ok()) {
+          Log(options_.info_log, "Delete type=%d #%lld FAILED\n",
+              int(type),
+              static_cast<unsigned long long>(number));
+        }
       }
     }
   }

@@ -844,6 +844,9 @@ Status VersionSet::Recover() {
   }
   current.resize(current.size() - 1);
 
+  Log(options_->info_log, "Recovering from manifest file:%s\n",
+      current.c_str());
+
   std::string dscname = dbname_ + "/" + current;
   SequentialFile* file;
   s = env_->NewSequentialFile(dscname, &file);
@@ -935,6 +938,13 @@ Status VersionSet::Recover() {
     last_sequence_ = last_sequence;
     log_number_ = log_number;
     prev_log_number_ = prev_log_number;
+
+    Log(options_->info_log, "Recovering from manifest file:%s succeeded,"
+        "manifest_file_number is %lld, next_file_number is %lld, "
+        "last_sequence is %lld, log_number is %lld,"
+        "prev_log_number is %lld\n",
+        current.c_str(), manifest_file_number_, next_file_number_,
+        last_sequence_, log_number_, prev_log_number_);
   }
 
   return s;
