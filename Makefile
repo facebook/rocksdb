@@ -33,8 +33,6 @@ MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
 TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL)
 
-TOOLS = \
-	leveldb_shell
 
 TESTS = \
 	arena_test \
@@ -55,10 +53,17 @@ TESTS = \
 	table_test \
 	version_edit_test \
 	version_set_test \
-	write_batch_test
+	write_batch_test \
+	filelock_test
 
-PROGRAMS = db_bench $(TESTS)
+
+TOOLS = \
+	manifest_dump \
+	leveldb_shell
+
+PROGRAMS = db_bench $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
+VERSIONFILE=util/build_version.cc
 
 LIBRARY = libleveldb.a
 MEMENVLIBRARY = libmemenv.a
@@ -82,21 +87,20 @@ $(SHARED1): $(SHARED3)
 	ln -fs $(SHARED3) $(SHARED1)
 endif
 
-all: $(SHARED) $(LIBRARY) $(THRIFTSERVER) $(TOOLS)
 
-check: all $(PROGRAMS) $(TESTS)
+all: $(VERSIONFILE) $(SHARED) $(LIBRARY) $(THRIFTSERVER) $(TOOLS)
+
+check: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 
 clean:
-	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk
+	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk $(VERSIONFILE)
 	-rm -rf ios-x86/* ios-arm/*
 
 $(LIBRARY): $(LIBOBJECTS)
 	rm -f $@
 	$(AR) -rs $@ $(LIBOBJECTS)
 
-leveldb_shell: tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o tools/shell/ShellContext.h tools/shell/ShellState.h tools/shell/DBClientProxy.h $(LIBOBJECTS)
-	$(CXX) tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o $(LIBOBJECTS) -o $@ $(LDFLAGS)
 
 db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) db/db_bench.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
@@ -174,8 +178,21 @@ leveldb_server: thrift/server.o $(LIBRARY)
 leveldb_server_test: thrift/test/simpletest.o $(LIBRARY) 
 	$(CXX) thrift/test/simpletest.o $(LIBRARY) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
 
+leveldb_shell: tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o tools/shell/ShellContext.h tools/shell/ShellState.h tools/shell/DBClientProxy.h $(LIBOBJECTS)
+	$(CXX) tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o $(LIBOBJECTS) -o $@ $(LDFLAGS)
+
 DBClientProxy_test: tools/shell/test/DBClientProxyTest.o tools/shell/DBClientProxy.o $(LIBRARY) 
 	$(CXX) tools/shell/test/DBClientProxyTest.o tools/shell/DBClientProxy.o $(LIBRARY) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
+
+manifest_dump: tools/manifest_dump.o $(LIBOBJECTS)
+	$(CXX) tools/manifest_dump.o $(LIBOBJECTS) -o $@ $(LDFLAGS)
+
+filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
+
+# recreate the version file with the latest git revision
+$(VERSIONFILE):	build_detect_version
+	$(shell ./build_detect_platform build_config.mk)
 
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and

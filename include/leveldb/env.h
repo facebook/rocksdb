@@ -145,6 +145,16 @@ class Env {
   // Sleep/delay the thread for the perscribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
+  // Get the current host name.
+  virtual Status GetHostName(char* name, uint len) = 0;
+
+  // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
+  virtual Status GetCurrentTime(int64_t* unix_time) = 0;
+
+  // Get full directory name for this db.
+  virtual Status GetAbsolutePath(const std::string& db_path,
+      std::string* output_path) = 0;
+
  private:
   // No copying allowed
   Env(const Env&);
@@ -314,6 +324,17 @@ class EnvWrapper : public Env {
   void SleepForMicroseconds(int micros) {
     target_->SleepForMicroseconds(micros);
   }
+  Status GetHostName(char* name, uint len) {
+    return target_->GetHostName(name, len);
+  }
+  Status GetCurrentTime(int64_t* unix_time) {
+    return target_->GetCurrentTime(unix_time);
+  }
+  Status GetAbsolutePath(const std::string& db_path,
+      std::string* output_path) {
+    return target_->GetAbsolutePath(db_path, output_path);
+  }
+
  private:
   Env* target_;
 };

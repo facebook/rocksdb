@@ -96,15 +96,22 @@ case "$TARGET_OS" in
         exit 1
 esac
 
+./build_detect_version
+
 # We want to make a list of all cc files within util, db, table, and helpers
 # except for the test and benchmark files. By default, find will output a list
 # of all files matching either rule, so we need to append -print to make the
 # prune take effect.
 DIRS="util db table"
 if test "$USE_THRIFT"; then
-  DIRS+=" thrift/gen-cpp thrift/server_utils.cpp "
+  DIRS+=" thrift/server_utils.cpp thrift/gen-cpp "
   THRIFTSERVER=leveldb_server
 fi
+
+if test "$USE_SCRIBE"; then
+  DIRS+=" scribe "
+fi
+
 set -f # temporarily disable globbing so that our patterns aren't expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *_bench.cc -prune"
@@ -195,6 +202,11 @@ if test "$USE_THRIFT"; then
   THRIFT_LDFLAGS=" -lexample -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
   COMMON_FLAGS+=$THRIFT_CCFLAGS
   PLATFORM_LDFLAGS+=$THRIFT_LDFLAGS
+fi
+
+#shall we build with scribe
+if test "$USE_SCRIBE"; then
+  COMMON_FLAGS="$COMMON_FLAGS -I./thrift/lib/ -DUSE_SCRIBE"
 fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"

@@ -122,6 +122,20 @@ class HdfsEnv : public Env {
     posixEnv->SleepForMicroseconds(micros);
   }
 
+  virtual Status GetHostName(char* name, uint len) {
+    return posixEnv->GetHostName(name, len);
+  }
+
+  virtual Status GetCurrentTime(int64_t* unix_time) {
+    return posixEnv->NowUnixTime(unix_time);
+  }
+
+  virtual Status GetAbsolutePath(const std::string& db_path,
+      std::string* output_path) {
+    return posixEnv->GetAbsolutePath(db_path, output_path);
+  }
+
+
   static uint64_t gettid() {
     assert(sizeof(pthread_t) <= sizeof(uint64_t));
     return (uint64_t)pthread_self();
@@ -245,6 +259,14 @@ class HdfsEnv : public Env {
   virtual uint64_t NowMicros() {}
 
   virtual void SleepForMicroseconds(int micros) {}
+
+  virtual Status GetHostName(char* name, uint len) {}
+
+  virtual Status GetCurrentTime(int64_t* unix_time) {}
+
+  virtual Status GetAbsolutePath(const std::string& db_path,
+      std::string* outputpath) {}
+
 };
 }
 

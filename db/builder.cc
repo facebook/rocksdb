@@ -53,7 +53,7 @@ Status BuildTable(const std::string& dbname,
     delete builder;
 
     // Finish and check for file errors
-    if (s.ok()) {
+    if (s.ok() && !options.disableDataSync) {
       s = file->Sync();
     }
     if (s.ok()) {

@@ -238,6 +238,13 @@ class VersionSet {
   };
   const char* LevelSummary(LevelSummaryStorage* scratch) const;
 
+  // printf contents (for debugging)
+  Status DumpManifest(Options& options, std::string& manifestFileName);
+
+  // Return a human-readable short (single-line) summary of the data size
+  // of files per level.  Uses *scratch as backing store.
+  const char* LevelDataSizeSummary(LevelSummaryStorage* scratch) const;
+
  private:
   class Builder;
 
@@ -343,6 +350,8 @@ class Compaction {
   // Release the input version for the compaction, once the compaction
   // is successful.
   void ReleaseInputs();
+
+  void Summary(char* output, int len);
 
  private:
   friend class Version;

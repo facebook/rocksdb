@@ -213,6 +213,10 @@ class DBTest {
     ASSERT_OK(TryReopen(options));
   }
 
+  Status PureReopen(Options* options, DB** db) {
+    return DB::Open(*options, dbname_, db);
+  }
+
   Status TryReopen(Options* options) {
     delete db_;
     db_ = NULL;
@@ -779,6 +783,22 @@ TEST(DBTest, Recover) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, RollLog) {
+  do {
+    ASSERT_OK(Put("foo", "v1"));
+    ASSERT_OK(Put("baz", "v5"));
+
+    Reopen();
+    for (int i = 0; i < 10; i++) {
+      Reopen();
+    }
+    ASSERT_OK(Put("foo", "v4"));
+    for (int i = 0; i < 10; i++) {
+      Reopen();
+    }
+  } while (ChangeOptions());
+}
+
 TEST(DBTest, WAL) {
   Options options = CurrentOptions();
   WriteOptions writeOpt = WriteOptions();
@@ -810,6 +830,13 @@ TEST(DBTest, WAL) {
   // 'foo' should be there because its put
   // has WAL enabled.
   ASSERT_EQ("v3", Get("foo"));
+}
+
+TEST(DBTest, CheckLock) {
+  DB* localdb;
+  Options options = CurrentOptions();
+  ASSERT_TRUE(TryReopen(&options).ok());
+  ASSERT_TRUE(!(PureReopen(&options, &localdb).ok())); // second open should fail
 }
 
 TEST(DBTest, FLUSH) {

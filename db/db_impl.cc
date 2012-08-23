@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <vector>
+#include <algorithm>
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -32,6 +33,7 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/build_version.h"
 
 namespace leveldb {
 
@@ -99,7 +101,8 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.info_log == NULL) {
     // Open a log file in the same directory as the db
     src.env->CreateDir(dbname);  // In case it does not exist
-    src.env->RenameFile(InfoLogFileName(dbname), OldInfoLogFileName(dbname));
+    src.env->RenameFile(InfoLogFileName(dbname),
+        OldInfoLogFileName(dbname, src.env->NowMicros()));
     Status s = src.env->NewLogger(InfoLogFileName(dbname), &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
@@ -131,17 +134,34 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       log_(NULL),
       tmp_batch_(new WriteBatch),
       bg_compaction_scheduled_(false),
-      manual_compaction_(NULL) {
+      manual_compaction_(NULL),
+      logger_(NULL) {
   mem_->Ref();
   has_imm_.Release_Store(NULL);
 
   stats_ = new CompactionStats[options.num_levels];
   // Reserve ten files or so for other uses and give the rest to TableCache.
-  const int table_cache_size = options.max_open_files - 10;
+  const int table_cache_size = options_.max_open_files - 10;
   table_cache_ = new TableCache(dbname_, &options_, table_cache_size);
 
   versions_ = new VersionSet(dbname_, &options_, table_cache_,
                              &internal_comparator_);
+
+  options_.Dump(options_.info_log);
+
+#ifdef USE_SCRIBE
+  logger_ = new ScribeLogger("localhost", 1456);
+#endif
+
+  char name[100];
+  Status st = env_->GetHostName(name, 100);
+  if(st.ok()) {
+    host_name_ = name;
+  } else {
+    Log(options_.info_log, "Can't get hostname, use localhost as host name.");
+    host_name_ = "localhost";
+  }
+  last_log_ts = 0;
 }
 
 DBImpl::~DBImpl() {
@@ -224,6 +244,7 @@ void DBImpl::DeleteObsoleteFiles() {
   env_->GetChildren(dbname_, &filenames); // Ignoring errors on purpose
   uint64_t number;
   FileType type;
+  std::vector<uint64_t> old_log_files_ts;
   for (size_t i = 0; i < filenames.size(); i++) {
     if (ParseFileName(filenames[i], &number, &type)) {
       bool keep = true;
@@ -245,9 +266,14 @@ void DBImpl::DeleteObsoleteFiles() {
           // be recorded in pending_outputs_, which is inserted into "live"
           keep = (live.find(number) != live.end());
           break;
+        case kInfoLogFile:
+          keep = true;
+          if (number != 0) {
+            old_log_files_ts.push_back(number);
+          }
+          break;
         case kCurrentFile:
         case kDBLockFile:
-        case kInfoLogFile:
           keep = true;
           break;
       }
@@ -261,6 +287,20 @@ void DBImpl::DeleteObsoleteFiles() {
             static_cast<unsigned long long>(number));
         env_->DeleteFile(dbname_ + "/" + filenames[i]);
       }
+    }
+  }
+
+  // Delete old log files.
+  int old_log_file_count = old_log_files_ts.size();
+  if (old_log_file_count >= KEEP_LOG_FILE_NUM) {
+    std::sort(old_log_files_ts.begin(), old_log_files_ts.end());
+    for (int i = 0; i >= (old_log_file_count - KEEP_LOG_FILE_NUM); i++) {
+      uint64_t ts = old_log_files_ts.at(i);
+      std::string to_delete = OldInfoLogFileName(dbname_, ts);
+      Log(options_.info_log, "Delete type=%d #%lld\n",
+          int(kInfoLogFile),
+          static_cast<unsigned long long>(ts));
+      env_->DeleteFile(dbname_ + "/" + to_delete);
     }
   }
 }
@@ -514,6 +554,7 @@ Status DBImpl::CompactMemTable() {
     imm_ = NULL;
     has_imm_.Release_Store(NULL);
     DeleteObsoleteFiles();
+    MaybeScheduleLogDBDeployStats();
   }
 
   return s;
@@ -537,15 +578,15 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
 }
 
 int DBImpl::NumberLevels() {
-	return options_.num_levels;
+  return options_.num_levels;
 }
 
 int DBImpl::MaxMemCompactionLevel() {
-	return options_.max_mem_compaction_level;
+  return options_.max_mem_compaction_level;
 }
 
 int DBImpl::Level0StopWriteTrigger() {
-	return options_.level0_stop_writes_trigger;
+  return options_.level0_stop_writes_trigger;
 }
 
 Status DBImpl::Flush(const FlushOptions& options) {
@@ -598,34 +639,33 @@ Status DBImpl::FlushMemTable(const FlushOptions& options) {
 }
 
 Status DBImpl::WaitForCompactMemTable() {
-    Status s;
-    // Wait until the compaction completes
-    MutexLock l(&mutex_);
-    while (imm_ != NULL && bg_error_.ok()) {
-        bg_cv_.Wait();
-    }
-    if (imm_ != NULL) {
-        s = bg_error_;
-    }
-    return s;
+  Status s;
+  // Wait until the compaction completes
+  MutexLock l(&mutex_);
+  while (imm_ != NULL && bg_error_.ok()) {
+    bg_cv_.Wait();
+  }
+  if (imm_ != NULL) {
+    s = bg_error_;
+  }
+  return s;
 }
-
 
 Status DBImpl::TEST_CompactMemTable() {
   return FlushMemTable(FlushOptions());
 }
 
 Status DBImpl::TEST_WaitForCompactMemTable() {
-	return WaitForCompactMemTable();
+  return WaitForCompactMemTable();
 }
 
 Status DBImpl::TEST_WaitForCompact() {
-	// Wait until the compaction completes
-	MutexLock l(&mutex_);
-	while (bg_compaction_scheduled_ && bg_error_.ok()) {
-		bg_cv_.Wait();
-	}
-	return bg_error_;
+  // Wait until the compaction completes
+  MutexLock l(&mutex_);
+  while (bg_compaction_scheduled_ && bg_error_.ok()) {
+    bg_cv_.Wait();
+  }
+  return bg_error_;
 }
 
 void DBImpl::MaybeScheduleCompaction() {
@@ -655,6 +695,8 @@ void DBImpl::BackgroundCall() {
     BackgroundCompaction();
   }
   bg_compaction_scheduled_ = false;
+
+  MaybeScheduleLogDBDeployStats();
 
   // Previous compaction may have produced too many files in a level,
   // so reschedule another compaction if needed.
@@ -868,6 +910,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       compact->compaction->level(),
       compact->compaction->num_input_files(1),
       compact->compaction->level() + 1);
+  char scratch[200];
+  compact->compaction->Summary(scratch, 256);
+  Log(options_.info_log, "Compaction start summary: %s\n", scratch);
 
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == NULL);
@@ -1457,6 +1502,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
     if (s.ok()) {
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleCompaction();
+      impl->MaybeScheduleLogDBDeployStats();
     }
   }
   impl->mutex_.Unlock();
@@ -1500,6 +1546,15 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
   }
   return result;
+}
+
+//
+// A global method that can dump out the build version
+void printLeveldbBuildVersion() {
+  printf("Git sha %s", leveldb_build_git_sha);
+  printf("Git datetime %s", leveldb_build_git_datetime);
+  printf("Compile time %s", leveldb_build_compile_time);
+  printf("Compile date %s", leveldb_build_compile_date);
 }
 
 }  // namespace leveldb

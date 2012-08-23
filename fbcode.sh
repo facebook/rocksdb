@@ -8,6 +8,13 @@ TOOLCHAIN_REV=d28c90311ca14f9f0b2bb720f4e34b285513d4f4
 TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
 TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.6.2-glibc-2.13"
 
+# always build thrift server
+export USE_THRIFT=1
+
+if ! test "$NO_SCRIBE"; then
+export USE_SCRIBE=1
+fi
+
 # location of libhdfs libraries
 if test "$USE_HDFS"; then
   JAVA_HOME="/usr/local/jdk-6u22-64"

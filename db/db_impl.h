@@ -13,6 +13,13 @@
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "port/port.h"
+#include "util/stats_logger.h"
+
+#ifdef USE_SCRIBE
+#include "scribe/scribe_logger.h"
+#endif
+
+#include <boost/lexical_cast.hpp>
 
 namespace leveldb {
 
@@ -107,6 +114,9 @@ class DBImpl : public DB {
   // Wait for memtable compaction
   Status WaitForCompactMemTable();
 
+  void MaybeScheduleLogDBDeployStats();
+  static void LogDBDeployStats(void* db);
+
   void MaybeScheduleCompaction();
   static void BGWork(void* db);
   void BackgroundCall();
@@ -144,6 +154,8 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   log::Writer* log_;
 
+  std::string host_name_;
+
   // Queue of writers.
   std::deque<Writer*> writers_;
   WriteBatch* tmp_batch_;
@@ -172,6 +184,10 @@ class DBImpl : public DB {
   // Have we encountered a background error in paranoid mode?
   Status bg_error_;
 
+  StatsLogger* logger_;
+
+  int64_t volatile last_log_ts;
+
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
@@ -188,6 +204,8 @@ class DBImpl : public DB {
     }
   };
   CompactionStats* stats_;
+
+  static const int KEEP_LOG_FILE_NUM = 1000;
 
   // No copying allowed
   DBImpl(const DBImpl&);

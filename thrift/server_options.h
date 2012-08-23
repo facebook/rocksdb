@@ -73,10 +73,10 @@ public:
         cache_size_ = l;
       } else if (sscanf(argv[i], "--cache_numshardbits=%d%c", &n, &junk) == 1) {
         cache_numshardbits_ = n;
-      } else if (strncmp(argv[i], "--hostname=", 10) == 0) {
-        hostname_ = argv[i] + 10;
-      } else if (strncmp(argv[i], "--rootdir=", 9) == 0) {
-        rootdir_ = argv[i] + 9;
+      } else if (strncmp(argv[i], "--hostname=", 11) == 0) {
+        hostname_ = argv[i] + 11;
+      } else if (strncmp(argv[i], "--rootdir=", 10) == 0) {
+        rootdir_ = argv[i] + 10;
       } else {
         fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
         return false;
