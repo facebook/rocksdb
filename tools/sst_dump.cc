@@ -22,7 +22,7 @@ namespace leveldb {
 
 class SstFileReader {
 public:
-  SstFileReader(std::string file_name);
+  SstFileReader(std::string file_name, bool verify_checksum = false);
   Status ReadSequential(bool print_kv, uint64_t read_num = -1);
 
   uint64_t GetReadNumber() { return read_num_; }
@@ -30,10 +30,11 @@ public:
 private:
   std::string file_name_;
   uint64_t read_num_;
+  bool verify_checksum_;
 };
 
-SstFileReader::SstFileReader(std::string file_path)
-:file_name_(file_path), read_num_(0) {
+SstFileReader::SstFileReader(std::string file_path, bool verify_checksum)
+:file_name_(file_path), read_num_(0), verify_checksum_(verify_checksum) {
 }
 
 Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
@@ -52,14 +53,14 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
    return s;
   }
 
-  Iterator* iter = table->NewIterator(ReadOptions());
+  Iterator* iter = table->NewIterator(ReadOptions(verify_checksum_, false));
   long i = 0;
   int64_t bytes = 0;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     Slice key = iter->key();
     Slice value = iter->value();
     ++i;
-    if (i > read_num)
+    if (read_num > 0 && i > read_num)
       break;
     if (print_kv) {
       fprintf(stdout, "%s : %s\n",
@@ -78,7 +79,8 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
 
 static void print_help() {
   fprintf(stderr,
-      "sst_dump [--command=check|scan] --file=data_dir_OR_sst_file"
+      "sst_dump [--command=check|scan] [--verify_checksum] "
+      "--file=data_dir_OR_sst_file"
       " [--read_num=NUM]\n");
 }
 
@@ -90,12 +92,16 @@ int main(int argc, char** argv) {
 
   char junk;
   uint64_t n;
+  bool verify_checksum = false;
   for (int i = 1; i < argc; i++)
   {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
     } else if (sscanf(argv[i], "--read_num=%ld%c", &n, &junk) == 1) {
       read_num = n;
+    } else if (strncmp(argv[i], "--verify_checksum",
+        strlen("--verify_checksum")) == 0) {
+      verify_checksum = true;
     } else if (strncmp(argv[i], "--command=", 10) == 0) {
       command = argv[i] + 10;
     } else {
@@ -130,17 +136,18 @@ int main(int argc, char** argv) {
     if(dir) {
       filename = dir_or_file + filename;
     }
-    leveldb::SstFileReader reader(filename);
+    leveldb::SstFileReader reader(filename, verify_checksum);
     leveldb::Status st;
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
-      st = reader.ReadSequential(command != "check");
+      st = reader.ReadSequential(command != "check",
+          read_num > 0 ? (read_num - total_read) : read_num);
       if (!st.ok()) {
         fprintf(stderr, "%s: %s\n", filename.c_str(),
             st.ToString().c_str());
       }
       total_read += reader.GetReadNumber();
-      if (read_num >= 0 && total_read > read_num) {
+      if (read_num > 0 && total_read > read_num) {
         break;
       }
     }
