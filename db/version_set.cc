@@ -939,7 +939,7 @@ Status VersionSet::Recover() {
     log_number_ = log_number;
     prev_log_number_ = prev_log_number;
 
-    Log(options_->info_log, "Recovering from manifest file:%s succeeded,"
+    Log(options_->info_log, "Recovered from manifest file:%s succeeded,"
         "manifest_file_number is %lld, next_file_number is %lld, "
         "last_sequence is %lld, log_number is %lld,"
         "prev_log_number is %lld\n",
