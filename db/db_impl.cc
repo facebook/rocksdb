@@ -1395,6 +1395,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       WritableFile* lfile = NULL;
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
+        // Avoid chewing through file number space in a tight loop.
+	versions_->ReuseFileNumber(new_log_number);
         break;
       }
       delete log_;

@@ -152,6 +152,7 @@ class DBTest {
   enum OptionConfig {
     kDefault,
     kFilter,
+    kUncompressed,
     kNumLevel_3,
     kEnd
   };
@@ -183,10 +184,10 @@ class DBTest {
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions() {
-    if (option_config_ == kEnd) {
+    option_config_++;
+    if (option_config_ >= kEnd) {
       return false;
     } else {
-      option_config_++;
       DestroyAndReopen();
       return true;
     }
@@ -199,6 +200,9 @@ class DBTest {
       case kFilter:
         options.filter_policy = filter_policy_;
         break;
+      case kUncompressed:
+	options.compression = kNoCompression;
+	break;
       case kNumLevel_3:
 	options.num_levels = 3;
 	break;
@@ -575,13 +579,15 @@ TEST(DBTest, GetEncountersEmptyLevel) {
     ASSERT_EQ(NumTableFilesAtLevel(1), 0);
     ASSERT_EQ(NumTableFilesAtLevel(2), 1);
 
-    // Step 3: read until level 0 compaction disappears.
-    int read_count = 0;
-    while (NumTableFilesAtLevel(0) > 0) {
-      ASSERT_LE(read_count, 10000) << "did not trigger level 0 compaction";
-      read_count++;
+    // Step 3: read a bunch of times
+    for (int i = 0; i < 1000; i++) {
       ASSERT_EQ("NOT_FOUND", Get("missing"));
     }
+
+    // Step 4: Wait for compaction to finish
+    env_->SleepForMicroseconds(1000000);
+
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   } while (ChangeOptions());
 }
 
@@ -1583,6 +1589,7 @@ TEST(DBTest, NoSpace) {
   Compact("a", "z");
   const int num_files = CountFiles();
   env_->no_space_.Release_Store(env_);   // Force out-of-space errors
+  env_->sleep_counter_.Reset();
   for (int i = 0; i < 5; i++) {
     for (int level = 0; level < dbfull()->NumberLevels()-1; level++) {
       dbfull()->TEST_CompactRange(level, NULL, NULL);
