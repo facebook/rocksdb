@@ -294,6 +294,22 @@ class PosixMmapFile : public WritableFile {
 
     return s;
   }
+
+  /**
+   * Flush data as well as metadata to stable storage.
+   */
+  virtual Status Fsync() {
+    if (pending_sync_) {
+      // Some unmapped data was not synced
+      pending_sync_ = false;
+      if (fsync(fd_) < 0) {
+        return IOError(filename_, errno);
+      }
+    }
+    // This invocation to Sync will not issue the call to
+    // fdatasync because pending_sync_ has already been cleared.
+    return Sync();
+  }
 };
 
 static int LockOrUnlock(const std::string& fname, int fd, bool lock) {

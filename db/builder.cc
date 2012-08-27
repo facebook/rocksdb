@@ -54,7 +54,11 @@ Status BuildTable(const std::string& dbname,
 
     // Finish and check for file errors
     if (s.ok() && !options.disableDataSync) {
-      s = file->Sync();
+      if (options.use_fsync) {
+        s = file->Fsync();
+      } else {
+        s = file->Sync();
+      }
     }
     if (s.ok()) {
       s = file->Close();

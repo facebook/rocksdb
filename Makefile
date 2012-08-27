@@ -58,7 +58,6 @@ TESTS = \
 
 TOOLS = \
 	manifest_dump \
-	leveldb_shell \
         sst_dump
 
 PROGRAMS = db_bench $(TESTS) $(TOOLS)
@@ -171,7 +170,7 @@ $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 memenv_test : helpers/memenv/memenv_test.o $(MEMENVLIBRARY) $(LIBRARY) $(TESTHARNESS)
 	$(CXX) helpers/memenv/memenv_test.o $(MEMENVLIBRARY) $(LIBRARY) $(TESTHARNESS) -o $@ $(LDFLAGS)
 
-leveldb_server: thrift/server.o $(LIBRARY) 
+leveldb_server: thrift/server.o leveldb_shell $(LIBRARY) 
 	$(CXX) thrift/server.o $(LIBRARY) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) 
 
 leveldb_server_test: thrift/test/simpletest.o $(LIBRARY) 
@@ -195,9 +194,6 @@ sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 # recreate the version file with the latest git revision
 $(VERSIONFILE):	build_detect_version
 	$(shell ./build_detect_platform build_config.mk)
-
-filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
 
 # recreate the version file with the latest git revision
 $(VERSIONFILE):	build_detect_version

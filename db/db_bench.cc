@@ -128,6 +128,9 @@ static bool FLAGS_sync = false;
 // If true, do not wait until data is synced to disk.
 static bool FLAGS_disable_data_sync = false;
 
+// If true, issue fsync instead of fdatasync
+static bool FLAGS_use_fsync = false;
+
 // If true, do not write WAL for write.
 static bool FLAGS_disable_wal = false;
 
@@ -774,6 +777,7 @@ class Benchmark {
     options.statistics = dbstats;
     options.env = FLAGS_env;
     options.disableDataSync = FLAGS_disable_data_sync;
+    options.use_fsync = FLAGS_use_fsync;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
@@ -1070,6 +1074,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_data_sync = n;
+    } else if (sscanf(argv[i], "--use_fsync=%d%c", &n, &junk) == 1 &&
+        (n == 0 || n == 1)) {
+      FLAGS_use_fsync = n;
     } else if (sscanf(argv[i], "--disable_wal=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_wal = n;

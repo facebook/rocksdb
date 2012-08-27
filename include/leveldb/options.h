@@ -198,6 +198,13 @@ struct Options {
   // Default: false
   bool disableDataSync;
 
+  // If true, then every store to stable storage will issue a fsync.
+  // If false, then every store to stable storage will issue a fdatasync.
+  // This parameter should be set to true while storing data to
+  // filesystem like ext3 which can lose files after a reboot.
+  // Default: false
+  bool use_fsync;
+
   // This number controls how often a new scribe log about
   // db deploy stats is written out.
   // -1 indicates no logging at all.

@@ -858,7 +858,11 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
 
   // Finish and check for file errors
   if (s.ok() && !options_.disableDataSync) {
-    s = compact->outfile->Sync();
+    if (options_.use_fsync) {
+      s = compact->outfile->Fsync();
+    } else {
+      s = compact->outfile->Sync();
+    }
   }
   if (s.ok()) {
     s = compact->outfile->Close();
@@ -1235,7 +1239,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       if (!options.disableWAL) {
         status = log_->AddRecord(WriteBatchInternal::Contents(updates));
         if (status.ok() && options.sync) {
-          status = logfile_->Sync();
+          if (options_.use_fsync) {
+            status = logfile_->Fsync();
+          } else {
+            status = logfile_->Sync();
+          }
         }
       }
       if (status.ok()) {

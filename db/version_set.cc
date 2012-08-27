@@ -793,7 +793,11 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
       edit->EncodeTo(&record);
       s = descriptor_log_->AddRecord(record);
       if (s.ok()) {
-        s = descriptor_file_->Sync();
+        if (options_->use_fsync) {
+          s = descriptor_file_->Fsync();
+        } else {
+          s = descriptor_file_->Sync();
+        }
       }
     }
 

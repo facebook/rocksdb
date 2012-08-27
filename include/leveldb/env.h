@@ -217,7 +217,17 @@ class WritableFile {
   virtual Status Append(const Slice& data) = 0;
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
-  virtual Status Sync() = 0;
+  virtual Status Sync() = 0; // sync data
+
+  /* 
+   * Sync data and/or metadata as well.
+   * By default, sync only metadata. 
+   * Override this method for environments where we need to sync
+   * metadata as well.
+   */
+  virtual Status Fsync() {
+    return Sync();
+  }
 
  private:
   // No copying allowed

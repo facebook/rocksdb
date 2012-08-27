@@ -37,6 +37,7 @@ Options::Options()
       filter_policy(NULL),
       statistics(NULL),
       disableDataSync(false),
+      use_fsync(false),
       db_stats_log_interval(1800) {
 }
 
@@ -56,7 +57,33 @@ Options::Dump(
     Log(log,"            Options.block_size: %zd", block_size);
     Log(log,"Options.block_restart_interval: %d", block_restart_interval);
     Log(log,"           Options.compression: %d", compression);
-    Log(log,"         Options.filter_policy: %s", filter_policy == NULL ? "NULL" : filter_policy->Name());
+    Log(log,"         Options.filter_policy: %s",
+        filter_policy == NULL ? "NULL" : filter_policy->Name());
+    Log(log,"            Options.num_levels: %d", num_levels);
+    Log(log,"       Options.disableDataSync: %d", disableDataSync);
+    Log(log,"             Options.use_fsync: %d", use_fsync);
+    Log(log," Options.db_stats_log_interval: %d", 
+        db_stats_log_interval);
+    Log(log,"     Options.level0_file_num_compaction_trigger: %d",
+        level0_file_num_compaction_trigger);
+    Log(log,"         Options.level0_slowdown_writes_trigger: %d",
+        level0_slowdown_writes_trigger);
+    Log(log,"             Options.level0_stop_writes_trigger: %d",
+        level0_stop_writes_trigger);
+    Log(log,"               Options.max_mem_compaction_level: %d",
+        max_mem_compaction_level);
+    Log(log,"                  Options.target_file_size_base: %d",
+        target_file_size_base);
+    Log(log,"            Options.target_file_size_multiplier: %d",
+        target_file_size_multiplier);
+    Log(log,"               Options.max_bytes_for_level_base: %d",
+        max_bytes_for_level_base);
+    Log(log,"         Options.max_bytes_for_level_multiplier: %d",
+        max_bytes_for_level_multiplier);
+    Log(log,"             Options.expanded_compaction_factor: %d",
+        expanded_compaction_factor);
+    Log(log,"         Options.max_grandparent_overlap_factor: %d",
+        max_grandparent_overlap_factor);
 
 }   // Options::Dump
 
