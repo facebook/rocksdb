@@ -8,6 +8,8 @@
 #include "db/version_set.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "port/port.h"
+#include "util/mutexlock.h"
 
 namespace leveldb {
 
@@ -18,7 +20,8 @@ void DBImpl::MaybeScheduleLogDBDeployStats() {
       || host_name_.empty()) {
     return;
   }
-  if (shutting_down_.Acquire_Load()) {
+
+  if(bg_logstats_scheduled_ || shutting_down_.Acquire_Load()) {
     // Already scheduled
   } else {
     int64_t current_ts = 0;
@@ -30,43 +33,59 @@ void DBImpl::MaybeScheduleLogDBDeployStats() {
       return;
     }
     last_log_ts = current_ts;
-    env_->Schedule(&DBImpl::LogDBDeployStats, this);
+    bg_logstats_scheduled_ = true;
+    env_->Schedule(&DBImpl::BGLogDBDeployStats, this);
   }
 }
 
-void DBImpl::LogDBDeployStats(void* db) {
+void DBImpl::BGLogDBDeployStats(void* db) {
   DBImpl* db_inst = reinterpret_cast<DBImpl*>(db);
+  db_inst->LogDBDeployStats();
+}
 
-  if (db_inst->shutting_down_.Acquire_Load()) {
+void DBImpl::LogDBDeployStats() {
+  mutex_.Lock();
+
+  if (shutting_down_.Acquire_Load()) {
+    bg_logstats_scheduled_ = false;
+    bg_cv_.SignalAll();
+    mutex_.Unlock();
     return;
   }
+
+  mutex_.Unlock();
 
   std::string version_info;
   version_info += boost::lexical_cast<std::string>(kMajorVersion);
   version_info += ".";
   version_info += boost::lexical_cast<std::string>(kMinorVersion);
   std::string data_dir;
-  db_inst->env_->GetAbsolutePath(db_inst->dbname_, &data_dir);
+  env_->GetAbsolutePath(dbname_, &data_dir);
 
   uint64_t file_total_size = 0;
   uint32_t file_total_num = 0;
-  for (int i = 0; i < db_inst->versions_->NumberLevels(); i++) {
-    file_total_num += db_inst->versions_->NumLevelFiles(i);
-    file_total_size += db_inst->versions_->NumLevelBytes(i);
+  for (int i = 0; i < versions_->NumberLevels(); i++) {
+    file_total_num += versions_->NumLevelFiles(i);
+    file_total_size += versions_->NumLevelBytes(i);
   }
 
   VersionSet::LevelSummaryStorage scratch;
-  const char* file_num_summary = db_inst->versions_->LevelSummary(&scratch);
+  const char* file_num_summary = versions_->LevelSummary(&scratch);
   std::string file_num_per_level(file_num_summary);
-  const char* file_size_summary = db_inst->versions_->LevelDataSizeSummary(
+  const char* file_size_summary = versions_->LevelDataSizeSummary(
       &scratch);
   std::string data_size_per_level(file_num_summary);
   int64_t unix_ts;
-  db_inst->env_->GetCurrentTime(&unix_ts);
+  env_->GetCurrentTime(&unix_ts);
 
-  db_inst->logger_->Log_Deploy_Stats(version_info, db_inst->host_name_,
+  logger_->Log_Deploy_Stats(version_info, host_name_,
       data_dir, file_total_size, file_total_num, file_num_per_level,
       data_size_per_level, unix_ts);
+
+  mutex_.Lock();
+  bg_logstats_scheduled_ = false;
+  bg_cv_.SignalAll();
+  mutex_.Unlock();
 }
 
 }

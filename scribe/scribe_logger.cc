@@ -6,12 +6,11 @@ const std::string ScribeLogger::COL_SEPERATOR = "\x1";
 const std::string ScribeLogger::DEPLOY_STATS_CATEGORY = "leveldb_deploy_stats";
 
 ScribeLogger::ScribeLogger(const std::string& host, int port,
-    int retry_times, uint32_t retry_intervals, int batch_size)
+    int retry_times, uint32_t retry_intervals)
   : host_(host),
     port_(port),
     retry_times_(retry_times),
-    retry_intervals_ (retry_intervals),
-    batch_size_ (batch_size) {
+    retry_intervals_ (retry_intervals) {
   shared_ptr<TSocket> socket(new TSocket(host_, port_));
   shared_ptr<TFramedTransport> framedTransport(new TFramedTransport(socket));
   framedTransport->open();
@@ -25,23 +24,16 @@ void ScribeLogger::Log(const std::string& category,
   entry.category = category;
   entry.message = message;
 
+  std::vector<LogEntry> logs;
+  logs.push_back(entry);
+
   logger_mutex_.Lock();
-  logs_.push_back(entry);
-
-  if (logs_.size() >= batch_size_) {
-    ResultCode  ret = scribe_client_->Log(logs_);
-    int retries_left = retry_times_;
-    while (ret == TRY_LATER && retries_left > 0) {
-      Env::Default()->SleepForMicroseconds(retry_intervals_);
-      ret = scribe_client_->Log(logs_);
-      retries_left--;
-    }
-
-    // Clear the local messages if either successfully write out
-    // or has failed in the last 10 calls.
-    if (ret == OK || logs_.size() > batch_size_ * 5) {
-      logs_.clear();
-    }
+  ResultCode  ret = scribe_client_->Log(logs);
+  int retries_left = retry_times_;
+  while (ret == TRY_LATER && retries_left > 0) {
+    Env::Default()->SleepForMicroseconds(retry_intervals_);
+    ret = scribe_client_->Log(logs);
+    retries_left--;
   }
 
   logger_mutex_.Unlock();

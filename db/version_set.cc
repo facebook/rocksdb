@@ -22,7 +22,7 @@ namespace leveldb {
 
 static int64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   int64_t sum = 0;
-  for (size_t i = 0; i < files.size(); i++) {
+  for (size_t i = 0; i < files.size() && files[i]; i++) {
     sum += files[i]->file_size;
   }
   return sum;
@@ -1223,7 +1223,10 @@ void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
 int64_t VersionSet::NumLevelBytes(int level) const {
   assert(level >= 0);
   assert(level < NumberLevels());
-  return TotalFileSize(current_->files_[level]);
+  if(current_ && level < current_->files_->size())
+    return TotalFileSize(current_->files_[level]);
+  else
+    return 0;
 }
 
 int64_t VersionSet::MaxNextLevelOverlappingBytes() {

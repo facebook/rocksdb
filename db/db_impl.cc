@@ -134,6 +134,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       log_(NULL),
       tmp_batch_(new WriteBatch),
       bg_compaction_scheduled_(false),
+      bg_logstats_scheduled_(false),
       manual_compaction_(NULL),
       logger_(NULL) {
   mem_->Ref();
@@ -168,7 +169,7 @@ DBImpl::~DBImpl() {
   // Wait for background work to finish
   mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-NULL value is ok
-  while (bg_compaction_scheduled_) {
+  while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
     bg_cv_.Wait();
   }
   mutex_.Unlock();
@@ -192,6 +193,8 @@ DBImpl::~DBImpl() {
   if (owns_cache_) {
     delete options_.block_cache;
   }
+
+  delete logger_;
 }
 
 Status DBImpl::NewDB() {

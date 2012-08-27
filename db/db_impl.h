@@ -115,7 +115,8 @@ class DBImpl : public DB {
   Status WaitForCompactMemTable();
 
   void MaybeScheduleLogDBDeployStats();
-  static void LogDBDeployStats(void* db);
+  static void BGLogDBDeployStats(void* db);
+  void LogDBDeployStats();
 
   void MaybeScheduleCompaction();
   static void BGWork(void* db);
@@ -168,6 +169,9 @@ class DBImpl : public DB {
 
   // Has a background compaction been scheduled or is running?
   bool bg_compaction_scheduled_;
+
+  // Has a background stats log thread scheduled?
+  bool bg_logstats_scheduled_;
 
   // Information for a manual compaction
   struct ManualCompaction {

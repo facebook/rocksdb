@@ -34,7 +34,6 @@ private:
   int batch_size_;
 
   scribeClient* scribe_client_;
-  std::vector<LogEntry> logs_;
   port::Mutex logger_mutex_;
 
   int retry_times_;
@@ -48,8 +47,7 @@ public:
   static const std::string DEPLOY_STATS_CATEGORY;
 
   ScribeLogger(const std::string& host, int port,
-      int retry_times=3, uint32_t retry_intervals=1000000,
-      int batch_size=1);
+      int retry_times=3, uint32_t retry_intervals=1000000);
   virtual ~ScribeLogger();
 
   virtual void Log(const std::string& category, const std::string& message);
