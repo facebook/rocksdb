@@ -53,14 +53,10 @@ void DBImpl::LogDBDeployStats() {
     return;
   }
 
-  mutex_.Unlock();
-
   std::string version_info;
   version_info += boost::lexical_cast<std::string>(kMajorVersion);
   version_info += ".";
   version_info += boost::lexical_cast<std::string>(kMinorVersion);
-  std::string data_dir;
-  env_->GetAbsolutePath(dbname_, &data_dir);
 
   uint64_t file_total_size = 0;
   uint32_t file_total_num = 0;
@@ -75,8 +71,13 @@ void DBImpl::LogDBDeployStats() {
   const char* file_size_summary = versions_->LevelDataSizeSummary(
       &scratch);
   std::string data_size_per_level(file_num_summary);
+
+  mutex_.Unlock();
+
   int64_t unix_ts;
   env_->GetCurrentTime(&unix_ts);
+  std::string data_dir;
+  env_->GetAbsolutePath(dbname_, &data_dir);
 
   logger_->Log_Deploy_Stats(version_info, host_name_,
       data_dir, file_total_size, file_total_num, file_num_per_level,
