@@ -84,7 +84,7 @@ bool ParseFileName(const std::string& fname,
   } else if (rest == "LOCK") {
     *number = 0;
     *type = kDBLockFile;
-  } else if (rest == "LOG") {
+  } else if (rest == "LOG" || rest == "LOG.old") {
     *number = 0;
     *type = kInfoLogFile;
   } else if (rest.starts_with("LOG.old.")) {
