@@ -1048,7 +1048,12 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &n, &junk) == 1) {
       FLAGS_cache_size = n;
     } else if (sscanf(argv[i], "--cache_numshardbits=%d%c", &n, &junk) == 1) {
-      FLAGS_cache_numshardbits = n;
+      if (n < 20) {
+        FLAGS_cache_numshardbits = n;
+      } else {
+        fprintf(stderr, "The cache cannot be sharded into 2**%d pieces\n", n);
+        exit(1);
+      }
     } else if (sscanf(argv[i], "--bloom_bits=%d%c", &n, &junk) == 1) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {

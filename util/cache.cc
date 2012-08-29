@@ -275,21 +275,22 @@ class ShardedLRUCache : public Cache {
   LRUCache* shard_;
   port::Mutex id_mutex_;
   uint64_t last_id_;
+  int numShardBits;
 
   static inline uint32_t HashSlice(const Slice& s) {
     return Hash(s.data(), s.size(), 0);
   }
 
-  static uint32_t Shard(uint32_t hash) {
-    return hash >> (32 - kNumShardBits);
+  uint32_t Shard(uint32_t hash) {
+    return hash >> (32 - numShardBits);
   }
 
-  void init(size_t capacity, int numShardBits) {
-    kNumShardBits = numShardBits;
-    kNumShards = 1 << kNumShardBits;
-    shard_ = new LRUCache[kNumShards];
-    const size_t per_shard = (capacity + (kNumShards - 1)) / kNumShards;
-    for (int s = 0; s < kNumShards; s++) {
+  void init(size_t capacity, int numbits) {
+    numShardBits = numbits;
+    int numShards = 1 << numShardBits;
+    shard_ = new LRUCache[numShards];
+    const size_t per_shard = (capacity + (numShards - 1)) / numShards;
+    for (int s = 0; s < numShards; s++) {
       shard_[s].SetCapacity(per_shard);
     }
   }
@@ -337,6 +338,9 @@ Cache* NewLRUCache(size_t capacity) {
 }
 
 Cache* NewLRUCache(size_t capacity, int numShardBits) {
+  if (numShardBits >= 20) {
+    return NULL;  // the cache cannot be sharded into too many fine pieces
+  }
   return new ShardedLRUCache(capacity, numShardBits);
 }
 
