@@ -492,8 +492,10 @@ Status HdfsEnv::NewLogger(const std::string& fname, Logger** result) {
 #include "leveldb/env.h"
 #include "hdfs/env_hdfs.h"
 namespace leveldb {
-Status HdfsEnv::NewSequentialFile(const std::string& fname,
-                           SequentialFile** result) {}
+ Status HdfsEnv::NewSequentialFile(const std::string& fname,
+                           SequentialFile** result) {
+   return Status::NotSupported("Not compiled with hdfs support");
+ }
 }
 
 #endif

@@ -282,9 +282,9 @@ class VersionSet {
 
   uint64_t MaxFileSizeForLevel(int level);
 
-  uint64_t ExpandedCompactionByteSizeLimit(int level);
+  int64_t ExpandedCompactionByteSizeLimit(int level);
 
-  uint64_t MaxGrandParentOverlapBytes(int level);
+  int64_t MaxGrandParentOverlapBytes(int level);
 
   Env* const env_;
   const std::string dbname_;
@@ -371,7 +371,7 @@ class Compaction {
 
   int level_;
   uint64_t max_output_file_size_;
-  uint64_t maxGrandParentOverlapBytes_;
+  int64_t maxGrandParentOverlapBytes_;
   Version* input_version_;
   VersionEdit* edit_;
   int number_levels_;

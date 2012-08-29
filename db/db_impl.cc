@@ -1428,7 +1428,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     in.remove_prefix(strlen("num-files-at-level"));
     uint64_t level;
     bool ok = ConsumeDecimalNumber(&in, &level) && in.empty();
-    if (!ok || level >= NumberLevels()) {
+    if (!ok || (int)level >= NumberLevels()) {
       return false;
     } else {
       char buf[100];

@@ -68,8 +68,6 @@ void DBImpl::LogDBDeployStats() {
   VersionSet::LevelSummaryStorage scratch;
   const char* file_num_summary = versions_->LevelSummary(&scratch);
   std::string file_num_per_level(file_num_summary);
-  const char* file_size_summary = versions_->LevelDataSizeSummary(
-      &scratch);
   std::string data_size_per_level(file_num_summary);
 
   mutex_.Unlock();

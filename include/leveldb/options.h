@@ -115,6 +115,30 @@ struct Options {
   // Default: 16
   int block_restart_interval;
 
+
+  // Compress blocks using the specified compression algorithm.  This
+  // parameter can be changed dynamically.
+  //
+  // Default: kSnappyCompression, which gives lightweight but fast
+  // compression.
+  //
+  // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
+  //    ~200-500MB/s compression
+  //    ~400-800MB/s decompression
+  // Note that these speeds are significantly faster than most
+  // persistent storage speeds, and therefore it is typically never
+  // worth switching to kNoCompression.  Even if the input data is
+  // incompressible, the kSnappyCompression implementation will
+  // efficiently detect that and will switch to uncompressed mode.
+  CompressionType compression;
+
+  // If non-NULL, use the specified filter policy to reduce disk reads.
+  // Many applications will benefit from passing the result of
+  // NewBloomFilterPolicy() here.
+  //
+  // Default: NULL
+  const FilterPolicy* filter_policy;
+
   // Number of levels for this database
   int num_levels;
 
@@ -163,29 +187,6 @@ struct Options {
   // Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
   // stop building a single file in a level->level+1 compaction.
   int max_grandparent_overlap_factor;
-
-  // Compress blocks using the specified compression algorithm.  This
-  // parameter can be changed dynamically.
-  //
-  // Default: kSnappyCompression, which gives lightweight but fast
-  // compression.
-  //
-  // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
-  //    ~200-500MB/s compression
-  //    ~400-800MB/s decompression
-  // Note that these speeds are significantly faster than most
-  // persistent storage speeds, and therefore it is typically never
-  // worth switching to kNoCompression.  Even if the input data is
-  // incompressible, the kSnappyCompression implementation will
-  // efficiently detect that and will switch to uncompressed mode.
-  CompressionType compression;
-
-  // If non-NULL, use the specified filter policy to reduce disk reads.
-  // Many applications will benefit from passing the result of
-  // NewBloomFilterPolicy() here.
-  //
-  // Default: NULL
-  const FilterPolicy* filter_policy;
 
   // If non-null, then we should collect metrics about database operations
   Statistics* statistics;

@@ -21,6 +21,7 @@ class Statistics {
   virtual long getNumFileOpens() { return numFileOpens_;}
   virtual long getNumFileCloses() { return numFileCloses_;}
   virtual long getNumFileErrors() { return numFileErrors_;}
+  virtual ~Statistics() {}
 
  protected:
   long numFileOpens_;

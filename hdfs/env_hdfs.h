@@ -208,6 +208,8 @@ class HdfsEnv : public Env {
 
 namespace leveldb {
 
+static const Status notsup;
+
 class HdfsEnv : public Env {
 
  public:
@@ -224,49 +226,48 @@ class HdfsEnv : public Env {
                                    SequentialFile** result);
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     RandomAccessFile** result) {}
+                                     RandomAccessFile** result){ return notsup;}
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 WritableFile** result){}
+                                 WritableFile** result){return notsup;}
 
-  virtual bool FileExists(const std::string& fname){}
+  virtual bool FileExists(const std::string& fname){return false;}
 
   virtual Status GetChildren(const std::string& path,
-                             std::vector<std::string>* result){}
+                             std::vector<std::string>* result){return notsup;}
 
-  virtual Status DeleteFile(const std::string& fname){}
+  virtual Status DeleteFile(const std::string& fname){return notsup;}
 
-  virtual Status CreateDir(const std::string& name){}
+  virtual Status CreateDir(const std::string& name){return notsup;}
 
-  virtual Status DeleteDir(const std::string& name){}
+  virtual Status DeleteDir(const std::string& name){return notsup;}
 
-  virtual Status GetFileSize(const std::string& fname, uint64_t* size){}
+  virtual Status GetFileSize(const std::string& fname, uint64_t* size){return notsup;}
 
-  virtual Status RenameFile(const std::string& src, const std::string& target){}
+  virtual Status RenameFile(const std::string& src, const std::string& target){return notsup;}
 
-  virtual Status LockFile(const std::string& fname, FileLock** lock){}
+  virtual Status LockFile(const std::string& fname, FileLock** lock){return notsup;}
 
-  virtual Status UnlockFile(FileLock* lock){}
+  virtual Status UnlockFile(FileLock* lock){return notsup;}
 
-  virtual Status NewLogger(const std::string& fname, Logger** result){}
+  virtual Status NewLogger(const std::string& fname, Logger** result){return notsup;}
 
   virtual void Schedule( void (*function)(void* arg), void* arg) {}
 
   virtual void StartThread(void (*function)(void* arg), void* arg) {}
 
-  virtual Status GetTestDirectory(std::string* path) {}
+  virtual Status GetTestDirectory(std::string* path) {return notsup;}
 
-  virtual uint64_t NowMicros() {}
+  virtual uint64_t NowMicros() {return 0;}
 
   virtual void SleepForMicroseconds(int micros) {}
 
-  virtual Status GetHostName(char* name, uint len) {}
+  virtual Status GetHostName(char* name, uint len) {return notsup;}
 
-  virtual Status GetCurrentTime(int64_t* unix_time) {}
+  virtual Status GetCurrentTime(int64_t* unix_time) {return notsup;}
 
   virtual Status GetAbsolutePath(const std::string& db_path,
-      std::string* outputpath) {}
-
+      std::string* outputpath) {return notsup;}
 };
 }
 

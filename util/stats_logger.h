@@ -15,6 +15,7 @@ class StatsLogger {
                                 const std::string& data_size_per_level,
                                 const std::string& file_number_per_level,
                                 const int64_t& ts_unix) = 0;
+  virtual ~StatsLogger() {}
 
 };
 

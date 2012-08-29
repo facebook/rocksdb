@@ -28,7 +28,7 @@ using namespace leveldb;
 int main(int argc, char** argv) {
 
   // parse command line options
-  int n;
+  size_t n;
   char junk;
   int foundfile = 0;
   std::string manifestfile;

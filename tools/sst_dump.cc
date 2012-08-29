@@ -54,8 +54,7 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
   }
 
   Iterator* iter = table->NewIterator(ReadOptions(verify_checksum_, false));
-  long i = 0;
-  int64_t bytes = 0;
+  uint64_t i = 0;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     Slice key = iter->key();
     Slice value = iter->value();
@@ -125,8 +124,8 @@ int main(int argc, char** argv) {
     dir = false;
   }
 
-  int total_read = 0;
-  for (int i = 0; i < filenames.size(); i++) {
+  uint64_t total_read = 0;
+  for (size_t i = 0; i < filenames.size(); i++) {
     std::string filename = filenames.at(i);
     if (filename.length() <= 4 ||
         filename.rfind(".sst") != filename.length() - 4) {

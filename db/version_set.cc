@@ -944,9 +944,9 @@ Status VersionSet::Recover() {
     prev_log_number_ = prev_log_number;
 
     Log(options_->info_log, "Recovered from manifest file:%s succeeded,"
-        "manifest_file_number is %lld, next_file_number is %lld, "
-        "last_sequence is %lld, log_number is %lld,"
-        "prev_log_number is %lld\n",
+        "manifest_file_number is %ld, next_file_number is %ld, "
+        "last_sequence is %ld, log_number is %ld,"
+        "prev_log_number is %ld\n",
         current.c_str(), manifest_file_number_, next_file_number_,
         last_sequence_, log_number_, prev_log_number_);
   }
@@ -1057,7 +1057,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
     log_number_ = log_number;
     prev_log_number_ = prev_log_number;
 
-    printf("manifest_file_number %d next_file_number %d last_sequence %d log_number %d  prev_log_number %d\n",
+    printf("manifest_file_number %ld next_file_number %ld last_sequence %ld log_number %ld  prev_log_number %ld\n",
            manifest_file_number_, next_file_number_,
            last_sequence, log_number, prev_log_number);
     printf("%s \n", v->DebugString().c_str());
@@ -1223,7 +1223,7 @@ void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
 int64_t VersionSet::NumLevelBytes(int level) const {
   assert(level >= 0);
   assert(level < NumberLevels());
-  if(current_ && level < current_->files_->size())
+  if(current_ && level < (int)current_->files_->size())
     return TotalFileSize(current_->files_[level]);
   else
     return 0;
@@ -1327,16 +1327,16 @@ double VersionSet::MaxBytesForLevel(int level) {
 uint64_t VersionSet::MaxFileSizeForLevel(int level) {
   assert(level >= 0);
   assert(level < NumberLevels());
-	return max_file_size_[level];
+  return max_file_size_[level];
 }
 
-uint64_t VersionSet::ExpandedCompactionByteSizeLimit(int level) {
+int64_t VersionSet::ExpandedCompactionByteSizeLimit(int level) {
   uint64_t result = MaxFileSizeForLevel(level);
   result *= options_->expanded_compaction_factor;
   return result;
 }
 
-uint64_t VersionSet::MaxGrandParentOverlapBytes(int level) {
+int64_t VersionSet::MaxGrandParentOverlapBytes(int level) {
   uint64_t result = MaxFileSizeForLevel(level);
   result *= options_->max_grandparent_overlap_factor;
   return result;
@@ -1417,7 +1417,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
     const int64_t inputs0_size = TotalFileSize(c->inputs_[0]);
     const int64_t inputs1_size = TotalFileSize(c->inputs_[1]);
     const int64_t expanded0_size = TotalFileSize(expanded0);
-    uint64_t limit = ExpandedCompactionByteSizeLimit(level);
+    int64_t limit = ExpandedCompactionByteSizeLimit(level);
     if (expanded0.size() > c->inputs_[0].size() &&
         inputs1_size + expanded0_size < limit) {
       InternalKey new_start, new_limit;
@@ -1502,8 +1502,8 @@ Compaction::Compaction(int level, uint64_t target_file_size,
     : level_(level),
       max_output_file_size_(target_file_size),
       maxGrandParentOverlapBytes_(max_grandparent_overlap_bytes),
-      number_levels_(number_levels),
       input_version_(NULL),
+      number_levels_(number_levels),
       grandparent_index_(0),
       seen_key_(false),
       overlapped_bytes_(0) {
@@ -1593,9 +1593,9 @@ static void InputSummary(std::vector<FileMetaData*>& files,
     char* output,
     int len) {
   int write = 0;
-  for (int i = 0; i < files.size(); i++) {
+  for (unsigned int i = 0; i < files.size(); i++) {
     int sz = len - write;
-    int ret = snprintf(output + write, sz, "%llu(%llu) ",
+    int ret = snprintf(output + write, sz, "%lu(%lu) ",
         files.at(i)->number,
         files.at(i)->file_size);
     if (ret < 0 || ret >= sz)
