@@ -127,7 +127,7 @@ class HdfsEnv : public Env {
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) {
-    return posixEnv->NowUnixTime(unix_time);
+    return posixEnv->GetCurrentTime(unix_time);
   }
 
   virtual Status GetAbsolutePath(const std::string& db_path,
