@@ -56,6 +56,7 @@ static const char* FLAGS_benchmarks =
     "readrandom,"
     "readseq,"
     "readreverse,"
+    "readrandomwriterandom," // mix reads and writes based on FLAGS_readwritepercent
     "fill100K,"
     "crc32c,"
     "snappycomp,"
@@ -152,6 +153,11 @@ static int FLAGS_level0_stop_writes_trigger = 12;
 // Number of files in level-0 that will slow down writes.
 static int FLAGS_level0_slowdown_writes_trigger = 8;
 
+// Ratio of reads to writes (expressed as a percentage)
+// for the ReadRandomWriteRandom workload. The default
+// setting is 9 gets for every 1 put.
+static int FLAGS_readwritepercent = 90;
+
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 
@@ -191,8 +197,7 @@ class RandomGenerator {
     pos_ += len;
     return Slice(data_.data() + pos_ - len, len);
   }
-};
-
+}; 
 static Slice TrimSpace(Slice s) {
   int start = 0;
   while (start < s.size() && isspace(s[start])) {
@@ -565,6 +570,8 @@ class Benchmark {
       } else if (name == Slice("readwhilewriting")) {
         num_threads++;  // Add extra thread for writing
         method = &Benchmark::ReadWhileWriting;
+      } else if (name == Slice("readrandomwriterandom")) {
+        method = &Benchmark::ReadRandomWriteRandom;
       } else if (name == Slice("compact")) {
         method = &Benchmark::Compact;
       } else if (name == Slice("crc32c")) {
@@ -978,6 +985,56 @@ class Benchmark {
     }
   }
 
+  //
+  // This is diffferent from ReadWhileWriting because it does not use
+  // an extra thread. 
+  //
+  void ReadRandomWriteRandom(ThreadState* thread) {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    RandomGenerator gen;
+    std::string value;
+    long found = 0;
+    int get_weight = 0;
+    int put_weight = 0;
+    long reads_done = 0;
+    long writes_done = 0;
+    // the number of iterations is the larger of read_ or write_
+    long numiter = (reads_ > writes_? reads_ : writes_);
+    for (long i = 0; i < numiter; i++) {
+      char key[100];
+      const int k = thread->rand.Next() % FLAGS_num;
+      snprintf(key, sizeof(key), "%016d", k);
+      if (get_weight == 0 && put_weight == 0) {
+        // one batch complated, reinitialize for next batch
+        get_weight = FLAGS_readwritepercent;
+        put_weight = 100 - get_weight;
+      }
+      if (get_weight > 0) {
+        // do all the gets first
+        if (db_->Get(options, key, &value).ok()) {
+          found++;
+        }
+        get_weight--;
+        reads_done++;
+      } else  if (put_weight > 0) {
+        // then do all the corresponding number of puts
+        // for all the gets we have done earlier
+        Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
+        if (!s.ok()) {
+          fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+          exit(1);
+        }
+        put_weight--;
+        writes_done++;
+      }
+      thread->stats.FinishedSingleOp();
+    }
+    char msg[100];
+    snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld )", 
+             reads_done, writes_done, numiter);
+    thread->stats.AddMessage(msg);
+  }
+
   void Compact(ThreadState* thread) {
     db_->CompactRange(NULL, NULL);
   }
@@ -1022,6 +1079,7 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
+    size_t nn;
     long l;
     char junk;
     char hdfsname[2048];
@@ -1045,8 +1103,8 @@ int main(int argc, char** argv) {
       FLAGS_value_size = n;
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
       FLAGS_write_buffer_size = n;
-    } else if (sscanf(argv[i], "--cache_size=%ld%c", &n, &junk) == 1) {
-      FLAGS_cache_size = n;
+    } else if (sscanf(argv[i], "--cache_size=%lld%c", &nn, &junk) == 1) {
+      FLAGS_cache_size = nn;
     } else if (sscanf(argv[i], "--cache_numshardbits=%d%c", &n, &junk) == 1) {
       if (n < 20) {
         FLAGS_cache_numshardbits = n;
@@ -1077,6 +1135,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--sync=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_sync = n;
+    } else if (sscanf(argv[i], "--readwritepercent=%d%c", &n, &junk) == 1 &&
+               (n > 0 || n < 100)) {
+      FLAGS_readwritepercent = n;
     } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_data_sync = n;
