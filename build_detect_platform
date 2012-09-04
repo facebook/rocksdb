@@ -212,17 +212,12 @@ if test "$USE_HDFS"; then
   PLATFORM_LDFLAGS+=$HDFS_LDFLAGS
 fi
 
-# shall we build thrift server
-if test "$USE_THRIFT"; then
-  THRIFT_CCFLAGS=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp -I/usr/include -std=gnu++0x"
-  THRIFT_LDFLAGS=" -lexample -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
-  COMMON_FLAGS+=$THRIFT_CCFLAGS
-  PLATFORM_LDFLAGS+=$THRIFT_LDFLAGS
-fi
-
-#shall we build with scribe
-if test "$USE_SCRIBE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -I./thrift/lib/ -DUSE_SCRIBE"
+# shall we build thrift server or scribe logger
+if test "$USE_THRIFT" ||  test "$USE_SCRIBE" ; then
+    THRIFT_CCFLAGS=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp -I/usr/include -std=gnu++0x"
+    THRIFT_LDFLAGS=" -lexample -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
+    COMMON_FLAGS+=$THRIFT_CCFLAGS
+    PLATFORM_LDFLAGS+=$THRIFT_LDFLAGS
 fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
