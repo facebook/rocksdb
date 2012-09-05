@@ -263,7 +263,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   return output;
 #endif
 
-  return false;
+  return NULL;
 }
 
 inline bool BZip2_Compress(const char* input, size_t length,
@@ -320,7 +320,7 @@ inline bool BZip2_Compress(const char* input, size_t length,
   return true;
   return output;
 #endif
-  return false;
+  return NULL;
 }
 
 inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
@@ -377,7 +377,7 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
   BZ2_bzDecompressEnd(&_stream);
   return output;
 #endif
-  return false;
+  return NULL;
 }
 
 inline bool GetHeapProfile(void (*func)(void*, const char*, int), void* arg) {
