@@ -373,6 +373,7 @@ class Benchmark {
   WriteOptions write_options_;
   long reads_;
   long writes_;
+  long readwrites_;
   int heap_counter_;
 
   void PrintHeader() {
@@ -473,6 +474,9 @@ class Benchmark {
     entries_per_batch_(1),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
     writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
+    readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num : 
+                ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)
+               ),               
     heap_counter_(0) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
@@ -999,8 +1003,7 @@ class Benchmark {
     long reads_done = 0;
     long writes_done = 0;
     // the number of iterations is the larger of read_ or write_
-    long numiter = (reads_ > writes_? reads_ : writes_);
-    for (long i = 0; i < numiter; i++) {
+    for (long i = 0; i < readwrites_; i++) {
       char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
       snprintf(key, sizeof(key), "%016d", k);
@@ -1031,7 +1034,7 @@ class Benchmark {
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld )", 
-             reads_done, writes_done, numiter);
+             reads_done, writes_done, readwrites_);
     thread->stats.AddMessage(msg);
   }
 
