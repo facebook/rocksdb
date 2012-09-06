@@ -57,10 +57,12 @@ extern std::string LockFileName(const std::string& dbname);
 extern std::string TempFileName(const std::string& dbname, uint64_t number);
 
 // Return the name of the info log file for "dbname".
-extern std::string InfoLogFileName(const std::string& dbname);
+extern std::string InfoLogFileName(const std::string& dbname,
+    const std::string& db_path="", const std::string& log_dir="");
 
 // Return the name of the old info log file for "dbname".
-extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts);
+extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
+    const std::string& db_path="", const std::string& log_dir="");
 
 // If filename is a leveldb file, store the type of the file in *type.
 // The number encoded in the filename is stored in *number.  If the

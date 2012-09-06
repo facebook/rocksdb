@@ -98,12 +98,16 @@ Options SanitizeOptions(const std::string& dbname,
   ClipToRange(&result.max_open_files,            20,     50000);
   ClipToRange(&result.write_buffer_size,         64<<10, 1<<30);
   ClipToRange(&result.block_size,                1<<10,  4<<20);
+  std::string db_absolute_path;
+  src.env->GetAbsolutePath(dbname, &db_absolute_path);
   if (result.info_log == NULL) {
     // Open a log file in the same directory as the db
     src.env->CreateDir(dbname);  // In case it does not exist
-    src.env->RenameFile(InfoLogFileName(dbname),
-        OldInfoLogFileName(dbname, src.env->NowMicros()));
-    Status s = src.env->NewLogger(InfoLogFileName(dbname), &result.info_log);
+    src.env->RenameFile(InfoLogFileName(dbname, db_absolute_path,
+        result.db_log_dir), OldInfoLogFileName(dbname,src.env->NowMicros(),
+            db_absolute_path, result.db_log_dir));
+    Status s = src.env->NewLogger(InfoLogFileName(dbname, db_absolute_path,
+        result.db_log_dir), &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
       result.info_log = NULL;
@@ -140,6 +144,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   mem_->Ref();
   has_imm_.Release_Store(NULL);
 
+  env_->GetAbsolutePath(dbname, &db_absolute_path_);
   stats_ = new CompactionStats[options.num_levels];
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options_.max_open_files - 10;
@@ -247,7 +252,7 @@ void DBImpl::DeleteObsoleteFiles() {
   env_->GetChildren(dbname_, &filenames); // Ignoring errors on purpose
   uint64_t number;
   FileType type;
-  std::vector<uint64_t> old_log_files_ts;
+  std::vector<std::string> old_log_files;
   for (size_t i = 0; i < filenames.size(); i++) {
     if (ParseFileName(filenames[i], &number, &type)) {
       bool keep = true;
@@ -272,7 +277,7 @@ void DBImpl::DeleteObsoleteFiles() {
         case kInfoLogFile:
           keep = true;
           if (number != 0) {
-            old_log_files_ts.push_back(number);
+            old_log_files.push_back(filenames[i]);
           }
           break;
         case kCurrentFile:
@@ -299,15 +304,14 @@ void DBImpl::DeleteObsoleteFiles() {
   }
 
   // Delete old log files.
-  int old_log_file_count = old_log_files_ts.size();
-  if (old_log_file_count >= KEEP_LOG_FILE_NUM) {
-    std::sort(old_log_files_ts.begin(), old_log_files_ts.end());
+  int old_log_file_count = old_log_files.size();
+  if (old_log_file_count >= KEEP_LOG_FILE_NUM &&
+      !options_.db_log_dir.empty()) {
+    std::sort(old_log_files.begin(), old_log_files.end());
     for (int i = 0; i >= (old_log_file_count - KEEP_LOG_FILE_NUM); i++) {
-      uint64_t ts = old_log_files_ts.at(i);
-      std::string to_delete = OldInfoLogFileName(dbname_, ts);
-      Log(options_.info_log, "Delete type=%d #%lld\n",
-          int(kInfoLogFile),
-          static_cast<unsigned long long>(ts));
+      std::string& to_delete = old_log_files.at(i);
+      Log(options_.info_log, "Delete type=%d %s\n",
+          int(kInfoLogFile), to_delete.c_str());
       env_->DeleteFile(dbname_ + "/" + to_delete);
     }
   }

@@ -74,11 +74,9 @@ void DBImpl::LogDBDeployStats() {
 
   int64_t unix_ts;
   env_->GetCurrentTime(&unix_ts);
-  std::string data_dir;
-  env_->GetAbsolutePath(dbname_, &data_dir);
 
   logger_->Log_Deploy_Stats(version_info, host_name_,
-      data_dir, file_total_size, file_total_num, file_num_per_level,
+      db_absolute_path_, file_total_size, file_total_num, file_num_per_level,
       data_size_per_level, unix_ts);
 
   mutex_.Lock();

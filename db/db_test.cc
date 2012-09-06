@@ -154,6 +154,7 @@ class DBTest {
     kFilter,
     kUncompressed,
     kNumLevel_3,
+    kDBLogDir,
     kEnd
   };
   int option_config_;
@@ -201,11 +202,14 @@ class DBTest {
         options.filter_policy = filter_policy_;
         break;
       case kUncompressed:
-	options.compression = kNoCompression;
-	break;
+        options.compression = kNoCompression;
+        break;
       case kNumLevel_3:
-	options.num_levels = 3;
-	break;
+        options.num_levels = 3;
+        break;
+      case kDBLogDir:
+        options.db_log_dir = test::TmpDir();
+        break;
       default:
         break;
     }

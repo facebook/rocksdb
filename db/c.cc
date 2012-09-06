@@ -502,6 +502,26 @@ void leveldb_options_set_compression(leveldb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
 }
 
+void leveldb_options_set_disable_data_sync(
+    leveldb_options_t* opt, bool disable_data_sync) {
+  opt->rep.disableDataSync = disable_data_sync;
+}
+
+void leveldb_options_set_use_fsync(
+    leveldb_options_t* opt, bool use_fsync) {
+  opt->rep.use_fsync = use_fsync;
+}
+
+void leveldb_options_set_db_stats_log_interval(
+    leveldb_options_t* opt, int db_stats_log_interval) {
+  opt->rep.db_stats_log_interval = db_stats_log_interval;
+}
+
+void leveldb_options_set_db_log_dir(
+    leveldb_options_t* opt, const char* db_log_dir) {
+  opt->rep.db_log_dir = db_log_dir;
+}
+
 leveldb_comparator_t* leveldb_comparator_create(
     void* state,
     void (*destructor)(void*),

@@ -320,7 +320,7 @@ inline bool BZip2_Compress(const char* input, size_t length,
   return true;
   return output;
 #endif
-  return NULL;
+  return false;
 }
 
 inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,

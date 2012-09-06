@@ -8,8 +8,36 @@
 #include "db/dbformat.h"
 #include "leveldb/env.h"
 #include "util/logging.h"
+#include <iostream>
 
 namespace leveldb {
+
+// Given a path, flatten the path name by replacing all chars not in
+// {[0-9,a-z,A-Z,-,_,.]} with _. And append '\0' at the end.
+// Return the number of chars stored in dest not including the trailing '\0'.
+static int FlattenPath(const std::string& path, char* dest, int len) {
+  int write_idx = 0;
+  int i = 0;
+  int src_len = path.size();
+
+  while (i < src_len && write_idx < len - 1) {
+    if ((path[i] >= 'a' && path[i] <= 'z') ||
+        (path[i] >= '0' && path[i] <= '9') ||
+        (path[i] >= 'A' && path[i] <= 'Z') ||
+        path[i] == '-' ||
+        path[i] == '.' ||
+        path[i] == '_'){
+      dest[write_idx++] = path[i];
+    } else {
+      if (i > 0)
+        dest[write_idx++] = '_';
+    }
+    i++;
+  }
+
+  dest[write_idx] = '\0';
+  return write_idx;
+}
 
 // A utility routine: write "data" to the named file and Sync() it.
 extern Status WriteStringToFileSync(Env* env, const Slice& data,
@@ -55,15 +83,28 @@ std::string TempFileName(const std::string& dbname, uint64_t number) {
   return MakeFileName(dbname, number, "dbtmp");
 }
 
-std::string InfoLogFileName(const std::string& dbname) {
-  return dbname + "/LOG";
+std::string InfoLogFileName(const std::string& dbname,
+    const std::string& db_path, const std::string& log_dir) {
+  if (log_dir.empty())
+    return dbname + "/LOG";
+
+  char flatten_db_path[256];
+  FlattenPath(db_path, flatten_db_path, 256);
+  return log_dir + "/" + flatten_db_path + "_LOG";
 }
 
 // Return the name of the old info log file for "dbname".
-std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts) {
+std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
+    const std::string& db_path, const std::string& log_dir) {
   char buf[50];
   snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(ts));
-  return dbname + "/LOG.old." + buf;
+
+  if (log_dir.empty())
+    return dbname + "/LOG.old." + buf;
+
+  char flatten_db_path[256];
+  FlattenPath(db_path, flatten_db_path, 256);
+  return log_dir + "/" + flatten_db_path + "_LOG.old." + buf;
 }
 
 

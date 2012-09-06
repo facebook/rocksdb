@@ -38,7 +38,8 @@ Options::Options()
       statistics(NULL),
       disableDataSync(false),
       use_fsync(false),
-      db_stats_log_interval(1800) {
+      db_stats_log_interval(1800),
+      db_log_dir("") {
 }
 
 void
@@ -84,6 +85,8 @@ Options::Dump(
         expanded_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
+    Log(log,"         Options.db_log_dir: %s",
+        db_log_dir.c_str());
 
 }   // Options::Dump
 

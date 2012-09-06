@@ -210,6 +210,7 @@ class DBImpl : public DB {
   CompactionStats* stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
+  std::string db_absolute_path_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

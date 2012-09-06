@@ -6,6 +6,7 @@
 #define STORAGE_LEVELDB_INCLUDE_OPTIONS_H_
 
 #include <stddef.h>
+#include <string>
 
 namespace leveldb {
 
@@ -211,6 +212,13 @@ struct Options {
   // -1 indicates no logging at all.
   // Default value is 1800 (half an hour).
   int db_stats_log_interval;
+
+  // This specifies the log dir.
+  // If it is empty, the log files will be in the same dir as data.
+  // If it is non empty, the log files will be in the specified dir,
+  // and the db data dir's absolute path will be used as the log file
+  // name's prefix.
+  std::string db_log_dir;
 
   // Create an Options object with default values for all fields.
   Options();
