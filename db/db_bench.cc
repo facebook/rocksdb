@@ -1150,7 +1150,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--disable_wal=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_wal = n;
-    } else if (sscanf(argv[i], "--hdfs=%s", &hdfsname) == 1) {
+    } else if (sscanf(argv[i], "--hdfs=%s", hdfsname) == 1) {
       FLAGS_env  = new leveldb::HdfsEnv(hdfsname);
     } else if (sscanf(argv[i], "--target_file_size_base=%d%c",
         &n, &junk) == 1) {

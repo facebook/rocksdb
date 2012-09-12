@@ -160,7 +160,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 #endif
 
   char name[100];
-  Status st = env_->GetHostName(name, 100);
+  Status st = env_->GetHostName(name, 100L);
   if(st.ok()) {
     host_name_ = name;
   } else {

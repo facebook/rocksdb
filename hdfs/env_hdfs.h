@@ -122,7 +122,7 @@ class HdfsEnv : public Env {
     posixEnv->SleepForMicroseconds(micros);
   }
 
-  virtual Status GetHostName(char* name, uint len) {
+  virtual Status GetHostName(char* name, uint64_t len) {
     return posixEnv->GetHostName(name, len);
   }
 
@@ -262,7 +262,7 @@ class HdfsEnv : public Env {
 
   virtual void SleepForMicroseconds(int micros) {}
 
-  virtual Status GetHostName(char* name, uint len) {return notsup;}
+  virtual Status GetHostName(char* name, uint64_t len) {return notsup;}
 
   virtual Status GetCurrentTime(int64_t* unix_time) {return notsup;}
 

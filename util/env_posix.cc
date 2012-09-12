@@ -553,7 +553,7 @@ class PosixEnv : public Env {
     usleep(micros);
   }
 
-  virtual Status GetHostName(char* name, uint len) {
+  virtual Status GetHostName(char* name, uint64_t len) {
     int ret = gethostname(name, len);
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL)

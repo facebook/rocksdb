@@ -146,7 +146,7 @@ class Env {
   virtual void SleepForMicroseconds(int micros) = 0;
 
   // Get the current host name.
-  virtual Status GetHostName(char* name, uint len) = 0;
+  virtual Status GetHostName(char* name, uint64_t len) = 0;
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   virtual Status GetCurrentTime(int64_t* unix_time) = 0;
@@ -334,7 +334,7 @@ class EnvWrapper : public Env {
   void SleepForMicroseconds(int micros) {
     target_->SleepForMicroseconds(micros);
   }
-  Status GetHostName(char* name, uint len) {
+  Status GetHostName(char* name, uint64_t len) {
     return target_->GetHostName(name, len);
   }
   Status GetCurrentTime(int64_t* unix_time) {

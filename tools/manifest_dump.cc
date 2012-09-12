@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     if ((n = param.find("--file=")) != std::string::npos) {
       manifestfile = param.substr(strlen("--file="));
       foundfile = 1;
-    } else if (sscanf(argv[i], "--verbose=%d%c", &n, &junk) == 1 &&
+    } else if (sscanf(argv[i], "--verbose=%ld%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       verbose = n;
     }
