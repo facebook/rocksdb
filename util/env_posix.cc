@@ -94,7 +94,9 @@ class PosixRandomAccessFile: public RandomAccessFile {
       s = IOError(filename_, errno);
     }
     if (!useOsBuffer) {
-      posix_fadvise(fd_, offset, n, POSIX_FADV_DONTNEED); // free OS pages
+      // we need to fadvise away the entire range of pages because
+      // we do not want readahead pages to be cached.
+      posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
     }
     return s;
   }
