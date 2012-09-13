@@ -91,6 +91,9 @@ static int FLAGS_write_buffer_size = 0;
 // Negative means use default settings.
 static long FLAGS_cache_size = -1;
 
+// Number of bytes in a block.
+static int FLAGS_block_size = 0;
+
 // Maximum number of files to keep open at the same time (use default if == 0)
 static int FLAGS_open_files = 0;
 
@@ -783,6 +786,7 @@ class Benchmark {
     options.create_if_missing = !FLAGS_use_existing_db;
     options.block_cache = cache_;
     options.write_buffer_size = FLAGS_write_buffer_size;
+    options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
@@ -1108,6 +1112,8 @@ int main(int argc, char** argv) {
       FLAGS_write_buffer_size = n;
     } else if (sscanf(argv[i], "--cache_size=%lld%c", &nn, &junk) == 1) {
       FLAGS_cache_size = nn;
+    } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
+      FLAGS_block_size = n;
     } else if (sscanf(argv[i], "--cache_numshardbits=%d%c", &n, &junk) == 1) {
       if (n < 20) {
         FLAGS_cache_numshardbits = n;
