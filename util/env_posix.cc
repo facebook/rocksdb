@@ -27,6 +27,7 @@
 #include "util/posix_logger.h"
 
 bool useOsBuffer = 1;     // cache data in OS buffers 
+bool useFsReadAhead = 1;  // allow filesystem to do readaheads
 
 namespace leveldb {
 
@@ -81,7 +82,12 @@ class PosixRandomAccessFile: public RandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd)
-      : filename_(fname), fd_(fd) { }
+      : filename_(fname), fd_(fd) { 
+    if (!useFsReadAhead) {
+      // disable read-aheads
+      posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
+    }
+  }
   virtual ~PosixRandomAccessFile() { close(fd_); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,

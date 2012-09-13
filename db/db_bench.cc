@@ -165,6 +165,7 @@ static int FLAGS_readwritepercent = 90;
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 
 extern bool useOsBuffer;
+extern bool useFsReadAhead;
 
 namespace leveldb {
 
@@ -1133,6 +1134,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--bufferedio=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useOsBuffer = n;
+    } else if (sscanf(argv[i], "--readhead=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      useFsReadAhead = n;
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
