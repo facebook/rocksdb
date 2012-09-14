@@ -1136,7 +1136,6 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
-    size_t nn;
     long l;
     char junk;
     char hdfsname[2048];
@@ -1160,8 +1159,8 @@ int main(int argc, char** argv) {
       FLAGS_value_size = n;
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
       FLAGS_write_buffer_size = n;
-    } else if (sscanf(argv[i], "--cache_size=%lld%c", &nn, &junk) == 1) {
-      FLAGS_cache_size = nn;
+    } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
+      FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
       FLAGS_block_size = n;
     } else if (sscanf(argv[i], "--cache_numshardbits=%d%c", &n, &junk) == 1) {
