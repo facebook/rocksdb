@@ -161,6 +161,10 @@ static int FLAGS_level0_slowdown_writes_trigger = 8;
 // setting is 9 gets for every 1 put.
 static int FLAGS_readwritepercent = 90;
 
+// Algorithm to use to compress the database
+static enum leveldb::CompressionType FLAGS_compression_type =
+    leveldb::kSnappyCompression;
+
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 
@@ -394,6 +398,22 @@ class Benchmark {
     fprintf(stdout, "FileSize:   %.1f MB (estimated)\n",
             (((kKeySize + FLAGS_value_size * FLAGS_compression_ratio) * num_)
              / 1048576.0));
+
+    switch (FLAGS_compression_type) {
+      case leveldb::kNoCompression:
+        fprintf(stdout, "Compression: none\n");
+        break;
+      case leveldb::kSnappyCompression:
+        fprintf(stdout, "Compression: snappy\n");
+        break;
+      case leveldb::kZlibCompression:
+        fprintf(stdout, "Compression: zlib\n");
+        break;
+      case leveldb::kBZip2Compression:
+        fprintf(stdout, "Compression: bzip2\n");
+        break;
+    }
+
     PrintWarnings();
     fprintf(stdout, "------------------------------------------------\n");
   }
@@ -409,13 +429,39 @@ class Benchmark {
             "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
 #endif
 
-    // See if snappy is working by attempting to compress a compressible string
-    const char text[] = "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy";
-    std::string compressed;
-    if (!port::Snappy_Compress(text, sizeof(text), &compressed)) {
-      fprintf(stdout, "WARNING: Snappy compression is not enabled\n");
-    } else if (compressed.size() >= sizeof(text)) {
-      fprintf(stdout, "WARNING: Snappy compression is not effective\n");
+    if (FLAGS_compression_type != leveldb::kNoCompression) {
+      // The test string should not be too small.
+      const int len = FLAGS_block_size;
+      char* text = (char*) malloc(len+1);
+      bool result = true;
+      const char* name = NULL;
+      std::string compressed;
+
+      memset(text, (int) 'y', len);
+      text[len] = '\0';
+
+      switch (FLAGS_compression_type) {
+        case kSnappyCompression:
+          result = port::Snappy_Compress(text, strlen(text), &compressed);
+          name = "Snappy";
+          break;
+        case kZlibCompression:
+          result = port::Zlib_Compress(text, strlen(text), &compressed);
+          name = "Zlib";
+          break;
+        case kBZip2Compression:
+          result = port::BZip2_Compress(text, strlen(text), &compressed);
+          name = "BZip2";
+          break;
+      }
+
+      if (!result) {
+        fprintf(stdout, "WARNING: %s compression is not enabled\n", name);
+      } else if (name && compressed.size() >= strlen(text)) {
+        fprintf(stdout, "WARNING: %s compression is not effective\n", name);
+      }
+
+      free(text);
     }
   }
 
@@ -802,6 +848,7 @@ class Benchmark {
     options.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
+    options.compression = FLAGS_compression_type;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1082,6 +1129,8 @@ class Benchmark {
 int main(int argc, char** argv) {
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
   FLAGS_open_files = leveldb::Options().max_open_files;
+  // Compression test code above refers to FLAGS_block_size
+  FLAGS_block_size = leveldb::Options().block_size;
   std::string default_db_path;
 
   for (int i = 1; i < argc; i++) {
@@ -1180,6 +1229,19 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i],"--level0_slowdown_writes_trigger=%d%c",
         &n, &junk) == 1) {
       FLAGS_level0_slowdown_writes_trigger = n;
+    } else if (strncmp(argv[i], "--compression_type=", 19) == 0) {
+      const char* ctype = argv[i] + 19;
+      if (!strcasecmp(ctype, "none"))
+        FLAGS_compression_type = leveldb::kNoCompression;
+      else if (!strcasecmp(ctype, "snappy"))
+        FLAGS_compression_type = leveldb::kSnappyCompression;
+      else if (!strcasecmp(ctype, "zlib"))
+        FLAGS_compression_type = leveldb::kZlibCompression;
+      else if (!strcasecmp(ctype, "bzip2"))
+        FLAGS_compression_type = leveldb::kBZip2Compression;
+      else {
+        fprintf(stdout, "Cannot parse %s\n", argv[i]);
+      }
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
