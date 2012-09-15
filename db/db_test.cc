@@ -1685,6 +1685,62 @@ TEST(DBTest, BloomFilter) {
   delete options.filter_policy;
 }
 
+TEST(DBTest, SnapshotFiles) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100000000;        // Large write buffer
+  Reopen(&options);
+
+  Random rnd(301);
+
+  // Write 8MB (80 values, each 100K)
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  std::vector<std::string> values;
+  for (int i = 0; i < 80; i++) {
+    values.push_back(RandomString(&rnd, 100000));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+
+  // assert that nothing makes it to disk yet.
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  // get a file snapshot
+  std::vector<std::string> files;
+  dbfull()->DisableFileDeletions();
+  dbfull()->GetLiveFiles(files);
+
+  // CURRENT, MANIFEST, *.sst files
+  ASSERT_EQ(files.size(), 3);
+
+  // copy these files to a new snapshot directory
+  std::string snapdir = dbname_ + ".snapdir/";
+  std::string mkdir = "mkdir -p " + snapdir;
+  ASSERT_EQ(system(mkdir.c_str()), 0);
+  for (int i = 0; i < files.size(); i++) {
+    std::string src = dbname_ + "/" + files[i];
+    std::string dest = snapdir + "/" + files[i];
+    std::string cmd = "cp " + src + " " + dest;
+    ASSERT_EQ(system(cmd.c_str()), 0);
+  }
+  
+  // release file snapshot
+  dbfull()->DisableFileDeletions();
+
+  // verify that data in the snapshot are correct
+  Options opts;
+  DB* snapdb;
+  opts.create_if_missing = false;
+  Status stat = DB::Open(opts, snapdir, &snapdb);
+  ASSERT_TRUE(stat.ok());
+
+  ReadOptions roptions;
+  std::string val;
+  for (int i = 0; i < 80; i++) {
+    stat = snapdb->Get(roptions, Key(i), &val);
+    ASSERT_EQ(values[i].compare(val), 0);
+  }
+  delete snapdb;
+}
+
 // Multi-threaded test:
 namespace {
 
@@ -1872,6 +1928,16 @@ class ModelDB: public DB {
   virtual Status Flush(const leveldb::FlushOptions& options) {
     Status ret;
     return ret;
+  }
+
+  virtual Status DisableFileDeletions() {
+    return Status::OK();
+  }
+  virtual Status EnableFileDeletions() {
+    return Status::OK();
+  }
+  virtual Status GetLiveFiles(std::vector<std::string>&) {
+    return Status::OK();
   }
 
  private:

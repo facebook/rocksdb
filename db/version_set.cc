@@ -1220,6 +1220,16 @@ void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
   }
 }
 
+void VersionSet::AddLiveFilesCurrentVersion(std::set<uint64_t>* live) {
+  Version* v = current_;
+  for (int level = 0; level < NumberLevels(); level++) {
+    const std::vector<FileMetaData*>& files = v->files_[level];
+    for (size_t i = 0; i < files.size(); i++) {
+      live->insert(files[i]->number);
+    }
+  }
+}
+
 int64_t VersionSet::NumLevelBytes(int level) const {
   assert(level >= 0);
   assert(level < NumberLevels());

@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <vector>
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
 
@@ -153,6 +154,19 @@ class DB {
 
   // Flush all mem-table data.
   virtual Status Flush(const FlushOptions& options) = 0;
+
+  // Prevent file deletions. Compactions will continue to occur,
+  // but no obsolete files will be deleted. Calling this multiple
+  // times have the same effect as calling it once.
+  virtual Status DisableFileDeletions() = 0;
+
+  // Allow compactions to delete obselete files.
+  virtual Status EnableFileDeletions() = 0;
+
+  // Retrieve the list of all files in the database. The files are
+  // related to the dbname and are not absolute paths. This list
+  // can be used to generate a backup.
+  virtual Status GetLiveFiles(std::vector<std::string>&) = 0;
 
  private:
   // No copying allowed

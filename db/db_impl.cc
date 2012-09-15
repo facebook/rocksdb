@@ -140,7 +140,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       bg_compaction_scheduled_(false),
       bg_logstats_scheduled_(false),
       manual_compaction_(NULL),
-      logger_(NULL) {
+      logger_(NULL),
+      disable_delete_obsolete_files_(false) {
   mem_->Ref();
   has_imm_.Release_Store(NULL);
 
@@ -244,6 +245,11 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 }
 
 void DBImpl::DeleteObsoleteFiles() {
+  // if deletion is disabled, do nothing
+  if (disable_delete_obsolete_files_) {
+    return;
+  }
+
   // Make a set of all of the live files
   std::set<uint64_t> live = pending_outputs_;
   versions_->AddLiveFiles(&live);

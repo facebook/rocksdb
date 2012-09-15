@@ -236,6 +236,9 @@ class VersionSet {
   // May also mutate some internal state.
   void AddLiveFiles(std::set<uint64_t>* live);
 
+  // Add all files listed in the current version to *live.
+  void AddLiveFilesCurrentVersion(std::set<uint64_t>* live);
+
   // Return the approximate offset in the database of the data for
   // "key" as of version "v".
   uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);

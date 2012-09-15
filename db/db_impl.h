@@ -49,6 +49,9 @@ class DBImpl : public DB {
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
   virtual Status Flush(const FlushOptions& options);
+  virtual Status DisableFileDeletions();
+  virtual Status EnableFileDeletions();
+  virtual Status GetLiveFiles(std::vector<std::string>&);
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -189,6 +192,9 @@ class DBImpl : public DB {
   StatsLogger* logger_;
 
   int64_t volatile last_log_ts;
+
+  // shall we disable deletion of obsolete files
+  bool disable_delete_obsolete_files_;
 
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
