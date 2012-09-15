@@ -170,6 +170,7 @@ static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
+extern bool useMmapRead;
 
 namespace leveldb {
 
@@ -1182,6 +1183,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--bufferedio=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useOsBuffer = n;
+    } else if (sscanf(argv[i], "--mmap_read=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      useMmapRead = n;
     } else if (sscanf(argv[i], "--readhead=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useFsReadAhead = n;

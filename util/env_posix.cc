@@ -28,6 +28,7 @@
 
 bool useOsBuffer = 1;     // cache data in OS buffers 
 bool useFsReadAhead = 1;  // allow filesystem to do readaheads
+bool useMmapRead = 0;
 
 namespace leveldb {
 
@@ -386,13 +387,26 @@ class PosixEnv : public Env {
 
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      RandomAccessFile** result) {
-    // Use of mmap for random reads has been removed because it
-    // kills performance when storage is fast.
     *result = NULL;
     Status s;
     int fd = open(fname.c_str(), O_RDONLY);
     if (fd < 0) {
       s = IOError(fname, errno);
+    } else if (useMmapRead && sizeof(void*) >= 8) {
+      // Use of mmap for random reads has been removed because it
+      // kills performance when storage is fast.
+      // Use mmap when virtual address-space is plentiful.
+      uint64_t size;
+      s = GetFileSize(fname, &size);
+      if (s.ok()) {
+        void* base = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+        if (base != MAP_FAILED) {
+          *result = new PosixMmapReadableFile(fname, base, size);
+        } else {
+          s = IOError(fname, errno);
+        }
+      }
+      close(fd);
     } else {
       *result = new PosixRandomAccessFile(fname, fd);
     }
