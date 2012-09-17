@@ -8,7 +8,7 @@
 dlname='libsnappy.so.1'
 
 # Names of this library.
-library_names='libsnappy.so.1.0.5 libsnappy.so.1 libsnappy.so'
+library_names='libsnappy.so.1.1.1 libsnappy.so.1 libsnappy.so'
 
 # The name of the static archive.
 old_library='libsnappy.a'
@@ -23,9 +23,9 @@ dependency_libs=''
 weak_library_names=''
 
 # Version information for libsnappy.
-current=1
-age=0
-revision=5
+current=2
+age=1
+revision=1
 
 # Is this an already installed library?
 installed=yes
