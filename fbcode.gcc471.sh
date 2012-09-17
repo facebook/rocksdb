@@ -8,6 +8,7 @@
 TOOLCHAIN_REV=20d3328ac30f633840ce819ad03019f415267a86
 TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
 TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.7.1-glibc-2.14.1"
+TOOL_JEMALLOC=jemalloc-3.0.0/69dc57c
 
 # always build thrift server
 export USE_THRIFT=1
@@ -37,11 +38,11 @@ AR=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ar
 RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
 
 CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/bin/gold -m64 -mtune=generic -fPIC"
-CFLAGS+=" -I $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-2.2.5/57d2903/include -DHAVE_JEMALLOC"
+CFLAGS+=" -I $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/include -DHAVE_JEMALLOC"
 
-EXEC_LDFLAGS=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-2.2.5/57d2903/lib/libjemalloc.a "
+EXEC_LDFLAGS=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/lib/libjemalloc.a "
 EXEC_LDFLAGS+="-Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-20100812_experimental/91ddd43/lib/libunwind.a"
 EXEC_LDFLAGS+="$HDFSLIB $SNAPPY_LIBS $THRIFT_LIBS "
-EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-2.2.5/57d2903/lib/libjemalloc.so"
+EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/lib/libjemalloc.so"
 
 export CC CXX AR RANLIB CFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED
