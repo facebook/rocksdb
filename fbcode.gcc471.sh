@@ -5,7 +5,7 @@
 # uses jemalloc
 # This is compiled with gcc version 4.7.1 for zeus proxy
 
-TOOLCHAIN_REV=90cb1654197e56261b1733c704b387285f36208e
+TOOLCHAIN_REV=20d3328ac30f633840ce819ad03019f415267a86
 TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
 TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.7.1-glibc-2.14.1"
 
