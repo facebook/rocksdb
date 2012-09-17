@@ -220,6 +220,12 @@ struct Options {
   // name's prefix.
   std::string db_log_dir;
 
+  // Disable compaction triggered by seek.
+  // With bloomfilter and fast storage, a miss on one level
+  // is very cheap if the file handle is cached in table cache
+  // (which is true if max_open_files is large).
+  bool disable_seek_compaction;
+
   // Create an Options object with default values for all fields.
   Options();
 

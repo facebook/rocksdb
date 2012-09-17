@@ -161,6 +161,9 @@ static int FLAGS_level0_slowdown_writes_trigger = 8;
 // setting is 9 gets for every 1 put.
 static int FLAGS_readwritepercent = 90;
 
+// Option to disable compation triggered by read.
+static int FLAGS_disable_seek_compaction = false;
+
 // Algorithm to use to compress the database
 static enum leveldb::CompressionType FLAGS_compression_type =
     leveldb::kSnappyCompression;
@@ -850,6 +853,7 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type;
+    options.disable_seek_compaction = FLAGS_disable_seek_compaction;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1245,6 +1249,9 @@ int main(int argc, char** argv) {
       else {
         fprintf(stdout, "Cannot parse %s\n", argv[i]);
       }
+    } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
+        && (n == 0 || n == 1)) {
+      FLAGS_disable_seek_compaction = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
