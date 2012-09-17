@@ -9,4 +9,4 @@
   This makes CRC computation much faster, but
   binaries won't run on CPUs that don't support it.
 
-* Latest release is 1.5.0.fb
+* Latest release is 1.5.1.fb
