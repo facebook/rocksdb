@@ -163,20 +163,34 @@ struct Options {
   // space if the same key space is being repeatedly overwritten.
   int max_mem_compaction_level;
 
-  // Target file size for compaction. Target file size for level L is
-  // (target_file_size_base)^(target_file_size_multiplier).
-  // For example, if target_file_size_base is 20MB and
-  // target_file_size_multiplier is 2^10, then target file size on level 1
-  // will be 200MB, and wiil be 2GB on level 2.
+  // Target file size for compaction.
+  // target_file_size_base is per-file size for level-1.
+  // Target file size for level L can be calculated by
+  // target_file_size_base * (target_file_size_multiplier ^ (L-1))
+  // For example, if target_file_size_base is 2MB and
+  // target_file_size_multiplier is 10, then each file on level-1 will
+  // be 2MB, and each file on level 2 will be 20MB,
+  // and each file on level-3 will be 200MB.
 
+  // by default target_file_size_base is 2MB.
   int target_file_size_base;
+  // by default target_file_size_multiplier is 1, which means
+  // by default files in different levels will have similar size.
   int target_file_size_multiplier;
 
-  // Control maximum number of bytes in all compacted files for one level.
-  // Maximum number of bytes for level L is
-  // (max_bytes_for_level_base)^(max_bytes_for_level_multiplier).
+  // Control maximum total data size for a level.
+  // max_bytes_for_level_base is the max total for level-1.
+  // Maximum number of bytes for level L can be calculated as
+  // (max_bytes_for_level_base) * (max_bytes_for_level_multiplier ^ (L-1))
+  // For example, if max_bytes_for_level_base is 20MB, and if
+  // max_bytes_for_level_multiplier is 10, total data size for level-1
+  // will be 20MB, total file size for level-2 will be 200MB,
+  // and total file size for level-3 will be 2GB.
 
+
+  // by default 'max_bytes_for_level_base' is 10MB.
   int max_bytes_for_level_base;
+  // by default 'max_bytes_for_level_base' is 10.
   int max_bytes_for_level_multiplier;
 
   // Maximum number of bytes in all compacted files.  We avoid expanding
