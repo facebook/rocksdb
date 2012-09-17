@@ -5,6 +5,7 @@
 #include "db/db_impl.h"
 #include <string>
 #include <stdint.h>
+#include <stdio.h>
 #include "db/version_set.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
@@ -53,10 +54,9 @@ void DBImpl::LogDBDeployStats() {
     return;
   }
 
-  std::string version_info;
-  version_info += boost::lexical_cast<std::string>(kMajorVersion);
-  version_info += ".";
-  version_info += boost::lexical_cast<std::string>(kMinorVersion);
+  char tmp_ver[100];
+  sprintf(tmp_ver, "%d.%d", kMajorVersion, kMinorVersion);
+  std::string version_info(tmp_ver);
 
   uint64_t file_total_size = 0;
   uint32_t file_total_num = 0;

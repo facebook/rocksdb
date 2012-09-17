@@ -19,8 +19,6 @@
 #include "scribe/scribe_logger.h"
 #endif
 
-#include <boost/lexical_cast.hpp>
-
 namespace leveldb {
 
 class MemTable;
