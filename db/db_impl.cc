@@ -37,6 +37,8 @@
 
 namespace leveldb {
 
+void dumpLeveldbBuildVersion(Logger * log);
+
 // Information kept for every waiting writer
 struct DBImpl::Writer {
   Status status;
@@ -154,6 +156,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   versions_ = new VersionSet(dbname_, &options_, table_cache_,
                              &internal_comparator_);
 
+  dumpLeveldbBuildVersion(options_.info_log);
   options_.Dump(options_.info_log);
 
 #ifdef USE_SCRIBE
@@ -1592,11 +1595,10 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 
 //
 // A global method that can dump out the build version
-void printLeveldbBuildVersion() {
-  printf("Git sha %s", leveldb_build_git_sha);
-  printf("Git datetime %s", leveldb_build_git_datetime);
-  printf("Compile time %s", leveldb_build_compile_time);
-  printf("Compile date %s", leveldb_build_compile_date);
+void dumpLeveldbBuildVersion(Logger * log) {
+  Log(log, "Git sha %s", leveldb_build_git_sha);
+  Log(log, "Git datetime %s", leveldb_build_git_datetime);
+  Log(log, "Compile time %s %s", leveldb_build_compile_time, leveldb_build_compile_date);
 }
 
 }  // namespace leveldb
