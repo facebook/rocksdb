@@ -135,6 +135,9 @@ class HdfsEnv : public Env {
     return posixEnv->GetAbsolutePath(db_path, output_path);
   }
 
+  virtual void SetBackgroundThreads(int number) {
+    posixEnv->SetBackgroundThreads(number);
+  }
 
   static uint64_t gettid() {
     assert(sizeof(pthread_t) <= sizeof(uint64_t));
@@ -268,6 +271,8 @@ class HdfsEnv : public Env {
 
   virtual Status GetAbsolutePath(const std::string& db_path,
       std::string* outputpath) {return notsup;}
+
+  virtual void SetBackgroundThreads(int number) {}
 };
 }
 

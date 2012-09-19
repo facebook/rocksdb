@@ -601,6 +601,14 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
+  // Allow increasing the number of worker threads. 
+  virtual void SetBackgroundThreads(int num) {
+    if (num > num_threads_) {
+      num_threads_ = num;
+      bgthread_.resize(num_threads_);
+    }
+  }
+
  private:
   void PthreadCall(const char* label, int result) {
     if (result != 0) {
@@ -619,8 +627,9 @@ class PosixEnv : public Env {
   size_t page_size_;
   pthread_mutex_t mu_;
   pthread_cond_t bgsignal_;
-  pthread_t bgthread_;
-  bool started_bgthread_;
+  std::vector<pthread_t> bgthread_;
+  int started_bgthread_;
+  int num_threads_;
 
   // Entry per Schedule() call
   struct BGItem { void* arg; void (*function)(void*); };
@@ -629,20 +638,22 @@ class PosixEnv : public Env {
 };
 
 PosixEnv::PosixEnv() : page_size_(getpagesize()),
-                       started_bgthread_(false) {
+                       started_bgthread_(0),
+                       num_threads_(1) {
   PthreadCall("mutex_init", pthread_mutex_init(&mu_, NULL));
   PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, NULL));
+  bgthread_.resize(num_threads_);
 }
 
 void PosixEnv::Schedule(void (*function)(void*), void* arg) {
   PthreadCall("lock", pthread_mutex_lock(&mu_));
 
   // Start background thread if necessary
-  if (!started_bgthread_) {
-    started_bgthread_ = true;
+  for (; started_bgthread_ < num_threads_; started_bgthread_++) {
     PthreadCall(
         "create thread",
-        pthread_create(&bgthread_, NULL,  &PosixEnv::BGThreadWrapper, this));
+        pthread_create(&bgthread_[started_bgthread_], NULL,  &PosixEnv::BGThreadWrapper, this));
+    fprintf(stdout, "Created bg thread 0x%lx\n", bgthread_[started_bgthread_]);
   }
 
   // If the queue is currently empty, the background thread may currently be

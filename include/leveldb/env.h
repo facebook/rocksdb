@@ -155,6 +155,10 @@ class Env {
   virtual Status GetAbsolutePath(const std::string& db_path,
       std::string* output_path) = 0;
 
+  // The number of background worker threads for this environment.
+  // default: 1
+  virtual void SetBackgroundThreads(int number) = 0;
+
  private:
   // No copying allowed
   Env(const Env&);
@@ -343,6 +347,9 @@ class EnvWrapper : public Env {
   Status GetAbsolutePath(const std::string& db_path,
       std::string* output_path) {
     return target_->GetAbsolutePath(db_path, output_path);
+  }
+  void SetBackgroundThreads(int num) {
+    return target_->SetBackgroundThreads(num);
   }
 
  private:
