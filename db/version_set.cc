@@ -1620,10 +1620,10 @@ void Compaction::Summary(char* output, int len) {
     return;
 
   char level_low_summary[100];
-  InputSummary(inputs_[0], level_low_summary, 100);
+  InputSummary(inputs_[0], level_low_summary, sizeof(level_low_summary));
   char level_up_summary[100];
   if (inputs_[1].size()) {
-    InputSummary(inputs_[1], level_up_summary, 100);
+    InputSummary(inputs_[1], level_up_summary, sizeof(level_up_summary));
   } else {
     level_up_summary[0] = '\0';
   }
