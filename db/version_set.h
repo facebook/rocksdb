@@ -131,6 +131,9 @@ class Version {
   double compaction_score_;
   int compaction_level_;
 
+  // The offset in the manifest file where this version is stored.
+  uint64_t offset_manifest_file_;
+
   explicit Version(VersionSet* vset);
 
   ~Version();
@@ -256,6 +259,9 @@ class VersionSet {
   // Return a human-readable short (single-line) summary of the data size
   // of files per level.  Uses *scratch as backing store.
   const char* LevelDataSizeSummary(LevelSummaryStorage* scratch) const;
+
+  // Return the size of the current manifest file
+  const uint64_t ManifestFileSize() { return current_->offset_manifest_file_; }
 
  private:
   class Builder;

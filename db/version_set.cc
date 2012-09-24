@@ -269,7 +269,8 @@ Version::Version(VersionSet* vset)
       file_to_compact_(NULL),
       file_to_compact_level_(-1),
       compaction_score_(-1),
-      compaction_level_(-1) {
+      compaction_level_(-1),
+      offset_manifest_file_(0) {
   files_ = new std::vector<FileMetaData*>[vset->NumberLevels()];
 }
 
@@ -699,20 +700,20 @@ VersionSet::VersionSet(const std::string& dbname,
       descriptor_log_(NULL),
       dummy_versions_(this),
       current_(NULL) {
-	compact_pointer_ = new std::string[options_->num_levels];
-	max_file_size_ = new uint64_t[options_->num_levels];
-	level_max_bytes_ = new uint64_t[options->num_levels];
-	int target_file_size_multiplier = options_->target_file_size_multiplier;
-	int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
-	for (int i = 0; i < options_->num_levels; i++) {
-	  if (i > 1) {
-	    max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
-	    level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
-	  } else {
-	    max_file_size_[i] = options_->target_file_size_base;
-	    level_max_bytes_[i] = options_->max_bytes_for_level_base;
-	  }
-	}
+  compact_pointer_ = new std::string[options_->num_levels];
+  max_file_size_ = new uint64_t[options_->num_levels];
+  level_max_bytes_ = new uint64_t[options->num_levels];
+  int target_file_size_multiplier = options_->target_file_size_multiplier;
+  int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
+  for (int i = 0; i < options_->num_levels; i++) {
+    if (i > 1) {
+      max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
+      level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
+    } else {
+      max_file_size_[i] = options_->target_file_size_base;
+      level_max_bytes_[i] = options_->max_bytes_for_level_base;
+    }
+  }
   AppendVersion(new Version(this));
 }
 
@@ -769,6 +770,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
   std::string new_manifest_file;
+  uint64_t new_manifest_file_size = 0;
   Status s;
   if (descriptor_log_ == NULL) {
     // No reason to unlock *mu here since we only hit this path in the
@@ -807,11 +809,15 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
       s = SetCurrentFile(env_, dbname_, manifest_file_number_);
     }
 
+    // find offset in manifest file where this version is stored.
+    new_manifest_file_size = descriptor_file_->GetFileSize();
+
     mu->Lock();
   }
 
   // Install the new version
   if (s.ok()) {
+    v->offset_manifest_file_ = new_manifest_file_size;
     AppendVersion(v);
     log_number_ = edit->log_number_;
     prev_log_number_ = edit->prev_log_number_;
@@ -854,6 +860,11 @@ Status VersionSet::Recover() {
   std::string dscname = dbname_ + "/" + current;
   SequentialFile* file;
   s = env_->NewSequentialFile(dscname, &file);
+  if (!s.ok()) {
+    return s;
+  }
+  uint64_t manifest_file_size;
+  s = env_->GetFileSize(dscname, &manifest_file_size);
   if (!s.ok()) {
     return s;
   }
@@ -936,6 +947,7 @@ Status VersionSet::Recover() {
     builder.SaveTo(v);
     // Install recovered version
     Finalize(v);
+    v->offset_manifest_file_ = manifest_file_size;
     AppendVersion(v);
     manifest_file_number_ = next_file;
     next_file_number_ = next_file + 1;

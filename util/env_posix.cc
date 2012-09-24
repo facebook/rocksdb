@@ -319,6 +319,16 @@ class PosixMmapFile : public WritableFile {
     // fdatasync because pending_sync_ has already been cleared.
     return Sync();
   }
+
+  /**
+   * Get the size of valid data in the file. This will not match the
+   * size that is returned from the filesystem because we use mmap
+   * to extend file by map_size every time.
+   */
+  virtual uint64_t GetFileSize() {
+    size_t used = dst_ - base_;
+    return file_offset_ + used;
+  }
 };
 
 static int LockOrUnlock(const std::string& fname, int fd, bool lock) {

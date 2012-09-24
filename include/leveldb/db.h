@@ -164,9 +164,13 @@ class DB {
   virtual Status EnableFileDeletions() = 0;
 
   // Retrieve the list of all files in the database. The files are
-  // related to the dbname and are not absolute paths. This list
-  // can be used to generate a backup.
-  virtual Status GetLiveFiles(std::vector<std::string>&) = 0;
+  // relative to the dbname and are not absolute paths. This list
+  // can be used to generate a backup. The valid size of the manifest
+  // file is returned in manifest_file_size. The manifest file is
+  // an ever growing file, but only the portion specified
+  // by manifest_file_size is valid for this snapshot.
+  virtual Status GetLiveFiles(std::vector<std::string>&,
+                              uint64_t* manifest_file_size) = 0;
 
  private:
   // No copying allowed

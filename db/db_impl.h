@@ -51,7 +51,8 @@ class DBImpl : public DB {
   virtual Status Flush(const FlushOptions& options);
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions();
-  virtual Status GetLiveFiles(std::vector<std::string>&);
+  virtual Status GetLiveFiles(std::vector<std::string>&, 
+                              uint64_t* manifest_file_size);
 
   // Extra methods (for testing) that are not in the public DB interface
 

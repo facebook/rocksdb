@@ -26,7 +26,10 @@ Status DBImpl::EnableFileDeletions() {
   return Status::OK();
 }
 
-Status DBImpl::GetLiveFiles(std::vector<std::string>& ret) {
+Status DBImpl::GetLiveFiles(std::vector<std::string>& ret, 
+                            uint64_t* manifest_file_size) {
+
+  *manifest_file_size = 0;
 
   // flush all dirty data to disk.
   Status status =  Flush(FlushOptions());
@@ -54,6 +57,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret) {
   ret[live.size()] = CurrentFileName("");
   ret[live.size()+1] = DescriptorFileName("", 
                                           versions_->ManifestFileNumber());
+
+  // find length of manifest file while holding the mutex lock
+  *manifest_file_size = versions_->ManifestFileSize();
 
   return Status::OK();
 }

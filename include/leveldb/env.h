@@ -233,6 +233,13 @@ class WritableFile {
     return Sync();
   }
 
+  /*
+   * Get the size of valid data in the file.
+   */
+  virtual uint64_t GetFileSize() {
+    return 0;
+  }
+
  private:
   // No copying allowed
   WritableFile(const WritableFile&);

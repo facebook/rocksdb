@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <algorithm>
 #include "leveldb/db.h"
 #include "leveldb/filter_policy.h"
 #include "db/db_impl.h"
@@ -1704,27 +1705,69 @@ TEST(DBTest, SnapshotFiles) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
   // get a file snapshot
+  uint64_t manifest_number = 0;
+  uint64_t manifest_size = 0;
   std::vector<std::string> files;
   dbfull()->DisableFileDeletions();
-  dbfull()->GetLiveFiles(files);
+  dbfull()->GetLiveFiles(files, &manifest_size);
 
   // CURRENT, MANIFEST, *.sst files
   ASSERT_EQ(files.size(), 3);
+
+  uint64_t number = 0;
+  FileType type;
 
   // copy these files to a new snapshot directory
   std::string snapdir = dbname_ + ".snapdir/";
   std::string mkdir = "mkdir -p " + snapdir;
   ASSERT_EQ(system(mkdir.c_str()), 0);
-  for (int i = 0; i < files.size(); i++) {
+
+  for (unsigned int i = 0; i < files.size(); i++) {
     std::string src = dbname_ + "/" + files[i];
     std::string dest = snapdir + "/" + files[i];
-    std::string cmd = "cp " + src + " " + dest;
-    ASSERT_EQ(system(cmd.c_str()), 0);
+
+    uint64_t size;
+    ASSERT_OK(env_->GetFileSize(src, &size));
+
+    // record the number and the size of the 
+    // latest manifest file
+    if (ParseFileName(files[i].substr(1), &number, &type)) {
+      if (type == kDescriptorFile) {
+        if (number > manifest_number) {
+          manifest_number = number;
+          ASSERT_GE(size, manifest_size);
+          size = manifest_size; // copy only valid MANIFEST data
+        }
+      }
+    }
+    SequentialFile* srcfile;
+    ASSERT_OK(env_->NewSequentialFile(src, &srcfile));
+    WritableFile* destfile;
+    ASSERT_OK(env_->NewWritableFile(dest, &destfile));
+    
+    char buffer[4096];
+    Slice slice;
+    while (size > 0) {
+      uint64_t one = std::min(sizeof(buffer), size);
+      ASSERT_OK(srcfile->Read(one, &slice, buffer));
+      ASSERT_OK(destfile->Append(slice));
+      size -= slice.size();
+    }
+    ASSERT_OK(destfile->Close());
+    delete destfile;
+    delete srcfile;
   }
-  
+
   // release file snapshot
   dbfull()->DisableFileDeletions();
 
+  // overwrite one key, this key should not appear in the snapshot
+  std::vector<std::string> extras;
+  for (unsigned int i = 0; i < 1; i++) {
+    extras.push_back(RandomString(&rnd, 100000));
+    ASSERT_OK(Put(Key(i), extras[i]));
+  }
+  
   // verify that data in the snapshot are correct
   Options opts;
   DB* snapdb;
@@ -1734,11 +1777,44 @@ TEST(DBTest, SnapshotFiles) {
 
   ReadOptions roptions;
   std::string val;
-  for (int i = 0; i < 80; i++) {
+  for (unsigned int i = 0; i < 80; i++) {
     stat = snapdb->Get(roptions, Key(i), &val);
     ASSERT_EQ(values[i].compare(val), 0);
   }
   delete snapdb;
+
+  // look at the new live files after we added an 'extra' key 
+  // and after we took the first snapshot.
+  uint64_t new_manifest_number = 0;
+  uint64_t new_manifest_size = 0;
+  std::vector<std::string> newfiles;
+  dbfull()->DisableFileDeletions();
+  dbfull()->GetLiveFiles(newfiles, &new_manifest_size);
+
+  // find the new manifest file. assert that this manifest file is
+  // the same one as in the previous snapshot. But its size should be
+  // larger because we added an extra key after taking the
+  // previous shapshot.
+  for (unsigned int i = 0; i < newfiles.size(); i++) {
+    std::string src = dbname_ + "/" + newfiles[i];
+    // record the lognumber and the size of the 
+    // latest manifest file
+    if (ParseFileName(newfiles[i].substr(1), &number, &type)) {
+      if (type == kDescriptorFile) {
+        if (number > new_manifest_number) {
+          uint64_t size;
+          new_manifest_number = number;
+          ASSERT_OK(env_->GetFileSize(src, &size));
+          ASSERT_GE(size, new_manifest_size);
+        }
+      }
+    }
+  }
+  ASSERT_EQ(manifest_number, new_manifest_number);
+  ASSERT_GT(new_manifest_size, manifest_size);
+  
+  // release file snapshot
+  dbfull()->DisableFileDeletions();
 }
 
 // Multi-threaded test:
@@ -1936,7 +2012,7 @@ class ModelDB: public DB {
   virtual Status EnableFileDeletions() {
     return Status::OK();
   }
-  virtual Status GetLiveFiles(std::vector<std::string>&) {
+  virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size) {
     return Status::OK();
   }
 
