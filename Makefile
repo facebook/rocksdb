@@ -56,7 +56,8 @@ TESTS = \
 
 TOOLS = \
 	manifest_dump \
-        sst_dump
+        sst_dump \
+        ldb
 
 PROGRAMS = db_bench $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
@@ -198,6 +199,9 @@ filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(CXX) tools/sst_dump.o $(LIBOBJECTS) -o $@ $(LDFLAGS)
+
+ldb: tools/ldb.o $(LIBOBJECTS)
+	$(CXX) tools/ldb.o $(LIBOBJECTS) -o $@ $(LDFLAGS)
 
 # recreate the version file with the latest git revision
 $(VERSIONFILE):	build_detect_version
