@@ -1392,7 +1392,7 @@ Compaction* VersionSet::PickCompaction() {
       // Wrap-around to the beginning of the key space
       c->inputs_[0].push_back(current_->files_[level][0]);
     }
-  } else if (seek_compaction && !options_->disable_seek_compaction) {
+  } else if (seek_compaction) {
     level = current_->file_to_compact_level_;
     c = new Compaction(level, MaxFileSizeForLevel(level),
 		MaxGrandParentOverlapBytes(level), NumberLevels());

@@ -1196,7 +1196,8 @@ Status DBImpl::Get(const ReadOptions& options,
     mutex_.Lock();
   }
 
-  if (have_stat_update && current->UpdateStats(stats)) {
+  if (!options_.disable_seek_compaction &&
+      have_stat_update && current->UpdateStats(stats)) {
     MaybeScheduleCompaction();
   }
   mem->Unref();
