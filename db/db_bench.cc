@@ -209,7 +209,7 @@ class RandomGenerator {
     pos_ += len;
     return Slice(data_.data() + pos_ - len, len);
   }
-}; 
+};
 static Slice TrimSpace(Slice s) {
   int start = 0;
   while (start < s.size() && isspace(s[start])) {
@@ -515,9 +515,9 @@ class Benchmark {
 
  public:
   Benchmark()
-  : cache_(FLAGS_cache_size >= 0 ? 
-           (FLAGS_cache_numshardbits >= 1 ? 
-            NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits) : 
+  : cache_(FLAGS_cache_size >= 0 ?
+           (FLAGS_cache_numshardbits >= 1 ?
+            NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits) :
             NewLRUCache(FLAGS_cache_size)) : NULL),
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
@@ -528,9 +528,9 @@ class Benchmark {
     entries_per_batch_(1),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
     writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
-    readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num : 
+    readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num :
                 ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)
-               ),               
+               ),
     heap_counter_(0) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
@@ -1048,7 +1048,7 @@ class Benchmark {
 
   //
   // This is diffferent from ReadWhileWriting because it does not use
-  // an extra thread. 
+  // an extra thread.
   //
   void ReadRandomWriteRandom(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
@@ -1090,7 +1090,7 @@ class Benchmark {
       thread->stats.FinishedSingleOp();
     }
     char msg[100];
-    snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld )", 
+    snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld )",
              reads_done, writes_done, readwrites_);
     thread->stats.AddMessage(msg);
   }
