@@ -153,7 +153,8 @@ static void ReleaseBlock(void* arg, void* h) {
 // into an iterator over the contents of the corresponding block.
 Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
-                             const Slice& index_value) {
+                             const Slice& index_value,
+                             bool* didIO) {
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache;
   Block* block = NULL;
@@ -184,6 +185,9 @@ Iterator* Table::BlockReader(void* arg,
                 key, block, block->size(), &DeleteCachedBlock);
           }
         }
+        if (didIO != NULL) {
+          *didIO = true; // we did some io from storage
+        }
       }
     } else {
       s = ReadBlock(table->rep_->file, options, handle, &contents);
@@ -207,6 +211,12 @@ Iterator* Table::BlockReader(void* arg,
   return iter;
 }
 
+Iterator* Table::BlockReader(void* arg,
+                             const ReadOptions& options,
+                             const Slice& index_value) {
+  return BlockReader(arg, options, index_value, NULL);
+}
+
 Iterator* Table::NewIterator(const ReadOptions& options) const {
   return NewTwoLevelIterator(
       rep_->index_block->NewIterator(rep_->options.comparator),
@@ -215,7 +225,7 @@ Iterator* Table::NewIterator(const ReadOptions& options) const {
 
 Status Table::InternalGet(const ReadOptions& options, const Slice& k,
                           void* arg,
-                          void (*saver)(void*, const Slice&, const Slice&)) {
+                          void (*saver)(void*, const Slice&, const Slice&, bool)) {
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   iiter->Seek(k);
@@ -229,10 +239,12 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
       // Not found
     } else {
       Slice handle = iiter->value();
-      Iterator* block_iter = BlockReader(this, options, iiter->value());
+      bool didIO = false;
+      Iterator* block_iter = BlockReader(this, options, iiter->value(),
+                                         &didIO);
       block_iter->Seek(k);
       if (block_iter->Valid()) {
-        (*saver)(arg, block_iter->key(), block_iter->value());
+        (*saver)(arg, block_iter->key(), block_iter->value(), didIO);
       }
       s = block_iter->status();
       delete block_iter;

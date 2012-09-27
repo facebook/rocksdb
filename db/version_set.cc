@@ -243,11 +243,13 @@ struct Saver {
   const Comparator* ucmp;
   Slice user_key;
   std::string* value;
+  bool didIO;    // did we do any disk io?
 };
 }
-static void SaveValue(void* arg, const Slice& ikey, const Slice& v) {
+static void SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
   Saver* s = reinterpret_cast<Saver*>(arg);
   ParsedInternalKey parsed_key;
+  s->didIO = didIO;
   if (!ParseInternalKey(ikey, &parsed_key)) {
     s->state = kCorrupt;
   } else {
@@ -335,26 +337,39 @@ Status Version::Get(const ReadOptions& options,
     }
 
     for (uint32_t i = 0; i < num_files; ++i) {
+
+      FileMetaData* f = files[i];
+      Saver saver;
+      saver.state = kNotFound;
+      saver.ucmp = ucmp;
+      saver.user_key = user_key;
+      saver.value = value;
+      saver.didIO = false;
+      bool tableIO = false;
+      s = vset_->table_cache_->Get(options, f->number, f->file_size,
+                                   ikey, &saver, SaveValue, &tableIO);
+      if (!s.ok()) {
+        return s;
+      }
+
       if (last_file_read != NULL && stats->seek_file == NULL) {
         // We have had more than one seek for this read.  Charge the 1st file.
         stats->seek_file = last_file_read;
         stats->seek_file_level = last_file_read_level;
       }
 
-      FileMetaData* f = files[i];
-      last_file_read = f;
-      last_file_read_level = level;
-
-      Saver saver;
-      saver.state = kNotFound;
-      saver.ucmp = ucmp;
-      saver.user_key = user_key;
-      saver.value = value;
-      s = vset_->table_cache_->Get(options, f->number, f->file_size,
-                                   ikey, &saver, SaveValue);
-      if (!s.ok()) {
-        return s;
+      // If we did any IO as part of the read, then we remember it because
+      // it is a possible candidate for seek-based compaction. saver.didIO
+      // is true if the block had to be read in from storage and was not
+      // pre-exisiting in the block cache. Also, if this file was not pre-
+      // existing in the table cache and had to be freshly opened that needed
+      // the index blocks to be read-in, then tableIO is true. One thing
+      // to note is that the index blocks are not part of the block cache.
+      if (saver.didIO || tableIO) {
+        last_file_read = f;
+        last_file_read_level = level;
       }
+
       switch (saver.state) {
         case kNotFound:
           break;      // Keep searching in other files
