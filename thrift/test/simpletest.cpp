@@ -298,6 +298,11 @@ static void testAssocs() {
                             id1, LONG_MAX, 0,
                             offset, limit);
   ASSERT_EQ((unsigned int)2, readback.size());
+
+  // Delete the most recent assoc
+  int c = aclient->taoAssocDelete(dbname, assocType,
+            id1, id2+2, AssocVisibility::HIDDEN, true, "");
+  ASSERT_EQ(c, 1);
 }
 
 //
