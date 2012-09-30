@@ -82,6 +82,9 @@ class Cache {
   // its cache keys.
   virtual uint64_t NewId() = 0;
 
+  // returns the maximum configured capacity of the cache
+  virtual size_t GetCapacity() = 0;
+
  private:
   void LRU_Remove(Handle* e);
   void LRU_Append(Handle* e);

@@ -276,6 +276,7 @@ class ShardedLRUCache : public Cache {
   port::Mutex id_mutex_;
   uint64_t last_id_;
   int numShardBits;
+  size_t capacity_;
 
   static inline uint32_t HashSlice(const Slice& s) {
     return Hash(s.data(), s.size(), 0);
@@ -287,6 +288,7 @@ class ShardedLRUCache : public Cache {
 
   void init(size_t capacity, int numbits) {
     numShardBits = numbits;
+    capacity_ = capacity;
     int numShards = 1 << numShardBits;
     shard_ = new LRUCache[numShards];
     const size_t per_shard = (capacity + (numShards - 1)) / numShards;
@@ -328,6 +330,9 @@ class ShardedLRUCache : public Cache {
   virtual uint64_t NewId() {
     MutexLock l(&id_mutex_);
     return ++(last_id_);
+  }
+  virtual uint64_t GetCapacity() {
+    return capacity_;
   }
 };
 

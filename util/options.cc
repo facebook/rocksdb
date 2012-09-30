@@ -7,6 +7,7 @@
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
+#include "leveldb/cache.h"
 
 namespace leveldb {
 
@@ -56,6 +57,7 @@ Options::Dump(
     Log(log,"     Options.write_buffer_size: %zd", write_buffer_size);
     Log(log,"        Options.max_open_files: %d", max_open_files);
     Log(log,"           Options.block_cache: %p", block_cache);
+    Log(log,"      Options.block_cache_size: %zd", block_cache->GetCapacity());
     Log(log,"            Options.block_size: %zd", block_size);
     Log(log,"Options.block_restart_interval: %d", block_restart_interval);
     Log(log,"           Options.compression: %d", compression);
