@@ -178,6 +178,7 @@ static int FLAGS_stats_interval = 0;
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
+extern bool useMmapWrite;
 
 namespace leveldb {
 
@@ -1217,6 +1218,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--mmap_read=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useMmapRead = n;
+    } else if (sscanf(argv[i], "--mmap_write=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      useMmapWrite = n;
     } else if (sscanf(argv[i], "--readahead=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useFsReadAhead = n;
