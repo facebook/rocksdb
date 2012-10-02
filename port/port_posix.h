@@ -97,6 +97,24 @@ class Mutex {
   void operator=(const Mutex&);
 };
 
+class RWMutex {
+ public:
+  RWMutex();
+  ~RWMutex();
+
+  void ReadLock();
+  void WriteLock();
+  void Unlock();
+  void AssertHeld() { }
+
+ private:
+  pthread_rwlock_t mu_; // the underlying platform mutex
+
+  // No copying allowed
+  RWMutex(const RWMutex&);
+  void operator=(const RWMutex&);
+};
+
 class CondVar {
  public:
   explicit CondVar(Mutex* mu);

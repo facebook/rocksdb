@@ -33,6 +33,45 @@ class MutexLock {
   void operator=(const MutexLock&);
 };
 
+//
+// Acquire a ReadLock on the specified RWMutex.
+// The Lock will be automatically released then the
+// object goes out of scope.
+//
+class ReadLock {
+ public:
+  explicit ReadLock(port::RWMutex *mu) : mu_(mu) {
+    this->mu_->ReadLock();
+  }
+  ~ReadLock() { this->mu_->Unlock(); }
+
+ private:
+  port::RWMutex *const mu_;
+  // No copying allowed
+  ReadLock(const ReadLock&);
+  void operator=(const ReadLock&);
+};
+
+
+//
+// Acquire a WriteLock on the specified RWMutex.
+// The Lock will be automatically released then the
+// object goes out of scope.
+//
+class WriteLock {
+ public:
+  explicit WriteLock(port::RWMutex *mu) : mu_(mu) {
+    this->mu_->WriteLock();
+  }
+  ~WriteLock() { this->mu_->Unlock(); }
+
+ private:
+  port::RWMutex *const mu_;
+  // No copying allowed
+  WriteLock(const WriteLock&);
+  void operator=(const WriteLock&);
+};
+
 }  // namespace leveldb
 
 
