@@ -171,6 +171,10 @@ static enum leveldb::CompressionType FLAGS_compression_type =
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 
+// Stats are reported every N operations when this is greater
+// than zero. When 0 the interval grows over time.
+static int FLAGS_stats_interval = 0;
+
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
@@ -232,28 +236,34 @@ static void AppendWithSpace(std::string* str, Slice msg) {
 
 class Stats {
  private:
+  int id_;
   double start_;
   double finish_;
   double seconds_;
   long done_;
+  long last_report_done_;
   int next_report_;
   int64_t bytes_;
   double last_op_finish_;
+  double last_report_finish_;
   Histogram hist_;
   std::string message_;
 
  public:
-  Stats() { Start(); }
+  Stats() { Start(-1); }
 
-  void Start() {
-    next_report_ = 100;
+  void Start(int id) {
+    id_ = id;
+    next_report_ = FLAGS_stats_interval ? FLAGS_stats_interval : 100;
     last_op_finish_ = start_;
     hist_.Clear();
     done_ = 0;
+    last_report_done_ = 0;
     bytes_ = 0;
     seconds_ = 0;
     start_ = FLAGS_env->NowMicros();
     finish_ = start_;
+    last_report_finish_ = start_;
     message_.clear();
   }
 
@@ -278,12 +288,14 @@ class Stats {
     AppendWithSpace(&message_, msg);
   }
 
+  void SetId(int id) { id_ = id; }
+
   void FinishedSingleOp() {
     if (FLAGS_histogram) {
       double now = FLAGS_env->NowMicros();
       double micros = now - last_op_finish_;
       hist_.Add(micros);
-      if (micros > 20000) {
+      if (micros > 20000 && !FLAGS_stats_interval) {
         fprintf(stderr, "long op: %.1f micros%30s\r", micros, "");
         fflush(stderr);
       }
@@ -292,15 +304,30 @@ class Stats {
 
     done_++;
     if (done_ >= next_report_) {
-      if      (next_report_ < 1000)   next_report_ += 100;
-      else if (next_report_ < 5000)   next_report_ += 500;
-      else if (next_report_ < 10000)  next_report_ += 1000;
-      else if (next_report_ < 50000)  next_report_ += 5000;
-      else if (next_report_ < 100000) next_report_ += 10000;
-      else if (next_report_ < 500000) next_report_ += 50000;
-      else                            next_report_ += 100000;
-      fprintf(stderr, "... finished %ld ops%30s\r", done_, "");
-      fflush(stderr);
+      if (!FLAGS_stats_interval) {
+        if      (next_report_ < 1000)   next_report_ += 100;
+        else if (next_report_ < 5000)   next_report_ += 500;
+        else if (next_report_ < 10000)  next_report_ += 1000;
+        else if (next_report_ < 50000)  next_report_ += 5000;
+        else if (next_report_ < 100000) next_report_ += 10000;
+        else if (next_report_ < 500000) next_report_ += 50000;
+        else                            next_report_ += 100000;
+        fprintf(stderr, "... finished %ld ops%30s\r", done_, "");
+        fflush(stderr);
+      } else {
+        double now = FLAGS_env->NowMicros();
+        fprintf(stderr,
+                "... thread %d: %ld ops in %.6f seconds and %.2f ops/sec\n",
+                id_,
+                done_ - last_report_done_,
+                (now - last_report_finish_) / 1000000.0,
+                (done_ - last_report_done_) /
+                ((now - last_report_finish_) / 1000000.0));
+        fflush(stderr);
+        next_report_ += FLAGS_stats_interval;
+        last_report_finish_ = now;
+        last_report_done_ = done_;
+      }
     }
   }
 
@@ -695,7 +722,7 @@ class Benchmark {
       }
     }
 
-    thread->stats.Start();
+    thread->stats.Start(thread->tid);
     (arg->bm->*(arg->method))(thread);
     thread->stats.Stop();
 
@@ -1042,7 +1069,7 @@ class Benchmark {
       }
 
       // Do not count any of the preceding work/delay in stats.
-      thread->stats.Start();
+      thread->stats.Start(thread->tid);
     }
   }
 
@@ -1252,6 +1279,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
       FLAGS_disable_seek_compaction = n;
+    } else if (sscanf(argv[i], "--stats_interval=%d%c", &n, &junk) == 1 &&
+               n >= 0 && n < 2000000000) {
+      FLAGS_stats_interval = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
