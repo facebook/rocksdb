@@ -289,6 +289,10 @@ static void testAssocs() {
   ASSERT_EQ(count, 2);
   printf("AssocPut second record suceeded.\n");
 
+  // verify assoc count is 2
+  cnt = aclient->taoAssocCount(dbname, assocType, id1); 
+  ASSERT_EQ(cnt, 2);
+
   // do a range get for id1+type and verify that there
   // are two assocs.
   readback.clear();
@@ -303,6 +307,11 @@ static void testAssocs() {
   int c = aclient->taoAssocDelete(dbname, assocType,
             id1, id2+2, AssocVisibility::HIDDEN, true, "");
   ASSERT_EQ(c, 1);
+
+  // verify assoc falls back to 1.
+  cnt = aclient->taoAssocCount(dbname, assocType, id1); 
+  ASSERT_EQ(cnt, 1);
+  printf("AssocCount suceeded.\n");
 }
 
 //
