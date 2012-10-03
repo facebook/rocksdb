@@ -1205,7 +1205,7 @@ int main(int argc, char** argv) {
                (n == 0 || n == 1)) {
       FLAGS_sync = n;
     } else if (sscanf(argv[i], "--readwritepercent=%d%c", &n, &junk) == 1 &&
-               (n > 0 || n < 100)) {
+               n > 0 && n < 100) {
       FLAGS_readwritepercent = n;
     } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
