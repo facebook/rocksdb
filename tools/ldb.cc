@@ -5,6 +5,7 @@
 #include <string>
 #include <iostream>
 #include <sstream>
+#include <stdlib.h>
 
 #include "leveldb/db.h"
 #include "leveldb/options.h"
@@ -122,7 +123,7 @@ static void dump_db(
     }
   }
 
-  fprintf(stdout, "Keys in range: %d\n", count);
+  fprintf(stdout, "Keys in range: %lld\n", (long long) count);
 
   // Clean up
   delete iter;

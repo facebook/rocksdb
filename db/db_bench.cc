@@ -1190,7 +1190,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--mmap_read=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useMmapRead = n;
-    } else if (sscanf(argv[i], "--readhead=%d%c", &n, &junk) == 1 &&
+    } else if (sscanf(argv[i], "--readahead=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       useFsReadAhead = n;
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
