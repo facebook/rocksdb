@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (C) 2011, FuseSource Corp.  All rights reserved.
+
+      http://fusesource.com
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are
+  met:
+
+     * Redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer.
+     * Redistributions in binary form must reproduce the above
+  copyright notice, this list of conditions and the following disclaimer
+  in the documentation and/or other materials provided with the
+  distribution.
+     * Neither the name of FuseSource Corp. nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>org.fusesource</groupId>
+    <artifactId>fusesource-pom</artifactId>
+    <version>1.9</version>
+  </parent>
+
+  <groupId>org.fusesource.leveldbjni</groupId>
+  <artifactId>leveldbjni-project</artifactId>
+  <version>99-master-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  
+  <name>${project.artifactId}</name>
+  <description>leveldbjni is a jni library for accessing leveldb.</description>
+  
+  <properties>
+    <forge-project-id>leveldbjni</forge-project-id>
+    <forge-project-id-uc>LEVELDBJNI</forge-project-id-uc>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <hawtjni-version>1.6</hawtjni-version>
+    <leveldb-api-version>0.2</leveldb-api-version>
+  </properties>
+  
+  <modules>
+    <module>leveldbjni</module>
+  </modules>
+  
+  <url>http://${forge-project-id}.fusesource.org</url>
+  <inceptionYear>2009</inceptionYear>
+
+  <issueManagement>
+    <system>github</system>
+    <url>https://github.com/fusesource/leveldbjni/issues</url>
+  </issueManagement>
+  
+  <mailingLists>
+    <mailingList>
+      <name>${forge-project-id} dev</name>
+      <post>${forge-project-id}-dev@fusesource.org</post>
+      <subscribe>${forge-project-id}-dev-subscribe@fusesource.org</subscribe>
+    </mailingList>
+    <mailingList>
+      <name>${forge-project-id} commits</name>
+      <post>${forge-project-id}-commits@fusesource.org</post>
+      <subscribe>${forge-project-id}-commits-subscribe@fusesource.org</subscribe>
+    </mailingList>
+  </mailingLists>
+
+  <licenses>
+      <license>
+          <name>The BSD 3-Clause License</name>
+          <url>http://www.opensource.org/licenses/BSD-3-Clause</url>
+          <distribution>repo</distribution>
+      </license>
+  </licenses>
+  
+  <scm>
+    <connection>scm:git:git://github.com/fusesource/leveldbjni.git</connection>
+    <developerConnection>scm:git:git@github.com:fusesource/leveldbjni.git</developerConnection>
+    <url>https://github.com/fusesource/leveldbjni</url>
+  </scm>
+
+  <distributionManagement>
+    <site>
+      <id>website.fusesource.org</id>
+      <name>website</name>
+      <url>dav:http://fusesource.com/forge/dav/${forge-project-id}/maven/${project.version}</url>
+    </site>
+  </distributionManagement> 
+  
+  <developers>
+    <developer>
+      <id>chirino</id>
+      <name>Hiram Chirino</name>
+      <email>hiram@hiramchirino.com</email>
+      <url>http://hiramchirino.com</url>
+      <timezone>GMT-5</timezone>
+    </developer>
+  </developers>
+  
+  <dependencies>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.7</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  
+  <build>
+    <plugins>
+    
+      <!-- the older clean plugin has trouble deleting directories with symlinks in them -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-clean-plugin</artifactId>
+        <version>2.3</version>
+      </plugin>
+      
+      
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <source>1.5</source>
+          <target>1.5</target>
+        </configuration>
+      </plugin>
+      
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.4.3</version>
+        <configuration>
+          <redirectTestOutputToFile>true</redirectTestOutputToFile>
+          <forkMode>once</forkMode>
+          <argLine>-ea</argLine>
+          <failIfNoTests>false</failIfNoTests>
+          <workingDirectory>${project.build.directory}</workingDirectory>
+          <includes>
+            <include>**/*Test.java</include>
+          </includes>
+        </configuration>
+      </plugin>      
+    </plugins>
+  </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>jxr-maven-plugin</artifactId>
+        <version>2.0-beta-1</version>
+        <configuration>
+          <aggregate>true</aggregate>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.6</version>
+        <configuration>
+          <excludePackageNames>*.internal</excludePackageNames>
+          <linksource>true</linksource>
+          <links>
+            <link>http://java.sun.com/j2se/1.5.0/docs/api</link>
+          </links>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>2.1.1</version>
+        <reportSets>
+          <reportSet>
+            <reports>
+              <report>index</report>
+              <report>sumary</report>
+              <report>plugins</report>
+              <report>dependencies</report>
+              <report>mailing-list</report>
+              <report>issue-tracking</report>
+              <report>license</report>
+              <report>scm</report>
+            </reports>
+          </reportSet>
+        </reportSets>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>surefire-report-maven-plugin</artifactId>
+        <version>2.0-beta-1</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-plugin-plugin</artifactId>
+        <version>2.5</version>
+      </plugin>
+    </plugins>
+  </reporting>
+
+  <profiles>
+    
+    <profile>
+      <id>download</id>
+      <repositories>
+        <repository>
+          <id>fusesource.nexus.snapshot</id>
+          <name>FuseSource Community Snapshot Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/public-snapshots</url>
+        </repository>
+        <repository>
+          <id>sonatype-nexus</id>
+          <name>Sonatype Nexus</name>
+          <url>https://oss.sonatype.org/content/repositories/public</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>fusesource.nexus.snapshot</id>
+          <name>FuseSource Community Snapshot Repository</name>
+          <url>http://repo.fusesource.com/nexus/content/groups/public-snapshots</url>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+    
+    <profile>
+      <id>full</id>
+      <modules>
+        <module>leveldbjni-osx</module>
+        <module>leveldbjni-linux32</module>
+        <module>leveldbjni-linux64</module>
+        <module>leveldbjni-win32</module>
+        <module>leveldbjni-win64</module>
+        <module>leveldbjni-all</module>
+      </modules>
+    </profile>    
+
+    <profile>
+      <id>all</id>
+      <modules>
+        <module>leveldbjni-all</module>
+      </modules>
+    </profile>    
+    <profile>
+      <id>osx</id>
+      <modules>
+        <module>leveldbjni-osx</module>
+      </modules>
+    </profile>
+
+    <profile>
+      <id>linux32</id>
+      <modules>
+        <module>leveldbjni-linux32</module>
+      </modules>
+    </profile>
+
+    <profile>
+      <id>linux64</id>
+      <modules>
+        <module>leveldbjni-linux64</module>
+      </modules>
+    </profile>
+
+    <profile>
+      <id>win32</id>
+      <properties>
+        <skipAutogen>true</skipAutogen>
+      </properties>
+      <modules>
+        <module>leveldbjni-win32</module>
+      </modules>
+    </profile>
+
+    <profile>
+      <id>win64</id>
+      <properties>
+        <skipAutogen>true</skipAutogen>
+      </properties>
+      <modules>
+        <module>leveldbjni-win64</module>
+      </modules>
+    </profile>
+
+  </profiles>
+</project>
