@@ -538,6 +538,12 @@ class StressTest {
     }
   }
 
+  void VerificationAbort(std::string msg, long key) const {
+    fprintf(stderr, "Verification failed for key %ld: %s\n", 
+            key, msg.c_str());
+    exit(1);
+  }
+
   void VerifyValue(long key, const ReadOptions &opts, const SharedState &shared,
                    char *value, size_t value_sz,
                    std::string *value_from_db, bool strict=false) const {
@@ -585,11 +591,6 @@ class StressTest {
     return value_sz; // the size of the value set.
   }
 
-  void VerificationAbort(char *msg, long key) const {
-    fprintf(stderr, "Verification failed for key %ld: %s\n", key, msg);
-    exit(1);
-  }
-
   void PrintEnv() const {
     fprintf(stdout, "LevelDB version     : %d.%d\n",
             kMajorVersion, kMinorVersion);
@@ -603,16 +604,16 @@ class StressTest {
     char* compression;
     switch (FLAGS_compression_type) {
       case leveldb::kNoCompression:
-        compression = "none";
+        compression = (char *)std::string("none").c_str();
         break;
       case leveldb::kSnappyCompression:
-        compression = "snappy";
+        compression = (char *)std::string("snappy").c_str();
         break;
       case leveldb::kZlibCompression:
-        compression = "zlib";
+        compression = (char *)std::string("zlib").c_str();
         break;
       case leveldb::kBZip2Compression:
-        compression = "bzip2";
+        compression = (char *)std::string("bzip2").c_str();
         break;
     }
 
