@@ -138,13 +138,16 @@ static bool FLAGS_use_fsync = false;
 // If true, do not write WAL for write.
 static bool FLAGS_disable_wal = false;
 
+// The total number of levels
+static int FLAGS_num_levels = 7;
+
 // Target level-0 file size for compaction
 static int FLAGS_target_file_size_base = 2 * 1048576;
 
 // A multiplier to compute targe level-N file size
 static int FLAGS_target_file_size_multiplier = 1;
 
-// Max bytes for level-0
+// Max bytes for level-1
 static int FLAGS_max_bytes_for_level_base = 10 * 1048576;
 
 // A multiplier to compute max bytes for level-N
@@ -872,6 +875,7 @@ class Benchmark {
     options.env = FLAGS_env;
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
+    options.num_levels = FLAGS_num_levels;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
@@ -1249,6 +1253,9 @@ int main(int argc, char** argv) {
       FLAGS_disable_wal = n;
     } else if (sscanf(argv[i], "--hdfs=%s", hdfsname) == 1) {
       FLAGS_env  = new leveldb::HdfsEnv(hdfsname);
+    } else if (sscanf(argv[i], "--num_levels=%d%c",
+        &n, &junk) == 1) {
+      FLAGS_num_levels = n;
     } else if (sscanf(argv[i], "--target_file_size_base=%d%c",
         &n, &junk) == 1) {
       FLAGS_target_file_size_base = n;
