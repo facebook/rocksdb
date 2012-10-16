@@ -143,7 +143,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       bg_logstats_scheduled_(false),
       manual_compaction_(NULL),
       logger_(NULL),
-      disable_delete_obsolete_files_(false) {
+      disable_delete_obsolete_files_(false),
+      delete_obsolete_files_last_run_(0) {
   mem_->Ref();
   has_imm_.Release_Store(NULL);
 
@@ -251,6 +252,18 @@ void DBImpl::DeleteObsoleteFiles() {
   // if deletion is disabled, do nothing
   if (disable_delete_obsolete_files_) {
     return;
+  }
+
+  // This method is costly when the number of files is large.
+  // Do not allow it to trigger more often than once in
+  // delete_obsolete_files_period_micros.
+  if (options_.delete_obsolete_files_period_micros != 0) {
+    const uint64_t now_micros = env_->NowMicros();
+    if (delete_obsolete_files_last_run_ + 
+        options_.delete_obsolete_files_period_micros > now_micros) {
+      return;
+    }
+    delete_obsolete_files_last_run_ = now_micros;
   }
 
   // Make a set of all of the live files

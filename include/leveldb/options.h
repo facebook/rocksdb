@@ -240,6 +240,11 @@ struct Options {
   // (which is true if max_open_files is large).
   bool disable_seek_compaction;
 
+  // The periodicity when obsolete files get deleted. The default
+  // value is 0 which means that obsolete files get removed after
+  // every compaction run.
+  uint64_t delete_obsolete_files_period_micros;
+
   // Create an Options object with default values for all fields.
   Options();
 

@@ -167,6 +167,11 @@ static int FLAGS_readwritepercent = 90;
 // Option to disable compation triggered by read.
 static int FLAGS_disable_seek_compaction = false;
 
+// Option to delete obsolete files periodically
+// Default: 0 which means that obsolete files are
+// deleted after every compaction run.
+static uint64_t FLAGS_delete_obsolete_files_period_micros = 0;
+
 // Algorithm to use to compress the database
 static enum leveldb::CompressionType FLAGS_compression_type =
     leveldb::kSnappyCompression;
@@ -886,6 +891,8 @@ class Benchmark {
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type;
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
+    options.delete_obsolete_files_period_micros =
+      FLAGS_delete_obsolete_files_period_micros;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1290,6 +1297,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
       FLAGS_disable_seek_compaction = n;
+    } else if (sscanf(argv[i], "--delete_obsolete_files_period_micros=%ld%c",
+                      &l, &junk) == 1) {
+      FLAGS_delete_obsolete_files_period_micros = n;
     } else if (sscanf(argv[i], "--stats_interval=%d%c", &n, &junk) == 1 &&
                n >= 0 && n < 2000000000) {
       FLAGS_stats_interval = n;

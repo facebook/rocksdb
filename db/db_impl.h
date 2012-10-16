@@ -197,6 +197,9 @@ class DBImpl : public DB {
   // shall we disable deletion of obsolete files
   bool disable_delete_obsolete_files_;
 
+  // last time when DeleteObsoleteFiles was invoked
+  uint64_t delete_obsolete_files_last_run_;
+
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {

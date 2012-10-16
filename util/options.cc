@@ -41,7 +41,8 @@ Options::Options()
       use_fsync(false),
       db_stats_log_interval(1800),
       db_log_dir(""),
-      disable_seek_compaction(false) {
+      disable_seek_compaction(false),
+      delete_obsolete_files_period_micros(0) {
 }
 
 void
