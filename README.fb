@@ -4,7 +4,7 @@
 
 * Compiling for CPUs with SSE4 support
 
-  make OPT='-O2 -DNDEBUG -D__SSE4_2__'
+  make OPT='-O2 -DNDEBUG -msse -msse4.2'
   
   This makes CRC computation much faster, but
   binaries won't run on CPUs that don't support it.
