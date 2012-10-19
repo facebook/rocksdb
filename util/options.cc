@@ -96,6 +96,8 @@ Options::Dump(
         db_log_dir.c_str());
     Log(log,"                Options.disable_seek_compaction: %d",
         disable_seek_compaction);
+    Log(log,"    Options.delete_obsolete_files_period_micros: %ld",
+        delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",
         max_background_compactions);
 }   // Options::Dump
