@@ -1410,7 +1410,7 @@ Compaction* VersionSet::PickCompaction() {
   } else if (seek_compaction) {
     level = current_->file_to_compact_level_;
     c = new Compaction(level, MaxFileSizeForLevel(level),
-		MaxGrandParentOverlapBytes(level), NumberLevels());
+		MaxGrandParentOverlapBytes(level), NumberLevels(), true);
     c->inputs_[0].push_back(current_->file_to_compact_);
   } else {
     return NULL;
@@ -1526,7 +1526,7 @@ Compaction* VersionSet::CompactRange(
   }
 
   Compaction* c = new Compaction(level, limit,
-		MaxGrandParentOverlapBytes(level), NumberLevels());
+    MaxGrandParentOverlapBytes(level), NumberLevels());
   c->input_version_ = current_;
   c->input_version_->Ref();
   c->inputs_[0] = inputs;
@@ -1535,17 +1535,19 @@ Compaction* VersionSet::CompactRange(
 }
 
 Compaction::Compaction(int level, uint64_t target_file_size,
-		uint64_t max_grandparent_overlap_bytes, int number_levels)
+  uint64_t max_grandparent_overlap_bytes, int number_levels,
+  bool seek_compaction)
     : level_(level),
       max_output_file_size_(target_file_size),
       maxGrandParentOverlapBytes_(max_grandparent_overlap_bytes),
       input_version_(NULL),
       number_levels_(number_levels),
+      seek_compaction_(seek_compaction),
       grandparent_index_(0),
       seen_key_(false),
       overlapped_bytes_(0) {
-	edit_ = new VersionEdit(number_levels_);
-	level_ptrs_ = new size_t[number_levels_];
+  edit_ = new VersionEdit(number_levels_);
+  level_ptrs_ = new size_t[number_levels_];
   for (int i = 0; i < number_levels_; i++) {
     level_ptrs_[i] = 0;
   }
@@ -1642,7 +1644,9 @@ static void InputSummary(std::vector<FileMetaData*>& files,
 }
 
 void Compaction::Summary(char* output, int len) {
-  int write = snprintf(output, len, "Base level %d, inputs:", level_);
+  int write = snprintf(output, len,
+      "Base level %d, seek compaction:%d, inputs:",
+      level_, seek_compaction_);
   if(write < 0 || write > len)
     return;
 
