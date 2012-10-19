@@ -159,6 +159,9 @@ class Env {
   // default: 1
   virtual void SetBackgroundThreads(int number) = 0;
 
+  // Converts seconds-since-Jan-01-1970 to a printable string
+  virtual std::string TimeToString(uint64_t time) = 0;
+
  private:
   // No copying allowed
   Env(const Env&);
@@ -357,6 +360,9 @@ class EnvWrapper : public Env {
   }
   void SetBackgroundThreads(int num) {
     return target_->SetBackgroundThreads(num);
+  }
+  std::string TimeToString(uint64_t time) {
+    return target_->TimeToString(time);
   }
 
  private:

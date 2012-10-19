@@ -749,6 +749,26 @@ class PosixEnv : public Env {
     }
   }
 
+  virtual std::string TimeToString(uint64_t secondsSince1970) {
+    const time_t seconds = (time_t)secondsSince1970;
+    struct tm t;
+    int maxsize = 64;
+    std::string dummy;
+    dummy.reserve(maxsize);
+    dummy.resize(maxsize);
+    char* p = &dummy[0];
+    localtime_r(&seconds, &t);
+    snprintf(p, maxsize,
+             "%04d/%02d/%02d-%02d:%02d:%02d ",
+             t.tm_year + 1900,
+             t.tm_mon + 1,
+             t.tm_mday,
+             t.tm_hour,
+             t.tm_min,
+             t.tm_sec);
+    return dummy;
+  }
+
  private:
   void PthreadCall(const char* label, int result) {
     if (result != 0) {

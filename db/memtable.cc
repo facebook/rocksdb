@@ -18,10 +18,14 @@ static Slice GetLengthPrefixedSlice(const char* data) {
   return Slice(p, len);
 }
 
-MemTable::MemTable(const InternalKeyComparator& cmp)
+MemTable::MemTable(const InternalKeyComparator& cmp, int numlevel)
     : comparator_(cmp),
       refs_(0),
-      table_(comparator_, &arena_) {
+      table_(comparator_, &arena_),
+      flush_in_progress_(false),
+      flush_completed_(false),
+      file_number_(0), 
+      edit_(numlevel) {
 }
 
 MemTable::~MemTable() {
@@ -101,7 +105,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p += 8;
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
-  assert((p + val_size) - buf == encoded_len);
+  assert((p + val_size) - buf == (unsigned)encoded_len);
   table_.Insert(buf);
 }
 

@@ -87,6 +87,16 @@ static bool FLAGS_histogram = false;
 // (initialized to default value by "main")
 static int FLAGS_write_buffer_size = 0;
 
+// The number of in-memory memtables. 
+// Each memtable is of size FLAGS_write_buffer_size.
+// This is initialized to default value of 2 in "main" function.
+static int FLAGS_max_write_buffer_number = 0;
+
+// The maximum number of concurrent background compactions
+// that can occur in parallel.
+// This is initialized to default value of 1 in "main" function.
+static int FLAGS_max_background_compactions = 0;
+
 // Number of bytes to use as a cache of uncompressed data.
 // Negative means use default settings.
 static long FLAGS_cache_size = -1;
@@ -158,6 +168,9 @@ static int FLAGS_level0_stop_writes_trigger = 12;
 
 // Number of files in level-0 that will slow down writes.
 static int FLAGS_level0_slowdown_writes_trigger = 8;
+
+// Number of files in level-0 when compactions start
+static int FLAGS_level0_file_num_compaction_trigger = 4;
 
 // Ratio of reads to writes (expressed as a percentage)
 // for the ReadRandomWriteRandom workload. The default
@@ -326,7 +339,8 @@ class Stats {
       } else {
         double now = FLAGS_env->NowMicros();
         fprintf(stderr,
-                "... thread %d: %ld ops in %.6f seconds and %.2f ops/sec\n",
+                "%s thread %d: %ld ops in %.6f seconds and %.2f ops/sec\n",
+                FLAGS_env->TimeToString((uint64_t) now/1000000).c_str(),
                 id_,
                 done_ - last_report_done_,
                 (now - last_report_finish_) / 1000000.0,
@@ -873,6 +887,8 @@ class Benchmark {
     options.create_if_missing = !FLAGS_use_existing_db;
     options.block_cache = cache_;
     options.write_buffer_size = FLAGS_write_buffer_size;
+    options.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    options.max_background_compactions = FLAGS_max_background_compactions;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.max_open_files = FLAGS_open_files;
@@ -887,6 +903,8 @@ class Benchmark {
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
     options.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
+    options.level0_file_num_compaction_trigger = 
+        FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type;
@@ -1172,7 +1190,10 @@ class Benchmark {
 
 int main(int argc, char** argv) {
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
+  FLAGS_max_write_buffer_number = leveldb::Options().max_write_buffer_number;
   FLAGS_open_files = leveldb::Options().max_open_files;
+  FLAGS_max_background_compactions = 
+    leveldb::Options().max_background_compactions;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
   std::string default_db_path;
@@ -1203,6 +1224,10 @@ int main(int argc, char** argv) {
       FLAGS_value_size = n;
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
       FLAGS_write_buffer_size = n;
+    } else if (sscanf(argv[i], "--max_write_buffer_number=%d%c", &n, &junk) == 1) {
+      FLAGS_max_write_buffer_number = n;
+    } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
+      FLAGS_max_background_compactions = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
       FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
@@ -1281,6 +1306,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i],"--level0_slowdown_writes_trigger=%d%c",
         &n, &junk) == 1) {
       FLAGS_level0_slowdown_writes_trigger = n;
+    } else if (sscanf(argv[i],"--level0_file_num_compaction_trigger=%d%c",
+        &n, &junk) == 1) {
+      FLAGS_level0_file_num_compaction_trigger = n;
     } else if (strncmp(argv[i], "--compression_type=", 19) == 0) {
       const char* ctype = argv[i] + 19;
       if (!strcasecmp(ctype, "none"))
@@ -1308,6 +1336,10 @@ int main(int argc, char** argv) {
       exit(1);
     }
   }
+
+  // The number of background threads should be at least as much the
+  // max number of concurrent compactions.
+  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db == NULL) {

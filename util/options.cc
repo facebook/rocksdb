@@ -19,6 +19,7 @@ Options::Options()
       env(Env::Default()),
       info_log(NULL),
       write_buffer_size(4<<20),
+      max_write_buffer_number(2),
       max_open_files(1000),
       block_cache(NULL),
       block_size(4096),
@@ -42,32 +43,34 @@ Options::Options()
       db_stats_log_interval(1800),
       db_log_dir(""),
       disable_seek_compaction(false),
-      delete_obsolete_files_period_micros(0) {
+      delete_obsolete_files_period_micros(0),
+      max_background_compactions(1) {
 }
 
 void
 Options::Dump(
     Logger * log) const
 {
-    Log(log,"            Options.comparator: %s", comparator->Name());
-    Log(log,"     Options.create_if_missing: %d", create_if_missing);
-    Log(log,"       Options.error_if_exists: %d", error_if_exists);
-    Log(log,"       Options.paranoid_checks: %d", paranoid_checks);
-    Log(log,"                   Options.env: %p", env);
-    Log(log,"              Options.info_log: %p", info_log);
-    Log(log,"     Options.write_buffer_size: %zd", write_buffer_size);
-    Log(log,"        Options.max_open_files: %d", max_open_files);
-    Log(log,"           Options.block_cache: %p", block_cache);
-    Log(log,"      Options.block_cache_size: %zd", block_cache->GetCapacity());
-    Log(log,"            Options.block_size: %zd", block_size);
-    Log(log,"Options.block_restart_interval: %d", block_restart_interval);
-    Log(log,"           Options.compression: %d", compression);
-    Log(log,"         Options.filter_policy: %s",
+    Log(log,"              Options.comparator: %s", comparator->Name());
+    Log(log,"       Options.create_if_missing: %d", create_if_missing);
+    Log(log,"         Options.error_if_exists: %d", error_if_exists);
+    Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
+    Log(log,"                     Options.env: %p", env);
+    Log(log,"                Options.info_log: %p", info_log);
+    Log(log,"       Options.write_buffer_size: %zd", write_buffer_size);
+    Log(log," Options.max_write_buffer_number: %zd", max_write_buffer_number);
+    Log(log,"          Options.max_open_files: %d", max_open_files);
+    Log(log,"             Options.block_cache: %p", block_cache);
+    Log(log,"        Options.block_cache_size: %zd", block_cache->GetCapacity());
+    Log(log,"              Options.block_size: %zd", block_size);
+    Log(log,"  Options.block_restart_interval: %d", block_restart_interval);
+    Log(log,"             Options.compression: %d", compression);
+    Log(log,"           Options.filter_policy: %s",
         filter_policy == NULL ? "NULL" : filter_policy->Name());
-    Log(log,"            Options.num_levels: %d", num_levels);
-    Log(log,"       Options.disableDataSync: %d", disableDataSync);
-    Log(log,"             Options.use_fsync: %d", use_fsync);
-    Log(log," Options.db_stats_log_interval: %d", 
+    Log(log,"              Options.num_levels: %d", num_levels);
+    Log(log,"         Options.disableDataSync: %d", disableDataSync);
+    Log(log,"               Options.use_fsync: %d", use_fsync);
+    Log(log,"   Options.db_stats_log_interval: %d", 
         db_stats_log_interval);
     Log(log,"     Options.level0_file_num_compaction_trigger: %d",
         level0_file_num_compaction_trigger);
@@ -89,10 +92,12 @@ Options::Dump(
         expanded_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Log(log,"         Options.db_log_dir: %s",
+    Log(log,"                             Options.db_log_dir: %s",
         db_log_dir.c_str());
-    Log(log,"         Options.disable_seek_compaction: %d",
+    Log(log,"                Options.disable_seek_compaction: %d",
         disable_seek_compaction);
+    Log(log,"             Options.max_background_compactions: %d",
+        max_background_compactions);
 }   // Options::Dump
 
 

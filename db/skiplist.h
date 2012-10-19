@@ -23,6 +23,10 @@
 // more lists.
 //
 // ... prev vs. next pointer ordering ...
+//
+
+#ifndef STORAGE_LEVELDB_DB_SKIPLIST_H_
+#define STORAGE_LEVELDB_DB_SKIPLIST_H_
 
 #include <assert.h>
 #include <stdlib.h>
@@ -390,3 +394,5 @@ bool SkipList<Key,Comparator>::Contains(const Key& key) const {
 }
 
 }  // namespace leveldb
+
+#endif // STORAGE_LEVELDB_DB_SKIPLIST_H_

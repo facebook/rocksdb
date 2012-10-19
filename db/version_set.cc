@@ -266,13 +266,14 @@ static bool NewestFirst(FileMetaData* a, FileMetaData* b) {
   return a->number > b->number;
 }
 
-Version::Version(VersionSet* vset)
+Version::Version(VersionSet* vset, uint64_t version_number)
     : vset_(vset), next_(this), prev_(this), refs_(0),
       file_to_compact_(NULL),
       file_to_compact_level_(-1),
-      compaction_score_(-1),
-      compaction_level_(-1),
-      offset_manifest_file_(0) {
+      compaction_score_(vset->NumberLevels()),
+      compaction_level_(vset->NumberLevels()),
+      offset_manifest_file_(0),
+      version_number_(version_number) {
   files_ = new std::vector<FileMetaData*>[vset->NumberLevels()];
 }
 
@@ -503,6 +504,8 @@ std::string Version::DebugString() const {
     //   20:43['e' .. 'g']
     r.append("--- level ");
     AppendNumberTo(&r, level);
+    r.append(" --- version# ");
+    AppendNumberTo(&r, version_number_);
     r.append(" ---\n");
     const std::vector<FileMetaData*>& files = files_[level];
     for (size_t i = 0; i < files.size(); i++) {
@@ -519,6 +522,17 @@ std::string Version::DebugString() const {
   }
   return r;
 }
+
+// this is used to batch writes to the manifest file
+struct VersionSet::ManifestWriter {
+  Status status;
+  bool done;
+  port::CondVar cv;
+  VersionEdit* edit;
+  
+  explicit ManifestWriter(port::Mutex* mu, VersionEdit* e) : 
+             done(false), cv(mu), edit(e) {}
+};
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate
@@ -586,8 +600,30 @@ class VersionSet::Builder {
     base_->Unref();
   }
 
+  void CheckConsistency(Version* v) {
+#ifndef NDEBUG
+    for (int level = 0; level < vset_->NumberLevels(); level++) {
+      // Make sure there is no overlap in levels > 0
+      if (level > 0) {
+        for (uint32_t i = 1; i < v->files_[level].size(); i++) {
+          const InternalKey& prev_end = v->files_[level][i-1]->largest;
+          const InternalKey& this_begin = v->files_[level][i]->smallest;
+          if (vset_->icmp_.Compare(prev_end, this_begin) >= 0) {
+            fprintf(stderr, "overlapping ranges in same level %s vs. %s\n",
+                    prev_end.DebugString().c_str(),
+                    this_begin.DebugString().c_str());
+            abort();
+          }
+        }
+      }
+    }
+#endif
+  }
+
   // Apply all of the edits in *edit to the current state.
   void Apply(VersionEdit* edit) {
+    CheckConsistency(base_);
+
     // Update compaction pointers
     for (size_t i = 0; i < edit->compact_pointers_.size(); i++) {
       const int level = edit->compact_pointers_[i].first;
@@ -603,6 +639,18 @@ class VersionSet::Builder {
       const int level = iter->first;
       const uint64_t number = iter->second;
       levels_[level].deleted_files.insert(number);
+
+#ifndef NDEBUG
+      // none of the files to be deleted could have been added
+      // by a concurrent compaction process
+      const FileSet* added = levels_[level].added_files;
+      for (FileSet::const_iterator added_iter = added->begin();
+         added_iter != added->end();
+         ++added_iter) {
+        FileMetaData* f = *added_iter;
+        assert(f->number != number);
+      }
+#endif
     }
 
     // Add new files
@@ -634,6 +682,8 @@ class VersionSet::Builder {
 
   // Save the current state in *v.
   void SaveTo(Version* v) {
+    CheckConsistency(base_);
+    CheckConsistency(v);
     BySmallestKey cmp;
     cmp.internal_comparator = &vset_->icmp_;
     for (int level = 0; level < vset_->NumberLevels(); level++) {
@@ -662,22 +712,7 @@ class VersionSet::Builder {
       for (; base_iter != base_end; ++base_iter) {
         MaybeAddFile(v, level, *base_iter);
       }
-
-#ifndef NDEBUG
-      // Make sure there is no overlap in levels > 0
-      if (level > 0) {
-        for (uint32_t i = 1; i < v->files_[level].size(); i++) {
-          const InternalKey& prev_end = v->files_[level][i-1]->largest;
-          const InternalKey& this_begin = v->files_[level][i]->smallest;
-          if (vset_->icmp_.Compare(prev_end, this_begin) >= 0) {
-            fprintf(stderr, "overlapping ranges in same level %s vs. %s\n",
-                    prev_end.DebugString().c_str(),
-                    this_begin.DebugString().c_str());
-            abort();
-          }
-        }
-      }
-#endif
+      CheckConsistency(v);
     }
   }
 
@@ -714,7 +749,9 @@ VersionSet::VersionSet(const std::string& dbname,
       descriptor_file_(NULL),
       descriptor_log_(NULL),
       dummy_versions_(this),
-      current_(NULL) {
+      current_(NULL),
+      compactions_in_progress_(options_->num_levels),
+      current_version_number_(0) {
   compact_pointer_ = new std::string[options_->num_levels];
   max_file_size_ = new uint64_t[options_->num_levels];
   level_max_bytes_ = new uint64_t[options->num_levels];
@@ -729,7 +766,7 @@ VersionSet::VersionSet(const std::string& dbname,
       level_max_bytes_[i] = options_->max_bytes_for_level_base;
     }
   }
-  AppendVersion(new Version(this));
+  AppendVersion(new Version(this, current_version_number_++));
 }
 
 VersionSet::~VersionSet() {
@@ -747,6 +784,7 @@ void VersionSet::AppendVersion(Version* v) {
   assert(v->refs_ == 0);
   assert(v != current_);
   if (current_ != NULL) {
+    assert(current_->refs_ > 0);
     current_->Unref();
   }
   current_ = v;
@@ -760,27 +798,35 @@ void VersionSet::AppendVersion(Version* v) {
 }
 
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
-  if (edit->has_log_number_) {
-    assert(edit->log_number_ >= log_number_);
-    assert(edit->log_number_ < next_file_number_);
-  } else {
-    edit->SetLogNumber(log_number_);
-  }
+  mu->AssertHeld();
 
-  if (!edit->has_prev_log_number_) {
-    edit->SetPrevLogNumber(prev_log_number_);
+  // queue our request
+  ManifestWriter w(mu, edit);
+  manifest_writers_.push_back(&w);
+  while (!w.done && &w != manifest_writers_.front()) {
+    w.cv.Wait();
   }
-
-  edit->SetNextFile(next_file_number_);
-  edit->SetLastSequence(last_sequence_);
-
-  Version* v = new Version(this);
-  {
-    Builder builder(this, current_);
-    builder.Apply(edit);
-    builder.SaveTo(v);
+  if (w.done) {
+    manifest_lock_.Unlock();
+    return w.status;
   }
-  Finalize(v);
+  
+  std::vector<VersionEdit*> batch_edits;
+  Version* v = new Version(this, current_version_number_++);
+  Builder builder(this, current_);
+
+  // process all requests in the queue
+  ManifestWriter* last_writer = &w;
+  ManifestWriter* first = manifest_writers_.front();
+  assert(!manifest_writers_.empty());
+  assert(first == &w);
+  std::deque<ManifestWriter*>::iterator iter = manifest_writers_.begin();
+  for (; iter != manifest_writers_.end(); ++iter) {
+    last_writer = *iter;
+    LogAndApplyHelper(&builder, v, last_writer->edit, mu);    
+    batch_edits.push_back(last_writer->edit);
+  }
+  builder.SaveTo(v);
 
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
@@ -800,15 +846,22 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     }
   }
 
-  // Unlock during expensive MANIFEST log write
+  // Unlock during expensive MANIFEST log write. New writes cannot get here
+  // because &w is ensuring that all new writes get queued.
   {
     mu->Unlock();
+    Finalize(v);
 
     // Write new record to MANIFEST log
     if (s.ok()) {
       std::string record;
-      edit->EncodeTo(&record);
-      s = descriptor_log_->AddRecord(record);
+      for (unsigned int i = 0; i < batch_edits.size(); i++) {
+        batch_edits[i]->EncodeTo(&record);
+        s = descriptor_log_->AddRecord(record);
+        if (!s.ok()) {
+          break;
+        }
+      }
       if (s.ok()) {
         if (options_->use_fsync) {
           s = descriptor_file_->Fsync();
@@ -826,7 +879,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
     // find offset in manifest file where this version is stored.
     new_manifest_file_size = descriptor_file_->GetFileSize();
-
+    
     mu->Lock();
   }
 
@@ -836,7 +889,10 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     AppendVersion(v);
     log_number_ = edit->log_number_;
     prev_log_number_ = edit->prev_log_number_;
+
   } else {
+    Log(options_->info_log, "Error in committing version %d", 
+        v->GetVersionNumber());
     delete v;
     if (!new_manifest_file.empty()) {
       delete descriptor_log_;
@@ -847,7 +903,44 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     }
   }
 
+  // wake up all the waiting writers
+  while (true) {
+    ManifestWriter* ready = manifest_writers_.front();
+    manifest_writers_.pop_front();
+    if (ready != &w) {
+      ready->status = s;
+      ready->done = true;
+      ready->cv.Signal();
+    }
+    if (ready == last_writer) break;
+  }
+  // Notify new head of write queue
+  if (!manifest_writers_.empty()) {
+    manifest_writers_.front()->cv.Signal();
+  }
   return s;
+}
+
+void VersionSet::LogAndApplyHelper(Builder* builder, Version* v,
+  VersionEdit* edit, port::Mutex* mu) {
+  manifest_lock_.AssertHeld();
+  mu->AssertHeld();
+
+  if (edit->has_log_number_) {
+    assert(edit->log_number_ >= log_number_);
+    assert(edit->log_number_ < next_file_number_);
+  } else {
+    edit->SetLogNumber(log_number_);
+  }
+
+  if (!edit->has_prev_log_number_) {
+    edit->SetPrevLogNumber(prev_log_number_);
+  }
+
+  edit->SetNextFile(next_file_number_);
+  edit->SetLastSequence(last_sequence_);
+
+  builder->Apply(edit);
 }
 
 Status VersionSet::Recover() {
@@ -958,7 +1051,7 @@ Status VersionSet::Recover() {
   }
 
   if (s.ok()) {
-    Version* v = new Version(this);
+    Version* v = new Version(this, current_version_number_++);
     builder.SaveTo(v);
     // Install recovered version
     Finalize(v);
@@ -1073,7 +1166,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
   }
 
   if (s.ok()) {
-    Version* v = new Version(this);
+    Version* v = new Version(this, 0);
     builder.SaveTo(v);
     // Install recovered version
     Finalize(v);
@@ -1101,9 +1194,6 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 }
 
 void VersionSet::Finalize(Version* v) {
-  // Precomputed best level for next compaction
-  int best_level = -1;
-  double best_score = -1;
 
   for (int level = 0; level < NumberLevels()-1; level++) {
     double score;
@@ -1119,22 +1209,54 @@ void VersionSet::Finalize(Version* v) {
       // file size is small (perhaps because of a small write-buffer
       // setting, or very high compression ratios, or lots of
       // overwrites/deletions).
-      score = v->files_[level].size() /
+      int numfiles = 0;
+      for (unsigned int i = 0; i < v->files_[level].size(); i++) {
+        if (!v->files_[level][i]->being_compacted) {
+          numfiles++;
+        }
+      }
+
+      // If we are slowing down writes, then we better compact that first
+      if (numfiles >= options_->level0_stop_writes_trigger) {
+        score = 1000000;
+        // Log(options_->info_log, "XXX score l0 = 1000000000 max");
+      } else if (numfiles >= options_->level0_slowdown_writes_trigger) {
+        score = 10000;
+        // Log(options_->info_log, "XXX score l0 = 1000000 medium");
+      } else {
+        score = numfiles /
           static_cast<double>(options_->level0_file_num_compaction_trigger);
+        if (score >= 1) {
+          // Log(options_->info_log, "XXX score l0 = %d least", (int)score);
+        }
+      }
     } else {
       // Compute the ratio of current size to size limit.
-      const uint64_t level_bytes = TotalFileSize(v->files_[level]);
+      const uint64_t level_bytes = TotalFileSize(v->files_[level]) -
+                                   SizeBeingCompacted(level);
       score = static_cast<double>(level_bytes) / MaxBytesForLevel(level);
+      if (score > 1) {
+        // Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
+      }
     }
-
-    if (score > best_score) {
-      best_level = level;
-      best_score = score;
-    }
+    v->compaction_level_[level] = level;
+    v->compaction_score_[level] = score;
   }
 
-  v->compaction_level_ = best_level;
-  v->compaction_score_ = best_score;
+  // sort all the levels based on their score. Higher scores get listed
+  // first. Use bubble sort because the number of entries are small.
+  for(int i = 0; i <  NumberLevels()-2; i++) {
+    for (int j = i+1; j < NumberLevels()-2; j++) {
+      if (v->compaction_score_[i] < v->compaction_score_[j]) {
+        double score = v->compaction_score_[i];
+        int level = v->compaction_level_[i];
+        v->compaction_score_[i] = v->compaction_score_[j];
+        v->compaction_level_[i] = v->compaction_level_[j];
+        v->compaction_score_[j] = score;
+        v->compaction_level_[j] = level;
+      }
+    }
+  }
 }
 
 Status VersionSet::WriteSnapshot(log::Writer* log) {
@@ -1379,40 +1501,162 @@ int64_t VersionSet::MaxGrandParentOverlapBytes(int level) {
   return result;
 }
 
-Compaction* VersionSet::PickCompaction() {
-  Compaction* c;
-  int level;
+// verify that the files listed in this compaction are present 
+// in the current version
+bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
+  if (c->input_version_ != current_) {
+    Log(options_->info_log, "VerifyCompactionFileConsistency version mismatch");
+  }
 
-  // We prefer compactions triggered by too much data in a level over
-  // the compactions triggered by seeks.
-  const bool size_compaction = (current_->compaction_score_ >= 1);
-  const bool seek_compaction = (current_->file_to_compact_ != NULL);
-  if (size_compaction) {
-    level = current_->compaction_level_;
-    assert(level >= 0);
-    assert(level+1 < NumberLevels());
-    c = new Compaction(level, MaxFileSizeForLevel(level),
-        MaxGrandParentOverlapBytes(level), NumberLevels());
+  // verify files in level
+  int level = c->level();
+  for (int i = 0; i < c->num_input_files(0); i++) {
+    uint64_t number = c->input(0,i)->number;
 
-    // Pick the first file that comes after compact_pointer_[level]
-    for (size_t i = 0; i < current_->files_[level].size(); i++) {
-      FileMetaData* f = current_->files_[level][i];
-      if (compact_pointer_[level].empty() ||
-          icmp_.Compare(f->largest.Encode(), compact_pointer_[level]) > 0) {
-        c->inputs_[0].push_back(f);
+    // look for this file in the current version
+    bool found = false;
+    for (unsigned int j = 0; j < current_->files_[level].size(); j++) {
+      FileMetaData* f = current_->files_[level][j];
+      if (f->number == number) {
+        found = true;
         break;
       }
     }
-    if (c->inputs_[0].empty()) {
-      // Wrap-around to the beginning of the key space
-      c->inputs_[0].push_back(current_->files_[level][0]);
+    if (!found) {
+      return false; // input files non existant in current version
     }
-  } else if (seek_compaction) {
+  }
+  // verify level+1 files
+  level++;
+  for (int i = 0; i < c->num_input_files(1); i++) {
+    uint64_t number = c->input(1,i)->number;
+
+    // look for this file in the current version
+    bool found = false;
+    for (unsigned int j = 0; j < current_->files_[level].size(); j++) {
+      FileMetaData* f = current_->files_[level][j];
+      if (f->number == number) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      return false; // input files non existant in current version
+    }
+  }
+  return true;     // everything good
+}
+
+// Clear all files to indicate that they are not being compacted
+// Delete this compaction from the list of running compactions.
+void VersionSet::ReleaseCompactionFiles(Compaction* c) {
+  c->MarkFilesBeingCompacted(false);
+  compactions_in_progress_[c->level()].erase(c);
+}
+
+// The total size of files that are currently being compacted
+uint64_t VersionSet::SizeBeingCompacted(int level) {
+  uint64_t total = 0;
+  for (std::set<Compaction*>::iterator it = 
+       compactions_in_progress_[level].begin();
+       it != compactions_in_progress_[level].end();
+       ++it) {
+    Compaction* c = (*it); 
+    assert(c->level() == level);
+    for (int i = 0; i < c->num_input_files(0); i++) {
+      total += c->input(0,i)->file_size;
+    }
+  }
+  return total;
+}
+
+Compaction* VersionSet::PickCompactionBySize(int level) {
+  Compaction* c = NULL;
+
+  // level 0 files are overlapping. So we cannot pick more
+  // than one concurrent compactions at this level. This
+  // cold be made better by looking at key-ranges that are
+  // being compacted at level 0.
+  if (level == 0 && compactions_in_progress_[level].size() == 1) {
+    return NULL;
+  }
+
+  assert(level >= 0);
+  assert(level+1 < NumberLevels());
+  c = new Compaction(level, MaxFileSizeForLevel(level),
+      MaxGrandParentOverlapBytes(level), NumberLevels());
+
+  // remember the first file that is not being compacted
+  int firstIndex = 0;
+
+  // Pick the first file that comes after compact_pointer_[level]
+  for (size_t i = 0; i < current_->files_[level].size(); i++) {
+    FileMetaData* f = current_->files_[level][i];
+    // do not pick a file to compact if it is being compacted
+    // from n-1 level.
+    if (f->being_compacted) {
+      continue;
+    }
+    firstIndex = i;
+
+    // Pick a file that has a key-range larger than the range
+    // we picked in the previous call to PickCompaction.
+    if (compact_pointer_[level].empty() ||
+        icmp_.Compare(f->largest.Encode(), compact_pointer_[level]) > 0) {
+      // Do not pick this file if its parents at level+1 are being compacted.
+      // Maybe we can avoid redoing this work in SetupOtherInputs
+      if (ParentFilesInCompaction(f, level)) {
+        continue;
+      }
+      c->inputs_[0].push_back(f);
+      break;
+    }
+  }
+  if (c->inputs_[0].empty()) {
+    // Wrap-around to the beginning of the key space
+    FileMetaData* f = current_->files_[level][firstIndex];
+    if (!f->being_compacted && !ParentFilesInCompaction(f, level)) {
+      c->inputs_[0].push_back(f);
+    }
+  }
+  if (c->inputs_[0].empty()) {
+    delete c;
+    c = NULL;
+  }
+  return c;
+}
+
+Compaction* VersionSet::PickCompaction() {
+  Compaction* c = NULL;
+  int level;
+
+  // compute the compactions needed. It is better to do it here
+  // and also in LogAndApply(), otherwise the values could be stale.
+  Finalize(current_);
+
+  // We prefer compactions triggered by too much data in a level over
+  // the compactions triggered by seeks.
+  //
+  // Find the compactions by size on all levels.
+  for (int i = 0; i < NumberLevels()-1; i++) {
+    level = current_->compaction_level_[i];
+    if ((current_->compaction_score_[i] >= 1)) {
+      c = PickCompactionBySize(level);
+      if (c != NULL) {
+        break;
+      }
+    }
+  }
+
+  // Find compactions needed by seeks
+  if (c == NULL && (current_->file_to_compact_ != NULL)) {
     level = current_->file_to_compact_level_;
     c = new Compaction(level, MaxFileSizeForLevel(level),
 		MaxGrandParentOverlapBytes(level), NumberLevels());
     c->inputs_[0].push_back(current_->file_to_compact_);
-  } else {
+  }
+
+  if (c == NULL) {
     return NULL;
   }
 
@@ -1426,13 +1670,44 @@ Compaction* VersionSet::PickCompaction() {
     // Note that the next call will discard the file we placed in
     // c->inputs_[0] earlier and replace it with an overlapping set
     // which will include the picked file.
-    current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
+    c->inputs_[0].clear();
+    std::vector<FileMetaData*> more;
+    current_->GetOverlappingInputs(0, &smallest, &largest, &more);
+    for (unsigned int i = 0; i < more.size(); i++) {
+      FileMetaData* f = more[i];
+      if (!f->being_compacted && !ParentFilesInCompaction(f, level)) {
+        c->inputs_[0].push_back(f);
+      }
+    }
     assert(!c->inputs_[0].empty());
   }
 
   SetupOtherInputs(c);
 
+  // mark all the files that are being compacted
+  c->MarkFilesBeingCompacted(true);
+
+  // remember this currently undergoing compaction
+  compactions_in_progress_[level].insert(c);
+
   return c;
+}
+
+// Returns true if any one of the parent files are being compacted
+bool VersionSet::ParentFilesInCompaction(FileMetaData* f, int level) {
+  std::vector<FileMetaData*> inputs;
+  current_->GetOverlappingInputs(level+1, &f->smallest, &f->largest, &inputs);
+  return FilesInCompaction(inputs);
+}
+
+// Returns true if any one of specified files are being compacted
+bool VersionSet::FilesInCompaction(std::vector<FileMetaData*>& files) {
+  for (unsigned int i = 0; i < files.size(); i++) {
+    if (files[i]->being_compacted) {
+      return true;
+    } 
+  }
+  return false;
 }
 
 void VersionSet::SetupOtherInputs(Compaction* c) {
@@ -1456,13 +1731,15 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
     const int64_t expanded0_size = TotalFileSize(expanded0);
     int64_t limit = ExpandedCompactionByteSizeLimit(level);
     if (expanded0.size() > c->inputs_[0].size() &&
-        inputs1_size + expanded0_size < limit) {
+        inputs1_size + expanded0_size < limit &&
+        !FilesInCompaction(expanded0)) {
       InternalKey new_start, new_limit;
       GetRange(expanded0, &new_start, &new_limit);
       std::vector<FileMetaData*> expanded1;
       current_->GetOverlappingInputs(level+1, &new_start, &new_limit,
                                      &expanded1);
-      if (expanded1.size() == c->inputs_[1].size()) {
+      if (expanded1.size() == c->inputs_[1].size() && 
+          !FilesInCompaction(expanded1)) {
         Log(options_->info_log,
             "Expanding@%d %d+%d (%ld+%ld bytes) to %d+%d (%ld+%ld bytes)\n",
             level,
@@ -1531,6 +1808,11 @@ Compaction* VersionSet::CompactRange(
   c->input_version_->Ref();
   c->inputs_[0] = inputs;
   SetupOtherInputs(c);
+
+  // These files that are to be manaully compacted do not trample
+  // upon other files because manual compactions are processed when
+  // the system has a max of 1 background compaction thread.
+  c->MarkFilesBeingCompacted(true);
   return c;
 }
 
@@ -1619,6 +1901,18 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
   }
 }
 
+// Mark (or clear) each file that is being compacted
+void Compaction::MarkFilesBeingCompacted(bool value) {
+  for (int i = 0; i < 2; i++) {
+    std::vector<FileMetaData*> v = inputs_[i];
+    for (unsigned int j = 0; j < inputs_[i].size(); j++) {
+      assert(value ? !inputs_[i][j]->being_compacted :
+                      inputs_[i][j]->being_compacted);
+      inputs_[i][j]->being_compacted = value;
+    }
+  }
+}
+
 void Compaction::ReleaseInputs() {
   if (input_version_ != NULL) {
     input_version_->Unref();
@@ -1642,7 +1936,8 @@ static void InputSummary(std::vector<FileMetaData*>& files,
 }
 
 void Compaction::Summary(char* output, int len) {
-  int write = snprintf(output, len, "Base level %d, inputs:", level_);
+  int write = snprintf(output, len, "Base version %ld Base level %d, inputs:", 
+                       input_version_->GetVersionNumber(), level_);
   if(write < 0 || write > len)
     return;
 

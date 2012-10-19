@@ -14,6 +14,7 @@
 #include "leveldb/env.h"
 #include "port/port.h"
 #include "util/stats_logger.h"
+#include "memtablelist.h"
 
 #ifdef USE_SCRIBE
 #include "scribe/scribe_logger.h"
@@ -99,13 +100,20 @@ class DBImpl : public DB {
 
   // Compact the in-memory write buffer to disk.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status CompactMemTable();
+  Status CompactMemTable(bool* madeProgress = NULL);
 
   Status RecoverLogFile(uint64_t log_number,
                         VersionEdit* edit,
                         SequenceNumber* max_sequence);
 
-  Status WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base);
+  // The following two methods are used to flush a memtable to
+  // storage. The first one is used atdatabase RecoveryTime (when the
+  // database is opened) and is heavyweight because it holds the mutex
+  // for the entire period. The second method WriteLevel0Table supports
+  // concurrent flush memtables to storage.
+  Status WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit);
+  Status WriteLevel0Table(MemTable* mem, VersionEdit* edit,
+                                uint64_t* filenumber);
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */);
   WriteBatch* BuildBatchGroup(Writer** last_writer);
@@ -123,13 +131,16 @@ class DBImpl : public DB {
   void MaybeScheduleCompaction();
   static void BGWork(void* db);
   void BackgroundCall();
-  Status BackgroundCompaction();
+  Status BackgroundCompaction(bool* madeProgress);
   void CleanupCompaction(CompactionState* compact);
   Status DoCompactionWork(CompactionState* compact);
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
   Status InstallCompactionResults(CompactionState* compact);
+  void AllocateCompactionOutputFileNumbers(CompactionState* compact);
+  void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
+ 
 
   // Constant after construction
   Env* const env_;
@@ -151,8 +162,7 @@ class DBImpl : public DB {
   port::AtomicPointer shutting_down_;
   port::CondVar bg_cv_;          // Signalled when background work finishes
   MemTable* mem_;
-  MemTable* imm_;                // Memtable being compacted
-  port::AtomicPointer has_imm_;  // So bg thread can detect non-NULL imm_
+  MemTableList imm_;             // Memtable that are not changing
   WritableFile* logfile_;
   uint64_t logfile_number_;
   log::Writer* log_;
@@ -169,8 +179,8 @@ class DBImpl : public DB {
   // part of ongoing compactions.
   std::set<uint64_t> pending_outputs_;
 
-  // Has a background compaction been scheduled or is running?
-  bool bg_compaction_scheduled_;
+  // count how many background compaction been scheduled or is running?
+  int bg_compaction_scheduled_;
 
   // Has a background stats log thread scheduled?
   bool bg_logstats_scheduled_;
@@ -179,6 +189,7 @@ class DBImpl : public DB {
   struct ManualCompaction {
     int level;
     bool done;
+    bool in_progress;           // compaction request being processed?
     const InternalKey* begin;   // NULL means beginning of key range
     const InternalKey* end;     // NULL means end of key range
     InternalKey tmp_storage;    // Used to keep track of compaction progress
@@ -220,6 +231,9 @@ class DBImpl : public DB {
   static const int KEEP_LOG_FILE_NUM = 1000;
   std::string db_absolute_path_;
 
+  // count of the number of contiguous delaying writes
+  int delayed_writes_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
@@ -227,6 +241,9 @@ class DBImpl : public DB {
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
   }
+
+  // dump the delayed_writes_ to the log file and reset counter.
+  void DelayLoggingAndReset();
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

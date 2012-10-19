@@ -46,6 +46,16 @@ static bool FLAGS_verbose = false;
 // (initialized to default value by "main")
 static int FLAGS_write_buffer_size = 0;
 
+// The number of in-memory memtables. 
+// Each memtable is of size FLAGS_write_buffer_size.
+// This is initialized to default value of 2 in "main" function.
+static int FLAGS_max_write_buffer_number = 0;
+
+// The maximum number of concurrent background compactions
+// that can occur in parallel.
+// This is initialized to default value of 1 in "main" function.
+static int FLAGS_max_background_compactions = 0;
+
 // Number of bytes to use as a cache of uncompressed data.
 static long FLAGS_cache_size = 2 * KB * KB * KB;
 
@@ -103,6 +113,11 @@ static int FLAGS_readwritepercent = 10;
 
 // Option to disable compation triggered by read.
 static int FLAGS_disable_seek_compaction = false;
+
+// Option to delete obsolete files periodically
+// Default: 0 which means that obsolete files are
+// deleted after every compaction run.
+ static uint64_t FLAGS_delete_obsolete_files_period_micros = 0;
 
 // Algorithm to use to compress the database
 static enum leveldb::CompressionType FLAGS_compression_type =
@@ -626,6 +641,8 @@ class StressTest {
     Options options;
     options.block_cache = cache_;
     options.write_buffer_size = FLAGS_write_buffer_size;
+    options.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    options.max_background_compactions = FLAGS_max_background_compactions;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.max_open_files = FLAGS_open_files;
@@ -644,6 +661,8 @@ class StressTest {
     options.compression = FLAGS_compression_type;
     options.create_if_missing = true;
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
+    options.delete_obsolete_files_period_micros =
+      FLAGS_delete_obsolete_files_period_micros;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -670,7 +689,10 @@ class StressTest {
 
 int main(int argc, char** argv) {
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
+  FLAGS_max_write_buffer_number = leveldb::Options().max_write_buffer_number;
   FLAGS_open_files = leveldb::Options().max_open_files;
+  FLAGS_max_background_compactions =
+    leveldb::Options().max_background_compactions;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
   std::string default_db_path;
@@ -706,6 +728,10 @@ int main(int argc, char** argv) {
       FLAGS_value_size_mult = n;
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
       FLAGS_write_buffer_size = n;
+    } else if (sscanf(argv[i], "--max_write_buffer_number=%d%c", &n, &junk) == 1) {
+      FLAGS_max_write_buffer_number = n;
+    } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
+      FLAGS_max_background_compactions = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
       FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
@@ -784,6 +810,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
       FLAGS_disable_seek_compaction = n;
+    } else if (sscanf(argv[i], "--delete_obsolete_files_period_micros=%ld%c",
+                      &l, &junk) == 1) {
+      FLAGS_delete_obsolete_files_period_micros = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

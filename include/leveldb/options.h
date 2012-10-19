@@ -78,13 +78,20 @@ struct Options {
   // on disk) before converting to a sorted on-disk file.
   //
   // Larger values increase performance, especially during bulk loads.
-  // Up to two write buffers may be held in memory at the same time,
+  // Up to max_write_buffer_number write buffers may be held in memory 
+  // at the same time,
   // so you may wish to adjust this parameter to control memory usage.
   // Also, a larger write buffer will result in a longer recovery time
   // the next time the database is opened.
   //
   // Default: 4MB
   size_t write_buffer_size;
+
+  // The maximum number of write buffers that are built up in memory.
+  // The default is 2, so that when 1 write buffer is being flushed to 
+  // storage, new writes can continue to the other write buffer.
+  // Default: 2
+  int max_write_buffer_number;
 
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set (budget
@@ -244,6 +251,10 @@ struct Options {
   // value is 0 which means that obsolete files get removed after
   // every compaction run.
   uint64_t delete_obsolete_files_period_micros;
+  
+  // Maximum number of concurrent background compactions.
+  // Default: 1
+  int max_background_compactions;
 
   // Create an Options object with default values for all fields.
   Options();

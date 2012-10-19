@@ -139,6 +139,10 @@ class HdfsEnv : public Env {
     posixEnv->SetBackgroundThreads(number);
   }
 
+  virtual std::string TimeToString(uint64_t number) {
+    return posixEnv->TimeToString(number);
+  }
+
   static uint64_t gettid() {
     assert(sizeof(pthread_t) <= sizeof(uint64_t));
     return (uint64_t)pthread_self();
@@ -273,6 +277,8 @@ class HdfsEnv : public Env {
       std::string* outputpath) {return notsup;}
 
   virtual void SetBackgroundThreads(int number) {}
+
+  virtual std::string TimeToString(uint64_t number) { return "";}
 };
 }
 

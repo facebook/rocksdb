@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <deque>
 #include "db/dbformat.h"
 #include "db/version_edit.h"
 #include "port/port.h"
@@ -106,6 +107,11 @@ class Version {
   // Return a human readable string that describes this version's contents.
   std::string DebugString() const;
 
+  // Returns the version nuber of this version
+  uint64_t GetVersionNumber() {
+    return version_number_;
+  }
+
  private:
   friend class Compaction;
   friend class VersionSet;
@@ -128,13 +134,19 @@ class Version {
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
-  double compaction_score_;
-  int compaction_level_;
+  // The most critical level to be compacted is listed first
+  // These are used to pick the best compaction level
+  std::vector<double> compaction_score_;
+  std::vector<int> compaction_level_;
 
   // The offset in the manifest file where this version is stored.
   uint64_t offset_manifest_file_;
 
-  explicit Version(VersionSet* vset);
+  // A version number that uniquely represents this version. This is
+  // used for debugging and logging purposes only.
+  uint64_t version_number_;
+
+  explicit Version(VersionSet* vset, uint64_t version_number = 0);
 
   ~Version();
 
@@ -229,10 +241,20 @@ class VersionSet {
   // The caller should delete the iterator when no longer needed.
   Iterator* MakeInputIterator(Compaction* c);
 
+  // Returns true iff some level needs a compaction because it has
+  // exceeded its target size.
+  bool NeedsSizeCompaction() const {
+    for (int i = 0; i < NumberLevels()-1; i++) {
+      if (current_->compaction_score_[i] >= 1) {
+        return true;
+      }
+    }
+    return false;
+  }
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const {
-    Version* v = current_;
-    return (v->compaction_score_ >= 1) || (v->file_to_compact_ != NULL);
+    return ((current_->file_to_compact_ != NULL) ||
+            NeedsSizeCompaction());
   }
 
   // Add all files listed in any live version to *live.
@@ -263,8 +285,22 @@ class VersionSet {
   // Return the size of the current manifest file
   const uint64_t ManifestFileSize() { return current_->offset_manifest_file_; }
 
+  // For the specfied level, pick a compaction.
+  // Returns NULL if there is no compaction to be done.
+  Compaction* PickCompactionBySize(int level);
+
+  // Free up the files that were participated in a compaction
+  void ReleaseCompactionFiles(Compaction* c);
+
+  // verify that the files that we started with for a compaction
+  // still exist in the current version and in the same original level.
+  // This ensures that a concurrent compaction did not erroneously
+  // pick the same files to compact.
+  bool VerifyCompactionFileConsistency(Compaction* c);
+
  private:
   class Builder;
+  struct ManifestWriter;
 
   friend class Compaction;
   friend class Version;
@@ -322,9 +358,34 @@ class VersionSet {
   // Per-level max bytes
   uint64_t* level_max_bytes_;
 
+  // record all the ongoing compactions for all levels
+  std::vector<std::set<Compaction*> > compactions_in_progress_;
+
+  // A lock that serialize writes to the manifest
+  port::Mutex manifest_lock_;
+
+  // generates a increasing version number for every new version
+  uint64_t current_version_number_;
+
+  // Queue of writers to the manifest file
+  std::deque<ManifestWriter*> manifest_writers_;
+
   // No copying allowed
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);
+
+  // Return the total amount of data that is undergoing
+  // compactions at this level
+  uint64_t SizeBeingCompacted(int level);
+
+  // Returns true if any one of the parent files are being compacted
+  bool ParentFilesInCompaction(FileMetaData* f, int level);
+
+  // Returns true if any one of the specified files are being compacted
+  bool FilesInCompaction(std::vector<FileMetaData*>& files);
+
+  void LogAndApplyHelper(Builder*b, Version* v,
+                           VersionEdit* edit, port::Mutex* mu);
 };
 
 // A Compaction encapsulates information about a compaction.
@@ -403,6 +464,9 @@ class Compaction {
   // higher level than the ones involved in this compaction (i.e. for
   // all L >= level_ + 2).
   size_t* level_ptrs_;
+
+  // mark (or clear) all files that are being compacted
+  void MarkFilesBeingCompacted(bool);
 };
 
 }  // namespace leveldb

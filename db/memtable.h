@@ -9,6 +9,7 @@
 #include "leveldb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
+#include "db/version_set.h"
 #include "util/arena.h"
 
 namespace leveldb {
@@ -21,7 +22,8 @@ class MemTable {
  public:
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
-  explicit MemTable(const InternalKeyComparator& comparator);
+  explicit MemTable(const InternalKeyComparator& comparator,
+                    int numlevel = 7);
 
   // Increase reference count.
   void Ref() { ++refs_; }
@@ -63,6 +65,9 @@ class MemTable {
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s);
 
+  // Returns the edits area that is needed for flushing the memtable
+  VersionEdit* GetEdits() { return &edit_; }
+
  private:
   ~MemTable();  // Private since only Unref() should be used to delete it
 
@@ -73,6 +78,7 @@ class MemTable {
   };
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
+  friend class MemTableList;
 
   typedef SkipList<const char*, KeyComparator> Table;
 
@@ -80,6 +86,15 @@ class MemTable {
   int refs_;
   Arena arena_;
   Table table_;
+
+  // These are used to manage memtable flushes to storage
+  bool flush_in_progress_; // started the flush 
+  bool flush_completed_;   // finished the flush
+  uint64_t file_number_;    // filled up after flush is complete
+
+  // The udpates to be applied to the transaction log when this
+  // memtable is flushed to storage.
+  VersionEdit edit_;
 
   // No copying allowed
   MemTable(const MemTable&);
