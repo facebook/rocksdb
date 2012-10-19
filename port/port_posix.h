@@ -163,7 +163,7 @@ inline bool Snappy_Uncompress(const char* input, size_t length,
 }
 
 inline bool Zlib_Compress(const char* input, size_t length,
-    ::std::string* output, int windowBits = 15, int level = -1,
+    ::std::string* output, int windowBits = -14, int level = -1,
      int strategy = 0) {
 #ifdef ZLIB
   // The memLevel parameter specifies how much memory should be allocated for
@@ -223,7 +223,7 @@ inline bool Zlib_Compress(const char* input, size_t length,
 }
 
 inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
-    int* decompress_size, int windowBits = 15) {
+    int* decompress_size, int windowBits = -14) {
 #ifdef ZLIB
   z_stream _stream;
   memset(&_stream, 0, sizeof(z_stream));
