@@ -1299,7 +1299,7 @@ int main(int argc, char** argv) {
       FLAGS_disable_seek_compaction = n;
     } else if (sscanf(argv[i], "--delete_obsolete_files_period_micros=%ld%c",
                       &l, &junk) == 1) {
-      FLAGS_delete_obsolete_files_period_micros = n;
+      FLAGS_delete_obsolete_files_period_micros = l;
     } else if (sscanf(argv[i], "--stats_interval=%d%c", &n, &junk) == 1 &&
                n >= 0 && n < 2000000000) {
       FLAGS_stats_interval = n;

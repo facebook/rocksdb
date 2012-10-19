@@ -89,10 +89,12 @@ Options::Dump(
         expanded_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Log(log,"         Options.db_log_dir: %s",
+    Log(log,"                             Options.db_log_dir: %s",
         db_log_dir.c_str());
-    Log(log,"         Options.disable_seek_compaction: %d",
+    Log(log,"                Options.disable_seek_compaction: %d",
         disable_seek_compaction);
+    Log(log,"    Options.delete_obsolete_files_period_micros: %ld",
+        delete_obsolete_files_period_micros);
 }   // Options::Dump
 
 
