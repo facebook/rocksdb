@@ -713,8 +713,10 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
     if (madeProgress) {
       *madeProgress = 1;
     }
-    DeleteObsoleteFiles();
     MaybeScheduleLogDBDeployStats();
+    // we could have deleted obsolete files here, but it is not
+    // absolutely necessary because it could be also done as part
+    // of other background compaction
   }
   return s;
 }
@@ -905,8 +907,8 @@ void DBImpl::BackgroundCall() {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
     mutex_.Lock();
+    EvictObsoleteFiles(deletion_state);
   }
-  EvictObsoleteFiles(deletion_state);
 
   bg_compaction_scheduled_--;
 
