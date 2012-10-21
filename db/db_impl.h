@@ -81,6 +81,7 @@ class DBImpl : public DB {
   friend class DB;
   struct CompactionState;
   struct Writer;
+  struct DeletionState;
 
   Iterator* NewInternalIterator(const ReadOptions&,
                                 SequenceNumber* latest_snapshot);
@@ -123,13 +124,25 @@ class DBImpl : public DB {
   void MaybeScheduleCompaction();
   static void BGWork(void* db);
   void BackgroundCall();
-  Status BackgroundCompaction();
+  Status BackgroundCompaction(DeletionState& deletion_state);
   void CleanupCompaction(CompactionState* compact);
   Status DoCompactionWork(CompactionState* compact);
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
   Status InstallCompactionResults(CompactionState* compact);
+
+  // Returns the list of live files in 'live' and the list
+  // of all files in the filesystem in 'allfiles'.
+  void FindObsoleteFiles(DeletionState& deletion_state);
+
+  // Diffs the files listed in filenames and those that do not
+  // belong to live files are posibly removed. If the removed file
+  // is a sst file, then it returns the file number in files_to_evict.
+  void PurgeObsoleteFiles(DeletionState& deletion_state);
+
+  // Removes the file listed in files_to_evict from the table_cache
+  void EvictObsoleteFiles(DeletionState& deletion_state);
 
   // Constant after construction
   Env* const env_;
