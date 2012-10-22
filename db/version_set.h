@@ -437,7 +437,8 @@ class Compaction {
   friend class VersionSet;
 
   explicit Compaction(int level, uint64_t target_file_size,
-		uint64_t max_grandparent_overlap_bytes, int number_levels);
+    uint64_t max_grandparent_overlap_bytes, int number_levels,
+    bool seek_compaction = false);
 
   int level_;
   uint64_t max_output_file_size_;
@@ -445,6 +446,8 @@ class Compaction {
   Version* input_version_;
   VersionEdit* edit_;
   int number_levels_;
+
+  bool seek_compaction_;
 
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData*> inputs_[2];      // The two sets of inputs
