@@ -7,6 +7,7 @@
 
 #include <stddef.h>
 #include <string>
+#include <stdint.h>
 
 namespace leveldb {
 
