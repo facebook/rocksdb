@@ -160,7 +160,11 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       manual_compaction_(NULL),
       logger_(NULL),
       disable_delete_obsolete_files_(false),
-      delete_obsolete_files_last_run_(0) {
+      delete_obsolete_files_last_run_(0),
+      stall_level0_slowdown_(0),
+      stall_memtable_compaction_(0),
+      stall_level0_num_files_(0),
+      started_at_(options.env->NowMicros()) {
   mem_->Ref();
   has_imm_.Release_Store(NULL);
 
@@ -608,6 +612,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.file_size;
+  stats.files_out_levelnp1 = 1;
   stats_[level].Add(stats);
   return s;
 }
@@ -1155,11 +1160,17 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
-  for (int which = 0; which < 2; which++) {
-    for (int i = 0; i < compact->compaction->num_input_files(which); i++) {
-      stats.bytes_read += compact->compaction->input(which, i)->file_size;
-    }
-  }
+
+  stats.files_in_leveln = compact->compaction->num_input_files(0);
+  stats.files_in_levelnp1 = compact->compaction->num_input_files(1);
+  stats.files_out_levelnp1 = compact->outputs.size();
+
+  for (int i = 0; i < compact->compaction->num_input_files(0); i++)
+    stats.bytes_readn += compact->compaction->input(0, i)->file_size;
+
+  for (int i = 0; i < compact->compaction->num_input_files(1); i++)
+    stats.bytes_readnp1 += compact->compaction->input(1, i)->file_size;
+
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     stats.bytes_written += compact->outputs[i].file_size;
   }
@@ -1172,7 +1183,19 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   }
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
-      "compacted to: %s", versions_->LevelSummary(&tmp));
+      "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
+      "MB in(%.1f, %.1f) out(%.1f), amplify(%.1f)\n",
+      versions_->LevelSummary(&tmp),
+      (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
+          (double) stats.micros,
+      compact->compaction->level() + 1,
+      stats.files_in_leveln, stats.files_in_levelnp1, stats.files_out_levelnp1,
+      stats.bytes_readn / 1048576.0,
+      stats.bytes_readnp1 / 1048576.0,
+      stats.bytes_written / 1048576.0,
+      (stats.bytes_written + stats.bytes_readnp1) /
+          (double) stats.bytes_readn);
+
   return status;
 }
 
@@ -1461,6 +1484,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
       env_->SleepForMicroseconds(1000);
+      stall_level0_slowdown_ += 1000;
       allow_delay = false;  // Do not delay a single write more than once
       Log(options_.info_log, "delaying write...\n");
       mutex_.Lock();
@@ -1472,12 +1496,16 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "wait for memtable compaction...\n");
+      uint64_t t1 = env_->NowMicros();
       bg_cv_.Wait();
+      stall_memtable_compaction_ += env_->NowMicros() - t1;
     } else if (versions_->NumLevelFiles(0) >=
 		options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
       Log(options_.info_log, "waiting...\n");
+      uint64_t t1 = env_->NowMicros();
       bg_cv_.Wait();
+      stall_level0_num_files_ += env_->NowMicros() - t1;
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
       assert(versions_->PrevLogNumber() == 0);
@@ -1528,28 +1556,73 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       return true;
     }
   } else if (in == "stats") {
-    char buf[200];
+    char buf[1000];
+    uint64_t total_bytes = 0;
+    uint64_t micros_up = env_->NowMicros() - started_at_;
+    double seconds_up = micros_up / 1000000.0;
+
+    // Pardon the long line but I think it is easier to read this way.
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
-             "Level  Files Size(MB) Time(sec) Read(MB) Write(MB)\n"
-             "--------------------------------------------------\n"
+             "Level  Files Size(MB) Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count\n"
+             "------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
              );
     value->append(buf);
     for (int level = 0; level < NumberLevels(); level++) {
       int files = versions_->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
+        int64_t bytes_read = stats_[level].bytes_readn +
+                             stats_[level].bytes_readnp1;
+        int64_t bytes_new = stats_[level].bytes_written -
+                            stats_[level].bytes_readnp1;
+        double amplify = (stats_[level].bytes_readn == 0)
+            ? 0.0
+            : (stats_[level].bytes_written + stats_[level].bytes_readnp1) /
+                (double) stats_[level].bytes_readn;
+
+        total_bytes += bytes_read + stats_[level].bytes_written;
         snprintf(
             buf, sizeof(buf),
-            "%3d %8d %8.0f %9.0f %8.0f %9.0f\n",
+            "%3d %8d %8.0f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d\n",
             level,
             files,
             versions_->NumLevelBytes(level) / 1048576.0,
             stats_[level].micros / 1e6,
-            stats_[level].bytes_read / 1048576.0,
-            stats_[level].bytes_written / 1048576.0);
+            bytes_read / 1048576.0,
+            stats_[level].bytes_written / 1048576.0,
+            stats_[level].bytes_readn / 1048576.0,
+            stats_[level].bytes_readnp1 / 1048576.0,
+            bytes_new / 1048576.0,
+            amplify,
+            bytes_read / 1048576.0 / seconds_up,
+            stats_[level].bytes_written / 1048576.0 / seconds_up,
+            stats_[level].files_in_leveln,
+            stats_[level].files_in_levelnp1,
+            stats_[level].files_out_levelnp1,
+            stats_[level].files_out_levelnp1 - stats_[level].files_in_levelnp1,
+            stats_[level].count);
         value->append(buf);
       }
     }
+
+    snprintf(buf, sizeof(buf),
+             "Amplification: %.1f rate, %.2f GB in, %.2f GB out\n",
+             (double) total_bytes / stats_[0].bytes_written,
+             stats_[0].bytes_written / (1048576.0 * 1024),
+             total_bytes / (1048576.0 * 1024));
+    value->append(buf);
+
+    snprintf(buf, sizeof(buf), "Uptime(secs): %.1f\n", seconds_up);
+    value->append(buf);
+
+    snprintf(buf, sizeof(buf),
+            "Stalls(secs): %.3f level0_slowdown, %.3f level0_numfiles, "
+            "%.3f memtable_compaction\n",
+            stall_level0_slowdown_ / 1000000.0,
+            stall_level0_num_files_ / 1000000.0,
+            stall_memtable_compaction_ / 1000000.0);
+    value->append(buf);
+
     return true;
   } else if (in == "sstables") {
     *value = versions_->current()->DebugString();

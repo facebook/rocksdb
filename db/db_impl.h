@@ -213,21 +213,57 @@ class DBImpl : public DB {
   // last time when DeleteObsoleteFiles was invoked
   uint64_t delete_obsolete_files_last_run_;
 
+  // These count the number of microseconds for which MakeRoomForWrite stalls.
+  uint64_t stall_level0_slowdown_;
+  uint64_t stall_memtable_compaction_;
+  uint64_t stall_level0_num_files_;
+
+  // Time at which this instance was started.
+  const uint64_t started_at_;
+
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
     int64_t micros;
-    int64_t bytes_read;
+
+    // Bytes read from level N during compaction between levels N and N+1
+    int64_t bytes_readn;
+
+    // Bytes read from level N+1 during compaction between levels N and N+1
+    int64_t bytes_readnp1;
+
+    // Total bytes written during compaction between levels N and N+1
     int64_t bytes_written;
 
-    CompactionStats() : micros(0), bytes_read(0), bytes_written(0) { }
+    // Files read from level N during compaction between levels N and N+1
+    int     files_in_leveln;
+
+    // Files read from level N+1 during compaction between levels N and N+1
+    int     files_in_levelnp1;
+
+    // Files written during compaction between levels N and N+1
+    int     files_out_levelnp1;
+
+    // Number of compactions done
+    int     count;
+
+    CompactionStats() : micros(0), bytes_readn(0), bytes_readnp1(0),
+                        bytes_written(0), files_in_leveln(0),
+                        files_in_levelnp1(0), files_out_levelnp1(0),
+                        count(0) { }
 
     void Add(const CompactionStats& c) {
       this->micros += c.micros;
-      this->bytes_read += c.bytes_read;
+      this->bytes_readn += c.bytes_readn;
+      this->bytes_readnp1 += c.bytes_readnp1;
       this->bytes_written += c.bytes_written;
+      this->files_in_leveln += c.files_in_leveln;
+      this->files_in_levelnp1 += c.files_in_levelnp1;
+      this->files_out_levelnp1 += c.files_out_levelnp1;
+      this->count += 1;
     }
   };
+
   CompactionStats* stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
