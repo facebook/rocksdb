@@ -1587,7 +1587,7 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
       MaxGrandParentOverlapBytes(level), NumberLevels());
 
   // remember the first file that is not being compacted
-  int firstIndex = 0;
+  int firstIndex = -1;
 
   // Pick the first file that comes after compact_pointer_[level]
   for (size_t i = 0; i < current_->files_[level].size(); i++) {
@@ -1597,7 +1597,9 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
     if (f->being_compacted) {
       continue;
     }
-    firstIndex = i;
+    if (firstIndex == -1) {
+      firstIndex = i;
+    }
 
     // Pick a file that has a key-range larger than the range
     // we picked in the previous call to PickCompaction.
@@ -1612,7 +1614,7 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
       break;
     }
   }
-  if (c->inputs_[0].empty()) {
+  if (c->inputs_[0].empty() && firstIndex != -1) {
     // Wrap-around to the beginning of the key space
     FileMetaData* f = current_->files_[level][firstIndex];
     if (!f->being_compacted && !ParentFilesInCompaction(f, level)) {
