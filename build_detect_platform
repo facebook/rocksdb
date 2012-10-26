@@ -120,12 +120,12 @@ esac
 # prune take effect.
 DIRS="util db table"
 if test "$USE_THRIFT"; then
-  DIRS+=" thrift/server_utils.cpp thrift/gen-cpp "
+  DIRS="$DIRS thrift/server_utils.cpp thrift/gen-cpp "
   THRIFTSERVER=leveldb_server
 fi
 
 if test "$USE_SCRIBE"; then
-  DIRS+=" scribe "
+  DIRS="$DIRS scribe "
 fi
 
 set -f # temporarily disable globbing so that our patterns aren't expanded
@@ -204,24 +204,24 @@ if test "$USE_HDFS"; then
     echo "JAVA_HOME has to be set for HDFS usage."
     exit 1
   fi
-  HDFS_CCFLAGS+=" -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
-  HDFS_LDFLAGS+=" -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64"
-  HDFS_LDFLAGS+=" -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
-  HDFS_LDFLAGS+=" -ldl -lverify -ljava -ljvm"
-  COMMON_FLAGS+=$HDFS_CCFLAGS
-  PLATFORM_LDFLAGS+=$HDFS_LDFLAGS
+  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
+  COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"
+  PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $HDFS_LDFLAGS"
 fi
 
 # shall we build thrift server or scribe logger
 if test "$USE_THRIFT" ||  test "$USE_SCRIBE" ; then
     THRIFT_CCFLAGS=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp -I/usr/include -std=gnu++0x"
     THRIFT_LDFLAGS=" -lexample -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
-    COMMON_FLAGS+=$THRIFT_CCFLAGS
-    PLATFORM_LDFLAGS+=$THRIFT_LDFLAGS
+    COMMON_FLAGS="$COMMON_FLAGS $THRIFT_CCFLAGS"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $THRIFT_LDFLAGS"
 fi
 
 # if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 "
-COMMON_FLAGS+=$USE_SSE
+COMMON_FLAGS="$COMMON_FLAGS $USE_SSE"
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
