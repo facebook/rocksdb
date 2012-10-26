@@ -1594,8 +1594,9 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             stats_[level].bytes_readnp1 / 1048576.0,
             bytes_new / 1048576.0,
             amplify,
-            bytes_read / 1048576.0 / seconds_up,
-            stats_[level].bytes_written / 1048576.0 / seconds_up,
+            (bytes_read / 1048576.0) / (stats_[level].micros / 1000000.0),
+            (stats_[level].bytes_written / 1048576.0) /
+                (stats_[level].micros / 1000000.0),
             stats_[level].files_in_leveln,
             stats_[level].files_in_levelnp1,
             stats_[level].files_out_levelnp1,
