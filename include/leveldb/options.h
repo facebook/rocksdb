@@ -246,6 +246,13 @@ struct Options {
   // every compaction run.
   uint64_t delete_obsolete_files_period_micros;
 
+  // Specify the maximal size of the info log file. If the log file
+  // is larger than `max_log_file_size`, a new info log file will
+  // be created.
+  // If max_log_file_size == 0, all logs will be written to one
+  // log file.
+  size_t max_log_file_size;
+
   // Create an Options object with default values for all fields.
   Options();
 

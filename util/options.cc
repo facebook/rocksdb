@@ -42,6 +42,7 @@ Options::Options()
       db_stats_log_interval(1800),
       db_log_dir(""),
       disable_seek_compaction(false),
+      max_log_file_size(0),
       delete_obsolete_files_period_micros(0) {
 }
 
@@ -67,7 +68,8 @@ Options::Dump(
     Log(log,"            Options.num_levels: %d", num_levels);
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);
-    Log(log," Options.db_stats_log_interval: %d", 
+    Log(log,"     Options.max_log_file_size: %d", max_log_file_size);
+    Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
     Log(log,"     Options.level0_file_num_compaction_trigger: %d",
         level0_file_num_compaction_trigger);
