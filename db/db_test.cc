@@ -385,6 +385,13 @@ class DBTest {
     return static_cast<int>(files.size());
   }
 
+  int CountLiveFiles() {
+    std::vector<std::string> files;
+    uint64_t manifest_file_size;
+    db_->GetLiveFiles(files, &manifest_file_size);
+    return files.size();
+  }
+
   uint64_t Size(const Slice& start, const Slice& limit) {
     Range r(start, limit);
     uint64_t size;
@@ -1631,12 +1638,12 @@ TEST(DBTest, NonWritableFileSystem)
 TEST(DBTest, FilesDeletedAfterCompaction) {
   ASSERT_OK(Put("foo", "v2"));
   Compact("a", "z");
-  const int num_files = CountFiles();
+  const int num_files = CountLiveFiles();
   for (int i = 0; i < 10; i++) {
     ASSERT_OK(Put("foo", "v2"));
     Compact("a", "z");
   }
-  // ASSERT_EQ(CountFiles(), num_files); TODO
+  ASSERT_EQ(CountLiveFiles(), num_files);
 }
 
 TEST(DBTest, BloomFilter) {

@@ -312,7 +312,7 @@ class Stats {
 
   void SetId(int id) { id_ = id; }
 
-  void FinishedSingleOp() {
+  void FinishedSingleOp(DB* db) {
     if (FLAGS_histogram) {
       double now = FLAGS_env->NowMicros();
       double micros = now - last_op_finish_;
@@ -339,13 +339,18 @@ class Stats {
       } else {
         double now = FLAGS_env->NowMicros();
         fprintf(stderr,
-                "%s thread %d: %ld ops in %.6f seconds and %.2f ops/sec\n",
+                "%s thread %d: (%ld,%ld) ops (interval,total) in %.6f seconds and %.2f ops/sec\n",
                 FLAGS_env->TimeToString((uint64_t) now/1000000).c_str(),
                 id_,
-                done_ - last_report_done_,
+                done_ - last_report_done_, done_,
                 (now - last_report_finish_) / 1000000.0,
                 (done_ - last_report_done_) /
                 ((now - last_report_finish_) / 1000000.0));
+
+        std::string stats;
+        if (db && db->GetProperty("leveldb.stats", &stats))
+          fprintf(stderr, stats.c_str());
+
         fflush(stderr);
         next_report_ += FLAGS_stats_interval;
         last_report_finish_ = now;
@@ -808,7 +813,7 @@ class Benchmark {
     uint32_t crc = 0;
     while (bytes < 500 * 1048576) {
       crc = crc32c::Value(data.data(), size);
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(NULL);
       bytes += size;
     }
     // Print so result is not dead
@@ -829,7 +834,7 @@ class Benchmark {
         ptr = ap.Acquire_Load();
       }
       count++;
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(NULL);
     }
     if (ptr == NULL) exit(1); // Disable unused variable warning.
   }
@@ -845,7 +850,7 @@ class Benchmark {
       ok = port::Snappy_Compress(input.data(), input.size(), &compressed);
       produced += compressed.size();
       bytes += input.size();
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(NULL);
     }
 
     if (!ok) {
@@ -870,7 +875,7 @@ class Benchmark {
       ok =  port::Snappy_Uncompress(compressed.data(), compressed.size(),
                                     uncompressed);
       bytes += input.size();
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(NULL);
     }
     delete[] uncompressed;
 
@@ -903,7 +908,7 @@ class Benchmark {
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
     options.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
-    options.level0_file_num_compaction_trigger = 
+    options.level0_file_num_compaction_trigger =
         FLAGS_level0_file_num_compaction_trigger;
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
@@ -945,7 +950,7 @@ class Benchmark {
         snprintf(key, sizeof(key), "%016d", k);
         batch.Put(key, gen.Generate(value_size_));
         bytes += value_size_ + strlen(key);
-        thread->stats.FinishedSingleOp();
+        thread->stats.FinishedSingleOp(db_);
       }
       s = db_->Write(write_options_, &batch);
       if (!s.ok()) {
@@ -962,7 +967,7 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(db_);
       ++i;
     }
     delete iter;
@@ -975,7 +980,7 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(db_);
       ++i;
     }
     delete iter;
@@ -993,7 +998,7 @@ class Benchmark {
       if (db_->Get(options, key, &value).ok()) {
         found++;
       }
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(db_);
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "(%ld of %ld found)", found, num_);
@@ -1008,7 +1013,7 @@ class Benchmark {
       const int k = thread->rand.Next() % FLAGS_num;
       snprintf(key, sizeof(key), "%016d.", k);
       db_->Get(options, key, &value);
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(db_);
     }
   }
 
@@ -1021,7 +1026,7 @@ class Benchmark {
       const int k = thread->rand.Next() % range;
       snprintf(key, sizeof(key), "%016d", k);
       db_->Get(options, key, &value);
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(db_);
     }
   }
 
@@ -1037,7 +1042,7 @@ class Benchmark {
       iter->Seek(key);
       if (iter->Valid() && iter->key() == key) found++;
       delete iter;
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(db_);
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "(%ld of %ld found)", found, num_);
@@ -1055,7 +1060,7 @@ class Benchmark {
         char key[100];
         snprintf(key, sizeof(key), "%016d", k);
         batch.Delete(key);
-        thread->stats.FinishedSingleOp();
+        thread->stats.FinishedSingleOp(db_);
       }
       s = db_->Write(write_options_, &batch);
       if (!s.ok()) {
@@ -1144,7 +1149,7 @@ class Benchmark {
         put_weight--;
         writes_done++;
       }
-      thread->stats.FinishedSingleOp();
+      thread->stats.FinishedSingleOp(db_);
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld )",
