@@ -268,6 +268,7 @@ static bool NewestFirst(FileMetaData* a, FileMetaData* b) {
 
 Version::Version(VersionSet* vset, uint64_t version_number)
     : vset_(vset), next_(this), prev_(this), refs_(0),
+      files_by_size_(vset->NumberLevels()),
       file_to_compact_(NULL),
       file_to_compact_level_(-1),
       compaction_score_(vset->NumberLevels()),
@@ -564,6 +565,11 @@ class VersionSet::Builder {
   Version* base_;
   LevelState* levels_;
 
+  typedef struct fsize {
+    int index;
+    FileMetaData* file;
+  } Fsize;
+
  public:
   // Initialize a builder with the files from *base and other info from *vset
   Builder(VersionSet* vset, Version* base)
@@ -616,6 +622,7 @@ class VersionSet::Builder {
           }
         }
       }
+      assert(v->files_[level].size() == v->files_by_size_[level].size());
     }
 #endif
   }
@@ -712,8 +719,9 @@ class VersionSet::Builder {
       for (; base_iter != base_end; ++base_iter) {
         MaybeAddFile(v, level, *base_iter);
       }
-      CheckConsistency(v);
     }
+    UpdateFilesBySize(v);
+    CheckConsistency(v);
   }
 
   void MaybeAddFile(Version* v, int level, FileMetaData* f) {
@@ -728,6 +736,34 @@ class VersionSet::Builder {
       }
       f->refs++;
       files->push_back(f);
+    }
+  }
+
+  static bool compareSize(const Fsize& first, const Fsize& second) {
+    return (first.file->file_size > second.file->file_size);
+  }
+
+  void UpdateFilesBySize(Version* v) {
+    
+    for (int level = 0; level < vset_->NumberLevels(); level++) {
+      // populate a temp vector for sorting based on size
+      const std::vector<FileMetaData*>& files = v->files_[level];
+      std::vector<Fsize> temp(files.size());
+      for (unsigned int i = 0; i < files.size(); i++) {
+        temp[i].index = i;
+        temp[i].file = files[i];
+      }
+
+      // do the sort based on file size
+      std::sort(temp.begin(), temp.end(), compareSize);
+      assert(temp.size() == files.size());
+
+      // initialize files_by_size_
+      std::vector<int>& files_by_size = v->files_by_size_[level];
+      for (unsigned int i = 0; i < temp.size(); i++) {
+        files_by_size.push_back(temp[i].index);
+      }
+      assert(v->files_[level].size() == v->files_by_size_[level].size());
     }
   }
 };
@@ -1575,7 +1611,7 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
 
   // level 0 files are overlapping. So we cannot pick more
   // than one concurrent compactions at this level. This
-  // cold be made better by looking at key-ranges that are
+  // could be made better by looking at key-ranges that are
   // being compacted at level 0.
   if (level == 0 && compactions_in_progress_[level].size() == 1) {
     return NULL;
@@ -1586,41 +1622,31 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
   c = new Compaction(level, MaxFileSizeForLevel(level),
       MaxGrandParentOverlapBytes(level), NumberLevels());
 
-  // remember the first file that is not being compacted
-  int firstIndex = -1;
+  // Pick the largest file in this level that is not already
+  // being compacted
+  std::vector<int>& file_size = current_->files_by_size_[level];
+  for (unsigned int i = 0; i < file_size.size(); i++) {
+    int index = file_size[i];
+    FileMetaData* f = current_->files_[level][index];
 
-  // Pick the first file that comes after compact_pointer_[level]
-  for (size_t i = 0; i < current_->files_[level].size(); i++) {
-    FileMetaData* f = current_->files_[level][i];
+    // check to verify files are arranged in descending size
+    assert((i == file_size.size() - 1) ||
+          (f->file_size >= current_->files_[level][file_size[i+1]]->file_size));
+
     // do not pick a file to compact if it is being compacted
     // from n-1 level.
     if (f->being_compacted) {
       continue;
     }
-    if (firstIndex == -1) {
-      firstIndex = i;
+    // Do not pick this file if its parents at level+1 are being compacted.
+    // Maybe we can avoid redoing this work in SetupOtherInputs
+    if (ParentFilesInCompaction(f, level)) {
+      continue;
     }
+    c->inputs_[0].push_back(f);
+    break;
+  }
 
-    // Pick a file that has a key-range larger than the range
-    // we picked in the previous call to PickCompaction.
-    if (compact_pointer_[level].empty() ||
-        icmp_.Compare(f->largest.Encode(), compact_pointer_[level]) > 0) {
-      // Do not pick this file if its parents at level+1 are being compacted.
-      // Maybe we can avoid redoing this work in SetupOtherInputs
-      if (ParentFilesInCompaction(f, level)) {
-        continue;
-      }
-      c->inputs_[0].push_back(f);
-      break;
-    }
-  }
-  if (c->inputs_[0].empty() && firstIndex != -1) {
-    // Wrap-around to the beginning of the key space
-    FileMetaData* f = current_->files_[level][firstIndex];
-    if (!f->being_compacted && !ParentFilesInCompaction(f, level)) {
-      c->inputs_[0].push_back(f);
-    }
-  }
   if (c->inputs_[0].empty()) {
     delete c;
     c = NULL;

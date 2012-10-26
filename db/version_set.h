@@ -124,8 +124,15 @@ class Version {
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
 
-  // List of files per level
+  // List of files per level, files in each level are arranged
+  // in increasing order of keys
   std::vector<FileMetaData*>* files_;
+
+  // A list for the same set of files that are stored in files_,   
+  // but files in each level are now sorted based on file 
+  // size. The file with the largest size is at the front.
+  // This vector stores the index of the file from files_.
+  std::vector< std::vector<int> > files_by_size_;
 
   // Next file to compact based on seek stats.
   FileMetaData* file_to_compact_;
