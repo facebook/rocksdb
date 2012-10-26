@@ -235,6 +235,11 @@ class VersionSet {
     return (v->compaction_score_ >= 1) || (v->file_to_compact_ != NULL);
   }
 
+  // Returns the maxmimum compaction score for levels 1 to max
+  double MaxCompactionScore() const {
+    return current_->compaction_score_;
+  }
+
   // Add all files listed in any live version to *live.
   // May also mutate some internal state.
   void AddLiveFiles(std::set<uint64_t>* live);

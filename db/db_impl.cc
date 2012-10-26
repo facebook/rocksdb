@@ -184,6 +184,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       disable_delete_obsolete_files_(false),
       delete_obsolete_files_last_run_(0),
       stall_level0_slowdown_(0),
+      stall_leveln_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
       started_at_(options.env->NowMicros()) {
@@ -1488,6 +1489,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   assert(!writers_.empty());
   bool allow_delay = !force;
   Status s;
+  double score;
 
   while (true) {
     if (!bg_error_.ok()) {
@@ -1528,6 +1530,18 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       uint64_t t1 = env_->NowMicros();
       bg_cv_.Wait();
       stall_level0_num_files_ += env_->NowMicros() - t1;
+    } else if (
+        allow_delay &&
+        options_.rate_limit > 1.0 &&
+        (score = versions_->MaxCompactionScore()) > options_.rate_limit) {
+      // Delay a write when the compaction score for any level is too large.
+      mutex_.Unlock();
+      env_->SleepForMicroseconds(1000);
+      stall_leveln_slowdown_ += 1000;
+      allow_delay = false;  // Do not delay a single write more than once
+      Log(options_.info_log,
+          "delaying write for rate limits with max score %.2f\n", score);
+      mutex_.Lock();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
       assert(versions_->PrevLogNumber() == 0);
@@ -1640,10 +1654,11 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
 
     snprintf(buf, sizeof(buf),
             "Stalls(secs): %.3f level0_slowdown, %.3f level0_numfiles, "
-            "%.3f memtable_compaction\n",
+            "%.3f memtable_compaction, %.3f leveln_slowdown\n",
             stall_level0_slowdown_ / 1000000.0,
             stall_level0_num_files_ / 1000000.0,
-            stall_memtable_compaction_ / 1000000.0);
+            stall_memtable_compaction_ / 1000000.0,
+            stall_leveln_slowdown_ / 1000000.0);
     value->append(buf);
 
     return true;

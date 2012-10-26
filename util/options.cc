@@ -43,7 +43,8 @@ Options::Options()
       db_log_dir(""),
       disable_seek_compaction(false),
       max_log_file_size(0),
-      delete_obsolete_files_period_micros(0) {
+      delete_obsolete_files_period_micros(0),
+      rate_limit(0.0) {
 }
 
 void
@@ -97,6 +98,8 @@ Options::Dump(
         disable_seek_compaction);
     Log(log,"    Options.delete_obsolete_files_period_micros: %ld",
         delete_obsolete_files_period_micros);
+    Log(log,"                             Options.rate_limit: %.2f",
+        rate_limit);
 }   // Options::Dump
 
 

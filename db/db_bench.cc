@@ -186,6 +186,15 @@ static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 // than zero. When 0 the interval grows over time.
 static int FLAGS_stats_interval = 0;
 
+// Reports additional stats per interval when this is greater
+// than 0.
+static int FLAGS_stats_per_interval = 0;
+
+// When not equal to 0 this make threads sleep at each stats
+// reporting interval until the compaction score for all levels is
+// less than or equal to this value.
+static double FLAGS_rate_limit = 0;
+
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
@@ -336,9 +345,11 @@ class Stats {
                 (done_ - last_report_done_) /
                 ((now - last_report_finish_) / 1000000.0));
 
-        std::string stats;
-        if (db && db->GetProperty("leveldb.stats", &stats))
-          fprintf(stderr, stats.c_str());
+        if (FLAGS_stats_per_interval) {
+          std::string stats;
+          if (db && db->GetProperty("leveldb.stats", &stats))
+            fprintf(stderr, stats.c_str());
+        }
 
         fflush(stderr);
         next_report_ += FLAGS_stats_interval;
@@ -903,6 +914,7 @@ class Benchmark {
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
+    options.rate_limit = FLAGS_rate_limit;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1316,6 +1328,12 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--stats_interval=%d%c", &n, &junk) == 1 &&
                n >= 0 && n < 2000000000) {
       FLAGS_stats_interval = n;
+    } else if (sscanf(argv[i], "--stats_per_interval=%d%c", &n, &junk) == 1
+        && (n == 0 || n == 1)) {
+      FLAGS_stats_per_interval = n;
+    } else if (sscanf(argv[i], "--rate_limit=%lf%c", &d, &junk) == 1 &&
+               d > 1.0) {
+      FLAGS_rate_limit = d;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

@@ -253,6 +253,10 @@ struct Options {
   // log file.
   size_t max_log_file_size;
 
+  // Puts are delayed when any level has a compaction score that
+  // exceeds rate_limit. This is ignored when <= 1.0.
+  double rate_limit;
+
   // Create an Options object with default values for all fields.
   Options();
 
