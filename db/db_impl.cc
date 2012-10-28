@@ -156,6 +156,12 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.block_cache == NULL) {
     result.block_cache = NewLRUCache(8 << 20);
   }
+  if (src.compression_per_level != NULL) {
+    result.compression_per_level = new CompressionType[src.num_levels];
+    for (unsigned int i = 0; i < src.num_levels; i++) {
+      result.compression_per_level[i] = src.compression_per_level[i];
+    }
+  }
   return result;
 }
 
@@ -245,6 +251,9 @@ DBImpl::~DBImpl() {
   }
   if (owns_cache_) {
     delete options_.block_cache;
+  }
+  if (options_.compression_per_level != NULL) {
+    delete options_.compression_per_level;
   }
 
   delete logger_;
@@ -961,7 +970,8 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   std::string fname = TableFileName(dbname_, file_number);
   Status s = env_->NewWritableFile(fname, &compact->outfile);
   if (s.ok()) {
-    compact->builder = new TableBuilder(options_, compact->outfile);
+    compact->builder = new TableBuilder(options_, compact->outfile,
+                                        compact->compaction->level() + 1);
   }
   return s;
 }

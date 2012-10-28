@@ -179,6 +179,10 @@ static uint64_t FLAGS_delete_obsolete_files_period_micros = 0;
 static enum leveldb::CompressionType FLAGS_compression_type =
     leveldb::kSnappyCompression;
 
+// Allows compression for levels 0 and 1 to be disabled when	
+// other levels are compressed	
+static int FLAGS_min_level_to_compress = -1;
+
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 
@@ -913,6 +917,17 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type;
+    if (FLAGS_min_level_to_compress >= 0) {
+      assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
+      options.compression_per_level = new CompressionType[FLAGS_num_levels];
+      for (unsigned int i = 0; i < FLAGS_min_level_to_compress; i++) {
+        options.compression_per_level[i] = kNoCompression;
+      }
+      for (unsigned int i = FLAGS_min_level_to_compress; 
+           i < FLAGS_num_levels; i++) {
+        options.compression_per_level[i] = FLAGS_compression_type;
+      }
+    }
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
@@ -921,6 +936,9 @@ class Benchmark {
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
+    }
+    if (FLAGS_min_level_to_compress >= 0) {
+      delete options.compression_per_level;
     }
   }
 
@@ -1321,6 +1339,9 @@ int main(int argc, char** argv) {
       else {
         fprintf(stdout, "Cannot parse %s\n", argv[i]);
       }
+    } else if (sscanf(argv[i], "--min_level_to_compress=%d%c", &n, &junk) == 1	
+        && n >= 0) {	
+      FLAGS_min_level_to_compress = n;
     } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
       FLAGS_disable_seek_compaction = n;

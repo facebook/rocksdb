@@ -60,8 +60,9 @@ struct TableBuilder::Rep {
   }
 };
 
-TableBuilder::TableBuilder(const Options& options, WritableFile* file)
-    : rep_(new Rep(options, file)) {
+TableBuilder::TableBuilder(const Options& options, WritableFile* file,
+                           int level)
+    : rep_(new Rep(options, file)), level_(level) {
   if (rep_->filter_block != NULL) {
     rep_->filter_block->StartBlock(0);
   }
@@ -152,7 +153,21 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 
   Slice block_contents;
   std::string* compressed = &r->compressed_output;
-  CompressionType type = r->options.compression;
+  CompressionType type;
+  // If the use has specified a different compression level for each level,
+  // then pick the compresison for that level.
+  if (r->options.compression_per_level != NULL) {
+    if (level_ == -1) {
+      // this is mostly for backward compatibility. The builder does not
+      // know which level this file belongs to. Apply the compression level
+      // specified for level 0 to all levels.
+      type = r->options.compression_per_level[0];
+    } else {
+      type = r->options.compression_per_level[level_];
+    }
+  } else {
+    type = r->options.compression;
+  }
   switch (type) {
     case kNoCompression:
       block_contents = raw;

@@ -134,6 +134,20 @@ struct Options {
   // efficiently detect that and will switch to uncompressed mode.
   CompressionType compression;
 
+  // Different levels can have different compression policies. There
+  // are cases where most lower levels would like to quick compression
+  // algorithm while the higher levels (which have more data) use
+  // compression algorithms that have better compression but could
+  // be slower. This array, if non NULL, should have an entry for
+  // each level of the database. This array, if non NULL, overides the
+  // value specified in the previous field 'compression'. The caller is
+  // reponsible for allocating memory and initializing the values in it
+  // before invoking Open(). The caller is responsible for freeing this
+  // array and it could be freed anytime after the return from Open().
+  // This could have been a std::vector but that makes the equivalent 
+  // java/C api hard to construct.
+  CompressionType* compression_per_level;
+
   // If non-NULL, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
