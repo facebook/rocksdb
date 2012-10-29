@@ -20,6 +20,24 @@
 
 namespace leveldb {
 
+static bool SnappyCompressionSupported() {	
+  std::string out;	
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";	
+  return port::Snappy_Compress(in.data(), in.size(), &out);	
+}	
+	
+static bool ZlibCompressionSupported() {	
+  std::string out;	
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";	
+  return port::Zlib_Compress(in.data(), in.size(), &out);	
+}	
+	
+static bool BZip2CompressionSupported() {	
+  std::string out;	
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";	
+  return port::BZip2_Compress(in.data(), in.size(), &out);	
+}	
+
 static std::string RandomString(Random* rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
@@ -1057,6 +1075,80 @@ TEST(DBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
 }
+
+void MinLevelHelper(DBTest* self, Options& options) {	
+  Random rnd(301);	
+	
+  for (int num = 0;	
+    num < options.level0_file_num_compaction_trigger - 1;	
+    num++)	
+  {	
+    std::vector<std::string> values;	
+    // Write 120KB (12 values, each 10K)	
+    for (int i = 0; i < 12; i++) {	
+      values.push_back(RandomString(&rnd, 10000));	
+      ASSERT_OK(self->Put(Key(i), values[i]));	
+    }	
+    self->dbfull()->TEST_WaitForCompactMemTable();	
+    ASSERT_EQ(self->NumTableFilesAtLevel(0), num + 1);	
+  }	
+	
+  //generate one more file in level-0, and should trigger level-0 compaction	
+  std::vector<std::string> values;	
+  for (int i = 0; i < 12; i++) {	
+    values.push_back(RandomString(&rnd, 10000));	
+    ASSERT_OK(self->Put(Key(i), values[i]));	
+  }	
+  self->dbfull()->TEST_WaitForCompact();	
+	
+  ASSERT_EQ(self->NumTableFilesAtLevel(0), 0);	
+  ASSERT_EQ(self->NumTableFilesAtLevel(1), 1);	
+}	
+	
+TEST(DBTest, MinLevelToCompress) {	
+  Options options = CurrentOptions();	
+  options.write_buffer_size = 100<<10; //100KB	
+  options.num_levels = 3;	
+  options.max_mem_compaction_level = 0;	
+  options.level0_file_num_compaction_trigger = 3;	
+  options.create_if_missing = true;
+  CompressionType type;
+	
+  if (SnappyCompressionSupported()) {	
+    type = kSnappyCompression;	
+    fprintf(stderr, "using snappy\n");	
+  } else if (ZlibCompressionSupported()) {	
+    type = kZlibCompression;	
+    fprintf(stderr, "using zlib\n");	
+  } else if (BZip2CompressionSupported()) {	
+    type = kBZip2Compression;	
+    fprintf(stderr, "using bzip2\n");	
+  } else {	
+    fprintf(stderr, "skipping test, compression disabled\n");	
+    return;	
+  }	
+  options.compression_per_level = new CompressionType[options.num_levels];
+
+  // do not compress L0
+  for (int i = 0; i < 1; i++) {
+    options.compression_per_level[i] = kNoCompression;
+  }
+  for (int i = 1; i < options.num_levels; i++) {
+    options.compression_per_level[i] = type;
+  }
+  Reopen(&options);	
+  MinLevelHelper(this, options);	
+	
+  // do not compress L0 and L1
+  for (int i = 0; i < 2; i++) {
+    options.compression_per_level[i] = kNoCompression;
+  }
+  for (int i = 2; i < options.num_levels; i++) {
+    options.compression_per_level[i] = type;
+  }
+  DestroyAndReopen(&options);	
+  MinLevelHelper(this, options);	
+}	
 
 TEST(DBTest, RepeatedWritesToSameKey) {
   Options options = CurrentOptions();

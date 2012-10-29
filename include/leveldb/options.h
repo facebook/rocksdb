@@ -141,6 +141,20 @@ struct Options {
   // efficiently detect that and will switch to uncompressed mode.
   CompressionType compression;
 
+  // Different levels can have different compression policies. There
+  // are cases where most lower levels would like to quick compression
+  // algorithm while the higher levels (which have more data) use
+  // compression algorithms that have better compression but could
+  // be slower. This array, if non NULL, should have an entry for
+  // each level of the database. This array, if non NULL, overides the
+  // value specified in the previous field 'compression'. The caller is
+  // reponsible for allocating memory and initializing the values in it
+  // before invoking Open(). The caller is responsible for freeing this
+  // array and it could be freed anytime after the return from Open().
+  // This could have been a std::vector but that makes the equivalent 
+  // java/C api hard to construct.
+  CompressionType* compression_per_level;
+
   // If non-NULL, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
@@ -256,6 +270,17 @@ struct Options {
   // Maximum number of concurrent background compactions.
   // Default: 1
   int max_background_compactions;
+
+  // Specify the maximal size of the info log file. If the log file
+  // is larger than `max_log_file_size`, a new info log file will
+  // be created.
+  // If max_log_file_size == 0, all logs will be written to one
+  // log file.
+  size_t max_log_file_size;
+
+  // Puts are delayed when any level has a compaction score that
+  // exceeds rate_limit. This is ignored when <= 1.0.
+  double rate_limit;
 
   // Create an Options object with default values for all fields.
   Options();

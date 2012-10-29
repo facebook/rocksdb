@@ -35,10 +35,39 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/build_version.h"
+#include "util/auto_split_logger.h"
 
 namespace leveldb {
 
 void dumpLeveldbBuildVersion(Logger * log);
+
+static Status NewLogger(const std::string& dbname,
+                        const std::string& db_log_dir,
+                        Env* env,
+                        size_t max_log_file_size,
+                        Logger** logger) {
+  std::string db_absolute_path;
+  env->GetAbsolutePath(dbname, &db_absolute_path);
+
+  if (max_log_file_size > 0) { // need to auto split the log file?
+    AutoSplitLogger<Logger>* auto_split_logger =
+      new AutoSplitLogger<Logger>(env, dbname, db_log_dir, max_log_file_size);
+    Status s = auto_split_logger->GetStatus();
+    if (!s.ok()) {
+      delete auto_split_logger;
+    } else {
+      *logger = auto_split_logger;
+    }
+    return s;
+  } else {
+    // Open a log file in the same directory as the db
+    env->CreateDir(dbname);  // In case it does not exist
+    std::string fname = InfoLogFileName(dbname, db_absolute_path, db_log_dir);
+    env->RenameFile(fname, OldInfoLogFileName(dbname, env->NowMicros(),
+                                              db_absolute_path, db_log_dir));
+    return env->NewLogger(fname, logger);
+  }
+}
 
 // Information kept for every waiting writer
 struct DBImpl::Writer {
@@ -118,16 +147,9 @@ Options SanitizeOptions(const std::string& dbname,
   ClipToRange(&result.max_open_files,            20,     50000);
   ClipToRange(&result.write_buffer_size,         64<<10, 1<<30);
   ClipToRange(&result.block_size,                1<<10,  4<<20);
-  std::string db_absolute_path;
-  src.env->GetAbsolutePath(dbname, &db_absolute_path);
   if (result.info_log == NULL) {
-    // Open a log file in the same directory as the db
-    src.env->CreateDir(dbname);  // In case it does not exist
-    src.env->RenameFile(InfoLogFileName(dbname, db_absolute_path,
-        result.db_log_dir), OldInfoLogFileName(dbname,src.env->NowMicros(),
-            db_absolute_path, result.db_log_dir));
-    Status s = src.env->NewLogger(InfoLogFileName(dbname, db_absolute_path,
-        result.db_log_dir), &result.info_log);
+    Status s = NewLogger(dbname, result.db_log_dir, src.env,
+                         result.max_log_file_size, &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
       result.info_log = NULL;
@@ -135,6 +157,12 @@ Options SanitizeOptions(const std::string& dbname,
   }
   if (result.block_cache == NULL) {
     result.block_cache = NewLRUCache(8 << 20);
+  }
+  if (src.compression_per_level != NULL) {
+    result.compression_per_level = new CompressionType[src.num_levels];
+    for (unsigned int i = 0; i < src.num_levels; i++) {
+      result.compression_per_level[i] = src.compression_per_level[i];
+    }
   }
   return result;
 }
@@ -163,6 +191,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       disable_delete_obsolete_files_(false),
       delete_obsolete_files_last_run_(0),
       stall_level0_slowdown_(0),
+      stall_leveln_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
       started_at_(options.env->NowMicros()),
@@ -223,6 +252,9 @@ DBImpl::~DBImpl() {
   }
   if (owns_cache_) {
     delete options_.block_cache;
+  }
+  if (options_.compression_per_level != NULL) {
+    delete options_.compression_per_level;
   }
 
   delete logger_;
@@ -1097,7 +1129,8 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   std::string fname = TableFileName(dbname_, file_number);
   Status s = env_->NewWritableFile(fname, &compact->outfile);
   if (s.ok()) {
-    compact->builder = new TableBuilder(options_, compact->outfile);
+    compact->builder = new TableBuilder(options_, compact->outfile,
+                                        compact->compaction->level() + 1);
   }
   return s;
 }
@@ -1656,6 +1689,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   assert(!writers_.empty());
   bool allow_delay = !force;
   Status s;
+  double score;
 
   while (true) {
     if (!bg_error_.ok()) {
@@ -1701,6 +1735,18 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       Log(options_.info_log, "wait for fewer level0 files...\n");
       bg_cv_.Wait();
       stall_level0_num_files_ += env_->NowMicros() - t1;
+    } else if (
+        allow_delay &&
+        options_.rate_limit > 1.0 &&
+        (score = versions_->MaxCompactionScore()) > options_.rate_limit) {
+      // Delay a write when the compaction score for any level is too large.
+      mutex_.Unlock();
+      env_->SleepForMicroseconds(1000);
+      stall_leveln_slowdown_ += 1000;
+      allow_delay = false;  // Do not delay a single write more than once
+      Log(options_.info_log,
+          "delaying write for rate limits with max score %.2f\n", score);
+      mutex_.Lock();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
       DelayLoggingAndReset();
@@ -1789,8 +1835,9 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             stats_[level].bytes_readnp1 / 1048576.0,
             bytes_new / 1048576.0,
             amplify,
-            bytes_read / 1048576.0 / seconds_up,
-            stats_[level].bytes_written / 1048576.0 / seconds_up,
+            (bytes_read / 1048576.0) / (stats_[level].micros / 1000000.0),
+            (stats_[level].bytes_written / 1048576.0) /
+                (stats_[level].micros / 1000000.0),
             stats_[level].files_in_leveln,
             stats_[level].files_in_levelnp1,
             stats_[level].files_out_levelnp1,
@@ -1801,10 +1848,12 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     }
 
     snprintf(buf, sizeof(buf),
-             "Amplification: %.1f rate, %.2f GB in, %.2f GB out\n",
+             "Amplification: %.1f rate, %.2f GB in, %.2f GB out, %.2f MB/sec in, %.2f MB/sec out\n",
              (double) total_bytes / stats_[0].bytes_written,
              stats_[0].bytes_written / (1048576.0 * 1024),
-             total_bytes / (1048576.0 * 1024));
+             total_bytes / (1048576.0 * 1024),
+             stats_[0].bytes_written / 1048576.0 / seconds_up,
+             total_bytes / 1048576.0 / seconds_up);
     value->append(buf);
 
     snprintf(buf, sizeof(buf), "Uptime(secs): %.1f\n", seconds_up);
@@ -1812,10 +1861,11 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
 
     snprintf(buf, sizeof(buf),
             "Stalls(secs): %.3f level0_slowdown, %.3f level0_numfiles, "
-            "%.3f memtable_compaction\n",
+            "%.3f memtable_compaction, %.3f leveln_slowdown\n",
             stall_level0_slowdown_ / 1000000.0,
             stall_level0_num_files_ / 1000000.0,
-            stall_memtable_compaction_ / 1000000.0);
+            stall_memtable_compaction_ / 1000000.0,
+            stall_leveln_slowdown_ / 1000000.0);
     value->append(buf);
 
     return true;

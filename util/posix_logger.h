@@ -20,8 +20,11 @@ class PosixLogger : public Logger {
  private:
   FILE* file_;
   uint64_t (*gettid_)();  // Return the thread id for the current thread
+
+  size_t log_size_;
  public:
-  PosixLogger(FILE* f, uint64_t (*gettid)()) : file_(f), gettid_(gettid) { }
+  PosixLogger(FILE* f, uint64_t (*gettid)()) :
+    file_(f), gettid_(gettid), log_size_(0) { }
   virtual ~PosixLogger() {
     fclose(file_);
   }
@@ -85,11 +88,16 @@ class PosixLogger : public Logger {
       assert(p <= limit);
       fwrite(base, 1, p - base, file_);
       fflush(file_);
+      log_size_ += (p - base);
+
       if (base != buffer) {
         delete[] base;
       }
       break;
     }
+  }
+  size_t GetLogFileSize() const {
+    return log_size_;
   }
 };
 

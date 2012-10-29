@@ -226,9 +226,9 @@ class WritableFile {
   virtual Status Flush() = 0;
   virtual Status Sync() = 0; // sync data
 
-  /* 
+  /*
    * Sync data and/or metadata as well.
-   * By default, sync only metadata. 
+   * By default, sync only metadata.
    * Override this method for environments where we need to sync
    * metadata as well.
    */
@@ -252,11 +252,15 @@ class WritableFile {
 // An interface for writing log messages.
 class Logger {
  public:
+  enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
   Logger() { }
   virtual ~Logger();
 
   // Write an entry to the log file with the specified format.
   virtual void Logv(const char* format, va_list ap) = 0;
+  virtual size_t GetLogFileSize() const {
+    return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;
+  }
 
  private:
   // No copying allowed

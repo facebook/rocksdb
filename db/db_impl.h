@@ -228,6 +228,7 @@ class DBImpl : public DB {
   uint64_t stall_level0_slowdown_;
   uint64_t stall_memtable_compaction_;
   uint64_t stall_level0_num_files_;
+  uint64_t stall_leveln_slowdown_;
 
   // Time at which this instance was started.
   const uint64_t started_at_;

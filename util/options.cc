@@ -25,6 +25,7 @@ Options::Options()
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
+      compression_per_level(NULL),
       filter_policy(NULL),
       num_levels(7),
       level0_file_num_compaction_trigger(4),
@@ -44,7 +45,9 @@ Options::Options()
       db_log_dir(""),
       disable_seek_compaction(false),
       delete_obsolete_files_period_micros(0),
-      max_background_compactions(1) {
+      max_background_compactions(1),
+      max_log_file_size(0),
+      rate_limit(0.0) {
 }
 
 void
@@ -70,7 +73,21 @@ Options::Dump(
     Log(log,"              Options.num_levels: %d", num_levels);
     Log(log,"         Options.disableDataSync: %d", disableDataSync);
     Log(log,"               Options.use_fsync: %d", use_fsync);
-    Log(log,"   Options.db_stats_log_interval: %d", 
+    if (compression_per_level != NULL) {
+       for (unsigned int i = 0; i < num_levels; i++){
+          Log(log,"       Options.compression[%d]: %d", 
+              i, compression_per_level[i]);
+       }
+    } else {
+      Log(log,"         Options.compression: %d", compression);
+    }
+    Log(log,"         Options.filter_policy: %s",
+        filter_policy == NULL ? "NULL" : filter_policy->Name());
+    Log(log,"            Options.num_levels: %d", num_levels);
+    Log(log,"       Options.disableDataSync: %d", disableDataSync);
+    Log(log,"             Options.use_fsync: %d", use_fsync);
+    Log(log,"     Options.max_log_file_size: %d", max_log_file_size);
+    Log(log," Options.db_stats_log_interval: %d", 
         db_stats_log_interval);
     Log(log,"     Options.level0_file_num_compaction_trigger: %d",
         level0_file_num_compaction_trigger);
@@ -100,6 +117,8 @@ Options::Dump(
         delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",
         max_background_compactions);
+    Log(log,"                             Options.rate_limit: %.2f",
+        rate_limit);
 }   // Options::Dump
 
 
