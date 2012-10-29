@@ -1687,21 +1687,22 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
   DestroyDB(dbname, Options());
   Options opts;
   Status s;
+  DB* db = NULL;
   opts.create_if_missing = true;
-  s = DB::Open(opts, dbname, &db_);
+  s = DB::Open(opts, dbname, &db);
   ASSERT_OK(s);
-  ASSERT_TRUE(db_ != NULL);
-  db_->Put(WriteOptions(), "a", "123");
-  db_->Put(WriteOptions(), "b", "234");
-  db_->CompactRange(NULL, NULL);
-  delete db_;
-  db_ = NULL;
+  ASSERT_TRUE(db != NULL);
+  db->Put(WriteOptions(), "a", "123");
+  db->Put(WriteOptions(), "b", "234");
+  db->CompactRange(NULL, NULL);
+  delete db;
+  db = NULL;
 
   opts.create_if_missing = false;
   opts.num_levels = 2;
-  s = DB::Open(opts, dbname, &db_);
+  s = DB::Open(opts, dbname, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "Corruption") != NULL);
-  ASSERT_TRUE(db_ == NULL);
+  ASSERT_TRUE(db == NULL);
 }
 
 // Check that number of files does not grow when we are out of space
