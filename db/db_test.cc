@@ -1682,6 +1682,28 @@ TEST(DBTest, DBOpen_Options) {
   db = NULL;
 }
 
+TEST(DBTest, DBOpen_Change_NumLevels) {
+  std::string dbname = test::TmpDir() + "/db_change_num_levels";
+  DestroyDB(dbname, Options());
+  Options opts;
+  Status s;
+  opts.create_if_missing = true;
+  s = DB::Open(opts, dbname, &db_);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db_ != NULL);
+  db_->Put(WriteOptions(), "a", "123");
+  db_->Put(WriteOptions(), "b", "234");
+  db_->CompactRange(NULL, NULL);
+  delete db_;
+  db_ = NULL;
+
+  opts.create_if_missing = false;
+  opts.num_levels = 2;
+  s = DB::Open(opts, dbname, &db_);
+  ASSERT_TRUE(strstr(s.ToString().c_str(), "Corruption") != NULL);
+  ASSERT_TRUE(db_ == NULL);
+}
+
 // Check that number of files does not grow when we are out of space
 TEST(DBTest, NoSpace) {
   Options options = CurrentOptions();
