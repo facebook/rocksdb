@@ -47,7 +47,8 @@ Options::Options()
       table_cache_numshardbits(4),
       max_log_file_size(0),
       delete_obsolete_files_period_micros(0),
-      rate_limit(0.0) {
+      rate_limit(0.0), 
+      CompactionFilter(NULL) {
 }
 
 void
@@ -123,6 +124,8 @@ Options::Dump(
         delete_obsolete_files_period_micros);
     Log(log,"                             Options.rate_limit: %.2f",
         rate_limit);
+    Log(log,"                       Options.CompactionFilter: %p",
+        CompactionFilter);
 }   // Options::Dump
 
 

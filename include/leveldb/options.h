@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <string>
 #include <stdint.h>
+#include "leveldb/slice.h"
 
 namespace leveldb {
 
@@ -299,6 +300,21 @@ struct Options {
   Options();
 
   void Dump(Logger * log) const;
+
+  // This method allows an application to modify/delete a key-value at 
+  // the time of compaction. The compaction process invokes this
+  // method for every kv that is being compacted. A return value
+  // of false indicates that the kv should be preserved in the
+  // output of this compaction run and a return value of true
+  // indicates that this key-value should be removed from the 
+  // output of the compaction.  The application can inspect
+  // the existing value of the key, modify it if needed and
+  // return back the new value for this key. The application
+  // should allocate memory for the Slice object that is used to
+  // return the new value and the leveldb framework will
+  // free up that memory.
+  bool (*CompactionFilter)(int level, const Slice& key, 
+         const Slice& existing_value, Slice** new_value);
 };
 
 // Options that control read operations
