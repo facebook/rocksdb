@@ -1517,10 +1517,14 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
+      uint64_t t1 = env_->NowMicros();
       env_->SleepForMicroseconds(1000);
-      stall_level0_slowdown_ += 1000;
+      uint64_t delayed = env_->NowMicros() - t1;
+      stall_level0_slowdown_ += delayed;
       allow_delay = false;  // Do not delay a single write more than once
-      Log(options_.info_log, "delaying write...\n");
+      Log(options_.info_log,
+          "delaying write %llu usecs for level0_slowdown_writes_trigger\n",
+           delayed);
       mutex_.Lock();
     } else if (!force &&
                (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
@@ -1546,11 +1550,14 @@ Status DBImpl::MakeRoomForWrite(bool force) {
         (score = versions_->MaxCompactionScore()) > options_.rate_limit) {
       // Delay a write when the compaction score for any level is too large.
       mutex_.Unlock();
+      uint64_t t1 = env_->NowMicros();
       env_->SleepForMicroseconds(1000);
-      stall_leveln_slowdown_ += 1000;
+      uint64_t delayed = env_->NowMicros() - t1;
+      stall_leveln_slowdown_ += delayed;
       allow_delay = false;  // Do not delay a single write more than once
       Log(options_.info_log,
-          "delaying write for rate limits with max score %.2f\n", score);
+          "delaying write %llu usecs for rate limits with max score %.2f\n",
+          delayed, score);
       mutex_.Lock();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
