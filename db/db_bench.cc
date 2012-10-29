@@ -338,12 +338,14 @@ class Stats {
       } else {
         double now = FLAGS_env->NowMicros();
         fprintf(stderr,
-                "... thread %d: (%ld,%ld) ops (interval,total) in %.6f seconds and %.2f ops/sec\n",
+                "... thread %d: (%ld,%ld) ops and (%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
                 id_,
                 done_ - last_report_done_, done_,
-                (now - last_report_finish_) / 1000000.0,
                 (done_ - last_report_done_) /
-                ((now - last_report_finish_) / 1000000.0));
+                ((now - last_report_finish_) / 1000000.0),
+                done_ / ((now - start_) / 1000000.0),
+                (now - last_report_finish_) / 1000000.0,
+                (now - start_) / 1000000.0);
 
         if (FLAGS_stats_per_interval) {
           std::string stats;

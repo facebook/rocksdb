@@ -1643,10 +1643,12 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     }
 
     snprintf(buf, sizeof(buf),
-             "Amplification: %.1f rate, %.2f GB in, %.2f GB out\n",
+             "Amplification: %.1f rate, %.2f GB in, %.2f GB out, %.2f MB/sec in, %.2f MB/sec out\n",
              (double) total_bytes / stats_[0].bytes_written,
              stats_[0].bytes_written / (1048576.0 * 1024),
-             total_bytes / (1048576.0 * 1024));
+             total_bytes / (1048576.0 * 1024),
+             stats_[0].bytes_written / 1048576.0 / seconds_up,
+             total_bytes / 1048576.0 / seconds_up);
     value->append(buf);
 
     snprintf(buf, sizeof(buf), "Uptime(secs): %.1f\n", seconds_up);
