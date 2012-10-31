@@ -51,6 +51,7 @@ TESTS = \
 	table_test \
 	version_edit_test \
 	version_set_test \
+	reduce_levels_test \
 	write_batch_test \
 	filelock_test
 
@@ -172,6 +173,9 @@ version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 version_set_test: db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
+
+reduce_levels_test: tools/reduce_levels_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) tools/reduce_levels_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
 
 write_batch_test: db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)

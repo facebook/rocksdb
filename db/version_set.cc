@@ -437,8 +437,8 @@ int Version::PickLevelForMemTableOutput(
         break;
       }
       if (level + 2 >= vset_->NumberLevels()) {
-	level++;
-	break;
+        level++;
+        break;
       }
       GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
       const int64_t sum = TotalFileSize(overlaps);
@@ -714,21 +714,10 @@ VersionSet::VersionSet(const std::string& dbname,
       descriptor_file_(NULL),
       descriptor_log_(NULL),
       dummy_versions_(this),
-      current_(NULL) {
+      current_(NULL),
+      num_levels_(options_->num_levels) {
   compact_pointer_ = new std::string[options_->num_levels];
-  max_file_size_ = new uint64_t[options_->num_levels];
-  level_max_bytes_ = new uint64_t[options->num_levels];
-  int target_file_size_multiplier = options_->target_file_size_multiplier;
-  int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
-  for (int i = 0; i < options_->num_levels; i++) {
-    if (i > 1) {
-      max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
-      level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
-    } else {
-      max_file_size_[i] = options_->target_file_size_base;
-      level_max_bytes_[i] = options_->max_bytes_for_level_base;
-    }
-  }
+  Init(options_->num_levels);
   AppendVersion(new Version(this));
 }
 
@@ -740,6 +729,22 @@ VersionSet::~VersionSet() {
   delete[] level_max_bytes_;
   delete descriptor_log_;
   delete descriptor_file_;
+}
+
+void VersionSet::Init(int num_levels) {
+  max_file_size_ = new uint64_t[num_levels];
+  level_max_bytes_ = new uint64_t[num_levels];
+  int target_file_size_multiplier = options_->target_file_size_multiplier;
+  int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
+  for (int i = 0; i < num_levels; i++) {
+    if (i > 1) {
+      max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
+      level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
+    } else {
+      max_file_size_[i] = options_->target_file_size_base;
+      level_max_bytes_[i] = options_->max_bytes_for_level_base;
+    }
+  }
 }
 
 void VersionSet::AppendVersion(Version* v) {
@@ -759,7 +764,8 @@ void VersionSet::AppendVersion(Version* v) {
   v->next_->prev_ = v;
 }
 
-Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
+Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
+    bool new_descriptor_log) {
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= log_number_);
     assert(edit->log_number_ < next_file_number_);
@@ -787,10 +793,10 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   std::string new_manifest_file;
   uint64_t new_manifest_file_size = 0;
   Status s;
-  if (descriptor_log_ == NULL) {
+  if (descriptor_log_ == NULL || new_descriptor_log) {
     // No reason to unlock *mu here since we only hit this path in the
     // first call to LogAndApply (when opening the database).
-    assert(descriptor_file_ == NULL);
+    assert(descriptor_file_ == NULL || new_descriptor_log)
     new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
     s = env_->NewWritableFile(new_manifest_file, &descriptor_file_);
@@ -1089,7 +1095,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
            last_sequence, log_number, prev_log_number);
     printf("%s \n", v->DebugString().c_str());
   }
-
 
   return s;
 }
