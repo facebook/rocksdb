@@ -152,6 +152,17 @@ class Version {
   // This vector stores the index of the file from files_.
   std::vector< std::vector<int> > files_by_size_;
 
+  // An index into files_by_size_ that specifies the first
+  // file that is not yet compacted
+  std::vector<int> next_file_to_compact_by_size_;
+
+  // Only the first few entries of files_by_size_ are sorted.
+  // There is no need to sort all the files because it is likely
+  // that on a running system, we need to look at only the first
+  // few largest files because a new version is created every few
+  // seconds/minutes (because of concurrent compactions).
+  static const int number_of_files_to_sort_ = 50;
+
   // Next file to compact based on seek stats.
   FileMetaData* file_to_compact_;
   int file_to_compact_level_;
@@ -175,6 +186,12 @@ class Version {
   explicit Version(VersionSet* vset, uint64_t version_number = 0);
 
   ~Version();
+
+  // re-initializes the index that is used to offset into files_by_size_
+  // to find the next compaction candidate file.
+  void ResetNextCompactionIndex(int level) {
+    next_file_to_compact_by_size_[level] = 0;
+  } 
 
   // No copying allowed
   Version(const Version&);
@@ -330,13 +347,23 @@ class VersionSet {
   Compaction* PickCompactionBySize(int level);
 
   // Free up the files that were participated in a compaction
-  void ReleaseCompactionFiles(Compaction* c);
+  void ReleaseCompactionFiles(Compaction* c, Status status);
 
   // verify that the files that we started with for a compaction
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact.
   bool VerifyCompactionFileConsistency(Compaction* c);
+
+  // used to sort files by size
+  typedef struct fsize {
+    int index;
+    FileMetaData* file;
+  } Fsize;
+
+  // Sort all files for this version based on their file size and
+  // record results in files_by_size_. The largest files are listed first.
+  void UpdateFilesBySize(Version *v);
 
  private:
   class Builder;
@@ -513,6 +540,10 @@ class Compaction {
 
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool);
+  
+  // In case of compaction error, reset the nextIndex that is used
+  // to pick up the next file to be compacted from files_by_size_
+  void ResetNextCompactionIndex();
 };
 
 }  // namespace leveldb

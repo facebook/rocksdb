@@ -414,7 +414,6 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
 }
 
 void DBImpl::EvictObsoleteFiles(DeletionState& state) {
-  mutex_.AssertHeld();
   for (unsigned int i = 0; i < state.files_to_evict.size(); i++) {
     table_cache_->Evict(state.files_to_evict[i]);
   }
@@ -946,8 +945,8 @@ void DBImpl::BackgroundCall() {
   if (!deletion_state.live.empty()) {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
-    mutex_.Lock();
     EvictObsoleteFiles(deletion_state);
+    mutex_.Lock();
   }
 
   bg_compaction_scheduled_--;
@@ -1020,13 +1019,13 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         static_cast<unsigned long long>(f->file_size),
         status.ToString().c_str(),
         versions_->LevelSummary(&tmp));
-    versions_->ReleaseCompactionFiles(c);
+    versions_->ReleaseCompactionFiles(c, status);
     *madeProgress = true;
   } else {
     CompactionState* compact = new CompactionState(c);
     status = DoCompactionWork(compact);
     CleanupCompaction(compact);
-    versions_->ReleaseCompactionFiles(c);
+    versions_->ReleaseCompactionFiles(c, status);
     c->ReleaseInputs();
     FindObsoleteFiles(deletion_state);
     *madeProgress = true;
