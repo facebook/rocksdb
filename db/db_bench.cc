@@ -183,6 +183,8 @@ static enum leveldb::CompressionType FLAGS_compression_type =
 // other levels are compressed	
 static int FLAGS_min_level_to_compress = -1;
 
+static int FLAGS_table_cache_numshardbits = 4;
+
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
 
@@ -897,6 +899,9 @@ class Benchmark {
     Options options;
     options.create_if_missing = !FLAGS_use_existing_db;
     options.block_cache = cache_;
+    if (cache_ == NULL) {
+      options.no_block_cache = true;
+    }
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
@@ -932,6 +937,7 @@ class Benchmark {
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
     options.rate_limit = FLAGS_rate_limit;
+    options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1256,6 +1262,13 @@ int main(int argc, char** argv) {
         fprintf(stderr, "The cache cannot be sharded into 2**%d pieces\n", n);
         exit(1);
       }
+    } else if (sscanf(argv[i], "--table_cache_numshardbits=%d%c",
+		      &n, &junk) == 1) {
+      if (n <= 0 || n > 20) {
+        fprintf(stderr, "The cache cannot be sharded into 2**%d pieces\n", n);
+        exit(1);
+      }
+      FLAGS_table_cache_numshardbits = n;
     } else if (sscanf(argv[i], "--bloom_bits=%d%c", &n, &junk) == 1) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {

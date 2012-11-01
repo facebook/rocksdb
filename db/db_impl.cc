@@ -153,7 +153,7 @@ Options SanitizeOptions(const std::string& dbname,
       result.info_log = NULL;
     }
   }
-  if (result.block_cache == NULL) {
+  if (result.block_cache == NULL && !result.no_block_cache) {
     result.block_cache = NewLRUCache(8 << 20);
   }
   if (src.compression_per_level != NULL) {
@@ -1735,6 +1735,10 @@ Status DB::Open(const Options& options, const std::string& dbname,
                 DB** dbptr) {
   *dbptr = NULL;
 
+  if (options.block_cache != NULL && options.no_block_cache) {
+    return Status::InvalidArgument(
+        "no_block_cache is true while block_cache is not NULL");
+  }
   DBImpl* impl = new DBImpl(options, dbname);
   impl->mutex_.Lock();
   VersionEdit edit(impl->NumberLevels());

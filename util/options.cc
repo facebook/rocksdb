@@ -43,6 +43,8 @@ Options::Options()
       db_stats_log_interval(1800),
       db_log_dir(""),
       disable_seek_compaction(false),
+      no_block_cache(false),
+      table_cache_numshardbits(4),
       max_log_file_size(0),
       delete_obsolete_files_period_micros(0),
       rate_limit(0.0) {
@@ -61,7 +63,10 @@ Options::Dump(
     Log(log,"     Options.write_buffer_size: %zd", write_buffer_size);
     Log(log,"        Options.max_open_files: %d", max_open_files);
     Log(log,"           Options.block_cache: %p", block_cache);
-    Log(log,"      Options.block_cache_size: %zd", block_cache->GetCapacity());
+    if (block_cache) {
+      Log(log,"      Options.block_cache_size: %zd",
+          block_cache->GetCapacity());
+    }
     Log(log,"            Options.block_size: %zd", block_size);
     Log(log,"Options.block_restart_interval: %d", block_restart_interval);
     if (compression_per_level != NULL) {
@@ -104,6 +109,10 @@ Options::Dump(
         db_log_dir.c_str());
     Log(log,"                Options.disable_seek_compaction: %d",
         disable_seek_compaction);
+    Log(log,"                         Options.no_block_cache: %d",
+        no_block_cache);
+    Log(log,"               Options.table_cache_numshardbits: %d",
+	table_cache_numshardbits);
     Log(log,"    Options.delete_obsolete_files_period_micros: %ld",
         delete_obsolete_files_period_micros);
     Log(log,"                             Options.rate_limit: %.2f",

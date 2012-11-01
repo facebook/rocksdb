@@ -271,6 +271,14 @@ struct Options {
   // exceeds rate_limit. This is ignored when <= 1.0.
   double rate_limit;
 
+  // Disable block cache. If this is set to false,
+  // then no block cache should be used, and the block_cache should
+  // point to a NULL object.
+  bool no_block_cache;
+
+  // Number of shards used for table cache.
+  int table_cache_numshardbits;
+
   // Create an Options object with default values for all fields.
   Options();
 
