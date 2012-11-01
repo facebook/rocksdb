@@ -32,6 +32,19 @@ enum CompressionType {
   kBZip2Compression = 0x3
 };
 
+// Compression options for different compression algorithms like Zlib
+struct CompressionOptions {
+  int window_bits;
+  int level;
+  int strategy;
+  CompressionOptions():window_bits(-14),
+                       level(-1),
+                       strategy(0){}
+  CompressionOptions(int wbits, int lev, int strategy):window_bits(wbits),
+                                                       level(lev),
+                                                       strategy(strategy){}
+};
+
 // Options to control the behavior of a database (passed to DB::Open)
 struct Options {
   // -------------------
@@ -144,9 +157,12 @@ struct Options {
   // reponsible for allocating memory and initializing the values in it
   // before invoking Open(). The caller is responsible for freeing this
   // array and it could be freed anytime after the return from Open().
-  // This could have been a std::vector but that makes the equivalent 
+  // This could have been a std::vector but that makes the equivalent
   // java/C api hard to construct.
   CompressionType* compression_per_level;
+
+  //different options for compression algorithms
+  CompressionOptions compression_opts;
 
   // If non-NULL, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of

@@ -71,7 +71,7 @@ Options::Dump(
     Log(log,"Options.block_restart_interval: %d", block_restart_interval);
     if (compression_per_level != NULL) {
        for (unsigned int i = 0; i < num_levels; i++){
-          Log(log,"       Options.compression[%d]: %d", 
+          Log(log,"       Options.compression[%d]: %d",
               i, compression_per_level[i]);
        }
     } else {
@@ -85,6 +85,12 @@ Options::Dump(
     Log(log,"     Options.max_log_file_size: %d", max_log_file_size);
     Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
+    Log(log,"           Options.compression_opts.window_bits: %d",
+        compression_opts.window_bits);
+    Log(log,"                 Options.compression_opts.level: %d",
+        compression_opts.level);
+    Log(log,"              Options.compression_opts.strategy: %d",
+        compression_opts.strategy);
     Log(log,"     Options.level0_file_num_compaction_trigger: %d",
         level0_file_num_compaction_trigger);
     Log(log,"         Options.level0_slowdown_writes_trigger: %d",

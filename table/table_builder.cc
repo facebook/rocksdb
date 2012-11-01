@@ -175,7 +175,8 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 
     case kSnappyCompression: {
       std::string* compressed = &r->compressed_output;
-      if (port::Snappy_Compress(raw.data(), raw.size(), compressed) &&
+      if (port::Snappy_Compress(r->options.compression_opts, raw.data(),
+                                raw.size(), compressed) &&
           GoodCompressionRatio(compressed->size(), raw.size())) {
         block_contents = *compressed;
       } else {
@@ -187,7 +188,8 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
       break;
     }
     case kZlibCompression:
-      if (port::Zlib_Compress(raw.data(), raw.size(), compressed) &&
+      if (port::Zlib_Compress(r->options.compression_opts, raw.data(),
+                              raw.size(), compressed) &&
           GoodCompressionRatio(compressed->size(), raw.size())) {
         block_contents = *compressed;
       } else {
@@ -198,7 +200,8 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
       }
       break;
     case kBZip2Compression:
-      if (port::BZip2_Compress(raw.data(), raw.size(), compressed) &&
+      if (port::BZip2_Compress(r->options.compression_opts, raw.data(),
+                               raw.size(), compressed) &&
           GoodCompressionRatio(compressed->size(), raw.size())) {
         block_contents = *compressed;
       } else {
