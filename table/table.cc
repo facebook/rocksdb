@@ -9,6 +9,7 @@
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
 #include "leveldb/options.h"
+#include "leveldb/statistics.h"
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
@@ -157,6 +158,7 @@ Iterator* Table::BlockReader(void* arg,
                              bool* didIO) {
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache;
+  Statistics* const statistics = table->rep_->options.statistics;
   Block* block = NULL;
   Cache::Handle* cache_handle = NULL;
 
@@ -176,6 +178,8 @@ Iterator* Table::BlockReader(void* arg,
       cache_handle = block_cache->Lookup(key);
       if (cache_handle != NULL) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
+
+        RecordTick(statistics, BLOCK_CACHE_HIT);
       } else {
         s = ReadBlock(table->rep_->file, options, handle, &contents);
         if (s.ok()) {
@@ -188,6 +192,8 @@ Iterator* Table::BlockReader(void* arg,
         if (didIO != NULL) {
           *didIO = true; // we did some io from storage
         }
+
+        RecordTick(statistics, BLOCK_CACHE_MISS);
       }
     } else {
       s = ReadBlock(table->rep_->file, options, handle, &contents);

@@ -574,10 +574,13 @@ class Benchmark {
 
   void PrintStatistics() {
     if (FLAGS_statistics) {
-      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n",
+      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n"
+          "Block Cache Hit Count:%ld Block Cache Miss Count:%ld\n",
               dbstats->getNumFileOpens(),
               dbstats->getNumFileCloses(),
-              dbstats->getNumFileErrors());
+              dbstats->getNumFileErrors(),
+          dbstats->getTickerCount(BLOCK_CACHE_HIT),
+          dbstats->getTickerCount(BLOCK_CACHE_MISS));
     }
   }
 
