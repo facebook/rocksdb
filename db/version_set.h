@@ -89,6 +89,19 @@ class Version {
       const InternalKey* end,           // NULL means after all keys
       std::vector<FileMetaData*>* inputs);
 
+  void GetOverlappingInputsBinarySearch(
+      int level,
+      const Slice& begin,         // NULL means before all keys
+      const Slice& end,           // NULL means after all keys
+      std::vector<FileMetaData*>* inputs);
+
+  void ExtendOverlappingInputs(
+      int level,
+      const Slice& begin,         // NULL means before all keys
+      const Slice& end,           // NULL means after all keys
+      std::vector<FileMetaData*>* inputs,
+      int index);                 // start extending from this index
+
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
   // smallest_user_key==NULL represents a key smaller than all keys in the DB.

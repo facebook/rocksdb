@@ -467,6 +467,10 @@ void Version::GetOverlappingInputs(
     user_end = end->user_key();
   }
   const Comparator* user_cmp = vset_->icmp_.user_comparator();
+  if (begin != NULL && end != NULL && level > 0) {
+    GetOverlappingInputsBinarySearch(level, user_begin, user_end, inputs);
+    return;
+  }
   for (size_t i = 0; i < files_[level].size(); ) {
     FileMetaData* f = files_[level][i++];
     const Slice file_start = f->smallest.user_key();
@@ -490,6 +494,84 @@ void Version::GetOverlappingInputs(
           i = 0;
         }
       }
+    }
+  }
+}
+
+// Store in "*inputs" all files in "level" that overlap [begin,end]
+// Employ binary search to find at least one file that overlaps the
+// specified range. From that file, iterate backwards and
+// forwards to find all overlapping files.
+void Version::GetOverlappingInputsBinarySearch(
+    int level,
+    const Slice& user_begin,
+    const Slice& user_end,
+    std::vector<FileMetaData*>* inputs) {
+  assert(level > 0);
+  int min = 0;
+  int mid = 0;
+  int max = files_[level].size() -1;
+  bool foundOverlap = false;
+  const Comparator* user_cmp = vset_->icmp_.user_comparator();
+  while (min <= max) {
+    mid = (min + max)/2;
+    FileMetaData* f = files_[level][mid];
+    const Slice file_start = f->smallest.user_key();
+    const Slice file_limit = f->largest.user_key();
+    if (user_cmp->Compare(file_limit, user_begin) < 0) {
+      min = mid + 1;
+    } else if (user_cmp->Compare(user_end, file_start) < 0) {
+      max = mid - 1;
+    } else {
+      foundOverlap = true;
+      break;
+    }
+  }
+  
+  // If there were no overlapping files, return immediately.
+  if (!foundOverlap) {
+    return;
+  }
+  ExtendOverlappingInputs(level, user_begin, user_end, inputs, mid);
+}
+  
+// Store in "*inputs" all files in "level" that overlap [begin,end]
+// The midIndex specifies the index of at least one file that
+// overlaps the specified range. From that file, iterate backward
+// and forward to find all overlapping files.
+void Version::ExtendOverlappingInputs(
+    int level,
+    const Slice& user_begin,
+    const Slice& user_end,
+    std::vector<FileMetaData*>* inputs,
+    int midIndex) {
+
+  // assert that the file at midIndex overlaps with the range
+  const Comparator* user_cmp = vset_->icmp_.user_comparator();
+  assert(midIndex < files_[level].size());
+  assert((user_cmp->Compare(files_[level][midIndex]->largest.user_key(),
+                           user_begin) >= 0) ||
+         (user_cmp->Compare(files_[level][midIndex]->smallest.user_key(),
+                           user_end) <= 0));
+
+  // check backwards from 'mid' to lower indices
+  for (size_t i = midIndex; i < files_[level].size(); i--) {
+    FileMetaData* f = files_[level][i];
+    const Slice file_limit = f->largest.user_key();
+    if (user_cmp->Compare(file_limit, user_begin) >= 0) {
+      inputs->insert(inputs->begin(), f); // insert into beginning of vector
+    } else {
+      break;
+    }
+  }
+  // check forward from 'mid+1' to higher indices
+  for (size_t i = midIndex+1; i < files_[level].size(); i++) {
+    FileMetaData* f = files_[level][i];
+    const Slice file_start = f->smallest.user_key();
+    if (user_cmp->Compare(file_start, user_end) <= 0) {
+      inputs->push_back(f); // insert into end of vector
+    } else {
+      break;
     }
   }
 }
