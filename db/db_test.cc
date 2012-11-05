@@ -1107,8 +1107,7 @@ void MinLevelHelper(DBTest* self, Options& options) {
 
 void MinLevelToCompress(CompressionType& type, Options& options, int wbits,
                         int lev, int strategy) {
-  fprintf(stderr, "Test with compression options : window_bits = %d, level =  %d
-                   , strategy = %d}\n", wbits, lev, strategy);
+  fprintf(stderr, "Test with compression options : window_bits = %d, level =  %d, strategy = %d}\n", wbits, lev, strategy);
   options.write_buffer_size = 100<<10; //100KB
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
