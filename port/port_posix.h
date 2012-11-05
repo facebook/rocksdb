@@ -44,6 +44,7 @@
 #include <stdint.h>
 #include <string>
 #include <string.h>
+#include "leveldb/options.h"
 #include "port/atomic_pointer.h"
 
 #ifndef PLATFORM_IS_LITTLE_ENDIAN
@@ -131,8 +132,8 @@ typedef pthread_once_t OnceType;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
 extern void InitOnce(OnceType* once, void (*initializer)());
 
-inline bool Snappy_Compress(const char* input, size_t length,
-                            ::std::string* output) {
+inline bool Snappy_Compress(const CompressionOptions& opts, const char* input,
+                            size_t length, ::std::string* output) {
 #ifdef SNAPPY
   output->resize(snappy::MaxCompressedLength(length));
   size_t outlen;
@@ -162,9 +163,8 @@ inline bool Snappy_Uncompress(const char* input, size_t length,
 #endif
 }
 
-inline bool Zlib_Compress(const char* input, size_t length,
-    ::std::string* output, int windowBits = -14, int level = -1,
-     int strategy = 0) {
+inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
+                          size_t length, ::std::string* output) {
 #ifdef ZLIB
   // The memLevel parameter specifies how much memory should be allocated for
   // the internal compression state.
@@ -174,8 +174,8 @@ inline bool Zlib_Compress(const char* input, size_t length,
   static const int memLevel = 8;
   z_stream _stream;
   memset(&_stream, 0, sizeof(z_stream));
-  int st = deflateInit2(&_stream, level, Z_DEFLATED, windowBits,
-                        memLevel, strategy);
+  int st = deflateInit2(&_stream, opts.level, Z_DEFLATED, opts.window_bits,
+                        memLevel, opts.strategy);
   if (st != Z_OK) {
     return false;
   }
@@ -284,8 +284,8 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   return NULL;
 }
 
-inline bool BZip2_Compress(const char* input, size_t length,
-    ::std::string* output) {
+inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
+                           size_t length, ::std::string* output) {
 #ifdef BZIP2
   bz_stream _stream;
   memset(&_stream, 0, sizeof(bz_stream));

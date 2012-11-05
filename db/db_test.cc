@@ -20,23 +20,23 @@
 
 namespace leveldb {
 
-static bool SnappyCompressionSupported() {	
-  std::string out;	
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";	
-  return port::Snappy_Compress(in.data(), in.size(), &out);	
-}	
-	
-static bool ZlibCompressionSupported() {	
-  std::string out;	
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";	
-  return port::Zlib_Compress(in.data(), in.size(), &out);	
-}	
-	
-static bool BZip2CompressionSupported() {	
-  std::string out;	
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";	
-  return port::BZip2_Compress(in.data(), in.size(), &out);	
-}	
+static bool SnappyCompressionSupported(const CompressionOptions& options) {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::Snappy_Compress(options, in.data(), in.size(), &out);
+}
+
+static bool ZlibCompressionSupported(const CompressionOptions& options) {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::Zlib_Compress(options, in.data(), in.size(), &out);
+}
+
+static bool BZip2CompressionSupported(const CompressionOptions& options) {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::BZip2_Compress(options, in.data(), in.size(), &out);
+}
 
 static std::string RandomString(Random* rnd, int len) {
   std::string r;
@@ -1076,57 +1076,59 @@ TEST(DBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
 }
 
-void MinLevelHelper(DBTest* self, Options& options) {	
-  Random rnd(301);	
-	
-  for (int num = 0;	
-    num < options.level0_file_num_compaction_trigger - 1;	
-    num++)	
-  {	
-    std::vector<std::string> values;	
-    // Write 120KB (12 values, each 10K)	
-    for (int i = 0; i < 12; i++) {	
-      values.push_back(RandomString(&rnd, 10000));	
-      ASSERT_OK(self->Put(Key(i), values[i]));	
-    }	
-    self->dbfull()->TEST_WaitForCompactMemTable();	
-    ASSERT_EQ(self->NumTableFilesAtLevel(0), num + 1);	
-  }	
-	
-  //generate one more file in level-0, and should trigger level-0 compaction	
-  std::vector<std::string> values;	
-  for (int i = 0; i < 12; i++) {	
-    values.push_back(RandomString(&rnd, 10000));	
-    ASSERT_OK(self->Put(Key(i), values[i]));	
-  }	
-  self->dbfull()->TEST_WaitForCompact();	
-	
-  ASSERT_EQ(self->NumTableFilesAtLevel(0), 0);	
-  ASSERT_EQ(self->NumTableFilesAtLevel(1), 1);	
-}	
-	
-TEST(DBTest, MinLevelToCompress) {	
-  Options options = CurrentOptions();	
-  options.write_buffer_size = 100<<10; //100KB	
-  options.num_levels = 3;	
-  options.max_mem_compaction_level = 0;	
-  options.level0_file_num_compaction_trigger = 3;	
+void MinLevelHelper(DBTest* self, Options& options) {
+  Random rnd(301);
+
+  for (int num = 0;
+    num < options.level0_file_num_compaction_trigger - 1;
+    num++)
+  {
+    std::vector<std::string> values;
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      values.push_back(RandomString(&rnd, 10000));
+      ASSERT_OK(self->Put(Key(i), values[i]));
+    }
+    self->dbfull()->TEST_WaitForCompactMemTable();
+    ASSERT_EQ(self->NumTableFilesAtLevel(0), num + 1);
+  }
+
+  //generate one more file in level-0, and should trigger level-0 compaction
+  std::vector<std::string> values;
+  for (int i = 0; i < 12; i++) {
+    values.push_back(RandomString(&rnd, 10000));
+    ASSERT_OK(self->Put(Key(i), values[i]));
+  }
+  self->dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ(self->NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(self->NumTableFilesAtLevel(1), 1);
+}
+
+void MinLevelToCompress(CompressionType& type, Options& options, int wbits,
+                        int lev, int strategy) {
+  fprintf(stderr, "Test with compression options : window_bits = %d, level =  %d, strategy = %d}\n", wbits, lev, strategy);
+  options.write_buffer_size = 100<<10; //100KB
+  options.num_levels = 3;
+  options.max_mem_compaction_level = 0;
+  options.level0_file_num_compaction_trigger = 3;
   options.create_if_missing = true;
-  CompressionType type;
-	
-  if (SnappyCompressionSupported()) {	
-    type = kSnappyCompression;	
-    fprintf(stderr, "using snappy\n");	
-  } else if (ZlibCompressionSupported()) {	
-    type = kZlibCompression;	
-    fprintf(stderr, "using zlib\n");	
-  } else if (BZip2CompressionSupported()) {	
-    type = kBZip2Compression;	
-    fprintf(stderr, "using bzip2\n");	
-  } else {	
-    fprintf(stderr, "skipping test, compression disabled\n");	
-    return;	
-  }	
+
+  if (SnappyCompressionSupported(CompressionOptions(wbits, lev, strategy))) {
+    type = kSnappyCompression;
+    fprintf(stderr, "using snappy\n");
+  } else if (ZlibCompressionSupported(
+               CompressionOptions(wbits, lev, strategy))) {
+    type = kZlibCompression;
+    fprintf(stderr, "using zlib\n");
+  } else if (BZip2CompressionSupported(
+               CompressionOptions(wbits, lev, strategy))) {
+    type = kBZip2Compression;
+    fprintf(stderr, "using bzip2\n");
+  } else {
+    fprintf(stderr, "skipping test, compression disabled\n");
+    return;
+  }
   options.compression_per_level = new CompressionType[options.num_levels];
 
   // do not compress L0
@@ -1136,9 +1138,14 @@ TEST(DBTest, MinLevelToCompress) {
   for (int i = 1; i < options.num_levels; i++) {
     options.compression_per_level[i] = type;
   }
-  Reopen(&options);	
-  MinLevelHelper(this, options);	
-	
+}
+TEST(DBTest, MinLevelToCompress1) {
+  Options options = CurrentOptions();
+  CompressionType type;
+  MinLevelToCompress(type, options, -14, -1, 0);
+  Reopen(&options);
+  MinLevelHelper(this, options);
+
   // do not compress L0 and L1
   for (int i = 0; i < 2; i++) {
     options.compression_per_level[i] = kNoCompression;
@@ -1146,9 +1153,27 @@ TEST(DBTest, MinLevelToCompress) {
   for (int i = 2; i < options.num_levels; i++) {
     options.compression_per_level[i] = type;
   }
-  DestroyAndReopen(&options);	
-  MinLevelHelper(this, options);	
-}	
+  DestroyAndReopen(&options);
+  MinLevelHelper(this, options);
+}
+
+TEST(DBTest, MinLevelToCompress2) {
+  Options options = CurrentOptions();
+  CompressionType type;
+  MinLevelToCompress(type, options, 15, -1, 0);
+  Reopen(&options);
+  MinLevelHelper(this, options);
+
+  // do not compress L0 and L1
+  for (int i = 0; i < 2; i++) {
+    options.compression_per_level[i] = kNoCompression;
+  }
+  for (int i = 2; i < options.num_levels; i++) {
+    options.compression_per_level[i] = type;
+  }
+  DestroyAndReopen(&options);
+  MinLevelHelper(this, options);
+}
 
 TEST(DBTest, RepeatedWritesToSameKey) {
   Options options = CurrentOptions();
@@ -1682,6 +1707,29 @@ TEST(DBTest, DBOpen_Options) {
   db = NULL;
 }
 
+TEST(DBTest, DBOpen_Change_NumLevels) {
+  std::string dbname = test::TmpDir() + "/db_change_num_levels";
+  DestroyDB(dbname, Options());
+  Options opts;
+  Status s;
+  DB* db = NULL;
+  opts.create_if_missing = true;
+  s = DB::Open(opts, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != NULL);
+  db->Put(WriteOptions(), "a", "123");
+  db->Put(WriteOptions(), "b", "234");
+  db->CompactRange(NULL, NULL);
+  delete db;
+  db = NULL;
+
+  opts.create_if_missing = false;
+  opts.num_levels = 2;
+  s = DB::Open(opts, dbname, &db);
+  ASSERT_TRUE(strstr(s.ToString().c_str(), "Corruption") != NULL);
+  ASSERT_TRUE(db == NULL);
+}
+
 // Check that number of files does not grow when we are out of space
 TEST(DBTest, NoSpace) {
   Options options = CurrentOptions();
@@ -1828,7 +1876,7 @@ TEST(DBTest, SnapshotFiles) {
     uint64_t size;
     ASSERT_OK(env_->GetFileSize(src, &size));
 
-    // record the number and the size of the 
+    // record the number and the size of the
     // latest manifest file
     if (ParseFileName(files[i].substr(1), &number, &type)) {
       if (type == kDescriptorFile) {
@@ -1843,7 +1891,7 @@ TEST(DBTest, SnapshotFiles) {
     ASSERT_OK(env_->NewSequentialFile(src, &srcfile));
     WritableFile* destfile;
     ASSERT_OK(env_->NewWritableFile(dest, &destfile));
-    
+
     char buffer[4096];
     Slice slice;
     while (size > 0) {
@@ -1866,7 +1914,7 @@ TEST(DBTest, SnapshotFiles) {
     extras.push_back(RandomString(&rnd, 100000));
     ASSERT_OK(Put(Key(i), extras[i]));
   }
-  
+
   // verify that data in the snapshot are correct
   Options opts;
   DB* snapdb;
@@ -1882,7 +1930,7 @@ TEST(DBTest, SnapshotFiles) {
   }
   delete snapdb;
 
-  // look at the new live files after we added an 'extra' key 
+  // look at the new live files after we added an 'extra' key
   // and after we took the first snapshot.
   uint64_t new_manifest_number = 0;
   uint64_t new_manifest_size = 0;
@@ -1896,7 +1944,7 @@ TEST(DBTest, SnapshotFiles) {
   // previous shapshot.
   for (unsigned int i = 0; i < newfiles.size(); i++) {
     std::string src = dbname_ + "/" + newfiles[i];
-    // record the lognumber and the size of the 
+    // record the lognumber and the size of the
     // latest manifest file
     if (ParseFileName(newfiles[i].substr(1), &number, &type)) {
       if (type == kDescriptorFile) {
@@ -1911,7 +1959,7 @@ TEST(DBTest, SnapshotFiles) {
   }
   ASSERT_EQ(manifest_number, new_manifest_number);
   ASSERT_GT(new_manifest_size, manifest_size);
-  
+
   // release file snapshot
   dbfull()->DisableFileDeletions();
 }
@@ -1975,7 +2023,7 @@ TEST(DBTest, ReadCompaction) {
     // in some level, indicating that there was a compaction
     ASSERT_TRUE(NumTableFilesAtLevel(0) < l1 ||
                 NumTableFilesAtLevel(1) < l2 ||
-                NumTableFilesAtLevel(2) < l3); 
+                NumTableFilesAtLevel(2) < l3);
     delete options.block_cache;
   }
 }

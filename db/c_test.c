@@ -187,6 +187,7 @@ int main(int argc, char** argv) {
   leveldb_options_set_block_size(options, 1024);
   leveldb_options_set_block_restart_interval(options, 8);
   leveldb_options_set_compression(options, leveldb_no_compression);
+  leveldb_options_set_compression_options(options, -14, -1, 0);
 
   roptions = leveldb_readoptions_create();
   leveldb_readoptions_set_verify_checksums(roptions, 1);

@@ -39,7 +39,7 @@ TableCache::TableCache(const std::string& dbname,
     : env_(options->env),
       dbname_(dbname),
       options_(options),
-      cache_(NewLRUCache(entries)) {
+      cache_(NewLRUCache(entries, options->table_cache_numshardbits)) {
   dbstatistics = (DBStatistics*)options->statistics;
 }
 

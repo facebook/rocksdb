@@ -247,6 +247,7 @@ class TableConstructor: public Constructor {
     source_ = new StringSource(sink.contents());
     Options table_options;
     table_options.comparator = options.comparator;
+    table_options.compression_opts = options.compression_opts;
     return Table::Open(table_options, source_, sink.contents().size(), &table_);
   }
 
@@ -399,19 +400,22 @@ class DBConstructor: public Constructor {
 static bool SnappyCompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Snappy_Compress(in.data(), in.size(), &out);
+  return port::Snappy_Compress(Options().compression_opts, in.data(), in.size(),
+                               &out);
 }
 
 static bool ZlibCompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Zlib_Compress(in.data(), in.size(), &out);
+  return port::Zlib_Compress(Options().compression_opts, in.data(), in.size(),
+                             &out);
 }
 
 static bool BZip2CompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::BZip2_Compress(in.data(), in.size(), &out);
+  return port::BZip2_Compress(Options().compression_opts, in.data(), in.size(),
+                              &out);
 }
 
 enum TestType {

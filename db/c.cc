@@ -502,6 +502,13 @@ void leveldb_options_set_compression(leveldb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
 }
 
+void leveldb_options_set_compression_options(
+    leveldb_options_t* opt, int w_bits, int level, int strategy) {
+  opt->rep.compression_opts.window_bits = w_bits;
+  opt->rep.compression_opts.level = level;
+  opt->rep.compression_opts.strategy = strategy;
+}
+
 void leveldb_options_set_disable_data_sync(
     leveldb_options_t* opt, bool disable_data_sync) {
   opt->rep.disableDataSync = disable_data_sync;

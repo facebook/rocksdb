@@ -189,9 +189,11 @@ static uint64_t FLAGS_delete_obsolete_files_period_micros = 0;
 static enum leveldb::CompressionType FLAGS_compression_type =
     leveldb::kSnappyCompression;
 
-// Allows compression for levels 0 and 1 to be disabled when	
-// other levels are compressed	
+// Allows compression for levels 0 and 1 to be disabled when
+// other levels are compressed
 static int FLAGS_min_level_to_compress = -1;
+
+static int FLAGS_table_cache_numshardbits = 4;
 
 // posix or hdfs environment
 static leveldb::Env* FLAGS_env = leveldb::Env::Default();
@@ -518,15 +520,18 @@ class Benchmark {
 
       switch (FLAGS_compression_type) {
         case kSnappyCompression:
-          result = port::Snappy_Compress(text, strlen(text), &compressed);
+          result = port::Snappy_Compress(Options().compression_opts, text,
+                                         strlen(text), &compressed);
           name = "Snappy";
           break;
         case kZlibCompression:
-          result = port::Zlib_Compress(text, strlen(text), &compressed);
+          result = port::Zlib_Compress(Options().compression_opts, text,
+                                       strlen(text), &compressed);
           name = "Zlib";
           break;
         case kBZip2Compression:
-          result = port::BZip2_Compress(text, strlen(text), &compressed);
+          result = port::BZip2_Compress(Options().compression_opts, text,
+                                        strlen(text), &compressed);
           name = "BZip2";
           break;
       }
@@ -864,7 +869,8 @@ class Benchmark {
     bool ok = true;
     std::string compressed;
     while (ok && bytes < 1024 * 1048576) {  // Compress 1G
-      ok = port::Snappy_Compress(input.data(), input.size(), &compressed);
+      ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+                                 input.size(), &compressed);
       produced += compressed.size();
       bytes += input.size();
       thread->stats.FinishedSingleOp(NULL);
@@ -885,7 +891,8 @@ class Benchmark {
     RandomGenerator gen;
     Slice input = gen.Generate(Options().block_size);
     std::string compressed;
-    bool ok = port::Snappy_Compress(input.data(), input.size(), &compressed);
+    bool ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+                                    input.size(), &compressed);
     int64_t bytes = 0;
     char* uncompressed = new char[input.size()];
     while (ok && bytes < 1024 * 1048576) {  // Compress 1G
@@ -908,6 +915,9 @@ class Benchmark {
     Options options;
     options.create_if_missing = !FLAGS_use_existing_db;
     options.block_cache = cache_;
+    if (cache_ == NULL) {
+      options.no_block_cache = true;
+    }
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.max_background_compactions = FLAGS_max_background_compactions;
@@ -936,7 +946,7 @@ class Benchmark {
       for (unsigned int i = 0; i < FLAGS_min_level_to_compress; i++) {
         options.compression_per_level[i] = kNoCompression;
       }
-      for (unsigned int i = FLAGS_min_level_to_compress; 
+      for (unsigned int i = FLAGS_min_level_to_compress;
            i < FLAGS_num_levels; i++) {
         options.compression_per_level[i] = FLAGS_compression_type;
       }
@@ -945,6 +955,7 @@ class Benchmark {
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
     options.rate_limit = FLAGS_rate_limit;
+    options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1276,6 +1287,13 @@ int main(int argc, char** argv) {
         fprintf(stderr, "The cache cannot be sharded into 2**%d pieces\n", n);
         exit(1);
       }
+    } else if (sscanf(argv[i], "--table_cache_numshardbits=%d%c",
+		      &n, &junk) == 1) {
+      if (n <= 0 || n > 20) {
+        fprintf(stderr, "The cache cannot be sharded into 2**%d pieces\n", n);
+        exit(1);
+      }
+      FLAGS_table_cache_numshardbits = n;
     } else if (sscanf(argv[i], "--bloom_bits=%d%c", &n, &junk) == 1) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
@@ -1359,8 +1377,8 @@ int main(int argc, char** argv) {
       else {
         fprintf(stdout, "Cannot parse %s\n", argv[i]);
       }
-    } else if (sscanf(argv[i], "--min_level_to_compress=%d%c", &n, &junk) == 1	
-        && n >= 0) {	
+    } else if (sscanf(argv[i], "--min_level_to_compress=%d%c", &n, &junk) == 1
+        && n >= 0) {
       FLAGS_min_level_to_compress = n;
     } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
