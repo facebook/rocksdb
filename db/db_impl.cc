@@ -193,7 +193,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
       stall_leveln_slowdown_(0),
-      started_at_(options.env->NowMicros()) {
+      started_at_(options.env->NowMicros()),
+      flush_on_destroy_(false) {
   mem_->Ref();
   has_imm_.Release_Store(NULL);
 
@@ -226,7 +227,10 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish
-  mutex_.Lock();
+  if (flush_on_destroy_) {
+    FlushMemTable(FlushOptions());
+  }
+    mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-NULL value is ok
   while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
     bg_cv_.Wait();
@@ -315,7 +319,7 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
   // delete_obsolete_files_period_micros.
   if (options_.delete_obsolete_files_period_micros != 0) {
     const uint64_t now_micros = env_->NowMicros();
-    if (delete_obsolete_files_last_run_ + 
+    if (delete_obsolete_files_last_run_ +
         options_.delete_obsolete_files_period_micros > now_micros) {
       return;
     }
@@ -1144,8 +1148,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
                  ikey.sequence < compact->smallest_snapshot) {
         // If the user has specified a compaction filter, then invoke
         // it. If this key is not visible via any snapshot and the
-        // return value of the compaction filter is true and then 
-        // drop this key from the output. 
+        // return value of the compaction filter is true and then
+        // drop this key from the output.
         drop = options_.CompactionFilter(compact->compaction->level(),
                          ikey.user_key, value, &compaction_filter_value);
 
@@ -1414,6 +1418,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     // into mem_.
     {
       mutex_.Unlock();
+      if (options.disableWAL) {
+        flush_on_destroy_ = true;
+      }
+
       if (!options.disableWAL) {
         status = log_->AddRecord(WriteBatchInternal::Contents(updates));
         if (status.ok() && options.sync) {

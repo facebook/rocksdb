@@ -51,7 +51,7 @@ class DBImpl : public DB {
   virtual Status Flush(const FlushOptions& options);
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions();
-  virtual Status GetLiveFiles(std::vector<std::string>&, 
+  virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size);
 
   // Extra methods (for testing) that are not in the public DB interface
@@ -221,6 +221,8 @@ class DBImpl : public DB {
 
   // Time at which this instance was started.
   const uint64_t started_at_;
+
+  bool flush_on_destroy_; // Used when disableWAL is true.
 
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
