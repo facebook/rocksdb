@@ -276,7 +276,7 @@ TEST(LogTest, MarginalTrailer) {
   // Make a trailer that is exactly the same length as an empty record.
   const int n = kBlockSize - 2*kHeaderSize;
   Write(BigString("foo", n));
-  ASSERT_EQ(kBlockSize - kHeaderSize, WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize), WrittenBytes());
   Write("");
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
@@ -289,19 +289,19 @@ TEST(LogTest, MarginalTrailer2) {
   // Make a trailer that is exactly the same length as an empty record.
   const int n = kBlockSize - 2*kHeaderSize;
   Write(BigString("foo", n));
-  ASSERT_EQ(kBlockSize - kHeaderSize, WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize), WrittenBytes());
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(0, DroppedBytes());
+  ASSERT_EQ(0U, DroppedBytes());
   ASSERT_EQ("", ReportMessage());
 }
 
 TEST(LogTest, ShortTrailer) {
   const int n = kBlockSize - 2*kHeaderSize + 4;
   Write(BigString("foo", n));
-  ASSERT_EQ(kBlockSize - kHeaderSize + 4, WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize + 4), WrittenBytes());
   Write("");
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
@@ -313,7 +313,7 @@ TEST(LogTest, ShortTrailer) {
 TEST(LogTest, AlignedEof) {
   const int n = kBlockSize - 2*kHeaderSize + 4;
   Write(BigString("foo", n));
-  ASSERT_EQ(kBlockSize - kHeaderSize + 4, WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize + 4), WrittenBytes());
   ASSERT_EQ(BigString("foo", n), Read());
   ASSERT_EQ("EOF", Read());
 }
@@ -337,7 +337,7 @@ TEST(LogTest, ReadError) {
   Write("foo");
   ForceError();
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(kBlockSize, DroppedBytes());
+  ASSERT_EQ((unsigned int)kBlockSize, DroppedBytes());
   ASSERT_EQ("OK", MatchError("read error"));
 }
 
@@ -347,7 +347,7 @@ TEST(LogTest, BadRecordType) {
   IncrementByte(6, 100);
   FixChecksum(0, 3);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(3, DroppedBytes());
+  ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("unknown record type"));
 }
 
@@ -355,7 +355,7 @@ TEST(LogTest, TruncatedTrailingRecord) {
   Write("foo");
   ShrinkSize(4);   // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(kHeaderSize - 1, DroppedBytes());
+  ASSERT_EQ((unsigned int)(kHeaderSize - 1), DroppedBytes());
   ASSERT_EQ("OK", MatchError("truncated record at end of file"));
 }
 
@@ -363,7 +363,7 @@ TEST(LogTest, BadLength) {
   Write("foo");
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(kHeaderSize + 2, DroppedBytes());
+  ASSERT_EQ((unsigned int)(kHeaderSize + 2), DroppedBytes());
   ASSERT_EQ("OK", MatchError("bad record length"));
 }
 
@@ -371,7 +371,7 @@ TEST(LogTest, ChecksumMismatch) {
   Write("foo");
   IncrementByte(0, 10);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(10, DroppedBytes());
+  ASSERT_EQ(10U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("checksum mismatch"));
 }
 
@@ -380,7 +380,7 @@ TEST(LogTest, UnexpectedMiddleType) {
   SetByte(6, kMiddleType);
   FixChecksum(0, 3);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(3, DroppedBytes());
+  ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("missing start"));
 }
 
@@ -389,7 +389,7 @@ TEST(LogTest, UnexpectedLastType) {
   SetByte(6, kLastType);
   FixChecksum(0, 3);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(3, DroppedBytes());
+  ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("missing start"));
 }
 
@@ -400,7 +400,7 @@ TEST(LogTest, UnexpectedFullType) {
   FixChecksum(0, 3);
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(3, DroppedBytes());
+  ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("partial record without end"));
 }
 
@@ -411,7 +411,7 @@ TEST(LogTest, UnexpectedFirstType) {
   FixChecksum(0, 3);
   ASSERT_EQ(BigString("bar", 100000), Read());
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(3, DroppedBytes());
+  ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("partial record without end"));
 }
 

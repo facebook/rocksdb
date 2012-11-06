@@ -793,11 +793,11 @@ VersionSet::VersionSet(const std::string& dbname,
       last_sequence_(0),
       log_number_(0),
       prev_log_number_(0),
+      num_levels_(options_->num_levels),
       descriptor_file_(NULL),
       descriptor_log_(NULL),
       dummy_versions_(this),
-      current_(NULL),
-      num_levels_(options_->num_levels) {
+      current_(NULL) {
   compact_pointer_ = new std::string[options_->num_levels];
   Init(options_->num_levels);
   AppendVersion(new Version(this));

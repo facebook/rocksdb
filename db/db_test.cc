@@ -44,7 +44,7 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
-namespace {
+namespace anon {
 class AtomicCounter {
  private:
   port::Mutex mu_;
@@ -79,9 +79,9 @@ class SpecialEnv : public EnvWrapper {
   port::AtomicPointer non_writable_;
 
   bool count_random_reads_;
-  AtomicCounter random_read_counter_;
+  anon::AtomicCounter random_read_counter_;
 
-  AtomicCounter sleep_counter_;
+  anon::AtomicCounter sleep_counter_;
 
   explicit SpecialEnv(Env* base) : EnvWrapper(base) {
     delay_sstable_sync_.Release_Store(NULL);
@@ -137,9 +137,9 @@ class SpecialEnv : public EnvWrapper {
     class CountingFile : public RandomAccessFile {
      private:
       RandomAccessFile* target_;
-      AtomicCounter* counter_;
+      anon::AtomicCounter* counter_;
      public:
-      CountingFile(RandomAccessFile* target, AtomicCounter* counter)
+      CountingFile(RandomAccessFile* target, anon::AtomicCounter* counter)
           : target_(target), counter_(counter) {
       }
       virtual ~CountingFile() { delete target_; }
@@ -310,7 +310,7 @@ class DBTest {
     }
 
     // Check reverse iteration results are the reverse of forward results
-    int matched = 0;
+    unsigned int matched = 0;
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       ASSERT_LT(matched, forward.size());
       ASSERT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
@@ -2028,7 +2028,7 @@ TEST(DBTest, SnapshotFiles) {
   dbfull()->GetLiveFiles(files, &manifest_size);
 
   // CURRENT, MANIFEST, *.sst files
-  ASSERT_EQ(files.size(), 3);
+  ASSERT_EQ(files.size(), 3U);
 
   uint64_t number = 0;
   FileType type;
@@ -2251,7 +2251,7 @@ static void MTThreadBody(void* arg) {
         ASSERT_EQ(k, key);
         ASSERT_GE(w, 0);
         ASSERT_LT(w, kNumThreads);
-        ASSERT_LE(c, reinterpret_cast<uintptr_t>(
+        ASSERT_LE((unsigned int)c, reinterpret_cast<uintptr_t>(
             t->state->counter[w].Acquire_Load()));
       }
     }

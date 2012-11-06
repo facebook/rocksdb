@@ -83,28 +83,28 @@ TEST(CacheTest, HitAndMiss) {
   ASSERT_EQ(201, Lookup(200));
   ASSERT_EQ(-1,  Lookup(300));
 
-  ASSERT_EQ(1, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
   ASSERT_EQ(101, deleted_values_[0]);
 }
 
 TEST(CacheTest, Erase) {
   Erase(200);
-  ASSERT_EQ(0, deleted_keys_.size());
+  ASSERT_EQ(0U, deleted_keys_.size());
 
   Insert(100, 101);
   Insert(200, 201);
   Erase(100);
   ASSERT_EQ(-1,  Lookup(100));
   ASSERT_EQ(201, Lookup(200));
-  ASSERT_EQ(1, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
   ASSERT_EQ(101, deleted_values_[0]);
 
   Erase(100);
   ASSERT_EQ(-1,  Lookup(100));
   ASSERT_EQ(201, Lookup(200));
-  ASSERT_EQ(1, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_keys_.size());
 }
 
 TEST(CacheTest, EntriesArePinned) {
@@ -115,19 +115,19 @@ TEST(CacheTest, EntriesArePinned) {
   Insert(100, 102);
   Cache::Handle* h2 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(102, DecodeValue(cache_->Value(h2)));
-  ASSERT_EQ(0, deleted_keys_.size());
+  ASSERT_EQ(0U, deleted_keys_.size());
 
   cache_->Release(h1);
-  ASSERT_EQ(1, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
   ASSERT_EQ(101, deleted_values_[0]);
 
   Erase(100);
   ASSERT_EQ(-1, Lookup(100));
-  ASSERT_EQ(1, deleted_keys_.size());
+  ASSERT_EQ(1U, deleted_keys_.size());
 
   cache_->Release(h2);
-  ASSERT_EQ(2, deleted_keys_.size());
+  ASSERT_EQ(2U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[1]);
   ASSERT_EQ(102, deleted_values_[1]);
 }

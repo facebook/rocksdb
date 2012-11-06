@@ -43,11 +43,11 @@ Options::Options()
       db_stats_log_interval(1800),
       db_log_dir(""),
       disable_seek_compaction(false),
+      delete_obsolete_files_period_micros(0),
+      max_log_file_size(0),
+      rate_limit(0.0), 
       no_block_cache(false),
       table_cache_numshardbits(4),
-      max_log_file_size(0),
-      delete_obsolete_files_period_micros(0),
-      rate_limit(0.0), 
       CompactionFilter(NULL) {
 }
 
@@ -71,7 +71,7 @@ Options::Dump(
     Log(log,"            Options.block_size: %zd", block_size);
     Log(log,"Options.block_restart_interval: %d", block_restart_interval);
     if (compression_per_level != NULL) {
-       for (unsigned int i = 0; i < num_levels; i++){
+       for (int i = 0; i < num_levels; i++){
           Log(log,"       Options.compression[%d]: %d",
               i, compression_per_level[i]);
        }
@@ -83,7 +83,7 @@ Options::Dump(
     Log(log,"            Options.num_levels: %d", num_levels);
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);
-    Log(log,"     Options.max_log_file_size: %d", max_log_file_size);
+    Log(log,"     Options.max_log_file_size: %ld", max_log_file_size);
     Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
     Log(log,"           Options.compression_opts.window_bits: %d",

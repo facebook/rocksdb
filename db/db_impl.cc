@@ -158,7 +158,7 @@ Options SanitizeOptions(const std::string& dbname,
   }
   if (src.compression_per_level != NULL) {
     result.compression_per_level = new CompressionType[src.num_levels];
-    for (unsigned int i = 0; i < src.num_levels; i++) {
+    for (int i = 0; i < src.num_levels; i++) {
       result.compression_per_level[i] = src.compression_per_level[i];
     }
   }
@@ -190,9 +190,9 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       disable_delete_obsolete_files_(false),
       delete_obsolete_files_last_run_(0),
       stall_level0_slowdown_(0),
-      stall_leveln_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
+      stall_leveln_slowdown_(0),
       started_at_(options.env->NowMicros()) {
   mem_->Ref();
   has_imm_.Release_Store(NULL);
@@ -421,7 +421,6 @@ void DBImpl::DeleteObsoleteFiles() {
   std::set<uint64_t> live;
   std::vector<std::string> allfiles;
   std::vector<uint64_t> files_to_evict;
-  uint64_t filenumber, lognumber, prevlognumber;
   FindObsoleteFiles(deletion_state);
   PurgeObsoleteFiles(deletion_state);
   EvictObsoleteFiles(deletion_state);
@@ -1541,7 +1540,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       allow_delay = false;  // Do not delay a single write more than once
       Log(options_.info_log,
           "delaying write %llu usecs for level0_slowdown_writes_trigger\n",
-           delayed);
+           (long long unsigned int)delayed);
       mutex_.Lock();
     } else if (!force &&
                (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
@@ -1574,7 +1573,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       allow_delay = false;  // Do not delay a single write more than once
       Log(options_.info_log,
           "delaying write %llu usecs for rate limits with max score %.2f\n",
-          delayed, score);
+          (long long unsigned int)delayed, score);
       mutex_.Lock();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old

@@ -40,7 +40,7 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
 
   // Duplicate the random data until we have filled "len" bytes
   dst->clear();
-  while (dst->size() < len) {
+  while (dst->size() < (unsigned int)len) {
     dst->append(raw_data);
   }
   dst->resize(len);

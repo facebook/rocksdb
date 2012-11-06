@@ -33,8 +33,11 @@ class AutoSplitLogger : public Logger {
  public:
   AutoSplitLogger(Env* env, const std::string& dbname,
                   const std::string& db_log_dir, size_t log_max_size):
-    env_(env), dbname_(dbname), db_log_dir_(db_log_dir),
-    MAX_LOG_FILE_SIZE(log_max_size), status_(Status::OK()) {
+    dbname_(dbname),
+    db_log_dir_(db_log_dir),
+    env_(env),
+    MAX_LOG_FILE_SIZE(log_max_size),
+    status_(Status::OK()) {
       env->GetAbsolutePath(dbname, &db_absolute_path_);
       log_fname_ = InfoLogFileName(dbname_, db_absolute_path_, db_log_dir_);
       InitLogger();
@@ -67,7 +70,7 @@ class AutoSplitLogger : public Logger {
       logger_ = NULL;
     }
     if (logger_->GetLogFileSize() ==
-        Logger::DO_NOT_SUPPORT_GET_LOG_FILE_SIZE) {
+        (size_t)Logger::DO_NOT_SUPPORT_GET_LOG_FILE_SIZE) {
       status_ = Status::NotSupported(
           "The underlying logger doesn't support GetLogFileSize()");
     }

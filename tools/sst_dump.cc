@@ -85,7 +85,7 @@ static void print_help() {
 
 int main(int argc, char** argv) {
 
-  const char* dir_or_file;
+  const char* dir_or_file = NULL;
   uint64_t read_num = -1;
   std::string command;
 

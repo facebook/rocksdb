@@ -99,7 +99,7 @@ static int FLAGS_level0_stop_writes_trigger = 12;
 static int FLAGS_level0_slowdown_writes_trigger = 8;
 
 // Ratio of reads to writes (expressed as a percentage)
-static int FLAGS_readwritepercent = 10;
+static unsigned int FLAGS_readwritepercent = 10;
 
 // Option to disable compation triggered by read.
 static int FLAGS_disable_seek_compaction = false;
@@ -210,7 +210,6 @@ class Stats {
     double bytes_mb = bytes_ / 1048576.0;
     double rate = bytes_mb / elapsed;
     double throughput = (double)done_/elapsed;
-    long percent_writes = (writes_ * 100) / done_;
 
     fprintf(stdout, "%-12s: ", name);
     fprintf(stdout, "%.3f micros/op %ld ops/sec\n",
@@ -380,7 +379,7 @@ class StressTest {
         db_(NULL) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
-    for (int i = 0; i < files.size(); i++) {
+    for (unsigned int i = 0; i < files.size(); i++) {
       if (Slice(files[i]).starts_with("heap-")) {
         FLAGS_env->DeleteFile(std::string(FLAGS_db) + "/" + files[i]);
       }
@@ -430,12 +429,12 @@ class StressTest {
       }
     }
 
-    for (int i = 1; i < n; i++) {
+    for (unsigned int i = 1; i < n; i++) {
       threads[0]->stats.Merge(threads[i]->stats);
     }
     threads[0]->stats.Report("Stress Test");
 
-    for (int i = 0; i < n; i++) {
+    for (unsigned int i = 0; i < n; i++) {
       delete threads[i];
       threads[i] = NULL;
     }
@@ -573,7 +572,7 @@ class StressTest {
 
   static void PrintKeyValue(uint32_t key, const char *value, size_t sz) {
     if (!FLAGS_verbose) return;
-    fprintf(stdout, "%u ==> (%u) ", key, sz);
+    fprintf(stdout, "%u ==> (%u) ", key, (unsigned int)sz);
     for (size_t i=0; i<sz; i++) {
       fprintf(stdout, "%X", value[i]);
     }
@@ -584,7 +583,6 @@ class StressTest {
     size_t value_sz = ((rand % 3) + 1) * FLAGS_value_size_mult;
     assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
     *((uint32_t*)v) = rand;
-    char c = (char) rand;
     for (size_t i=sizeof(uint32_t); i < value_sz; i++) {
       v[i] = (char)(rand ^ i);
     }
@@ -595,13 +593,13 @@ class StressTest {
     fprintf(stdout, "LevelDB version     : %d.%d\n",
             kMajorVersion, kMinorVersion);
     fprintf(stdout, "Number of threads   : %d\n", FLAGS_threads);
-    fprintf(stdout, "Ops per thread      : %ld\n", FLAGS_ops_per_thread);
-    fprintf(stdout, "Read percentage     : %ld\n", FLAGS_readwritepercent);
+    fprintf(stdout, "Ops per thread      : %d\n", FLAGS_ops_per_thread);
+    fprintf(stdout, "Read percentage     : %d\n", FLAGS_readwritepercent);
     fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);
-    fprintf(stdout, "Num keys per lock   : %ld\n",
+    fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
-    char* compression;
+    char* compression = "";
     switch (FLAGS_compression_type) {
       case leveldb::kNoCompression:
         compression = (char *)std::string("none").c_str();
@@ -676,7 +674,6 @@ int main(int argc, char** argv) {
   std::string default_db_path;
 
   for (int i = 1; i < argc; i++) {
-    double d;
     int n;
     uint32_t u;
     long l;

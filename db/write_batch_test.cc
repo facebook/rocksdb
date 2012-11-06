@@ -22,6 +22,7 @@ static std::string PrintContents(WriteBatch* b) {
   Iterator* iter = mem->NewIterator();
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
+    memset((void *)&ikey, 0, sizeof(ikey));
     ASSERT_TRUE(ParseInternalKey(iter->key(), &ikey));
     switch (ikey.type) {
       case kTypeValue:
@@ -66,7 +67,7 @@ TEST(WriteBatchTest, Multiple) {
   batch.Delete(Slice("box"));
   batch.Put(Slice("baz"), Slice("boo"));
   WriteBatchInternal::SetSequence(&batch, 100);
-  ASSERT_EQ(100, WriteBatchInternal::Sequence(&batch));
+  ASSERT_EQ(100U, WriteBatchInternal::Sequence(&batch));
   ASSERT_EQ(3, WriteBatchInternal::Count(&batch));
   ASSERT_EQ("Put(baz, boo)@102"
             "Delete(box)@101"

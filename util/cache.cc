@@ -116,7 +116,6 @@ class HandleTable {
       LRUHandle* h = list_[i];
       while (h != NULL) {
         LRUHandle* next = h->next_hash;
-        Slice key = h->key();
         uint32_t hash = h->hash;
         LRUHandle** ptr = &new_list[hash & (new_length - 1)];
         h->next_hash = *ptr;
@@ -268,7 +267,6 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
 }
 
 static int kNumShardBits = 4;         // default values, can be overridden
-static int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
  private:
