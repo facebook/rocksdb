@@ -1278,6 +1278,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     Slice key = input->key();
+    Slice value = input->value();
+    Slice* compaction_filter_value = NULL;
     if (compact->compaction->ShouldStopBefore(key) &&
         compact->builder != NULL) {
       status = FinishCompactionOutputFile(compact, input);
@@ -1317,6 +1319,21 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         //     few iterations of this loop (by rule (A) above).
         // Therefore this deletion marker is obsolete and can be dropped.
         drop = true;
+      } else if (options_.CompactionFilter != NULL &&
+                 ikey.type != kTypeDeletion &&
+                 ikey.sequence < compact->smallest_snapshot) {
+        // If the user has specified a compaction filter, then invoke
+        // it. If this key is not visible via any snapshot and the
+        // return value of the compaction filter is true and then 
+        // drop this key from the output. 
+        drop = options_.CompactionFilter(compact->compaction->level(),
+                         ikey.user_key, value, &compaction_filter_value);
+
+        // If the application wants to change the value, then do so here.
+        if (compaction_filter_value != NULL) {
+          value = *compaction_filter_value;
+          delete compaction_filter_value;
+        }
       }
 
       last_sequence_for_key = ikey.sequence;
@@ -1343,7 +1360,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->smallest.DecodeFrom(key);
       }
       compact->current_output()->largest.DecodeFrom(key);
-      compact->builder->Add(key, input->value());
+      compact->builder->Add(key, value);
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=

@@ -439,8 +439,8 @@ int Version::PickLevelForMemTableOutput(
         break;
       }
       if (level + 2 >= vset_->NumberLevels()) {
-	level++;
-	break;
+        level++;
+        break;
       }
       GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
       const int64_t sum = TotalFileSize(overlaps);
@@ -469,6 +469,10 @@ void Version::GetOverlappingInputs(
     user_end = end->user_key();
   }
   const Comparator* user_cmp = vset_->icmp_.user_comparator();
+  if (begin != NULL && end != NULL && level > 0) {
+    GetOverlappingInputsBinarySearch(level, user_begin, user_end, inputs);
+    return;
+  }
   for (size_t i = 0; i < files_[level].size(); ) {
     FileMetaData* f = files_[level][i++];
     const Slice file_start = f->smallest.user_key();
@@ -492,6 +496,84 @@ void Version::GetOverlappingInputs(
           i = 0;
         }
       }
+    }
+  }
+}
+
+// Store in "*inputs" all files in "level" that overlap [begin,end]
+// Employ binary search to find at least one file that overlaps the
+// specified range. From that file, iterate backwards and
+// forwards to find all overlapping files.
+void Version::GetOverlappingInputsBinarySearch(
+    int level,
+    const Slice& user_begin,
+    const Slice& user_end,
+    std::vector<FileMetaData*>* inputs) {
+  assert(level > 0);
+  int min = 0;
+  int mid = 0;
+  int max = files_[level].size() -1;
+  bool foundOverlap = false;
+  const Comparator* user_cmp = vset_->icmp_.user_comparator();
+  while (min <= max) {
+    mid = (min + max)/2;
+    FileMetaData* f = files_[level][mid];
+    const Slice file_start = f->smallest.user_key();
+    const Slice file_limit = f->largest.user_key();
+    if (user_cmp->Compare(file_limit, user_begin) < 0) {
+      min = mid + 1;
+    } else if (user_cmp->Compare(user_end, file_start) < 0) {
+      max = mid - 1;
+    } else {
+      foundOverlap = true;
+      break;
+    }
+  }
+  
+  // If there were no overlapping files, return immediately.
+  if (!foundOverlap) {
+    return;
+  }
+  ExtendOverlappingInputs(level, user_begin, user_end, inputs, mid);
+}
+  
+// Store in "*inputs" all files in "level" that overlap [begin,end]
+// The midIndex specifies the index of at least one file that
+// overlaps the specified range. From that file, iterate backward
+// and forward to find all overlapping files.
+void Version::ExtendOverlappingInputs(
+    int level,
+    const Slice& user_begin,
+    const Slice& user_end,
+    std::vector<FileMetaData*>* inputs,
+    int midIndex) {
+
+  // assert that the file at midIndex overlaps with the range
+  const Comparator* user_cmp = vset_->icmp_.user_comparator();
+  assert(midIndex < files_[level].size());
+  assert((user_cmp->Compare(files_[level][midIndex]->largest.user_key(),
+                           user_begin) >= 0) ||
+         (user_cmp->Compare(files_[level][midIndex]->smallest.user_key(),
+                           user_end) <= 0));
+
+  // check backwards from 'mid' to lower indices
+  for (size_t i = midIndex; i < files_[level].size(); i--) {
+    FileMetaData* f = files_[level][i];
+    const Slice file_limit = f->largest.user_key();
+    if (user_cmp->Compare(file_limit, user_begin) >= 0) {
+      inputs->insert(inputs->begin(), f); // insert into beginning of vector
+    } else {
+      break;
+    }
+  }
+  // check forward from 'mid+1' to higher indices
+  for (size_t i = midIndex+1; i < files_[level].size(); i++) {
+    FileMetaData* f = files_[level][i];
+    const Slice file_start = f->smallest.user_key();
+    if (user_cmp->Compare(file_start, user_end) <= 0) {
+      inputs->push_back(f); // insert into end of vector
+    } else {
+      break;
     }
   }
 }
@@ -786,22 +868,11 @@ VersionSet::VersionSet(const std::string& dbname,
       descriptor_log_(NULL),
       dummy_versions_(this),
       current_(NULL),
+      num_levels_(options_->num_levels),
       compactions_in_progress_(options_->num_levels),
       current_version_number_(0) {
   compact_pointer_ = new std::string[options_->num_levels];
-  max_file_size_ = new uint64_t[options_->num_levels];
-  level_max_bytes_ = new uint64_t[options->num_levels];
-  int target_file_size_multiplier = options_->target_file_size_multiplier;
-  int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
-  for (int i = 0; i < options_->num_levels; i++) {
-    if (i > 1) {
-      max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
-      level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
-    } else {
-      max_file_size_[i] = options_->target_file_size_base;
-      level_max_bytes_[i] = options_->max_bytes_for_level_base;
-    }
-  }
+  Init(options_->num_levels);
   AppendVersion(new Version(this, current_version_number_++));
 }
 
@@ -813,6 +884,22 @@ VersionSet::~VersionSet() {
   delete[] level_max_bytes_;
   delete descriptor_log_;
   delete descriptor_file_;
+}
+
+void VersionSet::Init(int num_levels) {
+  max_file_size_ = new uint64_t[num_levels];
+  level_max_bytes_ = new uint64_t[num_levels];
+  int target_file_size_multiplier = options_->target_file_size_multiplier;
+  int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
+  for (int i = 0; i < num_levels; i++) {
+    if (i > 1) {
+      max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
+      level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
+    } else {
+      max_file_size_[i] = options_->target_file_size_base;
+      level_max_bytes_[i] = options_->max_bytes_for_level_base;
+    }
+  }
 }
 
 void VersionSet::AppendVersion(Version* v) {
@@ -833,7 +920,8 @@ void VersionSet::AppendVersion(Version* v) {
   v->next_->prev_ = v;
 }
 
-Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
+Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
+    bool new_descriptor_log) {
   mu->AssertHeld();
 
   // queue our request
@@ -843,7 +931,6 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     w.cv.Wait();
   }
   if (w.done) {
-    manifest_lock_.Unlock();
     return w.status;
   }
   
@@ -869,10 +956,10 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
   std::string new_manifest_file;
   uint64_t new_manifest_file_size = 0;
   Status s;
-  if (descriptor_log_ == NULL) {
+  if (descriptor_log_ == NULL || new_descriptor_log) {
     // No reason to unlock *mu here since we only hit this path in the
     // first call to LogAndApply (when opening the database).
-    assert(descriptor_file_ == NULL);
+    assert(descriptor_file_ == NULL || new_descriptor_log);
     new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
     s = env_->NewWritableFile(new_manifest_file, &descriptor_file_);
@@ -959,7 +1046,6 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
 
 void VersionSet::LogAndApplyHelper(Builder* builder, Version* v,
   VersionEdit* edit, port::Mutex* mu) {
-  manifest_lock_.AssertHeld();
   mu->AssertHeld();
 
   if (edit->has_log_number_) {
@@ -1218,7 +1304,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
            last_sequence, log_number, prev_log_number);
     printf("%s \n", v->DebugString().c_str());
   }
-
 
   return s;
 }

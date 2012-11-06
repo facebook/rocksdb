@@ -22,6 +22,7 @@
 #include "db/dbformat.h"
 #include "db/version_edit.h"
 #include "port/port.h"
+#include "db/table_cache.h"
 
 namespace leveldb {
 
@@ -88,6 +89,19 @@ class Version {
       const InternalKey* begin,         // NULL means before all keys
       const InternalKey* end,           // NULL means after all keys
       std::vector<FileMetaData*>* inputs);
+
+  void GetOverlappingInputsBinarySearch(
+      int level,
+      const Slice& begin,         // NULL means before all keys
+      const Slice& end,           // NULL means after all keys
+      std::vector<FileMetaData*>* inputs);
+
+  void ExtendOverlappingInputs(
+      int level,
+      const Slice& begin,         // NULL means before all keys
+      const Slice& end,           // NULL means after all keys
+      std::vector<FileMetaData*>* inputs,
+      int index);                 // start extending from this index
 
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
@@ -176,10 +190,19 @@ class VersionSet {
   // current version.  Will release *mu while actually writing to the file.
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
-  Status LogAndApply(VersionEdit* edit, port::Mutex* mu);
+  Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
+      bool new_descriptor_log = false);
 
   // Recover the last saved descriptor from persistent storage.
   Status Recover();
+
+  // Try to reduce the number of levels. This call is valid when
+  // only one level from the new max level to the old
+  // max level containing files.
+  // For example, a db currently has 7 levels [0-6], and a call to
+  // to reduce to 5 [0-4] can only be executed when only one level
+  // among [4-6] contains files.
+  Status ReduceNumberOfLevels(int new_levels, port::Mutex* mu);
 
   // Return the current version.
   Version* current() const { return current_; }
@@ -224,7 +247,7 @@ class VersionSet {
   // being compacted, or zero if there is no such log file.
   uint64_t PrevLogNumber() const { return prev_log_number_; }
 
-  int NumberLevels() const { return options_->num_levels; }
+  int NumberLevels() const { return num_levels_; }
 
   // Pick level and inputs for a new compaction.
   // Returns NULL if there is no compaction to be done.
@@ -318,6 +341,8 @@ class VersionSet {
   friend class Compaction;
   friend class Version;
 
+  void Init(int num_levels);
+
   void Finalize(Version* v);
 
   void GetRange(const std::vector<FileMetaData*>& inputs,
@@ -355,6 +380,8 @@ class VersionSet {
   uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
+  int num_levels_;
+
   // Opened lazily
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;
@@ -373,9 +400,6 @@ class VersionSet {
 
   // record all the ongoing compactions for all levels
   std::vector<std::set<Compaction*> > compactions_in_progress_;
-
-  // A lock that serialize writes to the manifest
-  port::Mutex manifest_lock_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;

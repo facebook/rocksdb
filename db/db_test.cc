@@ -1195,6 +1195,175 @@ TEST(DBTest, RepeatedWritesToSameKey) {
   }
 }
 
+// This is a static filter used for filtering
+// kvs during the compaction process.
+static int cfilter_count;
+static std::string NEW_VALUE = "NewValue";
+static bool keep_filter(int level, const Slice& key,
+  const Slice& value, Slice** new_value) {
+  cfilter_count++;  
+  return false;
+}
+static bool delete_filter(int level, const Slice& key,
+  const Slice& value, Slice** new_value) {
+  cfilter_count++;  
+  return true;
+}
+static bool change_filter(int level, const Slice& key,
+  const Slice& value, Slice** new_value) {
+  assert(new_value != NULL);
+  *new_value = new Slice(NEW_VALUE);
+  return false;
+}
+
+TEST(DBTest, CompactionFilter) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.max_mem_compaction_level = 0;
+  options.CompactionFilter = keep_filter;
+  Reopen(&options);
+
+  // Write 100K+1 keys, these are written to a few files 
+  // in L0. We do this so that the current snapshot points 
+  // to the 100001 key.The compaction filter is  not invoked
+  // on keys that are visible via a snapshot because we
+  // anyways cannot delete it.
+  const std::string value(10, 'x');
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(key, value);
+  }
+  dbfull()->TEST_CompactMemTable();
+
+  // Push all files to the highest level L2. Verify that
+  // the compaction is each level invokes the filter for
+  // all the keys in that level.
+  cfilter_count = 0;
+  dbfull()->TEST_CompactRange(0, NULL, NULL);
+  ASSERT_EQ(cfilter_count, 100000);
+  cfilter_count = 0;
+  dbfull()->TEST_CompactRange(1, NULL, NULL);
+  ASSERT_EQ(cfilter_count, 100000);
+
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_NE(NumTableFilesAtLevel(2), 0);
+  cfilter_count = 0;
+
+  // overwrite all the 100K+1 keys once again.
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(key, value);
+  }
+  dbfull()->TEST_CompactMemTable();
+
+  // push all files to the highest level L2. This
+  // means that all keys should pass at least once
+  // via the compaction filter
+  cfilter_count = 0;
+  dbfull()->TEST_CompactRange(0, NULL, NULL);
+  ASSERT_EQ(cfilter_count, 100000);
+  cfilter_count = 0;
+  dbfull()->TEST_CompactRange(1, NULL, NULL);
+  ASSERT_EQ(cfilter_count, 100000);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_NE(NumTableFilesAtLevel(2), 0);
+
+  // create a new database with the compaction
+  // filter in such a way that it deletes all keys
+  options.CompactionFilter = delete_filter;
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+
+  // write all the keys once again.
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(key, value);
+  }
+  dbfull()->TEST_CompactMemTable();
+  ASSERT_NE(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+
+  // Push all files to the highest level L2. This
+  // triggers the compaction filter to delete all keys,
+  // verify that at the end of the compaction process,
+  // nothing is left.
+  cfilter_count = 0;
+  dbfull()->TEST_CompactRange(0, NULL, NULL);
+  ASSERT_EQ(cfilter_count, 100000);
+  cfilter_count = 0;
+  dbfull()->TEST_CompactRange(1, NULL, NULL);
+  ASSERT_EQ(cfilter_count, 0);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+
+  // Scan the entire database to ensure that only the
+  // 100001th key is left in the db. The 100001th key
+  // is part of the default-most-current snapshot and
+  // cannot be deleted.
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  iter->SeekToFirst();
+  int count = 0;
+  while (iter->Valid()) {
+    count++;
+    iter->Next();
+  }
+  ASSERT_EQ(count, 1);
+  delete iter;
+}
+
+TEST(DBTest, CompactionFilterWithValueChange) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.max_mem_compaction_level = 0;
+  options.CompactionFilter = change_filter;
+  Reopen(&options);
+
+  // Write 100K+1 keys, these are written to a few files 
+  // in L0. We do this so that the current snapshot points 
+  // to the 100001 key.The compaction filter is  not invoked
+  // on keys that are visible via a snapshot because we
+  // anyways cannot delete it.
+  const std::string value(10, 'x');
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(key, value);
+  }
+
+  // push all files to  lower levels
+  dbfull()->TEST_CompactMemTable();
+  dbfull()->TEST_CompactRange(0, NULL, NULL);
+  dbfull()->TEST_CompactRange(1, NULL, NULL);
+
+  // re-write all data again
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(key, value);
+  }
+
+  // push all files to  lower levels. This should
+  // invoke the compaction filter for all 100000 keys.
+  dbfull()->TEST_CompactMemTable();
+  dbfull()->TEST_CompactRange(0, NULL, NULL);
+  dbfull()->TEST_CompactRange(1, NULL, NULL);
+
+  // verify that all keys now have the new value that
+  // was set by the compaction process.
+  for (int i = 0; i < 100000; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    std::string newvalue = Get(key);
+    ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
+  }
+}
+
 TEST(DBTest, SparseMerge) {
   Options options = CurrentOptions();
   options.compression = kNoCompression;
