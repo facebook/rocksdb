@@ -167,13 +167,13 @@ Options SanitizeOptions(const std::string& dbname,
 
 DBImpl::DBImpl(const Options& options, const std::string& dbname)
     : env_(options.env),
+      dbname_(dbname),
       internal_comparator_(options.comparator),
-      internal_filter_policy_(options.filter_policy),
       options_(SanitizeOptions(
           dbname, &internal_comparator_, &internal_filter_policy_, options)),
+      internal_filter_policy_(options.filter_policy),
       owns_info_log_(options_.info_log != options.info_log),
       owns_cache_(options_.block_cache != options.block_cache),
-      dbname_(dbname),
       db_lock_(NULL),
       shutting_down_(NULL),
       bg_cv_(&mutex_),
@@ -430,7 +430,8 @@ void DBImpl::DeleteObsoleteFiles() {
   EvictObsoleteFiles(deletion_state);
 }
 
-Status DBImpl::Recover(VersionEdit* edit) {
+Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
+    bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
   // Ignore error from CreateDir since the creation of the DB is
@@ -487,6 +488,16 @@ Status DBImpl::Recover(VersionEdit* edit) {
           && ((number >= min_log) || (number == prev_log))) {
         logs.push_back(number);
       }
+    }
+
+    if (logs.size() > 0 && error_if_log_file_exist) {
+      return Status::Corruption(""
+          "The db was opened in readonly mode with error_if_log_file_exist"
+          "flag but a log file already exists");
+    }
+
+    if (no_log_recory) {
+      return s;
     }
 
     // Recover in the order in which the logs were generated

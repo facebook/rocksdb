@@ -201,6 +201,9 @@ static int FLAGS_stats_per_interval = 0;
 // less than or equal to this value.
 static double FLAGS_rate_limit = 0;
 
+// Run read only benchmarks.
+static bool FLAGS_read_only = false;
+
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
@@ -942,7 +945,12 @@ class Benchmark {
       FLAGS_delete_obsolete_files_period_micros;
     options.rate_limit = FLAGS_rate_limit;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
-    Status s = DB::Open(options, FLAGS_db, &db_);
+    Status s;
+    if(FLAGS_read_only) {
+      s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
+    } else {
+      s = DB::Open(options, FLAGS_db, &db_);
+    }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
@@ -1374,6 +1382,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--rate_limit=%lf%c", &d, &junk) == 1 &&
                d > 1.0) {
       FLAGS_rate_limit = d;
+    } else if (sscanf(argv[i], "--readonly=%d%c", &n, &junk) == 1 &&
+        (n == 0 || n ==1 )) {
+      FLAGS_read_only = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

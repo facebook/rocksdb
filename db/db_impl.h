@@ -77,6 +77,18 @@ class DBImpl : public DB {
   // file at a level >= 1.
   int64_t TEST_MaxNextLevelOverlappingBytes();
 
+protected:
+
+  Env* const env_;
+  const std::string dbname_;
+  VersionSet* versions_;
+  const InternalKeyComparator internal_comparator_;
+  const Options options_;  // options_.comparator == &internal_comparator_
+
+  const Comparator* user_comparator() const {
+    return internal_comparator_.user_comparator();
+  }
+
  private:
   friend class DB;
   struct CompactionState;
@@ -91,7 +103,9 @@ class DBImpl : public DB {
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
-  Status Recover(VersionEdit* edit);
+  Status Recover(VersionEdit* edit,
+      bool no_log_recory = false,
+      bool error_if_log_file_exist = false);
 
   void MaybeIgnoreError(Status* s) const;
 
@@ -145,13 +159,9 @@ class DBImpl : public DB {
   void EvictObsoleteFiles(DeletionState& deletion_state);
 
   // Constant after construction
-  Env* const env_;
-  const InternalKeyComparator internal_comparator_;
   const InternalFilterPolicy internal_filter_policy_;
-  const Options options_;  // options_.comparator == &internal_comparator_
   bool owns_info_log_;
   bool owns_cache_;
-  const std::string dbname_;
 
   // table_cache_ provides its own synchronization
   TableCache* table_cache_;
@@ -197,8 +207,6 @@ class DBImpl : public DB {
     InternalKey tmp_storage;    // Used to keep track of compaction progress
   };
   ManualCompaction* manual_compaction_;
-
-  VersionSet* versions_;
 
   // Have we encountered a background error in paranoid mode?
   Status bg_error_;
@@ -276,9 +284,6 @@ class DBImpl : public DB {
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
 
-  const Comparator* user_comparator() const {
-    return internal_comparator_.user_comparator();
-  }
 };
 
 // Sanitize db options.  The caller should delete result.info_log if
