@@ -88,13 +88,17 @@ class Version {
       int level,
       const InternalKey* begin,         // NULL means before all keys
       const InternalKey* end,           // NULL means after all keys
-      std::vector<FileMetaData*>* inputs);
+      std::vector<FileMetaData*>* inputs,
+      int hint_index = -1,              // index of overlap file
+      int* file_index = NULL);          // return index of overlap file
 
   void GetOverlappingInputsBinarySearch(
       int level,
       const Slice& begin,         // NULL means before all keys
       const Slice& end,           // NULL means after all keys
-      std::vector<FileMetaData*>* inputs);
+      std::vector<FileMetaData*>* inputs,
+      int hint_index,             // index of overlap file
+      int* file_index);           // return index of overlap file
 
   void ExtendOverlappingInputs(
       int level,
@@ -496,6 +500,8 @@ class Compaction {
   bool seen_key_;             // Some output key has been seen
   int64_t overlapped_bytes_;  // Bytes of overlap between current output
                               // and grandparent files
+  int base_index_;   // index of the file in files_[level_]
+  int parent_index_; // index of some file with same range in files_[level_+1]
 
   // State for implementing IsBaseLevelForKey
 

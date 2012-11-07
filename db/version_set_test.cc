@@ -17,7 +17,7 @@ class FindFileTest {
   FindFileTest() : disjoint_sorted_files_(true) { }
 
   ~FindFileTest() {
-    for (int i = 0; i < files_.size(); i++) {
+    for (unsigned int i = 0; i < files_.size(); i++) {
       delete files_[i];
     }
   }

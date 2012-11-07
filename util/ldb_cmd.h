@@ -143,7 +143,7 @@ public:
 
   static std::string HexToString(const std::string& str) {
     std::string parsed;
-    for (int i = 0; i < str.length();) {
+    for (unsigned int i = 0; i < str.length();) {
       int c;
       sscanf(str.c_str() + i, "%2X", &c);
       parsed.push_back(c);

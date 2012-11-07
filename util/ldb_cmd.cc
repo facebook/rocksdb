@@ -12,7 +12,7 @@ const char* LDBCommand::HEX_ARG = "--hex";
 
 Compactor::Compactor(std::string& db_name, std::vector<std::string>& args) :
   LDBCommand(db_name, args), null_from_(true), null_to_(true), hex_(false) {
-  for (int i = 0; i < args.size(); i++) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
     if (arg.find(FROM_ARG) == 0) {
       null_from_ = false;
@@ -68,10 +68,15 @@ const char* DBDumper::STATS_ARG = "--stats";
 const char* DBDumper::HEX_OUTPUT_ARG = "--output_hex";
 
 DBDumper::DBDumper(std::string& db_name, std::vector<std::string>& args) :
-  LDBCommand(db_name, args), null_from_(true), null_to_(true), hex_(false),
-      count_only_(false), print_stats_(false), max_keys_(-1),
-      hex_output_(false) {
-  for (int i = 0; i < args.size(); i++) {
+    LDBCommand(db_name, args),
+    null_from_(true),
+    null_to_(true),
+    max_keys_(-1),
+    count_only_(false),
+    print_stats_(false),
+    hex_(false),
+    hex_output_(false) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
     if (arg.find(FROM_ARG) == 0) {
       null_from_ = false;
@@ -154,12 +159,12 @@ void DBDumper::DoCommand() {
     if (!count_only_) {
       if (hex_output_) {
         std::string str = iter->key().ToString();
-        for (int i = 0; i < str.length(); ++i) {
+        for (unsigned int i = 0; i < str.length(); ++i) {
           fprintf(stdout, "%X", str[i]);
         }
         fprintf(stdout, " ==> ");
         str = iter->value().ToString();
-        for (int i = 0; i < str.length(); ++i) {
+        for (unsigned int i = 0; i < str.length(); ++i) {
           fprintf(stdout, "%X", str[i]);
         }
         fprintf(stdout, "\n");
@@ -183,7 +188,7 @@ ReduceDBLevels::ReduceDBLevels(std::string& db_name,
 : LDBCommand(db_name, args),
   new_levels_(-1),
   print_old_levels_(false) {
-  for (int i = 0; i < args.size(); i++) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
     if (arg.find(NEW_LEVLES_ARG) == 0) {
       new_levels_ = atoi(arg.substr(strlen(NEW_LEVLES_ARG)).c_str());

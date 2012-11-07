@@ -44,7 +44,7 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
-namespace {
+namespace anon {
 class AtomicCounter {
  private:
   port::Mutex mu_;
@@ -79,9 +79,9 @@ class SpecialEnv : public EnvWrapper {
   port::AtomicPointer non_writable_;
 
   bool count_random_reads_;
-  AtomicCounter random_read_counter_;
+  anon::AtomicCounter random_read_counter_;
 
-  AtomicCounter sleep_counter_;
+  anon::AtomicCounter sleep_counter_;
 
   explicit SpecialEnv(Env* base) : EnvWrapper(base) {
     delay_sstable_sync_.Release_Store(NULL);
@@ -137,9 +137,9 @@ class SpecialEnv : public EnvWrapper {
     class CountingFile : public RandomAccessFile {
      private:
       RandomAccessFile* target_;
-      AtomicCounter* counter_;
+      anon::AtomicCounter* counter_;
      public:
-      CountingFile(RandomAccessFile* target, AtomicCounter* counter)
+      CountingFile(RandomAccessFile* target, anon::AtomicCounter* counter)
           : target_(target), counter_(counter) {
       }
       virtual ~CountingFile() { delete target_; }
@@ -310,7 +310,7 @@ class DBTest {
     }
 
     // Check reverse iteration results are the reverse of forward results
-    int matched = 0;
+    unsigned int matched = 0;
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
       ASSERT_LT(matched, forward.size());
       ASSERT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
@@ -858,8 +858,8 @@ TEST(DBTest, WAL) {
   ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
 
   Reopen();
-  ASSERT_EQ("NOT_FOUND", Get("foo"));
-  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ("v1", Get("foo"));
+  ASSERT_EQ("v1", Get("bar"));
 
   writeOpt.disableWAL = false;
   ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v2"));
@@ -867,10 +867,9 @@ TEST(DBTest, WAL) {
   ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v2"));
 
   Reopen();
-  // We garantee the 'bar' will be there
-  // because its put has WAL enabled.
-  // But 'foo' may or may not be there.
+  // Both value's should be present.
   ASSERT_EQ("v2", Get("bar"));
+  ASSERT_EQ("v2", Get("foo"));
 
   writeOpt.disableWAL = true;
   ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v3"));
@@ -878,9 +877,9 @@ TEST(DBTest, WAL) {
   ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v3"));
 
   Reopen();
-  // 'foo' should be there because its put
-  // has WAL enabled.
+  // again both values should be present.
   ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v3", Get("bar"));
 }
 
 TEST(DBTest, CheckLock) {
@@ -895,13 +894,13 @@ TEST(DBTest, FLUSH) {
   WriteOptions writeOpt = WriteOptions();
   writeOpt.disableWAL = true;
   ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
-  // this will not flush the last 2 writes
+  // this will now also flush the last 2 writes
   dbfull()->Flush(FlushOptions());
   ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
 
   Reopen();
   ASSERT_EQ("v1", Get("foo"));
-  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ("v1", Get("bar"));
 
   writeOpt.disableWAL = true;
   ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v2"));
@@ -1201,12 +1200,12 @@ static int cfilter_count;
 static std::string NEW_VALUE = "NewValue";
 static bool keep_filter(int level, const Slice& key,
   const Slice& value, Slice** new_value) {
-  cfilter_count++;  
+  cfilter_count++;
   return false;
 }
 static bool delete_filter(int level, const Slice& key,
   const Slice& value, Slice** new_value) {
-  cfilter_count++;  
+  cfilter_count++;
   return true;
 }
 static bool change_filter(int level, const Slice& key,
@@ -1223,8 +1222,8 @@ TEST(DBTest, CompactionFilter) {
   options.CompactionFilter = keep_filter;
   Reopen(&options);
 
-  // Write 100K+1 keys, these are written to a few files 
-  // in L0. We do this so that the current snapshot points 
+  // Write 100K+1 keys, these are written to a few files
+  // in L0. We do this so that the current snapshot points
   // to the 100001 key.The compaction filter is  not invoked
   // on keys that are visible via a snapshot because we
   // anyways cannot delete it.
@@ -1324,8 +1323,8 @@ TEST(DBTest, CompactionFilterWithValueChange) {
   options.CompactionFilter = change_filter;
   Reopen(&options);
 
-  // Write 100K+1 keys, these are written to a few files 
-  // in L0. We do this so that the current snapshot points 
+  // Write 100K+1 keys, these are written to a few files
+  // in L0. We do this so that the current snapshot points
   // to the 100001 key.The compaction filter is  not invoked
   // on keys that are visible via a snapshot because we
   // anyways cannot delete it.
@@ -2028,7 +2027,7 @@ TEST(DBTest, SnapshotFiles) {
   dbfull()->GetLiveFiles(files, &manifest_size);
 
   // CURRENT, MANIFEST, *.sst files
-  ASSERT_EQ(files.size(), 3);
+  ASSERT_EQ(files.size(), 3U);
 
   uint64_t number = 0;
   FileType type;
@@ -2251,7 +2250,7 @@ static void MTThreadBody(void* arg) {
         ASSERT_EQ(k, key);
         ASSERT_GE(w, 0);
         ASSERT_LT(w, kNumThreads);
-        ASSERT_LE(c, reinterpret_cast<uintptr_t>(
+        ASSERT_LE((unsigned int)c, reinterpret_cast<uintptr_t>(
             t->state->counter[w].Acquire_Load()));
       }
     }

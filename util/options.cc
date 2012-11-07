@@ -44,12 +44,12 @@ Options::Options()
       db_stats_log_interval(1800),
       db_log_dir(""),
       disable_seek_compaction(false),
-      no_block_cache(false),
-      table_cache_numshardbits(4),
+      delete_obsolete_files_period_micros(0),
       max_background_compactions(1),
       max_log_file_size(0),
-      delete_obsolete_files_period_micros(0),
       rate_limit(0.0), 
+      no_block_cache(false),
+      table_cache_numshardbits(4),
       CompactionFilter(NULL) {
 }
 
@@ -64,7 +64,7 @@ Options::Dump(
     Log(log,"                     Options.env: %p", env);
     Log(log,"                Options.info_log: %p", info_log);
     Log(log,"       Options.write_buffer_size: %zd", write_buffer_size);
-    Log(log," Options.max_write_buffer_number: %zd", max_write_buffer_number);
+    Log(log," Options.max_write_buffer_number: %d", max_write_buffer_number);
     Log(log,"          Options.max_open_files: %d", max_open_files);
     Log(log,"             Options.block_cache: %p", block_cache);
     if (block_cache) {
@@ -74,7 +74,7 @@ Options::Dump(
     Log(log,"              Options.block_size: %zd", block_size);
     Log(log,"  Options.block_restart_interval: %d", block_restart_interval);
     if (compression_per_level != NULL) {
-       for (unsigned int i = 0; i < num_levels; i++){
+       for (int i = 0; i < num_levels; i++){
           Log(log,"       Options.compression[%d]: %d",
               i, compression_per_level[i]);
        }
@@ -86,8 +86,8 @@ Options::Dump(
     Log(log,"            Options.num_levels: %d", num_levels);
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);
-    Log(log,"     Options.max_log_file_size: %d", max_log_file_size);
-    Log(log," Options.db_stats_log_interval: %d", 
+    Log(log,"     Options.max_log_file_size: %ld", max_log_file_size);
+    Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
     Log(log,"           Options.compression_opts.window_bits: %d",
         compression_opts.window_bits);

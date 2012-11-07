@@ -61,9 +61,9 @@ TEST(SkipTest, InsertAndLookup) {
 
   for (int i = 0; i < R; i++) {
     if (list.Contains(i)) {
-      ASSERT_EQ(keys.count(i), 1);
+      ASSERT_EQ(keys.count(i), 1U);
     } else {
-      ASSERT_EQ(keys.count(i), 0);
+      ASSERT_EQ(keys.count(i), 0U);
     }
   }
 
@@ -195,7 +195,7 @@ class ConcurrentTest {
     }
 
     State() {
-      for (int k = 0; k < K; k++) {
+      for (unsigned int k = 0; k < K; k++) {
         Set(k, 0);
       }
     }
@@ -225,7 +225,7 @@ class ConcurrentTest {
   void ReadStep(Random* rnd) {
     // Remember the initial committed state of the skiplist.
     State initial_state;
-    for (int k = 0; k < K; k++) {
+    for (unsigned int k = 0; k < K; k++) {
       initial_state.Set(k, current_.Get(k));
     }
 
@@ -249,8 +249,8 @@ class ConcurrentTest {
 
         // Note that generation 0 is never inserted, so it is ok if
         // <*,0,*> is missing.
-        ASSERT_TRUE((gen(pos) == 0) ||
-                    (gen(pos) > initial_state.Get(key(pos)))
+        ASSERT_TRUE((gen(pos) == 0U) ||
+                    (gen(pos) > (uint64_t)initial_state.Get(key(pos)))
                     ) << "key: " << key(pos)
                       << "; gen: " << gen(pos)
                       << "; initgen: "

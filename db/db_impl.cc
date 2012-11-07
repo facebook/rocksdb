@@ -160,7 +160,7 @@ Options SanitizeOptions(const std::string& dbname,
   }
   if (src.compression_per_level != NULL) {
     result.compression_per_level = new CompressionType[src.num_levels];
-    for (unsigned int i = 0; i < src.num_levels; i++) {
+    for (int i = 0; i < src.num_levels; i++) {
       result.compression_per_level[i] = src.compression_per_level[i];
     }
   }
@@ -191,10 +191,11 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       disable_delete_obsolete_files_(false),
       delete_obsolete_files_last_run_(0),
       stall_level0_slowdown_(0),
-      stall_leveln_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
+      stall_leveln_slowdown_(0),
       started_at_(options.env->NowMicros()),
+      flush_on_destroy_(false),
       delayed_writes_(0) {
   mem_->Ref();
 
@@ -227,7 +228,10 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish
-  mutex_.Lock();
+  if (flush_on_destroy_) {
+    FlushMemTable(FlushOptions());
+  }
+    mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-NULL value is ok
   while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
     bg_cv_.Wait();
@@ -316,7 +320,7 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
   // delete_obsolete_files_period_micros.
   if (options_.delete_obsolete_files_period_micros != 0) {
     const uint64_t now_micros = env_->NowMicros();
-    if (delete_obsolete_files_last_run_ + 
+    if (delete_obsolete_files_last_run_ +
         options_.delete_obsolete_files_period_micros > now_micros) {
       return;
     }
@@ -422,7 +426,6 @@ void DBImpl::DeleteObsoleteFiles() {
   std::set<uint64_t> live;
   std::vector<std::string> allfiles;
   std::vector<uint64_t> files_to_evict;
-  uint64_t filenumber, lognumber, prevlognumber;
   FindObsoleteFiles(deletion_state);
   PurgeObsoleteFiles(deletion_state);
   EvictObsoleteFiles(deletion_state);
@@ -1084,7 +1087,7 @@ void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
   assert(compact != NULL);
   assert(compact->builder == NULL);
   int filesNeeded = compact->compaction->num_input_files(1);
-  for (unsigned i = 0; i < filesNeeded; i++) {
+  for (int i = 0; i < filesNeeded; i++) {
     uint64_t file_number = versions_->NewFileNumber();
     pending_outputs_.insert(file_number);
     compact->allocated_file_numbers.push_back(file_number);
@@ -1324,8 +1327,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
                  ikey.sequence < compact->smallest_snapshot) {
         // If the user has specified a compaction filter, then invoke
         // it. If this key is not visible via any snapshot and the
-        // return value of the compaction filter is true and then 
-        // drop this key from the output. 
+        // return value of the compaction filter is true and then
+        // drop this key from the output.
         drop = options_.CompactionFilter(compact->compaction->level(),
                          ikey.user_key, value, &compaction_filter_value);
 
@@ -1605,6 +1608,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     // into mem_.
     {
       mutex_.Unlock();
+      if (options.disableWAL) {
+        flush_on_destroy_ = true;
+      }
+
       if (!options.disableWAL) {
         status = log_->AddRecord(WriteBatchInternal::Contents(updates));
         if (status.ok() && options.sync) {
@@ -1731,7 +1738,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       allow_delay = false;  // Do not delay a single write more than once
       //Log(options_.info_log,
       //    "delaying write %llu usecs for level0_slowdown_writes_trigger\n",
-      //     delayed);
+      //     (long long unsigned int)delayed);
       mutex_.Lock();
       delayed_writes_++;
     } else if (!force &&
@@ -1770,7 +1777,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       allow_delay = false;  // Do not delay a single write more than once
       Log(options_.info_log,
           "delaying write %llu usecs for rate limits with max score %.2f\n",
-          delayed, score);
+          (long long unsigned int)delayed, score);
       mutex_.Lock();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old

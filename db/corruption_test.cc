@@ -82,7 +82,7 @@ class CorruptionTest {
   }
 
   void Check(int min_expected, int max_expected) {
-    int next_expected = 0;
+    unsigned int next_expected = 0;
     int missed = 0;
     int bad_keys = 0;
     int bad_values = 0;
@@ -123,7 +123,7 @@ class CorruptionTest {
     FileType type;
     std::string fname;
     int picked_number = -1;
-    for (int i = 0; i < filenames.size(); i++) {
+    for (unsigned int i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type == filetype &&
           int(number) > picked_number) {  // Pick latest file

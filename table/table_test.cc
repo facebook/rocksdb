@@ -75,7 +75,7 @@ static void Increment(const Comparator* cmp, std::string* key) {
 }
 
 // An STL comparator that uses a Comparator
-namespace {
+namespace anon {
 struct STLLessThan {
   const Comparator* cmp;
 
@@ -134,13 +134,13 @@ class StringSource: public RandomAccessFile {
   std::string contents_;
 };
 
-typedef std::map<std::string, std::string, STLLessThan> KVMap;
+typedef std::map<std::string, std::string, anon::STLLessThan> KVMap;
 
 // Helper class for tests to unify the interface between
 // BlockBuilder/TableBuilder and Block/Table.
 class Constructor {
  public:
-  explicit Constructor(const Comparator* cmp) : data_(STLLessThan(cmp)) { }
+  explicit Constructor(const Comparator* cmp) : data_(anon::STLLessThan(cmp)) { }
   virtual ~Constructor() { }
 
   void Add(const std::string& key, const Slice& value) {
@@ -464,7 +464,7 @@ static std::vector<TestArgs> Generate_Arg_List()
   for(int i =0; i < test_type_len; i++)
     for (int j =0; j < reverse_compare_len; j++)
       for (int k =0; k < restart_interval_len; k++)
-	for (int n =0; n < compression_types.size(); n++) {
+	for (unsigned int n =0; n < compression_types.size(); n++) {
 	  TestArgs one_arg;
 	  one_arg.type = test_type[i];
 	  one_arg.reverse_compare = reverse_compare[j];
@@ -690,7 +690,7 @@ class Harness {
 // Test the empty key
 TEST(Harness, SimpleEmptyKey) {
   std::vector<TestArgs> args = Generate_Arg_List();
-  for (int i = 0; i < args.size(); i++) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 1);
     Add("", "v");
@@ -700,7 +700,7 @@ TEST(Harness, SimpleEmptyKey) {
 
 TEST(Harness, SimpleSingle) {
   std::vector<TestArgs> args = Generate_Arg_List();
-  for (int i = 0; i < args.size(); i++) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 2);
     Add("abc", "v");
@@ -710,7 +710,7 @@ TEST(Harness, SimpleSingle) {
 
 TEST(Harness, SimpleMulti) {
   std::vector<TestArgs> args = Generate_Arg_List();
-  for (int i = 0; i < args.size(); i++) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 3);
     Add("abc", "v");
@@ -722,7 +722,7 @@ TEST(Harness, SimpleMulti) {
 
 TEST(Harness, SimpleSpecialKey) {
   std::vector<TestArgs> args = Generate_Arg_List();
-  for (int i = 0; i < args.size(); i++) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 4);
     Add("\xff\xff", "v3");
@@ -732,7 +732,7 @@ TEST(Harness, SimpleSpecialKey) {
 
 TEST(Harness, Randomized) {
   std::vector<TestArgs> args = Generate_Arg_List();
-  for (int i = 0; i < args.size(); i++) {
+  for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 5);
     for (int num_entries = 0; num_entries < 2000;

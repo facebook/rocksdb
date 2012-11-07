@@ -36,7 +36,7 @@ TEST(MemEnvTest, Basics) {
   ASSERT_TRUE(!env_->FileExists("/dir/non_existent"));
   ASSERT_TRUE(!env_->GetFileSize("/dir/non_existent", &file_size).ok());
   ASSERT_OK(env_->GetChildren("/dir", &children));
-  ASSERT_EQ(0, children.size());
+  ASSERT_EQ(0U, children.size());
 
   // Create a file.
   ASSERT_OK(env_->NewWritableFile("/dir/f", &writable_file));
@@ -45,9 +45,9 @@ TEST(MemEnvTest, Basics) {
   // Check that the file exists.
   ASSERT_TRUE(env_->FileExists("/dir/f"));
   ASSERT_OK(env_->GetFileSize("/dir/f", &file_size));
-  ASSERT_EQ(0, file_size);
+  ASSERT_EQ(0U, file_size);
   ASSERT_OK(env_->GetChildren("/dir", &children));
-  ASSERT_EQ(1, children.size());
+  ASSERT_EQ(1U, children.size());
   ASSERT_EQ("f", children[0]);
 
   // Write to the file.
@@ -57,7 +57,7 @@ TEST(MemEnvTest, Basics) {
 
   // Check for expected size.
   ASSERT_OK(env_->GetFileSize("/dir/f", &file_size));
-  ASSERT_EQ(3, file_size);
+  ASSERT_EQ(3U, file_size);
 
   // Check that renaming works.
   ASSERT_TRUE(!env_->RenameFile("/dir/non_existent", "/dir/g").ok());
@@ -65,7 +65,7 @@ TEST(MemEnvTest, Basics) {
   ASSERT_TRUE(!env_->FileExists("/dir/f"));
   ASSERT_TRUE(env_->FileExists("/dir/g"));
   ASSERT_OK(env_->GetFileSize("/dir/g", &file_size));
-  ASSERT_EQ(3, file_size);
+  ASSERT_EQ(3U, file_size);
 
   // Check that opening non-existent file fails.
   SequentialFile* seq_file;
@@ -80,7 +80,7 @@ TEST(MemEnvTest, Basics) {
   ASSERT_OK(env_->DeleteFile("/dir/g"));
   ASSERT_TRUE(!env_->FileExists("/dir/g"));
   ASSERT_OK(env_->GetChildren("/dir", &children));
-  ASSERT_EQ(0, children.size());
+  ASSERT_EQ(0U, children.size());
   ASSERT_OK(env_->DeleteDir("/dir"));
 }
 
@@ -106,10 +106,10 @@ TEST(MemEnvTest, ReadWrite) {
   ASSERT_OK(seq_file->Read(1000, &result, scratch)); // Read "world".
   ASSERT_EQ(0, result.compare("world"));
   ASSERT_OK(seq_file->Read(1000, &result, scratch)); // Try reading past EOF.
-  ASSERT_EQ(0, result.size());
+  ASSERT_EQ(0U, result.size());
   ASSERT_OK(seq_file->Skip(100)); // Try to skip past end of file.
   ASSERT_OK(seq_file->Read(1000, &result, scratch));
-  ASSERT_EQ(0, result.size());
+  ASSERT_EQ(0U, result.size());
   delete seq_file;
 
   // Random reads.

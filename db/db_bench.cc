@@ -149,7 +149,7 @@ static bool FLAGS_use_fsync = false;
 static bool FLAGS_disable_wal = false;
 
 // The total number of levels
-static int FLAGS_num_levels = 7;
+static unsigned int FLAGS_num_levels = 7;
 
 // Target level-0 file size for compaction
 static int FLAGS_target_file_size_base = 2 * 1048576;
@@ -191,7 +191,7 @@ static enum leveldb::CompressionType FLAGS_compression_type =
 
 // Allows compression for levels 0 and 1 to be disabled when
 // other levels are compressed
-static int FLAGS_min_level_to_compress = -1;
+static unsigned int FLAGS_min_level_to_compress = -1;
 
 static int FLAGS_table_cache_numshardbits = 4;
 
@@ -218,13 +218,11 @@ extern bool useMmapWrite;
 
 namespace leveldb {
 
-namespace {
-
 // Helper for quickly generating random data.
 class RandomGenerator {
  private:
   std::string data_;
-  int pos_;
+  unsigned int pos_;
 
  public:
   RandomGenerator() {
@@ -252,11 +250,11 @@ class RandomGenerator {
   }
 };
 static Slice TrimSpace(Slice s) {
-  int start = 0;
+  unsigned int start = 0;
   while (start < s.size() && isspace(s[start])) {
     start++;
   }
-  int limit = s.size();
+  unsigned int limit = s.size();
   while (limit > start && isspace(s[limit-1])) {
     limit--;
   }
@@ -446,8 +444,6 @@ struct ThreadState {
   }
 };
 
-}  // namespace
-
 class Benchmark {
  private:
   Cache* cache_;
@@ -534,6 +530,9 @@ class Benchmark {
                                         strlen(text), &compressed);
           name = "BZip2";
           break;
+        case kNoCompression:
+          assert(false); // cannot happen
+          break;
       }
 
       if (!result) {
@@ -611,7 +610,7 @@ class Benchmark {
     heap_counter_(0) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
-    for (int i = 0; i < files.size(); i++) {
+    for (unsigned int i = 0; i < files.size(); i++) {
       if (Slice(files[i]).starts_with("heap-")) {
         FLAGS_env->DeleteFile(std::string(FLAGS_db) + "/" + files[i]);
       }
