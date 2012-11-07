@@ -420,7 +420,7 @@ class VersionSet {
   uint64_t SizeBeingCompacted(int level);
 
   // Returns true if any one of the parent files are being compacted
-  bool ParentFilesInCompaction(FileMetaData* f, int level);
+  bool ParentFilesInCompaction(FileMetaData* f, int level, int* index);
 
   // Returns true if any one of the specified files are being compacted
   bool FilesInCompaction(std::vector<FileMetaData*>& files);
