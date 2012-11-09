@@ -52,6 +52,9 @@ static long FLAGS_cache_size = 2 * KB * KB * KB;
 // Number of bytes in a block.
 static int FLAGS_block_size = 4 * KB;
 
+// Number of times database reopens
+static int FLAGS_reopen = 10;
+
 // Maximum number of files to keep open at the same time (use default if == 0)
 static int FLAGS_open_files = 0;
 
@@ -248,6 +251,7 @@ class SharedState {
       num_threads_(FLAGS_threads),
       num_initialized_(0),
       num_populated_(0),
+      vote_reopen_(0),
       num_done_(0),
       start_(false),
       start_verify_(false),
@@ -301,6 +305,10 @@ class SharedState {
     num_done_++;
   }
 
+  void IncVotedReopen() {
+    vote_reopen_ = (vote_reopen_ + 1) % num_threads_;
+  }
+
   bool AllInitialized() const {
     return num_initialized_ >= num_threads_;
   }
@@ -311,6 +319,10 @@ class SharedState {
 
   bool AllDone() const {
     return num_done_ >= num_threads_;
+  }
+
+  bool AllVotedReopen() {
+    return (vote_reopen_ == 0);
   }
 
   void SetStart() {
@@ -358,6 +370,7 @@ class SharedState {
   const int num_threads_;
   long num_initialized_;
   long num_populated_;
+  long vote_reopen_;
   long num_done_;
   bool start_;
   bool start_verify_;
@@ -512,6 +525,19 @@ class StressTest {
 
     thread->stats.Start();
     for (long i = 0; i < FLAGS_ops_per_thread; i++) {
+      if(i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
+        {
+          MutexLock l(thread->shared->GetMutex());
+          thread->shared->IncVotedReopen();
+          if (thread->shared->AllVotedReopen()) {
+            thread->shared->GetStressTest()->Reopen();
+            thread->shared->GetCondVar()->SignalAll();
+          }
+          else {
+            thread->shared->GetCondVar()->Wait();
+          }
+        }
+      }
       long rand_key = thread->rand.Next() % max_key;
       Slice key((char*)&rand_key, sizeof(rand_key));
       //Read:10%;Delete:30%;Write:60%
@@ -622,6 +648,7 @@ class StressTest {
     fprintf(stdout, "Read percentage     : %d\n", FLAGS_readpercent);
     fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
     fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);
+    fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
@@ -673,6 +700,11 @@ class StressTest {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
     }
+  }
+
+  void Reopen() {
+    delete db_;
+    Open();
   }
 
   void PrintStatistics() {
@@ -733,6 +765,8 @@ int main(int argc, char** argv) {
       FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
       FLAGS_block_size = n;
+    } else if (sscanf(argv[i], "--reopen=%d%c", &n, &junk) == 1 && n >= 0) {
+      FLAGS_reopen = n;
     } else if (sscanf(argv[i], "--bloom_bits=%d%c", &n, &junk) == 1) {
       FLAGS_bloom_bits = n;
     } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
