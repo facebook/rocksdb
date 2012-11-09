@@ -23,6 +23,7 @@
 #include "db/write_batch_internal.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "leveldb/statistics.h"
 #include "leveldb/status.h"
 #include "leveldb/table.h"
 #include "leveldb/table_builder.h"
@@ -1143,6 +1144,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
+        RecordTick(options_.statistics, COMPACTION_KEY_DROP_NEWER_ENTRY);
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1154,6 +1156,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         //     few iterations of this loop (by rule (A) above).
         // Therefore this deletion marker is obsolete and can be dropped.
         drop = true;
+        RecordTick(options_.statistics, COMPACTION_KEY_DROP_OBSOLETE);
       } else if (options_.CompactionFilter != NULL &&
                  ikey.type != kTypeDeletion &&
                  ikey.sequence < compact->smallest_snapshot) {
@@ -1164,6 +1167,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         drop = options_.CompactionFilter(compact->compaction->level(),
                          ikey.user_key, value, &compaction_filter_value);
 
+        if (drop) {
+          RecordTick(options_.statistics, COMPACTION_KEY_DROP_USER);
+        }
         // If the application wants to change the value, then do so here.
         if (compaction_filter_value != NULL) {
           value = *compaction_filter_value;

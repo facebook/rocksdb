@@ -575,12 +575,19 @@ class Benchmark {
   void PrintStatistics() {
     if (FLAGS_statistics) {
       fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n"
-          "Block Cache Hit Count:%ld Block Cache Miss Count:%ld\n",
-              dbstats->getNumFileOpens(),
-              dbstats->getNumFileCloses(),
-              dbstats->getNumFileErrors(),
+          "Block Cache Hit Count:%ld Block Cache Miss Count:%ld\n"
+          "Bloom Filter Useful: %ld \n"
+          "Compaction key_drop_newer_entry: %ld key_drop_obsolete: %ld "
+          "Compaction key_drop_user: %ld",
+          dbstats->getNumFileOpens(),
+          dbstats->getNumFileCloses(),
+          dbstats->getNumFileErrors(),
           dbstats->getTickerCount(BLOCK_CACHE_HIT),
-          dbstats->getTickerCount(BLOCK_CACHE_MISS));
+          dbstats->getTickerCount(BLOCK_CACHE_MISS),
+          dbstats->getTickerCount(BLOOM_FILTER_USEFUL),
+          dbstats->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+          dbstats->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE),
+          dbstats->getTickerCount(COMPACTION_KEY_DROP_USER));
     }
   }
 

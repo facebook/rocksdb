@@ -16,7 +16,15 @@ namespace leveldb {
 enum Tickers {
   BLOCK_CACHE_MISS = 0,
   BLOCK_CACHE_HIT = 1,
-  TICKER_ENUM_MAX = 2,
+  BLOOM_FILTER_USEFUL = 2, // no. of times bloom filter has avoided file reads.
+  /**
+   * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
+   * There are 3 reasons currently.
+   */
+  COMPACTION_KEY_DROP_NEWER_ENTRY = 3, // key was written with a newer value.
+  COMPACTION_KEY_DROP_OBSOLETE = 4, // The key is obsolete.
+  COMPACTION_KEY_DROP_USER = 5, // user compaction function has dropped the key.
+  TICKER_ENUM_MAX = 6,
 };
 
 

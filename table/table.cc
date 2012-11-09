@@ -243,6 +243,7 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
         handle.DecodeFrom(&handle_value).ok() &&
         !filter->KeyMayMatch(handle.offset(), k)) {
       // Not found
+      RecordTick(rep_->options.statistics, BLOOM_FILTER_USEFUL);
     } else {
       bool didIO = false;
       Iterator* block_iter = BlockReader(this, options, iiter->value(),
