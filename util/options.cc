@@ -104,7 +104,7 @@ Options::Dump(
         target_file_size_base);
     Log(log,"            Options.target_file_size_multiplier: %d",
         target_file_size_multiplier);
-    Log(log,"               Options.max_bytes_for_level_base: %d",
+    Log(log,"               Options.max_bytes_for_level_base: %ld",
         max_bytes_for_level_base);
     Log(log,"         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);

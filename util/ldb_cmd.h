@@ -103,6 +103,10 @@ public:
     return opt;
   }
 
+  virtual bool NoDBOpen() {
+    return false;
+  }
+
   virtual ~LDBCommand() {
     if (db_ != NULL) {
       delete db_;
@@ -121,14 +125,18 @@ public:
       return;
     }
 
-   if (db_ == NULL) {
+   if (db_ == NULL && !NoDBOpen()) {
       OpenDB();
     }
+
     DoCommand();
     if (exec_state_.IsNotStarted()) {
       exec_state_ = LDBCommandExecuteResult::SUCCEED("");
     }
-    CloseDB ();
+
+    if (db_ != NULL) {
+      CloseDB ();
+    }
   }
 
   virtual void DoCommand() = 0;
@@ -230,17 +238,28 @@ public:
   virtual leveldb::Options PrepareOptionsForOpenDB();
 
   virtual void DoCommand();
-  static void Help(std::string& msg);
 
+  virtual bool NoDBOpen() {
+    return true;
+  }
+
+  static void Help(std::string& msg);
   static std::vector<std::string> PrepareArgs(int new_levels,
       bool print_old_level = false);
 
 private:
+  int old_levels_;
   int new_levels_;
   bool print_old_levels_;
+  int file_size_;
+  enum leveldb::CompressionType compression_;
 
   static const char* NEW_LEVLES_ARG;
   static const char* PRINT_OLD_LEVELS_ARG;
+  static const char* COMPRESSION_TYPE_ARG;
+  static const char* FILE_SIZE_ARG;
+
+  Status GetOldNumOfLevels(leveldb::Options& opt, int* levels);
 };
 
 }

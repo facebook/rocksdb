@@ -221,7 +221,7 @@ struct Options {
 
 
   // by default 'max_bytes_for_level_base' is 10MB.
-  int max_bytes_for_level_base;
+  uint64_t max_bytes_for_level_base;
   // by default 'max_bytes_for_level_base' is 10.
   int max_bytes_for_level_multiplier;
 

@@ -230,7 +230,7 @@ DBImpl::~DBImpl() {
   if (flush_on_destroy_) {
     FlushMemTable(FlushOptions());
   }
-    mutex_.Lock();
+  mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-NULL value is ok
   while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
     bg_cv_.Wait();

@@ -87,7 +87,7 @@ static int FLAGS_target_file_size_base = 64 * KB;
 static int FLAGS_target_file_size_multiplier = 1;
 
 // Max bytes for level-0
-static int FLAGS_max_bytes_for_level_base = 256 * KB;
+static uint64_t FLAGS_max_bytes_for_level_base = 256 * KB;
 
 // A multiplier to compute max bytes for level-N
 static int FLAGS_max_bytes_for_level_multiplier = 2;
@@ -783,8 +783,8 @@ int main(int argc, char** argv) {
         &n, &junk) == 1) {
       FLAGS_target_file_size_multiplier = n;
     } else if (
-        sscanf(argv[i], "--max_bytes_for_level_base=%d%c", &n, &junk) == 1) {
-      FLAGS_max_bytes_for_level_base = n;
+        sscanf(argv[i], "--max_bytes_for_level_base=%ld%c", &l, &junk) == 1) {
+      FLAGS_max_bytes_for_level_base = l;
     } else if (sscanf(argv[i], "--max_bytes_for_level_multiplier=%d%c",
         &n, &junk) == 1) {
       FLAGS_max_bytes_for_level_multiplier = n;
