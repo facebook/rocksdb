@@ -252,7 +252,7 @@ leveldb::Options ReduceDBLevels::PrepareOptionsForOpenDB() {
   leveldb::Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.num_levels = old_levels_;
   // Disable size compaction
-  opt.max_bytes_for_level_base = 1 << 60;
+  opt.max_bytes_for_level_base = 1L << 60;
   opt.max_bytes_for_level_multiplier = 1;
   opt.max_mem_compaction_level = 0;
   return opt;

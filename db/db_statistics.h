@@ -31,12 +31,12 @@ class DBStatistics: public Statistics {
   }
 
   long getTickerCount(Tickers tickerType) {
-    assert(tickerType < MAX_NO_TICKERS);
+    assert(tickerType < TICKER_ENUM_MAX);
     return allTickers_[tickerType].getCount();
   }
 
   void recordTick(Tickers tickerType) {
-    assert(tickerType < MAX_NO_TICKERS);
+    assert(tickerType < TICKER_ENUM_MAX);
     allTickers_[tickerType].recordTick();
   }
 
