@@ -181,7 +181,7 @@ static enum leveldb::CompressionType FLAGS_compression_type =
 
 // Allows compression for levels 0 and 1 to be disabled when
 // other levels are compressed
-static unsigned int FLAGS_min_level_to_compress = -1;
+static int FLAGS_min_level_to_compress = -1;
 
 static int FLAGS_table_cache_numshardbits = 4;
 
@@ -942,7 +942,7 @@ class Benchmark {
     if (FLAGS_min_level_to_compress >= 0) {
       assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
       options.compression_per_level = new CompressionType[FLAGS_num_levels];
-      for (unsigned int i = 0; i < FLAGS_min_level_to_compress; i++) {
+      for (int i = 0; i < FLAGS_min_level_to_compress; i++) {
         options.compression_per_level[i] = kNoCompression;
       }
       for (unsigned int i = FLAGS_min_level_to_compress;
