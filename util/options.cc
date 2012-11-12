@@ -45,7 +45,7 @@ Options::Options()
       disable_seek_compaction(false),
       delete_obsolete_files_period_micros(0),
       max_log_file_size(0),
-      rate_limit(0.0), 
+      rate_limit(0.0),
       no_block_cache(false),
       table_cache_numshardbits(4),
       CompactionFilter(NULL) {
