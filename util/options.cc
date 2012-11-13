@@ -48,6 +48,7 @@ Options::Options()
       rate_limit(0.0),
       no_block_cache(false),
       table_cache_numshardbits(4),
+      compaction_filter_args(NULL),
       CompactionFilter(NULL) {
 }
 
@@ -124,6 +125,8 @@ Options::Dump(
         delete_obsolete_files_period_micros);
     Log(log,"                             Options.rate_limit: %.2f",
         rate_limit);
+    Log(log,"                 Options.compaction_filter_args: %p",
+        compaction_filter_args);
     Log(log,"                       Options.CompactionFilter: %p",
         CompactionFilter);
 }   // Options::Dump

@@ -1198,18 +1198,21 @@ TEST(DBTest, RepeatedWritesToSameKey) {
 // kvs during the compaction process.
 static int cfilter_count;
 static std::string NEW_VALUE = "NewValue";
-static bool keep_filter(int level, const Slice& key,
+static bool keep_filter(void* arg, int level, const Slice& key,
   const Slice& value, Slice** new_value) {
+  assert(arg == NULL);
   cfilter_count++;
   return false;
 }
-static bool delete_filter(int level, const Slice& key,
+static bool delete_filter(void*argv, int level, const Slice& key,
   const Slice& value, Slice** new_value) {
+  assert(arg == NULL);
   cfilter_count++;
   return true;
 }
-static bool change_filter(int level, const Slice& key,
+static bool change_filter(void*argv, int level, const Slice& key,
   const Slice& value, Slice** new_value) {
+  assert(argv == (void*)100);
   assert(new_value != NULL);
   *new_value = new Slice(NEW_VALUE);
   return false;
@@ -1320,6 +1323,7 @@ TEST(DBTest, CompactionFilterWithValueChange) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
+  options.compaction_filter_args = (void *)100;
   options.CompactionFilter = change_filter;
   Reopen(&options);
 

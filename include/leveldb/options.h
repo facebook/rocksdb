@@ -313,7 +313,11 @@ struct Options {
   // should allocate memory for the Slice object that is used to
   // return the new value and the leveldb framework will
   // free up that memory.
-  bool (*CompactionFilter)(int level, const Slice& key, 
+  // The compaction_filter_args, if specified here, are passed
+  // back to the invocation of the CompactionFilter.
+  void* compaction_filter_args;
+  bool (*CompactionFilter)(void* compaction_filter_args, 
+         int level, const Slice& key, 
          const Slice& existing_value, Slice** new_value);
 };
 

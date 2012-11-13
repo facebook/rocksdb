@@ -1164,7 +1164,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // it. If this key is not visible via any snapshot and the
         // return value of the compaction filter is true and then
         // drop this key from the output.
-        drop = options_.CompactionFilter(compact->compaction->level(),
+        drop = options_.CompactionFilter(options_.compaction_filter_args,
+                         compact->compaction->level(),
                          ikey.user_key, value, &compaction_filter_value);
 
         if (drop) {
