@@ -26,6 +26,10 @@ public:
     ret.append(" reduce_levels ");
     ReduceDBLevels::Help(ret);
 
+    ret.append("\n---dump_wal----:\n");
+    ret.append(exec_name);
+    ret.append(" dump_wal ");
+    WALDumper::Help(ret);
     fprintf(stderr, "%s\n", ret.c_str());
   }
 
@@ -46,15 +50,17 @@ public:
     }
 
     LDBCommand* cmdObj = NULL;
-    if (strncmp(cmd, "compact", strlen("compact")) == 0) {
+    if (strcmp(cmd, "compact") == 0) {
       // run compactor
       cmdObj = new Compactor(db_name, args);
-    } else if (strncmp(cmd, "dump", strlen("dump")) == 0) {
+    } else if (strcmp(cmd, "dump") == 0) {
       // run dump
       cmdObj = new DBDumper(db_name, args);
-    } else if (strncmp(cmd, "reduce_levels", strlen("reduce_levels")) == 0) {
+    } else if (strcmp(cmd, "reduce_levels") == 0) {
       // reduce db levels
       cmdObj = new ReduceDBLevels(db_name, args);
+    } else if (strcmp(cmd, "dump_wal") == 0) {
+      cmdObj = new WALDumper(args);
     } else {
       fprintf(stderr, "Unknown command: %s\n", cmd);
       PrintHelp(argv[0]);
