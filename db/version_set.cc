@@ -734,6 +734,38 @@ class VersionSet::Builder {
 #endif
   }
 
+  void CheckConsistencyForDeletes(VersionEdit* edit, int number, int level) {
+#ifndef NDEBUG
+      // a file to be deleted better exist in the previous version
+      bool found = false;
+      for (int l = 0; !found && l < edit->number_levels_; l++) {
+        const std::vector<FileMetaData*>& base_files = base_->files_[l];
+        for (int i = 0; i < base_files.size(); i++) {
+          FileMetaData* f = base_files[i];
+          if (f->number == number) {
+            found =  true;
+            break;
+          }
+        }
+      }
+      // if the file did not exist in the previous version, then it
+      // is possibly moved from lower level to higher level in current
+      // version
+      for (int l = level+1; !found && l < edit->number_levels_; l++) {
+        const FileSet* added = levels_[l].added_files;
+        for (FileSet::const_iterator added_iter = added->begin();
+             added_iter != added->end(); ++added_iter) {
+          FileMetaData* f = *added_iter;
+          if (f->number == number) {
+            found = true;
+            break;
+          }
+        }
+      }
+      assert(found);
+#endif
+  }
+
   // Apply all of the edits in *edit to the current state.
   void Apply(VersionEdit* edit) {
     CheckConsistency(base_);
@@ -753,18 +785,7 @@ class VersionSet::Builder {
       const int level = iter->first;
       const uint64_t number = iter->second;
       levels_[level].deleted_files.insert(number);
-
-#ifndef NDEBUG
-      // none of the files to be deleted could have been added
-      // by a concurrent compaction process
-      const FileSet* added = levels_[level].added_files;
-      for (FileSet::const_iterator added_iter = added->begin();
-         added_iter != added->end();
-         ++added_iter) {
-        FileMetaData* f = *added_iter;
-        assert(f->number != number);
-      }
-#endif
+      CheckConsistencyForDeletes(edit, number, level);
     }
 
     // Add new files
@@ -1771,7 +1792,7 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
 
     // check to verify files are arranged in descending size
     assert((i == file_size.size() - 1) ||
-           (i >= VersionSet::number_of_files_to_sort_-1) ||
+           (i >= Version::number_of_files_to_sort_-1) ||
           (f->file_size >= current_->files_[level][file_size[i+1]]->file_size));
 
     // do not pick a file to compact if it is being compacted
@@ -1796,7 +1817,7 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
       continue;
     }
     c->inputs_[0].push_back(f);
-    c->base_index_ = i;
+    c->base_index_ = index;
     c->parent_index_ = parent_index;
     break;
   }
