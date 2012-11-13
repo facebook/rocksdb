@@ -2,6 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+
+#include "leveldb/write_batch.h"
+#include "db/dbformat.h"
+#include "db/log_reader.h"
+#include "db/write_batch_internal.h"
 #include "util/ldb_cmd.h"
 
 namespace leveldb {
@@ -337,6 +342,69 @@ void ReduceDBLevels::DoCommand() {
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());
     return;
+  }
+}
+
+const char* WALDumper::WAL_FILE_ARG = "--walfile=";
+WALDumper::WALDumper(std::vector<std::string>& args) :
+  LDBCommand(args), print_header_(false) {
+  wal_file_.clear();
+  for (unsigned int i = 0; i < args.size(); i++) {
+    std::string& arg = args.at(i);
+    if (arg.find("--header") == 0) {
+      print_header_ = true;
+    } else if (arg.find(WAL_FILE_ARG) == 0) {
+      wal_file_ = arg.substr(strlen(WAL_FILE_ARG));
+    } else {
+      exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument " + arg);
+    }
+  }
+  if (wal_file_.empty()) {
+    exec_state_ = LDBCommandExecuteResult::FAILED("Argument --walfile reqd.");
+  }
+}
+
+void WALDumper::Help(std::string& ret) {
+  ret.append("--walfile write_ahead_log ");
+  ret.append("[--header print's a header] ");
+}
+
+void WALDumper::DoCommand() {
+  struct StdErrReporter : public log::Reader::Reporter {
+    virtual void Corruption(size_t bytes, const Status& s) {
+      std::cerr<<"Corruption detected in log file "<<s.ToString()<<"\n";
+    }
+  };
+
+  SequentialFile* file;
+  Env* env_ = Env::Default();
+  Status status = env_->NewSequentialFile(wal_file_, &file);
+  if (!status.ok()) {
+    exec_state_ = LDBCommandExecuteResult::FAILED("Failed to open WAL file " +
+      status.ToString());
+  } else {
+    StdErrReporter reporter;
+    log::Reader reader(file, &reporter, true, 0);
+    std::string scratch;
+    WriteBatch batch;
+    Slice record;
+    std::stringstream row;
+    if (print_header_) {
+      std::cout<<"Sequence,Count,ByteSize\n";
+    }
+    while(reader.ReadRecord(&record, &scratch)) {
+      row.clear();
+      if (record.size() < 12) {
+        reporter.Corruption(
+            record.size(), Status::Corruption("log record too small"));
+      } else {
+        WriteBatchInternal::SetContents(&batch, record);
+        row<<WriteBatchInternal::Sequence(&batch)<<",";
+        row<<WriteBatchInternal::Count(&batch)<<",";
+        row<<WriteBatchInternal::ByteSize(&batch)<<"\n";
+      }
+      std::cout<<row.str();
+    }
   }
 }
 

@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 #include "leveldb/db.h"
+#include "leveldb/env.h"
 #include "leveldb/options.h"
 #include "leveldb/iterator.h"
 #include "leveldb/slice.h"
@@ -41,7 +42,6 @@ public:
     std::string ret;
     switch (state_) {
     case EXEC_SUCCEED:
-      ret.append("Succeeded.");
       break;
     case EXEC_FAILED:
       ret.append("Failed.");
@@ -94,6 +94,11 @@ public:
   /* Constructor */
   LDBCommand(std::string& db_name, std::vector<std::string>& args) :
     db_path_(db_name),
+    db_(NULL) {
+  }
+
+  LDBCommand(std::vector<std::string>& args) :
+    db_path_(""),
     db_(NULL) {
   }
 
@@ -262,6 +267,24 @@ private:
   Status GetOldNumOfLevels(leveldb::Options& opt, int* levels);
 };
 
-}
+class WALDumper : public LDBCommand {
+public:
 
+  WALDumper (std::vector<std::string>& args);
+
+  ~WALDumper() {}
+
+  virtual bool  NoDBOpen() {
+    return true;
+  }
+
+  static void Help(std::string& ret);
+  virtual void DoCommand();
+private:
+  bool print_header_;
+  std::string wal_file_;
+
+  static const char* WAL_FILE_ARG;
+};
+}
 #endif
