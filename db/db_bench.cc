@@ -201,6 +201,10 @@ static int FLAGS_stats_per_interval = 0;
 // less than or equal to this value.
 static double FLAGS_rate_limit = 0;
 
+// Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
+// stop building a single file in a level->level+1 compaction.
+static int FLAGS_max_grandparent_overlap_factor;
+
 // Run read only benchmarks.
 static bool FLAGS_read_only = false;
 
@@ -955,6 +959,8 @@ class Benchmark {
       FLAGS_delete_obsolete_files_period_micros;
     options.rate_limit = FLAGS_rate_limit;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
+    options.max_grandparent_overlap_factor = 
+      FLAGS_max_grandparent_overlap_factor;
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
@@ -1395,6 +1401,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--readonly=%d%c", &n, &junk) == 1 &&
         (n == 0 || n ==1 )) {
       FLAGS_read_only = n;
+    } else if (sscanf(argv[i], "--max_grandparent_overlap_factor=%d%c",
+               &n, &junk) == 1) {
+      FLAGS_max_grandparent_overlap_factor = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
