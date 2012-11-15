@@ -879,6 +879,10 @@ int main(int argc, char** argv) {
     }
   }
 
+  // The number of background threads should be at least as much the
+  // max number of concurrent compactions.
+  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
+
   if ((FLAGS_readpercent + FLAGS_delpercent) > 100) {
       fprintf(stderr, "Error: Read + Delete percents > 100!\n");
       exit(1);
