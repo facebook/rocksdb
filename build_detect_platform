@@ -128,7 +128,7 @@ if test "$USE_SCRIBE"; then
   DIRS="$DIRS scribe "
 fi
 
-set -f # temporarily disable globbing so that our patterns aren't expanded
+set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *_bench.cc -prune"
 PORTABLE_FILES=`find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`

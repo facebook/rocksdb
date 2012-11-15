@@ -24,6 +24,7 @@
 #include "db/write_batch_internal.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "leveldb/statistics.h"
 #include "leveldb/status.h"
 #include "leveldb/table.h"
 #include "leveldb/table_builder.h"
@@ -169,13 +170,13 @@ Options SanitizeOptions(const std::string& dbname,
 
 DBImpl::DBImpl(const Options& options, const std::string& dbname)
     : env_(options.env),
+      dbname_(dbname),
       internal_comparator_(options.comparator),
-      internal_filter_policy_(options.filter_policy),
       options_(SanitizeOptions(
           dbname, &internal_comparator_, &internal_filter_policy_, options)),
+      internal_filter_policy_(options.filter_policy),
       owns_info_log_(options_.info_log != options.info_log),
       owns_cache_(options_.block_cache != options.block_cache),
-      dbname_(dbname),
       db_lock_(NULL),
       shutting_down_(NULL),
       bg_cv_(&mutex_),
@@ -231,7 +232,7 @@ DBImpl::~DBImpl() {
   if (flush_on_destroy_) {
     FlushMemTable(FlushOptions());
   }
-    mutex_.Lock();
+  mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-NULL value is ok
   while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
     bg_cv_.Wait();
@@ -430,7 +431,8 @@ void DBImpl::DeleteObsoleteFiles() {
   EvictObsoleteFiles(deletion_state);
 }
 
-Status DBImpl::Recover(VersionEdit* edit) {
+Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
+    bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
   // Ignore error from CreateDir since the creation of the DB is
@@ -487,6 +489,16 @@ Status DBImpl::Recover(VersionEdit* edit) {
           && ((number >= min_log) || (number == prev_log))) {
         logs.push_back(number);
       }
+    }
+
+    if (logs.size() > 0 && error_if_log_file_exist) {
+      return Status::Corruption(""
+          "The db was opened in readonly mode with error_if_log_file_exist"
+          "flag but a log file already exists");
+    }
+
+    if (no_log_recory) {
+      return s;
     }
 
     // Recover in the order in which the logs were generated
@@ -1310,6 +1322,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;    // (A)
+        RecordTick(options_.statistics, COMPACTION_KEY_DROP_NEWER_ENTRY);
       } else if (ikey.type == kTypeDeletion &&
                  ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
@@ -1321,6 +1334,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         //     few iterations of this loop (by rule (A) above).
         // Therefore this deletion marker is obsolete and can be dropped.
         drop = true;
+        RecordTick(options_.statistics, COMPACTION_KEY_DROP_OBSOLETE);
       } else if (options_.CompactionFilter != NULL &&
                  ikey.type != kTypeDeletion &&
                  ikey.sequence < compact->smallest_snapshot) {
@@ -1328,9 +1342,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // it. If this key is not visible via any snapshot and the
         // return value of the compaction filter is true and then
         // drop this key from the output.
-        drop = options_.CompactionFilter(compact->compaction->level(),
+        drop = options_.CompactionFilter(options_.compaction_filter_args,
+                         compact->compaction->level(),
                          ikey.user_key, value, &compaction_filter_value);
 
+        if (drop) {
+          RecordTick(options_.statistics, COMPACTION_KEY_DROP_USER);
+        }
         // If the application wants to change the value, then do so here.
         if (compaction_filter_value != NULL) {
           value = *compaction_filter_value;

@@ -33,7 +33,9 @@ THRIFT_INCLUDE+=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp"
 THRIFT_LIBS=" -L $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/bef9365/lib"
 
 # use Intel SSE support for checksum calculations
-export USE_SSE=" -msse -msse4.2 "
+if test -z "$USE_SSE"; then
+  export USE_SSE=" -msse -msse4.2 "
+fi
 
 CC="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1-glibc-2.14.1/bin/gcc" 
 CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1-glibc-2.14.1/bin/g++ $JINCLUDE $SNAPPY_INCLUDE $THRIFT_INCLUDE"

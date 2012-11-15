@@ -228,7 +228,7 @@ struct Options {
 
 
   // by default 'max_bytes_for_level_base' is 10MB.
-  int max_bytes_for_level_base;
+  uint64_t max_bytes_for_level_base;
   // by default 'max_bytes_for_level_base' is 10.
   int max_bytes_for_level_multiplier;
 
@@ -324,7 +324,11 @@ struct Options {
   // should allocate memory for the Slice object that is used to
   // return the new value and the leveldb framework will
   // free up that memory.
-  bool (*CompactionFilter)(int level, const Slice& key, 
+  // The compaction_filter_args, if specified here, are passed
+  // back to the invocation of the CompactionFilter.
+  void* compaction_filter_args;
+  bool (*CompactionFilter)(void* compaction_filter_args, 
+         int level, const Slice& key, 
          const Slice& existing_value, Slice** new_value);
 };
 

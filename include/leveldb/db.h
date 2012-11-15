@@ -54,6 +54,14 @@ class DB {
                      const std::string& name,
                      DB** dbptr);
 
+  // Open the database for read only. All DB interfaces
+  // that modify data, like put/delete, will return error.
+  // If the db is opened in read only mode, then no compactions
+  // will happen.
+  static Status OpenForReadOnly(const Options& options,
+      const std::string& name, DB** dbptr,
+      bool no_log_recory = true, bool error_if_log_file_exist = false);
+
   DB() { }
   virtual ~DB();
 

@@ -22,6 +22,10 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
   Version* current_version = current_;
   int current_levels = NumberLevels();
 
+  if (current_levels <= new_levels) {
+    return Status::OK();
+  }
+
   // Make sure there are file only on one level from
   // (new_levels-1) to (current_levels-1)
   int first_nonempty_level = -1;

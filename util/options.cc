@@ -47,9 +47,10 @@ Options::Options()
       delete_obsolete_files_period_micros(0),
       max_background_compactions(1),
       max_log_file_size(0),
-      rate_limit(0.0), 
+      rate_limit(0.0),
       no_block_cache(false),
       table_cache_numshardbits(4),
+      compaction_filter_args(NULL),
       CompactionFilter(NULL) {
 }
 
@@ -107,7 +108,7 @@ Options::Dump(
         target_file_size_base);
     Log(log,"            Options.target_file_size_multiplier: %d",
         target_file_size_multiplier);
-    Log(log,"               Options.max_bytes_for_level_base: %d",
+    Log(log,"               Options.max_bytes_for_level_base: %ld",
         max_bytes_for_level_base);
     Log(log,"         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);
@@ -129,6 +130,8 @@ Options::Dump(
         max_background_compactions);
     Log(log,"                             Options.rate_limit: %.2f",
         rate_limit);
+    Log(log,"                 Options.compaction_filter_args: %p",
+        compaction_filter_args);
     Log(log,"                       Options.CompactionFilter: %p",
         CompactionFilter);
 }   // Options::Dump

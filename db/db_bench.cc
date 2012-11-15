@@ -158,7 +158,7 @@ static int FLAGS_target_file_size_base = 2 * 1048576;
 static int FLAGS_target_file_size_multiplier = 1;
 
 // Max bytes for level-1
-static int FLAGS_max_bytes_for_level_base = 10 * 1048576;
+static uint64_t FLAGS_max_bytes_for_level_base = 10 * 1048576;
 
 // A multiplier to compute max bytes for level-N
 static int FLAGS_max_bytes_for_level_multiplier = 10;
@@ -191,7 +191,7 @@ static enum leveldb::CompressionType FLAGS_compression_type =
 
 // Allows compression for levels 0 and 1 to be disabled when
 // other levels are compressed
-static unsigned int FLAGS_min_level_to_compress = -1;
+static int FLAGS_min_level_to_compress = -1;
 
 static int FLAGS_table_cache_numshardbits = 4;
 
@@ -210,6 +210,13 @@ static int FLAGS_stats_per_interval = 0;
 // reporting interval until the compaction score for all levels is
 // less than or equal to this value.
 static double FLAGS_rate_limit = 0;
+
+// Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
+// stop building a single file in a level->level+1 compaction.
+static int FLAGS_max_grandparent_overlap_factor;
+
+// Run read only benchmarks.
+static bool FLAGS_read_only = false;
 
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
@@ -582,10 +589,20 @@ class Benchmark {
 
   void PrintStatistics() {
     if (FLAGS_statistics) {
-      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n",
-              dbstats->getNumFileOpens(),
-              dbstats->getNumFileCloses(),
-              dbstats->getNumFileErrors());
+      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n"
+          "Block Cache Hit Count:%ld Block Cache Miss Count:%ld\n"
+          "Bloom Filter Useful: %ld \n"
+          "Compaction key_drop_newer_entry: %ld key_drop_obsolete: %ld "
+          "Compaction key_drop_user: %ld",
+          dbstats->getNumFileOpens(),
+          dbstats->getNumFileCloses(),
+          dbstats->getNumFileErrors(),
+          dbstats->getTickerCount(BLOCK_CACHE_HIT),
+          dbstats->getTickerCount(BLOCK_CACHE_MISS),
+          dbstats->getTickerCount(BLOOM_FILTER_USEFUL),
+          dbstats->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+          dbstats->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE),
+          dbstats->getTickerCount(COMPACTION_KEY_DROP_USER));
     }
   }
 
@@ -942,7 +959,7 @@ class Benchmark {
     if (FLAGS_min_level_to_compress >= 0) {
       assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
       options.compression_per_level = new CompressionType[FLAGS_num_levels];
-      for (unsigned int i = 0; i < FLAGS_min_level_to_compress; i++) {
+      for (int i = 0; i < FLAGS_min_level_to_compress; i++) {
         options.compression_per_level[i] = kNoCompression;
       }
       for (unsigned int i = FLAGS_min_level_to_compress;
@@ -955,7 +972,14 @@ class Benchmark {
       FLAGS_delete_obsolete_files_period_micros;
     options.rate_limit = FLAGS_rate_limit;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
-    Status s = DB::Open(options, FLAGS_db, &db_);
+    options.max_grandparent_overlap_factor = 
+      FLAGS_max_grandparent_overlap_factor;
+    Status s;
+    if(FLAGS_read_only) {
+      s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
+    } else {
+      s = DB::Open(options, FLAGS_db, &db_);
+    }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
@@ -1349,8 +1373,8 @@ int main(int argc, char** argv) {
         &n, &junk) == 1) {
       FLAGS_target_file_size_multiplier = n;
     } else if (
-        sscanf(argv[i], "--max_bytes_for_level_base=%d%c", &n, &junk) == 1) {
-      FLAGS_max_bytes_for_level_base = n;
+        sscanf(argv[i], "--max_bytes_for_level_base=%ld%c", &l, &junk) == 1) {
+      FLAGS_max_bytes_for_level_base = l;
     } else if (sscanf(argv[i], "--max_bytes_for_level_multiplier=%d%c",
         &n, &junk) == 1) {
       FLAGS_max_bytes_for_level_multiplier = n;
@@ -1394,6 +1418,12 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--rate_limit=%lf%c", &d, &junk) == 1 &&
                d > 1.0) {
       FLAGS_rate_limit = d;
+    } else if (sscanf(argv[i], "--readonly=%d%c", &n, &junk) == 1 &&
+        (n == 0 || n ==1 )) {
+      FLAGS_read_only = n;
+    } else if (sscanf(argv[i], "--max_grandparent_overlap_factor=%d%c",
+               &n, &junk) == 1) {
+      FLAGS_max_grandparent_overlap_factor = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

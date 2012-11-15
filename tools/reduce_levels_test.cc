@@ -118,21 +118,16 @@ TEST(ReduceLevelTest, Top_Level) {
   ASSERT_EQ(FilesOnLevel(0), 1);
   CloseDB();
 
-  // The CompactRange(NULL, NULL) call in ReduceLevels
-  // will push this file to level-1
   ASSERT_TRUE(ReduceLevels(4));
   ASSERT_OK(OpenDB(true, 4, 0));
-  ASSERT_EQ(FilesOnLevel(1), 1);
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(3));
   ASSERT_OK(OpenDB(true, 3, 0));
-  ASSERT_EQ(FilesOnLevel(1), 1);
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(2));
   ASSERT_OK(OpenDB(true, 2, 0));
-  ASSERT_EQ(FilesOnLevel(1), 1);
   CloseDB();
 }
 
