@@ -265,6 +265,29 @@ DBImpl::~DBImpl() {
   delete logger_;
 }
 
+// Do not flush and close database elegantly. Simulate a crash. 
+void DBImpl::TEST_Destroy_DBImpl() {
+  // ensure that no new memtable flushes can occur
+  flush_on_destroy_ = false;
+
+  // wait till all background compactions are done.
+  mutex_.Lock();
+  while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
+    bg_cv_.Wait();
+  }
+
+  // Prevent new compactions from occuring.
+  const int LargeNumber = 10000000;
+  bg_compaction_scheduled_ += LargeNumber;
+  mutex_.Unlock();
+
+  // force release the lock file.
+  if (db_lock_ != NULL) {
+    env_->UnlockFile(db_lock_);
+  }
+}
+
+
 Status DBImpl::NewDB() {
   VersionEdit new_db(NumberLevels());
   new_db.SetComparatorName(user_comparator()->Name());

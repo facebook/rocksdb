@@ -78,6 +78,9 @@ class DBImpl : public DB {
   // file at a level >= 1.
   int64_t TEST_MaxNextLevelOverlappingBytes();
 
+  // Simulate a db crash, no elegant closing of database.
+  void TEST_Destroy_DBImpl();
+
 protected:
 
   Env* const env_;

@@ -419,7 +419,8 @@ class StressTest {
         filter_policy_(FLAGS_bloom_bits >= 0
                        ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                        : NULL),
-        db_(NULL) {
+        db_(NULL),
+        num_times_reopened_(0) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
     for (unsigned int i = 0; i < files.size(); i++) {
@@ -457,7 +458,9 @@ class StressTest {
         shared.GetCondVar()->Wait();
       }
 
-      fprintf(stdout, "Starting database operations\n");
+      double now = FLAGS_env->NowMicros();
+      fprintf(stdout, "%s Starting database operations\n",
+              FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
 
       shared.SetStart();
       shared.GetCondVar()->SignalAll();
@@ -465,7 +468,10 @@ class StressTest {
         shared.GetCondVar()->Wait();
       }
 
-      fprintf(stdout, "Starting verification\n");
+      now = FLAGS_env->NowMicros();
+      fprintf(stdout, "%s Starting verification\n",
+              FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
+
       shared.SetStartVerify();
       shared.GetCondVar()->SignalAll();
       while (!shared.AllDone()) {
@@ -482,7 +488,10 @@ class StressTest {
       delete threads[i];
       threads[i] = NULL;
     }
-    fprintf(stdout, "Verification successful\n");
+    double now = FLAGS_env->NowMicros();
+    fprintf(stdout, "%s Verification successful\n",
+            FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
+  
     PrintStatistics();
   }
 
@@ -542,6 +551,7 @@ class StressTest {
     for (long i = 0; i < FLAGS_ops_per_thread; i++) {
       if(i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
         {
+          thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
           thread->shared->IncVotedReopen();
           if (thread->shared->AllVotedReopen()) {
@@ -551,6 +561,7 @@ class StressTest {
           else {
             thread->shared->GetCondVar()->Wait();
           }
+          thread->stats.Start();
         }
       }
       long rand_key = thread->rand.Next() % max_key;
@@ -667,7 +678,7 @@ class StressTest {
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
-    char* compression = "";
+    char* compression = (char *)std::string("").c_str();
     switch (FLAGS_compression_type) {
       case leveldb::kNoCompression:
         compression = (char *)std::string("none").c_str();
@@ -722,7 +733,16 @@ class StressTest {
   }
 
   void Reopen() {
-    delete db_;
+    // do not close the db. Just delete the lock file. This
+    // simulates a crash-recovery kind of situation.
+    ((DBImpl*) db_)->TEST_Destroy_DBImpl();
+    db_ = NULL;
+
+    num_times_reopened_++;
+    double now = FLAGS_env->NowMicros();
+    fprintf(stdout, "%s Reopening database for the %dth time\n",
+            FLAGS_env->TimeToString((uint64_t) now/1000000).c_str(),
+            num_times_reopened_);
     Open();
   }
 
@@ -739,6 +759,7 @@ class StressTest {
   Cache* cache_;
   const FilterPolicy* filter_policy_;
   DB* db_;
+  int num_times_reopened_;
 };
 
 }  // namespace leveldb
