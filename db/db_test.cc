@@ -1104,7 +1104,8 @@ void MinLevelHelper(DBTest* self, Options& options) {
   ASSERT_EQ(self->NumTableFilesAtLevel(1), 1);
 }
 
-void MinLevelToCompress(CompressionType& type, Options& options, int wbits,
+// returns false if the calling-Test should be skipped
+bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
                         int lev, int strategy) {
   fprintf(stderr, "Test with compression options : window_bits = %d, level =  %d, strategy = %d}\n", wbits, lev, strategy);
   options.write_buffer_size = 100<<10; //100KB
@@ -1126,7 +1127,7 @@ void MinLevelToCompress(CompressionType& type, Options& options, int wbits,
     fprintf(stderr, "using bzip2\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
-    return;
+    return false;
   }
   options.compression_per_level = new CompressionType[options.num_levels];
 
@@ -1137,11 +1138,14 @@ void MinLevelToCompress(CompressionType& type, Options& options, int wbits,
   for (int i = 1; i < options.num_levels; i++) {
     options.compression_per_level[i] = type;
   }
+  return true;
 }
 TEST(DBTest, MinLevelToCompress1) {
   Options options = CurrentOptions();
   CompressionType type;
-  MinLevelToCompress(type, options, -14, -1, 0);
+  if (!MinLevelToCompress(type, options, -14, -1, 0)) {
+    return;
+  }
   Reopen(&options);
   MinLevelHelper(this, options);
 
@@ -1159,7 +1163,9 @@ TEST(DBTest, MinLevelToCompress1) {
 TEST(DBTest, MinLevelToCompress2) {
   Options options = CurrentOptions();
   CompressionType type;
-  MinLevelToCompress(type, options, 15, -1, 0);
+  if (!MinLevelToCompress(type, options, 15, -1, 0)) {
+    return;
+  }
   Reopen(&options);
   MinLevelHelper(this, options);
 
