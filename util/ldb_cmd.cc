@@ -390,10 +390,10 @@ void WALDumper::DoCommand() {
     Slice record;
     std::stringstream row;
     if (print_header_) {
-      std::cout<<"Sequence,Count,ByteSize\n";
+      std::cout<<"Sequence,Count,ByteSize,Physical Offset\n";
     }
     while(reader.ReadRecord(&record, &scratch)) {
-      row.clear();
+      row.str("");
       if (record.size() < 12) {
         reporter.Corruption(
             record.size(), Status::Corruption("log record too small"));
@@ -401,7 +401,8 @@ void WALDumper::DoCommand() {
         WriteBatchInternal::SetContents(&batch, record);
         row<<WriteBatchInternal::Sequence(&batch)<<",";
         row<<WriteBatchInternal::Count(&batch)<<",";
-        row<<WriteBatchInternal::ByteSize(&batch)<<"\n";
+        row<<WriteBatchInternal::ByteSize(&batch)<<",";
+        row<<reader.LastRecordOffset()<<"\n";
       }
       std::cout<<row.str();
     }
