@@ -333,7 +333,8 @@ class VersionSet {
   const char* LevelSummary(LevelSummaryStorage* scratch) const;
 
   // printf contents (for debugging)
-  Status DumpManifest(Options& options, std::string& manifestFileName);
+  Status DumpManifest(Options& options, std::string& manifestFileName,
+                      bool verbose);
 
   // Return a human-readable short (single-line) summary of the data size
   // of files per level.  Uses *scratch as backing store.
