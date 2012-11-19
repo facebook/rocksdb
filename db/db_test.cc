@@ -1212,7 +1212,7 @@ static bool keep_filter(void* arg, int level, const Slice& key,
 }
 static bool delete_filter(void*argv, int level, const Slice& key,
   const Slice& value, Slice** new_value) {
-  assert(arg == NULL);
+  assert(argv == NULL);
   cfilter_count++;
   return true;
 }
