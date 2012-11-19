@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
 
   VersionSet* versions = new VersionSet(dbname, &options,
                                    tc, cmp);
-  Status s = versions->DumpManifest(options, file);
+  Status s = versions->DumpManifest(options, file, verbose);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
            s.ToString().c_str());

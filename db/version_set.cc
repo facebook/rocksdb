@@ -1099,7 +1099,8 @@ Status VersionSet::Recover() {
   return s;
 }
 
-Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
+Status VersionSet::DumpManifest(Options& options, std::string& dscname,
+  bool verbose) {
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
     virtual void Corruption(size_t bytes, const Status& s) {
@@ -1122,6 +1123,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
   uint64_t last_sequence = 0;
   uint64_t log_number = 0;
   uint64_t prev_log_number = 0;
+  int count = 0;
   VersionSet::Builder builder(this, current_);
 
   {
@@ -1141,6 +1143,13 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname) {
               icmp_.user_comparator()->Name());
         }
       }
+
+      // Write out each individual edit
+      if (verbose) {
+        printf("*************************Edit[%d] = %s\n", 
+                count, edit.DebugString().c_str());
+      }
+      count++;
 
       if (s.ok()) {
         builder.Apply(&edit);
