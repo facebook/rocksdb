@@ -762,6 +762,19 @@ class VersionSet::Builder {
           }
         }
       }
+
+      // maybe this file was added in a previous edit that was Applied
+      if (!found) {
+        const FileSet* added = levels_[level].added_files;
+        for (FileSet::const_iterator added_iter = added->begin();
+             added_iter != added->end(); ++added_iter) {
+          FileMetaData* f = *added_iter;
+          if (f->number == number) {
+            found = true;
+            break;
+          }
+        }
+      }
       assert(found);
 #endif
   }
