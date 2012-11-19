@@ -1147,13 +1147,6 @@ Status VersionSet::Recover() {
         }
       }
 
-      // Write out each individual edit
-      if (verbose) {
-        printf("*************************Edit[%d] = %s\n", 
-                count, edit.DebugString().c_str());
-      }
-      count++;
-
       if (s.ok()) {
         builder.Apply(&edit);
       }
@@ -1267,6 +1260,13 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
               icmp_.user_comparator()->Name());
         }
       }
+
+      // Write out each individual edit
+      if (verbose) {
+        printf("*************************Edit[%d] = %s\n", 
+                count, edit.DebugString().c_str());
+      }
+      count++;
 
       if (s.ok()) {
         builder.Apply(&edit);
