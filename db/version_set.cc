@@ -1416,7 +1416,7 @@ void VersionSet::Finalize(Version* v) {
   // sort all the levels based on their score. Higher scores get listed
   // first. Use bubble sort because the number of entries are small.
   for(int i = 0; i <  NumberLevels()-2; i++) {
-    for (int j = i+1; j < NumberLevels()-2; j++) {
+    for (int j = i+1; j < NumberLevels()-1; j++) {
       if (v->compaction_score_[i] < v->compaction_score_[j]) {
         double score = v->compaction_score_[i];
         int level = v->compaction_level_[i];
@@ -1868,6 +1868,8 @@ Compaction* VersionSet::PickCompaction() {
   //
   // Find the compactions by size on all levels.
   for (int i = 0; i < NumberLevels()-1; i++) {
+    assert(i == 0 || current_->compaction_score_[i] <=
+                     current_->compaction_score_[i-1]);
     level = current_->compaction_level_[i];
     if ((current_->compaction_score_[i] >= 1)) {
       c = PickCompactionBySize(level);
@@ -2127,6 +2129,10 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
     if (seen_key_) {
       overlapped_bytes_ += grandparents_[grandparent_index_]->file_size;
     }
+    assert(grandparent_index_ + 1 >= grandparents_.size() ||
+           icmp->Compare(grandparents_[grandparent_index_]->largest.Encode(),
+                         grandparents_[grandparent_index_+1]->smallest.Encode())
+                         < 0);
     grandparent_index_++;
   }
   seen_key_ = true;
