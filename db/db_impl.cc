@@ -1012,7 +1012,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     }
   }
 
-  Compaction* c;
+  Compaction* c = NULL;
   bool is_manual = (manual_compaction_ != NULL) &&
                    (manual_compaction_->in_progress == false);
   InternalKey manual_end;
@@ -1031,7 +1031,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
         (m->end ? m->end->DebugString().c_str() : "(end)"),
         (m->done ? "(end)" : manual_end.DebugString().c_str()));
-  } else {
+  } else if (!options_.disable_auto_compactions) {
     c = versions_->PickCompaction();
   }
 

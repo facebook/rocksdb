@@ -330,6 +330,10 @@ struct Options {
   bool (*CompactionFilter)(void* compaction_filter_args, 
          int level, const Slice& key, 
          const Slice& existing_value, Slice** new_value);
+
+  // Disable automatic compactions. Manual compactions can still
+  // be issued on this database.
+  bool disable_auto_compactions;
 };
 
 // Options that control read operations

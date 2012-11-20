@@ -51,7 +51,8 @@ Options::Options()
       no_block_cache(false),
       table_cache_numshardbits(4),
       compaction_filter_args(NULL),
-      CompactionFilter(NULL) {
+      CompactionFilter(NULL),
+      disable_auto_compactions(false) {
 }
 
 void
@@ -134,6 +135,8 @@ Options::Dump(
         compaction_filter_args);
     Log(log,"                       Options.CompactionFilter: %p",
         CompactionFilter);
+    Log(log,"               Options.disable_auto_compactions: %d",
+        disable_auto_compactions);
 }   // Options::Dump
 
 }  // namespace leveldb

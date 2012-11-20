@@ -218,6 +218,9 @@ static int FLAGS_max_grandparent_overlap_factor;
 // Run read only benchmarks.
 static bool FLAGS_read_only = false;
 
+// Do not auto trigger compactions
+static bool FLAGS_disable_auto_compactions = false;
+
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
@@ -974,6 +977,7 @@ class Benchmark {
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     options.max_grandparent_overlap_factor = 
       FLAGS_max_grandparent_overlap_factor;
+    options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
@@ -1424,6 +1428,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--max_grandparent_overlap_factor=%d%c",
                &n, &junk) == 1) {
       FLAGS_max_grandparent_overlap_factor = n;
+    } else if (sscanf(argv[i], "--disable_auto_compactions=%d%c", 
+               &n, &junk) == 1 && (n == 0 || n ==1)) {
+      FLAGS_disable_auto_compactions = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
