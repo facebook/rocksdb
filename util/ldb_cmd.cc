@@ -315,6 +315,9 @@ void ReduceDBLevels::DoCommand() {
   old_levels_ = old_level_num;
 
   OpenDB();
+  if (!db_) {
+    return;
+  }
   // Compact the whole DB to put all files to the highest level.
   fprintf(stdout, "Compacting the db...\n");
   db_->CompactRange(NULL, NULL);

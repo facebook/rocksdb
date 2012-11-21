@@ -6,3 +6,10 @@ build_config.mk
 *.so.*
 *_test
 db_bench
+db_stress
+ldb
+leveldb_server
+leveldb_shell
+manifest_dump
+sst_dump
+util/build_version.cc

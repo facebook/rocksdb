@@ -44,10 +44,10 @@ public:
     case EXEC_SUCCEED:
       break;
     case EXEC_FAILED:
-      ret.append("Failed.");
+      ret.append("Failed: ");
       break;
     case EXEC_NOT_STARTED:
-      ret.append("Not started.");
+      ret.append("Not started: ");
     }
     if (!message_.empty()) {
       ret.append(message_);
@@ -133,6 +133,10 @@ public:
    if (db_ == NULL && !NoDBOpen()) {
       OpenDB();
     }
+
+   if (!db_) {
+     return;
+   }
 
     DoCommand();
     if (exec_state_.IsNotStarted()) {

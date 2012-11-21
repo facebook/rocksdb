@@ -165,7 +165,7 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy -L./snappy/libs"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS ${SNAPPY_LDFLAGS:-./snappy/libs/libsnappy.a}"
     fi
 
     # Test whether zlib library is installed

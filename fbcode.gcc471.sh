@@ -24,8 +24,8 @@ if test "$USE_HDFS"; then
 fi
 
 # location of snappy headers and libraries
-SNAPPY_INCLUDE=" -I ./snappy"
-SNAPPY_LIBS=" -L./snappy/libs"
+SNAPPY_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/snappy/snappy-1.0.3/7518bbe/include"
+SNAPPY_LIBS=" $TOOLCHAIN_LIB_BASE/snappy/snappy-1.0.3/7518bbe/lib/libsnappy.a"
 
 # location of boost headers and libraries
 THRIFT_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/bef9365/include -std=gnu++0x"
@@ -37,7 +37,7 @@ if test -z "$USE_SSE"; then
   export USE_SSE=" -msse -msse4.2 "
 fi
 
-CC="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1-glibc-2.14.1/bin/gcc" 
+CC="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1-glibc-2.14.1/bin/gcc"
 CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1-glibc-2.14.1/bin/g++ $JINCLUDE $SNAPPY_INCLUDE $THRIFT_INCLUDE"
 AR=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ar
 RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
@@ -49,5 +49,6 @@ EXEC_LDFLAGS=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/l
 EXEC_LDFLAGS+="-Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-20100812_experimental/91ddd43/lib/libunwind.a"
 EXEC_LDFLAGS+="$HDFSLIB $SNAPPY_LIBS $THRIFT_LIBS "
 EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/lib/libjemalloc.so"
+SNAPPY_LDFLAGS="$SNAPPY_LIBS"
 
-export CC CXX AR RANLIB CFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED
+export CC CXX AR RANLIB CFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED SNAPPY_LDFLAGS
