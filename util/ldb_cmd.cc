@@ -126,6 +126,9 @@ void DBDumper::Help(std::string& ret) {
 }
 
 void DBDumper::DoCommand() {
+  if (!db_) {
+    return;
+  }
   // Parse command line args
   uint64_t count = 0;
   if (print_stats_) {

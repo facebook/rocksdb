@@ -134,10 +134,6 @@ public:
       OpenDB();
     }
 
-   if (!db_) {
-     return;
-   }
-
     DoCommand();
     if (exec_state_.IsNotStarted()) {
       exec_state_ = LDBCommandExecuteResult::SUCCEED("");
