@@ -221,6 +221,10 @@ static bool FLAGS_read_only = false;
 // Do not auto trigger compactions
 static bool FLAGS_disable_auto_compactions = false;
 
+// Cap the size of data in levelK for a compaction run
+// that compacts Levelk with LevelK+1
+static int FLAGS_source_compaction_factor = 1;
+
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
@@ -978,6 +982,7 @@ class Benchmark {
     options.max_grandparent_overlap_factor = 
       FLAGS_max_grandparent_overlap_factor;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
+    options.source_compaction_factor = FLAGS_source_compaction_factor;
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
@@ -1431,6 +1436,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--disable_auto_compactions=%d%c", 
                &n, &junk) == 1 && (n == 0 || n ==1)) {
       FLAGS_disable_auto_compactions = n;
+    } else if (sscanf(argv[i], "--source_compaction_factor=%d%c", 
+               &n, &junk) == 1 && n > 0) {
+      FLAGS_source_compaction_factor = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

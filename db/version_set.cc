@@ -2028,7 +2028,8 @@ Compaction* VersionSet::CompactRange(
   }
 
   // Avoid compacting too much in one shot in case the range is large.
-  const uint64_t limit = MaxFileSizeForLevel(level);
+  const uint64_t limit = MaxFileSizeForLevel(level) *
+                         options_->source_compaction_factor;
   uint64_t total = 0;
   for (size_t i = 0; i < inputs.size(); i++) {
     uint64_t s = inputs[i]->file_size;
@@ -2039,7 +2040,7 @@ Compaction* VersionSet::CompactRange(
     }
   }
 
-  Compaction* c = new Compaction(level, limit,
+  Compaction* c = new Compaction(level, MaxFileSizeForLevel(level),
     MaxGrandParentOverlapBytes(level), NumberLevels());
   c->input_version_ = current_;
   c->input_version_->Ref();

@@ -37,6 +37,7 @@ Options::Options()
       max_bytes_for_level_base(10 * 1048576),
       max_bytes_for_level_multiplier(10),
       expanded_compaction_factor(25),
+      source_compaction_factor(1),
       max_grandparent_overlap_factor(10),
       statistics(NULL),
       disableDataSync(false),
@@ -115,6 +116,8 @@ Options::Dump(
         max_bytes_for_level_multiplier);
     Log(log,"             Options.expanded_compaction_factor: %d",
         expanded_compaction_factor);
+    Log(log,"               Options.source_compaction_factor: %d",
+        source_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
     Log(log,"                             Options.db_log_dir: %s",

@@ -238,6 +238,15 @@ struct Options {
   // (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
   int expanded_compaction_factor;
 
+  // Maximum number of bytes in all source files to be compacted in a
+  // single compaction run. We avoid picking too many files in the 
+  // source level so that we do not exceed the total source bytes
+  // for compaction to exceed
+  // (source_compaction_factor * targetFileSizeLevel()) many bytes.
+  // Default:1, i.e. pick maxfilesize amount of data as the source of
+  // a compaction.
+  int source_compaction_factor;
+
   // Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
   // stop building a single file in a level->level+1 compaction.
   int max_grandparent_overlap_factor;
