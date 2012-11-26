@@ -225,6 +225,9 @@ static bool FLAGS_disable_auto_compactions = false;
 // that compacts Levelk with LevelK+1
 static int FLAGS_source_compaction_factor = 1;
 
+// Set the TTL for the WAL Files.
+static uint64_t FLAGS_WAL_ttl_seconds = 0;
+
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
@@ -963,6 +966,7 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type;
+    options.WAL_ttl_seconds = FLAGS_WAL_ttl_seconds;
     if (FLAGS_min_level_to_compress >= 0) {
       assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
       options.compression_per_level = new CompressionType[FLAGS_num_levels];
@@ -1439,6 +1443,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--source_compaction_factor=%d%c",
                &n, &junk) == 1 && n > 0) {
       FLAGS_source_compaction_factor = n;
+    } else if (sscanf(argv[i], "--wal_ttl=%d%c", &n, &junk) == 1) {
+      FLAGS_WAL_ttl_seconds = static_cast<uint64_t>(n);
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

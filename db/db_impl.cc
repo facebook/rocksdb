@@ -5,12 +5,13 @@
 #include "db/db_impl.h"
 
 #include <algorithm>
+#include <climits>
+#include <cstdio>
 #include <set>
 #include <string>
 #include <stdint.h>
-#include <stdio.h>
 #include <vector>
-#include <algorithm>
+
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -41,6 +42,8 @@
 namespace leveldb {
 
 void dumpLeveldbBuildVersion(Logger * log);
+
+const std::string DBImpl::ARCHIVAL_DIR = "archive";
 
 static Status NewLogger(const std::string& dbname,
                         const std::string& db_log_dir,
@@ -225,6 +228,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
     host_name_ = "localhost";
   }
   last_log_ts = 0;
+
 }
 
 DBImpl::~DBImpl() {
@@ -329,6 +333,18 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
   }
 }
 
+std::string DBImpl::GetArchivalDirectoryName() {
+  return dbname_ + "/" + ARCHIVAL_DIR;
+}
+
+const Status DBImpl::CreateArchivalDirectory() {
+  if (options_.WAL_ttl_seconds > 0) {
+    std::string archivalPath = GetArchivalDirectoryName();
+    return env_->CreateDirIfMissing(archivalPath);
+  }
+  return Status::OK();
+}
+
 // Returns the list of live files in 'live' and the list
 // of all files in the filesystem in 'allfiles'.
 void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
@@ -372,6 +388,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   uint64_t number;
   FileType type;
   std::vector<std::string> old_log_files;
+
   for (size_t i = 0; i < state.allfiles.size(); i++) {
     if (ParseFileName(state.allfiles[i], &number, &type)) {
       bool keep = true;
@@ -406,6 +423,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       }
 
       if (!keep) {
+        const std::string currentFile = state.allfiles[i];
         if (type == kTableFile) {
           // record the files to be evicted from the cache
           state.files_to_evict.push_back(number);
@@ -413,11 +431,22 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
         Log(options_.info_log, "Delete type=%d #%lld\n",
             int(type),
             static_cast<unsigned long long>(number));
-        Status st = env_->DeleteFile(dbname_ + "/" + state.allfiles[i]);
-        if(!st.ok()) {
-          Log(options_.info_log, "Delete type=%d #%lld FAILED\n",
+        if (type == kLogFile && options_.WAL_ttl_seconds > 0) {
+          Status st = env_->RenameFile(dbname_ + "/" + currentFile,
+                            dbname_ + "/" + ARCHIVAL_DIR + "/" + currentFile);
+
+          if (!st.ok()) {
+            Log(options_.info_log, "RenameFile type=%d #%lld FAILED\n",
               int(type),
               static_cast<unsigned long long>(number));
+          }
+        } else {
+          Status st = env_->DeleteFile(dbname_ + "/" + currentFile);
+          if(!st.ok()) {
+            Log(options_.info_log, "Delete type=%d #%lld FAILED\n",
+                int(type),
+                static_cast<unsigned long long>(number));
+          }
         }
       }
     }
@@ -446,12 +475,40 @@ void DBImpl::EvictObsoleteFiles(DeletionState& state) {
 void DBImpl::DeleteObsoleteFiles() {
   mutex_.AssertHeld();
   DeletionState deletion_state;
-  std::set<uint64_t> live;
-  std::vector<std::string> allfiles;
-  std::vector<uint64_t> files_to_evict;
   FindObsoleteFiles(deletion_state);
   PurgeObsoleteFiles(deletion_state);
   EvictObsoleteFiles(deletion_state);
+  PurgeObsoleteWALFiles();
+}
+
+void DBImpl::PurgeObsoleteWALFiles() {
+  if (options_.WAL_ttl_seconds != ULONG_MAX && options_.WAL_ttl_seconds > 0) {
+    std::vector<std::string> WALFiles;
+    std::string archivalDir = dbname_ + "/" + ARCHIVAL_DIR;
+    env_->GetChildren(archivalDir, &WALFiles);
+    int64_t currentTime;
+    const Status status = env_->GetCurrentTime(&currentTime);
+    assert(status.ok());
+    for (std::vector<std::string>::iterator it = WALFiles.begin();
+         it != WALFiles.end();
+         ++it) {
+
+    uint64_t fileMTime;
+    const std::string filePath = archivalDir + "/" + *it;
+    const Status s = env_->GetFileModificationTime(filePath, &fileMTime);
+    if (s.ok()) {
+      if (status.ok() &&
+         (currentTime - fileMTime > options_.WAL_ttl_seconds)) {
+        Status delStatus = env_->DeleteFile(filePath);
+        if (!delStatus.ok()) {
+          Log(options_.info_log,
+              "Failed Deleting a WAL file Error : i%s",
+              delStatus.ToString().c_str());
+        }
+      }
+    } // Ignore errors.
+    }
+  }
 }
 
 Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
@@ -2056,9 +2113,14 @@ Status DB::Open(const Options& options, const std::string& dbname,
         "no_block_cache is true while block_cache is not NULL");
   }
   DBImpl* impl = new DBImpl(options, dbname);
+  Status s = impl->CreateArchivalDirectory();
+  if (!s.ok()) {
+    delete impl;
+    return s;
+  }
   impl->mutex_.Lock();
   VersionEdit edit(impl->NumberLevels());
-  Status s = impl->Recover(&edit); // Handles create_if_missing, error_if_exists
+  s = impl->Recover(&edit); // Handles create_if_missing, error_if_exists
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     WritableFile* lfile;

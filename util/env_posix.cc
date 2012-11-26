@@ -601,6 +601,16 @@ class PosixEnv : public Env {
     return result;
   };
 
+  virtual Status CreateDirIfMissing(const std::string& name) {
+    Status result;
+    if (mkdir(name.c_str(), 0755) != 0) {
+      if (errno != EEXIST) {
+        result = IOError(name, errno);
+      }
+    }
+    return result;
+  };
+
   virtual Status DeleteDir(const std::string& name) {
     Status result;
     if (rmdir(name.c_str()) != 0) {
@@ -621,6 +631,15 @@ class PosixEnv : public Env {
     return s;
   }
 
+  virtual Status GetFileModificationTime(const std::string& fname,
+                                         uint64_t* file_mtime) {
+    struct stat s;
+    if (stat(fname.c_str(), &s) !=0) {
+      return IOError(fname, errno);
+    }
+    *file_mtime = static_cast<uint64_t>(s.st_mtime);
+    return Status::OK();
+  }
   virtual Status RenameFile(const std::string& src, const std::string& target) {
     Status result;
     if (rename(src.c_str(), target.c_str()) != 0) {

@@ -316,6 +316,10 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
+  virtual Status CreateDirIfMissing(const std::string& dirname) {
+    return Status::OK();
+  }
+
   virtual Status DeleteDir(const std::string& dirname) {
     return Status::OK();
   }
@@ -328,6 +332,11 @@ class InMemoryEnv : public EnvWrapper {
 
     *file_size = file_map_[fname]->Size();
     return Status::OK();
+  }
+
+  virtual Status GetFileModificationTime(const std::string& fname,
+                                         uint64_t* time) {
+    return Status::NotSupported("getFileMTime", "Not supported in MemEnv");
   }
 
   virtual Status RenameFile(const std::string& src,

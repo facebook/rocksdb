@@ -343,6 +343,16 @@ struct Options {
   // Disable automatic compactions. Manual compactions can still
   // be issued on this database.
   bool disable_auto_compactions;
+
+  // The number of seconds a WAL(write ahead log) should be kept after it has
+  // been marked as Not Live. If the value is set. The WAL files are moved to
+  // the archive direcotory and deleted after the given TTL.
+  // If set to 0, WAL files are deleted as soon as they are not required by
+  // the database.
+  // If set to std::numeric_limits<uint64_t>::max() the WAL files will never be
+  // deleted.
+  // Default : 0
+  uint64_t WAL_ttl_seconds;
 };
 
 // Options that control read operations

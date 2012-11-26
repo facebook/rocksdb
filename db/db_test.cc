@@ -3,6 +3,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <set>
+
 #include "leveldb/db.h"
 #include "leveldb/filter_policy.h"
 #include "db/db_impl.h"
@@ -1188,7 +1190,7 @@ TEST(DBTest, RepeatedWritesToSameKey) {
   // We must have at most one file per level except for level-0,
   // which may have up to kL0_StopWritesTrigger files.
   const int kMaxFiles = dbfull()->NumberLevels() +
-                        dbfull()->Level0StopWriteTrigger();
+    dbfull()->Level0StopWriteTrigger();
 
   Random rnd(301);
   std::string value = RandomString(&rnd, 2 * options.write_buffer_size);
@@ -1703,7 +1705,7 @@ TEST(DBTest, DeletionMarkers2) {
 
 TEST(DBTest, OverlapInLevel0) {
   do {
-  int tmp = dbfull()->MaxMemCompactionLevel();
+    int tmp = dbfull()->MaxMemCompactionLevel();
     ASSERT_EQ(tmp, 2) << "Fix test to match config";
 
     // Fill levels 1 and 2 to disable the pushing of new memtables to levels > 0.
@@ -2194,6 +2196,73 @@ TEST(DBTest, SnapshotFiles) {
   dbfull()->DisableFileDeletions();
 }
 
+void ListLogFiles(Env* env,
+                  const std::string& path,
+                  std::vector<uint64_t>* logFiles) {
+  std::vector<std::string> files;
+  env->GetChildren(path, &files);
+  uint64_t number;
+  FileType type;
+  for (size_t i = 0; i < files.size(); ++i) {
+    if (ParseFileName(files[i], &number, &type)) {
+      if (type == kLogFile) {
+        logFiles->push_back(number);
+      }
+    }
+  }
+}
+
+TEST(DBTest, WALArchival) {
+  std::string value(1024, '1');
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.WAL_ttl_seconds = 1000;
+  DestroyAndReopen(&options);
+
+
+  //  TEST : Create DB with a ttl.
+  //  Put some keys. Count the log files present in the DB just after insert.
+  //  Re-open db. Causes deletion/archival to take place.
+  //  Assert that the files moved under "/archive".
+
+  std::string archiveDir = dbfull()->GetArchivalDirectoryName();
+
+  for (int i = 0; i < 10; ++i) {
+
+    for (int j = 0; j < 10; ++j) {
+      ASSERT_OK(Put(Key(10*i+j), value));
+    }
+
+    std::vector<uint64_t> logFiles;
+    ListLogFiles(env_, dbname_, &logFiles);
+
+    options.create_if_missing = false;
+    Reopen(&options);
+
+    std::vector<uint64_t> logs;
+    ListLogFiles(env_, archiveDir, &logs);
+    std::set<uint64_t> archivedFiles(logs.begin(), logs.end());
+
+    for (std::vector<uint64_t>::iterator it = logFiles.begin();
+         it != logFiles.end();
+         ++it) {
+      ASSERT_TRUE(archivedFiles.find(*it) != archivedFiles.end());
+    }
+  }
+
+  // REOPEN database with 0 TTL. all files should have been deleted.
+  std::vector<uint64_t> logFiles;
+  ListLogFiles(env_, archiveDir, &logFiles);
+  ASSERT_TRUE(logFiles.size() > 0);
+  options.WAL_ttl_seconds = 1;
+  env_->SleepForMicroseconds(2*1000*1000);
+  Reopen(&options);
+
+  logFiles.clear();
+  ListLogFiles(env_, archiveDir, &logFiles);
+  ASSERT_TRUE(logFiles.size() == 0);
+
+}
 
 TEST(DBTest, ReadCompaction) {
   std::string value(4096, '4'); // a string of size 4K

@@ -81,8 +81,12 @@ class Env {
   // Delete the named file.
   virtual Status DeleteFile(const std::string& fname) = 0;
 
-  // Create the specified directory.
+  // Create the specified directory. Returns error if directory exists.
   virtual Status CreateDir(const std::string& dirname) = 0;
+
+  // Creates directory if missing. Return Ok if it exists, or successful in
+  // Creating.
+  virtual Status CreateDirIfMissing(const std::string& dirname) = 0;
 
   // Delete the specified directory.
   virtual Status DeleteDir(const std::string& dirname) = 0;
@@ -90,6 +94,9 @@ class Env {
   // Store the size of fname in *file_size.
   virtual Status GetFileSize(const std::string& fname, uint64_t* file_size) = 0;
 
+  // Store the last modification time of fname in *file_mtime.
+  virtual Status GetFileModificationTime(const std::string& fname,
+                                         uint64_t* file_mtime) = 0;
   // Rename file src to target.
   virtual Status RenameFile(const std::string& src,
                             const std::string& target) = 0;
@@ -323,10 +330,19 @@ class EnvWrapper : public Env {
   }
   Status DeleteFile(const std::string& f) { return target_->DeleteFile(f); }
   Status CreateDir(const std::string& d) { return target_->CreateDir(d); }
+  Status CreateDirIfMissing(const std::string& d) {
+    return target_->CreateDirIfMissing(d);
+  }
   Status DeleteDir(const std::string& d) { return target_->DeleteDir(d); }
   Status GetFileSize(const std::string& f, uint64_t* s) {
     return target_->GetFileSize(f, s);
   }
+
+  Status GetFileModificationTime(const std::string& fname,
+                                 uint64_t* file_mtime) {
+    return target_->GetFileModificationTime(fname, file_mtime);
+  }
+
   Status RenameFile(const std::string& s, const std::string& t) {
     return target_->RenameFile(s, t);
   }

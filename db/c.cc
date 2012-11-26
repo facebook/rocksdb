@@ -529,6 +529,10 @@ void leveldb_options_set_db_log_dir(
   opt->rep.db_log_dir = db_log_dir;
 }
 
+void leveldb_options_set_WAL_ttl_seconds(leveldb_options_t* opt, uint64_t ttl) {
+  opt->rep.WAL_ttl_seconds = ttl;
+}
+
 leveldb_comparator_t* leveldb_comparator_create(
     void* state,
     void (*destructor)(void*),

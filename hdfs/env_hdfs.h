@@ -90,9 +90,14 @@ class HdfsEnv : public Env {
 
   virtual Status CreateDir(const std::string& name);
 
+  virtual Status CreateDirIfMissing(const std::string& name);
+
   virtual Status DeleteDir(const std::string& name);
 
   virtual Status GetFileSize(const std::string& fname, uint64_t* size);
+
+  virtual Status GetFileModificationTime(const std::string& fname,
+                                         uint64_t* file_mtime);
 
   virtual Status RenameFile(const std::string& src, const std::string& target);
 
@@ -247,9 +252,16 @@ class HdfsEnv : public Env {
 
   virtual Status CreateDir(const std::string& name){return notsup;}
 
+  virtual Status CreateDirIfMissing(const std::string& name){return notsup;}
+
   virtual Status DeleteDir(const std::string& name){return notsup;}
 
   virtual Status GetFileSize(const std::string& fname, uint64_t* size){return notsup;}
+
+  virtual Status GetFileModificationTime(const std::string& fname,
+                                         uint64_t* time) {
+    return notsup;
+  }
 
   virtual Status RenameFile(const std::string& src, const std::string& target){return notsup;}
 

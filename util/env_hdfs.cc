@@ -431,6 +431,16 @@ Status HdfsEnv::CreateDir(const std::string& name) {
   return IOError(name, errno);
 };
 
+Status HdfsEnv::CreateDirIfMissing(const std::string& name) {
+  const int value = hdfsExists(fileSys_, name.c_str());
+  //  Not atomic. state might change b/w hdfsExists and CreateDir.
+  if (value == 0) {
+    return Status::OK();
+  } else {
+    return CreateDir(name);
+  }
+};
+
 Status HdfsEnv::DeleteDir(const std::string& name) {
   return DeleteFile(name);
 };
@@ -444,6 +454,18 @@ Status HdfsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
     return Status::OK();
   }
   return IOError(fname, errno);
+}
+
+Status HdfsEnv::GetFileModificationTime(const std::string& fname,
+                                        uint64_t* time) {
+  hdfsFileInfo* pFileInfo = hdfsGetPathInfo(fileSys_, fname.c_str());
+  if (pFileInfo != NULL) {
+    *time = static_cast<uint64_t>(pFileInfo->mLastMod);
+    hdfsFreeFileInfo(pFileInfo, 1);
+    return Status::OK();
+  }
+  return IOError(fname, errno);
+
 }
 
 // The rename is not atomic. HDFS does not allow a renaming if the

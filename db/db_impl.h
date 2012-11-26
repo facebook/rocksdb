@@ -55,6 +55,9 @@ class DBImpl : public DB {
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size);
 
+  //  Return's the path of the archival directory.
+  std::string GetArchivalDirectoryName();
+
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin,*end]
@@ -112,6 +115,8 @@ protected:
       bool error_if_log_file_exist = false);
 
   void MaybeIgnoreError(Status* s) const;
+
+  const Status CreateArchivalDirectory();
 
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
@@ -172,6 +177,7 @@ protected:
   // Removes the file listed in files_to_evict from the table_cache
   void EvictObsoleteFiles(DeletionState& deletion_state);
 
+  void PurgeObsoleteWALFiles();
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
@@ -292,6 +298,7 @@ protected:
   CompactionStats* stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
+  static const std::string ARCHIVAL_DIR;
   std::string db_absolute_path_;
 
   // count of the number of contiguous delaying writes

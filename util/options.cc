@@ -53,7 +53,8 @@ Options::Options()
       table_cache_numshardbits(4),
       compaction_filter_args(NULL),
       CompactionFilter(NULL),
-      disable_auto_compactions(false) {
+      disable_auto_compactions(false),
+      WAL_ttl_seconds(0){
 }
 
 void
@@ -140,6 +141,8 @@ Options::Dump(
         CompactionFilter);
     Log(log,"               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
+    Log(log,"               Options.WAL_ttl_seconds: %ld",
+        WAL_ttl_seconds);
 }   // Options::Dump
 
 }  // namespace leveldb
