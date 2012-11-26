@@ -474,6 +474,9 @@ void Version::GetOverlappingInputs(
   if (end != NULL) {
     user_end = end->user_key();
   }
+  if (file_index) {
+    *file_index = -1;
+  }
   const Comparator* user_cmp = vset_->icmp_.user_comparator();
   if (begin != NULL && end != NULL && level > 0) {
     GetOverlappingInputsBinarySearch(level, user_begin, user_end, inputs,
@@ -503,7 +506,7 @@ void Version::GetOverlappingInputs(
           i = 0;
         }
       } else if (file_index) {
-        *file_index = i;
+        *file_index = i-1;
       }
     }
   }
@@ -1835,7 +1838,8 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
     // Do not pick this file if its parents at level+1 are being compacted.
     // Maybe we can avoid redoing this work in SetupOtherInputs
     int parent_index = -1;
-    if (ParentFilesInCompaction(f, level, &parent_index)) {
+    if (ParentRangeInCompaction(&f->smallest, &f->largest, level, 
+                                &parent_index)) {
       continue;
     }
     c->inputs_[0].push_back(f);
@@ -1904,10 +1908,14 @@ Compaction* VersionSet::PickCompaction() {
     c->inputs_[0].clear();
     std::vector<FileMetaData*> more;
     current_->GetOverlappingInputs(0, &smallest, &largest, &more);
+    if (ParentRangeInCompaction(&smallest, &largest,
+                                level, &c->parent_index_)) {
+      delete c;
+      return NULL;
+    }
     for (unsigned int i = 0; i < more.size(); i++) {
       FileMetaData* f = more[i];
-      if (!f->being_compacted &&
-          !ParentFilesInCompaction(f, level, &c->parent_index_)) {
+      if (!f->being_compacted) {
         c->inputs_[0].push_back(f);
       }
     }
@@ -1926,10 +1934,11 @@ Compaction* VersionSet::PickCompaction() {
 }
 
 // Returns true if any one of the parent files are being compacted
-bool VersionSet::ParentFilesInCompaction(FileMetaData* f, int level,
-    int* parent_index) {
+bool VersionSet::ParentRangeInCompaction(const InternalKey* smallest,
+  const InternalKey* largest, int level, int* parent_index) {
   std::vector<FileMetaData*> inputs;
-  current_->GetOverlappingInputs(level+1, &f->smallest, &f->largest,
+  
+  current_->GetOverlappingInputs(level+1, smallest, largest,
                                  &inputs, *parent_index, parent_index);
   return FilesInCompaction(inputs);
 }
