@@ -313,6 +313,11 @@ int main(int argc, char** argv) {
 
   StartPhase("repair");
   {
+    // If we do not compact here, then the lazy deletion of
+    // files (https://reviews.facebook.net/D6123) would leave
+    // around deleted files and the repair process will find
+    // those files and put them back into the database.
+    leveldb_compact_range(db, NULL, 0, NULL, 0);
     leveldb_close(db);
     leveldb_options_set_create_if_missing(options, 0);
     leveldb_options_set_error_if_exists(options, 0);
