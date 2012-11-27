@@ -1050,9 +1050,8 @@ TEST(DBTest, CompactionTrigger) {
   Random rnd(301);
 
   for (int num = 0;
-		num < options.level0_file_num_compaction_trigger - 1;
-		num++)
-  {
+       num < options.level0_file_num_compaction_trigger - 1;
+       num++) {
     std::vector<std::string> values;
     // Write 120KB (12 values, each 10K)
     for (int i = 0; i < 12; i++) {
@@ -1189,7 +1188,7 @@ TEST(DBTest, RepeatedWritesToSameKey) {
   // We must have at most one file per level except for level-0,
   // which may have up to kL0_StopWritesTrigger files.
   const int kMaxFiles = dbfull()->NumberLevels() +
-		dbfull()->Level0StopWriteTrigger();
+                        dbfull()->Level0StopWriteTrigger();
 
   Random rnd(301);
   std::string value = RandomString(&rnd, 2 * options.write_buffer_size);
@@ -1591,6 +1590,59 @@ TEST(DBTest, HiddenValuesAreRemoved) {
     ASSERT_EQ(AllEntriesFor("foo"), "[ tiny ]");
 
     ASSERT_TRUE(Between(Size("", "pastfoo"), 0, 1000));
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, CompactBetweenSnapshots) {
+  do {
+    Random rnd(301);
+    FillLevels("a", "z");
+
+    Put("foo", "first");
+    const Snapshot* snapshot1 = db_->GetSnapshot();
+    Put("foo", "second");
+    Put("foo", "third");
+    Put("foo", "fourth");
+    const Snapshot* snapshot2 = db_->GetSnapshot();
+    Put("foo", "fifth");
+    Put("foo", "sixth");
+
+    // All entries (including duplicates) exist
+    // before any compaction is triggered.
+    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_EQ("sixth", Get("foo"));
+    ASSERT_EQ("fourth", Get("foo", snapshot2));
+    ASSERT_EQ("first", Get("foo", snapshot1));
+    ASSERT_EQ(AllEntriesFor("foo"),
+              "[ sixth, fifth, fourth, third, second, first ]");
+
+    // After a compaction, "second", "third" and "fifth" should
+    // be removed
+    FillLevels("a", "z");
+    dbfull()->CompactRange(NULL, NULL);
+    ASSERT_EQ("sixth", Get("foo"));
+    ASSERT_EQ("fourth", Get("foo", snapshot2));
+    ASSERT_EQ("first", Get("foo", snapshot1));
+    ASSERT_EQ(AllEntriesFor("foo"), "[ sixth, fourth, first ]");
+
+    // after we release the snapshot1, only two values left
+    db_->ReleaseSnapshot(snapshot1);
+    FillLevels("a", "z");
+    dbfull()->CompactRange(NULL, NULL);
+
+    // We have only one valid snapshot snapshot2. Since snapshot1 is
+    // not valid anymore, "first" should be removed by a compaction.
+    ASSERT_EQ("sixth", Get("foo"));
+    ASSERT_EQ("fourth", Get("foo", snapshot2));
+    ASSERT_EQ(AllEntriesFor("foo"), "[ sixth, fourth ]");
+
+    // after we release the snapshot2, only one value should be left
+    db_->ReleaseSnapshot(snapshot2);
+    FillLevels("a", "z");
+    dbfull()->CompactRange(NULL, NULL);
+    ASSERT_EQ("sixth", Get("foo"));
+    ASSERT_EQ(AllEntriesFor("foo"), "[ sixth ]");
+
   } while (ChangeOptions());
 }
 

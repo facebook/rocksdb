@@ -32,6 +32,7 @@ class SnapshotList {
   SnapshotList() {
     list_.prev_ = &list_;
     list_.next_ = &list_;
+    list_.number_ = 0xFFFFFFFFL;      // placeholder marker, for debugging
   }
 
   bool empty() const { return list_.next_ == &list_; }
@@ -54,6 +55,20 @@ class SnapshotList {
     s->prev_->next_ = s->next_;
     s->next_->prev_ = s->prev_;
     delete s;
+  }
+
+  // retrieve all snapshot numbers. They are sorted in ascending order.
+  void getAll(std::vector<SequenceNumber>& ret) {
+    SnapshotImpl* s = &list_;
+    SequenceNumber prev;
+    prev = 0;
+    if (empty()) return;
+    while (s->next_ != &list_) {
+      assert(prev <= s->next_->number_);
+      assert(prev = s->next_->number_); // assignment
+      ret.push_back(s->next_->number_);
+      s = s ->next_;
+    }
   }
 
  private:

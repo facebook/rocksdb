@@ -303,6 +303,10 @@ protected:
 
   // dump the delayed_writes_ to the log file and reset counter.
   void DelayLoggingAndReset();
+
+  // find the earliest snapshot where seqno is visible
+  inline SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
+    std::vector<SequenceNumber>& snapshots);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if
