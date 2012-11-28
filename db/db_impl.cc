@@ -1458,7 +1458,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
       "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
-      "MB in(%.1f, %.1f) out(%.1f), amplify(%.1f)\n",
+      "MB in(%.1f, %.1f) out(%.1f), amplify(%.1f) %s\n",
       versions_->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
           (double) stats.micros,
@@ -1468,7 +1468,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       stats.bytes_readnp1 / 1048576.0,
       stats.bytes_written / 1048576.0,
       (stats.bytes_written + stats.bytes_readnp1) /
-          (double) stats.bytes_readn);
+          (double) stats.bytes_readn,
+      status.ToString().c_str());
 
   return status;
 }
