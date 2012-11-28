@@ -62,6 +62,10 @@ class DB {
       const std::string& name, DB** dbptr,
       bool no_log_recory = true, bool error_if_log_file_exist = false);
 
+  // Open the database with hot-cold separation.
+  static Status OpenWithHotCold(const Options& options,
+      const std::string& name, DB** dbptr);
+
   DB() { }
   virtual ~DB();
 
