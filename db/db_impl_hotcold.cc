@@ -115,7 +115,8 @@ bool DBImplHotCold::GetProperty(const Slice& property, std::string* value) {
   return dataDB_->GetProperty(property, value);
 }
 
-void DBImplHotCold::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
+void DBImplHotCold::GetApproximateSizes(const Range* range, int n,
+                                        uint64_t* sizes) {
   dataDB_->GetApproximateSizes(range, n, sizes);
 }
 

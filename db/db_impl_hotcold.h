@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef STORAGE_LEVELDB_DB_DB_IMPL_HOTCOLD_H__
-#define STORAGE_LEVELDB_DB_DB_IMPL_HOTCOLD_H__
+#ifndef STORAGE_LEVELDB_DB_DB_IMPL_HOTCOLD_H_
+#define STORAGE_LEVELDB_DB_DB_IMPL_HOTCOLD_H_
 
 #include "db/db_impl.h"
 
@@ -65,4 +65,4 @@ class DBImplHotCold : public DB {
 
 } // namespace leveldb
 
-#endif // STORAGE_LEVELDB_DB_DB_IMPL_HOTCOLD_H__
+#endif // STORAGE_LEVELDB_DB_DB_IMPL_HOTCOLD_H_
