@@ -121,7 +121,7 @@ void DBImplHotCold::GetApproximateSizes(const Range* range, int n,
 }
 
 void DBImplHotCold::CompactRange(const Slice* begin, const Slice* end) {
-  // TODO: implement
+  dataDB_->CompactRange(begin, end);
 }
 
 int DBImplHotCold::NumberLevels() {
