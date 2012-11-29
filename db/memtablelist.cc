@@ -1,9 +1,11 @@
 // Copyright (c) 2012 Facebook.
 
+
+#include "db/memtablelist.h"
+
 #include <string>
 #include "leveldb/db.h"
 #include "db/memtable.h"
-#include "db/memtablelist.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
 #include "util/coding.h"
@@ -57,7 +59,7 @@ MemTable* MemTableList::PickMemtableToFlush() {
     MemTable* m = *it;
     if (!m->flush_in_progress_) {
       assert(!m->flush_completed_);
-      num_flush_not_started_--;    
+      num_flush_not_started_--;
       if (num_flush_not_started_ == 0) {
         imm_flush_needed.Release_Store(NULL);
       }
@@ -110,11 +112,11 @@ Status MemTableList::InstallMemtableFlushResults(MemTable* m,
     if (!m->flush_completed_) {
       break;
     }
-    Log(info_log, 
+    Log(info_log,
         "Level-0 commit table #%llu: started",
         (unsigned long long)m->file_number_);
 
-    // this can release and reacquire the mutex. 
+    // this can release and reacquire the mutex.
     s = vset->LogAndApply(&m->edit_, mu);
 
     if (s.ok()) { // commit new state
@@ -149,11 +151,11 @@ Status MemTableList::InstallMemtableFlushResults(MemTable* m,
   return s;
 }
 
-// New memtables are inserted at the front of the list. 
+// New memtables are inserted at the front of the list.
 void MemTableList::Add(MemTable* m) {
   assert(size_ >= num_flush_not_started_);
-  size_++; 
-  memlist_.push_front(m); 
+  size_++;
+  memlist_.push_front(m);
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
     imm_flush_needed.Release_Store((void *)1);

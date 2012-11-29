@@ -88,7 +88,7 @@ class MemTable {
   Table table_;
 
   // These are used to manage memtable flushes to storage
-  bool flush_in_progress_; // started the flush 
+  bool flush_in_progress_; // started the flush
   bool flush_completed_;   // finished the flush
   uint64_t file_number_;    // filled up after flush is complete
 

@@ -87,7 +87,7 @@ static bool FLAGS_histogram = false;
 // (initialized to default value by "main")
 static int FLAGS_write_buffer_size = 0;
 
-// The number of in-memory memtables. 
+// The number of in-memory memtables.
 // Each memtable is of size FLAGS_write_buffer_size.
 // This is initialized to default value of 2 in "main" function.
 static int FLAGS_max_write_buffer_number = 0;
@@ -452,7 +452,7 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  ThreadState(int index)
+  /* implicit */ ThreadState(int index)
       : tid(index),
         rand(1000 + index) {
   }
@@ -979,7 +979,7 @@ class Benchmark {
       FLAGS_delete_obsolete_files_period_micros;
     options.rate_limit = FLAGS_rate_limit;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
-    options.max_grandparent_overlap_factor = 
+    options.max_grandparent_overlap_factor =
       FLAGS_max_grandparent_overlap_factor;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.source_compaction_factor = FLAGS_source_compaction_factor;
@@ -1272,7 +1272,7 @@ int main(int argc, char** argv) {
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
   FLAGS_max_write_buffer_number = leveldb::Options().max_write_buffer_number;
   FLAGS_open_files = leveldb::Options().max_open_files;
-  FLAGS_max_background_compactions = 
+  FLAGS_max_background_compactions =
     leveldb::Options().max_background_compactions;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
@@ -1320,7 +1320,7 @@ int main(int argc, char** argv) {
         exit(1);
       }
     } else if (sscanf(argv[i], "--table_cache_numshardbits=%d%c",
-		      &n, &junk) == 1) {
+          &n, &junk) == 1) {
       if (n <= 0 || n > 20) {
         fprintf(stderr, "The cache cannot be sharded into 2**%d pieces\n", n);
         exit(1);
@@ -1433,10 +1433,10 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--max_grandparent_overlap_factor=%d%c",
                &n, &junk) == 1) {
       FLAGS_max_grandparent_overlap_factor = n;
-    } else if (sscanf(argv[i], "--disable_auto_compactions=%d%c", 
+    } else if (sscanf(argv[i], "--disable_auto_compactions=%d%c",
                &n, &junk) == 1 && (n == 0 || n ==1)) {
       FLAGS_disable_auto_compactions = n;
-    } else if (sscanf(argv[i], "--source_compaction_factor=%d%c", 
+    } else if (sscanf(argv[i], "--source_compaction_factor=%d%c",
                &n, &junk) == 1 && n > 0) {
       FLAGS_source_compaction_factor = n;
     } else {

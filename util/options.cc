@@ -127,7 +127,7 @@ Options::Dump(
     Log(log,"                         Options.no_block_cache: %d",
         no_block_cache);
     Log(log,"               Options.table_cache_numshardbits: %d",
-	table_cache_numshardbits);
+  table_cache_numshardbits);
     Log(log,"    Options.delete_obsolete_files_period_micros: %ld",
         delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",

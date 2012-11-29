@@ -265,7 +265,7 @@ DBImpl::~DBImpl() {
   delete logger_;
 }
 
-// Do not flush and close database elegantly. Simulate a crash. 
+// Do not flush and close database elegantly. Simulate a crash.
 void DBImpl::TEST_Destroy_DBImpl() {
   // ensure that no new memtable flushes can occur
   flush_on_destroy_ = false;
@@ -718,7 +718,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   // created file might not be considered as a live-file by another
   // compaction thread that is concurrently deleting obselete files.
   // The pending_outputs can be cleared only after the new version is
-  // committed so that other threads can recognize this file as a 
+  // committed so that other threads can recognize this file as a
   // valid one.
   // pending_outputs_.erase(meta.number);
 
@@ -778,7 +778,7 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   }
 
   // Replace immutable memtable with the generated Table
-  s = imm_.InstallMemtableFlushResults(m, versions_, s, &mutex_, 
+  s = imm_.InstallMemtableFlushResults(m, versions_, s, &mutex_,
                         options_.info_log, file_number, pending_outputs_);
 
   if (s.ok()) {
@@ -851,10 +851,10 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
 
   MutexLock l(&mutex_);
 
-  // When a manual compaction arrives, temporarily throttle down 
-  // the number of background compaction threads to 1. This is 
-  // needed to ensure that this manual compaction can compact 
-  // any range of keys/files. We artificialy increase 
+  // When a manual compaction arrives, temporarily throttle down
+  // the number of background compaction threads to 1. This is
+  // needed to ensure that this manual compaction can compact
+  // any range of keys/files. We artificialy increase
   // bg_compaction_scheduled_ by a large number, this causes
   // the system to have a single background thread. Now,
   // this manual compaction can progress without stomping
@@ -987,7 +987,7 @@ void DBImpl::BackgroundCall() {
   MaybeScheduleLogDBDeployStats();
 
   // Previous compaction may have produced too many files in a level,
-  // So reschedule another compaction if we made progress in the 
+  // So reschedule another compaction if we made progress in the
   // last compaction.
   if (madeProgress) {
     MaybeScheduleCompaction();
@@ -995,13 +995,13 @@ void DBImpl::BackgroundCall() {
   bg_cv_.SignalAll();
 }
 
-Status DBImpl::BackgroundCompaction(bool* madeProgress, 
+Status DBImpl::BackgroundCompaction(bool* madeProgress,
   DeletionState& deletion_state) {
   *madeProgress = false;
   mutex_.AssertHeld();
 
   while (imm_.IsFlushPending()) {
-    Log(options_.info_log, 
+    Log(options_.info_log,
         "BackgroundCompaction doing CompactMemTable, compaction slots available %d",
         options_.max_background_compactions - bg_compaction_scheduled_);
     Status stat = CompactMemTable(madeProgress);
@@ -1129,7 +1129,7 @@ void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
 // Frees up unused file number.
 void DBImpl::ReleaseCompactionUnusedFileNumbers(CompactionState* compact) {
   mutex_.AssertHeld();
-  for (std::list<uint64_t>::iterator it = 
+  for (std::list<uint64_t>::iterator it =
        compact->allocated_file_numbers.begin();
        it != compact->allocated_file_numbers.end(); ++it) {
     uint64_t file_number = *it;
@@ -1291,7 +1291,7 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
-  Log(options_.info_log, 
+  Log(options_.info_log,
       "Compacting %d@%d + %d@%d files, compaction slots available %d",
       compact->compaction->num_input_files(0),
       compact->compaction->level(),
@@ -1877,7 +1877,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
-	versions_->ReuseFileNumber(new_log_number);
+  versions_->ReuseFileNumber(new_log_number);
         break;
       }
       delete log_;

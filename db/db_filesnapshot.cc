@@ -1,6 +1,6 @@
 // Copyright (c) 2012 Facebook.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. 
+// found in the LICENSE file.
 
 #include "db/db_impl.h"
 #include "db/filename.h"
@@ -16,17 +16,17 @@ namespace leveldb {
 
 Status DBImpl::DisableFileDeletions() {
   MutexLock l(&mutex_);
-  disable_delete_obsolete_files_ = true; 
+  disable_delete_obsolete_files_ = true;
   return Status::OK();
 }
 
 Status DBImpl::EnableFileDeletions() {
   MutexLock l(&mutex_);
-  disable_delete_obsolete_files_ = false; 
+  disable_delete_obsolete_files_ = false;
   return Status::OK();
 }
 
-Status DBImpl::GetLiveFiles(std::vector<std::string>& ret, 
+Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
                             uint64_t* manifest_file_size) {
 
   *manifest_file_size = 0;
@@ -34,7 +34,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   // flush all dirty data to disk.
   Status status =  Flush(FlushOptions());
   if (!status.ok()) {
-    Log(options_.info_log, "Cannot Flush data %s\n", 
+    Log(options_.info_log, "Cannot Flush data %s\n",
         status.ToString().c_str());
     return status;
   }
@@ -42,7 +42,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   MutexLock l(&mutex_);
 
   // Make a set of all of the live *.sst files
-  std::set<uint64_t> live; 
+  std::set<uint64_t> live;
   versions_->AddLiveFilesCurrentVersion(&live);
 
   ret.resize(live.size() + 2); //*.sst + CURRENT + MANIFEST
@@ -55,7 +55,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   }
 
   ret[live.size()] = CurrentFileName("");
-  ret[live.size()+1] = DescriptorFileName("", 
+  ret[live.size()+1] = DescriptorFileName("",
                                           versions_->ManifestFileNumber());
 
   // find length of manifest file while holding the mutex lock

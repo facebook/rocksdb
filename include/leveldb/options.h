@@ -93,7 +93,7 @@ struct Options {
   // on disk) before converting to a sorted on-disk file.
   //
   // Larger values increase performance, especially during bulk loads.
-  // Up to max_write_buffer_number write buffers may be held in memory 
+  // Up to max_write_buffer_number write buffers may be held in memory
   // at the same time,
   // so you may wish to adjust this parameter to control memory usage.
   // Also, a larger write buffer will result in a longer recovery time
@@ -103,7 +103,7 @@ struct Options {
   size_t write_buffer_size;
 
   // The maximum number of write buffers that are built up in memory.
-  // The default is 2, so that when 1 write buffer is being flushed to 
+  // The default is 2, so that when 1 write buffer is being flushed to
   // storage, new writes can continue to the other write buffer.
   // Default: 2
   int max_write_buffer_number;
@@ -239,7 +239,7 @@ struct Options {
   int expanded_compaction_factor;
 
   // Maximum number of bytes in all source files to be compacted in a
-  // single compaction run. We avoid picking too many files in the 
+  // single compaction run. We avoid picking too many files in the
   // source level so that we do not exceed the total source bytes
   // for compaction to exceed
   // (source_compaction_factor * targetFileSizeLevel()) many bytes.
@@ -292,7 +292,7 @@ struct Options {
   // value is 0 which means that obsolete files get removed after
   // every compaction run.
   uint64_t delete_obsolete_files_period_micros;
-  
+
   // Maximum number of concurrent background compactions.
   // Default: 1
   int max_background_compactions;
@@ -321,12 +321,12 @@ struct Options {
 
   void Dump(Logger * log) const;
 
-  // This method allows an application to modify/delete a key-value at 
+  // This method allows an application to modify/delete a key-value at
   // the time of compaction. The compaction process invokes this
   // method for every kv that is being compacted. A return value
   // of false indicates that the kv should be preserved in the
   // output of this compaction run and a return value of true
-  // indicates that this key-value should be removed from the 
+  // indicates that this key-value should be removed from the
   // output of the compaction.  The application can inspect
   // the existing value of the key, modify it if needed and
   // return back the new value for this key. The application
@@ -336,8 +336,8 @@ struct Options {
   // The compaction_filter_args, if specified here, are passed
   // back to the invocation of the CompactionFilter.
   void* compaction_filter_args;
-  bool (*CompactionFilter)(void* compaction_filter_args, 
-         int level, const Slice& key, 
+  bool (*CompactionFilter)(void* compaction_filter_args,
+         int level, const Slice& key,
          const Slice& existing_value, Slice** new_value);
 
   // Disable automatic compactions. Manual compactions can still

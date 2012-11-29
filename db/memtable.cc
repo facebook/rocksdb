@@ -24,7 +24,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp, int numlevel)
       table_(comparator_, &arena_),
       flush_in_progress_(false),
       flush_completed_(false),
-      file_number_(0), 
+      file_number_(0),
       edit_(numlevel) {
 }
 

@@ -19,15 +19,15 @@ class MemTableListIterator;
 
 //
 // This class stores refeernces to all the immutable memtables.
-// The memtables are flushed to L0 as soon as possible and in 
+// The memtables are flushed to L0 as soon as possible and in
 // any order. If there are more than one immutable memtable, their
-// flushes can occur concurrently.  However, they are 'committed' 
+// flushes can occur concurrently.  However, they are 'committed'
 // to the manifest in FIFO order to maintain correctness and
 // recoverability from a crash.
 //
 class MemTableList {
  public:
-  // A list of memtables. 
+  // A list of memtables.
   MemTableList() : size_(0), num_flush_not_started_(0),
     commit_in_progress_(false) {
     imm_flush_needed.Release_Store(NULL);
@@ -62,7 +62,7 @@ class MemTableList {
                       uint64_t file_number,
                       std::set<uint64_t>& pending_outputs);
 
-  // New memtables are inserted at the front of the list. 
+  // New memtables are inserted at the front of the list.
   void Add(MemTable* m);
 
   // Returns an estimate of the number of bytes of data in use.
@@ -72,7 +72,7 @@ class MemTableList {
   // Return the most recent value found, if any.
   bool Get(const LookupKey& key, std::string* value, Status* s);
 
-  // Returns the list of underlying memtables. 
+  // Returns the list of underlying memtables.
   void GetMemTables(std::vector<MemTable*>* list);
 
   // Copying allowed

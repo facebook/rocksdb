@@ -146,8 +146,8 @@ class Version {
   // in increasing order of keys
   std::vector<FileMetaData*>* files_;
 
-  // A list for the same set of files that are stored in files_,   
-  // but files in each level are now sorted based on file 
+  // A list for the same set of files that are stored in files_,
+  // but files in each level are now sorted based on file
   // size. The file with the largest size is at the front.
   // This vector stores the index of the file from files_.
   std::vector< std::vector<int> > files_by_size_;
@@ -191,7 +191,7 @@ class Version {
   // to find the next compaction candidate file.
   void ResetNextCompactionIndex(int level) {
     next_file_to_compact_by_size_[level] = 0;
-  } 
+  }
 
   // No copying allowed
   Version(const Version&);
@@ -448,7 +448,7 @@ class VersionSet {
   uint64_t SizeBeingCompacted(int level);
 
   // Returns true if any one of the parent files are being compacted
-  bool ParentRangeInCompaction(const InternalKey* smallest, 
+  bool ParentRangeInCompaction(const InternalKey* smallest,
     const InternalKey* largest, int level, int* index);
 
   // Returns true if any one of the specified files are being compacted
@@ -542,7 +542,7 @@ class Compaction {
 
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool);
-  
+
   // In case of compaction error, reset the nextIndex that is used
   // to pick up the next file to be compacted from files_by_size_
   void ResetNextCompactionIndex();

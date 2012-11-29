@@ -296,7 +296,7 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   uint64_t l = crc ^ 0xffffffffu;
 
 // Align n to (1 << m) byte boundary
-#define ALIGN(n, m) 		((n + ((1 << m) - 1)) & ~((1 << m) - 1))
+#define ALIGN(n, m)     ((n + ((1 << m) - 1)) & ~((1 << m) - 1))
 
 #define STEP1 do {                              \
     int c = (l & 0xff) ^ *p++;                  \

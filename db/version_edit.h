@@ -29,9 +29,9 @@ struct FileMetaData {
 
 class VersionEdit {
  public:
-  VersionEdit(int number_levels) :
-	number_levels_(number_levels) {
-	Clear();
+  /* implicit */ VersionEdit(int number_levels) :
+  number_levels_(number_levels) {
+  Clear();
   }
   ~VersionEdit() { }
 

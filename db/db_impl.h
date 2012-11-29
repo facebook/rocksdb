@@ -158,7 +158,7 @@ protected:
   Status InstallCompactionResults(CompactionState* compact);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
- 
+
 
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'allfiles'.

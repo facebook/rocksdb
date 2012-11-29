@@ -27,7 +27,7 @@ class TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
-  // caller to close the file after calling Finish(). The output file 
+  // caller to close the file after calling Finish(). The output file
   // will be part of level specified by 'level'.  A value of -1 means
   // that the caller does not know which level the output file will reside.
   TableBuilder(const Options& options, WritableFile* file, int level=-1);

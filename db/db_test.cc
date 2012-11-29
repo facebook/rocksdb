@@ -1703,7 +1703,7 @@ TEST(DBTest, DeletionMarkers2) {
 
 TEST(DBTest, OverlapInLevel0) {
   do {
-	int tmp = dbfull()->MaxMemCompactionLevel();
+  int tmp = dbfull()->MaxMemCompactionLevel();
     ASSERT_EQ(tmp, 2) << "Fix test to match config";
 
     // Fill levels 1 and 2 to disable the pushing of new memtables to levels > 0.
@@ -2429,17 +2429,17 @@ class ModelDB: public DB {
 
   virtual int NumberLevels()
   {
-	return 1;
+  return 1;
   }
 
   virtual int MaxMemCompactionLevel()
   {
-	return 1;
+  return 1;
   }
 
   virtual int Level0StopWriteTrigger()
   {
-	return -1;
+  return -1;
   }
 
   virtual Status Flush(const leveldb::FlushOptions& options) {

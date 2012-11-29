@@ -26,7 +26,7 @@
 #include "util/logging.h"
 #include "util/posix_logger.h"
 
-bool useOsBuffer = 1;     // cache data in OS buffers 
+bool useOsBuffer = 1;     // cache data in OS buffers
 bool useFsReadAhead = 1;  // allow filesystem to do readaheads
 bool useMmapRead = 0;     // do not use mmaps for reading files
 bool useMmapWrite = 1;    // use mmaps for appending to files
@@ -84,7 +84,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd)
-      : filename_(fname), fd_(fd) { 
+      : filename_(fname), fd_(fd) {
     if (!useFsReadAhead) {
       // disable read-aheads
       posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
@@ -741,7 +741,7 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  // Allow increasing the number of worker threads. 
+  // Allow increasing the number of worker threads.
   virtual void SetBackgroundThreads(int num) {
     if (num > num_threads_) {
       num_threads_ = num;

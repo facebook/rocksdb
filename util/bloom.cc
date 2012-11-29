@@ -28,7 +28,7 @@ class BloomFilterPolicy : public FilterPolicy {
   }
 
  public:
-  explicit BloomFilterPolicy(int bits_per_key, 
+  explicit BloomFilterPolicy(int bits_per_key,
                              uint32_t (*hash_func)(const Slice& key))
       : bits_per_key_(bits_per_key), hash_func_(hash_func) {
     initialize();
