@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/filename.h"
+
 #include <ctype.h>
 #include <stdio.h>
-#include "db/filename.h"
 #include "db/dbformat.h"
 #include "leveldb/env.h"
 #include "util/logging.h"
-#include <iostream>
 
 namespace leveldb {
 
@@ -55,6 +55,11 @@ static std::string MakeFileName(const std::string& name, uint64_t number,
 std::string LogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
   return MakeFileName(name, number, "log");
+}
+
+std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(name + "/archive", number, "log");
 }
 
 std::string TableFileName(const std::string& name, uint64_t number) {

@@ -11,6 +11,7 @@
 #include "leveldb/filter_policy.h"
 #include "leveldb/slice.h"
 #include "leveldb/table_builder.h"
+#include "leveldb/types.h"
 #include "util/coding.h"
 #include "util/logging.h"
 
@@ -32,8 +33,6 @@ enum ValueType {
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
 static const ValueType kValueTypeForSeek = kTypeValue;
-
-typedef uint64_t SequenceNumber;
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.

@@ -23,6 +23,7 @@
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "db/transaction_log_iterator_impl.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/statistics.h"
@@ -484,7 +485,7 @@ void DBImpl::DeleteObsoleteFiles() {
 void DBImpl::PurgeObsoleteWALFiles() {
   if (options_.WAL_ttl_seconds != ULONG_MAX && options_.WAL_ttl_seconds > 0) {
     std::vector<std::string> WALFiles;
-    std::string archivalDir = dbname_ + "/" + ARCHIVAL_DIR;
+    std::string archivalDir = GetArchivalDirectoryName();
     env_->GetChildren(archivalDir, &WALFiles);
     int64_t currentTime;
     const Status status = env_->GetCurrentTime(&currentTime);
@@ -881,6 +882,165 @@ int DBImpl::Level0StopWriteTrigger() {
 
 Status DBImpl::Flush(const FlushOptions& options) {
   Status status = FlushMemTable(options);
+  return status;
+}
+
+Status DBImpl::GetUpdatesSince(SequenceNumber seq,
+                               TransactionLogIterator** iter) {
+
+  //  Get All Log Files.
+  //  Sort Files
+  //  Get the first entry from each file.
+  //  Do binary search and open files and find the seq number.
+
+  std::vector<LogFile> walFiles;
+  // list wal files in main db dir.
+  Status s = ListAllWALFiles(dbname_, &walFiles, kAliveLogFile);
+  if (!s.ok()) {
+    return s;
+  }
+  //  list wal files in archive dir.
+  s = ListAllWALFiles(GetArchivalDirectoryName(), &walFiles, kArchivedLogFile);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (walFiles.empty()) {
+    return Status::IOError(" NO WAL Files present in the db");
+  }
+  //  std::shared_ptr would have been useful here.
+
+  std::vector<LogFile>* probableWALFiles = new std::vector<LogFile>();
+  FindProbableWALFiles(&walFiles, probableWALFiles, seq);
+  if (probableWALFiles->empty()) {
+    return Status::IOError(" No wal files for the given seqNo. found");
+  }
+
+  TransactionLogIteratorImpl* impl =
+    new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles);
+  *iter = impl;
+  return Status::OK();
+}
+
+Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
+                                    std::vector<LogFile>* const result,
+                                    const SequenceNumber target) {
+  assert(allLogs != NULL);
+  assert(result != NULL);
+
+  std::sort(allLogs->begin(), allLogs->end());
+  size_t start = 0;
+  size_t end = allLogs->size();
+  // Binary Search. avoid opening all files.
+  while (start < end) {
+    int mid = (start + end) / 2;
+    WriteBatch batch;
+    Status s = ReadFirstRecord(allLogs->at(mid), &batch);
+    if (!s.ok()) {
+      return s;
+    }
+    SequenceNumber currentSeqNum = WriteBatchInternal::Sequence(&batch);
+    if (currentSeqNum == target) {
+      start = mid;
+      end = mid;
+    } else if (currentSeqNum < target) {
+      start = mid;
+    } else {
+      end = mid;
+    }
+  }
+  assert( start == end);
+  for( size_t i = start; i < allLogs->size(); ++i) {
+    result->push_back(allLogs->at(i));
+  }
+  return Status::OK();
+}
+
+Status DBImpl::ReadFirstRecord(const LogFile& file, WriteBatch* const result) {
+
+  if (file.type == kAliveLogFile) {
+    std::string fname = LogFileName(dbname_, file.logNumber);
+    Status status = ReadFirstLine(fname, result);
+    if (!status.ok()) {
+      //  check if the file got moved to archive.
+      std::string archivedFile = ArchivedLogFileName(dbname_, file.logNumber);
+      Status s = ReadFirstLine(archivedFile, result);
+      if (!s.ok()) {
+        return Status::IOError("Log File Has been deleted");
+      }
+    }
+    return Status::OK();
+  } else if (file.type == kArchivedLogFile) {
+    std::string fname = ArchivedLogFileName(dbname_, file.logNumber);
+    Status status = ReadFirstLine(fname, result);
+    return status;
+  }
+  return Status::NotSupported("File Type Not Known");
+}
+
+Status DBImpl::ReadFirstLine(const std::string& fname,
+                             WriteBatch* const batch) {
+  struct LogReporter : public log::Reader::Reporter {
+    Env* env;
+    Logger* info_log;
+    const char* fname;
+    Status* status;  // NULL if options_.paranoid_checks==false
+    virtual void Corruption(size_t bytes, const Status& s) {
+      Log(info_log, "%s%s: dropping %d bytes; %s",
+          (this->status == NULL ? "(ignoring error) " : ""),
+          fname, static_cast<int>(bytes), s.ToString().c_str());
+      if (this->status != NULL && this->status->ok()) *this->status = s;
+    }
+  };
+
+  SequentialFile* file;
+  Status status = env_->NewSequentialFile(fname, &file);
+
+  if (!status.ok()) {
+    return status;
+  }
+
+
+  LogReporter reporter;
+  reporter.env = env_;
+  reporter.info_log = options_.info_log;
+  reporter.fname = fname.c_str();
+  reporter.status = (options_.paranoid_checks ? &status : NULL);
+  log::Reader reader(file, &reporter, true/*checksum*/,
+                     0/*initial_offset*/);
+  std::string scratch;
+  Slice record;
+  if (reader.ReadRecord(&record, &scratch) && status.ok()) {
+    if (record.size() < 12) {
+      reporter.Corruption(
+          record.size(), Status::Corruption("log record too small"));
+      return Status::IOError("Corruption noted");
+      //  TODO read record's till the first no corrupt entry?
+    }
+    WriteBatchInternal::SetContents(batch, record);
+    return Status::OK();
+  }
+  return Status::IOError("Error reading from file " + fname);
+}
+
+Status DBImpl::ListAllWALFiles(const std::string& path,
+                               std::vector<LogFile>* const logFiles,
+                               WalFileType logType) {
+  assert(logFiles != NULL);
+  std::vector<std::string> allFiles;
+  const Status status = env_->GetChildren(path, &allFiles);
+  if (!status.ok()) {
+    return status;
+  }
+  for(std::vector<std::string>::iterator it = allFiles.begin();
+      it != allFiles.end();
+      ++it) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(*it, &number, &type) && type == kLogFile){
+      logFiles->push_back(LogFile(number, logType));
+    }
+  }
   return status;
 }
 

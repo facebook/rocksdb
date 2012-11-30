@@ -2264,6 +2264,63 @@ TEST(DBTest, WALArchival) {
 
 }
 
+TEST(DBTest, TransactionLogIterator) {
+  std::string value(1024, '1');
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.WAL_ttl_seconds = 1000;
+  DestroyAndReopen(&options);
+  Put("key1", value);
+  Put("key2", value);
+  Put("key2", value);
+  {
+    TransactionLogIterator* iter;
+    Status status = dbfull()->GetUpdatesSince(0, &iter);
+    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(!iter->Valid());
+    iter->Next();
+    int i = 0;
+    SequenceNumber lastSequence = 0;
+    while (iter->Valid()) {
+      WriteBatch batch;
+      iter->GetBatch(&batch);
+      SequenceNumber current = WriteBatchInternal::Sequence(&batch);
+      // ASSERT_TRUE(current > lastSequence);
+      ++i;
+      lastSequence = current;
+      ASSERT_TRUE(iter->status().ok());
+      iter->Next();
+    }
+    ASSERT_EQ(i, 3);
+  }
+  Reopen(&options);
+  {
+    Put("key4", value);
+    Put("key5", value);
+    Put("key6", value);
+  }
+  {
+    TransactionLogIterator* iter;
+    Status status = dbfull()->GetUpdatesSince(0, &iter);
+    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(!iter->Valid());
+    iter->Next();
+    int i = 0;
+    SequenceNumber lastSequence = 0;
+    while (iter->Valid()) {
+      WriteBatch batch;
+      iter->GetBatch(&batch);
+      SequenceNumber current = WriteBatchInternal::Sequence(&batch);
+      ASSERT_TRUE(current > lastSequence);
+      lastSequence = current;
+      ASSERT_TRUE(iter->status().ok());
+      iter->Next();
+      ++i;
+    }
+    ASSERT_EQ(i, 6);
+  }
+}
+
 TEST(DBTest, ReadCompaction) {
   std::string value(4096, '4'); // a string of size 4K
   {
@@ -2524,6 +2581,11 @@ class ModelDB: public DB {
   }
   virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size) {
     return Status::OK();
+  }
+
+  virtual Status GetUpdatesSince(leveldb::SequenceNumber,
+                                 leveldb::TransactionLogIterator**) {
+    return Status::NotSupported("Not supported in Model DB");
   }
 
  private:
