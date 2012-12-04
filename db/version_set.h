@@ -345,7 +345,7 @@ class VersionSet {
 
   // For the specfied level, pick a compaction.
   // Returns NULL if there is no compaction to be done.
-  Compaction* PickCompactionBySize(int level);
+  Compaction* PickCompactionBySize(int level, double score);
 
   // Free up the files that were participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
@@ -502,6 +502,9 @@ class Compaction {
 
   void Summary(char* output, int len);
 
+  // Return the score that was used to pick this compaction run.
+  double score() const { return score_; }
+
  private:
   friend class Version;
   friend class VersionSet;
@@ -531,6 +534,7 @@ class Compaction {
                               // and grandparent files
   int base_index_;   // index of the file in files_[level_]
   int parent_index_; // index of some file with same range in files_[level_+1]
+  double score_;     // score that was used to pick this compaction.
 
   // State for implementing IsBaseLevelForKey
 

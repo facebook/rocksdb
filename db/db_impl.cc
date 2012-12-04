@@ -1349,11 +1349,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
   Log(options_.info_log,
-      "Compacting %d@%d + %d@%d files, compaction slots available %d",
+      "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
       compact->compaction->num_input_files(0),
       compact->compaction->level(),
       compact->compaction->num_input_files(1),
       compact->compaction->level() + 1,
+      compact->compaction->score(),
       options_.max_background_compactions - bg_compaction_scheduled_);
   char scratch[256];
   compact->compaction->Summary(scratch, sizeof(scratch));

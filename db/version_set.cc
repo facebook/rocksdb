@@ -1787,7 +1787,7 @@ uint64_t VersionSet::SizeBeingCompacted(int level) {
   return total;
 }
 
-Compaction* VersionSet::PickCompactionBySize(int level) {
+Compaction* VersionSet::PickCompactionBySize(int level, double score) {
   Compaction* c = NULL;
 
   // level 0 files are overlapping. So we cannot pick more
@@ -1802,6 +1802,7 @@ Compaction* VersionSet::PickCompactionBySize(int level) {
   assert(level+1 < NumberLevels());
   c = new Compaction(level, MaxFileSizeForLevel(level),
       MaxGrandParentOverlapBytes(level), NumberLevels());
+  c->score_ = score;
 
   // Pick the largest file in this level that is not already
   // being compacted
@@ -1876,7 +1877,7 @@ Compaction* VersionSet::PickCompaction() {
                      current_->compaction_score_[i-1]);
     level = current_->compaction_level_[i];
     if ((current_->compaction_score_[i] >= 1)) {
-      c = PickCompactionBySize(level);
+      c = PickCompactionBySize(level, current_->compaction_score_[i]);
       if (c != NULL) {
         break;
       }
@@ -2076,7 +2077,8 @@ Compaction::Compaction(int level, uint64_t target_file_size,
       seen_key_(false),
       overlapped_bytes_(0),
       base_index_(-1),
-      parent_index_(-1) {
+      parent_index_(-1),
+      score_(0) {
   edit_ = new VersionEdit(number_levels_);
   level_ptrs_ = new size_t[number_levels_];
   for (int i = 0; i < number_levels_; i++) {
