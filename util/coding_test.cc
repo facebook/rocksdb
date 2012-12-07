@@ -205,7 +205,7 @@ TEST(Coding, BitStream) {
   for (int i = 0; i < kNumBytes; ++i) {
     ASSERT_EQ(BitStreamGetInt(bytes, kNumBytes, i*8, 8), (uint32_t)(255-i));
   }
-  ASSERT_EQ(bytes[kNumBytes+1], '\0');
+  ASSERT_EQ(bytes[kNumBytes], '\0');
 
   // Write and read back at strange offsets
   for (int i = 0; i < kNumBytes + 1; ++i) {
@@ -218,7 +218,7 @@ TEST(Coding, BitStream) {
     ASSERT_EQ(BitStreamGetInt(bytes, kNumBytes, i*5+1, 4),
               (uint32_t)((i * 7) % (1 << 4)));
   }
-  ASSERT_EQ(bytes[kNumBytes+1], '\0');
+  ASSERT_EQ(bytes[kNumBytes], '\0');
 
   // Create 11011011 as a bit pattern
   for (int i = 0; i < kNumBytes + 1; ++i) {
@@ -232,7 +232,7 @@ TEST(Coding, BitStream) {
     ASSERT_EQ((unsigned char)bytes[i],
               (unsigned char)(3 + (3 << 3) + (3 << 6)));
   }
-  ASSERT_EQ(bytes[kNumBytes+1], '\0');
+  ASSERT_EQ(bytes[kNumBytes], '\0');
 
 
   // Test large values
@@ -244,7 +244,7 @@ TEST(Coding, BitStream) {
     ASSERT_EQ((unsigned char)bytes[i],
               (unsigned char)(255));
   }
-  ASSERT_EQ(bytes[64/8+1], '\0');
+  ASSERT_EQ(bytes[64/8], '\0');
 
 
 }
