@@ -99,6 +99,32 @@ inline const char* GetVarint32Ptr(const char* p,
   return GetVarint32PtrFallback(p, limit, value);
 }
 
+// Writes an unsigned integer with bits number of bits with its least
+// significant bit at offset.
+// Bits are numbered from 0 to 7 in the first byte, 8 to 15 in the second and
+// so on.
+// value is truncated to the bits number of least significant bits.
+// REQUIRES: (offset+bits+7)/8 <= dstlen
+// REQUIRES: bits <= 64
+extern void BitStreamPutInt(char* dst, size_t dstlen, size_t offset,
+                            uint32_t bits, uint64_t value);
+
+// Reads an unsigned integer with bits number of bits with its least
+// significant bit at offset.
+// Bits are numbered in the same way as ByteStreamPutInt().
+// REQUIRES: (offset+bits+7)/8 <= srclen
+// REQUIRES: bits <= 64
+extern uint64_t BitStreamGetInt(const char* src, size_t srclen, size_t offset,
+                                uint32_t bits);
+
+// Convenience functions
+extern void BitStreamPutInt(std::string* dst, size_t offset, uint32_t bits,
+                            uint64_t value);
+extern uint64_t BitStreamGetInt(const std::string* src, size_t offset,
+                                uint32_t bits);
+extern uint64_t BitStreamGetInt(const Slice* src, size_t offset,
+                                uint32_t bits);
+
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_UTIL_CODING_H_
