@@ -813,12 +813,14 @@ class PosixEnv : public Env {
   // Entry per Schedule() call
   struct BGItem { void* arg; void (*function)(void*); };
   typedef std::deque<BGItem> BGQueue;
+  int queue_size_; // number of items in BGQueue
   BGQueue queue_;
 };
 
 PosixEnv::PosixEnv() : page_size_(getpagesize()),
                        started_bgthread_(0),
-                       num_threads_(1) {
+                       num_threads_(1),
+                       queue_size_(0) {
   PthreadCall("mutex_init", pthread_mutex_init(&mu_, NULL));
   PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, NULL));
   bgthread_.resize(num_threads_);
@@ -835,16 +837,14 @@ void PosixEnv::Schedule(void (*function)(void*), void* arg) {
     fprintf(stdout, "Created bg thread 0x%lx\n", bgthread_[started_bgthread_]);
   }
 
-  // If the queue is currently empty, the background thread may currently be
-  // waiting.
-  if (queue_.empty()) {
-    PthreadCall("signal", pthread_cond_signal(&bgsignal_));
-  }
+  // always wake up at least one waiting thread.
+  PthreadCall("signal", pthread_cond_signal(&bgsignal_));
 
   // Add to priority queue
   queue_.push_back(BGItem());
   queue_.back().function = function;
   queue_.back().arg = arg;
+  queue_size_++;
 
   PthreadCall("unlock", pthread_mutex_unlock(&mu_));
 }
@@ -860,6 +860,7 @@ void PosixEnv::BGThread() {
     void (*function)(void*) = queue_.front().function;
     void* arg = queue_.front().arg;
     queue_.pop_front();
+    queue_size_--;
 
     PthreadCall("unlock", pthread_mutex_unlock(&mu_));
     (*function)(arg);
