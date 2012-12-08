@@ -57,8 +57,6 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size);
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  TransactionLogIterator ** iter);
-  //  Return's the path of the archival directory.
-  std::string GetArchivalDirectoryName();
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -316,7 +314,6 @@ protected:
   CompactionStats* stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
-  static const std::string ARCHIVAL_DIR;
   std::string db_absolute_path_;
 
   // count of the number of contiguous delaying writes

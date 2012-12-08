@@ -2225,7 +2225,7 @@ TEST(DBTest, WALArchival) {
   //  Re-open db. Causes deletion/archival to take place.
   //  Assert that the files moved under "/archive".
 
-  std::string archiveDir = dbfull()->GetArchivalDirectoryName();
+  std::string archiveDir = ArchivalDirectory(dbname_);
 
   for (int i = 0; i < 10; ++i) {
 

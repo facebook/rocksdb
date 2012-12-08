@@ -44,8 +44,6 @@ namespace leveldb {
 
 void dumpLeveldbBuildVersion(Logger * log);
 
-const std::string DBImpl::ARCHIVAL_DIR = "archive";
-
 static Status NewLogger(const std::string& dbname,
                         const std::string& db_log_dir,
                         Env* env,
@@ -334,13 +332,9 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
   }
 }
 
-std::string DBImpl::GetArchivalDirectoryName() {
-  return dbname_ + "/" + ARCHIVAL_DIR;
-}
-
 const Status DBImpl::CreateArchivalDirectory() {
   if (options_.WAL_ttl_seconds > 0) {
-    std::string archivalPath = GetArchivalDirectoryName();
+    std::string archivalPath = ArchivalDirectory(dbname_);
     return env_->CreateDirIfMissing(archivalPath);
   }
   return Status::OK();
@@ -424,7 +418,6 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       }
 
       if (!keep) {
-        const std::string currentFile = state.allfiles[i];
         if (type == kTableFile) {
           // record the files to be evicted from the cache
           state.files_to_evict.push_back(number);
@@ -433,16 +426,15 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
             int(type),
             static_cast<unsigned long long>(number));
         if (type == kLogFile && options_.WAL_ttl_seconds > 0) {
-          Status st = env_->RenameFile(dbname_ + "/" + currentFile,
-                            dbname_ + "/" + ARCHIVAL_DIR + "/" + currentFile);
-
+          Status st = env_->RenameFile(LogFileName(dbname_, number),
+                                       ArchivedLogFileName(dbname_, number));
           if (!st.ok()) {
             Log(options_.info_log, "RenameFile type=%d #%lld FAILED\n",
               int(type),
               static_cast<unsigned long long>(number));
           }
         } else {
-          Status st = env_->DeleteFile(dbname_ + "/" + currentFile);
+          Status st = env_->DeleteFile(dbname_ + "/" + state.allfiles[i]);
           if(!st.ok()) {
             Log(options_.info_log, "Delete type=%d #%lld FAILED\n",
                 int(type),
@@ -485,7 +477,7 @@ void DBImpl::DeleteObsoleteFiles() {
 void DBImpl::PurgeObsoleteWALFiles() {
   if (options_.WAL_ttl_seconds != ULONG_MAX && options_.WAL_ttl_seconds > 0) {
     std::vector<std::string> WALFiles;
-    std::string archivalDir = GetArchivalDirectoryName();
+    std::string archivalDir = ArchivalDirectory(dbname_);
     env_->GetChildren(archivalDir, &WALFiles);
     int64_t currentTime;
     const Status status = env_->GetCurrentTime(&currentTime);
@@ -900,7 +892,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
     return s;
   }
   //  list wal files in archive dir.
-  s = ListAllWALFiles(GetArchivalDirectoryName(), &walFiles, kArchivedLogFile);
+  s = ListAllWALFiles(ArchivalDirectory(dbname_), &walFiles, kArchivedLogFile);
   if (!s.ok()) {
     return s;
   }
