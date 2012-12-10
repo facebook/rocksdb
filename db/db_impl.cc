@@ -907,11 +907,10 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   //  std::shared_ptr would have been useful here.
 
   std::vector<LogFile>* probableWALFiles = new std::vector<LogFile>();
-  FindProbableWALFiles(&walFiles, probableWALFiles, seq);
-  if (probableWALFiles->empty()) {
-    return Status::IOError(" No wal files for the given seqNo. found");
+  s = FindProbableWALFiles(&walFiles, probableWALFiles, seq);
+  if (!s.ok()) {
+    return s;
   }
-
   TransactionLogIteratorImpl* impl =
     new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles);
   *iter = impl;
@@ -925,11 +924,11 @@ Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
   assert(result != NULL);
 
   std::sort(allLogs->begin(), allLogs->end());
-  size_t start = 0;
-  size_t end = allLogs->size();
+  long start = 0; // signed to avoid overflow when target is < first file.
+  long end = static_cast<long>(allLogs->size()) - 1;
   // Binary Search. avoid opening all files.
-  while (start < end) {
-    int mid = (start + end) / 2;
+  while (end >= start) {
+    long mid = start + (end - start) / 2;  // Avoid overflow.
     WriteBatch batch;
     Status s = ReadFirstRecord(allLogs->at(mid), &batch);
     if (!s.ok()) {
@@ -939,14 +938,15 @@ Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
     if (currentSeqNum == target) {
       start = mid;
       end = mid;
+      break;
     } else if (currentSeqNum < target) {
-      start = mid;
+      start = mid + 1;
     } else {
-      end = mid;
+      end = mid - 1;
     }
   }
-  assert( start == end);
-  for( size_t i = start; i < allLogs->size(); ++i) {
+  size_t startIndex = std::max(0l, end); // end could be -ve.
+  for( size_t i = startIndex; i < allLogs->size(); ++i) {
     result->push_back(allLogs->at(i));
   }
   return Status::OK();
@@ -2311,8 +2311,12 @@ Snapshot::~Snapshot() {
 Status DestroyDB(const std::string& dbname, const Options& options) {
   Env* env = options.env;
   std::vector<std::string> filenames;
+  std::vector<std::string> archiveFiles;
+
   // Ignore error in case directory does not exist
   env->GetChildren(dbname, &filenames);
+  env->GetChildren(ArchivalDirectory(dbname), &archiveFiles);
+
   if (filenames.empty()) {
     return Status::OK();
   }
@@ -2332,6 +2336,23 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         }
       }
     }
+
+    // Delete archival files.
+    for (size_t i = 0; i < archiveFiles.size(); ++i) {
+      ParseFileName(archiveFiles[i], &number, &type);
+      if (type == kLogFile) {
+        Status del = env->DeleteFile(ArchivalDirectory(dbname) + "/" +
+                                     archiveFiles[i]);
+        if (result.ok() && !del.ok()) {
+          result = del;
+        }
+      }
+    }
+    Status del = env->DeleteDir(ArchivalDirectory(dbname));
+    if (result.ok() && !del.ok()) {
+      result = del;
+    }
+
     env->UnlockFile(lock);  // Ignore error since state is already gone
     env->DeleteFile(lockname);
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files

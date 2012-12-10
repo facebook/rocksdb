@@ -2286,7 +2286,7 @@ TEST(DBTest, TransactionLogIterator) {
       WriteBatch batch;
       iter->GetBatch(&batch);
       SequenceNumber current = WriteBatchInternal::Sequence(&batch);
-      // ASSERT_TRUE(current > lastSequence);
+      ASSERT_TRUE(current > lastSequence);
       ++i;
       lastSequence = current;
       ASSERT_TRUE(iter->status().ok());
