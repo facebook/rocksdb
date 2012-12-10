@@ -2273,6 +2273,7 @@ TEST(DBTest, TransactionLogIterator) {
   Put("key1", value);
   Put("key2", value);
   Put("key2", value);
+  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3U);
   {
     TransactionLogIterator* iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
@@ -2583,6 +2584,9 @@ class ModelDB: public DB {
     return Status::OK();
   }
 
+  virtual SequenceNumber GetLatestSequenceNumber() {
+    return 0;
+  }
   virtual Status GetUpdatesSince(leveldb::SequenceNumber,
                                  leveldb::TransactionLogIterator**) {
     return Status::NotSupported("Not supported in Model DB");

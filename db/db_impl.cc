@@ -877,6 +877,10 @@ Status DBImpl::Flush(const FlushOptions& options) {
   return status;
 }
 
+SequenceNumber DBImpl::GetLatestSequenceNumber() {
+  return versions_->LastSequence();
+}
+
 Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                TransactionLogIterator** iter) {
 

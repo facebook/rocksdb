@@ -182,6 +182,9 @@ class DB {
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size) = 0;
 
+  // The sequence number of the most recent transaction. 
+  virtual SequenceNumber GetLatestSequenceNumber() = 0;
+
   // Return's an iterator for all writes since the sequence number
   // Status::ok if iterator is valid.
   // The iterator internally holds references to the available log files.
