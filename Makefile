@@ -60,7 +60,8 @@ TOOLS = \
 	manifest_dump \
         sst_dump \
         db_stress \
-        ldb
+        ldb \
+	db_repl_stress
 
 PROGRAMS = db_bench $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
@@ -117,6 +118,9 @@ db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
+
+db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
+	$(CXX) tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
 
 db_bench_sqlite3: doc/bench/db_bench_sqlite3.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) doc/bench/db_bench_sqlite3.o $(LIBOBJECTS) $(TESTUTIL) -o $@ $(LDFLAGS) -lsqlite3
