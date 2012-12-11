@@ -26,8 +26,9 @@ class TransactionLogIterator {
   // Return the Error Status when the iterator is not Valid.
   virtual Status status() = 0;
 
-  // If valid return's the current write_batch.
-  virtual void GetBatch(WriteBatch* batch) = 0;
+  // If valid return's the current write_batch and the sequence number of the
+  // latest transaction contained in the batch.
+  virtual void GetBatch(WriteBatch* batch, SequenceNumber* seq) = 0;
 };
 } //  namespace leveldb
 

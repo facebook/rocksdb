@@ -51,9 +51,11 @@ Status TransactionLogIteratorImpl::OpenLogFile(const LogFile& logFile,
   }
 }
 
-void TransactionLogIteratorImpl::GetBatch(WriteBatch* batch)  {
+void TransactionLogIteratorImpl::GetBatch(WriteBatch* batch,
+                                          SequenceNumber* seq)  {
   assert(isValid_);  //  cannot call in a non valid state.
   WriteBatchInternal::SetContents(batch, currentRecord_);
+  *seq = WriteBatchInternal::Sequence(batch);
 }
 
 Status TransactionLogIteratorImpl::status() {

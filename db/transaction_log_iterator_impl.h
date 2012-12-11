@@ -43,7 +43,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
   virtual Status status();
 
-  virtual void GetBatch(WriteBatch* batch);
+  virtual void GetBatch(WriteBatch* batch, SequenceNumber* seq);
 
  private:
   const std::string& dbname_;
