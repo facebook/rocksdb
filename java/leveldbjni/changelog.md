@@ -1,5 +1,12 @@
 # [LevelDBJNI](https://github.com/fusesource/leveldbjni)
 
+## [leveldbjni 1.4][1_4], released 2012-10-31
+[1_4]: http://repo.fusesource.com/nexus/content/groups/public/org/fusesource/leveldbjni/leveldbjni/1.4
+
+* Switch to leveldb-api version 0.4
+* Checking the results of autotool chain into the source tree so that folks building don't have to have the autotools installed.
+* Support suspending the background compaction thread.
+
 ## [leveldbjni 1.3][1_3], released 2012-09-24
 [1_3]: http://repo.fusesource.com/nexus/content/groups/public/org/fusesource/leveldbjni/leveldbjni/1.3
 
