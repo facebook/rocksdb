@@ -51,6 +51,9 @@ class WriteBatch {
   };
   Status Iterate(Handler* handler) const;
 
+  // Returns the serialized string
+  std::string Data() { return rep_; }
+
  private:
   friend class WriteBatchInternal;
 
