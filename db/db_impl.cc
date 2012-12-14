@@ -2348,10 +2348,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         }
       }
     }
-    Status del = env->DeleteDir(ArchivalDirectory(dbname));
-    if (result.ok() && !del.ok()) {
-      result = del;
-    }
+    // ignore case where no archival directory is present.
+    env->DeleteDir(ArchivalDirectory(dbname));
 
     env->UnlockFile(lock);  // Ignore error since state is already gone
     env->DeleteFile(lockname);
