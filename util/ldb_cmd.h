@@ -123,7 +123,11 @@ public:
     ret.append(LDBCommand::BLOOM_ARG);
     ret.append("<int,e.g.:14>] [");
     ret.append(LDBCommand::COMPRESSION_TYPE_ARG);
-    ret.append("<no|snappy|zlib|bzip2>] ");
+    ret.append("<no|snappy|zlib|bzip2> ");
+    ret.append(LDBCommand::BLOCK_SIZE);
+    ret.append("=<block_size_in_bytes> ");
+    ret.append(LDBCommand::AUTO_COMPACTION);
+    ret.append("=<true|false>]");
   }
 
   /* Run the command, and return the execute result. */
@@ -203,6 +207,8 @@ private:
 
   static const char* BLOOM_ARG;
   static const char* COMPRESSION_TYPE_ARG;
+  static const char* BLOCK_SIZE;
+  static const char* AUTO_COMPACTION;
   std::vector<std::string> open_args_;
   void parse_open_args(std::vector<std::string>& args);
 };
