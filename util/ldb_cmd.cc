@@ -245,12 +245,12 @@ void DBDumper::DoCommand() {
       if (hex_output_) {
         std::string str = iter->key().ToString();
         for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%X", str[i]);
+          fprintf(stdout, "%02X", (unsigned char)str[i]);
         }
         fprintf(stdout, " ==> ");
         str = iter->value().ToString();
         for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%X", str[i]);
+          fprintf(stdout, "%02X", (unsigned char)str[i]);
         }
         fprintf(stdout, "\n");
       } else {
