@@ -612,7 +612,7 @@ void Version::ExtendOverlappingInputs(
   }
 }
 
-std::string Version::DebugString() const {
+std::string Version::DebugString(bool hex) const {
   std::string r;
   for (int level = 0; level < vset_->NumberLevels(); level++) {
     // E.g.,
@@ -631,9 +631,9 @@ std::string Version::DebugString() const {
       r.push_back(':');
       AppendNumberTo(&r, files[i]->file_size);
       r.append("[");
-      r.append(files[i]->smallest.DebugString());
+      r.append(files[i]->smallest.DebugString(hex));
       r.append(" .. ");
-      r.append(files[i]->largest.DebugString());
+      r.append(files[i]->largest.DebugString(hex));
       r.append("]\n");
     }
   }
@@ -1233,7 +1233,7 @@ Status VersionSet::Recover() {
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
-  bool verbose) {
+    bool verbose, bool hex) {
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
     virtual void Corruption(size_t bytes, const Status& s) {
@@ -1347,7 +1347,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     printf("manifest_file_number %ld next_file_number %ld last_sequence %ld log_number %ld  prev_log_number %ld\n",
            manifest_file_number_, next_file_number_,
            last_sequence, log_number, prev_log_number);
-    printf("%s \n", v->DebugString().c_str());
+    printf("%s \n", v->DebugString(hex).c_str());
   }
 
   return s;

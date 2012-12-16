@@ -20,22 +20,22 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
 
-std::string ParsedInternalKey::DebugString() const {
+std::string ParsedInternalKey::DebugString(bool hex) const {
   char buf[50];
   snprintf(buf, sizeof(buf), "' @ %llu : %d",
            (unsigned long long) sequence,
            int(type));
   std::string result = "'";
-  result += user_key.ToString();
+  result += user_key.ToString(hex);
   result += buf;
   return result;
 }
 
-std::string InternalKey::DebugString() const {
+std::string InternalKey::DebugString(bool hex) const {
   std::string result;
   ParsedInternalKey parsed;
   if (ParseInternalKey(rep_, &parsed)) {
-    result = parsed.DebugString();
+    result = parsed.DebugString(hex);
   } else {
     result = "(bad)";
     result.append(EscapeString(rep_));

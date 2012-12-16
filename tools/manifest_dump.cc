@@ -19,6 +19,7 @@
 #include "util/logging.h"
 
 static int verbose = 0;
+static int hex = 0;
 
 using namespace leveldb;
 
@@ -40,6 +41,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--verbose=%ld%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       verbose = n;
+    } else if (sscanf(argv[i], "--hex=%ld%c", &n, &junk) == 1 &&
+        (n == 0 || n == 1)) {
+      hex = n;
     }
   }
   if (!foundfile) {
@@ -60,7 +64,7 @@ int main(int argc, char** argv) {
 
   VersionSet* versions = new VersionSet(dbname, &options,
                                    tc, cmp);
-  Status s = versions->DumpManifest(options, file, verbose);
+  Status s = versions->DumpManifest(options, file, verbose, hex);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
            s.ToString().c_str());
