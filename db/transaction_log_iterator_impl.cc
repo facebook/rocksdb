@@ -16,8 +16,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   isValid_(true),
   currentFileIndex_(0),
   currentLogReader_(NULL) {
-    assert( files_ != NULL);
-  }
+  assert( files_ != NULL);
+}
 
 LogReporter
 TransactionLogIteratorImpl::NewLogReporter(const uint64_t logNumber) {

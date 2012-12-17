@@ -51,8 +51,11 @@ class WriteBatch {
   };
   Status Iterate(Handler* handler) const;
 
-  // Returns the serialized string
+  // Retrive the serialized version of this batch.
   std::string Data() { return rep_; }
+
+  // Constructor with a serialized string object
+  WriteBatch(std::string rep): rep_(rep) {}
 
  private:
   friend class WriteBatchInternal;
