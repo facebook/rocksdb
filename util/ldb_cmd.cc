@@ -144,6 +144,85 @@ void Compactor::DoCommand() {
   delete end;
 }
 
+const char* DBLoader::HEX_INPUT_ARG = "--input_hex";
+const char* DBLoader::CREATE_IF_MISSING_ARG = "--create_if_missing";
+const char* DBLoader::DISABLE_WAL_ARG = "--disable_wal";
+static const char* delim = " ==> ";
+
+DBLoader::DBLoader(std::string& db_name, std::vector<std::string>& args) :
+    LDBCommand(db_name, args),
+    hex_input_(false),
+    create_if_missing_(false) {
+  for (unsigned int i = 0; i < args.size(); i++) {
+    std::string& arg = args.at(i);
+    if (arg.find(HEX_INPUT_ARG) == 0) {
+      hex_input_ = true;
+    } else if (arg.find(CREATE_IF_MISSING_ARG) == 0) {
+      create_if_missing_ = true;
+    } else if (arg.find(DISABLE_WAL_ARG) == 0) {
+      disable_wal_ = true;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument:" + arg);
+    }
+  }
+}
+
+void DBLoader::Help(std::string& ret) {
+  LDBCommand::Help(ret);
+  ret.append("[");
+  ret.append(HEX_INPUT_ARG);
+  ret.append("] [");
+  ret.append(CREATE_IF_MISSING_ARG);
+  ret.append("] [");
+  ret.append(DISABLE_WAL_ARG);
+  ret.append("]");
+}
+
+leveldb::Options DBLoader::PrepareOptionsForOpenDB() {
+  leveldb::Options opt = LDBCommand::PrepareOptionsForOpenDB();
+  opt.create_if_missing = create_if_missing_;
+  return opt;
+}
+
+void DBLoader::DoCommand() {
+  if (!db_) {
+    return;
+  }
+
+  WriteOptions write_options;
+  if (disable_wal_) {
+    write_options.disableWAL = true;
+  }
+
+  int bad_lines = 0;
+  std::string line;
+  while (std::getline(std::cin, line, '\n')) {
+    size_t pos = line.find(delim);
+    if (pos != std::string::npos) {
+      std::string key = line.substr(0, pos);
+      std::string value = line.substr(pos + strlen(delim));
+
+      if (hex_input_) {
+        key = HexToString(key);
+        value = HexToString(value);
+      }
+
+      db_->Put(write_options, Slice(key), Slice(value));
+
+    } else if (0 == line.find("Keys in range:")) {
+      // ignore this line
+    } else if (0 == line.find("Created bg thread 0x")) {
+      // ignore this line
+    } else {
+      bad_lines ++;
+    }
+  }
+  
+  if (bad_lines > 0) {
+    std::cout << "Warning: " << bad_lines << " bad lines ignored." << std::endl;
+  }
+}
+
 const char* DBDumper::MAX_KEYS_ARG = "--max_keys=";
 const char* DBDumper::COUNT_ONLY_ARG = "--count_only";
 const char* DBDumper::STATS_ARG = "--stats";
@@ -247,14 +326,15 @@ void DBDumper::DoCommand() {
         for (unsigned int i = 0; i < str.length(); ++i) {
           fprintf(stdout, "%02X", (unsigned char)str[i]);
         }
-        fprintf(stdout, " ==> ");
+        fprintf(stdout, delim);
         str = iter->value().ToString();
         for (unsigned int i = 0; i < str.length(); ++i) {
           fprintf(stdout, "%02X", (unsigned char)str[i]);
         }
         fprintf(stdout, "\n");
       } else {
-        fprintf(stdout, "%s ==> %s\n", iter->key().ToString().c_str(),
+        fprintf(stdout, "%s%s%s\n", iter->key().ToString().c_str(),
+            delim,
             iter->value().ToString().c_str());
       }
     }

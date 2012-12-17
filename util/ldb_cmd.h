@@ -254,6 +254,25 @@ private:
   static const char* HEX_OUTPUT_ARG;
 };
 
+class DBLoader: public LDBCommand {
+public:
+  DBLoader(std::string& db_name, std::vector<std::string>& args);
+  virtual ~DBLoader() {}
+  static void Help(std::string& ret);
+  virtual void DoCommand();
+
+  virtual leveldb::Options PrepareOptionsForOpenDB();
+
+private:
+  bool hex_input_;
+  bool create_if_missing_;
+  bool disable_wal_;
+
+  static const char* HEX_INPUT_ARG;
+  static const char* CREATE_IF_MISSING_ARG;
+  static const char* DISABLE_WAL_ARG;
+};
+
 class ReduceDBLevels : public LDBCommand {
 public:
 

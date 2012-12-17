@@ -21,6 +21,11 @@ public:
     ret.append(" dump ");
     DBDumper::Help(ret);
 
+    ret.append("\n--- load ----:\n");
+    ret.append(exec_name);
+    ret.append(" load ");
+    DBLoader::Help(ret);
+
     ret.append("\n---reduce_levels ----:\n");
     ret.append(exec_name);
     ret.append(" reduce_levels ");
@@ -56,6 +61,9 @@ public:
     } else if (strcmp(cmd, "dump") == 0) {
       // run dump
       cmdObj = new DBDumper(db_name, args);
+    } else if (strcmp(cmd, "load") == 0) {
+      // run loader
+      cmdObj = new DBLoader(db_name, args);
     } else if (strcmp(cmd, "reduce_levels") == 0) {
       // reduce db levels
       cmdObj = new ReduceDBLevels(db_name, args);
