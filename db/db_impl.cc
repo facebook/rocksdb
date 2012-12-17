@@ -413,6 +413,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           break;
         case kCurrentFile:
         case kDBLockFile:
+        case kMetaDatabase:
           keep = true;
           break;
       }
@@ -2330,7 +2331,12 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     for (size_t i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
-        Status del = env->DeleteFile(dbname + "/" + filenames[i]);
+        Status del;
+        if (type == kMetaDatabase) {
+          del = DestroyDB(dbname + "/" + filenames[i], options);
+        } else {
+          del = env->DeleteFile(dbname + "/" + filenames[i]);
+        }
         if (result.ok() && !del.ok()) {
           result = del;
         }

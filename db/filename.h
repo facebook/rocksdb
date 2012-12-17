@@ -24,7 +24,8 @@ enum FileType {
   kDescriptorFile,
   kCurrentFile,
   kTempFile,
-  kInfoLogFile  // Either the current one, or an old one
+  kInfoLogFile,  // Either the current one, or an old one
+  kMetaDatabase
 };
 
 // Return the name of the log file with the specified number
@@ -72,6 +73,11 @@ extern std::string InfoLogFileName(const std::string& dbname,
 // Return the name of the old info log file for "dbname".
 extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
     const std::string& db_path="", const std::string& log_dir="");
+
+// Return the name to use for a metadatabase. The result will be prefixed with
+// "dbname".
+extern std::string MetaDatabaseName(const std::string& dbname,
+                                    uint64_t number);
 
 // If filename is a leveldb file, store the type of the file in *type.
 // The number encoded in the filename is stored in *number.  If the

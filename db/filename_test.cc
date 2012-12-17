@@ -31,6 +31,8 @@ TEST(FileNameTest, Parse) {
     { "LOCK",               0,     kDBLockFile },
     { "MANIFEST-2",         2,     kDescriptorFile },
     { "MANIFEST-7",         7,     kDescriptorFile },
+    { "METADB-2",           2,     kMetaDatabase },
+    { "METADB-7",           7,     kMetaDatabase },
     { "LOG",                0,     kInfoLogFile },
     { "LOG.old",            0,     kInfoLogFile },
     { "18446744073709551615.log", 18446744073709551615ull, kLogFile },
@@ -57,6 +59,11 @@ TEST(FileNameTest, Parse) {
     "MANIFEST-",
     "XMANIFEST-3",
     "MANIFEST-3x",
+    "META",
+    "METADB",
+    "METADB-",
+    "XMETADB-3",
+    "METADB-3x",
     "LOC",
     "LOCKx",
     "LO",
@@ -113,6 +120,12 @@ TEST(FileNameTest, Construction) {
   ASSERT_TRUE(ParseFileName(fname.c_str() + 4, &number, &type));
   ASSERT_EQ(999U, number);
   ASSERT_EQ(kTempFile, type);
+
+  fname = MetaDatabaseName("met", 100);
+  ASSERT_EQ("met/", std::string(fname.data(), 4));
+  ASSERT_TRUE(ParseFileName(fname.c_str() + 4, &number, &type));
+  ASSERT_EQ(100U, number);
+  ASSERT_EQ(kMetaDatabase, type);
 }
 
 }  // namespace leveldb

@@ -1962,6 +1962,41 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
   ASSERT_TRUE(db == NULL);
 }
 
+TEST(DBTest, DestroyDBMetaDatabase) {
+  std::string dbname = test::TmpDir() + "/db_meta";
+  std::string metadbname = MetaDatabaseName(dbname, 0);
+  std::string metametadbname = MetaDatabaseName(metadbname, 0);
+
+  // Destroy previous versions if they exist. Using the long way.
+  DestroyDB(metametadbname, Options());
+  DestroyDB(metadbname, Options());
+  DestroyDB(dbname, Options());
+
+  // Setup databases
+  Options opts;
+  opts.create_if_missing = true;
+  DB* db = NULL;
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+  delete db;
+  db = NULL;
+  ASSERT_OK(DB::Open(opts, metadbname, &db));
+  delete db;
+  db = NULL;
+  ASSERT_OK(DB::Open(opts, metametadbname, &db));
+  delete db;
+  db = NULL;
+
+  // Delete databases
+  DestroyDB(dbname, Options());
+
+  // Check if deletion worked.
+  opts.create_if_missing = false;
+  ASSERT_TRUE(!DB::Open(opts, dbname, &db).ok());
+  ASSERT_TRUE(!DB::Open(opts, metadbname, &db).ok());
+  ASSERT_TRUE(!DB::Open(opts, metametadbname, &db).ok());
+}
+
+
 // Check that number of files does not grow when we are out of space
 TEST(DBTest, NoSpace) {
   Options options = CurrentOptions();

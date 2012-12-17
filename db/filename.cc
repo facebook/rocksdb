@@ -115,6 +115,12 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
   return log_dir + "/" + flatten_db_path + "_LOG.old." + buf;
 }
 
+std::string MetaDatabaseName(const std::string& dbname, uint64_t number) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "/METADB-%llu",
+           static_cast<unsigned long long>(number));
+  return dbname + buf;
+}
 
 // Owned filenames have the form:
 //    dbname/CURRENT
@@ -123,6 +129,7 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
 //    dbname/LOG.old.[0-9]+
 //    dbname/MANIFEST-[0-9]+
 //    dbname/[0-9]+.(log|sst)
+//    dbname/METADB-[0-9]+
 bool ParseFileName(const std::string& fname,
                    uint64_t* number,
                    FileType* type) {
@@ -154,6 +161,17 @@ bool ParseFileName(const std::string& fname,
       return false;
     }
     *type = kDescriptorFile;
+    *number = num;
+  } else if (rest.starts_with("METADB-")) {
+    rest.remove_prefix(strlen("METADB-"));
+    uint64_t num;
+    if (!ConsumeDecimalNumber(&rest, &num)) {
+      return false;
+    }
+    if (!rest.empty()) {
+      return false;
+    }
+    *type = kMetaDatabase;
     *number = num;
   } else {
     // Avoid strtoull() to keep filename format independent of the
