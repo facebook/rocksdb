@@ -203,6 +203,11 @@ class DB {
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  TransactionLogIterator** iter) = 0;
  private:
+  static Status InternalOpen(const Options& options,
+                             const std::string& name,
+                             DB** dbptr,
+                             bool with_hotcold);
+
   // No copying allowed
   DB(const DB&);
   void operator=(const DB&);

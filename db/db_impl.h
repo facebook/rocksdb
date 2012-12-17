@@ -31,7 +31,8 @@ class VersionSet;
 
 class DBImpl : public DB {
  public:
-  DBImpl(const Options& options, const std::string& dbname);
+  DBImpl(const Options& options, const std::string& dbname,
+         DB* metrics_db = NULL);
   virtual ~DBImpl();
 
   // Implementations of the DB interface
@@ -203,6 +204,7 @@ class DBImpl : public DB {
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
   bool owns_cache_;
+  bool is_hotcold_;
 
   // table_cache_ provides its own synchronization
   TableCache* table_cache_;
@@ -219,6 +221,7 @@ class DBImpl : public DB {
   WritableFile* logfile_;
   uint64_t logfile_number_;
   log::Writer* log_;
+  DB* metrics_db_;
 
   std::string host_name_;
 

@@ -170,7 +170,8 @@ Options SanitizeOptions(const std::string& dbname,
   return result;
 }
 
-DBImpl::DBImpl(const Options& options, const std::string& dbname)
+DBImpl::DBImpl(const Options& options, const std::string& dbname,
+               DB* metrics_db)
     : env_(options.env),
       dbname_(dbname),
       internal_comparator_(options.comparator),
@@ -179,6 +180,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       internal_filter_policy_(options.filter_policy),
       owns_info_log_(options_.info_log != options.info_log),
       owns_cache_(options_.block_cache != options.block_cache),
+      is_hotcold_(metrics_db_ != NULL),
       db_lock_(NULL),
       shutting_down_(NULL),
       bg_cv_(&mutex_),
@@ -186,6 +188,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       logfile_(NULL),
       logfile_number_(0),
       log_(NULL),
+      metrics_db_(metrics_db),
       tmp_batch_(new WriteBatch),
       bg_compaction_scheduled_(0),
       bg_logstats_scheduled_(false),
@@ -252,6 +255,7 @@ DBImpl::~DBImpl() {
   delete tmp_batch_;
   delete log_;
   delete logfile_;
+  delete metrics_db_;
   delete table_cache_;
   delete[] stats_;
 
@@ -2281,15 +2285,29 @@ Status DB::Delete(const WriteOptions& opt, const Slice& key) {
 
 DB::~DB() { }
 
-Status DB::Open(const Options& options, const std::string& dbname,
-                DB** dbptr) {
+Status DB::InternalOpen(const Options& options, const std::string& dbname,
+                        DB** dbptr, bool with_hotcold) {
   *dbptr = NULL;
+
+  DB* metrics_db = NULL;
+
+  if (with_hotcold) {
+    Options metrics_opts;
+    metrics_opts.create_if_missing = true;
+    // TODO: find some way to coordinate wrt to the number of the metrics
+    //       meta-DB.
+    Status s = InternalOpen(metrics_opts, MetaDatabaseName(dbname, 0u),
+                            &metrics_db, false);
+    if (!s.ok()) {
+      return s;
+    }
+  }
 
   if (options.block_cache != NULL && options.no_block_cache) {
     return Status::InvalidArgument(
         "no_block_cache is true while block_cache is not NULL");
   }
-  DBImpl* impl = new DBImpl(options, dbname);
+  DBImpl* impl = new DBImpl(options, dbname, metrics_db);
   Status s = impl->CreateArchivalDirectory();
   if (!s.ok()) {
     delete impl;
@@ -2323,6 +2341,16 @@ Status DB::Open(const Options& options, const std::string& dbname,
     delete impl;
   }
   return s;
+}
+
+Status DB::Open(const Options& options, const std::string& dbname,
+                DB** dbptr) {
+  return InternalOpen(options, dbname, dbptr, false);
+}
+
+Status DB::OpenWithHotCold(const Options& options, const std::string& dbname,
+                           DB** dbptr) {
+  return InternalOpen(options, dbname, dbptr, true);
 }
 
 Snapshot::~Snapshot() {
