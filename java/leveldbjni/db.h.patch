@@ -1,0 +1,30 @@
+From 3f0a7d241d96e8dc40ebf8001e4c41aa4ff86472 Mon Sep 17 00:00:00 2001
+From: Abhishek Kona <abhishekk@fb.com>
+Date: Tue, 11 Dec 2012 22:38:14 -0800
+Subject: [PATCH] patch to make it compilable with java
+
+---
+ include/leveldb/db.h | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/include/leveldb/db.h b/include/leveldb/db.h
+index 2cfa537..e84685b 100644
+--- a/include/leveldb/db.h
++++ b/include/leveldb/db.h
+@@ -182,9 +182,12 @@ class DB {
+   virtual Status GetLiveFiles(std::vector<std::string>&,
+                               uint64_t* manifest_file_size) = 0;
+ 
+-  // The sequence number of the most recent transaction. 
++  // The sequence number of the most recent transaction.
+   virtual SequenceNumber GetLatestSequenceNumber() = 0;
+ 
++  virtual void SuspendCompactions() {};
++  virtual void ResumeCompactions()  {};
++
+   // Return's an iterator for all writes since the sequence number
+   // Status::ok if iterator is valid.
+   // The iterator internally holds references to the available log files.
+-- 
+1.7.11.1
+

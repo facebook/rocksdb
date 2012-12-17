@@ -5,6 +5,6 @@
   "load" : [
     "linters/src/"
   ],
-  "lint.engine" : "FacebookFbcodeLintEngine", 
+  "lint_engine" : "FacebookFbcodeLintEngine", 
   "lint.engine.single.linter" : "FbcodeCppLinter" 
 }

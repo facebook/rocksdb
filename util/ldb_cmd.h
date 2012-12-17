@@ -95,18 +95,16 @@ public:
   LDBCommand(std::string& db_name, std::vector<std::string>& args) :
     db_path_(db_name),
     db_(NULL) {
+    parse_open_args(args);
   }
 
   LDBCommand(std::vector<std::string>& args) :
     db_path_(""),
     db_(NULL) {
+    parse_open_args(args);
   }
 
-  virtual leveldb::Options PrepareOptionsForOpenDB()  {
-    leveldb::Options opt;
-    opt.create_if_missing = false;
-    return opt;
-  }
+  virtual leveldb::Options PrepareOptionsForOpenDB();
 
   virtual bool NoDBOpen() {
     return false;
@@ -121,7 +119,15 @@ public:
 
   /* Print the help message */
   static void Help(std::string& ret) {
-    ret.append("--db=DB_PATH ");
+    ret.append("--db=DB_PATH [");
+    ret.append(LDBCommand::BLOOM_ARG);
+    ret.append("<int,e.g.:14>] [");
+    ret.append(LDBCommand::COMPRESSION_TYPE_ARG);
+    ret.append("<no|snappy|zlib|bzip2> ");
+    ret.append(LDBCommand::BLOCK_SIZE);
+    ret.append("=<block_size_in_bytes> ");
+    ret.append(LDBCommand::AUTO_COMPACTION);
+    ret.append("=<true|false>]");
   }
 
   /* Run the command, and return the execute result. */
@@ -130,10 +136,13 @@ public:
       return;
     }
 
-   if (db_ == NULL && !NoDBOpen()) {
+    if (db_ == NULL && !NoDBOpen()) {
       OpenDB();
+      if (!exec_state_.IsNotStarted()) {
+        return;
+      }
     }
-
+    
     DoCommand();
     if (exec_state_.IsNotStarted()) {
       exec_state_ = LDBCommandExecuteResult::SUCCEED("");
@@ -169,6 +178,9 @@ protected:
 
   void OpenDB() {
     leveldb::Options opt = PrepareOptionsForOpenDB();
+    if (!exec_state_.IsNotStarted()) {
+      return;
+    }
     // Open the DB.
     leveldb::Status st = leveldb::DB::Open(opt, db_path_, &db_);
     if (!st.ok()) {
@@ -190,6 +202,15 @@ protected:
   LDBCommandExecuteResult exec_state_;
   std::string db_path_;
   leveldb::DB* db_;
+
+private:
+
+  static const char* BLOOM_ARG;
+  static const char* COMPRESSION_TYPE_ARG;
+  static const char* BLOCK_SIZE;
+  static const char* AUTO_COMPACTION;
+  std::vector<std::string> open_args_;
+  void parse_open_args(std::vector<std::string>& args);
 };
 
 class Compactor: public LDBCommand {

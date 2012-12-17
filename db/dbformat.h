@@ -11,6 +11,7 @@
 #include "leveldb/filter_policy.h"
 #include "leveldb/slice.h"
 #include "leveldb/table_builder.h"
+#include "leveldb/types.h"
 #include "util/coding.h"
 #include "util/logging.h"
 
@@ -33,8 +34,6 @@ enum ValueType {
 // ValueType, not the lowest).
 static const ValueType kValueTypeForSeek = kTypeValue;
 
-typedef uint64_t SequenceNumber;
-
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber =
@@ -48,7 +47,7 @@ struct ParsedInternalKey {
   ParsedInternalKey() { }  // Intentionally left uninitialized (for speed)
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) { }
-  std::string DebugString() const;
+  std::string DebugString(bool hex = false) const;
 };
 
 // Return the length of the encoding of "key".
@@ -138,7 +137,7 @@ class InternalKey {
 
   void Clear() { rep_.clear(); }
 
-  std::string DebugString() const;
+  std::string DebugString(bool hex = false) const;
 };
 
 inline int InternalKeyComparator::Compare(

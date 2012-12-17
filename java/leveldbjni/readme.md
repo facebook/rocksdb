@@ -199,6 +199,12 @@ Then download the snappy, leveldb, and leveldbjni project source code:
     export LEVELDB_HOME=`cd leveldb; pwd`
     export LEVELDBJNI_HOME=`cd leveldbjni; pwd`
 
+<!-- In cygwin that would be
+    export SNAPPY_HOME=$(cygpath -w `cd snappy-1.0.5; pwd`)
+    export LEVELDB_HOME=$(cygpath -w `cd leveldb; pwd`)
+    export LEVELDBJNI_HOME=$(cygpath -w `cd leveldbjni; pwd`)
+-->  
+
 Compile the snappy project.  This produces a static library.    
 
     cd ${SNAPPY_HOME}

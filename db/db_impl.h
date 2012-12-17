@@ -8,6 +8,7 @@
 #include <deque>
 #include <set>
 #include "db/dbformat.h"
+#include "db/log_file.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
 #include "leveldb/db.h"
@@ -54,9 +55,9 @@ class DBImpl : public DB {
   virtual Status EnableFileDeletions();
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size);
-
-  //  Return's the path of the archival directory.
-  std::string GetArchivalDirectoryName();
+  virtual SequenceNumber GetLatestSequenceNumber();
+  virtual Status GetUpdatesSince(SequenceNumber seq_number,
+                                 TransactionLogIterator ** iter);
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -178,6 +179,22 @@ protected:
   void EvictObsoleteFiles(DeletionState& deletion_state);
 
   void PurgeObsoleteWALFiles();
+
+  Status ListAllWALFiles(const std::string& path,
+                         std::vector<LogFile>* logFiles,
+                         WalFileType type);
+
+  //  Find's all the log files which contain updates with seq no.
+  //  Greater Than or Equal to the requested SequenceNumber
+  Status FindProbableWALFiles(std::vector<LogFile>* const allLogs,
+                              std::vector<LogFile>* const result,
+                              const SequenceNumber target);
+
+
+  Status ReadFirstRecord(const LogFile& file, WriteBatch* const result);
+
+
+  Status ReadFirstLine(const std::string& fname, WriteBatch* const batch);
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
@@ -298,7 +315,6 @@ protected:
   CompactionStats* stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
-  static const std::string ARCHIVAL_DIR;
   std::string db_absolute_path_;
 
   // count of the number of contiguous delaying writes

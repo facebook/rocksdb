@@ -1962,6 +1962,41 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
   ASSERT_TRUE(db == NULL);
 }
 
+TEST(DBTest, DestroyDBMetaDatabase) {
+  std::string dbname = test::TmpDir() + "/db_meta";
+  std::string metadbname = MetaDatabaseName(dbname, 0);
+  std::string metametadbname = MetaDatabaseName(metadbname, 0);
+
+  // Destroy previous versions if they exist. Using the long way.
+  DestroyDB(metametadbname, Options());
+  DestroyDB(metadbname, Options());
+  DestroyDB(dbname, Options());
+
+  // Setup databases
+  Options opts;
+  opts.create_if_missing = true;
+  DB* db = NULL;
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+  delete db;
+  db = NULL;
+  ASSERT_OK(DB::Open(opts, metadbname, &db));
+  delete db;
+  db = NULL;
+  ASSERT_OK(DB::Open(opts, metametadbname, &db));
+  delete db;
+  db = NULL;
+
+  // Delete databases
+  DestroyDB(dbname, Options());
+
+  // Check if deletion worked.
+  opts.create_if_missing = false;
+  ASSERT_TRUE(!DB::Open(opts, dbname, &db).ok());
+  ASSERT_TRUE(!DB::Open(opts, metadbname, &db).ok());
+  ASSERT_TRUE(!DB::Open(opts, metametadbname, &db).ok());
+}
+
+
 // Check that number of files does not grow when we are out of space
 TEST(DBTest, NoSpace) {
   Options options = CurrentOptions();
@@ -2225,7 +2260,7 @@ TEST(DBTest, WALArchival) {
   //  Re-open db. Causes deletion/archival to take place.
   //  Assert that the files moved under "/archive".
 
-  std::string archiveDir = dbfull()->GetArchivalDirectoryName();
+  std::string archiveDir = ArchivalDirectory(dbname_);
 
   for (int i = 0; i < 10; ++i) {
 
@@ -2262,6 +2297,64 @@ TEST(DBTest, WALArchival) {
   ListLogFiles(env_, archiveDir, &logFiles);
   ASSERT_TRUE(logFiles.size() == 0);
 
+}
+
+TEST(DBTest, TransactionLogIterator) {
+  std::string value(1024, '1');
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.WAL_ttl_seconds = 1000;
+  DestroyAndReopen(&options);
+  Put("key1", value);
+  Put("key2", value);
+  Put("key2", value);
+  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3U);
+  {
+    TransactionLogIterator* iter;
+    Status status = dbfull()->GetUpdatesSince(0, &iter);
+    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(!iter->Valid());
+    iter->Next();
+    int i = 0;
+    SequenceNumber lastSequence = 0;
+    while (iter->Valid()) {
+      WriteBatch batch;
+      SequenceNumber current;
+      iter->GetBatch(&batch, &current);
+      ASSERT_TRUE(current > lastSequence);
+      ++i;
+      lastSequence = current;
+      ASSERT_TRUE(iter->status().ok());
+      iter->Next();
+    }
+    ASSERT_EQ(i, 3);
+  }
+  Reopen(&options);
+  {
+    Put("key4", value);
+    Put("key5", value);
+    Put("key6", value);
+  }
+  {
+    TransactionLogIterator* iter;
+    Status status = dbfull()->GetUpdatesSince(0, &iter);
+    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(!iter->Valid());
+    iter->Next();
+    int i = 0;
+    SequenceNumber lastSequence = 0;
+    while (iter->Valid()) {
+      WriteBatch batch;
+      SequenceNumber current;
+      iter->GetBatch(&batch, &current);
+      ASSERT_TRUE(current > lastSequence);
+      lastSequence = current;
+      ASSERT_TRUE(iter->status().ok());
+      iter->Next();
+      ++i;
+    }
+    ASSERT_EQ(i, 6);
+  }
 }
 
 TEST(DBTest, ReadCompaction) {
@@ -2524,6 +2617,14 @@ class ModelDB: public DB {
   }
   virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size) {
     return Status::OK();
+  }
+
+  virtual SequenceNumber GetLatestSequenceNumber() {
+    return 0;
+  }
+  virtual Status GetUpdatesSince(leveldb::SequenceNumber,
+                                 leveldb::TransactionLogIterator**) {
+    return Status::NotSupported("Not supported in Model DB");
   }
 
  private:

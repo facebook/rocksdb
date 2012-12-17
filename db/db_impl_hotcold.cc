@@ -157,6 +157,17 @@ Status DBImplHotCold::GetLiveFiles(std::vector<std::string>& ret,
   return dataDB_->GetLiveFiles(ret, manifest_file_size);
 }
 
+SequenceNumber DBImplHotCold::GetLatestSequenceNumber() {
+  // TODO: consider what to do with metricsDB_
+  return dataDB_->GetLatestSequenceNumber();
+}
+
+Status DBImplHotCold::GetUpdatesSince(SequenceNumber seq_number,
+                                      TransactionLogIterator ** iter) {
+  // TODO: consider what to do with metricsDB_
+  return dataDB_->GetUpdatesSince(seq_number, iter);
+}
+
 Status DB::OpenWithHotCold(const Options& options, const std::string& dbname,
                 DB** dbptr) {
   *dbptr = NULL;

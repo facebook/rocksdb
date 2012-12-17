@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/filename.h"
+
 #include <ctype.h>
 #include <stdio.h>
-#include "db/filename.h"
 #include "db/dbformat.h"
 #include "leveldb/env.h"
 #include "util/logging.h"
-#include <iostream>
 
 namespace leveldb {
 
@@ -55,6 +55,14 @@ static std::string MakeFileName(const std::string& name, uint64_t number,
 std::string LogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
   return MakeFileName(name, number, "log");
+}
+
+std::string ArchivalDirectory(const std::string& dbname) {
+  return dbname + "/" + ARCHIVAL_DIR;
+}
+std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(name + "/archive", number, "log");
 }
 
 std::string TableFileName(const std::string& name, uint64_t number) {
@@ -107,6 +115,12 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
   return log_dir + "/" + flatten_db_path + "_LOG.old." + buf;
 }
 
+std::string MetaDatabaseName(const std::string& dbname, uint64_t number) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "/METADB-%llu",
+           static_cast<unsigned long long>(number));
+  return dbname + buf;
+}
 
 // Owned filenames have the form:
 //    dbname/CURRENT
@@ -115,6 +129,7 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
 //    dbname/LOG.old.[0-9]+
 //    dbname/MANIFEST-[0-9]+
 //    dbname/[0-9]+.(log|sst)
+//    dbname/METADB-[0-9]+
 bool ParseFileName(const std::string& fname,
                    uint64_t* number,
                    FileType* type) {
@@ -146,6 +161,17 @@ bool ParseFileName(const std::string& fname,
       return false;
     }
     *type = kDescriptorFile;
+    *number = num;
+  } else if (rest.starts_with("METADB-")) {
+    rest.remove_prefix(strlen("METADB-"));
+    uint64_t num;
+    if (!ConsumeDecimalNumber(&rest, &num)) {
+      return false;
+    }
+    if (!rest.empty()) {
+      return false;
+    }
+    *type = kMetaDatabase;
     *number = num;
   } else {
     // Avoid strtoull() to keep filename format independent of the

@@ -11,6 +11,83 @@
 
 namespace leveldb {
 
+const char* LDBCommand::BLOOM_ARG = "--bloom_bits=";
+const char* LDBCommand::COMPRESSION_TYPE_ARG = "--compression_type=";
+const char* LDBCommand::BLOCK_SIZE = "--block_size=";
+const char* LDBCommand::AUTO_COMPACTION = "--auto_compaction=";
+
+void LDBCommand::parse_open_args(std::vector<std::string>& args) {
+  std::vector<std::string> rest_of_args;
+  for (unsigned int i = 0; i < args.size(); i++) {
+    std::string& arg = args.at(i);
+    if (arg.find(BLOOM_ARG) == 0
+        || arg.find(COMPRESSION_TYPE_ARG) == 0
+        || arg.find(BLOCK_SIZE) == 0
+        || arg.find(AUTO_COMPACTION) == 0) {
+      open_args_.push_back(arg);
+    } else {
+      rest_of_args.push_back(arg);
+    }
+  }
+  swap(args, rest_of_args);
+}
+
+leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
+  leveldb::Options opt;
+  opt.create_if_missing = false;
+  for (unsigned int i = 0; i < open_args_.size(); i++) {
+    std::string& arg = open_args_.at(i);
+    if (arg.find(BLOOM_ARG) == 0) {
+      std::string bits_string = arg.substr(strlen(BLOOM_ARG));
+      int bits = atoi(bits_string.c_str());
+      if (bits == 0) {
+        // Badly-formatted bits.
+        exec_state_ = LDBCommandExecuteResult::FAILED(
+          std::string("Badly-formatted bits: ") + bits_string);
+      }
+      opt.filter_policy = leveldb::NewBloomFilterPolicy(bits);
+    } else if (arg.find(BLOCK_SIZE) == 0) {
+      std::string block_size_string = arg.substr(strlen(BLOCK_SIZE));
+      int block_size = atoi(block_size_string.c_str());
+      if (block_size == 0) {
+        // Badly-formatted bits.
+        exec_state_ = LDBCommandExecuteResult::FAILED(
+          std::string("Badly-formatted block size: ") + block_size_string);
+      }
+      opt.block_size = block_size;
+    } else if (arg.find(AUTO_COMPACTION) == 0) {
+      std::string value = arg.substr(strlen(AUTO_COMPACTION));
+      if (value == "false") {
+        opt.disable_auto_compactions = true;
+      } else if (value == "true") {
+        opt.disable_auto_compactions = false;
+      } else {
+        // Unknown compression.
+        exec_state_ = LDBCommandExecuteResult::FAILED(
+          "Unknown auto_compaction value: " + value);
+      }
+    } else if (arg.find(COMPRESSION_TYPE_ARG) == 0) {
+      std::string comp = arg.substr(strlen(COMPRESSION_TYPE_ARG));
+      if (comp == "no") {
+        opt.compression = leveldb::kNoCompression;
+      } else if (comp == "snappy") {
+        opt.compression = leveldb::kSnappyCompression;
+      } else if (comp == "zlib") {
+        opt.compression = leveldb::kZlibCompression;
+      } else if (comp == "bzip2") {
+        opt.compression = leveldb::kBZip2Compression;
+      } else {
+        // Unknown compression.
+        exec_state_ = LDBCommandExecuteResult::FAILED(
+          "Unknown compression level: " + comp);
+      }
+    }
+  }
+
+  return opt;
+}
+
+
 const char* LDBCommand::FROM_ARG = "--from=";
 const char* LDBCommand::END_ARG = "--to=";
 const char* LDBCommand::HEX_ARG = "--hex";
@@ -168,12 +245,12 @@ void DBDumper::DoCommand() {
       if (hex_output_) {
         std::string str = iter->key().ToString();
         for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%X", str[i]);
+          fprintf(stdout, "%02X", (unsigned char)str[i]);
         }
         fprintf(stdout, " ==> ");
         str = iter->value().ToString();
         for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%X", str[i]);
+          fprintf(stdout, "%02X", (unsigned char)str[i]);
         }
         fprintf(stdout, "\n");
       } else {

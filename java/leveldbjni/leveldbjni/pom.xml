@@ -103,7 +103,7 @@
         <configuration>
           <skipAutogen>${skipAutogen}</skipAutogen>
           <name>leveldbjni</name>
-          <callbacks>true</callbacks>
+          <callbacks>false</callbacks>
           <copyright><![CDATA[
 /*******************************************************************************
 * Copyright (C) 2011, FuseSource Corp.  All rights reserved.

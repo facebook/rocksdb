@@ -51,6 +51,9 @@ class DBImplHotCold : public DB {
   virtual Status EnableFileDeletions();
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size);
+  virtual SequenceNumber GetLatestSequenceNumber();
+  virtual Status GetUpdatesSince(SequenceNumber seq_number,
+                                 TransactionLogIterator** iter);
 
  private:
   friend class DB;

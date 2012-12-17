@@ -23,6 +23,7 @@
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "db/transaction_log_iterator_impl.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/statistics.h"
@@ -42,8 +43,6 @@
 namespace leveldb {
 
 void dumpLeveldbBuildVersion(Logger * log);
-
-const std::string DBImpl::ARCHIVAL_DIR = "archive";
 
 static Status NewLogger(const std::string& dbname,
                         const std::string& db_log_dir,
@@ -333,13 +332,9 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
   }
 }
 
-std::string DBImpl::GetArchivalDirectoryName() {
-  return dbname_ + "/" + ARCHIVAL_DIR;
-}
-
 const Status DBImpl::CreateArchivalDirectory() {
   if (options_.WAL_ttl_seconds > 0) {
-    std::string archivalPath = GetArchivalDirectoryName();
+    std::string archivalPath = ArchivalDirectory(dbname_);
     return env_->CreateDirIfMissing(archivalPath);
   }
   return Status::OK();
@@ -418,12 +413,12 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           break;
         case kCurrentFile:
         case kDBLockFile:
+        case kMetaDatabase:
           keep = true;
           break;
       }
 
       if (!keep) {
-        const std::string currentFile = state.allfiles[i];
         if (type == kTableFile) {
           // record the files to be evicted from the cache
           state.files_to_evict.push_back(number);
@@ -432,16 +427,15 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
             int(type),
             static_cast<unsigned long long>(number));
         if (type == kLogFile && options_.WAL_ttl_seconds > 0) {
-          Status st = env_->RenameFile(dbname_ + "/" + currentFile,
-                            dbname_ + "/" + ARCHIVAL_DIR + "/" + currentFile);
-
+          Status st = env_->RenameFile(LogFileName(dbname_, number),
+                                       ArchivedLogFileName(dbname_, number));
           if (!st.ok()) {
             Log(options_.info_log, "RenameFile type=%d #%lld FAILED\n",
               int(type),
               static_cast<unsigned long long>(number));
           }
         } else {
-          Status st = env_->DeleteFile(dbname_ + "/" + currentFile);
+          Status st = env_->DeleteFile(dbname_ + "/" + state.allfiles[i]);
           if(!st.ok()) {
             Log(options_.info_log, "Delete type=%d #%lld FAILED\n",
                 int(type),
@@ -484,7 +478,7 @@ void DBImpl::DeleteObsoleteFiles() {
 void DBImpl::PurgeObsoleteWALFiles() {
   if (options_.WAL_ttl_seconds != ULONG_MAX && options_.WAL_ttl_seconds > 0) {
     std::vector<std::string> WALFiles;
-    std::string archivalDir = dbname_ + "/" + ARCHIVAL_DIR;
+    std::string archivalDir = ArchivalDirectory(dbname_);
     env_->GetChildren(archivalDir, &WALFiles);
     int64_t currentTime;
     const Status status = env_->GetCurrentTime(&currentTime);
@@ -881,6 +875,169 @@ int DBImpl::Level0StopWriteTrigger() {
 
 Status DBImpl::Flush(const FlushOptions& options) {
   Status status = FlushMemTable(options);
+  return status;
+}
+
+SequenceNumber DBImpl::GetLatestSequenceNumber() {
+  return versions_->LastSequence();
+}
+
+Status DBImpl::GetUpdatesSince(SequenceNumber seq,
+                               TransactionLogIterator** iter) {
+
+  //  Get All Log Files.
+  //  Sort Files
+  //  Get the first entry from each file.
+  //  Do binary search and open files and find the seq number.
+
+  std::vector<LogFile> walFiles;
+  // list wal files in main db dir.
+  Status s = ListAllWALFiles(dbname_, &walFiles, kAliveLogFile);
+  if (!s.ok()) {
+    return s;
+  }
+  //  list wal files in archive dir.
+  s = ListAllWALFiles(ArchivalDirectory(dbname_), &walFiles, kArchivedLogFile);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (walFiles.empty()) {
+    return Status::IOError(" NO WAL Files present in the db");
+  }
+  //  std::shared_ptr would have been useful here.
+
+  std::vector<LogFile>* probableWALFiles = new std::vector<LogFile>();
+  s = FindProbableWALFiles(&walFiles, probableWALFiles, seq);
+  if (!s.ok()) {
+    return s;
+  }
+  TransactionLogIteratorImpl* impl =
+    new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles);
+  *iter = impl;
+  return Status::OK();
+}
+
+Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
+                                    std::vector<LogFile>* const result,
+                                    const SequenceNumber target) {
+  assert(allLogs != NULL);
+  assert(result != NULL);
+
+  std::sort(allLogs->begin(), allLogs->end());
+  long start = 0; // signed to avoid overflow when target is < first file.
+  long end = static_cast<long>(allLogs->size()) - 1;
+  // Binary Search. avoid opening all files.
+  while (end >= start) {
+    long mid = start + (end - start) / 2;  // Avoid overflow.
+    WriteBatch batch;
+    Status s = ReadFirstRecord(allLogs->at(mid), &batch);
+    if (!s.ok()) {
+      return s;
+    }
+    SequenceNumber currentSeqNum = WriteBatchInternal::Sequence(&batch);
+    if (currentSeqNum == target) {
+      start = mid;
+      end = mid;
+      break;
+    } else if (currentSeqNum < target) {
+      start = mid + 1;
+    } else {
+      end = mid - 1;
+    }
+  }
+  size_t startIndex = std::max(0l, end); // end could be -ve.
+  for( size_t i = startIndex; i < allLogs->size(); ++i) {
+    result->push_back(allLogs->at(i));
+  }
+  return Status::OK();
+}
+
+Status DBImpl::ReadFirstRecord(const LogFile& file, WriteBatch* const result) {
+
+  if (file.type == kAliveLogFile) {
+    std::string fname = LogFileName(dbname_, file.logNumber);
+    Status status = ReadFirstLine(fname, result);
+    if (!status.ok()) {
+      //  check if the file got moved to archive.
+      std::string archivedFile = ArchivedLogFileName(dbname_, file.logNumber);
+      Status s = ReadFirstLine(archivedFile, result);
+      if (!s.ok()) {
+        return Status::IOError("Log File Has been deleted");
+      }
+    }
+    return Status::OK();
+  } else if (file.type == kArchivedLogFile) {
+    std::string fname = ArchivedLogFileName(dbname_, file.logNumber);
+    Status status = ReadFirstLine(fname, result);
+    return status;
+  }
+  return Status::NotSupported("File Type Not Known");
+}
+
+Status DBImpl::ReadFirstLine(const std::string& fname,
+                             WriteBatch* const batch) {
+  struct LogReporter : public log::Reader::Reporter {
+    Env* env;
+    Logger* info_log;
+    const char* fname;
+    Status* status;  // NULL if options_.paranoid_checks==false
+    virtual void Corruption(size_t bytes, const Status& s) {
+      Log(info_log, "%s%s: dropping %d bytes; %s",
+          (this->status == NULL ? "(ignoring error) " : ""),
+          fname, static_cast<int>(bytes), s.ToString().c_str());
+      if (this->status != NULL && this->status->ok()) *this->status = s;
+    }
+  };
+
+  SequentialFile* file;
+  Status status = env_->NewSequentialFile(fname, &file);
+
+  if (!status.ok()) {
+    return status;
+  }
+
+
+  LogReporter reporter;
+  reporter.env = env_;
+  reporter.info_log = options_.info_log;
+  reporter.fname = fname.c_str();
+  reporter.status = (options_.paranoid_checks ? &status : NULL);
+  log::Reader reader(file, &reporter, true/*checksum*/,
+                     0/*initial_offset*/);
+  std::string scratch;
+  Slice record;
+  if (reader.ReadRecord(&record, &scratch) && status.ok()) {
+    if (record.size() < 12) {
+      reporter.Corruption(
+          record.size(), Status::Corruption("log record too small"));
+      return Status::IOError("Corruption noted");
+      //  TODO read record's till the first no corrupt entry?
+    }
+    WriteBatchInternal::SetContents(batch, record);
+    return Status::OK();
+  }
+  return Status::IOError("Error reading from file " + fname);
+}
+
+Status DBImpl::ListAllWALFiles(const std::string& path,
+                               std::vector<LogFile>* const logFiles,
+                               WalFileType logType) {
+  assert(logFiles != NULL);
+  std::vector<std::string> allFiles;
+  const Status status = env_->GetChildren(path, &allFiles);
+  if (!status.ok()) {
+    return status;
+  }
+  for(std::vector<std::string>::iterator it = allFiles.begin();
+      it != allFiles.end();
+      ++it) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(*it, &number, &type) && type == kLogFile){
+      logFiles->push_back(LogFile(number, logType));
+    }
+  }
   return status;
 }
 
@@ -2155,8 +2312,12 @@ Snapshot::~Snapshot() {
 Status DestroyDB(const std::string& dbname, const Options& options) {
   Env* env = options.env;
   std::vector<std::string> filenames;
+  std::vector<std::string> archiveFiles;
+
   // Ignore error in case directory does not exist
   env->GetChildren(dbname, &filenames);
+  env->GetChildren(ArchivalDirectory(dbname), &archiveFiles);
+
   if (filenames.empty()) {
     return Status::OK();
   }
@@ -2170,12 +2331,32 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     for (size_t i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
-        Status del = env->DeleteFile(dbname + "/" + filenames[i]);
+        Status del;
+        if (type == kMetaDatabase) {
+          del = DestroyDB(dbname + "/" + filenames[i], options);
+        } else {
+          del = env->DeleteFile(dbname + "/" + filenames[i]);
+        }
         if (result.ok() && !del.ok()) {
           result = del;
         }
       }
     }
+
+    // Delete archival files.
+    for (size_t i = 0; i < archiveFiles.size(); ++i) {
+      ParseFileName(archiveFiles[i], &number, &type);
+      if (type == kLogFile) {
+        Status del = env->DeleteFile(ArchivalDirectory(dbname) + "/" +
+                                     archiveFiles[i]);
+        if (result.ok() && !del.ok()) {
+          result = del;
+        }
+      }
+    }
+    // ignore case where no archival directory is present.
+    env->DeleteDir(ArchivalDirectory(dbname));
+
     env->UnlockFile(lock);  // Ignore error since state is already gone
     env->DeleteFile(lockname);
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files

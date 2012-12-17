@@ -10,6 +10,8 @@
 #include <vector>
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
+#include "leveldb/types.h"
+#include "leveldb/transaction_log_iterator.h"
 
 namespace leveldb {
 
@@ -184,6 +186,22 @@ class DB {
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size) = 0;
 
+  // The sequence number of the most recent transaction. 
+  virtual SequenceNumber GetLatestSequenceNumber() = 0;
+
+  // Return's an iterator for all writes since the sequence number
+  // Status::ok if iterator is valid.
+  // The iterator internally holds references to the available log files.
+  // It automatically takes care of closing a file with no-updates left, and
+  // opening the next one.
+  // If the sequence number is non existent. it returns an iterator at a seq_no
+  // just greater than the requested seq_no.
+  // Must set WAL_ttl_seconds to a large value to use this api.
+  // else the WAL files will get
+  // cleared aggressively and the iterator might keep getting invalid before
+  // an update is read.
+  virtual Status GetUpdatesSince(SequenceNumber seq_number,
+                                 TransactionLogIterator** iter) = 0;
  private:
   // No copying allowed
   DB(const DB&);
