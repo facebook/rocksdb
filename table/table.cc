@@ -166,21 +166,21 @@ static void ReleaseBlock(void* arg, void* h) {
   cache->Release(handle);
 }
 
-struct MetricsCacheInfo {
+struct CacheMetricsInfo {
   void* handler;
   Cache::Handle* handle;
   BlockMetrics* metrics;
 
-  MetricsCacheInfo(void* handler, Cache::Handle* handle, BlockMetrics* metrics)
+  CacheMetricsInfo(void* handler, Cache::Handle* handle, BlockMetrics* metrics)
     : handler(handler), handle(handle), metrics(metrics) {
   }
 };
-static void ReleaseBlockAndRecordMetrics(void* arg, void* mci) {
-  MetricsCache* cache = reinterpret_cast<MetricsCache*>(arg);
-  MetricsCacheInfo* mciptr = reinterpret_cast<MetricsCacheInfo*>(mci);
-  cache->ReleaseAndRecordMetrics(mciptr->handle, mciptr->handler,
-                                 mciptr->metrics);
-  delete mciptr;
+static void ReleaseBlockAndRecordMetrics(void* arg, void* cmi) {
+  Cache* cache = reinterpret_cast<Cache*>(arg);
+  CacheMetricsInfo* cmiptr = reinterpret_cast<CacheMetricsInfo*>(cmi);
+  cache->ReleaseAndRecordMetrics(cmiptr->handle, cmiptr->handler,
+                                 cmiptr->metrics);
+  delete cmiptr;
 }
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
@@ -255,9 +255,9 @@ Iterator* Table::BlockReader(void* arg,
       iter = block->NewMetricsIterator(table->rep_->options.comparator, key,
                                        &metrics);
 
-      MetricsCacheInfo* mci = new MetricsCacheInfo(options.metrics_handler,
+      CacheMetricsInfo* cmi = new CacheMetricsInfo(options.metrics_handler,
                                                    cache_handle, metrics);
-      iter->RegisterCleanup(&ReleaseBlockAndRecordMetrics, block_cache, mci);
+      iter->RegisterCleanup(&ReleaseBlockAndRecordMetrics, block_cache, cmi);
     }
   } else {
     iter = NewErrorIterator(s);

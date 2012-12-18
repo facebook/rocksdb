@@ -231,29 +231,11 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname,
   }
   last_log_ts = 0;
 
-  // Check that system is properly set up for hotcold and disable if not
-  if (is_hotcold_) {
-    assert(metrics_db_ != NULL);
-
-    // Cache must be MetricsCache
-    if (dynamic_cast<MetricsCache*>(options_.block_cache) == NULL) {
-      Log(options_.info_log, "Can't record metrics, cache is not"
-                             " MetricsCache instance.");
-      is_hotcold_ = false;
-    }
-
-    if (!is_hotcold_) {
-      delete metrics_db_;
-      metrics_db_ = NULL;
-    }
-  }
-
   // Set up metrics taking
   if (is_hotcold_) {
     assert(options_.block_cache != NULL);
 
-    reinterpret_cast<MetricsCache*>(options_.block_cache)->AddHandler(this,
-            &DBImpl::HandleMetrics);
+    options_.block_cache->AddHandler(this, &DBImpl::HandleMetrics);
   }
 }
 
@@ -284,7 +266,7 @@ DBImpl::~DBImpl() {
   delete[] stats_;
 
   if (is_hotcold_) {
-    reinterpret_cast<MetricsCache*>(options_.block_cache)->RemoveHandler(this);
+    options_.block_cache->RemoveHandler(this);
   }
 
   if (owns_info_log_) {

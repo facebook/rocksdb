@@ -25,15 +25,13 @@
 namespace leveldb {
 
 class Cache;
-class MetricsCache;
 
 // Create a new cache with a fixed size capacity.  This implementation
 // of Cache uses a least-recently-used eviction policy.
 extern Cache* NewLRUCache(size_t capacity);
 extern Cache* NewLRUCache(size_t capacity, int numShardBits);
 
-extern MetricsCache* NewMetricsLRUCache(size_t capacity);
-extern MetricsCache* NewMetricsLRUCache(size_t capacity, int numShardBits);
+class BlockMetrics;
 
 class Cache {
  public:
@@ -90,6 +88,13 @@ class Cache {
   // returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() = 0;
 
+  virtual void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
+                                       BlockMetrics* metrics) {};
+  virtual void AddHandler(
+      void* handler,
+      void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {};
+  virtual void RemoveHandler(void* handler) {};
+
  private:
   void LRU_Remove(Handle* e);
   void LRU_Append(Handle* e);
@@ -101,18 +106,6 @@ class Cache {
   // No copying allowed
   Cache(const Cache&);
   void operator=(const Cache&);
-};
-
-class BlockMetrics;
-class MetricsCache : public virtual Cache {
- public:
-  virtual void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
-                                       BlockMetrics* metrics) = 0;
-
-  virtual void AddHandler(
-      void* handler,
-      void (*handler_func)(void*, std::vector<BlockMetrics*>*)) = 0;
-  virtual void RemoveHandler(void* handler) = 0;
 };
 
 }  // namespace leveldb
