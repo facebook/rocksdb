@@ -231,6 +231,30 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname,
   }
   last_log_ts = 0;
 
+  // Check that system is properly set up for hotcold and disable if not
+  if (is_hotcold_) {
+    assert(metrics_db_ != NULL);
+
+    // Cache must be MetricsCache
+    if (dynamic_cast<MetricsCache*>(options_.block_cache) == NULL) {
+      Log(options_.info_log, "Can't record metrics, cache is not"
+                             " MetricsCache instance.");
+      is_hotcold_ = false;
+    }
+
+    if (!is_hotcold_) {
+      delete metrics_db_;
+      metrics_db_ = NULL;
+    }
+  }
+
+  // Set up metrics taking
+  if (is_hotcold_) {
+    assert(options_.block_cache != NULL);
+
+    reinterpret_cast<MetricsCache*>(options_.block_cache)->AddHandler(this,
+            &DBImpl::HandleMetrics);
+  }
 }
 
 DBImpl::~DBImpl() {
@@ -258,6 +282,10 @@ DBImpl::~DBImpl() {
   delete metrics_db_;
   delete table_cache_;
   delete[] stats_;
+
+  if (is_hotcold_) {
+    reinterpret_cast<MetricsCache*>(options_.block_cache)->RemoveHandler(this);
+  }
 
   if (owns_info_log_) {
     delete options_.info_log;
@@ -1499,6 +1527,16 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
+void DBImpl::HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics) {
+  DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
+
+  // TODO: Implement background scheduling.
+  for (size_t i = 0; i < metrics->size(); ++i) {
+    delete (*metrics)[i];
+  }
+  delete metrics;
+}
+
 //
 // Given a sequence number, return the sequence number of the
 // earliest snapshot that this sequence number is visible in.
@@ -1859,7 +1897,11 @@ Status DBImpl::Get(const ReadOptions& options,
     } else if (imm.Get(lkey, value, &s)) {
       // Done
     } else {
-      s = current->Get(options, lkey, value, &stats);
+      ReadOptions read_options = options;
+      if (is_hotcold_) {
+        read_options.metrics_handler = this;
+      }
+      s = current->Get(read_options, lkey, value, &stats);
       have_stat_update = true;
     }
     mutex_.Lock();
@@ -1877,7 +1919,11 @@ Status DBImpl::Get(const ReadOptions& options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
-  Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
+  ReadOptions read_options = options;
+  if (is_hotcold_) {
+    read_options.metrics_handler = this;
+  }
+  Iterator* internal_iter = NewInternalIterator(read_options, &latest_snapshot);
   return NewDBIterator(
       &dbname_, env_, user_comparator(), internal_iter,
       (options.snapshot != NULL
@@ -2298,6 +2344,7 @@ Status DB::InternalOpen(const Options& options, const std::string& dbname,
     //       meta-DB.
     Status s = InternalOpen(metrics_opts, MetaDatabaseName(dbname, 0u),
                             &metrics_db, false);
+    // TODO: consider changing message of s
     if (!s.ok()) {
       return s;
     }

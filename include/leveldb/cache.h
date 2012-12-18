@@ -19,16 +19,21 @@
 #define STORAGE_LEVELDB_INCLUDE_CACHE_H_
 
 #include <stdint.h>
+#include <vector>
 #include "leveldb/slice.h"
 
 namespace leveldb {
 
 class Cache;
+class MetricsCache;
 
 // Create a new cache with a fixed size capacity.  This implementation
 // of Cache uses a least-recently-used eviction policy.
 extern Cache* NewLRUCache(size_t capacity);
 extern Cache* NewLRUCache(size_t capacity, int numShardBits);
+
+extern MetricsCache* NewMetricsLRUCache(size_t capacity);
+extern MetricsCache* NewMetricsLRUCache(size_t capacity, int numShardBits);
 
 class Cache {
  public:
@@ -96,6 +101,18 @@ class Cache {
   // No copying allowed
   Cache(const Cache&);
   void operator=(const Cache&);
+};
+
+class BlockMetrics;
+class MetricsCache : public virtual Cache {
+ public:
+  virtual void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
+                                       BlockMetrics* metrics) = 0;
+
+  virtual void AddHandler(
+      void* handler,
+      void (*handler_func)(void*, std::vector<BlockMetrics*>*)) = 0;
+  virtual void RemoveHandler(void* handler) = 0;
 };
 
 }  // namespace leveldb

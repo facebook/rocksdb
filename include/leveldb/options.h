@@ -382,12 +382,17 @@ struct ReadOptions {
   ReadOptions()
       : verify_checksums(false),
         fill_cache(true),
-        snapshot(NULL) {
+        snapshot(NULL),
+        metrics_handler(NULL) {
   }
   ReadOptions(bool cksum, bool cache) :
               verify_checksums(cksum), fill_cache(cache),
-              snapshot(NULL) {
+              snapshot(NULL),
+              metrics_handler(NULL) {
   }
+
+  // Internal parameters
+  void* metrics_handler;
 };
 
 // Options that control write operations

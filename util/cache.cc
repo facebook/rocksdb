@@ -3,8 +3,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <assert.h>
+#include <map>
 #include <stdio.h>
 #include <stdlib.h>
+#include <vector>
 
 #include "leveldb/cache.h"
 #include "port/port.h"
@@ -135,7 +137,7 @@ class HandleTable {
 class LRUCache {
  public:
   LRUCache();
-  ~LRUCache();
+  virtual ~LRUCache();
 
   // Separate from constructor so caller can easily make an array of LRUCache
   void SetCapacity(size_t capacity) { capacity_ = capacity; }
@@ -148,7 +150,7 @@ class LRUCache {
   void Release(Cache::Handle* handle);
   void Erase(const Slice& key, uint32_t hash);
 
- private:
+ protected:
   void LRU_Remove(LRUHandle* e);
   void LRU_Append(LRUHandle* e);
   void Unref(LRUHandle* e);
@@ -266,14 +268,66 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
   }
 }
 
+size_t kMetricsFlushThreshold = 1000u;
+// A single shard of sharded cache.
+class MetricsLRUCache : public LRUCache {
+ public:
+  virtual ~MetricsLRUCache() {
+    std::map<void*, std::vector<BlockMetrics*>*>::iterator it;
+    for (it = metrics_store_.begin();
+         it != metrics_store_.end(); ++it) {
+      void* handler = it->first;
+      (*handlers_[handler])(handler, metrics_store_[handler]);
+    }
+  }
+
+  void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
+                               BlockMetrics* metrics) {
+    MutexLock l(&mutex_);
+
+    metrics_store_[handler]->push_back(metrics);
+    if (metrics_store_[handler]->size() >= kMetricsFlushThreshold) {
+      (*handlers_[handler])(handler, metrics_store_[handler]);
+      metrics_store_[handler] = new std::vector<BlockMetrics*>();
+    }
+
+    Unref(reinterpret_cast<LRUHandle*>(handle));
+  }
+
+  void AddHandler(
+      void* handler,
+      void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {
+    assert(handler != NULL);
+    assert(handler_func != NULL);
+
+    MutexLock l(&mutex_);
+
+    handlers_[handler] = handler_func;
+    metrics_store_[handler] = new std::vector<BlockMetrics*>();
+  }
+
+  void RemoveHandler(void* handler) {
+    MutexLock l(&mutex_);
+
+    (*handlers_[handler])(handler, metrics_store_[handler]);
+    handlers_.erase(handler);
+    metrics_store_.erase(handler);
+  }
+
+ private:
+  std::map<void*, void (*)(void*, std::vector<BlockMetrics*>*)> handlers_;
+  std::map<void*, std::vector<BlockMetrics*>*> metrics_store_;
+};
+
 static int kNumShardBits = 4;         // default values, can be overridden
 
-class ShardedLRUCache : public Cache {
- private:
-  LRUCache* shard_;
+class ShardedLRUCache : public virtual Cache {
+ protected:
+  LRUCache** shard_;
   port::Mutex id_mutex_;
   uint64_t last_id_;
   int numShardBits;
+  size_t numShards_;
   size_t capacity_;
 
   static inline uint32_t HashSlice(const Slice& s) {
@@ -284,14 +338,22 @@ class ShardedLRUCache : public Cache {
     return hash >> (32 - numShardBits);
   }
 
+  virtual LRUCache** initShards() {
+    LRUCache** tmp = new LRUCache*[numShards_];
+    for (size_t i = 0; i < numShards_; ++i) {
+      tmp[i] = new LRUCache();
+    }
+    return tmp;
+  }
+
   void init(size_t capacity, int numbits) {
     numShardBits = numbits;
     capacity_ = capacity;
-    int numShards = 1 << numShardBits;
-    shard_ = new LRUCache[numShards];
-    const size_t per_shard = (capacity + (numShards - 1)) / numShards;
-    for (int s = 0; s < numShards; s++) {
-      shard_[s].SetCapacity(per_shard);
+    numShards_ = 1u << numShardBits;
+    shard_ = initShards();
+    const size_t per_shard = (capacity + (numShards_ - 1)) / numShards_;
+    for (size_t s = 0; s < numShards_; s++) {
+      shard_[s]->SetCapacity(per_shard);
     }
   }
 
@@ -305,24 +367,28 @@ class ShardedLRUCache : public Cache {
     init(capacity, numShardBits);
   }
   virtual ~ShardedLRUCache() {
+    for (size_t i = 0; i < numShards_; ++i) {
+      delete shard_[i];
+    }
+
     delete[] shard_;
   }
   virtual Handle* Insert(const Slice& key, void* value, size_t charge,
                          void (*deleter)(const Slice& key, void* value)) {
     const uint32_t hash = HashSlice(key);
-    return shard_[Shard(hash)].Insert(key, hash, value, charge, deleter);
+    return shard_[Shard(hash)]->Insert(key, hash, value, charge, deleter);
   }
   virtual Handle* Lookup(const Slice& key) {
     const uint32_t hash = HashSlice(key);
-    return shard_[Shard(hash)].Lookup(key, hash);
+    return shard_[Shard(hash)]->Lookup(key, hash);
   }
   virtual void Release(Handle* handle) {
     LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
-    shard_[Shard(h->hash)].Release(handle);
+    shard_[Shard(h->hash)]->Release(handle);
   }
   virtual void Erase(const Slice& key) {
     const uint32_t hash = HashSlice(key);
-    shard_[Shard(hash)].Erase(key, hash);
+    shard_[Shard(hash)]->Erase(key, hash);
   }
   virtual void* Value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
@@ -333,6 +399,49 @@ class ShardedLRUCache : public Cache {
   }
   virtual uint64_t GetCapacity() {
     return capacity_;
+  }
+};
+
+class ShardedMetricsLRUCache : public ShardedLRUCache, public MetricsCache {
+ protected:
+  virtual LRUCache** initShards() {
+    LRUCache** tmp = new LRUCache*[numShards_];
+    for (size_t i = 0; i < numShards_; ++i) {
+      tmp[i] = new MetricsLRUCache();
+    }
+    return tmp;
+  }
+
+ public:
+  explicit ShardedMetricsLRUCache(size_t capacity)
+      : ShardedLRUCache(capacity) {
+  }
+  ShardedMetricsLRUCache(size_t capacity, int numShardBits)
+     : ShardedLRUCache(capacity, numShardBits) {
+  }
+  virtual ~ShardedMetricsLRUCache() {
+  }
+
+  void ReleaseAndRecordMetrics(Handle* handle, void* handler,
+                               BlockMetrics* metrics) {
+    LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
+
+    MetricsLRUCache* c =
+        reinterpret_cast<MetricsLRUCache*>(shard_[Shard(h->hash)]);
+    c->ReleaseAndRecordMetrics(handle, handler, metrics);
+  }
+
+  void AddHandler(void* handler,
+                  void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {
+    for (size_t i = 0; i < (1u << numShardBits); ++i) {
+      reinterpret_cast<MetricsLRUCache*>(shard_[i])->AddHandler(handler,
+                                                                handler_func);
+    }
+  }
+  void RemoveHandler(void* handler) {
+    for (size_t i = 0; i < (1u << numShardBits); ++i) {
+      reinterpret_cast<MetricsLRUCache*>(shard_[i])->RemoveHandler(handler);
+    }
   }
 };
 
@@ -347,6 +456,17 @@ Cache* NewLRUCache(size_t capacity, int numShardBits) {
     return NULL;  // the cache cannot be sharded into too many fine pieces
   }
   return new ShardedLRUCache(capacity, numShardBits);
+}
+
+MetricsCache* NewMetricsLRUCache(size_t capacity) {
+  return new ShardedMetricsLRUCache(capacity);
+}
+
+MetricsCache* NewMetricsLRUCache(size_t capacity, int numShardBits) {
+  if (numShardBits >= 20) {
+    return NULL;  // the cache cannot be sharded into too many fine pieces
+  }
+  return new ShardedMetricsLRUCache(capacity, numShardBits);
 }
 
 }  // namespace leveldb

@@ -13,6 +13,10 @@
 #include "util/coding.h"
 #include "util/logging.h"
 
+namespace {
+uint32_t kBytesPerRestart = 2;
+}
+
 namespace leveldb {
 
 inline uint32_t Block::NumRestarts() const {
@@ -73,7 +77,7 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
 }
 
 class Block::Iter : public Iterator {
- private:
+ protected:
   const Comparator* const comparator_;
   const char* const data_;      // underlying block contents
   uint32_t const restarts_;     // Offset of restart array (list of fixed32)
@@ -82,6 +86,7 @@ class Block::Iter : public Iterator {
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
   uint32_t restart_index_;  // Index of restart block in which current_ falls
+  uint32_t restart_offset_; // Offset from last restart in number of keys.
   std::string key_;
   Slice value_;
   Status status_;
@@ -103,6 +108,8 @@ class Block::Iter : public Iterator {
   void SeekToRestartPoint(uint32_t index) {
     key_.clear();
     restart_index_ = index;
+    restart_offset_ = static_cast<uint32_t>(-1); // ParseNextKey() will
+                                                 // increment by 1
     // current_ will be fixed by ParseNextKey();
 
     // ParseNextKey() starts at the end of value_, so set value_ accordingly
@@ -120,8 +127,12 @@ class Block::Iter : public Iterator {
         restarts_(restarts),
         num_restarts_(num_restarts),
         current_(restarts_),
-        restart_index_(num_restarts_) {
+        restart_index_(num_restarts_),
+        restart_offset_(0) {
     assert(num_restarts_ > 0);
+  }
+
+  virtual ~Iter() {
   }
 
   virtual bool Valid() const { return current_ < restarts_; }
@@ -150,6 +161,7 @@ class Block::Iter : public Iterator {
         // No more entries
         current_ = restarts_;
         restart_index_ = num_restarts_;
+        restart_offset_ = 0;
         return;
       }
       restart_index_--;
@@ -214,9 +226,12 @@ class Block::Iter : public Iterator {
   }
 
  private:
+  friend class Block;
+
   void CorruptionError() {
     current_ = restarts_;
     restart_index_ = num_restarts_;
+    restart_offset_ = 0;
     status_ = Status::Corruption("bad entry in block");
     key_.clear();
     value_.clear();
@@ -224,12 +239,14 @@ class Block::Iter : public Iterator {
 
   bool ParseNextKey() {
     current_ = NextEntryOffset();
+    ++restart_offset_;
     const char* p = data_ + current_;
     const char* limit = data_ + restarts_;  // Restarts come right after data
     if (p >= limit) {
       // No more entries to return.  Mark as invalid.
       current_ = restarts_;
       restart_index_ = num_restarts_;
+      restart_offset_ = 0;
       return false;
     }
 
@@ -246,8 +263,59 @@ class Block::Iter : public Iterator {
       while (restart_index_ + 1 < num_restarts_ &&
              GetRestartPoint(restart_index_ + 1) < current_) {
         ++restart_index_;
+        restart_offset_ = 0;
       }
       return true;
+    }
+  }
+};
+
+class Block::MetricsIter : public Block::Iter {
+ private:
+  BlockMetrics* metrics_;
+
+ public:
+  MetricsIter(const Comparator* comparator,
+              const char* data,
+              uint32_t restarts,
+              uint32_t num_restarts,
+              BlockMetrics* metrics)
+      : Block::Iter(comparator, data, restarts, num_restarts),
+        metrics_(metrics) {
+  }
+
+  virtual ~MetricsIter() {
+  }
+
+  virtual void Next() {
+    Block::Iter::Next();
+    RecordAccess();
+  }
+
+  virtual void Prev() {
+    Block::Iter::Prev();
+    RecordAccess();
+  }
+
+  virtual void Seek(const Slice& target) {
+    Block::Iter::Seek(target);
+    RecordAccess();
+  }
+
+  virtual void SeekToFirst() {
+    Block::Iter::SeekToFirst();
+    RecordAccess();
+  }
+
+  virtual void SeekToLast() {
+    Block::Iter::SeekToLast();
+    RecordAccess();
+  }
+
+ private:
+  void RecordAccess() {
+    if (metrics_ != NULL && Valid()) {
+      metrics_->RecordAccess(restart_index_, restart_offset_);
     }
   }
 };
@@ -262,6 +330,71 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
   } else {
     return new Iter(cmp, data_, restart_offset_, num_restarts);
   }
+}
+
+Iterator* Block::NewMetricsIterator(const Comparator* cmp,
+                                    const Slice& key,
+                                    BlockMetrics** metrics) {
+  assert(metrics != NULL);
+
+  if (size_ < 2*sizeof(uint32_t)) {
+    return NewErrorIterator(Status::Corruption("bad block contents"));
+  }
+  const uint32_t num_restarts = NumRestarts();
+  if (num_restarts == 0) {
+    return NewEmptyIterator();
+  } else {
+    *metrics = new BlockMetrics(key, num_restarts, kBytesPerRestart);
+    return new MetricsIter(cmp, data_, restart_offset_, num_restarts,
+                           *metrics);
+  }
+}
+
+bool Block::IsHot(const Iterator* iter, const BlockMetrics& bm) const {
+  assert(iter != NULL);
+  assert(dynamic_cast<const Iter*>(iter) != NULL);
+
+  const Iter* it = reinterpret_cast<const Iter*>(iter);
+
+  assert(it->data_ == data_);
+  assert(it->Valid());
+  assert(NumRestarts() == bm.num_restarts_);
+
+  return bm.IsHot(it->restart_index_, it->restart_offset_);
+}
+
+BlockMetrics::BlockMetrics(const Slice& key, uint32_t num_restarts,
+                           uint32_t bytes_per_restart)
+  : key_(key),
+    num_restarts_(num_restarts),
+    bytes_per_restart_(bytes_per_restart) {
+  metrics_ = new char[num_restarts_*bytes_per_restart_];
+}
+
+BlockMetrics::~BlockMetrics() {
+  delete[] metrics_;
+}
+
+void BlockMetrics::RecordAccess(uint32_t restart_index,
+                                uint32_t restart_offset) {
+  size_t bitIdx = restart_offset;
+  if (bytes_per_restart_ < 4) {
+    bitIdx &= (1u << bytes_per_restart_*8u)-1u;
+  }
+  size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
+
+  metrics_[byteIdx] |= 1 << (bitIdx%8);
+}
+
+bool BlockMetrics::IsHot(uint32_t restart_index,
+                         uint32_t restart_offset) const {
+  size_t bitIdx = restart_offset;
+  if (bytes_per_restart_ < 4) {
+    bitIdx &= (1u << bytes_per_restart_*8u)-1u;
+  }
+  size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
+
+  return (metrics_[byteIdx] & (1 << (bitIdx%8))) != 0;
 }
 
 }  // namespace leveldb

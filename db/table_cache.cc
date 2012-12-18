@@ -65,7 +65,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
     s = env_->NewRandomAccessFile(fname, &file);
     stats ? stats->incNumFileOpens() : (void)0;
     if (s.ok()) {
-      s = Table::Open(*options_, file, file_size, &table);
+      s = Table::Open(*options_, file_number, file, file_size, &table);
     }
 
     if (!s.ok()) {

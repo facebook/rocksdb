@@ -40,6 +40,13 @@ class Table {
                      uint64_t file_size,
                      Table** table);
 
+  // Same as above, but specifies the file number
+  static Status Open(const Options& options,
+                     uint64_t file_number,
+                     RandomAccessFile* file,
+                     uint64_t file_size,
+                     Table** table);
+
   ~Table();
 
   // Returns a new iterator over the table contents.

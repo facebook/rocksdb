@@ -29,6 +29,7 @@ struct Table::Rep {
   Status status;
   RandomAccessFile* file;
   uint64_t cache_id;
+  uint64_t file_number;
   FilterBlockReader* filter;
   const char* filter_data;
 
@@ -37,6 +38,14 @@ struct Table::Rep {
 };
 
 Status Table::Open(const Options& options,
+                   RandomAccessFile* file,
+                   uint64_t size,
+                   Table** table) {
+  return Open(options, 0, file, size, table);
+}
+
+Status Table::Open(const Options& options,
+                   uint64_t file_number,
                    RandomAccessFile* file,
                    uint64_t size,
                    Table** table) {
@@ -157,6 +166,23 @@ static void ReleaseBlock(void* arg, void* h) {
   cache->Release(handle);
 }
 
+struct MetricsCacheInfo {
+  void* handler;
+  Cache::Handle* handle;
+  BlockMetrics* metrics;
+
+  MetricsCacheInfo(void* handler, Cache::Handle* handle, BlockMetrics* metrics)
+    : handler(handler), handle(handle), metrics(metrics) {
+  }
+};
+static void ReleaseBlockAndRecordMetrics(void* arg, void* mci) {
+  MetricsCache* cache = reinterpret_cast<MetricsCache*>(arg);
+  MetricsCacheInfo* mciptr = reinterpret_cast<MetricsCacheInfo*>(mci);
+  cache->ReleaseAndRecordMetrics(mciptr->handle, mciptr->handler,
+                                 mciptr->metrics);
+  delete mciptr;
+}
+
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
 Iterator* Table::BlockReader(void* arg,
@@ -212,11 +238,26 @@ Iterator* Table::BlockReader(void* arg,
 
   Iterator* iter;
   if (block != NULL) {
-    iter = block->NewIterator(table->rep_->options.comparator);
-    if (cache_handle == NULL) {
-      iter->RegisterCleanup(&DeleteBlock, block, NULL);
+    if (options.metrics_handler == NULL || cache_handle == NULL) {
+      iter = block->NewIterator(table->rep_->options.comparator);
+
+      if (cache_handle == NULL) {
+        iter->RegisterCleanup(&DeleteBlock, block, NULL);
+      } else {
+        iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
+      }
     } else {
-      iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
+      char key_buffer[16];
+      EncodeFixed64(key_buffer, table->rep_->file_number);
+      EncodeFixed64(key_buffer+8, handle.offset());
+      Slice key(key_buffer, sizeof(key_buffer));
+      BlockMetrics* metrics = NULL;
+      iter = block->NewMetricsIterator(table->rep_->options.comparator, key,
+                                       &metrics);
+
+      MetricsCacheInfo* mci = new MetricsCacheInfo(options.metrics_handler,
+                                                   cache_handle, metrics);
+      iter->RegisterCleanup(&ReleaseBlockAndRecordMetrics, block_cache, mci);
     }
   } else {
     iter = NewErrorIterator(s);

@@ -7,6 +7,7 @@
 
 #include <deque>
 #include <set>
+#include <vector>
 #include "db/dbformat.h"
 #include "db/log_file.h"
 #include "db/log_writer.h"
@@ -169,6 +170,8 @@ class DBImpl : public DB {
   Status InstallCompactionResults(CompactionState* compact);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
+
+  static void HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics);
 
 
   // Returns the list of live files in 'live' and the list
