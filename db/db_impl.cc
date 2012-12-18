@@ -2338,6 +2338,14 @@ Status DB::InternalOpen(const Options& options, const std::string& dbname,
   DB* metrics_db = NULL;
 
   if (with_hotcold) {
+    // Creates directory for db in case it might not create as we don't create
+    // intermediate directories.
+    Env* env = options.env;
+    if (env == NULL) {
+      env = Env::Default();
+    }
+    env->CreateDir(dbname);
+
     Options metrics_opts;
     metrics_opts.create_if_missing = true;
     // TODO: find some way to coordinate wrt to the number of the metrics
