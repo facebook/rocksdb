@@ -85,8 +85,7 @@ class DBImpl : public DB {
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBImpl();
 
-protected:
-
+ protected:
   Env* const env_;
   const std::string dbname_;
   VersionSet* versions_;
@@ -96,6 +95,9 @@ protected:
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
   }
+  MemTable* GetMemTable() {
+    return mem_;
+  } 
 
  private:
   friend class DB;
@@ -111,8 +113,7 @@ protected:
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
-  Status Recover(VersionEdit* edit,
-      bool no_log_recory = false,
+  Status Recover(VersionEdit* edit, MemTable* external_table = NULL,
       bool error_if_log_file_exist = false);
 
   void MaybeIgnoreError(Status* s) const;
@@ -128,7 +129,8 @@ protected:
 
   Status RecoverLogFile(uint64_t log_number,
                         VersionEdit* edit,
-                        SequenceNumber* max_sequence);
+                        SequenceNumber* max_sequence,
+                        MemTable* external_table);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used atdatabase RecoveryTime (when the

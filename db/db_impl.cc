@@ -505,7 +505,9 @@ void DBImpl::PurgeObsoleteWALFiles() {
   }
 }
 
-Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
+// If externalTable is set, then apply recovered transactions
+// to that table. This is used for readonly mode.
+Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
     bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
@@ -513,7 +515,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
   // committed only when the descriptor is created, and this directory
   // may already exist from a previous failed creation attempt.
   assert(db_lock_ == NULL);
-  if (!no_log_recory) {
+  if (!external_table) {
     env_->CreateDir(dbname_);
     Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);
     if (!s.ok()) {
@@ -573,14 +575,10 @@ Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
           "flag but a log file already exists");
     }
 
-    if (no_log_recory) {
-      return s;
-    }
-
     // Recover in the order in which the logs were generated
     std::sort(logs.begin(), logs.end());
     for (size_t i = 0; i < logs.size(); i++) {
-      s = RecoverLogFile(logs[i], edit, &max_sequence);
+      s = RecoverLogFile(logs[i], edit, &max_sequence, external_table);
 
       // The previous incarnation may not have written any MANIFEST
       // records after allocating this log number.  So we manually
@@ -600,7 +598,8 @@ Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
 
 Status DBImpl::RecoverLogFile(uint64_t log_number,
                               VersionEdit* edit,
-                              SequenceNumber* max_sequence) {
+                              SequenceNumber* max_sequence,
+                              MemTable* external_table) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -645,6 +644,9 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   Slice record;
   WriteBatch batch;
   MemTable* mem = NULL;
+  if (external_table) {
+    mem = external_table;
+  }
   while (reader.ReadRecord(&record, &scratch) &&
          status.ok()) {
     if (record.size() < 12) {
@@ -670,7 +672,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
       *max_sequence = last_seq;
     }
 
-    if (mem->ApproximateMemoryUsage() > options_.write_buffer_size) {
+    if (!external_table &&
+        mem->ApproximateMemoryUsage() > options_.write_buffer_size) {
       status = WriteLevel0TableForRecovery(mem, edit);
       if (!status.ok()) {
         // Reflect errors immediately so that conditions like full
@@ -682,13 +685,13 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
     }
   }
 
-  if (status.ok() && mem != NULL) {
+  if (status.ok() && mem != NULL && !external_table) {
     status = WriteLevel0TableForRecovery(mem, edit);
     // Reflect errors immediately so that conditions like full
     // file-systems cause the DB::Open() to fail.
   }
 
-  if (mem != NULL) mem->Unref();
+  if (mem != NULL && !external_table) mem->Unref();
   delete file;
   return status;
 }

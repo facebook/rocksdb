@@ -62,7 +62,7 @@ class DB {
   // will happen.
   static Status OpenForReadOnly(const Options& options,
       const std::string& name, DB** dbptr,
-      bool no_log_recory = true, bool error_if_log_file_exist = false);
+      bool error_if_log_file_exist = false);
 
   DB() { }
   virtual ~DB();
