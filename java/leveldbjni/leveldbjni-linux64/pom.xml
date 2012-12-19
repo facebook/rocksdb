@@ -34,23 +34,23 @@
 
   <modelVersion>4.0.0</modelVersion>
   <parent>
-    <groupId>org.fusesource.leveldbjni</groupId>
+    <groupId>org.fusesource.leveldbjni.fb</groupId>
     <artifactId>leveldbjni-project</artifactId>
-    <version>99-master-SNAPSHOT</version>
+    <version>1.5.6</version>
   </parent>
 
-  <groupId>org.fusesource.leveldbjni</groupId>
+  <groupId>org.fusesource.leveldbjni.fb</groupId>
   <artifactId>leveldbjni-linux64</artifactId>
-  <version>99-master-SNAPSHOT</version>
+  <version>1.5.6</version>
   
   <name>${project.artifactId}</name>
   <description>The leveldbjni linux 64 native libraries</description>
       
   <dependencies>
     <dependency>
-      <groupId>org.fusesource.leveldbjni</groupId>
+      <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni</artifactId>
-      <version>99-master-SNAPSHOT</version>
+      <version>1.5.6</version>
     </dependency>
   </dependencies>
 
@@ -81,7 +81,7 @@
           <name>leveldbjni</name>
           <classified>false</classified>
           <nativeSrcDependency>
-            <groupId>org.fusesource.leveldbjni</groupId>
+            <groupId>org.fusesource.leveldbjni.fb</groupId>
             <artifactId>leveldbjni</artifactId>
             <version>${project.version}</version>
             <classifier>native-src</classifier>

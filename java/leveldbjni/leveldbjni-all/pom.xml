@@ -34,43 +34,43 @@
 
   <modelVersion>4.0.0</modelVersion>
   <parent>
-    <groupId>org.fusesource.leveldbjni</groupId>
+    <groupId>org.fusesource.leveldbjni.fb</groupId>
     <artifactId>leveldbjni-project</artifactId>
-    <version>99-master-SNAPSHOT</version>
+    <version>1.5.6</version>
   </parent>
 
-  <groupId>org.fusesource.leveldbjni</groupId>
+  <groupId>org.fusesource.leveldbjni.fb</groupId>
   <artifactId>leveldbjni-all</artifactId>
-  <version>99-master-SNAPSHOT</version>
+  <version>1.5.6</version>
   
   <name>${project.artifactId}</name>
   <description>An uber jar which contains all the leveldbjni platform libraries and dependencies</description>
       
   <dependencies>
     <dependency>
-      <groupId>org.fusesource.leveldbjni</groupId>
+      <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-osx</artifactId>
-      <version>99-master-SNAPSHOT</version>
+      <version>1.5.6</version>
     </dependency>
     <dependency>
-      <groupId>org.fusesource.leveldbjni</groupId>
+      <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-linux32</artifactId>
-      <version>99-master-SNAPSHOT</version>
+      <version>1.5.6</version>
     </dependency>
     <dependency>
-      <groupId>org.fusesource.leveldbjni</groupId>
+      <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-linux64</artifactId>
-      <version>99-master-SNAPSHOT</version>
+      <version>1.5.6</version>
     </dependency>
     <dependency>
-      <groupId>org.fusesource.leveldbjni</groupId>
+      <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-win32</artifactId>
-      <version>99-master-SNAPSHOT</version>
+      <version>1.5.6</version>
     </dependency>
     <dependency>
-      <groupId>org.fusesource.leveldbjni</groupId>
+      <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-win64</artifactId>
-      <version>99-master-SNAPSHOT</version>
+      <version>1.5.6</version>
     </dependency>
     
   </dependencies>

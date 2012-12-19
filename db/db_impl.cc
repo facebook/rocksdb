@@ -512,31 +512,33 @@ Status DBImpl::Recover(VersionEdit* edit, bool no_log_recory,
   // Ignore error from CreateDir since the creation of the DB is
   // committed only when the descriptor is created, and this directory
   // may already exist from a previous failed creation attempt.
-  env_->CreateDir(dbname_);
   assert(db_lock_ == NULL);
-  Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);
-  if (!s.ok()) {
-    return s;
-  }
+  if (!no_log_recory) {
+    env_->CreateDir(dbname_);
+    Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);
+    if (!s.ok()) {
+      return s;
+    }
 
-  if (!env_->FileExists(CurrentFileName(dbname_))) {
-    if (options_.create_if_missing) {
-      s = NewDB();
-      if (!s.ok()) {
-        return s;
+    if (!env_->FileExists(CurrentFileName(dbname_))) {
+      if (options_.create_if_missing) {
+        s = NewDB();
+        if (!s.ok()) {
+          return s;
+        }
+      } else {
+        return Status::InvalidArgument(
+            dbname_, "does not exist (create_if_missing is false)");
       }
     } else {
-      return Status::InvalidArgument(
-          dbname_, "does not exist (create_if_missing is false)");
-    }
-  } else {
-    if (options_.error_if_exists) {
-      return Status::InvalidArgument(
-          dbname_, "exists (error_if_exists is true)");
+      if (options_.error_if_exists) {
+        return Status::InvalidArgument(
+            dbname_, "exists (error_if_exists is true)");
+      }
     }
   }
 
-  s = versions_->Recover();
+  Status s = versions_->Recover();
   if (s.ok()) {
     SequenceNumber max_sequence(0);
 
@@ -897,9 +899,12 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
     return s;
   }
   //  list wal files in archive dir.
-  s = ListAllWALFiles(ArchivalDirectory(dbname_), &walFiles, kArchivedLogFile);
-  if (!s.ok()) {
-    return s;
+  std::string archivedir = ArchivalDirectory(dbname_);
+  if (env_->FileExists(archivedir)) {
+    s = ListAllWALFiles(archivedir, &walFiles, kArchivedLogFile);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   if (walFiles.empty()) {
