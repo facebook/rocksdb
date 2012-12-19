@@ -90,6 +90,7 @@ Status Table::Open(const Options& options,
     rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
+    rep->file_number = file_number;
     rep->filter_data = NULL;
     rep->filter = NULL;
     *table = new Table(rep);
