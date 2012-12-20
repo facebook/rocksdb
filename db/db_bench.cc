@@ -218,6 +218,9 @@ static int FLAGS_max_grandparent_overlap_factor;
 // Run read only benchmarks.
 static bool FLAGS_read_only = false;
 
+// Run benchmarks with hot-cold separation.
+static bool FLAGS_hot_cold = false;
+
 // Do not auto trigger compactions
 static bool FLAGS_disable_auto_compactions = false;
 
@@ -990,6 +993,8 @@ class Benchmark {
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
+    } else if(FLAGS_hot_cold) {
+      s = DB::OpenWithHotCold(options, FLAGS_db, &db_);
     } else {
       s = DB::Open(options, FLAGS_db, &db_);
     }
@@ -1434,6 +1439,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--readonly=%d%c", &n, &junk) == 1 &&
         (n == 0 || n ==1 )) {
       FLAGS_read_only = n;
+    } else if (sscanf(argv[i], "--hotcold=%d%c", &n, &junk) == 1 &&
+        (n == 0 || n ==1 )) {
+      FLAGS_hot_cold = n;
     } else if (sscanf(argv[i], "--max_grandparent_overlap_factor=%d%c",
                &n, &junk) == 1) {
       FLAGS_max_grandparent_overlap_factor = n;
