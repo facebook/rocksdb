@@ -49,6 +49,7 @@ TESTS = \
 	memenv_test \
 	skiplist_test \
 	table_test \
+	block_test \
 	version_edit_test \
 	version_set_test \
 	reduce_levels_test \
@@ -164,6 +165,9 @@ log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/table_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
+
+block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) table/block_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)
 
 skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS) -o $@ $(LDFLAGS)

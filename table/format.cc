@@ -120,15 +120,17 @@ Status ReadBlock(RandomAccessFile* file,
       break;
     case kSnappyCompression: {
       size_t ulength = 0;
+      static char snappy_corrupt_msg[] =
+        "Snappy not supported or corrupted Snappy compressed block contents";
       if (!port::Snappy_GetUncompressedLength(data, n, &ulength)) {
         delete[] buf;
-        return Status::Corruption("corrupted compressed block contents");
+        return Status::Corruption(snappy_corrupt_msg);
       }
       ubuf = new char[ulength];
       if (!port::Snappy_Uncompress(data, n, ubuf)) {
         delete[] buf;
         delete[] ubuf;
-        return Status::Corruption("corrupted compressed block contents");
+        return Status::Corruption(snappy_corrupt_msg);
       }
       delete[] buf;
       result->data = Slice(ubuf, ulength);
@@ -138,9 +140,11 @@ Status ReadBlock(RandomAccessFile* file,
     }
     case kZlibCompression:
       ubuf = port::Zlib_Uncompress(data, n, &decompress_size);
+      static char zlib_corrupt_msg[] =
+        "Zlib not supported or corrupted Zlib compressed block contents";
       if (!ubuf) {
         delete[] buf;
-        return Status::Corruption("corrupted compressed block contents");
+        return Status::Corruption(zlib_corrupt_msg);
       }
       delete[] buf;
       result->data = Slice(ubuf, decompress_size);
@@ -149,9 +153,11 @@ Status ReadBlock(RandomAccessFile* file,
       break;
     case kBZip2Compression:
       ubuf = port::BZip2_Uncompress(data, n, &decompress_size);
+      static char bzip2_corrupt_msg[] =
+        "Bzip2 not supported or corrupted Bzip2 compressed block contents";
       if (!ubuf) {
         delete[] buf;
-        return Status::Corruption("corrupted compressed block contents");
+        return Status::Corruption(bzip2_corrupt_msg);
       }
       delete[] buf;
       result->data = Slice(ubuf, decompress_size);

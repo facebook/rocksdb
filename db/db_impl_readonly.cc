@@ -70,16 +70,14 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options) {
 
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                DB** dbptr, bool no_log_recory, bool error_if_log_file_exist) {
+                DB** dbptr, bool error_if_log_file_exist) {
   *dbptr = NULL;
 
   DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
   impl->mutex_.Lock();
   VersionEdit edit(impl->NumberLevels());
-  Status s = impl->Recover(&edit, no_log_recory, error_if_log_file_exist);
-  if (s.ok() && !no_log_recory) {
-    s = impl->versions_->LogAndApply(&edit, &impl->mutex_);
-  }
+  Status s = impl->Recover(&edit, impl->GetMemTable(),
+                           error_if_log_file_exist);
   impl->mutex_.Unlock();
   if (s.ok()) {
     *dbptr = impl;
