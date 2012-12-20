@@ -216,6 +216,9 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-NULL iff successfully acquired.
   FileLock* db_lock_;
 
+  // DB that contains the metrics.
+  DB* metrics_db_;
+
   // State below is protected by mutex_
   port::Mutex mutex_;
   port::AtomicPointer shutting_down_;
@@ -225,9 +228,7 @@ class DBImpl : public DB {
   WritableFile* logfile_;
   uint64_t logfile_number_;
   log::Writer* log_;
-
-  port::Mutex metrics_db_mutex_;
-  DB* metrics_db_;
+  std::deque<std::vector<BlockMetrics*>*> unflushed_metrics_;
 
   std::string host_name_;
 
@@ -247,8 +248,8 @@ class DBImpl : public DB {
   // Has a background stats log thread scheduled?
   bool bg_logstats_scheduled_;
 
-  // count how many threads are flushing metrics
-  int bg_flush_metrics_scheduled_;
+  // Has a background flushing metrics thread been scheduled?
+  bool bg_flushing_metrics_scheduled_;
 
   // Information for a manual compaction
   struct ManualCompaction {

@@ -353,19 +353,6 @@ Iterator* Block::NewMetricsIterator(const Comparator* cmp,
   }
 }
 
-bool Block::IsHot(const Iterator* iter, const BlockMetrics& bm) const {
-  assert(iter != NULL);
-  assert(dynamic_cast<const Iter*>(iter) != NULL);
-
-  const Iter* it = reinterpret_cast<const Iter*>(iter);
-
-  assert(it->data_ == data_);
-  assert(it->Valid());
-  assert(NumRestarts() == bm.num_restarts_);
-
-  return bm.IsHot(it->restart_index_, it->restart_offset_);
-}
-
 BlockMetrics::BlockMetrics(uint64_t file_number, uint64_t block_offset,
                            uint32_t num_restarts, uint32_t bytes_per_restart)
   : file_number_(file_number),

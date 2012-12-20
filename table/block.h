@@ -37,12 +37,6 @@ class Block {
                                uint64_t block_offset,
                                BlockMetrics** metrics);
 
-  // Returns true if iter->key() is hot according to bm.
-  // REQUIRES: iter->Valid()
-  // REQUIRES: iter be the result of this->NewIterator() and not NULL
-  // REQUIRES: bm must be a BlockMetrics object generated for this same block.
-  bool IsHot(const Iterator* iter, const BlockMetrics& bm) const;
-
  private:
   uint32_t NumRestarts() const;
 
