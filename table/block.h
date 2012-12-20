@@ -68,16 +68,27 @@ class BlockMetrics {
                uint32_t num_restarts, uint32_t bytes_per_restart);
   ~BlockMetrics();
 
+  // Creates a BlockMetrics object from the DB key and value. Returns NULL if
+  // either/both are invalid.
   static BlockMetrics* Create(const std::string& db_key,
                               const std::string& db_value);
+
+  // Creates a BlockMetrics object from the DB value. Returns NULL if
+  // the DB value is invalid.
   static BlockMetrics* Create(uint64_t file_number, uint64_t block_offset,
                               const std::string& db_value);
 
+  // Record that there was an access to an element in the restart block with
+  // index "restart_index", with offset "restart_offset" from the beginning of
+  // the restart block.
   void RecordAccess(uint32_t restart_index, uint32_t restart_offset);
 
+  // Returns true if the record is considered hot.
   bool IsHot(uint32_t restart_index, uint32_t restart_offset) const;
 
+  // Returns the key to use when storing in the metrics database.
   std::string GetDBKey() const;
+  // Returns the value to use when storing in the metrics database.
   std::string GetDBValue() const;
 
   // Returns true if bm represents metrics for the same block.

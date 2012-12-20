@@ -418,10 +418,7 @@ BlockMetrics* BlockMetrics::Create(const std::string& db_key,
 void BlockMetrics::RecordAccess(uint32_t restart_index,
                                 uint32_t restart_offset) {
   unsigned char* metrics = reinterpret_cast<unsigned char*>(metrics_);
-  size_t bitIdx = restart_offset;
-  if (bytes_per_restart_ < 4) {
-    bitIdx &= (1u << bytes_per_restart_*8u)-1u;
-  }
+  size_t bitIdx = restart_offset % (bytes_per_restart_ * 8u);
   size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
 
   metrics[byteIdx] |= 1 << (bitIdx%8);
@@ -430,10 +427,7 @@ void BlockMetrics::RecordAccess(uint32_t restart_index,
 bool BlockMetrics::IsHot(uint32_t restart_index,
                          uint32_t restart_offset) const {
   unsigned char* metrics = reinterpret_cast<unsigned char*>(metrics_);
-  size_t bitIdx = restart_offset;
-  if (bytes_per_restart_ < 4) {
-    bitIdx &= (1u << bytes_per_restart_*8u)-1u;
-  }
+  size_t bitIdx = restart_offset % (bytes_per_restart_ * 8u);
   size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
 
   return (metrics[byteIdx] & (1 << (bitIdx%8))) != 0;
