@@ -302,7 +302,7 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
 }
 
 void LRUCache::ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
-                             BlockMetrics* metrics) {
+                                       BlockMetrics* metrics) {
   MutexLock l(&mutex_);
 
   if (metrics_store_.count(handler) != 0) {
