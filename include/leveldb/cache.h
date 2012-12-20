@@ -88,12 +88,22 @@ class Cache {
   // returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() = 0;
 
+
+  // Releases the handle and passes the metrics to the metrics handler
+  // registered with the AddHandler() method.
+  // Note that this function takes ownership of metrics.
   virtual void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
-                                       BlockMetrics* metrics) {};
+                                       BlockMetrics* metrics);
+
+  // Registers a handler for blocks of metrics.
+  // The first parameter for the callback function is the handler itself.
   virtual void AddHandler(
       void* handler,
-      void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {};
-  virtual void RemoveHandler(void* handler) {};
+      void (*handler_func)(void*, std::vector<BlockMetrics*>*));
+
+  // Removes a handler. This call flushes all the cached metrics before
+  // unregistering the handler.
+  virtual void RemoveHandler(void* handler);
 
  private:
   void LRU_Remove(Handle* e);

@@ -2415,7 +2415,8 @@ Status DB::InternalOpen(const Options& options, const std::string& dbname,
 
   if (with_hotcold) {
     if (options.no_block_cache) {
-      return Status::InvalidArgument("Cannot have HotCold seperation when no_block_cache is true.");
+      return Status::InvalidArgument("Cannot have HotCold seperation when "
+                                     "no_block_cache is true.");
     }
 
     // Creates directory for db in case it might not create as we don't create

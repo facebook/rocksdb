@@ -53,9 +53,6 @@ class Block {
   class MetricsIter;
 };
 
-class DB;
-class WriteBatch;
-class ReadOptions;
 class BlockMetrics {
  public:
   BlockMetrics(uint64_t file_number, uint64_t block_offset,
@@ -93,8 +90,6 @@ class BlockMetrics {
   void Join(const BlockMetrics* bm);
 
  private:
-  friend class Block;
-
   BlockMetrics(uint64_t file_number, uint64_t block_offset,
                uint32_t num_restarts, uint32_t bytes_per_restart,
                const std::string& data);

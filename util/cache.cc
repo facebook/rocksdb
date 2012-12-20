@@ -19,6 +19,19 @@ namespace leveldb {
 Cache::~Cache() {
 }
 
+// Stub methods to not break backwards compatibility.
+void Cache::ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
+                                    BlockMetrics* metrics) {
+  delete metrics;
+}
+void Cache::AddHandler(
+      void* handler,
+      void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {
+}
+void Cache::RemoveHandler(void* handler) {
+}
+
+
 namespace {
 
 // LRU cache implementation

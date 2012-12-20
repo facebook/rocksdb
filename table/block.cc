@@ -347,7 +347,8 @@ Iterator* Block::NewMetricsIterator(const Comparator* cmp,
   if (num_restarts == 0) {
     return NewEmptyIterator();
   } else {
-    *metrics = new BlockMetrics(file_number, block_offset, num_restarts, kBytesPerRestart);
+    *metrics = new BlockMetrics(file_number, block_offset, num_restarts,
+                                kBytesPerRestart);
     return new MetricsIter(cmp, data_, restart_offset_, num_restarts,
                            *metrics);
   }
