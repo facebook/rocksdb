@@ -424,7 +424,7 @@ bool BlockMetrics::IsHot(uint32_t restart_index,
 std::string BlockMetrics::GetDBKey() const {
   std::string key;
   PutFixed64(&key, file_number_);
-  PutFixed64(&key, bytes_per_restart_);
+  PutFixed64(&key, block_offset_);
   return key;
 }
 

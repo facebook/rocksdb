@@ -331,6 +331,8 @@ void LRUCache::AddHandler(
 }
 
 void LRUCache::RemoveHandler(void* handler) {
+  assert(handlers_.count(handler) != 0);
+  assert(metrics_store_.count(handler) != 0);
   MutexLock l(&mutex_);
 
   (*handlers_[handler])(handler, metrics_store_[handler]);
@@ -342,7 +344,7 @@ void LRUCache::RemoveHandler(void* handler) {
 static int kNumShardBits = 4;         // default values, can be overridden
 
 class ShardedLRUCache : public Cache {
- protected:
+ private:
   LRUCache* shard_;
   port::Mutex id_mutex_;
   uint64_t last_id_;
