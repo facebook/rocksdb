@@ -1524,7 +1524,7 @@ void CompactMetrics(std::vector<BlockMetrics*>& metrics) {
 
   for (size_t i = 0; i < metrics.size(); ++i) {
     assert(metrics[i] != NULL);
-    const std::string& key = metrics[i]->GetKey();
+    const std::string& key = metrics[i]->GetDBKey();
 
     if (unique.count(key) == 0) {
       unique[key] = metrics[i];
@@ -1557,7 +1557,7 @@ void DBImpl::FlushMetrics(void* db_and_metrics) {
   dbimpl->metrics_db_mutex_.Lock();
   for (size_t i = 0; i < metrics->size(); ++i) {
     assert((*metrics)[i] != NULL);
-    const std::string& key = (*metrics)[i]->GetKey();
+    const std::string& key = (*metrics)[i]->GetDBKey();
     BlockMetrics* db_metrics = NULL;
 
     std::string db_value;

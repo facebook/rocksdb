@@ -33,7 +33,8 @@ class Block {
   // The caller is responsible for freeing this object.
   // REQUIRES: metrics must be non-NULL
   Iterator* NewMetricsIterator(const Comparator* comparator,
-                               const std::string& key,
+                               uint64_t file_number,
+                               uint64_t block_offset,
                                BlockMetrics** metrics);
 
   // Returns true if iter->key() is hot according to bm.
@@ -63,18 +64,20 @@ class WriteBatch;
 class ReadOptions;
 class BlockMetrics {
  public:
-  BlockMetrics(const std::string& key, uint32_t num_restarts,
-               uint32_t bytes_per_restart);
+  BlockMetrics(uint64_t file_number, uint64_t block_offset,
+               uint32_t num_restarts, uint32_t bytes_per_restart);
   ~BlockMetrics();
 
-  static BlockMetrics* Create(const std::string& key,
+  static BlockMetrics* Create(const std::string& db_key,
+                              const std::string& db_value);
+  static BlockMetrics* Create(uint64_t file_number, uint64_t block_offset,
                               const std::string& db_value);
 
   void RecordAccess(uint32_t restart_index, uint32_t restart_offset);
 
   bool IsHot(uint32_t restart_index, uint32_t restart_offset) const;
 
-  const std::string& GetKey() const;
+  std::string GetDBKey() const;
   std::string GetDBValue() const;
 
   // Returns true if bm represents metrics for the same block.
@@ -87,11 +90,12 @@ class BlockMetrics {
  private:
   friend class Block;
 
-  BlockMetrics(const std::string& key, uint32_t num_restarts,
-               uint32_t bytes_per_restart,
+  BlockMetrics(uint64_t file_number, uint64_t block_offset,
+               uint32_t num_restarts, uint32_t bytes_per_restart,
                const std::string& data);
 
-  std::string key_;
+  uint64_t file_number_;
+  uint64_t block_offset_;
   uint32_t num_restarts_;
   uint32_t bytes_per_restart_;
   char* metrics_;

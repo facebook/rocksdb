@@ -248,12 +248,10 @@ Iterator* Table::BlockReader(void* arg,
         iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
       }
     } else {
-      char key_buffer[16];
-      EncodeFixed64(key_buffer, table->rep_->file_number);
-      EncodeFixed64(key_buffer+8, handle.offset());
-      std::string key(key_buffer, sizeof(key_buffer));
       BlockMetrics* metrics = NULL;
-      iter = block->NewMetricsIterator(table->rep_->options.comparator, key,
+      iter = block->NewMetricsIterator(table->rep_->options.comparator,
+				       table->rep_->file_number,
+				       handle.offset(),
                                        &metrics);
 
       CacheMetricsInfo* cmi = new CacheMetricsInfo(options.metrics_handler,
