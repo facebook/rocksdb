@@ -251,7 +251,7 @@ Iterator* Table::BlockReader(void* arg,
       char key_buffer[16];
       EncodeFixed64(key_buffer, table->rep_->file_number);
       EncodeFixed64(key_buffer+8, handle.offset());
-      Slice key(key_buffer, sizeof(key_buffer));
+      std::string key(key_buffer, sizeof(key_buffer));
       BlockMetrics* metrics = NULL;
       iter = block->NewMetricsIterator(table->rep_->options.comparator, key,
                                        &metrics);

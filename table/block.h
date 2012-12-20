@@ -33,7 +33,7 @@ class Block {
   // The caller is responsible for freeing this object.
   // REQUIRES: metrics must be non-NULL
   Iterator* NewMetricsIterator(const Comparator* comparator,
-                               const Slice& key,
+                               const std::string& key,
                                BlockMetrics** metrics);
 
   // Returns true if iter->key() is hot according to bm.
@@ -58,20 +58,40 @@ class Block {
   class MetricsIter;
 };
 
+class DB;
+class WriteBatch;
+class ReadOptions;
 class BlockMetrics {
  public:
-  BlockMetrics(const Slice& key, uint32_t num_restarts,
+  BlockMetrics(const std::string& key, uint32_t num_restarts,
                uint32_t bytes_per_restart);
   ~BlockMetrics();
+
+  static BlockMetrics* Create(const std::string& key,
+                              const std::string& db_value);
 
   void RecordAccess(uint32_t restart_index, uint32_t restart_offset);
 
   bool IsHot(uint32_t restart_index, uint32_t restart_offset) const;
 
+  const std::string& GetKey() const;
+  std::string GetDBValue() const;
+
+  // Returns true if bm represents metrics for the same block.
+  bool IsCompatible(const BlockMetrics* bm) const;
+
+  // Joins the metrics from the other metrics into this one.
+  // REQUIRES: this->IsCompatible(bm);
+  void Join(const BlockMetrics* bm);
+
  private:
   friend class Block;
 
-  Slice key_;
+  BlockMetrics(const std::string& key, uint32_t num_restarts,
+               uint32_t bytes_per_restart,
+               const std::string& data);
+
+  std::string key_;
   uint32_t num_restarts_;
   uint32_t bytes_per_restart_;
   char* metrics_;

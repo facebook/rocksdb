@@ -171,6 +171,7 @@ class DBImpl : public DB {
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
+  static void FlushMetrics(void*);
   static void HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics);
 
 
@@ -224,6 +225,8 @@ class DBImpl : public DB {
   WritableFile* logfile_;
   uint64_t logfile_number_;
   log::Writer* log_;
+
+  port::Mutex metrics_db_mutex_;
   DB* metrics_db_;
 
   std::string host_name_;
@@ -243,6 +246,9 @@ class DBImpl : public DB {
 
   // Has a background stats log thread scheduled?
   bool bg_logstats_scheduled_;
+
+  // count how many threads are flushing metrics
+  int bg_flush_metrics_scheduled_;
 
   // Information for a manual compaction
   struct ManualCompaction {

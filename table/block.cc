@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <algorithm>
+#include "leveldb/db.h"
 #include "leveldb/comparator.h"
 #include "table/format.h"
 #include "util/coding.h"
@@ -333,7 +334,7 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
 }
 
 Iterator* Block::NewMetricsIterator(const Comparator* cmp,
-                                    const Slice& key,
+                                    const std::string& key,
                                     BlockMetrics** metrics) {
   assert(metrics != NULL);
 
@@ -363,38 +364,89 @@ bool Block::IsHot(const Iterator* iter, const BlockMetrics& bm) const {
   return bm.IsHot(it->restart_index_, it->restart_offset_);
 }
 
-BlockMetrics::BlockMetrics(const Slice& key, uint32_t num_restarts,
+BlockMetrics::BlockMetrics(const std::string& key, uint32_t num_restarts,
                            uint32_t bytes_per_restart)
   : key_(key),
     num_restarts_(num_restarts),
     bytes_per_restart_(bytes_per_restart) {
+  metrics_ = new char[num_restarts_*bytes_per_restart_]();
+}
+
+BlockMetrics::BlockMetrics(const std::string& key, uint32_t num_restarts,
+                           uint32_t bytes_per_restart, const std::string& data)
+  : key_(key),
+    num_restarts_(num_restarts),
+    bytes_per_restart_(bytes_per_restart) {
+  assert(data.size() == num_restarts_*bytes_per_restart_);
   metrics_ = new char[num_restarts_*bytes_per_restart_];
+  memcpy(metrics_, data.data(), data.size());
 }
 
 BlockMetrics::~BlockMetrics() {
   delete[] metrics_;
 }
 
+BlockMetrics* BlockMetrics::Create(const std::string& key, const std::string& db_value) {
+  Slice data(db_value);
+
+  uint32_t num_restarts;
+  uint32_t bytes_per_restart;
+
+  if (!GetVarint32(&data, &num_restarts)) return NULL;
+  if (!GetVarint32(&data, &bytes_per_restart)) return NULL;
+
+  return new BlockMetrics(key, num_restarts, bytes_per_restart, data.ToString());
+}
+
 void BlockMetrics::RecordAccess(uint32_t restart_index,
                                 uint32_t restart_offset) {
+  unsigned char* metrics = reinterpret_cast<unsigned char*>(metrics_);
   size_t bitIdx = restart_offset;
   if (bytes_per_restart_ < 4) {
     bitIdx &= (1u << bytes_per_restart_*8u)-1u;
   }
   size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
 
-  metrics_[byteIdx] |= 1 << (bitIdx%8);
+  metrics[byteIdx] |= 1 << (bitIdx%8);
 }
 
 bool BlockMetrics::IsHot(uint32_t restart_index,
                          uint32_t restart_offset) const {
+  unsigned char* metrics = reinterpret_cast<unsigned char*>(metrics_);
   size_t bitIdx = restart_offset;
   if (bytes_per_restart_ < 4) {
     bitIdx &= (1u << bytes_per_restart_*8u)-1u;
   }
   size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
 
-  return (metrics_[byteIdx] & (1 << (bitIdx%8))) != 0;
+  return (metrics[byteIdx] & (1 << (bitIdx%8))) != 0;
+}
+
+const std::string& BlockMetrics::GetKey() const {
+  return key_;
+}
+
+std::string BlockMetrics::GetDBValue() const {
+  std::string value;
+  PutVarint32(&value, num_restarts_);
+  PutVarint32(&value, bytes_per_restart_);
+  value.append(metrics_, num_restarts_*bytes_per_restart_);
+
+  return value;
+}
+
+bool BlockMetrics::IsCompatible(const BlockMetrics* bm) const {
+  return (bm != NULL && bm->num_restarts_ == num_restarts_ &&
+          bm->bytes_per_restart_ == bytes_per_restart_ &&
+          bm->key_ == key_);
+}
+
+void BlockMetrics::Join(const BlockMetrics* bm) {
+  assert(IsCompatible(bm));
+
+  for (size_t i = 0; i < num_restarts_ * bytes_per_restart_; ++i) {
+    metrics_[i] |= bm->metrics_[i];
+  }
 }
 
 }  // namespace leveldb

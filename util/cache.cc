@@ -10,6 +10,7 @@
 
 #include "leveldb/cache.h"
 #include "port/port.h"
+#include "table/block.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 
@@ -133,7 +134,7 @@ class HandleTable {
   }
 };
 
-size_t kMetricsFlushThreshold = 1000u;
+size_t kMetricsFlushThreshold = 10000u;
 // A single shard of sharded cache.
 class LRUCache {
  public:
@@ -291,10 +292,14 @@ void LRUCache::ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
                              BlockMetrics* metrics) {
   MutexLock l(&mutex_);
 
-  metrics_store_[handler]->push_back(metrics);
-  if (metrics_store_[handler]->size() >= kMetricsFlushThreshold) {
-    (*handlers_[handler])(handler, metrics_store_[handler]);
-    metrics_store_[handler] = new std::vector<BlockMetrics*>();
+  if (metrics_store_.count(handler) != 0) {
+    metrics_store_[handler]->push_back(metrics);
+    if (metrics_store_[handler]->size() >= kMetricsFlushThreshold) {
+      (*handlers_[handler])(handler, metrics_store_[handler]);
+      metrics_store_[handler] = new std::vector<BlockMetrics*>();
+    }
+  } else {
+    delete metrics;
   }
 
   Unref(reinterpret_cast<LRUHandle*>(handle));

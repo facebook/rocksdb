@@ -192,6 +192,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname,
       tmp_batch_(new WriteBatch),
       bg_compaction_scheduled_(0),
       bg_logstats_scheduled_(false),
+      bg_flush_metrics_scheduled_(0),
       manual_compaction_(NULL),
       logger_(NULL),
       disable_delete_obsolete_files_(false),
@@ -244,9 +245,13 @@ DBImpl::~DBImpl() {
   if (flush_on_destroy_) {
     FlushMemTable(FlushOptions());
   }
+  if (is_hotcold_) {
+    options_.block_cache->RemoveHandler(this);
+  }
   mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-NULL value is ok
-  while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
+  while (bg_compaction_scheduled_ || bg_logstats_scheduled_ ||
+         bg_flush_metrics_scheduled_) {
     bg_cv_.Wait();
   }
   mutex_.Unlock();
@@ -264,10 +269,6 @@ DBImpl::~DBImpl() {
   delete metrics_db_;
   delete table_cache_;
   delete[] stats_;
-
-  if (is_hotcold_) {
-    options_.block_cache->RemoveHandler(this);
-  }
 
   if (owns_info_log_) {
     delete options_.info_log;
@@ -289,7 +290,8 @@ void DBImpl::TEST_Destroy_DBImpl() {
 
   // wait till all background compactions are done.
   mutex_.Lock();
-  while (bg_compaction_scheduled_ || bg_logstats_scheduled_) {
+  while (bg_compaction_scheduled_ || bg_logstats_scheduled_ ||
+         bg_flush_metrics_scheduled_) {
     bg_cv_.Wait();
   }
 
@@ -1509,14 +1511,90 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
-void DBImpl::HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics) {
-  DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
+namespace {
+struct DBAndMetrics {
+  DBImpl* db;
+  std::vector<BlockMetrics*>* metrics;
 
-  // TODO: Implement background scheduling.
+  DBAndMetrics(DBImpl* db, std::vector<BlockMetrics*>* metrics)
+    : db(db), metrics(metrics) {}
+};
+void CompactMetrics(std::vector<BlockMetrics*>& metrics) {
+  std::map<std::string, BlockMetrics*> unique;
+
+  for (size_t i = 0; i < metrics.size(); ++i) {
+    assert(metrics[i] != NULL);
+    const std::string& key = metrics[i]->GetKey();
+
+    if (unique.count(key) == 0) {
+      unique[key] = metrics[i];
+    } else {
+      assert(unique[key]->IsCompatible(metrics[i]));
+      unique[key]->Join(metrics[i]);
+      delete metrics[i];
+    }
+  }
+
+  metrics.clear();
+
+  for (std::map<std::string, BlockMetrics*>::iterator it = unique.begin();
+       it != unique.end(); ++it) {
+    metrics.push_back(it->second);
+  }
+}
+}
+void DBImpl::FlushMetrics(void* db_and_metrics) {
+  DBAndMetrics* db_and_metrics_ptr =
+      reinterpret_cast<DBAndMetrics*>(db_and_metrics);
+  DBImpl* dbimpl = db_and_metrics_ptr->db;
+  std::vector<BlockMetrics*>* metrics = db_and_metrics_ptr->metrics;
+  delete db_and_metrics_ptr;
+
+  DB* metrics_db = dbimpl->metrics_db_;
+
+  CompactMetrics(*metrics);
+
+  dbimpl->metrics_db_mutex_.Lock();
+  for (size_t i = 0; i < metrics->size(); ++i) {
+    assert((*metrics)[i] != NULL);
+    const std::string& key = (*metrics)[i]->GetKey();
+    BlockMetrics* db_metrics = NULL;
+
+    std::string db_value;
+    Status s = metrics_db->Get(ReadOptions(), key, &db_value);
+
+    if (s.ok()) {
+      db_metrics = BlockMetrics::Create(key, db_value);
+    }
+
+    if (db_metrics != NULL && (*metrics)[i]->IsCompatible(db_metrics)) {
+      db_metrics->Join((*metrics)[i]);
+      metrics_db->Put(WriteOptions(), key, db_metrics->GetDBValue());
+    } else {
+      metrics_db->Put(WriteOptions(), key, (*metrics)[i]->GetDBValue());
+    }
+    delete db_metrics;
+  }
+  dbimpl->metrics_db_mutex_.Unlock();
+
   for (size_t i = 0; i < metrics->size(); ++i) {
     delete (*metrics)[i];
   }
   delete metrics;
+
+  dbimpl->mutex_.Lock();
+  --dbimpl->bg_flush_metrics_scheduled_;
+  dbimpl->bg_cv_.SignalAll();
+  dbimpl->mutex_.Unlock();
+}
+
+void DBImpl::HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics) {
+  DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
+
+  MutexLock l(&dbimpl->mutex_);
+
+  ++dbimpl->bg_flush_metrics_scheduled_;
+  dbimpl->env_->Schedule(&DBImpl::FlushMetrics, new DBAndMetrics(dbimpl, metrics));
 }
 
 //
@@ -2326,11 +2404,11 @@ Status DB::InternalOpen(const Options& options, const std::string& dbname,
 
     // Creates directory for db in case it might not create as we don't create
     // intermediate directories.
-    Env* env = options.env;
-    if (env == NULL) {
-      env = Env::Default();
-    }
-    env->CreateDir(dbname);
+    options.env->CreateDir(dbname);
+
+    // TODO: find better way to prevent deadlocks due to lack of background
+    // threads
+    options.env->SetBackgroundThreads(10);
 
     Options metrics_opts;
     metrics_opts.create_if_missing = true;
