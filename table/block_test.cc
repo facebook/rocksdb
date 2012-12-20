@@ -290,6 +290,58 @@ TEST(BlockMetricsTest, Join) {
   delete bm2;
 }
 
+TEST(BlockMetricsTest, StoreAndRetrieve) {
+  BlockMetrics* bm = new BlockMetrics(10, 0, 10, 2);
+
+  std::vector<std::pair<uint32_t, uint32_t> > accessed;
+
+  for (uint32_t restart_index = 0; restart_index < 10; ++restart_index) {
+    for (uint32_t restart_offset = 1; restart_offset < 100; ++restart_offset) {
+      if (restart_offset % 3 != 0) {
+        accessed.push_back(std::make_pair(restart_index, restart_offset));
+      }
+    }
+  }
+
+  Access(bm, 10, accessed);
+  BlockMetrics* bm_r = BlockMetrics::Create(bm->GetDBKey(), bm->GetDBValue());
+  ASSERT_TRUE(bm->IsCompatible(bm_r));
+
+  for (uint32_t restart_index = 0; restart_index < 10; ++restart_index) {
+    for (uint32_t restart_offset = 1; restart_offset < 100; ++restart_offset) {
+      ASSERT_TRUE(bm->IsHot(restart_index, restart_offset) ==
+		  bm_r->IsHot(restart_index, restart_offset));
+    }
+  }
+
+  delete bm;
+  delete bm_r;
+}
+
+TEST(BlockMetricsTest, DBKey) {
+  BlockMetrics* bm1 = new BlockMetrics(10, 0, 10, 2);
+  std::string db_key1 = bm1->GetDBKey();
+  delete bm1;
+
+  BlockMetrics* bm2;
+  std::string db_key2;
+
+  bm2 = new BlockMetrics(10, 256, 10, 2);
+  db_key2 = bm2->GetDBKey();
+  delete bm2;
+  ASSERT_NE(db_key1, db_key2);
+
+  bm2 = new BlockMetrics(266, 0, 10, 2);
+  db_key2 = bm2->GetDBKey();
+  delete bm2;
+  ASSERT_NE(db_key1, db_key2);
+
+  bm2 = new BlockMetrics(10, 0, 13, 2);
+  db_key2 = bm2->GetDBKey();
+  delete bm2;
+  ASSERT_EQ(db_key1, db_key2);
+}
+
 }  // namespace leveldb
 
 int main(int argc, char** argv) {
