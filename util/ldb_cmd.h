@@ -123,11 +123,15 @@ public:
     ret.append(LDBCommand::BLOOM_ARG);
     ret.append("<int,e.g.:14>] [");
     ret.append(LDBCommand::COMPRESSION_TYPE_ARG);
-    ret.append("<no|snappy|zlib|bzip2> ");
+    ret.append("<no|snappy|zlib|bzip2>] [");
     ret.append(LDBCommand::BLOCK_SIZE);
-    ret.append("=<block_size_in_bytes> ");
+    ret.append("<block_size_in_bytes>] [");
     ret.append(LDBCommand::AUTO_COMPACTION);
-    ret.append("=<true|false>]");
+    ret.append("<true|false>] [");
+    ret.append(LDBCommand::WRITE_BUFFER_SIZE_ARG);
+    ret.append("<int,e.g.:4194304>] [");
+    ret.append(LDBCommand::FILE_SIZE_ARG);
+    ret.append("<int,e.g.:2097152>] ");
   }
 
   /* Run the command, and return the execute result. */
@@ -209,6 +213,8 @@ private:
   static const char* COMPRESSION_TYPE_ARG;
   static const char* BLOCK_SIZE;
   static const char* AUTO_COMPACTION;
+  static const char* WRITE_BUFFER_SIZE_ARG;
+  static const char* FILE_SIZE_ARG;
   std::vector<std::string> open_args_;
   void parse_open_args(std::vector<std::string>& args);
 };
@@ -296,13 +302,9 @@ private:
   int old_levels_;
   int new_levels_;
   bool print_old_levels_;
-  int file_size_;
-  enum leveldb::CompressionType compression_;
 
   static const char* NEW_LEVLES_ARG;
   static const char* PRINT_OLD_LEVELS_ARG;
-  static const char* COMPRESSION_TYPE_ARG;
-  static const char* FILE_SIZE_ARG;
 
   Status GetOldNumOfLevels(leveldb::Options& opt, int* levels);
 };
