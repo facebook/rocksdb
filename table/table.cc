@@ -250,8 +250,8 @@ Iterator* Table::BlockReader(void* arg,
     } else {
       BlockMetrics* metrics = NULL;
       iter = block->NewMetricsIterator(table->rep_->options.comparator,
-				       table->rep_->file_number,
-				       handle.offset(),
+                                       table->rep_->file_number,
+                                       handle.offset(),
                                        &metrics);
 
       if (metrics == NULL) {
