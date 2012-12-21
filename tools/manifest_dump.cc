@@ -19,7 +19,7 @@
 #include "util/logging.h"
 
 static int verbose = 0;
-static int hex = 0;
+static int output_hex = 0;
 
 using namespace leveldb;
 
@@ -41,14 +41,18 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--verbose=%ld%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       verbose = n;
-    } else if (sscanf(argv[i], "--hex=%ld%c", &n, &junk) == 1 &&
-        (n == 0 || n == 1)) {
-      hex = n;
+    } else if (param == "--output_hex") {
+      output_hex = n;
+    } else {
+      fprintf(stderr, "Unknown or badly-formatted option: %s\n",
+              argv[i]);
+      abort();
     }
   }
   if (!foundfile) {
-    fprintf(stderr, "%s [--verbose=0|1] [--file=pathname of manifest file\n",
-             argv[0]);
+    fprintf(stderr,
+      "%s [--verbose=0|1] [--output_hex] [--file=pathname of manifest file]\n",
+      argv[0]);
     abort();
   }
 
@@ -64,7 +68,7 @@ int main(int argc, char** argv) {
 
   VersionSet* versions = new VersionSet(dbname, &options,
                                    tc, cmp);
-  Status s = versions->DumpManifest(options, file, verbose, hex);
+  Status s = versions->DumpManifest(options, file, verbose, output_hex);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
            s.ToString().c_str());
