@@ -254,9 +254,13 @@ Iterator* Table::BlockReader(void* arg,
 				       handle.offset(),
                                        &metrics);
 
-      CacheMetricsInfo* cmi = new CacheMetricsInfo(options.metrics_handler,
-                                                   cache_handle, metrics);
-      iter->RegisterCleanup(&ReleaseBlockAndRecordMetrics, block_cache, cmi);
+      if (metrics == NULL) {
+        iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
+      } else {
+        CacheMetricsInfo* cmi = new CacheMetricsInfo(options.metrics_handler,
+                                                     cache_handle, metrics);
+        iter->RegisterCleanup(&ReleaseBlockAndRecordMetrics, block_cache, cmi);
+      }
     }
   } else {
     iter = NewErrorIterator(s);
