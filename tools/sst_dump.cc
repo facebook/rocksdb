@@ -22,7 +22,9 @@ namespace leveldb {
 
 class SstFileReader {
 public:
-  SstFileReader(std::string file_name, bool verify_checksum = false);
+  SstFileReader(std::string file_name,
+                bool verify_checksum = false,
+                bool output_hex = false);
   Status ReadSequential(bool print_kv, uint64_t read_num = -1);
 
   uint64_t GetReadNumber() { return read_num_; }
@@ -31,10 +33,14 @@ private:
   std::string file_name_;
   uint64_t read_num_;
   bool verify_checksum_;
+  bool output_hex_;
 };
 
-SstFileReader::SstFileReader(std::string file_path, bool verify_checksum)
-:file_name_(file_path), read_num_(0), verify_checksum_(verify_checksum) {
+SstFileReader::SstFileReader(std::string file_path,
+                             bool verify_checksum,
+                             bool output_hex)
+ :file_name_(file_path), read_num_(0), verify_checksum_(verify_checksum),
+  output_hex_(output_hex) {
 }
 
 Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
@@ -62,8 +68,9 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
     if (read_num > 0 && i > read_num)
       break;
     if (print_kv) {
-      fprintf(stdout, "%s : %s\n",
-          key.ToString().c_str(), value.ToString().c_str());
+      fprintf(stdout, "%s ==> %s\n",
+              key.ToString(output_hex_).c_str(),
+              value.ToString(output_hex_).c_str());
     }
    }
 
@@ -80,6 +87,7 @@ static void print_help() {
   fprintf(stderr,
       "sst_dump [--command=check|scan] [--verify_checksum] "
       "--file=data_dir_OR_sst_file"
+      " [--output_hex]"
       " [--read_num=NUM]\n");
 }
 
@@ -92,10 +100,13 @@ int main(int argc, char** argv) {
   char junk;
   uint64_t n;
   bool verify_checksum = false;
+  bool output_hex = false;
   for (int i = 1; i < argc; i++)
   {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
+    } else if (strncmp(argv[i], "--output_hex", 12) == 0) {
+      output_hex = true;
     } else if (sscanf(argv[i], "--read_num=%ld%c", &n, &junk) == 1) {
       read_num = n;
     } else if (strncmp(argv[i], "--verify_checksum",
@@ -133,9 +144,10 @@ int main(int argc, char** argv) {
       continue;
     }
     if(dir) {
-      filename = dir_or_file + filename;
+      filename = std::string(dir_or_file) + "//" + filename;
     }
-    leveldb::SstFileReader reader(filename, verify_checksum);
+    leveldb::SstFileReader reader(filename, verify_checksum,
+                                  output_hex);
     leveldb::Status st;
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
