@@ -15,7 +15,6 @@ namespace leveldb {
 struct BlockContents;
 class Comparator;
 class BlockMetrics;
-class BlockMetricsHandler;
 
 class Block {
  public:
@@ -53,7 +52,14 @@ class Block {
   class MetricsIter;
 };
 
-const size_t kBlockMetricsSize = 32;
+// This class records metrics for a given block. This object however gets
+// attached to an iterator of a block and not the block itself as Block objects
+// are immutable and code relies on this property wrt thread safety.
+//
+// We don't solve the problem of thread safety with a lock as we wish to avoid
+// introducing extra mutexes (and their associated overhead) and since
+// iterators have to be protected by an external lock already if they want to
+// be used by multiple threads.
 class BlockMetrics {
  public:
   BlockMetrics(uint64_t file_number, uint64_t block_offset,
@@ -98,6 +104,10 @@ class BlockMetrics {
   uint64_t block_offset_;
   uint32_t num_restarts_;
   uint32_t bytes_per_restart_;
+
+  // We use a fixed size metrics_ array as dynamic allocations more than double
+  // the cost of creating a block metrics object.
+  static const size_t kBlockMetricsSize = 32;
   unsigned char metrics_[kBlockMetricsSize];
 };
 
