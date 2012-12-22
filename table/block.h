@@ -53,11 +53,11 @@ class Block {
   class MetricsIter;
 };
 
+const size_t kBlockMetricsSize = 32;
 class BlockMetrics {
  public:
   BlockMetrics(uint64_t file_number, uint64_t block_offset,
                uint32_t num_restarts, uint32_t bytes_per_restart);
-  ~BlockMetrics();
 
   // Creates a BlockMetrics object from the DB key and value. Returns NULL if
   // either/both are invalid.
@@ -98,7 +98,7 @@ class BlockMetrics {
   uint64_t block_offset_;
   uint32_t num_restarts_;
   uint32_t bytes_per_restart_;
-  char* metrics_;
+  unsigned char metrics_[kBlockMetricsSize];
 };
 
 }  // namespace leveldb

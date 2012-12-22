@@ -360,7 +360,7 @@ BlockMetrics::BlockMetrics(uint64_t file_number, uint64_t block_offset,
     block_offset_(block_offset),
     num_restarts_(num_restarts),
     bytes_per_restart_(bytes_per_restart) {
-  metrics_ = new char[num_restarts_*bytes_per_restart_]();
+  memset(metrics_, 0, kBlockMetricsSize);
 }
 
 BlockMetrics::BlockMetrics(uint64_t file_number, uint64_t block_offset,
@@ -371,12 +371,7 @@ BlockMetrics::BlockMetrics(uint64_t file_number, uint64_t block_offset,
     num_restarts_(num_restarts),
     bytes_per_restart_(bytes_per_restart) {
   assert(data.size() == num_restarts_*bytes_per_restart_);
-  metrics_ = new char[num_restarts_*bytes_per_restart_];
-  memcpy(metrics_, data.data(), data.size());
-}
-
-BlockMetrics::~BlockMetrics() {
-  delete[] metrics_;
+  memcpy(metrics_, data.data(), std::max(data.size(), kBlockMetricsSize));
 }
 
 BlockMetrics* BlockMetrics::Create(uint64_t file_number, uint64_t block_offset,
@@ -405,20 +400,18 @@ BlockMetrics* BlockMetrics::Create(const std::string& db_key,
 
 void BlockMetrics::RecordAccess(uint32_t restart_index,
                                 uint32_t restart_offset) {
-  unsigned char* metrics = reinterpret_cast<unsigned char*>(metrics_);
   size_t bitIdx = restart_offset % (bytes_per_restart_ * 8u);
   size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
 
-  metrics[byteIdx] |= 1 << (bitIdx%8);
+  metrics_[byteIdx % kBlockMetricsSize] |= 1 << (bitIdx%8);
 }
 
 bool BlockMetrics::IsHot(uint32_t restart_index,
                          uint32_t restart_offset) const {
-  unsigned char* metrics = reinterpret_cast<unsigned char*>(metrics_);
   size_t bitIdx = restart_offset % (bytes_per_restart_ * 8u);
   size_t byteIdx = restart_index*bytes_per_restart_ + bitIdx/8;
 
-  return (metrics[byteIdx] & (1 << (bitIdx%8))) != 0;
+  return (metrics_[byteIdx % kBlockMetricsSize] & (1 << (bitIdx%8))) != 0;
 }
 
 std::string BlockMetrics::GetDBKey() const {
@@ -432,7 +425,8 @@ std::string BlockMetrics::GetDBValue() const {
   std::string value;
   PutVarint32(&value, num_restarts_);
   PutVarint32(&value, bytes_per_restart_);
-  value.append(metrics_, num_restarts_*bytes_per_restart_);
+  value.append(reinterpret_cast<const char*>(metrics_),
+               num_restarts_*bytes_per_restart_);
 
   return value;
 }
