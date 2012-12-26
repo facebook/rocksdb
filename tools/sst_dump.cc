@@ -105,12 +105,11 @@ int main(int argc, char** argv) {
   {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
-    } else if (strncmp(argv[i], "--output_hex", 12) == 0) {
+    } else if (strcmp(argv[i], "--output_hex") == 0) {
       output_hex = true;
     } else if (sscanf(argv[i], "--read_num=%ld%c", &n, &junk) == 1) {
       read_num = n;
-    } else if (strncmp(argv[i], "--verify_checksum",
-        strlen("--verify_checksum")) == 0) {
+    } else if (strcmp(argv[i], "--verify_checksum") == 0) {
       verify_checksum = true;
     } else if (strncmp(argv[i], "--command=", 10) == 0) {
       command = argv[i] + 10;
