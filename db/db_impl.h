@@ -32,6 +32,8 @@ class VersionSet;
 
 class DBImpl : public DB {
  public:
+  // If metrics_db is not NULL, then this database records metrics and uses
+  // them for compactions.
   DBImpl(const Options& options, const std::string& dbname,
          DB* metrics_db = NULL);
   virtual ~DBImpl();
@@ -171,7 +173,11 @@ class DBImpl : public DB {
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
+  // This gets run in the background thread to handle flushing metrics we
+  // receive from the cache to metrics_db_. Only up to a single instance of this
+  // thread will run at a time per DBImpl instance.
   static void FlushMetrics(void*);
+  // This is the callback function that gets passed to Cache to handle metrics.
   static void HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics);
 
 
@@ -228,7 +234,9 @@ class DBImpl : public DB {
   WritableFile* logfile_;
   uint64_t logfile_number_;
   log::Writer* log_;
-  std::deque<std::vector<BlockMetrics*>*> unflushed_metrics_;
+  // Metrics that have been received from the cache, but have not yet been
+  // flushed to metrics_db_.
+  std::vector<std::vector<BlockMetrics*>*> unflushed_metrics_;
 
   std::string host_name_;
 

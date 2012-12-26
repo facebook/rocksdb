@@ -288,7 +288,7 @@ void DBImpl::TEST_Destroy_DBImpl() {
   // ensure that no new memtable flushes can occur
   flush_on_destroy_ = false;
 
-  // wait till all background compactions are done.
+  // wait till all background tasks are done.
   mutex_.Lock();
   while (bg_compaction_scheduled_ || bg_logstats_scheduled_ ||
          bg_flushing_metrics_scheduled_) {
@@ -1512,6 +1512,8 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 }
 
 namespace {
+// Helper function that takes a vector of BlockMetrics and joins all the
+// metrics together that share the same key.
 void CompactMetrics(std::vector<BlockMetrics*>& metrics) {
   std::map<std::string, BlockMetrics*> unique;
 
@@ -1540,8 +1542,9 @@ void DBImpl::FlushMetrics(void* db) {
   DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
 
   while (true) {
-    std::vector<BlockMetrics*>* metrics = NULL;
+    std::vector<std::vector<BlockMetrics*>*> unflushed_metrics;
 
+    // Get unflushed metrics.
     {
       MutexLock l(&dbimpl->mutex_);
 
@@ -1551,17 +1554,25 @@ void DBImpl::FlushMetrics(void* db) {
         return;
       }
 
-      metrics = dbimpl->unflushed_metrics_.front();
-      dbimpl->unflushed_metrics_.pop_front();
+      unflushed_metrics = dbimpl->unflushed_metrics_;
+      dbimpl->unflushed_metrics_.clear();
     }
 
+    // Join all the metrics together in a single vector.
+    std::vector<BlockMetrics*> metrics;
+    for (size_t i = 0; i < unflushed_metrics.size(); ++i) {
+      metrics.insert(metrics.end(), unflushed_metrics[i]->begin(),
+                     unflushed_metrics[i]->end());
+      delete unflushed_metrics[i];
+    }
+
+    CompactMetrics(metrics);
+
+    // Flush metrics to database.
     DB* metrics_db = dbimpl->metrics_db_;
-
-    CompactMetrics(*metrics);
-
-    for (size_t i = 0; i < metrics->size(); ++i) {
-      assert((*metrics)[i] != NULL);
-      const std::string& key = (*metrics)[i]->GetDBKey();
+    for (size_t i = 0; i < metrics.size(); ++i) {
+      assert(metrics[i] != NULL);
+      const std::string& key = metrics[i]->GetDBKey();
       BlockMetrics* db_metrics = NULL;
 
       std::string db_value;
@@ -1571,19 +1582,18 @@ void DBImpl::FlushMetrics(void* db) {
         db_metrics = BlockMetrics::Create(key, db_value);
       }
 
-      if (db_metrics != NULL && (*metrics)[i]->IsCompatible(db_metrics)) {
-        db_metrics->Join((*metrics)[i]);
+      if (db_metrics != NULL && metrics[i]->IsCompatible(db_metrics)) {
+        db_metrics->Join(metrics[i]);
         metrics_db->Put(WriteOptions(), key, db_metrics->GetDBValue());
       } else {
-        metrics_db->Put(WriteOptions(), key, (*metrics)[i]->GetDBValue());
+        metrics_db->Put(WriteOptions(), key, metrics[i]->GetDBValue());
       }
       delete db_metrics;
     }
 
-    for (size_t i = 0; i < metrics->size(); ++i) {
-      delete (*metrics)[i];
+    for (size_t i = 0; i < metrics.size(); ++i) {
+      delete metrics[i];
     }
-    delete metrics;
   }
 }
 
@@ -1592,8 +1602,8 @@ void DBImpl::HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics) {
 
   dbimpl->mutex_.Lock();
 
-  // If we are shutting down or we are not a hot- cold db discard metrics.
-  if (dbimpl->shutting_down_.Acquire_Load() ) {
+  // If we are shutting down or we are not a hot-cold db discard metrics.
+  if (!dbimpl->is_hotcold_ || dbimpl->shutting_down_.Acquire_Load()) {
     dbimpl->mutex_.Unlock();
     for (size_t i = 0; i < metrics->size(); ++i) {
       delete (*metrics)[i];
