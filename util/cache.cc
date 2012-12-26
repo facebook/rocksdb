@@ -147,7 +147,10 @@ class HandleTable {
   }
 };
 
+// Number of metrics that are stored per shard before they get flushed to the
+// handler_func.
 size_t kMetricsFlushThreshold = 10000u;
+
 // A single shard of sharded cache.
 class LRUCache {
  public:
@@ -192,7 +195,9 @@ class LRUCache {
 
   HandleTable table_;
 
+  // Stores handler_funcs for the handlers.
   std::map<void*, void (*)(void*, std::vector<BlockMetrics*>*)> handlers_;
+  // Stores the cache of metrics for specific handlers.
   std::map<void*, std::vector<BlockMetrics*>*> metrics_store_;
 };
 
@@ -323,6 +328,8 @@ void LRUCache::AddHandler(
     void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {
   assert(handler != NULL);
   assert(handler_func != NULL);
+  assert(handlers_.count(handler) == 0);
+  assert(metrics_store_.count(handler) == 0);
 
   MutexLock l(&mutex_);
 

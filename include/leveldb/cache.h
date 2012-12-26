@@ -90,19 +90,29 @@ class Cache {
 
 
   // Releases the handle and passes the metrics to the metrics handler
-  // registered with the AddHandler() method.
-  // Note that this function takes ownership of metrics.
+  // that was added with the AddHandler() method.
+  // If handler was not registered then metrics is deleted.
   virtual void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
                                        BlockMetrics* metrics);
 
-  // Registers a handler for blocks of metrics.
-  // The first parameter for the callback function is the handler itself.
+  // Adds a handler for a std::vector of metrics. Whenever enough metrics are
+  // acquired by ReleaseAndRecordMetrics() handler_func is called.  The first
+  // parameter for the callback function is the handler itself.
+  // Note that handler_func can get called on any thread and hence must be
+  // thread-safe.
+  //
+  // REQUIRES: handler != NULL
+  // REQUIRES: handler_func != NULL
+  // REQUIRES: hander hasn't been added before. (handler can get re-added after
+  //           it was removed by RemoveHandler())
   virtual void AddHandler(
       void* handler,
       void (*handler_func)(void*, std::vector<BlockMetrics*>*));
 
   // Removes a handler. This call flushes all the cached metrics before
   // unregistering the handler.
+  //
+  // REQUIRES: handler has been added with AddHandler()
   virtual void RemoveHandler(void* handler);
 
  private:
