@@ -373,8 +373,8 @@ BlockMetrics::BlockMetrics(uint64_t file_number, uint64_t block_offset,
     block_offset_(block_offset),
     num_restarts_(num_restarts),
     bytes_per_restart_(bytes_per_restart) {
-  assert(data.size() == num_restarts_*bytes_per_restart_);
-  memcpy(metrics_, data.data(), std::max(data.size(), kBlockMetricsSize));
+  assert(data.size() == kBlockMetricsSize);
+  memcpy(metrics_, data.data(), kBlockMetricsSize);
 }
 
 BlockMetrics* BlockMetrics::Create(uint64_t file_number, uint64_t block_offset,
@@ -428,8 +428,7 @@ std::string BlockMetrics::GetDBValue() const {
   std::string value;
   PutVarint32(&value, num_restarts_);
   PutVarint32(&value, bytes_per_restart_);
-  value.append(reinterpret_cast<const char*>(metrics_),
-               num_restarts_*bytes_per_restart_);
+  value.append(reinterpret_cast<const char*>(metrics_), kBlockMetricsSize);
 
   return value;
 }
@@ -444,7 +443,7 @@ bool BlockMetrics::IsCompatible(const BlockMetrics* bm) const {
 void BlockMetrics::Join(const BlockMetrics* bm) {
   assert(IsCompatible(bm));
 
-  for (size_t i = 0; i < num_restarts_ * bytes_per_restart_; ++i) {
+  for (size_t i = 0; i < kBlockMetricsSize; ++i) {
     metrics_[i] |= bm->metrics_[i];
   }
 }
