@@ -160,6 +160,8 @@ static void ReleaseBlock(void* arg, void* h) {
   cache->Release(handle);
 }
 
+// This struct stores all the information needed to send metrics to the cache
+// along with freeing the cache handle.
 struct CacheMetricsInfo {
   void* handler;
   Cache::Handle* handle;
@@ -169,6 +171,7 @@ struct CacheMetricsInfo {
     : handler(handler), handle(handle), metrics(metrics) {
   }
 };
+// Releases the block's cache handle and flushes the metrics from the iterator.
 static void ReleaseBlockAndRecordMetrics(void* arg, void* cmi) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   CacheMetricsInfo* cmiptr = reinterpret_cast<CacheMetricsInfo*>(cmi);

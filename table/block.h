@@ -29,7 +29,8 @@ class Block {
   // Creates a new iterator that keeps track of accesses.
   //
   // Creates a BlockMetrics object on the heap and sets metrics to it.
-  // The caller is responsible for freeing this object.
+  // The caller is responsible for freeing this object. *metrics may be set to
+  // NULL.
   // REQUIRES: metrics must be non-NULL
   Iterator* NewMetricsIterator(const Comparator* comparator,
                                uint64_t file_number,
@@ -60,6 +61,15 @@ class Block {
 // introducing extra mutexes (and their associated overhead) and since
 // iterators have to be protected by an external lock already if they want to
 // be used by multiple threads.
+//
+// Currently, BlockMetrics are recorded in Block::MetricsIter. Table receives a
+// pointer to the BlockMetrics instance. That BlockMetrics instance is passed
+// to the Cache instance by adding a cleanup function that passes it on. The
+// Cache passes on the metrics (in batches) to the DBImpl instance that
+// registered itself with the Cache for receiving metrics.
+//
+// DBImpl indicates to Table that it wishes to have metrics by setting
+// ReadOptions.metrics_handler to itself as opposed to leaving it NULL.
 class BlockMetrics {
  public:
   BlockMetrics(uint64_t file_number, uint64_t block_offset,
