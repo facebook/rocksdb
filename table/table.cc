@@ -38,13 +38,6 @@ struct Table::Rep {
 };
 
 Status Table::Open(const Options& options,
-                   RandomAccessFile* file,
-                   uint64_t size,
-                   Table** table) {
-  return Open(options, 0, file, size, table);
-}
-
-Status Table::Open(const Options& options,
                    uint64_t file_number,
                    RandomAccessFile* file,
                    uint64_t size,

@@ -248,7 +248,9 @@ class TableConstructor: public Constructor {
     Options table_options;
     table_options.comparator = options.comparator;
     table_options.compression_opts = options.compression_opts;
-    return Table::Open(table_options, source_, sink.contents().size(), &table_);
+    // Give the table an arbitrary file number.
+    return Table::Open(table_options, 9001u, source_, sink.contents().size(),
+                       &table_);
   }
 
   virtual Iterator* NewIterator() const {

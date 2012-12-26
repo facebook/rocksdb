@@ -36,12 +36,6 @@ class Table {
   //
   // *file must remain live while this Table is in use.
   static Status Open(const Options& options,
-                     RandomAccessFile* file,
-                     uint64_t file_size,
-                     Table** table);
-
-  // Same as above, but specifies the file number
-  static Status Open(const Options& options,
                      uint64_t file_number,
                      RandomAccessFile* file,
                      uint64_t file_size,

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "db/filename.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "leveldb/db.h"
@@ -25,7 +26,8 @@ public:
   SstFileReader(std::string file_name,
                 bool verify_checksum = false,
                 bool output_hex = false);
-  Status ReadSequential(bool print_kv, uint64_t read_num = -1);
+  Status ReadSequential(bool print_kv, uint64_t file_number,
+                        uint64_t read_num = -1);
 
   uint64_t GetReadNumber() { return read_num_; }
 
@@ -43,7 +45,8 @@ SstFileReader::SstFileReader(std::string file_path,
   output_hex_(output_hex) {
 }
 
-Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
+Status SstFileReader::ReadSequential(bool print_kv, uint64_t file_number,
+                                     uint64_t read_num)
 {
   Table* table;
   Options table_options;
@@ -54,7 +57,7 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
   }
   uint64_t file_size;
   table_options.env->GetFileSize(file_name_, &file_size);
-  s = Table::Open(table_options, file, file_size, &table);
+  s = Table::Open(table_options, file_number, file, file_size, &table);
   if(!s.ok()) {
    return s;
   }
@@ -89,6 +92,19 @@ static void print_help() {
       "--file=data_dir_OR_sst_file"
       " [--output_hex]"
       " [--read_num=NUM]\n");
+}
+
+// Returns true if the specified file is a table file.
+// file_number is the file number of the table file.
+bool is_table_file(std::string filename, uint64_t& file_number) {
+  size_t last_slash = filename.find_last_of("/\\");
+  if (last_slash != std::string::npos) {
+    filename = filename.substr(last_slash+1);
+  }
+
+  leveldb::FileType type;
+  return leveldb::ParseFileName(filename, &file_number, &type) &&
+         type == leveldb::kTableFile;
 }
 
 int main(int argc, char** argv) {
@@ -137,8 +153,8 @@ int main(int argc, char** argv) {
   uint64_t total_read = 0;
   for (size_t i = 0; i < filenames.size(); i++) {
     std::string filename = filenames.at(i);
-    if (filename.length() <= 4 ||
-        filename.rfind(".sst") != filename.length() - 4) {
+    uint64_t file_number;
+    if (!is_table_file(filename, file_number)) {
       //ignore
       continue;
     }
@@ -150,7 +166,7 @@ int main(int argc, char** argv) {
     leveldb::Status st;
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
-      st = reader.ReadSequential(command != "check",
+      st = reader.ReadSequential(command != "check", file_number,
           read_num > 0 ? (read_num - total_read) : read_num);
       if (!st.ok()) {
         fprintf(stderr, "%s: %s\n", filename.c_str(),
