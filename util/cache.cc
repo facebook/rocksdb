@@ -210,6 +210,7 @@ LRUCache::LRUCache()
 }
 
 LRUCache::~LRUCache() {
+  // Flush cached metrics to the handlers.
   std::map<void*, std::vector<BlockMetrics*>*>::iterator it;
   for (it = metrics_store_.begin();
        it != metrics_store_.end(); ++it) {
@@ -310,6 +311,8 @@ void LRUCache::ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
                                        BlockMetrics* metrics) {
   MutexLock l(&mutex_);
 
+  // Stores the metrics in the cache for the handler if handler has been added;
+  // otherwise, we just delete it.
   if (metrics_store_.count(handler) != 0) {
     metrics_store_[handler]->push_back(metrics);
     if (metrics_store_[handler]->size() >= kMetricsFlushThreshold) {

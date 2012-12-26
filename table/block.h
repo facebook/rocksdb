@@ -106,7 +106,7 @@ class BlockMetrics {
   uint32_t bytes_per_restart_;
 
   // We use a fixed size metrics_ array as dynamic allocations more than double
-  // the cost of creating a block metrics object.
+  // the time taking to create a BlockMetrics object.
   static const size_t kBlockMetricsSize = 32;
   unsigned char metrics_[kBlockMetricsSize];
 };

@@ -271,6 +271,9 @@ class Block::Iter : public Iterator {
   }
 };
 
+// Alternative version of Block::Iter that records accesses to the
+// iterator (specifically changing the position of the iterator).
+// This is the iterator returned by Block::NewMetricsIterator() on success.
 class Block::MetricsIter : public Block::Iter {
  private:
   BlockMetrics* metrics_;
