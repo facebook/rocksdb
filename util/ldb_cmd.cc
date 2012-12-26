@@ -17,6 +17,7 @@ const char* LDBCommand::BLOCK_SIZE = "--block_size=";
 const char* LDBCommand::AUTO_COMPACTION = "--auto_compaction=";
 const char* LDBCommand::WRITE_BUFFER_SIZE_ARG = "--write_buffer_size=";
 const char* LDBCommand::FILE_SIZE_ARG = "--file_size=";
+const char* LDBCommand::DELIM = " ==> ";
 
 void LDBCommand::parse_open_args(std::vector<std::string>& args) {
   std::vector<std::string> rest_of_args;
@@ -170,7 +171,6 @@ void Compactor::DoCommand() {
 const char* DBLoader::HEX_INPUT_ARG = "--input_hex";
 const char* DBLoader::CREATE_IF_MISSING_ARG = "--create_if_missing";
 const char* DBLoader::DISABLE_WAL_ARG = "--disable_wal";
-static const char* delim = " ==> ";
 
 DBLoader::DBLoader(std::string& db_name, std::vector<std::string>& args) :
     LDBCommand(db_name, args),
@@ -220,18 +220,10 @@ void DBLoader::DoCommand() {
   int bad_lines = 0;
   std::string line;
   while (std::getline(std::cin, line, '\n')) {
-    size_t pos = line.find(delim);
-    if (pos != std::string::npos) {
-      std::string key = line.substr(0, pos);
-      std::string value = line.substr(pos + strlen(delim));
-
-      if (hex_input_) {
-        key = HexToString(key);
-        value = HexToString(value);
-      }
-
+    std::string key;
+    std::string value;
+    if (ParseKeyValue(line, &key, &value, hex_input_)) {
       db_->Put(write_options, Slice(key), Slice(value));
-
     } else if (0 == line.find("Keys in range:")) {
       // ignore this line
     } else if (0 == line.find("Created bg thread 0x")) {
@@ -344,28 +336,99 @@ void DBDumper::DoCommand() {
     }
     ++count;
     if (!count_only_) {
-      if (hex_output_) {
-        std::string str = iter->key().ToString();
-        for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%02X", (unsigned char)str[i]);
-        }
-        fprintf(stdout, delim);
-        str = iter->value().ToString();
-        for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%02X", (unsigned char)str[i]);
-        }
-        fprintf(stdout, "\n");
-      } else {
-        fprintf(stdout, "%s%s%s\n", iter->key().ToString().c_str(),
-            delim,
-            iter->value().ToString().c_str());
-      }
+      std::string str = PrintKeyValue(iter->key().ToString(),
+                                      iter->value().ToString(),
+                                      hex_output_);
+      fprintf(stdout, "%s\n", str.c_str());
     }
   }
   fprintf(stdout, "Keys in range: %lld\n", (long long) count);
   // Clean up
   delete iter;
 }
+
+
+const char* DBQuerier::HEX_ARG = "--hex";
+const char* DBQuerier::HELP_CMD = "help";
+const char* DBQuerier::GET_CMD = "get";
+const char* DBQuerier::PUT_CMD = "put";
+const char* DBQuerier::DELETE_CMD = "delete";
+
+DBQuerier::DBQuerier(std::string& db_name, std::vector<std::string>& args) :
+    LDBCommand(db_name, args),
+    hex_(false) {
+  for (unsigned int i = 0; i < args.size(); i++) {
+    std::string& arg = args.at(i);
+    if (arg == HEX_ARG) {
+      hex_ = true;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument:" + arg);
+    }
+  }
+}
+
+void DBQuerier::Help(std::string& ret) {
+  LDBCommand::Help(ret);
+  ret.append("[--hex] ");
+  ret.append("(type \"help\" on stdin for details.)");
+}
+
+void DBQuerier::DoCommand() {
+  if (!db_) {
+    return;
+  }
+
+  leveldb::ReadOptions::ReadOptions read_options;
+  leveldb::WriteOptions::WriteOptions write_options;
+
+  std::string line;
+  std::string key;
+  std::string value;
+  while (std::getline(std::cin, line, '\n')) {
+
+    // Parse line into vector<string>
+    std::vector<std::string> tokens;
+    size_t pos = 0;
+    while (true) {
+      size_t pos2 = line.find(' ', pos);
+      if (pos2 == std::string::npos) {
+        break;
+      }
+      tokens.push_back(line.substr(pos, pos2-pos));
+      pos = pos2 + 1;
+    }
+    tokens.push_back(line.substr(pos));
+
+    const std::string& cmd = tokens[0];
+
+    if (cmd == HELP_CMD) {
+      fprintf(stdout,
+              "get <key>\n"
+              "put <key> <value>\n"
+              "delete <key>\n");
+    } else if (cmd == DELETE_CMD && tokens.size() == 2) {
+      key = (hex_ ? HexToString(tokens[1]) : tokens[1]);
+      db_->Delete(write_options, Slice(key));
+      fprintf(stdout, "Successfully deleted %s\n", tokens[1].c_str());
+    } else if (cmd == PUT_CMD && tokens.size() == 3) {
+      key = (hex_ ? HexToString(tokens[1]) : tokens[1]);
+      value = (hex_ ? HexToString(tokens[2]) : tokens[2]);
+      db_->Put(write_options, Slice(key), Slice(value));
+      fprintf(stdout, "Successfully put %s %s\n",
+              tokens[1].c_str(), tokens[2].c_str());
+    } else if (cmd == GET_CMD && tokens.size() == 2) {
+      key = (hex_ ? HexToString(tokens[1]) : tokens[1]);
+      if (db_->Get(read_options, Slice(key), &value).ok()) {
+        fprintf(stdout, "%s\n", PrintKeyValue(key, value, hex_).c_str());
+      } else {
+        fprintf(stdout, "Not found %s\n", tokens[1].c_str());
+      }
+    } else {
+      fprintf(stdout, "Unknown command %s\n", line.c_str());
+    }
+  }
+}
+
 
 
 const char* ReduceDBLevels::NEW_LEVLES_ARG = "--new_levels=";

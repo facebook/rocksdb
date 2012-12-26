@@ -178,6 +178,45 @@ public:
     return parsed;
   }
 
+  static std::string StringToHex(const std::string& str) {
+    std::string result;
+    char buf[10];
+    for (size_t i = 0; i < str.length(); i++) {
+      snprintf(buf, 10, "%02X", (unsigned char)str[i]);
+      result += buf;
+    }
+    return result;
+  }
+
+  static const char* DELIM;
+  static bool ParseKeyValue(const std::string& line,
+                              std::string* key,
+                              std::string* value,
+                              bool hex) {
+    size_t pos = line.find(DELIM);
+    if (pos != std::string::npos) {
+      (*key) = line.substr(0, pos);
+      (*value) = line.substr(pos + strlen(DELIM));
+      if (hex) {
+        (*key) = HexToString(*key);
+        (*value) = HexToString(*value);
+      }
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  static std::string PrintKeyValue(const std::string& key,
+                                   const std::string& value,
+                                   bool hex) {
+    std::string result;
+    result.append(hex ? StringToHex(key) : key);
+    result.append(DELIM);
+    result.append(hex ? StringToHex(value) : value);
+    return result;
+  }
+
 protected:
 
   void OpenDB() {
@@ -277,6 +316,24 @@ private:
   static const char* HEX_INPUT_ARG;
   static const char* CREATE_IF_MISSING_ARG;
   static const char* DISABLE_WAL_ARG;
+};
+
+class DBQuerier: public LDBCommand {
+public:
+  DBQuerier(std::string& db_name, std::vector<std::string>& args);
+  virtual ~DBQuerier() {}
+  static void Help(std::string& ret);
+  virtual void DoCommand();
+
+private:
+  bool hex_;
+
+  static const char* HEX_ARG;
+
+  static const char* HELP_CMD;
+  static const char* GET_CMD;
+  static const char* PUT_CMD;
+  static const char* DELETE_CMD;
 };
 
 class ReduceDBLevels : public LDBCommand {

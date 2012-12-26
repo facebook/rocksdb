@@ -14,4 +14,4 @@ leveldb_shell
 manifest_dump
 sst_dump
 util/build_version.cc
-dg_repl_stress
+db_repl_stress
