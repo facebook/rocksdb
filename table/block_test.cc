@@ -210,23 +210,6 @@ TEST(BlockMetricsTest, Hot) {
   Access(bm, num_restarts, accessed);
   ASSERT_TRUE(AreAccessesHot(bm, num_restarts, accessed));
   delete bm;
-
-  // Check that there is no bleeding between restart indices
-  accessed.clear();
-  for (uint32_t restart_offset = 0; restart_offset < 100; ++restart_offset) {
-    if (restart_offset % 3 != 0) continue;
-    accessed.push_back(std::make_pair(2, restart_offset));
-  }
-  num_restarts = 5;
-  bytes_per_restart = 2;
-  bm = new BlockMetrics(0, 0, num_restarts, bytes_per_restart);
-  Access(bm, num_restarts, accessed);
-  ASSERT_TRUE(!IsAnyHot(bm, num_restarts, bytes_per_restart, 0));
-  ASSERT_TRUE(!IsAnyHot(bm, num_restarts, bytes_per_restart, 1));
-  ASSERT_TRUE(IsAnyHot(bm, num_restarts, bytes_per_restart, 2));
-  ASSERT_TRUE(!IsAnyHot(bm, num_restarts, bytes_per_restart, 3));
-  ASSERT_TRUE(!IsAnyHot(bm, num_restarts, bytes_per_restart, 4));
-  delete bm;
 }
 
 TEST(BlockMetricsTest, Compatible) {
