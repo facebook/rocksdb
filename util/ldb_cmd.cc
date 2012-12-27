@@ -125,7 +125,7 @@ Compactor::Compactor(std::string& db_name, std::vector<std::string>& args) :
     } else if (arg.find(END_ARG) == 0) {
       null_to_ = false;
       to_ = arg.substr(strlen(END_ARG));
-    } else if (arg.find(HEX_ARG) == 0) {
+    } else if (arg == HEX_ARG) {
       hex_ = true;
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument." + arg);
@@ -178,11 +178,11 @@ DBLoader::DBLoader(std::string& db_name, std::vector<std::string>& args) :
     create_if_missing_(false) {
   for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
-    if (arg.find(HEX_INPUT_ARG) == 0) {
+    if (arg == HEX_INPUT_ARG) {
       hex_input_ = true;
-    } else if (arg.find(CREATE_IF_MISSING_ARG) == 0) {
+    } else if (arg == CREATE_IF_MISSING_ARG) {
       create_if_missing_ = true;
-    } else if (arg.find(DISABLE_WAL_ARG) == 0) {
+    } else if (arg == DISABLE_WAL_ARG) {
       disable_wal_ = true;
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument:" + arg);
@@ -268,15 +268,15 @@ DBDumper::DBDumper(std::string& db_name, std::vector<std::string>& args) :
     } else if (arg.find(END_ARG) == 0) {
       null_to_ = false;
       to_ = arg.substr(strlen(END_ARG));
-    } else if (arg.find(HEX_ARG) == 0) {
+    } else if (arg == HEX_ARG) {
       hex_ = true;
     } else if (arg.find(MAX_KEYS_ARG) == 0) {
       max_keys_ = atoi(arg.substr(strlen(MAX_KEYS_ARG)).c_str());
-    } else if (arg.find(STATS_ARG) == 0) {
+    } else if (arg == STATS_ARG) {
       print_stats_ = true;
-    } else if (arg.find(COUNT_ONLY_ARG) == 0) {
+    } else if (arg == COUNT_ONLY_ARG) {
       count_only_ = true;
-    } else if (arg.find(HEX_OUTPUT_ARG) == 0) {
+    } else if (arg == HEX_OUTPUT_ARG) {
       hex_output_ = true;
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument:" + arg);
@@ -382,7 +382,7 @@ ReduceDBLevels::ReduceDBLevels(std::string& db_name,
     std::string& arg = args.at(i);
     if (arg.find(NEW_LEVLES_ARG) == 0) {
       new_levels_ = atoi(arg.substr(strlen(NEW_LEVLES_ARG)).c_str());
-    } else if (arg.find(PRINT_OLD_LEVELS_ARG) == 0) {
+    } else if (arg == PRINT_OLD_LEVELS_ARG) {
       print_old_levels_ = true;
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED(
@@ -518,7 +518,7 @@ WALDumper::WALDumper(std::vector<std::string>& args) :
   wal_file_.clear();
   for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
-    if (arg.find("--header") == 0) {
+    if (arg == "--header") {
       print_header_ = true;
     } else if (arg.find(WAL_FILE_ARG) == 0) {
       wal_file_ = arg.substr(strlen(WAL_FILE_ARG));
