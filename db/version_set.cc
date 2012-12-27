@@ -366,7 +366,7 @@ Status Version::Get(const ReadOptions& options,
       files = &tmp[0];
       num_files = tmp.size();
     }
-    assert(num_files <= 1 || level == 1 || vset_->IsHybrid());
+    assert(num_files <= 1 || level == 0 || vset_->IsHybrid());
 
     Saver saver;
     saver.ucmp = ucmp;
