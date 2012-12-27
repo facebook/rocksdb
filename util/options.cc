@@ -57,6 +57,12 @@ Options::Options()
       WAL_ttl_seconds(0){
 }
 
+HybridOptions::HybridOptions()
+    : enable(false),
+      max_files_for_level_base(10),
+      max_files_for_level_multiplier(1) {
+}
+
 void
 Options::Dump(
     Logger * log) const

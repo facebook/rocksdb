@@ -212,7 +212,19 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
 }
 
 void Version::AddIterators(const ReadOptions& options,
+                           const HybridOptions& hybrid_options,
                            std::vector<Iterator*>* iters) {
+  // In Hybrid mode, all levels have overlapping files
+  if (hybrid_options.enable) {
+    for (int level = 0; level < vset_->NumberLevels(); level++) {
+      for (size_t i = 0; i < files_[level].size(); i++) {
+        iters->push_back(
+            vset_->table_cache_->NewIterator(options,
+                files_[level][i]->number, files_[level][i]->file_size));
+      }
+    }
+    return;
+  }
   // Merge all level zero files together since they may overlap
   for (size_t i = 0; i < files_[0].size(); i++) {
     iters->push_back(
@@ -244,6 +256,7 @@ struct Saver {
   Slice user_key;
   std::string* value;
   bool didIO;    // did we do any disk io?
+  SequenceNumber seq;
 };
 }
 static void SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
@@ -257,6 +270,7 @@ static void SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
       s->state = (parsed_key.type == kTypeValue) ? kFound : kDeleted;
       if (s->state == kFound) {
         s->value->assign(v.data(), v.size());
+        s->seq = parsed_key.sequence;
       }
     }
   }
@@ -280,6 +294,7 @@ Version::Version(VersionSet* vset, uint64_t version_number)
 }
 
 Status Version::Get(const ReadOptions& options,
+                    const HybridOptions& hybrid_options,
                     const LookupKey& k,
                     std::string* value,
                     GetStats* stats) {
@@ -305,7 +320,7 @@ Status Version::Get(const ReadOptions& options,
     // Get the list of files to search in this level
     FileMetaData* const* files = &files_[level][0];
     if (level == 0) {
-      // Level-0 files may overlap each other.  Find all files that
+      // Files may overlap each other.  Find all files that
       // overlap user_key and process them in order from newest to oldest.
       tmp.reserve(num_files);
       for (uint32_t i = 0; i < num_files; i++) {
@@ -320,31 +335,49 @@ Status Version::Get(const ReadOptions& options,
       std::sort(tmp.begin(), tmp.end(), NewestFirst);
       files = &tmp[0];
       num_files = tmp.size();
-    } else {
+    } else if (!vset_->IsHybrid()) {
       // Binary search to find earliest index whose largest key >= ikey.
       uint32_t index = FindFile(vset_->icmp_, files_[level], ikey);
       if (index >= num_files) {
         files = NULL;
         num_files = 0;
+      } else if (ucmp->Compare(user_key, files[index]->smallest.user_key()) 
+                                                                    < 0) {
+        // All of "tmp2" is past any data for user_key
+        files = NULL;
+        num_files = 0;
       } else {
         tmp2 = files[index];
-        if (ucmp->Compare(user_key, tmp2->smallest.user_key()) < 0) {
-          // All of "tmp2" is past any data for user_key
-          files = NULL;
-          num_files = 0;
-        } else {
-          files = &tmp2;
-          num_files = 1;
-        }
+        files = &tmp2;
+        num_files = 1;
       }
+    } else { // Hybrid mode here
+      // find all files that have overlapping range with given key
+      for (unsigned int i = 0; i < num_files; i++) {
+        FileMetaData* f = files[i];
+        if (ucmp->Compare(user_key, f->smallest.user_key()) < 0) {
+          break;
+        }
+        if (ucmp->Compare(user_key, f->largest.user_key()) <= 0) {
+          tmp.push_back(f);
+        }
+        tmp.push_back(f);
+      }
+      files = &tmp[0];
+      num_files = tmp.size();
     }
+    assert(num_files <= 1 || level == 1 || vset_->IsHybrid());
 
+    Saver saver;
+    saver.ucmp = ucmp;
+    std::string saved_value;
+    SequenceNumber saved_seq = 0;
+    SaverState saved_state = kNotFound;
+    
     for (uint32_t i = 0; i < num_files; ++i) {
 
       FileMetaData* f = files[i];
-      Saver saver;
       saver.state = kNotFound;
-      saver.ucmp = ucmp;
       saver.user_key = user_key;
       saver.value = value;
       saver.didIO = false;
@@ -377,17 +410,44 @@ Status Version::Get(const ReadOptions& options,
         case kNotFound:
           break;      // Keep searching in other files
         case kFound:
-          return s;
+          if (level == 0 || num_files == 1) {     
+            return s; // no need to look at other files
+          }
+          if (saver.seq >= saved_seq) { // save most recent
+            saved_value = *saver.value;
+            saved_seq = saver.seq;
+            saved_state = kNotFound;
+          }
+          break;  // keep searching in other files
         case kDeleted:
-          s = Status::NotFound(Slice());  // Use empty error message for speed
-          return s;
+          if (level == 0 || num_files == 1) {     
+            s = Status::NotFound(Slice());// Use empty error message for speed
+            return s;
+          }
+          if (saver.seq >= saved_seq) { // save most recent
+            saved_seq = saver.seq;
+            saved_state = kDeleted;
+          }
+          break;
         case kCorrupt:
           s = Status::Corruption("corrupted key for ", user_key);
           return s;
       }
     }
+    assert(saved_state == kNotFound || num_files > 1); 
+    assert(s.ok());
+    switch (saved_state) {
+      case kFound:
+        *value = saved_value;
+        return s;
+      case kDeleted:
+        s = Status::NotFound(Slice());// Use empty error message for speed
+        return s;
+      default:
+        assert(saved_state == kNotFound);
+    }      
+    tmp.clear();
   }
-
   return Status::NotFound(Slice());  // Use an empty error message for speed
 }
 
@@ -420,7 +480,8 @@ void Version::Unref() {
 bool Version::OverlapInLevel(int level,
                              const Slice* smallest_user_key,
                              const Slice* largest_user_key) {
-  return SomeFileOverlapsRange(vset_->icmp_, (level > 0), files_[level],
+  return SomeFileOverlapsRange(vset_->icmp_, (level > 0 && !vset_->IsHybrid()),
+                               files_[level],
                                smallest_user_key, largest_user_key);
 }
 
@@ -466,6 +527,7 @@ void Version::GetOverlappingInputs(
     std::vector<FileMetaData*>* inputs,
     int hint_index,
     int* file_index) {
+  assert(!vset_->IsHybrid() || file_index == NULL);
   inputs->clear();
   Slice user_begin, user_end;
   if (begin != NULL) {
@@ -478,7 +540,7 @@ void Version::GetOverlappingInputs(
     *file_index = -1;
   }
   const Comparator* user_cmp = vset_->icmp_.user_comparator();
-  if (begin != NULL && end != NULL && level > 0) {
+  if (begin != NULL && end != NULL && level > 0 && !vset_->IsHybrid()) {
     GetOverlappingInputsBinarySearch(level, user_begin, user_end, inputs,
       hint_index, file_index);
     return;
@@ -493,8 +555,8 @@ void Version::GetOverlappingInputs(
       // "f" is completely after specified range; skip it
     } else {
       inputs->push_back(f);
-      if (level == 0) {
-        // Level-0 files may overlap each other.  So check if the newly
+      if (level == 0 || vset_->IsHybrid()) {
+        // Files may overlap each other.  So check if the newly
         // added file has expanded the range.  If so, restart search.
         if (begin != NULL && user_cmp->Compare(file_start, user_begin) < 0) {
           user_begin = file_start;
@@ -733,7 +795,7 @@ class VersionSet::Builder {
 #ifndef NDEBUG
     for (int level = 0; level < vset_->NumberLevels(); level++) {
       // Make sure there is no overlap in levels > 0
-      if (level > 0) {
+      if (level > 0 && !vset_->IsHybrid()) {
         for (uint32_t i = 1; i < v->files_[level].size(); i++) {
           const InternalKey& prev_end = v->files_[level][i-1]->largest;
           const InternalKey& this_begin = v->files_[level][i]->smallest;
@@ -884,7 +946,7 @@ class VersionSet::Builder {
       // File is deleted: do nothing
     } else {
       std::vector<FileMetaData*>* files = &v->files_[level];
-      if (level > 0 && !files->empty()) {
+      if (level > 0 && !files->empty() && !vset_->IsHybrid()) {
         // Must not overlap
         assert(vset_->icmp_.Compare((*files)[files->size()-1]->largest,
                                     f->smallest) < 0);
@@ -927,6 +989,7 @@ VersionSet::~VersionSet() {
   delete[] compact_pointer_;
   delete[] max_file_size_;
   delete[] level_max_bytes_;
+  delete[] level_max_files_;
   delete descriptor_log_;
   delete descriptor_file_;
 }
@@ -934,15 +997,20 @@ VersionSet::~VersionSet() {
 void VersionSet::Init(int num_levels) {
   max_file_size_ = new uint64_t[num_levels];
   level_max_bytes_ = new uint64_t[num_levels];
+  level_max_files_ = new int[num_levels];
   int target_file_size_multiplier = options_->target_file_size_multiplier;
   int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
+  int max_files_mutiplier = 
+    options_->hybrid_options.max_files_for_level_multiplier;
   for (int i = 0; i < num_levels; i++) {
     if (i > 1) {
       max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
       level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
+      level_max_files_[i] = level_max_files_[i-1] * max_files_mutiplier;
     } else {
       max_file_size_[i] = options_->target_file_size_base;
       level_max_bytes_[i] = options_->max_bytes_for_level_base;
+      level_max_files_[i] = options_->hybrid_options.max_files_for_level_base;
     }
   }
 }
@@ -1374,7 +1442,8 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 void VersionSet::Finalize(Version* v) {
 
   double max_score = 0;
-  for (int level = 0; level < NumberLevels()-1; level++) {
+  const int numlevels = IsHybrid() ? NumberLevels() : NumberLevels()-1;
+  for (int level = 0; level < numlevels; level++) {
     double score;
     if (level == 0) {
       // We treat level-0 specially by bounding the number of files
@@ -1398,16 +1467,28 @@ void VersionSet::Finalize(Version* v) {
       // If we are slowing down writes, then we better compact that first
       if (numfiles >= options_->level0_stop_writes_trigger) {
         score = 1000000;
-        // Log(options_->info_log, "XXX score l0 = 1000000000 max");
+        Log(options_->info_log, "XXX score l0 = 1000000000 max");
       } else if (numfiles >= options_->level0_slowdown_writes_trigger) {
         score = 10000;
-        // Log(options_->info_log, "XXX score l0 = 1000000 medium");
+        Log(options_->info_log, "XXX score l0 = 1000000 medium");
       } else {
         score = numfiles /
           static_cast<double>(options_->level0_file_num_compaction_trigger);
         if (score >= 1) {
-          // Log(options_->info_log, "XXX score l0 = %d least", (int)score);
+          Log(options_->info_log, "XXX score l0 = %d least", (int)score);
         }
+      }
+    } else if (IsHybrid()) {
+      // Compute the ratio of current number of files to expected number
+      const int count = v->files_[level].size() - 
+                         NumFilesBeingCompacted(v, level);
+      score = static_cast<double>(count) / MaxFilesForLevel(level);
+      if (score > 1) {
+        Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
+      }
+   
+      if (max_score < score) {
+        max_score = score;
       }
     } else {
       // Compute the ratio of current size to size limit.
@@ -1415,7 +1496,7 @@ void VersionSet::Finalize(Version* v) {
                                    SizeBeingCompacted(level);
       score = static_cast<double>(level_bytes) / MaxBytesForLevel(level);
       if (score > 1) {
-        // Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
+        Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
       }
       if (max_score < score) {
         max_score = score;
@@ -1430,8 +1511,8 @@ void VersionSet::Finalize(Version* v) {
 
   // sort all the levels based on their score. Higher scores get listed
   // first. Use bubble sort because the number of entries are small.
-  for(int i = 0; i <  NumberLevels()-2; i++) {
-    for (int j = i+1; j < NumberLevels()-1; j++) {
+  for(int i = 0; i <  numlevels-1; i++) {
+    for (int j = i+1; j < numlevels; j++) {
       if (v->compaction_score_[i] < v->compaction_score_[j]) {
         double score = v->compaction_score_[i];
         int level = v->compaction_level_[i];
@@ -1444,17 +1525,28 @@ void VersionSet::Finalize(Version* v) {
   }
 }
 
-// a static compator used to sort files based on their size
-static bool compareSize(const VersionSet::Fsize& first,
+// Compator to sort files based on their size
+// Largest files come first.
+static inline bool compareSizeDescending(const VersionSet::Fsize& first,
   const VersionSet::Fsize& second) {
   return (first.file->file_size > second.file->file_size);
+}
+
+// Compator to sort files based on their size.
+// Smallest files come first.
+static inline bool compareSizeAscending(const VersionSet::Fsize& first,
+  const VersionSet::Fsize& second) {
+  return (first.file->file_size < second.file->file_size);
 }
 
 // sort all files in level1 to level(n-1) based on file size
 void VersionSet::UpdateFilesBySize(Version* v) {
 
-  // No need to sort the highest level because it is never compacted.
-  for (int level = 0; level < NumberLevels()-1; level++) {
+  // For Normal mode, no need to sort the highest level 
+  // because it is never compacted. For hybrid mode, we do 
+  // compact the highest level.
+  int numlevels = IsHybrid() ? NumberLevels() : NumberLevels()-1;
+  for (int level = 0; level < numlevels; level++) {
 
     const std::vector<FileMetaData*>& files = v->files_[level];
     std::vector<int>& files_by_size = v->files_by_size_[level];
@@ -1472,8 +1564,15 @@ void VersionSet::UpdateFilesBySize(Version* v) {
     if (num > (int)temp.size()) {
       num = temp.size();
     }
-    std::partial_sort(temp.begin(),  temp.begin() + num,
-                      temp.end(), compareSize);
+    // In normal mode, find the largest files while in hybrid-mode,
+    // find all the smallest files
+    if (IsHybrid()) {
+      std::partial_sort(temp.begin(),  temp.begin() + num,
+                        temp.end(), compareSizeAscending);
+    } else {
+      std::partial_sort(temp.begin(),  temp.begin() + num,
+                        temp.end(), compareSizeDescending);
+    }
     assert(temp.size() == files.size());
 
     // initialize files_by_size_
@@ -1675,13 +1774,15 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
 
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
+  // For hybrid mode, we merge all files because all files are overlapping.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
-  const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
+  const int space = (c->level() == 0 || IsHybrid() ? 
+                     c->inputs_[0].size() + 1 : 2);
   Iterator** list = new Iterator*[space];
   int num = 0;
   for (int which = 0; which < 2; which++) {
     if (!c->inputs_[which].empty()) {
-      if (c->level() + which == 0) {
+      if (c->level() + which == 0 || IsHybrid()) {
         const std::vector<FileMetaData*>& files = c->inputs_[which];
         for (size_t i = 0; i < files.size(); i++) {
           list[num++] = table_cache_->NewIterator(
@@ -1699,6 +1800,12 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   Iterator* result = NewMergingIterator(&icmp_, list, num);
   delete[] list;
   return result;
+}
+
+// The max number of files alowed at this level
+int VersionSet::MaxFilesForLevel(int level) {
+  assert(IsHybrid());
+  return level_max_files_[level];
 }
 
 double VersionSet::MaxBytesForLevel(int level) {
@@ -1783,6 +1890,18 @@ void VersionSet::ReleaseCompactionFiles(Compaction* c, Status status) {
   }
 }
 
+// The total number of files already being compacted
+int VersionSet::NumFilesBeingCompacted(Version* v, int level) {
+  assert(IsHybrid());
+  int count = 0;
+  for (unsigned int i = 0; i < v->files_[level].size(); i++) {
+    if (v->files_[level][i]->being_compacted) {
+      count++;
+    }
+  }
+  return count;
+}
+
 // The total size of files that are currently being compacted
 uint64_t VersionSet::SizeBeingCompacted(int level) {
   uint64_t total = 0;
@@ -1799,6 +1918,82 @@ uint64_t VersionSet::SizeBeingCompacted(int level) {
   return total;
 }
 
+Compaction* VersionSet::PickCompactionHybrid(CompactionCause cause,
+  int level, double score,
+  uint64_t max_file_size,
+  int source_compaction_factor) {
+  Compaction* c = NULL;
+
+  assert(level >= 0);
+  assert(level < NumberLevels());
+  assert(IsHybrid());
+  c = new Compaction(cause, level, MaxFileSizeForLevel(level),
+      MaxGrandParentOverlapBytes(level), NumberLevels(),
+      false, true);
+  c->score_ = score;
+
+  // We want to create a single output file for this compaction.
+  // That output file will be at level n+1. Compute the expected
+  // size of this output file. If this compaction is for the
+  // highest level, then setup expected size so that we pick all
+  // files to compact.
+  uint64_t expected_size;
+  if (level == NumberLevels() - 1) {
+    expected_size = std::numeric_limits<uint64_t>::max();
+  } else {
+    expected_size = max_file_size;
+  }
+
+  // Apply the source_compaction_factor so that it is easy to
+  // pick up larger sets for bulk compactions.
+  expected_size *= source_compaction_factor;
+
+  // Pick as many files from this level as possible to reach
+  // the expected size of the output file. It is better to pick
+  // smaller files to compact first.
+  uint64_t total = 0;
+  std::vector<int>& file_size = current_->files_by_size_[level];
+
+  // record the first file that is not yet compacted
+  int nextIndex = -1;
+
+  for (unsigned int i = current_->next_file_to_compact_by_size_[level];
+       i < file_size.size(); i++) {
+    int index = file_size[i];
+    FileMetaData* f = current_->files_[level][index];
+
+    // check to verify files are arranged in ascending size
+    assert((i == file_size.size() - 1) ||
+           (i >= Version::number_of_files_to_sort_-1) ||
+          (f->file_size <= current_->files_[level][file_size[i+1]]->file_size));
+    if (f->being_compacted) {
+      continue;
+    }
+
+    // remember the startIndex for the next call to PickCompaction
+    if (nextIndex == -1) {
+      nextIndex = i;
+    }
+    c->inputs_[0].push_back(f);
+    c->base_index_ = index;
+    total += f->file_size;
+    if (total >= expected_size) {
+      break;
+    }
+  }
+  // If there are no files to compact, or there is a single file to compact
+  // but it is already at the highest level, then there is nothing more to do.
+  if (c->inputs_[0].empty() || 
+      (c->inputs_[0].size() == 1 && level == NumberLevels()-1)) {
+    delete c;
+    c = NULL;
+  }
+
+  // store where to start the iteration in the next call to PickCompaction
+  current_->next_file_to_compact_by_size_[level] = nextIndex;
+  return c;
+}
+
 Compaction* VersionSet::PickCompactionBySize(int level, double score) {
   Compaction* c = NULL;
 
@@ -1812,7 +2007,8 @@ Compaction* VersionSet::PickCompactionBySize(int level, double score) {
 
   assert(level >= 0);
   assert(level+1 < NumberLevels());
-  c = new Compaction(level, MaxFileSizeForLevel(level),
+  c = new Compaction(SizeCompaction,
+      level, MaxFileSizeForLevel(level),
       MaxGrandParentOverlapBytes(level), NumberLevels());
   c->score_ = score;
 
@@ -1889,7 +2085,14 @@ Compaction* VersionSet::PickCompaction() {
                      current_->compaction_score_[i-1]);
     level = current_->compaction_level_[i];
     if ((current_->compaction_score_[i] >= 1)) {
-      c = PickCompactionBySize(level, current_->compaction_score_[i]);
+      if (IsHybrid()) {
+        c = PickCompactionHybrid(SizeCompaction,
+                                 level, current_->compaction_score_[i],
+                                 max_file_size_[level],
+                                 options_->source_compaction_factor);
+      } else {    
+        c = PickCompactionBySize(level, current_->compaction_score_[i]);
+      }
       if (c != NULL) {
         break;
       }
@@ -1899,9 +2102,20 @@ Compaction* VersionSet::PickCompaction() {
   // Find compactions needed by seeks
   if (c == NULL && (current_->file_to_compact_ != NULL)) {
     level = current_->file_to_compact_level_;
-    c = new Compaction(level, MaxFileSizeForLevel(level),
-    MaxGrandParentOverlapBytes(level), NumberLevels(), true);
-    c->inputs_[0].push_back(current_->file_to_compact_);
+    // For hybrid mode, if a file is being seeked many times, then
+    // all files at that level should be compacted because all files
+    // are overlapping files.
+    if (IsHybrid()) {
+      c = PickCompactionHybrid(SeekCompaction,
+                               level, 0,
+                               max_file_size_[level],
+                               options_->source_compaction_factor);
+    } else {
+      c = new Compaction(SeekCompaction,
+              level, MaxFileSizeForLevel(level),
+              MaxGrandParentOverlapBytes(level), NumberLevels(), true);
+      c->inputs_[0].push_back(current_->file_to_compact_);
+    }
   }
 
   if (c == NULL) {
@@ -1912,7 +2126,7 @@ Compaction* VersionSet::PickCompaction() {
   c->input_version_->Ref();
 
   // Files in level 0 may overlap each other, so pick up all overlapping ones
-  if (level == 0) {
+  if (level == 0 && !IsHybrid()) {
     InternalKey smallest, largest;
     GetRange(c->inputs_[0], &smallest, &largest);
     // Note that the next call will discard the file we placed in
@@ -1967,6 +2181,9 @@ bool VersionSet::FilesInCompaction(std::vector<FileMetaData*>& files) {
 }
 
 void VersionSet::SetupOtherInputs(Compaction* c) {
+  if (IsHybrid()) {
+    return;         // nothing to do
+  }
   const int level = c->level();
   InternalKey smallest, largest;
   GetRange(c->inputs_[0], &smallest, &largest);
@@ -2049,21 +2266,32 @@ Compaction* VersionSet::CompactRange(
     return NULL;
   }
 
-  // Avoid compacting too much in one shot in case the range is large.
-  const uint64_t limit = MaxFileSizeForLevel(level) *
-                         options_->source_compaction_factor;
-  uint64_t total = 0;
-  for (size_t i = 0; i < inputs.size(); i++) {
-    uint64_t s = inputs[i]->file_size;
-    total += s;
-    if (total >= limit) {
-      inputs.resize(i + 1);
-      break;
+  Compaction* c = NULL;
+  if (IsHybrid()) {
+    c = PickCompactionHybrid(ManualCompaction,
+                             level, 0, max_file_size_[level],
+                             options_->source_compaction_factor);
+    if (c == NULL) {
+      return NULL;
     }
-  }
+  } else {
+    // Avoid compacting too much in one shot in case the range is large.
+    const uint64_t limit = MaxFileSizeForLevel(level) *
+                         options_->source_compaction_factor;
+    uint64_t total = 0;
+    for (size_t i = 0; i < inputs.size(); i++) {
+      uint64_t s = inputs[i]->file_size;
+      total += s;
+      if (total >= limit) {
+        inputs.resize(i + 1);
+        break;
+      }
+    }
 
-  Compaction* c = new Compaction(level, MaxFileSizeForLevel(level),
-    MaxGrandParentOverlapBytes(level), NumberLevels());
+    c = new Compaction(ManualCompaction,
+      level, MaxFileSizeForLevel(level),
+      MaxGrandParentOverlapBytes(level), NumberLevels());
+  }
   c->input_version_ = current_;
   c->input_version_->Ref();
   c->inputs_[0] = inputs;
@@ -2076,10 +2304,12 @@ Compaction* VersionSet::CompactRange(
   return c;
 }
 
-Compaction::Compaction(int level, uint64_t target_file_size,
+Compaction::Compaction(CompactionCause cause,
+  int level, uint64_t target_file_size,
   uint64_t max_grandparent_overlap_bytes, int number_levels,
-  bool seek_compaction)
-    : level_(level),
+  bool seek_compaction, bool is_hybrid)
+    : cause_(cause),
+      level_(level),
       max_output_file_size_(target_file_size),
       maxGrandParentOverlapBytes_(max_grandparent_overlap_bytes),
       input_version_(NULL),
@@ -2090,7 +2320,8 @@ Compaction::Compaction(int level, uint64_t target_file_size,
       overlapped_bytes_(0),
       base_index_(-1),
       parent_index_(-1),
-      score_(0) {
+      score_(0),
+      is_hybrid_(is_hybrid) {
   edit_ = new VersionEdit(number_levels_);
   level_ptrs_ = new size_t[number_levels_];
   for (int i = 0; i < number_levels_; i++) {
@@ -2107,12 +2338,17 @@ Compaction::~Compaction() {
 }
 
 bool Compaction::IsTrivialMove() const {
+  if (IsHybrid()) {
+    return (num_input_files(0) == 1);
+  } else {
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require
   // a very expensive merge later on.
+  
   return (num_input_files(0) == 1 &&
           num_input_files(1) == 0 &&
           TotalFileSize(grandparents_) <= maxGrandParentOverlapBytes_);
+  }
 }
 
 void Compaction::AddInputDeletions(VersionEdit* edit) {
@@ -2126,7 +2362,11 @@ void Compaction::AddInputDeletions(VersionEdit* edit) {
 bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = input_version_->vset_->icmp_.user_comparator();
-  for (int lvl = level_ + 2; lvl < number_levels_; lvl++) {
+  // In Hybrid mode, the same key can be present in the another file
+  // in the level that is being compacted, so we start the search from
+  // level_ + 1.
+  int start_level = IsHybrid() ? level_ + 1 : level_ + 2;
+  for (int lvl = start_level; lvl < number_levels_; lvl++) {
     const std::vector<FileMetaData*>& files = input_version_->files_[lvl];
     for (; level_ptrs_[lvl] < files.size(); ) {
       FileMetaData* f = files[level_ptrs_[lvl]];
@@ -2145,6 +2385,11 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
 }
 
 bool Compaction::ShouldStopBefore(const Slice& internal_key) {
+  // If we support overlapping files in every level then we do not
+  // need to restrict overlaps with grandparents.
+  if (IsHybrid()) {
+    return false;
+  }
   // Scan to find earliest grandparent file that contains key.
   const InternalKeyComparator* icmp = &input_version_->vset_->icmp_;
   while (grandparent_index_ < grandparents_.size() &&
@@ -2228,4 +2473,17 @@ void Compaction::Summary(char* output, int len) {
       level_low_summary, level_up_summary);
 }
 
+std::string Compaction::GetCause() {
+  switch (cause_) {
+    case SizeCompaction :
+      return "SizeCompaction";
+    case SeekCompaction :
+      return "SeekCompaction";
+    case ManualCompaction :
+      return "ManualCompaction";
+    default:
+      return "Unknown compaction: " + cause_;
+  }
+}
+      
 }  // namespace leveldb

@@ -312,6 +312,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   options.write_buffer_size = 1048576;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  bool hybrid = dbi->IsHybrid();
 
   // Fill levels >= 1 so memtable compaction outputs to level 1
   for (int level = 1; level < dbi->NumberLevels(); level++) {
@@ -322,7 +323,8 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
 
   Build(10);
   dbi->TEST_CompactMemTable();
-  ASSERT_EQ(1, Property("leveldb.num-files-at-level0"));
+  hybrid? ASSERT_EQ(3, Property("leveldb.num-files-at-level0")) : 
+          ASSERT_EQ(1, Property("leveldb.num-files-at-level0"));
 
   Corrupt(kTableFile, 100, 1);
   Check(9, 9);

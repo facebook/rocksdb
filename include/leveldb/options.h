@@ -19,6 +19,7 @@ class FilterPolicy;
 class Logger;
 class Snapshot;
 class Statistics;
+struct HybridOptions;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -33,6 +34,7 @@ enum CompressionType {
   kBZip2Compression = 0x3
 };
 
+
 // Compression options for different compression algorithms like Zlib
 struct CompressionOptions {
   int window_bits;
@@ -44,6 +46,24 @@ struct CompressionOptions {
   CompressionOptions(int wbits, int lev, int strategy):window_bits(wbits),
                                                        level(lev),
                                                        strategy(strategy){}
+};
+
+// This encapsulates all parameters needed to configure the
+// Hybrid mode where any level can have overlapping files.
+struct HybridOptions {
+  
+  // Is the hybrid mode enabled. Default: false
+  bool enable;  
+
+  // The number of files in Level0. Default: 10
+  uint64_t max_files_for_level_base;
+
+  // The multipler use to cap the number of files in 
+  // higher levels.  Default: 1
+  uint64_t max_files_for_level_multiplier;
+
+  // Create an object with default values for all fields.
+  HybridOptions();
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -200,6 +220,7 @@ struct Options {
   // expensive manifest file operations.  We do not push all the way to
   // the largest level since that can generate a lot of wasted disk
   // space if the same key space is being repeatedly overwritten.
+  // This is not used in Hybrid mode.  Default:2
   int max_mem_compaction_level;
 
   // Target file size for compaction.
@@ -353,6 +374,10 @@ struct Options {
   // deleted.
   // Default : 0
   uint64_t WAL_ttl_seconds;
+
+  // This mode allows overlapping files in every level. By default,
+  // hybrid mode is not enabled.
+  HybridOptions hybrid_options;
 };
 
 // Options that control read operations

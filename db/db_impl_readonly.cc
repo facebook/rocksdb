@@ -54,13 +54,13 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   SequenceNumber snapshot = versions_->LastSequence();
   LookupKey lkey(key, snapshot);
   Version::GetStats stats;
-  s = current->Get(options, lkey, value, &stats);
+  s = current->Get(options, options_.hybrid_options, lkey, value, &stats);
   return s;
 }
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options) {
   std::vector<Iterator*> list;
-  versions_->current()->AddIterators(options, &list);
+  versions_->current()->AddIterators(options, options_.hybrid_options, &list);
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
   return NewDBIterator(

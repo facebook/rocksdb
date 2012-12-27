@@ -796,7 +796,8 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
     // that key range.
-    if (base != NULL && options_.max_background_compactions <= 1) {
+    if (base != NULL && options_.max_background_compactions <= 1 &&
+        !IsHybrid()) {
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
     edit->AddFile(level, meta.number, meta.file_size,
@@ -859,6 +860,7 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
 
 void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   int max_level_with_files = 1;
+  TEST_CompactMemTable(); // TODO(sanjay): Skip if memtable does not overlap
   {
     MutexLock l(&mutex_);
     Version* base = versions_->current();
@@ -868,7 +870,12 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
       }
     }
   }
-  TEST_CompactMemTable(); // TODO(sanjay): Skip if memtable does not overlap
+  // In Normal mode, compacting level n merges the contents of level n
+  // with level n+1 thereby removing deplicate keys upto level n+1.
+  // In Hybrid Mode, compacting level n creates a new file in level n+1
+  // without merging the duplicates that are already present in level n+1.
+  // So, we need to explicitly compact till level n+1.
+  IsHybrid() ? max_level_with_files++ : true;
   for (int level = 0; level < max_level_with_files; level++) {
     TEST_CompactRange(level, begin, end);
   }
@@ -879,7 +886,7 @@ int DBImpl::NumberLevels() {
 }
 
 int DBImpl::MaxMemCompactionLevel() {
-  return options_.max_mem_compaction_level;
+  return (IsHybrid() ? 0 : options_.max_mem_compaction_level);
 }
 
 int DBImpl::Level0StopWriteTrigger() {
@@ -1254,11 +1261,12 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
       manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
     }
     Log(options_.info_log,
-        "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
+        "Manual compaction at level-%d from %s .. %s; will stop at %s, %s\n",
         m->level,
         (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
         (m->end ? m->end->DebugString().c_str() : "(end)"),
-        (m->done ? "(end)" : manual_end.DebugString().c_str()));
+        (m->done ? "(end)" : manual_end.DebugString().c_str()),
+        (c ? " Valid compaction found." : " No feasible compaction found." ));
   } else if (!options_.disable_auto_compactions) {
     c = versions_->PickCompaction();
   }
@@ -1270,6 +1278,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   } else if (!is_manual && c->IsTrivialMove()) {
     // Move file to next level
     assert(c->num_input_files(0) == 1);
+    assert(!IsHybrid() || c->level() < NumberLevels()-1);
     FileMetaData* f = c->input(0, 0);
     c->edit()->DeleteFile(c->level(), f->number);
     c->edit()->AddFile(c->level() + 1, f->number, f->file_size,
@@ -1344,11 +1353,12 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
 // Allocate the file numbers for the output file. We allocate as
 // many output file numbers as there are files in level+1.
 // Insert them into pending_outputs so that they do not get deleted.
+// For hybrid mode, we need only one output file number.
 void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
   mutex_.AssertHeld();
   assert(compact != NULL);
   assert(compact->builder == NULL);
-  int filesNeeded = compact->compaction->num_input_files(1);
+  int filesNeeded = IsHybrid() ? 1 : compact->compaction->num_input_files(1);
   for (int i = 0; i < filesNeeded; i++) {
     uint64_t file_number = versions_->NewFileNumber();
     pending_outputs_.insert(file_number);
@@ -1480,13 +1490,14 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
       compact->compaction->level() + 1,
       static_cast<long long>(compact->total_bytes));
 
+  const int newlevel = std::min(compact->compaction->level() + 1, 
+                                versions_->NumberLevels()-1);
   // Add compaction outputs
   compact->compaction->AddInputDeletions(compact->compaction->edit());
-  const int level = compact->compaction->level();
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
     compact->compaction->edit()->AddFile(
-        level + 1,
+        newlevel,
         out.number, out.file_size, out.smallest, out.largest);
   }
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
@@ -1522,13 +1533,16 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
   Log(options_.info_log,
-      "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
+      "Compacting %d@%d + %d@%d files, score %.2f slots available %d %s maxfilesize %ld",
       compact->compaction->num_input_files(0),
       compact->compaction->level(),
       compact->compaction->num_input_files(1),
       compact->compaction->level() + 1,
       compact->compaction->score(),
-      options_.max_background_compactions - bg_compaction_scheduled_);
+      options_.max_background_compactions - bg_compaction_scheduled_,
+      compact->compaction->GetCause().c_str(),
+      compact->compaction->MaxOutputFileSize());
+      
   char scratch[256];
   compact->compaction->Summary(scratch, sizeof(scratch));
   Log(options_.info_log, "Compaction start summary: %s\n", scratch);
@@ -1536,6 +1550,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == NULL);
   assert(compact->outfile == NULL);
+  assert(!IsHybrid() || compact->compaction->num_input_files(1) == 0);
 
   SequenceNumber visible_at_tip = 0;
   SequenceNumber earliest_snapshot;
@@ -1621,7 +1636,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // is the same as the visibily of a previous instance of the
         // same key, then this kv is not visible in any snapshot.
         // Hidden by an newer entry for same user key
-        assert(last_sequence_for_key >= ikey.sequence);
+        if (last_sequence_for_key) {
+          assert(last_sequence_for_key >= ikey.sequence);
+        }
         drop = true;    // (A)
         RecordTick(options_.statistics, COMPACTION_KEY_DROP_NEWER_ENTRY);
       } else if (ikey.type == kTypeDeletion &&
@@ -1725,9 +1742,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     stats.bytes_written += compact->outputs[i].file_size;
   }
-
+  
+  // The new file will always be part of the next higher level,
+  // unless we are in hybrid mode and are compacting the highest level.
+  int newlevel = std::min(compact->compaction->level() + 1, 
+                          versions_->NumberLevels()-1);
   mutex_.Lock();
-  stats_[compact->compaction->level() + 1].Add(stats);
+  stats_[newlevel].Add(stats);
 
   // if there were any unused file number (mostly in case of
   // compaction error), free up the entry from pending_putputs
@@ -1743,7 +1764,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       versions_->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
           (double) stats.micros,
-      compact->compaction->level() + 1,
+      newlevel,
       stats.files_in_leveln, stats.files_in_levelnp1, stats.files_out_levelnp1,
       stats.bytes_readn / 1048576.0,
       stats.bytes_readnp1 / 1048576.0,
@@ -1797,7 +1818,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   }
 
   // Collect iterators for files in L0 - Ln
-  versions_->current()->AddIterators(options, &list);
+  versions_->current()->AddIterators(options, options_.hybrid_options, &list);
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
   versions_->current()->Ref();
@@ -1817,7 +1838,11 @@ Iterator* DBImpl::TEST_NewInternalIterator() {
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
   MutexLock l(&mutex_);
-  return versions_->MaxNextLevelOverlappingBytes();
+  // This is used only by unit tests. In Hybrid mode, all files
+  // overlap with others, but we make this method return zero so
+  // that unit tests that assume non-Hybrid mode by default do not
+  // fail.
+  return IsHybrid() ? 0 : versions_->MaxNextLevelOverlappingBytes();
 }
 
 Status DBImpl::Get(const ReadOptions& options,
@@ -1852,7 +1877,7 @@ Status DBImpl::Get(const ReadOptions& options,
     } else if (imm.Get(lkey, value, &s)) {
       // Done
     } else {
-      s = current->Get(options, lkey, value, &stats);
+      s = current->Get(options, options_.hybrid_options, lkey, value, &stats);
       have_stat_update = true;
     }
     mutex_.Lock();

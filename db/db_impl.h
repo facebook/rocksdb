@@ -85,6 +85,8 @@ class DBImpl : public DB {
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBImpl();
 
+  bool IsHybrid() { return options_.hybrid_options.enable; };
+
  protected:
   Env* const env_;
   const std::string dbname_;

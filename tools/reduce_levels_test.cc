@@ -65,13 +65,35 @@ public:
     return atoi(property.c_str());
   }
 
+  bool IsHybrid() {
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+    return db_impl->IsHybrid();
+  }
+
+  bool CompactRange(int level) {
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+    db_impl->TEST_CompactRange(level, NULL, NULL);
+    return true;
+  }
+
+  bool CompactRange() {
+    int l = IsHybrid() ? numlevels_ : numlevels_-1;
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+    for (int i = 0; i < l; i++) {
+      db_impl->TEST_CompactRange(i, NULL, NULL);
+    }
+    return true;
+  }
+
 private:
   std::string dbname_;
   DB* db_;
+  int numlevels_;
 };
 
 Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels,
     int mem_table_compact_level) {
+  numlevels_ = num_levels;
   leveldb::Options opt;
   opt.num_levels = num_levels;
   opt.create_if_missing = create_if_missing;
@@ -94,8 +116,13 @@ bool ReduceLevelTest::ReduceLevels(int target_level) {
 TEST(ReduceLevelTest, Last_Level) {
   // create files on all levels;
   ASSERT_OK(OpenDB(true, 4, 3));
+  bool hybrid = IsHybrid();
   ASSERT_OK(Put("aaaa", "11111"));
   ASSERT_OK(CompactMemTable());
+  if (hybrid) {
+    // move files to level 3
+    CompactRange();
+  }
   ASSERT_EQ(FilesOnLevel(3), 1);
   CloseDB();
 
@@ -136,27 +163,39 @@ TEST(ReduceLevelTest, All_Levels) {
   ASSERT_OK(OpenDB(true, 5, 1));
   ASSERT_OK(Put("a", "a11111"));
   ASSERT_OK(CompactMemTable());
+  IsHybrid() ? CompactRange(0): true;
   ASSERT_EQ(FilesOnLevel(1), 1);
   CloseDB();
 
+  // move files to level 2
+
   ASSERT_OK(OpenDB(true, 5, 2));
+  IsHybrid() ? CompactRange(1): true;
   ASSERT_OK(Put("b", "b11111"));
   ASSERT_OK(CompactMemTable());
+  IsHybrid() ? CompactRange(0): true;
   ASSERT_EQ(FilesOnLevel(1), 1);
   ASSERT_EQ(FilesOnLevel(2), 1);
   CloseDB();
 
   ASSERT_OK(OpenDB(true, 5, 3));
+  IsHybrid() ? CompactRange(2): true;
+  IsHybrid() ? CompactRange(1): true;
   ASSERT_OK(Put("c", "c11111"));
   ASSERT_OK(CompactMemTable());
+  IsHybrid() ? CompactRange(0): true;
   ASSERT_EQ(FilesOnLevel(1), 1);
   ASSERT_EQ(FilesOnLevel(2), 1);
   ASSERT_EQ(FilesOnLevel(3), 1);
   CloseDB();
 
   ASSERT_OK(OpenDB(true, 5, 4));
+  IsHybrid() ? CompactRange(3): true;
+  IsHybrid() ? CompactRange(2): true;
+  IsHybrid() ? CompactRange(1): true;
   ASSERT_OK(Put("d", "d11111"));
   ASSERT_OK(CompactMemTable());
+  IsHybrid() ? CompactRange(0): true;
   ASSERT_EQ(FilesOnLevel(1), 1);
   ASSERT_EQ(FilesOnLevel(2), 1);
   ASSERT_EQ(FilesOnLevel(3), 1);

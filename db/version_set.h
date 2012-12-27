@@ -57,12 +57,22 @@ extern bool SomeFileOverlapsRange(
     const Slice* smallest_user_key,
     const Slice* largest_user_key);
 
+// The reason why this compaction was trigegred. This is helpful
+// for debugging and logging.
+enum CompactionCause {
+  SizeCompaction     = 0x0,
+  SeekCompaction     = 0x1,
+  ManualCompaction   = 0x2
+};
+
 class Version {
  public:
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
+  void AddIterators(const ReadOptions&,
+                    const HybridOptions& hybrid_options,
+                    std::vector<Iterator*>* iters);
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
@@ -71,7 +81,8 @@ class Version {
     FileMetaData* seek_file;
     int seek_file_level;
   };
-  Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
+  Status Get(const ReadOptions&, const HybridOptions& hybrid_options,
+             const LookupKey& key, std::string* val,
              GetStats* stats);
 
   // Adds "stats" into the current state.  Returns true if a new
@@ -345,6 +356,13 @@ class VersionSet {
 
   // For the specfied level, pick a compaction.
   // Returns NULL if there is no compaction to be done.
+  Compaction* PickCompactionHybrid(CompactionCause cause,
+                                   int level, double score,
+                                   uint64_t max_file_size,
+                                   int source_compaction_factor);
+
+  // For the specfied level, pick a compaction.
+  // Returns NULL if there is no compaction to be done.
   Compaction* PickCompactionBySize(int level, double score);
 
   // Free up the files that were participated in a compaction
@@ -395,11 +413,15 @@ class VersionSet {
 
   double MaxBytesForLevel(int level);
 
+  int MaxFilesForLevel(int leve);
+
   uint64_t MaxFileSizeForLevel(int level);
 
   int64_t ExpandedCompactionByteSizeLimit(int level);
 
   int64_t MaxGrandParentOverlapBytes(int level);
+
+  bool IsHybrid() { return options_->hybrid_options.enable; };
 
   Env* const env_;
   const std::string dbname_;
@@ -430,6 +452,9 @@ class VersionSet {
   // Per-level max bytes
   uint64_t* level_max_bytes_;
 
+  // Per-level max files
+  int* level_max_files_;
+
   // record all the ongoing compactions for all levels
   std::vector<std::set<Compaction*> > compactions_in_progress_;
 
@@ -446,6 +471,10 @@ class VersionSet {
   // Return the total amount of data that is undergoing
   // compactions at this level
   uint64_t SizeBeingCompacted(int level);
+
+  // The total number of files that is undergoing compaction
+  // at this level
+  int NumFilesBeingCompacted(Version* v, int level);
 
   // Returns true if any one of the parent files are being compacted
   bool ParentRangeInCompaction(const InternalKey* smallest,
@@ -505,14 +534,22 @@ class Compaction {
   // Return the score that was used to pick this compaction run.
   double score() const { return score_; }
 
+  // The cause of this compaction
+  std::string GetCause();
+
+  // Hybrid mode support overlapping files in any level
+  bool IsHybrid() const { return is_hybrid_; };
+
  private:
   friend class Version;
   friend class VersionSet;
 
-  explicit Compaction(int level, uint64_t target_file_size,
+  explicit Compaction(CompactionCause cause,
+    int level, uint64_t target_file_size,
     uint64_t max_grandparent_overlap_bytes, int number_levels,
-    bool seek_compaction = false);
+    bool seek_compaction = false, bool is_hybrid = false);
 
+  CompactionCause cause_;      // seek/size/manual compaction?
   int level_;
   uint64_t max_output_file_size_;
   int64_t maxGrandParentOverlapBytes_;
@@ -535,6 +572,7 @@ class Compaction {
   int base_index_;   // index of the file in files_[level_]
   int parent_index_; // index of some file with same range in files_[level_+1]
   double score_;     // score that was used to pick this compaction.
+  bool is_hybrid_;   // hybrid mode?
 
   // State for implementing IsBaseLevelForKey
 
