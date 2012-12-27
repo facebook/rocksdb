@@ -378,8 +378,8 @@ void DBQuerier::DoCommand() {
     return;
   }
 
-  leveldb::ReadOptions::ReadOptions read_options;
-  leveldb::WriteOptions::WriteOptions write_options;
+  leveldb::ReadOptions read_options;
+  leveldb::WriteOptions write_options;
 
   std::string line;
   std::string key;
