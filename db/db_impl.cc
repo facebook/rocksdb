@@ -1582,6 +1582,8 @@ void DBImpl::FlushMetrics(void* db) {
         db_metrics = BlockMetrics::Create(key, db_value);
       }
 
+      // We check if metrics[i] and db_metrics are compatible because
+      // the metrics in the metrics db might have gotten corrupted.
       if (db_metrics != NULL && metrics[i]->IsCompatible(db_metrics)) {
         db_metrics->Join(metrics[i]);
         metrics_db->Put(WriteOptions(), key, db_metrics->GetDBValue());
