@@ -589,26 +589,38 @@ void Version::ExtendOverlappingInputs(
     }
   }
 #endif
+  int startIndex = midIndex + 1;
+  int endIndex = midIndex;
+  int count = 0;
 
   // check backwards from 'mid' to lower indices
-  for (size_t i = midIndex; i < files_[level].size(); i--) {
+  for (int i = midIndex; i >= 0 ; i--) {
     FileMetaData* f = files_[level][i];
     const Slice file_limit = f->largest.user_key();
     if (user_cmp->Compare(file_limit, user_begin) >= 0) {
-      inputs->insert(inputs->begin(), f); // insert into beginning of vector
+      startIndex = i;
+      assert((count++, true));
     } else {
       break;
     }
   }
   // check forward from 'mid+1' to higher indices
-  for (size_t i = midIndex+1; i < files_[level].size(); i++) {
+  for (unsigned int i = midIndex+1; i < files_[level].size(); i++) {
     FileMetaData* f = files_[level][i];
     const Slice file_start = f->smallest.user_key();
     if (user_cmp->Compare(file_start, user_end) <= 0) {
-      inputs->push_back(f); // insert into end of vector
+      assert((count++, true));
+      endIndex = i;
     } else {
       break;
     }
+  }
+  assert(count == endIndex - startIndex + 1);
+
+  // insert overlapping files into vector
+  for (int i = startIndex; i <= endIndex; i++) {
+    FileMetaData* f = files_[level][i];
+    inputs->push_back(f); 
   }
 }
 
