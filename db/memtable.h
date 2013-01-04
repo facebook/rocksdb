@@ -49,7 +49,7 @@ class MemTable {
   // The caller must ensure that the underlying MemTable remains live
   // while the returned iterator is live.  The keys returned by this
   // iterator are internal keys encoded by AppendInternalKey in the
-  // db/format.{h,cc} module.
+  // db/dbformat.{h,cc} module.
   Iterator* NewIterator();
 
   // Add an entry into memtable that maps key to value at the
