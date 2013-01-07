@@ -606,6 +606,10 @@ class PosixEnv : public Env {
     if (mkdir(name.c_str(), 0755) != 0) {
       if (errno != EEXIST) {
         result = IOError(name, errno);
+      } else if (!DirExists(name)) { // Check that name is actually a
+                                     // directory.
+        // Message is taken from mkdir
+        result = Status::IOError("`"+name+"' exists but is not a directory");
       }
     }
     return result;
@@ -795,6 +799,16 @@ class PosixEnv : public Env {
       exit(1);
     }
   }
+
+  // Returns true iff the named directory exists and is a directory.
+  virtual bool DirExists(const std::string& dname) {
+    struct stat statbuf;
+    if (stat(dname.c_str(), &statbuf) == 0) {
+      return S_ISDIR(statbuf.st_mode);
+    }
+    return false; // stat() failed return false
+  }
+
 
   // BGThread() is the body of the background thread
   void BGThread();

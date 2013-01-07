@@ -162,7 +162,7 @@ class HdfsEnv : public Env {
                         // posix threads, etc.
 
   /**
-   * If the URI is specified of the form hdfs://server:port/path, 
+   * If the URI is specified of the form hdfs://server:port/path,
    * then connect to the specified cluster
    * else connect to default.
    */
@@ -189,7 +189,7 @@ class HdfsEnv : public Env {
     int rem = remaining.find(pathsep);
     std::string portStr = (rem == 0 ? remaining :
                            remaining.substr(0, rem));
-    
+
     tPort port;
     port = atoi(portStr.c_str());
     if (port == 0) {
@@ -199,7 +199,7 @@ class HdfsEnv : public Env {
     return fs;
   }
 
-  void split(const std::string &s, char delim, 
+  void split(const std::string &s, char delim,
              std::vector<std::string> &elems) {
     elems.clear();
     size_t prev = 0;

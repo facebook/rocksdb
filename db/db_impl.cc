@@ -511,13 +511,21 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
     bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
-  // Ignore error from CreateDir since the creation of the DB is
-  // committed only when the descriptor is created, and this directory
-  // may already exist from a previous failed creation attempt.
   assert(db_lock_ == NULL);
   if (!external_table) {
-    env_->CreateDir(dbname_);
-    Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);
+    // We call CreateDirIfMissing() as the directory may already exist (if we
+    // are reopening a DB), when this happens we don't want creating the
+    // directory to cause an error. However, we need to check if creating the
+    // directory fails or else we may get an obscure message about the lock
+    // file not existing. One real-world example of this occurring is if
+    // env->CreateDirIfMissing() doesn't create intermediate directories, e.g.
+    // when dbname_ is "dir/db" but when "dir" doesn't exist.
+    Status s = env_->CreateDirIfMissing(dbname_);
+    if (!s.ok()) {
+      return s;
+    }
+
+    s = env_->LockFile(LockFileName(dbname_), &db_lock_);
     if (!s.ok()) {
       return s;
     }
