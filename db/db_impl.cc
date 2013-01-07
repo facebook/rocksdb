@@ -1514,6 +1514,8 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 namespace {
 // Helper function that takes a vector of BlockMetrics and joins all the
 // metrics together that share the same key.
+//
+// Assumes it has exclusive access to metrics.
 void CompactMetrics(std::vector<BlockMetrics*>& metrics) {
   std::map<std::string, BlockMetrics*> unique;
 
@@ -1569,6 +1571,7 @@ void DBImpl::FlushMetrics(void* db) {
     CompactMetrics(metrics);
 
     // Flush metrics to database.
+    // TODO (opt): Remove read-modify-write as it is incredibly slow.
     DB* metrics_db = dbimpl->metrics_db_;
     for (size_t i = 0; i < metrics.size(); ++i) {
       assert(metrics[i] != NULL);
@@ -1589,6 +1592,7 @@ void DBImpl::FlushMetrics(void* db) {
         metrics_db->Put(WriteOptions(), key, db_metrics->GetDBValue());
       } else {
         metrics_db->Put(WriteOptions(), key, metrics[i]->GetDBValue());
+        // TODO: Log an error here.
       }
       delete db_metrics;
     }
@@ -2437,8 +2441,8 @@ Status DB::InternalOpen(const Options& options, const std::string& dbname,
 
     Options metrics_opts;
     metrics_opts.create_if_missing = true;
-    // TODO: find some way to coordinate wrt to the number of the metrics
-    //       meta-DB.
+    // TODO: find some way to coordinate the meta-db number with the numbers of
+    //       other meta-dbs in order to prevent conflicts.
     Status s = InternalOpen(metrics_opts, MetaDatabaseName(dbname, 0u),
                             &metrics_db, false);
     // TODO: consider changing message of s
