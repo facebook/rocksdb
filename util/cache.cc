@@ -304,7 +304,9 @@ class ShardedLRUCache : public Cache {
      : last_id_(0) {
     init(capacity, numShardBits);
   }
-  virtual ~ShardedLRUCache() { }
+  virtual ~ShardedLRUCache() {
+    delete[] shard_;
+  }
   virtual Handle* Insert(const Slice& key, void* value, size_t charge,
                          void (*deleter)(const Slice& key, void* value)) {
     const uint32_t hash = HashSlice(key);
