@@ -188,7 +188,6 @@ class MergingIterator : public Iterator {
 };
 
 void MergingIterator::FindSmallest() {
-  assert (direction_ == kForward);
   if (minHeap_.empty()) {
     current_ = NULL;
   } else {
@@ -199,7 +198,6 @@ void MergingIterator::FindSmallest() {
 }
 
 void MergingIterator::FindLargest() {
-  assert(direction_ == kReverse);
   if (maxHeap_.empty()) {
     current_ = NULL;
   } else {
