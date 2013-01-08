@@ -116,7 +116,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   if (iter.Valid()) {
     // entry format is:
     //    klength  varint32
-    //    userkey  char[klength]
+    //    userkey  char[klength-8]
     //    tag      uint64
     //    vlength  varint32
     //    value    char[vlength]

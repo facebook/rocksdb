@@ -70,6 +70,12 @@ static long FLAGS_num = 1000000;
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static long FLAGS_reads = -1;
 
+// When ==1 reads use ::Get, when >1 reads use an iterator
+static long FLAGS_read_range = 1;
+
+// Seed base for random number generators. When 0 it is deterministic.
+static long FLAGS_seed = 0;
+
 // Number of concurrent threads to run.
 static int FLAGS_threads = 1;
 
@@ -213,7 +219,7 @@ static double FLAGS_rate_limit = 0;
 
 // Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
 // stop building a single file in a level->level+1 compaction.
-static int FLAGS_max_grandparent_overlap_factor;
+static int FLAGS_max_grandparent_overlap_factor = 10;
 
 // Run read only benchmarks.
 static bool FLAGS_read_only = false;
@@ -385,7 +391,7 @@ class Stats {
         if (FLAGS_stats_per_interval) {
           std::string stats;
           if (db && db->GetProperty("leveldb.stats", &stats))
-            fprintf(stderr, stats.c_str());
+            fprintf(stderr, "%s\n", stats.c_str());
         }
 
         fflush(stderr);
@@ -460,7 +466,7 @@ struct ThreadState {
 
   /* implicit */ ThreadState(int index)
       : tid(index),
-        rand(1000 + index) {
+        rand((FLAGS_seed ? FLAGS_seed : 1000) + index) {
   }
 };
 
@@ -1073,17 +1079,32 @@ class Benchmark {
 
   void ReadRandom(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
+    Iterator* iter = db_->NewIterator(options);
+
     std::string value;
     long found = 0;
     for (long i = 0; i < reads_; i++) {
       char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
       snprintf(key, sizeof(key), "%016d", k);
-      if (db_->Get(options, key, &value).ok()) {
-        found++;
+
+      if (FLAGS_read_range < 2) {
+        if (db_->Get(options, key, &value).ok()) {
+          found++;
+        }
+      } else {
+        Slice skey(key);
+        int count = 1;
+        for (iter->Seek(skey);
+             iter->Valid() && count <= FLAGS_read_range;
+             ++count, iter->Next()) {
+          found++;
+        }
       }
+
       thread->stats.FinishedSingleOp(db_);
     }
+    delete iter;
     char msg[100];
     snprintf(msg, sizeof(msg), "(%ld of %ld found)", found, num_);
     thread->stats.AddMessage(msg);
@@ -1307,6 +1328,10 @@ int main(int argc, char** argv) {
       FLAGS_num = l;
     } else if (sscanf(argv[i], "--reads=%d%c", &n, &junk) == 1) {
       FLAGS_reads = n;
+    } else if (sscanf(argv[i], "--read_range=%d%c", &n, &junk) == 1) {
+      FLAGS_read_range = n;
+    } else if (sscanf(argv[i], "--seed=%ld%c", &l, &junk) == 1) {
+      FLAGS_seed = l;
     } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
       FLAGS_threads = n;
     } else if (sscanf(argv[i], "--value_size=%d%c", &n, &junk) == 1) {

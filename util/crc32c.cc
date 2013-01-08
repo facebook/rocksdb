@@ -7,10 +7,10 @@
 
 #include "util/crc32c.h"
 
+#include <stdint.h>
 #ifdef __SSE4_2__
 #include <nmmintrin.h>
 #endif
-#include <stdint.h>
 #include "util/coding.h"
 
 namespace leveldb {
@@ -290,6 +290,58 @@ static inline uint64_t LE_LOAD64(const uint8_t *p) {
   return DecodeFixed64(reinterpret_cast<const char*>(p));
 }
 
+static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
+  uint32_t c = *l ^ LE_LOAD32(*p);
+  *p += 4;
+  *l = table3_[c & 0xff] ^
+  table2_[(c >> 8) & 0xff] ^
+  table1_[(c >> 16) & 0xff] ^
+  table0_[c >> 24];
+  // DO it twice.
+  c = *l ^ LE_LOAD32(*p);
+  *p += 4;
+  *l = table3_[c & 0xff] ^
+  table2_[(c >> 8) & 0xff] ^
+  table1_[(c >> 16) & 0xff] ^
+  table0_[c >> 24];
+}
+
+static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
+  #ifdef __SSE4_2__
+  *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
+  *p += 8;
+  #else
+  Slow_CRC32(l, p);
+  #endif
+}
+
+// Detect if SS42 or not.
+static bool isSSE42() {
+  #ifdef __GNUC__
+  uint32_t c_;
+  uint32_t d_;
+  __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
+  return c_ & (1U << 20); // copied from CpuId.h in Folly.
+  #else
+  return false;
+  #endif
+}
+
+typedef void (*Function)(uint64_t*, uint8_t const**);
+static Function func = NULL;
+
+static inline Function Choose_CRC32() {
+  return isSSE42() ? Fast_CRC32 : Slow_CRC32;
+}
+
+static inline void CRC32(uint64_t* l, uint8_t const **p) {
+  if (func != NULL) {
+    return func(l, p);
+  }
+  func = Choose_CRC32();
+  func(l, p);
+}
+
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   const uint8_t *p = reinterpret_cast<const uint8_t *>(buf);
   const uint8_t *e = p + size;
@@ -302,20 +354,7 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
     int c = (l & 0xff) ^ *p++;                  \
     l = table0_[c] ^ (l >> 8);                  \
 } while (0)
-#define STEP4 do {                              \
-    uint32_t c = l ^ LE_LOAD32(p);              \
-    p += 4;                                     \
-    l = table3_[c & 0xff] ^                     \
-        table2_[(c >> 8) & 0xff] ^              \
-        table1_[(c >> 16) & 0xff] ^             \
-        table0_[c >> 24];                       \
-} while (0)
 
-#ifdef __SSE4_2__
-#define STEP8 do { l = _mm_crc32_u64(l, LE_LOAD64(p)); p += 8; } while(0)
-#else
-#define STEP8 do { STEP4; STEP4; } while(0)
-#endif
 
   // Point x at first 16-byte aligned byte in string.  This might be
   // just past the end of the string.
@@ -329,18 +368,17 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   }
   // Process bytes 16 at a time
   while ((e-p) >= 16) {
-    STEP8; STEP8;
+    CRC32(&l, &p);
+    CRC32(&l, &p);
   }
   // Process bytes 8 at a time
   while ((e-p) >= 8) {
-    STEP8;
+    CRC32(&l, &p);
   }
   // Process the last few bytes
   while (p != e) {
     STEP1;
   }
-#undef STEP8
-#undef STEP4
 #undef STEP1
 #undef ALIGN
   return l ^ 0xffffffffu;

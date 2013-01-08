@@ -60,7 +60,8 @@ TOOLS = \
 	manifest_dump \
         sst_dump \
         db_stress \
-        ldb
+        ldb \
+	db_repl_stress
 
 PROGRAMS = db_bench $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
@@ -98,7 +99,7 @@ $(SHARED3):
 
 endif  # PLATFORM_SHARED_EXT
 
-all: $(VERSIONFILE) $(SHARED) $(LIBRARY) $(THRIFTSERVER) $(TOOLS)
+all: $(VERSIONFILE) $(SHARED) $(LIBRARY) $(TOOLS)
 
 check: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
@@ -117,6 +118,9 @@ db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
+
+db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
+	$(CXX) tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
 
 db_bench_sqlite3: doc/bench/db_bench_sqlite3.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) doc/bench/db_bench_sqlite3.o $(LIBOBJECTS) $(TESTUTIL) -o $@ $(LDFLAGS) -lsqlite3
@@ -190,12 +194,6 @@ $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 
 memenv_test : helpers/memenv/memenv_test.o $(MEMENVLIBRARY) $(LIBRARY) $(TESTHARNESS)
 	$(CXX) helpers/memenv/memenv_test.o $(MEMENVLIBRARY) $(LIBRARY) $(TESTHARNESS) -o $@ $(LDFLAGS)
-
-leveldb_server: thrift/server.o leveldb_shell $(LIBRARY) 
-	$(CXX) thrift/server.o $(LIBRARY) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) 
-
-leveldb_server_test: thrift/test/simpletest.o $(LIBRARY) 
-	$(CXX) thrift/test/simpletest.o $(LIBRARY) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
 
 leveldb_shell: tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o tools/shell/ShellContext.h tools/shell/ShellState.h tools/shell/DBClientProxy.h $(LIBOBJECTS)
 	$(CXX) tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o $(LIBOBJECTS) -o $@ $(LDFLAGS)

@@ -123,11 +123,15 @@ public:
     ret.append(LDBCommand::BLOOM_ARG);
     ret.append("<int,e.g.:14>] [");
     ret.append(LDBCommand::COMPRESSION_TYPE_ARG);
-    ret.append("<no|snappy|zlib|bzip2> ");
+    ret.append("<no|snappy|zlib|bzip2>] [");
     ret.append(LDBCommand::BLOCK_SIZE);
-    ret.append("=<block_size_in_bytes> ");
+    ret.append("<block_size_in_bytes>] [");
     ret.append(LDBCommand::AUTO_COMPACTION);
-    ret.append("=<true|false>]");
+    ret.append("<true|false>] [");
+    ret.append(LDBCommand::WRITE_BUFFER_SIZE_ARG);
+    ret.append("<int,e.g.:4194304>] [");
+    ret.append(LDBCommand::FILE_SIZE_ARG);
+    ret.append("<int,e.g.:2097152>] ");
   }
 
   /* Run the command, and return the execute result. */
@@ -174,6 +178,45 @@ public:
     return parsed;
   }
 
+  static std::string StringToHex(const std::string& str) {
+    std::string result;
+    char buf[10];
+    for (size_t i = 0; i < str.length(); i++) {
+      snprintf(buf, 10, "%02X", (unsigned char)str[i]);
+      result += buf;
+    }
+    return result;
+  }
+
+  static const char* DELIM;
+  static bool ParseKeyValue(const std::string& line,
+                              std::string* key,
+                              std::string* value,
+                              bool hex) {
+    size_t pos = line.find(DELIM);
+    if (pos != std::string::npos) {
+      (*key) = line.substr(0, pos);
+      (*value) = line.substr(pos + strlen(DELIM));
+      if (hex) {
+        (*key) = HexToString(*key);
+        (*value) = HexToString(*value);
+      }
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  static std::string PrintKeyValue(const std::string& key,
+                                   const std::string& value,
+                                   bool hex) {
+    std::string result;
+    result.append(hex ? StringToHex(key) : key);
+    result.append(DELIM);
+    result.append(hex ? StringToHex(value) : value);
+    return result;
+  }
+
 protected:
 
   void OpenDB() {
@@ -209,6 +252,8 @@ private:
   static const char* COMPRESSION_TYPE_ARG;
   static const char* BLOCK_SIZE;
   static const char* AUTO_COMPACTION;
+  static const char* WRITE_BUFFER_SIZE_ARG;
+  static const char* FILE_SIZE_ARG;
   std::vector<std::string> open_args_;
   void parse_open_args(std::vector<std::string>& args);
 };
@@ -273,6 +318,24 @@ private:
   static const char* DISABLE_WAL_ARG;
 };
 
+class DBQuerier: public LDBCommand {
+public:
+  DBQuerier(std::string& db_name, std::vector<std::string>& args);
+  virtual ~DBQuerier() {}
+  static void Help(std::string& ret);
+  virtual void DoCommand();
+
+private:
+  bool hex_;
+
+  static const char* HEX_ARG;
+
+  static const char* HELP_CMD;
+  static const char* GET_CMD;
+  static const char* PUT_CMD;
+  static const char* DELETE_CMD;
+};
+
 class ReduceDBLevels : public LDBCommand {
 public:
 
@@ -296,13 +359,9 @@ private:
   int old_levels_;
   int new_levels_;
   bool print_old_levels_;
-  int file_size_;
-  enum leveldb::CompressionType compression_;
 
   static const char* NEW_LEVLES_ARG;
   static const char* PRINT_OLD_LEVELS_ARG;
-  static const char* COMPRESSION_TYPE_ARG;
-  static const char* FILE_SIZE_ARG;
 
   Status GetOldNumOfLevels(leveldb::Options& opt, int* levels);
 };

@@ -15,6 +15,9 @@ const char* LDBCommand::BLOOM_ARG = "--bloom_bits=";
 const char* LDBCommand::COMPRESSION_TYPE_ARG = "--compression_type=";
 const char* LDBCommand::BLOCK_SIZE = "--block_size=";
 const char* LDBCommand::AUTO_COMPACTION = "--auto_compaction=";
+const char* LDBCommand::WRITE_BUFFER_SIZE_ARG = "--write_buffer_size=";
+const char* LDBCommand::FILE_SIZE_ARG = "--file_size=";
+const char* LDBCommand::DELIM = " ==> ";
 
 void LDBCommand::parse_open_args(std::vector<std::string>& args) {
   std::vector<std::string> rest_of_args;
@@ -23,7 +26,9 @@ void LDBCommand::parse_open_args(std::vector<std::string>& args) {
     if (arg.find(BLOOM_ARG) == 0
         || arg.find(COMPRESSION_TYPE_ARG) == 0
         || arg.find(BLOCK_SIZE) == 0
-        || arg.find(AUTO_COMPACTION) == 0) {
+        || arg.find(AUTO_COMPACTION) == 0
+        || arg.find(WRITE_BUFFER_SIZE_ARG) == 0
+        || arg.find(FILE_SIZE_ARG) == 0) {
       open_args_.push_back(arg);
     } else {
       rest_of_args.push_back(arg);
@@ -81,6 +86,25 @@ leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
         exec_state_ = LDBCommandExecuteResult::FAILED(
           "Unknown compression level: " + comp);
       }
+    } else if (arg.find(WRITE_BUFFER_SIZE_ARG) == 0) {
+      std::string write_buffer_str = arg.substr(strlen(WRITE_BUFFER_SIZE_ARG));
+      int write_buffer_size = atoi(write_buffer_str.c_str());
+      if (write_buffer_size == 0) {
+        exec_state_ = LDBCommandExecuteResult::FAILED(
+          std::string("Badly-formatted buffer size: ") + write_buffer_str);
+      }
+      opt.write_buffer_size = write_buffer_size;
+    } else if (arg.find(FILE_SIZE_ARG) == 0) {
+      std::string file_size_str = arg.substr(strlen(FILE_SIZE_ARG));
+      int file_size = atoi(file_size_str.c_str());
+      if (file_size == 0) {
+        exec_state_ = LDBCommandExecuteResult::FAILED(
+          std::string("Badly-formatted file size: ") + file_size_str);
+      }
+      opt.target_file_size_base = file_size;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::FAILED(
+        "Unknown option: " + arg);
     }
   }
 
@@ -102,7 +126,7 @@ Compactor::Compactor(std::string& db_name, std::vector<std::string>& args) :
     } else if (arg.find(END_ARG) == 0) {
       null_to_ = false;
       to_ = arg.substr(strlen(END_ARG));
-    } else if (arg.find(HEX_ARG) == 0) {
+    } else if (arg == HEX_ARG) {
       hex_ = true;
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument." + arg);
@@ -147,7 +171,6 @@ void Compactor::DoCommand() {
 const char* DBLoader::HEX_INPUT_ARG = "--input_hex";
 const char* DBLoader::CREATE_IF_MISSING_ARG = "--create_if_missing";
 const char* DBLoader::DISABLE_WAL_ARG = "--disable_wal";
-static const char* delim = " ==> ";
 
 DBLoader::DBLoader(std::string& db_name, std::vector<std::string>& args) :
     LDBCommand(db_name, args),
@@ -155,11 +178,11 @@ DBLoader::DBLoader(std::string& db_name, std::vector<std::string>& args) :
     create_if_missing_(false) {
   for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
-    if (arg.find(HEX_INPUT_ARG) == 0) {
+    if (arg == HEX_INPUT_ARG) {
       hex_input_ = true;
-    } else if (arg.find(CREATE_IF_MISSING_ARG) == 0) {
+    } else if (arg == CREATE_IF_MISSING_ARG) {
       create_if_missing_ = true;
-    } else if (arg.find(DISABLE_WAL_ARG) == 0) {
+    } else if (arg == DISABLE_WAL_ARG) {
       disable_wal_ = true;
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument:" + arg);
@@ -197,18 +220,10 @@ void DBLoader::DoCommand() {
   int bad_lines = 0;
   std::string line;
   while (std::getline(std::cin, line, '\n')) {
-    size_t pos = line.find(delim);
-    if (pos != std::string::npos) {
-      std::string key = line.substr(0, pos);
-      std::string value = line.substr(pos + strlen(delim));
-
-      if (hex_input_) {
-        key = HexToString(key);
-        value = HexToString(value);
-      }
-
+    std::string key;
+    std::string value;
+    if (ParseKeyValue(line, &key, &value, hex_input_)) {
       db_->Put(write_options, Slice(key), Slice(value));
-
     } else if (0 == line.find("Keys in range:")) {
       // ignore this line
     } else if (0 == line.find("Created bg thread 0x")) {
@@ -245,15 +260,15 @@ DBDumper::DBDumper(std::string& db_name, std::vector<std::string>& args) :
     } else if (arg.find(END_ARG) == 0) {
       null_to_ = false;
       to_ = arg.substr(strlen(END_ARG));
-    } else if (arg.find(HEX_ARG) == 0) {
+    } else if (arg == HEX_ARG) {
       hex_ = true;
     } else if (arg.find(MAX_KEYS_ARG) == 0) {
       max_keys_ = atoi(arg.substr(strlen(MAX_KEYS_ARG)).c_str());
-    } else if (arg.find(STATS_ARG) == 0) {
+    } else if (arg == STATS_ARG) {
       print_stats_ = true;
-    } else if (arg.find(COUNT_ONLY_ARG) == 0) {
+    } else if (arg == COUNT_ONLY_ARG) {
       count_only_ = true;
-    } else if (arg.find(HEX_OUTPUT_ARG) == 0) {
+    } else if (arg == HEX_OUTPUT_ARG) {
       hex_output_ = true;
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument:" + arg);
@@ -321,22 +336,10 @@ void DBDumper::DoCommand() {
     }
     ++count;
     if (!count_only_) {
-      if (hex_output_) {
-        std::string str = iter->key().ToString();
-        for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%02X", (unsigned char)str[i]);
-        }
-        fprintf(stdout, delim);
-        str = iter->value().ToString();
-        for (unsigned int i = 0; i < str.length(); ++i) {
-          fprintf(stdout, "%02X", (unsigned char)str[i]);
-        }
-        fprintf(stdout, "\n");
-      } else {
-        fprintf(stdout, "%s%s%s\n", iter->key().ToString().c_str(),
-            delim,
-            iter->value().ToString().c_str());
-      }
+      std::string str = PrintKeyValue(iter->key().ToString(),
+                                      iter->value().ToString(),
+                                      hex_output_);
+      fprintf(stdout, "%s\n", str.c_str());
     }
   }
   fprintf(stdout, "Keys in range: %lld\n", (long long) count);
@@ -345,10 +348,91 @@ void DBDumper::DoCommand() {
 }
 
 
+const char* DBQuerier::HEX_ARG = "--hex";
+const char* DBQuerier::HELP_CMD = "help";
+const char* DBQuerier::GET_CMD = "get";
+const char* DBQuerier::PUT_CMD = "put";
+const char* DBQuerier::DELETE_CMD = "delete";
+
+DBQuerier::DBQuerier(std::string& db_name, std::vector<std::string>& args) :
+    LDBCommand(db_name, args),
+    hex_(false) {
+  for (unsigned int i = 0; i < args.size(); i++) {
+    std::string& arg = args.at(i);
+    if (arg == HEX_ARG) {
+      hex_ = true;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::FAILED("Unknown argument:" + arg);
+    }
+  }
+}
+
+void DBQuerier::Help(std::string& ret) {
+  LDBCommand::Help(ret);
+  ret.append("[--hex] ");
+  ret.append("(type \"help\" on stdin for details.)");
+}
+
+void DBQuerier::DoCommand() {
+  if (!db_) {
+    return;
+  }
+
+  leveldb::ReadOptions read_options;
+  leveldb::WriteOptions write_options;
+
+  std::string line;
+  std::string key;
+  std::string value;
+  while (std::getline(std::cin, line, '\n')) {
+
+    // Parse line into vector<string>
+    std::vector<std::string> tokens;
+    size_t pos = 0;
+    while (true) {
+      size_t pos2 = line.find(' ', pos);
+      if (pos2 == std::string::npos) {
+        break;
+      }
+      tokens.push_back(line.substr(pos, pos2-pos));
+      pos = pos2 + 1;
+    }
+    tokens.push_back(line.substr(pos));
+
+    const std::string& cmd = tokens[0];
+
+    if (cmd == HELP_CMD) {
+      fprintf(stdout,
+              "get <key>\n"
+              "put <key> <value>\n"
+              "delete <key>\n");
+    } else if (cmd == DELETE_CMD && tokens.size() == 2) {
+      key = (hex_ ? HexToString(tokens[1]) : tokens[1]);
+      db_->Delete(write_options, Slice(key));
+      fprintf(stdout, "Successfully deleted %s\n", tokens[1].c_str());
+    } else if (cmd == PUT_CMD && tokens.size() == 3) {
+      key = (hex_ ? HexToString(tokens[1]) : tokens[1]);
+      value = (hex_ ? HexToString(tokens[2]) : tokens[2]);
+      db_->Put(write_options, Slice(key), Slice(value));
+      fprintf(stdout, "Successfully put %s %s\n",
+              tokens[1].c_str(), tokens[2].c_str());
+    } else if (cmd == GET_CMD && tokens.size() == 2) {
+      key = (hex_ ? HexToString(tokens[1]) : tokens[1]);
+      if (db_->Get(read_options, Slice(key), &value).ok()) {
+        fprintf(stdout, "%s\n", PrintKeyValue(key, value, hex_).c_str());
+      } else {
+        fprintf(stdout, "Not found %s\n", tokens[1].c_str());
+      }
+    } else {
+      fprintf(stdout, "Unknown command %s\n", line.c_str());
+    }
+  }
+}
+
+
+
 const char* ReduceDBLevels::NEW_LEVLES_ARG = "--new_levels=";
 const char* ReduceDBLevels::PRINT_OLD_LEVELS_ARG = "--print_old_levels";
-const char* ReduceDBLevels::COMPRESSION_TYPE_ARG = "--compression=";
-const char* ReduceDBLevels::FILE_SIZE_ARG = "--file_size=";
 
 ReduceDBLevels::ReduceDBLevels(std::string& db_name,
     std::vector<std::string>& args)
@@ -356,30 +440,13 @@ ReduceDBLevels::ReduceDBLevels(std::string& db_name,
   old_levels_(1 << 16),
   new_levels_(-1),
   print_old_levels_(false) {
-  file_size_ = leveldb::Options().target_file_size_base;
-  compression_ = leveldb::Options().compression;
 
   for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
     if (arg.find(NEW_LEVLES_ARG) == 0) {
       new_levels_ = atoi(arg.substr(strlen(NEW_LEVLES_ARG)).c_str());
-    } else if (arg.find(PRINT_OLD_LEVELS_ARG) == 0) {
+    } else if (arg == PRINT_OLD_LEVELS_ARG) {
       print_old_levels_ = true;
-    } else if (arg.find(COMPRESSION_TYPE_ARG) == 0) {
-      const char* type = arg.substr(strlen(COMPRESSION_TYPE_ARG)).c_str();
-      if (!strcasecmp(type, "none"))
-        compression_ = leveldb::kNoCompression;
-      else if (!strcasecmp(type, "snappy"))
-        compression_ = leveldb::kSnappyCompression;
-      else if (!strcasecmp(type, "zlib"))
-        compression_ = leveldb::kZlibCompression;
-      else if (!strcasecmp(type, "bzip2"))
-        compression_ = leveldb::kBZip2Compression;
-      else
-        exec_state_ = LDBCommandExecuteResult::FAILED(
-            "Invalid compression arg : " + arg);
-    } else if (arg.find(FILE_SIZE_ARG) == 0) {
-      file_size_ = atoi(arg.substr(strlen(FILE_SIZE_ARG)).c_str());
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED(
           "Unknown argument." + arg);
@@ -514,7 +581,7 @@ WALDumper::WALDumper(std::vector<std::string>& args) :
   wal_file_.clear();
   for (unsigned int i = 0; i < args.size(); i++) {
     std::string& arg = args.at(i);
-    if (arg.find("--header") == 0) {
+    if (arg == "--header") {
       print_header_ = true;
     } else if (arg.find(WAL_FILE_ARG) == 0) {
       wal_file_ = arg.substr(strlen(WAL_FILE_ARG));

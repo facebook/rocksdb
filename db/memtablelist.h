@@ -63,6 +63,7 @@ class MemTableList {
                       std::set<uint64_t>& pending_outputs);
 
   // New memtables are inserted at the front of the list.
+  // Takes ownership of the referenced held on *m by the caller of Add().
   void Add(MemTable* m);
 
   // Returns an estimate of the number of bytes of data in use.
