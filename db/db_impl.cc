@@ -262,7 +262,7 @@ DBImpl::~DBImpl() {
     delete options_.block_cache;
   }
   if (options_.compression_per_level != NULL) {
-    delete options_.compression_per_level;
+    delete[] options_.compression_per_level;
   }
 
   delete logger_;
@@ -1183,7 +1183,7 @@ void DBImpl::BGWork(void* db) {
 }
 
 void DBImpl::BackgroundCall() {
-  bool madeProgress;
+  bool madeProgress = false;
   DeletionState deletion_state;
   MutexLock l(&mutex_);
   // Log(options_.info_log, "XXX BG Thread %llx process new work item", pthread_self());
