@@ -1606,26 +1606,25 @@ void DBImpl::FlushMetrics(void* db) {
 void DBImpl::HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics) {
   DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
 
-  dbimpl->mutex_.Lock();
-
   // If we are shutting down or we are not a hot-cold db discard metrics.
+  //
+  // is_hotcold_ is constant after construction and shutting_down_ is an atomic
+  // so we don't need to acquire mutex_ .
   if (!dbimpl->is_hotcold_ || dbimpl->shutting_down_.Acquire_Load()) {
-    dbimpl->mutex_.Unlock();
     for (size_t i = 0; i < metrics->size(); ++i) {
       delete (*metrics)[i];
     }
     delete metrics;
 
     return;
-  } else {
-    dbimpl->unflushed_metrics_.push_back(metrics);
+  }
 
-    if (!dbimpl->bg_flushing_metrics_scheduled_) {
-      dbimpl->bg_flushing_metrics_scheduled_ = true;
-      dbimpl->env_->Schedule(&DBImpl::FlushMetrics, dbimpl);
-    }
+  MutexLock l(&dbimpl->mutex_);
+  dbimpl->unflushed_metrics_.push_back(metrics);
 
-    dbimpl->mutex_.Unlock();
+  if (!dbimpl->bg_flushing_metrics_scheduled_) {
+    dbimpl->bg_flushing_metrics_scheduled_ = true;
+    dbimpl->env_->Schedule(&DBImpl::FlushMetrics, dbimpl);
   }
 }
 
