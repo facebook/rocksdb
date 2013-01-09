@@ -1488,8 +1488,15 @@ int main(int argc, char** argv) {
   // max number of concurrent compactions.
   // Additionally, the hot-cold database needs a few more extra background
   // threads.
+  const uint32_t kExtraBGThreadsHotCold = 3;
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions +
-                                  (FLAGS_hot_cold?3:0));
+                                  (FLAGS_hot_cold?kExtraBGThreadsHotCold:0));
+  if (FLAGS_hot_cold) {
+    fprintf(stderr,
+            "NOTE: Adding %d extra background threads due to hotcold being "
+            "enabled.\n\n",
+            kExtraBGThreadsHotCold);
+  }
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db == NULL) {
