@@ -36,12 +36,12 @@
   <parent>
     <groupId>org.fusesource.leveldbjni.fb</groupId>
     <artifactId>leveldbjni-project</artifactId>
-    <version>1.5.6</version>
+    <version>1.5.7</version>
   </parent>
 
   <groupId>org.fusesource.leveldbjni.fb</groupId>
   <artifactId>leveldbjni-all</artifactId>
-  <version>1.5.6</version>
+  <version>1.5.7</version>
   
   <name>${project.artifactId}</name>
   <description>An uber jar which contains all the leveldbjni platform libraries and dependencies</description>
@@ -50,27 +50,27 @@
     <dependency>
       <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-osx</artifactId>
-      <version>1.5.6</version>
+      <version>1.5.7</version>
     </dependency>
     <dependency>
       <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-linux32</artifactId>
-      <version>1.5.6</version>
+      <version>1.5.7</version>
     </dependency>
     <dependency>
       <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-linux64</artifactId>
-      <version>1.5.6</version>
+      <version>1.5.7</version>
     </dependency>
     <dependency>
       <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-win32</artifactId>
-      <version>1.5.6</version>
+      <version>1.5.7</version>
     </dependency>
     <dependency>
       <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni-win64</artifactId>
-      <version>1.5.6</version>
+      <version>1.5.7</version>
     </dependency>
     
   </dependencies>

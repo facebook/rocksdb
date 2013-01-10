@@ -36,12 +36,12 @@
   <parent>
     <groupId>org.fusesource.leveldbjni.fb</groupId>
     <artifactId>leveldbjni-project</artifactId>
-    <version>1.5.6</version>
+    <version>1.5.7</version>
   </parent>
 
   <groupId>org.fusesource.leveldbjni.fb</groupId>
   <artifactId>leveldbjni-osx</artifactId>
-  <version>1.5.6</version>
+  <version>1.5.7</version>
   
   <name>${project.artifactId}</name>
   <description>The leveldbjni OS X universal native libraries</description>
@@ -50,13 +50,13 @@
     <dependency>
       <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni</artifactId>
-      <version>1.5.6</version>
+      <version>1.5.7</version>
     </dependency>
 
     <dependency>
       <groupId>org.fusesource.leveldbjni.fb</groupId>
       <artifactId>leveldbjni</artifactId>
-      <version>1.5.6</version>
+      <version>1.5.7</version>
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>

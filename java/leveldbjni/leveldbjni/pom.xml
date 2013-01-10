@@ -36,12 +36,12 @@
   <parent>
     <groupId>org.fusesource.leveldbjni.fb</groupId>
     <artifactId>leveldbjni-project</artifactId>
-    <version>1.5.6</version>
+    <version>1.5.7</version>
   </parent>
 
   <groupId>org.fusesource.leveldbjni.fb</groupId>
   <artifactId>leveldbjni</artifactId>
-  <version>1.5.6</version>
+  <version>1.5.7</version>
   <packaging>jar</packaging>
   
   <name>${project.artifactId}</name>
