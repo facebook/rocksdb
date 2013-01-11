@@ -620,7 +620,7 @@ void Version::ExtendOverlappingInputs(
   // insert overlapping files into vector
   for (int i = startIndex; i <= endIndex; i++) {
     FileMetaData* f = files_[level][i];
-    inputs->push_back(f); 
+    inputs->push_back(f);
   }
 }
 
@@ -1038,6 +1038,15 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
           s = descriptor_file_->Fsync();
         } else {
           s = descriptor_file_->Sync();
+        }
+      }
+      if (!s.ok()) {
+        Log(options_->info_log, "MANIFEST write: %s\n", s.ToString().c_str());
+        if (ManifestContains(record)) {
+          Log(options_->info_log,
+              "MANIFEST contains log record despite error; advancing to new "
+              "version to prevent mismatch between in-memory and logged state");
+          s = Status::OK();
         }
       }
     }
@@ -1549,6 +1558,33 @@ const char* VersionSet::LevelDataSizeSummary(
   snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
   return scratch->buffer;
 }
+
+// Opens the mainfest file and reads all records
+// till it finds the record we are looking for.
+bool VersionSet::ManifestContains(const std::string& record) const {
+  std::string fname = DescriptorFileName(dbname_, manifest_file_number_);
+  Log(options_->info_log, "ManifestContains: checking %s\n", fname.c_str());
+  SequentialFile* file = NULL;
+  Status s = env_->NewSequentialFile(fname, &file);
+  if (!s.ok()) {
+    Log(options_->info_log, "ManifestContains: %s\n", s.ToString().c_str());
+    return false;
+  }
+  log::Reader reader(file, NULL, true/*checksum*/, 0);
+  Slice r;
+  std::string scratch;
+  bool result = false;
+  while (reader.ReadRecord(&r, &scratch)) {
+    if (r == Slice(record)) {
+      result = true;
+      break;
+    }
+  }
+  delete file;
+  Log(options_->info_log, "ManifestContains: result = %d\n", result ? 1 : 0);
+  return result;
+}
+
 
 uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   uint64_t result = 0;

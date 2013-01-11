@@ -393,6 +393,8 @@ class VersionSet {
 
   void AppendVersion(Version* v);
 
+  bool ManifestContains(const std::string& record) const;
+
   double MaxBytesForLevel(int level);
 
   uint64_t MaxFileSizeForLevel(int level);

@@ -51,6 +51,13 @@ Status Table::Open(const Options& options,
                         &footer_input, footer_space);
   if (!s.ok()) return s;
 
+  // Check that we actually read the whole footer from the file. It may be
+  // that size isn't correct.
+  if (footer_input.size() != Footer::kEncodedLength) {
+    return Status::InvalidArgument("file is too short to be an sstable");
+  }
+
+
   Footer footer;
   s = footer.DecodeFrom(&footer_input);
   if (!s.ok()) return s;
