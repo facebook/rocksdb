@@ -104,8 +104,11 @@ release:
 	make clean
 	OPT=-DNDEBUG make -j32
 
-check: all $(PROGRAMS) $(TESTS) $(TOOLS)
+check: all $(PROGRAMS) $(TESTS) $(TOOLS) ldb_tests
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
+
+ldb_tests: all $(PROGRAMS) $(TOOLS)
+	python tools/ldb_test.py
 
 clean:
 	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk

@@ -84,11 +84,13 @@ Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels,
 }
 
 bool ReduceLevelTest::ReduceLevels(int target_level) {
-  std::vector<std::string> args = leveldb::ReduceDBLevels::PrepareArgs(
-      target_level, false);
-  ReduceDBLevels level_reducer(dbname_, args);
-  level_reducer.Run();
-  return level_reducer.GetExecuteState().IsSucceed();
+  std::vector<std::string> args = leveldb::ReduceDBLevelsCommand::PrepareArgs(
+      dbname_, target_level, false);
+  LDBCommand* level_reducer = LDBCommand::InitFromCmdLineArgs(args);
+  level_reducer->Run();
+  bool is_succeed = level_reducer->GetExecuteState().IsSucceed();
+  delete level_reducer;
+  return is_succeed;
 }
 
 TEST(ReduceLevelTest, Last_Level) {

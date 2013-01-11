@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef LEVELDB_UTIL_LDB_H_
-#define LEVELDB_UTIL_LDB_H_
+#ifndef LEVELDB_UTIL_LDB_CMD_H_
+#define LEVELDB_UTIL_LDB_CMD_H_
 
 #include <string>
 #include <iostream>
@@ -12,6 +12,9 @@
 #include <algorithm>
 #include <stdio.h>
 
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/options.h"
@@ -19,90 +22,37 @@
 #include "leveldb/slice.h"
 #include "db/version_set.h"
 #include "util/logging.h"
+#include "util/ldb_cmd_execute_result.h"
+
+using std::string;
+using std::map;
+using std::vector;
+using std::ostringstream;
 
 namespace leveldb {
-
-class LDBCommandExecuteResult {
-public:
-  enum State {
-    EXEC_NOT_STARTED = 0, EXEC_SUCCEED = 1, EXEC_FAILED = 2,
-  };
-
-  LDBCommandExecuteResult() {
-    state_ = EXEC_NOT_STARTED;
-    message_ = "";
-  }
-
-  LDBCommandExecuteResult(State state, std::string& msg) {
-    state_ = state;
-    message_ = msg;
-  }
-
-  std::string ToString() {
-    std::string ret;
-    switch (state_) {
-    case EXEC_SUCCEED:
-      break;
-    case EXEC_FAILED:
-      ret.append("Failed: ");
-      break;
-    case EXEC_NOT_STARTED:
-      ret.append("Not started: ");
-    }
-    if (!message_.empty()) {
-      ret.append(message_);
-    }
-    return ret;
-  }
-
-  void Reset() {
-    state_ = EXEC_NOT_STARTED;
-    message_ = "";
-  }
-
-  bool IsSucceed() {
-    return state_ == EXEC_SUCCEED;
-  }
-
-  bool IsNotStarted() {
-    return state_ == EXEC_NOT_STARTED;
-  }
-
-  bool IsFailed() {
-    return state_ == EXEC_FAILED;
-  }
-
-  static LDBCommandExecuteResult SUCCEED(std::string msg) {
-    return LDBCommandExecuteResult(EXEC_SUCCEED, msg);
-  }
-
-  static LDBCommandExecuteResult FAILED(std::string msg) {
-    return LDBCommandExecuteResult(EXEC_FAILED, msg);
-  }
-
-private:
-  State state_;
-  std::string message_;
-
-  bool operator==(const LDBCommandExecuteResult&);
-  bool operator!=(const LDBCommandExecuteResult&);
-};
 
 class LDBCommand {
 public:
 
-  /* Constructor */
-  LDBCommand(std::string& db_name, std::vector<std::string>& args) :
-    db_path_(db_name),
-    db_(NULL) {
-    parse_open_args(args);
-  }
+  // Command-line arguments
+  static const string ARG_DB;
+  static const string ARG_HEX;
+  static const string ARG_KEY_HEX;
+  static const string ARG_VALUE_HEX;
+  static const string ARG_FROM;
+  static const string ARG_TO;
+  static const string ARG_MAX_KEYS;
+  static const string ARG_BLOOM_BITS;
+  static const string ARG_COMPRESSION_TYPE;
+  static const string ARG_BLOCK_SIZE;
+  static const string ARG_AUTO_COMPACTION;
+  static const string ARG_WRITE_BUFFER_SIZE;
+  static const string ARG_FILE_SIZE;
+  static const string ARG_CREATE_IF_MISSING;
 
-  LDBCommand(std::vector<std::string>& args) :
-    db_path_(""),
-    db_(NULL) {
-    parse_open_args(args);
-  }
+  static LDBCommand* InitFromCmdLineArgs(const vector<string>& args);
+  static LDBCommand* InitFromCmdLineArgs(int argc, char** argv);
+  bool ValidateCmdLineOptions();
 
   virtual leveldb::Options PrepareOptionsForOpenDB();
 
@@ -117,23 +67,6 @@ public:
     }
   }
 
-  /* Print the help message */
-  static void Help(std::string& ret) {
-    ret.append("--db=DB_PATH [");
-    ret.append(LDBCommand::BLOOM_ARG);
-    ret.append("<int,e.g.:14>] [");
-    ret.append(LDBCommand::COMPRESSION_TYPE_ARG);
-    ret.append("<no|snappy|zlib|bzip2>] [");
-    ret.append(LDBCommand::BLOCK_SIZE);
-    ret.append("<block_size_in_bytes>] [");
-    ret.append(LDBCommand::AUTO_COMPACTION);
-    ret.append("<true|false>] [");
-    ret.append(LDBCommand::WRITE_BUFFER_SIZE_ARG);
-    ret.append("<int,e.g.:4194304>] [");
-    ret.append(LDBCommand::FILE_SIZE_ARG);
-    ret.append("<int,e.g.:2097152>] ");
-  }
-
   /* Run the command, and return the execute result. */
   void Run() {
     if (!exec_state_.IsNotStarted()) {
@@ -146,7 +79,7 @@ public:
         return;
       }
     }
-    
+
     DoCommand();
     if (exec_state_.IsNotStarted()) {
       exec_state_ = LDBCommandExecuteResult::SUCCEED("");
@@ -167,9 +100,15 @@ public:
     exec_state_.Reset();
   }
 
-  static std::string HexToString(const std::string& str) {
-    std::string parsed;
-    for (unsigned int i = 0; i < str.length();) {
+  static string HexToString(const string& str) {
+    string parsed;
+    if (!boost::starts_with(str, "0x")) {
+      fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
+              str.c_str());
+      throw "Invalid hex input";
+    }
+
+    for (unsigned int i = 2; i < str.length();) {
       int c;
       sscanf(str.c_str() + i, "%2X", &c);
       parsed.push_back(c);
@@ -178,8 +117,8 @@ public:
     return parsed;
   }
 
-  static std::string StringToHex(const std::string& str) {
-    std::string result;
+  static string StringToHex(const string& str) {
+    string result = "0x";
     char buf[10];
     for (size_t i = 0; i < str.length(); i++) {
       snprintf(buf, 10, "%02X", (unsigned char)str[i]);
@@ -189,35 +128,59 @@ public:
   }
 
   static const char* DELIM;
-  static bool ParseKeyValue(const std::string& line,
-                              std::string* key,
-                              std::string* value,
-                              bool hex) {
-    size_t pos = line.find(DELIM);
-    if (pos != std::string::npos) {
-      (*key) = line.substr(0, pos);
-      (*value) = line.substr(pos + strlen(DELIM));
-      if (hex) {
-        (*key) = HexToString(*key);
-        (*value) = HexToString(*value);
-      }
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  static std::string PrintKeyValue(const std::string& key,
-                                   const std::string& value,
-                                   bool hex) {
-    std::string result;
-    result.append(hex ? StringToHex(key) : key);
-    result.append(DELIM);
-    result.append(hex ? StringToHex(value) : value);
-    return result;
-  }
 
 protected:
+
+  LDBCommandExecuteResult exec_state_;
+  std::string db_path_;
+  leveldb::DB* db_;
+
+  /**
+   * true implies that this command can work if the db is opened in read-only
+   * mode.
+   */
+  bool is_read_only_;
+
+  /** If true, the key is input/output as hex in get/put/scan/delete etc. */
+  bool is_key_hex_;
+
+  /** If true, the value is input/output as hex in get/put/scan/delete etc. */
+  bool is_value_hex_;
+
+  /**
+   * Map of options passed on the command-line.
+   */
+  const map<string, string> options_;
+
+  /**
+   * Flags passed on the command-line.
+   */
+  const vector<string> flags_;
+
+  /** List of command-line options valid for this command */
+  const vector<string> valid_cmd_line_options_;
+
+  bool ParseKeyValue(const string& line, string* key, string* value,
+                      bool is_key_hex, bool is_value_hex);
+
+  LDBCommand(const map<string, string>& options, const vector<string>& flags,
+             bool is_read_only, const vector<string>& valid_cmd_line_options) :
+      db_(NULL),
+      is_read_only_(is_read_only),
+      is_key_hex_(false),
+      is_value_hex_(false),
+      options_(options),
+      flags_(flags),
+      valid_cmd_line_options_(valid_cmd_line_options) {
+
+    map<string, string>::const_iterator itr = options.find(ARG_DB);
+    if (itr != options.end()) {
+      db_path_ = itr->second;
+    }
+
+    is_key_hex_ = IsKeyHex(options, flags);
+    is_value_hex_ = IsValueHex(options, flags);
+  }
 
   void OpenDB() {
     leveldb::Options opt = PrepareOptionsForOpenDB();
@@ -225,7 +188,14 @@ protected:
       return;
     }
     // Open the DB.
-    leveldb::Status st = leveldb::DB::Open(opt, db_path_, &db_);
+    leveldb::Status st;
+    if (is_read_only_) {
+      //st = leveldb::DB::OpenForReadOnly(opt, db_path_, &db_);
+      // Could not get this to work
+      st = leveldb::DB::Open(opt, db_path_, &db_);
+    } else {
+      st = leveldb::DB::Open(opt, db_path_, &db_);
+    }
     if (!st.ok()) {
       std::string msg = st.ToString();
       exec_state_ = LDBCommandExecuteResult::FAILED(msg);
@@ -239,109 +209,181 @@ protected:
     }
   }
 
-  static const char* FROM_ARG;
-  static const char* END_ARG;
-  static const char* HEX_ARG;
-  LDBCommandExecuteResult exec_state_;
-  std::string db_path_;
-  leveldb::DB* db_;
+  static string PrintKeyValue(const string& key, const string& value,
+        bool is_key_hex, bool is_value_hex) {
+    string result;
+    result.append(is_key_hex ? StringToHex(key) : key);
+    result.append(DELIM);
+    result.append(is_value_hex ? StringToHex(value) : value);
+    return result;
+  }
+
+  static string PrintKeyValue(const string& key, const string& value,
+        bool is_hex) {
+    return PrintKeyValue(key, value, is_hex, is_hex);
+  }
+
+  /**
+   * Return true if the specified flag is present in the specified flags vector
+   */
+  static bool IsFlagPresent(const vector<string>& flags, const string& flag) {
+    return (std::find(flags.begin(), flags.end(), flag) != flags.end());
+  }
+
+  static string HelpRangeCmdArgs() {
+    ostringstream str_stream;
+    str_stream << " ";
+    str_stream << "[--" << ARG_FROM << "] ";
+    str_stream << "[--" << ARG_TO << "] ";
+    return str_stream.str();
+  }
+
+  /**
+   * A helper function that returns a list of command line options
+   * used by this command.  It includes the common options and the ones
+   * passed in.
+   */
+  vector<string> BuildCmdLineOptions(vector<string> options) {
+    vector<string> ret = {ARG_DB, ARG_BLOOM_BITS, ARG_BLOCK_SIZE,
+                          ARG_AUTO_COMPACTION, ARG_COMPRESSION_TYPE,
+                          ARG_WRITE_BUFFER_SIZE, ARG_FILE_SIZE};
+    ret.insert(ret.end(), options.begin(), options.end());
+    return ret;
+  }
+
+  bool ParseIntOption(const map<string, string>& options, string option,
+      int& value, LDBCommandExecuteResult& exec_state);
 
 private:
 
-  static const char* BLOOM_ARG;
-  static const char* COMPRESSION_TYPE_ARG;
-  static const char* BLOCK_SIZE;
-  static const char* AUTO_COMPACTION;
-  static const char* WRITE_BUFFER_SIZE_ARG;
-  static const char* FILE_SIZE_ARG;
-  std::vector<std::string> open_args_;
-  void parse_open_args(std::vector<std::string>& args);
+  /**
+   * Interpret command line options and flags to determine if the key
+   * should be input/output in hex.
+   */
+  bool IsKeyHex(const map<string, string>& options,
+      const vector<string>& flags) {
+    return (IsFlagPresent(flags, ARG_HEX) ||
+        IsFlagPresent(flags, ARG_KEY_HEX) ||
+        ParseBooleanOption(options, ARG_HEX, false) ||
+        ParseBooleanOption(options, ARG_KEY_HEX, false));
+  }
+
+  /**
+   * Interpret command line options and flags to determine if the value
+   * should be input/output in hex.
+   */
+  bool IsValueHex(const map<string, string>& options,
+      const vector<string>& flags) {
+    return (IsFlagPresent(flags, ARG_HEX) ||
+          IsFlagPresent(flags, ARG_VALUE_HEX) ||
+          ParseBooleanOption(options, ARG_HEX, false) ||
+          ParseBooleanOption(options, ARG_VALUE_HEX, false));
+  }
+
+  /**
+   * Returns the value of the specified option as a boolean.
+   * default_val is used if the option is not found in options.
+   * Throws an exception if the value of the option is not
+   * "true" or "false" (case insensitive).
+   */
+  bool ParseBooleanOption(const map<string, string>& options,
+      const string& option, bool default_val) {
+
+    map<string, string>::const_iterator itr = options.find(option);
+    if (itr != options.end()) {
+      string option_val = itr->second;
+      return StringToBool(itr->second);
+    }
+    return default_val;
+  }
+
+  /**
+   * Converts val to a boolean.
+   * val must be either true or false (case insensitive).
+   * Otherwise an exception is thrown.
+   */
+  bool StringToBool(string val) {
+    boost::algorithm::to_lower(val);
+    if (val == "true") {
+      return true;
+    } else if (val == "false") {
+      return false;
+    } else {
+      throw "Invalid value for boolean argument";
+    }
+  }
+
 };
 
-class Compactor: public LDBCommand {
+class CompactorCommand: public LDBCommand {
 public:
-  Compactor(std::string& db_name, std::vector<std::string>& args);
+  static string Name() { return "compact"; }
 
-  virtual ~Compactor() {}
+  CompactorCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
-  static void Help(std::string& ret);
+  static void Help(string& ret);
 
   virtual void DoCommand();
 
 private:
   bool null_from_;
-  std::string from_;
+  string from_;
   bool null_to_;
-  std::string to_;
-  bool hex_;
+  string to_;
 };
 
-class DBDumper: public LDBCommand {
+class DBDumperCommand: public LDBCommand {
 public:
-  DBDumper(std::string& db_name, std::vector<std::string>& args);
-  virtual ~DBDumper() {}
-  static void Help(std::string& ret);
+  static string Name() { return "dump"; }
+
+  DBDumperCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  static void Help(string& ret);
+
   virtual void DoCommand();
+
 private:
   bool null_from_;
-  std::string from_;
+  string from_;
   bool null_to_;
-  std::string to_;
+  string to_;
   int max_keys_;
   bool count_only_;
   bool print_stats_;
-  bool hex_;
-  bool hex_output_;
 
-  static const char* MAX_KEYS_ARG;
-  static const char* COUNT_ONLY_ARG;
-  static const char* STATS_ARG;
-  static const char* HEX_OUTPUT_ARG;
+  static const string ARG_COUNT_ONLY;
+  static const string ARG_STATS;
 };
 
-class DBLoader: public LDBCommand {
+class DBLoaderCommand: public LDBCommand {
 public:
-  DBLoader(std::string& db_name, std::vector<std::string>& args);
-  virtual ~DBLoader() {}
-  static void Help(std::string& ret);
+  static string Name() { return "load"; }
+
+  DBLoaderCommand(string& db_name, vector<string>& args);
+
+  DBLoaderCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  static void Help(string& ret);
   virtual void DoCommand();
 
   virtual leveldb::Options PrepareOptionsForOpenDB();
 
 private:
-  bool hex_input_;
   bool create_if_missing_;
   bool disable_wal_;
 
-  static const char* HEX_INPUT_ARG;
-  static const char* CREATE_IF_MISSING_ARG;
-  static const char* DISABLE_WAL_ARG;
+  static const string ARG_DISABLE_WAL;
 };
 
-class DBQuerier: public LDBCommand {
+class ReduceDBLevelsCommand : public LDBCommand {
 public:
-  DBQuerier(std::string& db_name, std::vector<std::string>& args);
-  virtual ~DBQuerier() {}
-  static void Help(std::string& ret);
-  virtual void DoCommand();
+  static string Name() { return "reduce_levels"; }
 
-private:
-  bool hex_;
-
-  static const char* HEX_ARG;
-
-  static const char* HELP_CMD;
-  static const char* GET_CMD;
-  static const char* PUT_CMD;
-  static const char* DELETE_CMD;
-};
-
-class ReduceDBLevels : public LDBCommand {
-public:
-
-  ReduceDBLevels (std::string& db_name, std::vector<std::string>& args);
-
-  ~ReduceDBLevels() {}
+  ReduceDBLevelsCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual leveldb::Options PrepareOptionsForOpenDB();
 
@@ -351,8 +393,9 @@ public:
     return true;
   }
 
-  static void Help(std::string& msg);
-  static std::vector<std::string> PrepareArgs(int new_levels,
+  static void Help(string& msg);
+
+  static vector<string> PrepareArgs(const string& db_path, int new_levels,
       bool print_old_level = false);
 
 private:
@@ -360,30 +403,159 @@ private:
   int new_levels_;
   bool print_old_levels_;
 
-  static const char* NEW_LEVLES_ARG;
-  static const char* PRINT_OLD_LEVELS_ARG;
+  static const string ARG_NEW_LEVELS;
+  static const string ARG_PRINT_OLD_LEVELS;
 
   Status GetOldNumOfLevels(leveldb::Options& opt, int* levels);
 };
 
-class WALDumper : public LDBCommand {
+class WALDumperCommand : public LDBCommand {
 public:
+  static string Name() { return "dump_wal"; }
 
-  WALDumper (std::vector<std::string>& args);
-
-  ~WALDumper() {}
+  WALDumperCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual bool  NoDBOpen() {
     return true;
   }
 
-  static void Help(std::string& ret);
+  static void Help(string& ret);
   virtual void DoCommand();
+
 private:
   bool print_header_;
-  std::string wal_file_;
+  string wal_file_;
 
-  static const char* WAL_FILE_ARG;
+  static const string ARG_WAL_FILE;
+  static const string ARG_PRINT_HEADER;
 };
+
+
+class GetCommand : public LDBCommand {
+public:
+  static string Name() { return "get"; }
+
+  GetCommand(const vector<string>& params, const map<string, string>& options,
+      const vector<string>& flags);
+
+  virtual void DoCommand();
+
+  static void Help(string& ret);
+
+private:
+  string key_;
+};
+
+class ApproxSizeCommand : public LDBCommand {
+public:
+  static string Name() { return "approxsize"; }
+
+  ApproxSizeCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  virtual void DoCommand();
+
+  static void Help(string& ret);
+
+private:
+  string start_key_;
+  string end_key_;
+};
+
+class BatchPutCommand : public LDBCommand {
+public:
+  static string Name() { return "batchput"; }
+
+  BatchPutCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  virtual void DoCommand();
+
+  static void Help(string& ret);
+
+  virtual leveldb::Options PrepareOptionsForOpenDB();
+
+private:
+  /**
+   * The key-values to be inserted.
+   */
+  vector<std::pair<string, string>> key_values_;
+};
+
+class ScanCommand : public LDBCommand {
+public:
+  static string Name() { return "scan"; }
+
+  ScanCommand(const vector<string>& params, const map<string, string>& options,
+      const vector<string>& flags);
+
+  virtual void DoCommand();
+
+  static void Help(string& ret);
+
+private:
+  string start_key_;
+  string end_key_;
+  bool start_key_specified_;
+  bool end_key_specified_;
+  int max_keys_scanned_;
+};
+
+class DeleteCommand : public LDBCommand {
+public:
+  static string Name() { return "delete"; }
+
+  DeleteCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  virtual void DoCommand();
+
+  static void Help(string& ret);
+
+private:
+  string key_;
+};
+
+class PutCommand : public LDBCommand {
+public:
+  static string Name() { return "put"; }
+
+  PutCommand(const vector<string>& params, const map<string, string>& options,
+      const vector<string>& flags);
+
+  virtual void DoCommand();
+
+  static void Help(string& ret);
+
+  virtual leveldb::Options PrepareOptionsForOpenDB();
+
+private:
+  string key_;
+  string value_;
+};
+
+/**
+ * Command that starts up a REPL shell that allows
+ * get/put/delete.
+ */
+class DBQuerierCommand: public LDBCommand {
+public:
+  static string Name() { return "query"; }
+
+  DBQuerierCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  static void Help(string& ret);
+
+  virtual void DoCommand();
+
+private:
+  static const char* HELP_CMD;
+  static const char* GET_CMD;
+  static const char* PUT_CMD;
+  static const char* DELETE_CMD;
+};
+
 }
 #endif
