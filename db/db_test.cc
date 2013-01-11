@@ -210,6 +210,7 @@ class DBTest {
     kUncompressed,
     kNumLevel_3,
     kDBLogDir,
+    kManifestFileSize,
     kEnd
   };
   int option_config_;
@@ -265,6 +266,8 @@ class DBTest {
       case kDBLogDir:
         options.db_log_dir = test::TmpDir();
         break;
+      case kManifestFileSize:
+        options.max_manifest_file_size = 50; // 50 bytes
       default:
         break;
     }
@@ -1024,6 +1027,31 @@ TEST(DBTest, MinorCompactionsHappen) {
     ASSERT_EQ(Key(i) + std::string(1000, 'v'), Get(Key(i)));
   }
 }
+
+TEST(DBTest, ManifestRollOver) {
+  Options options = CurrentOptions();
+  options.max_manifest_file_size = 10 ;  // 10 bytes
+  Reopen(&options);
+  {
+    ASSERT_OK(Put("manifest_key1", std::string(1000, '1')));
+    ASSERT_OK(Put("manifest_key2", std::string(1000, '2')));
+    ASSERT_OK(Put("manifest_key3", std::string(1000, '3')));
+    uint64_t manifest_before_fulsh =
+      dbfull()->TEST_Current_Manifest_FileNo();
+    dbfull()->Flush(FlushOptions()); // This should trigger LogAndApply.
+    uint64_t manifest_after_flush =
+      dbfull()->TEST_Current_Manifest_FileNo();
+    ASSERT_GT(manifest_after_flush, manifest_before_fulsh);
+    Reopen(&options);
+    ASSERT_GT(dbfull()->TEST_Current_Manifest_FileNo(),
+              manifest_after_flush);
+    // check if a new manifest file got inserted or not.
+    ASSERT_EQ(std::string(1000, '1'), Get("manifest_key1"));
+    ASSERT_EQ(std::string(1000, '2'), Get("manifest_key2"));
+    ASSERT_EQ(std::string(1000, '3'), Get("manifest_key3"));
+  }
+}
+
 
 TEST(DBTest, RecoverWithLargeLog) {
   {

@@ -85,6 +85,8 @@ class DBImpl : public DB {
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBImpl();
 
+  // Return the current manifest file no.
+  uint64_t TEST_Current_Manifest_FileNo();
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -97,7 +99,7 @@ class DBImpl : public DB {
   }
   MemTable* GetMemTable() {
     return mem_;
-  } 
+  }
 
  private:
   friend class DB;

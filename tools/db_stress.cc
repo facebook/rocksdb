@@ -46,7 +46,7 @@ static bool FLAGS_verbose = false;
 // (initialized to default value by "main")
 static int FLAGS_write_buffer_size = 0;
 
-// The number of in-memory memtables. 
+// The number of in-memory memtables.
 // Each memtable is of size FLAGS_write_buffer_size.
 // This is initialized to default value of 2 in "main" function.
 static int FLAGS_max_write_buffer_number = 0;
@@ -491,7 +491,7 @@ class StressTest {
     double now = FLAGS_env->NowMicros();
     fprintf(stdout, "%s Verification successful\n",
             FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
-  
+
     PrintStatistics();
   }
 
@@ -725,6 +725,7 @@ class StressTest {
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
+    options.max_manifest_file_size = 1024;
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());

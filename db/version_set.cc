@@ -901,7 +901,8 @@ VersionSet::VersionSet(const std::string& dbname,
       dummy_versions_(this),
       current_(NULL),
       compactions_in_progress_(options_->num_levels),
-      current_version_number_(0) {
+      current_version_number_(0),
+      last_observed_manifest_size_(0) {
   compact_pointer_ = new std::string[options_->num_levels];
   Init(options_->num_levels);
   AppendVersion(new Version(this, current_version_number_++));
@@ -986,6 +987,13 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   std::string new_manifest_file;
   uint64_t new_manifest_file_size = 0;
   Status s;
+
+  //  No need to perform this check if a new Manifest is being created anyways.
+  if (last_observed_manifest_size_ > options_->max_manifest_file_size) {
+    new_descriptor_log = true;
+    manifest_file_number_ = NewFileNumber(); // Change manifest file no.
+  }
+
   if (descriptor_log_ == NULL || new_descriptor_log) {
     // No reason to unlock *mu here since we only hit this path in the
     // first call to LogAndApply (when opening the database).
@@ -1047,6 +1055,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     new_manifest_file_size = descriptor_file_->GetFileSize();
 
     mu->Lock();
+    // cache the manifest_file_size so that it can be used to rollover in the
+    // next call to LogAndApply
+    last_observed_manifest_size_ = new_manifest_file_size;
   }
 
   // Install the new version

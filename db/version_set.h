@@ -443,6 +443,10 @@ class VersionSet {
   // Queue of writers to the manifest file
   std::deque<ManifestWriter*> manifest_writers_;
 
+  // Store the manifest file size when it is checked.
+  // Save us the cost of checking file size twice in LogAndApply
+  uint64_t last_observed_manifest_size_;
+
   // No copying allowed
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);

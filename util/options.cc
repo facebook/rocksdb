@@ -4,6 +4,8 @@
 
 #include "leveldb/options.h"
 
+#include <limits>
+
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
@@ -49,6 +51,7 @@ Options::Options()
       max_background_compactions(1),
       max_log_file_size(0),
       rate_limit(0.0),
+      max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
       table_cache_numshardbits(4),
       compaction_filter_args(NULL),
@@ -91,6 +94,8 @@ Options::Dump(
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);
     Log(log,"     Options.max_log_file_size: %ld", max_log_file_size);
+    Log(log,"Options.max_manifest_file_size: %ld",
+      max_manifest_file_size);
     Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
     Log(log,"           Options.compression_opts.window_bits: %d",

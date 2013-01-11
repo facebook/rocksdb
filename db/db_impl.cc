@@ -290,6 +290,9 @@ void DBImpl::TEST_Destroy_DBImpl() {
   }
 }
 
+uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
+  return versions_->ManifestFileNumber();
+}
 
 Status DBImpl::NewDB() {
   VersionEdit new_db(NumberLevels());
