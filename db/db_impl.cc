@@ -1501,8 +1501,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 // snapshots are typically small.
 inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
   SequenceNumber in, std::vector<SequenceNumber>& snapshots) {
-  SequenceNumber prev;
-  prev = 0;
+  SequenceNumber prev __attribute__((unused)) = 0;
   for (std::vector<SequenceNumber>::iterator it = snapshots.begin();
        it < snapshots.end(); it++) {
     assert (prev <= *it);
@@ -1564,7 +1563,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   ParsedInternalKey ikey;
   std::string current_user_key;
   bool has_current_user_key = false;
-  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  SequenceNumber last_sequence_for_key __attribute__((unused)) =
+    kMaxSequenceNumber;
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work

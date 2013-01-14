@@ -592,6 +592,7 @@ void Version::ExtendOverlappingInputs(
 #endif
   int startIndex = midIndex + 1;
   int endIndex = midIndex;
+  int count __attribute__((unused)) = 0;
 
   // check backwards from 'mid' to lower indices
   for (int i = midIndex; i >= 0 ; i--) {

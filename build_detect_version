@@ -14,7 +14,7 @@ VFILE=util/build_version.cc
 which git > /dev/null
 
 if [ "$?" = 0 ]; then
-  git rev-parse HEAD | awk ' BEGIN {print "#include \"build_version.h\""} {print "const char * leveldb_build_git_sha = \"leveldb_build_git_sha:" $0"\";"} END {}' >  ${VFILE}
+  env -i git rev-parse HEAD | awk ' BEGIN {print "#include \"build_version.h\""} {print "const char * leveldb_build_git_sha = \"leveldb_build_git_sha:" $0"\";"} END {}' >  ${VFILE}
 else
   echo "git not found"| awk ' BEGIN {print "#include \"build_version.h\""} {print "const char * leveldb_build_git_sha = \"leveldb_build_git_sha:git not found\";"} END {}' > ${VFILE}
 fi
