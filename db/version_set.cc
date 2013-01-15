@@ -588,7 +588,6 @@ void Version::ExtendOverlappingInputs(
       assert(user_cmp->Compare(flimit, user_begin) >= 0);
     }
   }
-  int count=0;
 #endif
   int startIndex = midIndex + 1;
   int endIndex = midIndex;
