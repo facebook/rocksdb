@@ -13,7 +13,7 @@ NUM=100000000
 DATA_DIR="$1"
 if [ -z "$DATA_DIR" ]
 then
-  DATA_DIR="/data/users/abhishekk/test_ldb"
+  DATA_DIR="/tmp/test_ldb"
 fi
 STAT_FILE="/tmp/leveldb_test_stats"
 
