@@ -56,7 +56,9 @@ Options::Options()
       compaction_filter_args(NULL),
       CompactionFilter(NULL),
       disable_auto_compactions(false),
-      WAL_ttl_seconds(0){
+      WAL_ttl_seconds(0),
+      manifest_preallocation_size(4 * 1024 * 1024) {
+
 }
 
 void
@@ -144,8 +146,10 @@ Options::Dump(Logger* log) const
         CompactionFilter);
     Log(log,"               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Log(log,"               Options.WAL_ttl_seconds: %ld",
+    Log(log,"                        Options.WAL_ttl_seconds: %ld",
         WAL_ttl_seconds);
+    Log(log,"            Options.manifest_preallocation_size: %ld",
+        manifest_preallocation_size);
 }   // Options::Dump
 
 }  // namespace leveldb

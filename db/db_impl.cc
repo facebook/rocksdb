@@ -295,6 +295,7 @@ Status DBImpl::NewDB() {
   if (!s.ok()) {
     return s;
   }
+  file->SetPreallocationBlockSize(options_.manifest_preallocation_size);
   {
     log::Writer log(std::move(file));
     std::string record;
@@ -1380,6 +1381,12 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   // Make the output file
   std::string fname = TableFileName(dbname_, file_number);
   Status s = env_->NewWritableFile(fname, &compact->outfile);
+
+  // Over-estimate slightly so we don't end up just barely crossing
+  // the threshold.
+  compact->outfile->SetPreallocationBlockSize(
+    1.1 * versions_->MaxFileSizeForLevel(compact->compaction->level() + 1));
+
   if (s.ok()) {
     compact->builder.reset(new TableBuilder(options_, compact->outfile.get(),
                                             compact->compaction->level() + 1));
@@ -2105,6 +2112,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
         versions_->ReuseFileNumber(new_log_number);
         break;
       }
+      // Our final size should be less than write_buffer_size
+      // (compression, etc) but err on the side of caution.
+      lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
       logfile_number_ = new_log_number;
       log_.reset(new log::Writer(std::move(lfile)));
       imm_.Add(mem_);
@@ -2292,6 +2302,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
                                      &lfile);
     if (s.ok()) {
+      lfile->SetPreallocationBlockSize(1.1 * options.write_buffer_size);
       edit.SetLogNumber(new_log_number);
       impl->logfile_number_ = new_log_number;
       impl->log_.reset(new log::Writer(std::move(lfile)));

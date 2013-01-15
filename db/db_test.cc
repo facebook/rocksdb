@@ -524,6 +524,35 @@ TEST(DBTest, ReadWrite) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, Preallocation) {
+  const std::string src = dbname_ + "/alloc_test";
+  unique_ptr<WritableFile> srcfile;
+  ASSERT_OK(env_->NewWritableFile(src, &srcfile));
+  srcfile->SetPreallocationBlockSize(1024 * 1024);
+
+  // No writes should mean no preallocation
+  size_t block_size, last_allocated_block;
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 0UL);
+
+  // Small write should preallocate one block
+  srcfile->Append("test");
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 1UL);
+
+  // Write an entire preallocation block, make sure we increased by two.
+  std::string buf(block_size, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 2UL);
+
+  // Write five more blocks at once, ensure we're where we need to be.
+  buf = std::string(block_size * 5, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 7UL);
+}
+
 TEST(DBTest, PutDeleteGet) {
   do {
     ASSERT_OK(db_->Put(WriteOptions(), "foo", "v1"));

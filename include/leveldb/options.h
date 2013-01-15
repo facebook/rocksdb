@@ -363,6 +363,12 @@ struct Options {
   // deleted.
   // Default : 0
   uint64_t WAL_ttl_seconds;
+
+  // Number of bytes to preallocate (via fallocate) the manifest
+  // files.  Default is 4mb, which is reasonable to reduce random IO
+  // as well as prevent overallocation for mounts that preallocate
+  // large amounts of data (such as xfs's allocsize option).
+  size_t manifest_preallocation_size;
 };
 
 // Options that control read operations

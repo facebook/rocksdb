@@ -369,6 +369,9 @@ class VersionSet {
   // record results in files_by_size_. The largest files are listed first.
   void UpdateFilesBySize(Version *v);
 
+  // Get the max file size in a given level.
+  uint64_t MaxFileSizeForLevel(int level);
+
  private:
   class Builder;
   struct ManifestWriter;
@@ -399,8 +402,6 @@ class VersionSet {
   bool ManifestContains(const std::string& record) const;
 
   double MaxBytesForLevel(int level);
-
-  uint64_t MaxFileSizeForLevel(int level);
 
   int64_t ExpandedCompactionByteSizeLimit(int level);
 

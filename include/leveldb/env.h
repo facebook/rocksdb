@@ -230,7 +230,8 @@ class RandomAccessFile {
 // at a time to the file.
 class WritableFile {
  public:
-  WritableFile() { }
+  WritableFile() : last_preallocated_block_(0), preallocation_block_size_ (0) {
+  }
   virtual ~WritableFile();
 
   virtual Status Append(const Slice& data) = 0;
@@ -255,7 +256,57 @@ class WritableFile {
     return 0;
   }
 
+  /*
+   * Get and set the default pre-allocation block size for writes to
+   * this file.  If non-zero, then Allocate will be used to extend the
+   * underlying storage of a file (generally via fallocate) if the Env
+   * instance supports it.
+   */
+  void SetPreallocationBlockSize(size_t size) {
+    preallocation_block_size_ = size;
+  }
+
+  virtual void GetPreallocationStatus(size_t* block_size,
+                                      size_t* last_allocated_block) {
+    *last_allocated_block = last_preallocated_block_;
+    *block_size = preallocation_block_size_;
+  }
+
+ protected:
+  // PrepareWrite performs any necessary preparation for a write
+  // before the write actually occurs.  This allows for pre-allocation
+  // of space on devices where it can result in less file
+  // fragmentation and/or less waste from over-zealous filesystem
+  // pre-allocation.
+  void PrepareWrite(size_t offset, size_t len) {
+    if (preallocation_block_size_ == 0) {
+      return;
+    }
+    // If this write would cross one or more preallocation blocks,
+    // determine what the last preallocation block necesessary to
+    // cover this write would be and Allocate to that point.
+    const auto block_size = preallocation_block_size_;
+    size_t new_last_preallocated_block =
+      (offset + len + block_size - 1) / block_size;
+    if (new_last_preallocated_block > last_preallocated_block_) {
+      size_t num_spanned_blocks =
+        new_last_preallocated_block - last_preallocated_block_;
+      Allocate(block_size * last_preallocated_block_,
+               block_size * num_spanned_blocks);
+      last_preallocated_block_ = new_last_preallocated_block;
+    }
+  }
+
+  /*
+   * Pre-allocate space for a file.
+   */
+  virtual Status Allocate(off_t offset, off_t len) {
+    return Status::OK();
+  }
+
  private:
+  size_t last_preallocated_block_;
+  size_t preallocation_block_size_;
   // No copying allowed
   WritableFile(const WritableFile&);
   void operator=(const WritableFile&);

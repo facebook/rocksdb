@@ -232,6 +232,7 @@ class PosixMmapFile : public WritableFile {
   virtual Status Append(const Slice& data) {
     const char* src = data.data();
     size_t left = data.size();
+    PrepareWrite(GetFileSize(), left);
     while (left > 0) {
       assert(base_ <= dst_);
       assert(dst_ <= limit_);
@@ -330,6 +331,14 @@ class PosixMmapFile : public WritableFile {
     size_t used = dst_ - base_;
     return file_offset_ + used;
   }
+
+  virtual Status Allocate(off_t offset, off_t len) {
+    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+      return Status::OK();
+    } else {
+      return IOError(filename_, errno);
+    }
+  }
 };
 
 // Use posix write to write data to a file.
@@ -371,6 +380,7 @@ class PosixWritableFile : public WritableFile {
     pending_sync_ = true;
     pending_fsync_ = true;
 
+    PrepareWrite(GetFileSize(), left);
     // if there is no space in the cache, then flush
     if (cursize_ + left > capacity_) {
       s = Flush();
@@ -454,6 +464,14 @@ class PosixWritableFile : public WritableFile {
 
   virtual uint64_t GetFileSize() {
     return filesize_;
+  }
+
+  virtual Status Allocate(off_t offset, off_t len) {
+    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+      return Status::OK();
+    } else {
+      return IOError(filename_, errno);
+    }
   }
 };
 

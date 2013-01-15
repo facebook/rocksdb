@@ -12,9 +12,14 @@
 #include <stdio.h>
 #include <sys/time.h>
 #include <time.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <linux/falloc.h>
 #include "leveldb/env.h"
 
 namespace leveldb {
+
+const int kDebugLogChunkSize = 128 * 1024;
 
 class PosixLogger : public Logger {
  private:
@@ -22,9 +27,10 @@ class PosixLogger : public Logger {
   uint64_t (*gettid_)();  // Return the thread id for the current thread
 
   size_t log_size_;
+  int fd_;
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)()) :
-    file_(f), gettid_(gettid), log_size_(0) { }
+    file_(f), gettid_(gettid), log_size_(0), fd_(fileno(f)) { }
   virtual ~PosixLogger() {
     fclose(file_);
   }
@@ -86,9 +92,25 @@ class PosixLogger : public Logger {
       }
 
       assert(p <= limit);
-      fwrite(base, 1, p - base, file_);
+
+      // If this write would cross a boundary of kDebugLogChunkSize
+      // space, pre-allocate more space to avoid overly large
+      // allocations from filesystem allocsize options.
+      const size_t write_size = p - base;
+      const int last_allocation_chunk =
+        ((kDebugLogChunkSize - 1 + log_size_) / kDebugLogChunkSize);
+      const int desired_allocation_chunk =
+        ((kDebugLogChunkSize - 1 + log_size_ + write_size) /
+           kDebugLogChunkSize);
+      if (last_allocation_chunk != desired_allocation_chunk) {
+        fallocate(fd_, FALLOC_FL_KEEP_SIZE, 0,
+                  desired_allocation_chunk * kDebugLogChunkSize);
+      }
+
+      fwrite(base, 1, write_size, file_);
       fflush(file_);
-      log_size_ += (p - base);
+
+      log_size_ += write_size;
 
       if (base != buffer) {
         delete[] base;
