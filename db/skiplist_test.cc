@@ -14,7 +14,7 @@ namespace leveldb {
 
 typedef uint64_t Key;
 
-struct Comparator {
+struct TestComparator {
   int operator()(const Key& a, const Key& b) const {
     if (a < b) {
       return -1;
@@ -30,11 +30,11 @@ class SkipTest { };
 
 TEST(SkipTest, Empty) {
   Arena arena;
-  Comparator cmp;
-  SkipList<Key, Comparator> list(cmp, &arena);
+  TestComparator cmp;
+  SkipList<Key, TestComparator> list(cmp, &arena);
   ASSERT_TRUE(!list.Contains(10));
 
-  SkipList<Key, Comparator>::Iterator iter(&list);
+  SkipList<Key, TestComparator>::Iterator iter(&list);
   ASSERT_TRUE(!iter.Valid());
   iter.SeekToFirst();
   ASSERT_TRUE(!iter.Valid());
@@ -50,8 +50,8 @@ TEST(SkipTest, InsertAndLookup) {
   Random rnd(1000);
   std::set<Key> keys;
   Arena arena;
-  Comparator cmp;
-  SkipList<Key, Comparator> list(cmp, &arena);
+  TestComparator cmp;
+  SkipList<Key, TestComparator> list(cmp, &arena);
   for (int i = 0; i < N; i++) {
     Key key = rnd.Next() % R;
     if (keys.insert(key).second) {
@@ -69,7 +69,7 @@ TEST(SkipTest, InsertAndLookup) {
 
   // Simple iterator tests
   {
-    SkipList<Key, Comparator>::Iterator iter(&list);
+    SkipList<Key, TestComparator>::Iterator iter(&list);
     ASSERT_TRUE(!iter.Valid());
 
     iter.Seek(0);
@@ -87,7 +87,7 @@ TEST(SkipTest, InsertAndLookup) {
 
   // Forward iteration test
   for (int i = 0; i < R; i++) {
-    SkipList<Key, Comparator>::Iterator iter(&list);
+    SkipList<Key, TestComparator>::Iterator iter(&list);
     iter.Seek(i);
 
     // Compare against model iterator
@@ -107,7 +107,7 @@ TEST(SkipTest, InsertAndLookup) {
 
   // Backward iteration test
   {
-    SkipList<Key, Comparator>::Iterator iter(&list);
+    SkipList<Key, TestComparator>::Iterator iter(&list);
     iter.SeekToLast();
 
     // Compare against model iterator
@@ -208,10 +208,10 @@ class ConcurrentTest {
 
   // SkipList is not protected by mu_.  We just use a single writer
   // thread to modify it.
-  SkipList<Key, Comparator> list_;
+  SkipList<Key, TestComparator> list_;
 
  public:
-  ConcurrentTest() : list_(Comparator(), &arena_) { }
+  ConcurrentTest() : list_(TestComparator(), &arena_) { }
 
   // REQUIRES: External synchronization
   void WriteStep(Random* rnd) {
@@ -230,7 +230,7 @@ class ConcurrentTest {
     }
 
     Key pos = RandomTarget(rnd);
-    SkipList<Key, Comparator>::Iterator iter(&list_);
+    SkipList<Key, TestComparator>::Iterator iter(&list_);
     iter.Seek(pos);
     while (true) {
       Key current;

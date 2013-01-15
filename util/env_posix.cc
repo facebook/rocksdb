@@ -393,7 +393,7 @@ class PosixWritableFile : public WritableFile {
       cursize_ += left;
     } else {
       while (left != 0) {
-        size_t done = write(fd_, src, left);
+        ssize_t done = write(fd_, src, left);
         if (done < 0) {
           return IOError(filename_, errno);
         }
@@ -424,7 +424,7 @@ class PosixWritableFile : public WritableFile {
     size_t left = cursize_;
     char* src = buf_;
     while (left != 0) {
-      size_t done = write(fd_, src, left);
+      ssize_t done = write(fd_, src, left);
       if (done < 0) {
         return IOError(filename_, errno);
       }
