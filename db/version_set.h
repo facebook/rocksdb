@@ -345,6 +345,8 @@ class VersionSet {
 
   // For the specfied level, pick a compaction.
   // Returns NULL if there is no compaction to be done.
+  // If level is 0 and there is already a compaction on that level, this
+  // function will return NULL.
   Compaction* PickCompactionBySize(int level, double score);
 
   // Free up the files that were participated in a compaction
