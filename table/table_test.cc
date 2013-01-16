@@ -411,12 +411,14 @@ static bool ZlibCompressionSupported() {
                              &out);
 }
 
+#ifdef BZIP2
 static bool BZip2CompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   return port::BZip2_Compress(Options().compression_opts, in.data(), in.size(),
                               &out);
 }
+#endif
 
 enum TestType {
   TABLE_TEST,

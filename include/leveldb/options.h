@@ -308,6 +308,11 @@ struct Options {
   // exceeds rate_limit. This is ignored when <= 1.0.
   double rate_limit;
 
+  // manifest file is rolled over on reaching this limit.
+  // The older manifest file be deleted.
+  // The default value is MAX_INT so that roll-over does not take place.
+  uint64_t max_manifest_file_size;
+
   // Disable block cache. If this is set to false,
   // then no block cache should be used, and the block_cache should
   // point to a NULL object.

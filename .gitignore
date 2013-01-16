@@ -6,6 +6,7 @@ build_config.mk
 *.so.*
 *_test
 *.arc
+*.d
 db_bench
 db_stress
 ldb

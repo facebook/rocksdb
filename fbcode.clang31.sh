@@ -5,20 +5,11 @@
 # uses jemalloc
 # This is compiled with gcc version 4.7.1 for zeus proxy
 
-TOOLCHAIN_REV=20d3328ac30f633840ce819ad03019f415267a86
+TOOLCHAIN_REV=f365dbeae46a30414a2874a6f45e73e10f1caf7d
 TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
 TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.7.1-glibc-2.14.1"
-TOOL_JEMALLOC=jemalloc-3.0.0/69dc57c
-
-# location of libhdfs libraries
-if test "$USE_HDFS"; then
-  JAVA_HOME="/usr/local/jdk-6u22-64"
-  JINCLUDE="-I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
-  GLIBC_RUNTIME_PATH="/usr/local/fbcode/gcc-4.7.1-glibc-2.14.1"
-  HDFSLIB=" -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64 "
-  HDFSLIB+=" -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib " 
-  HDFSLIB+=" -ldl -lverify -ljava -ljvm "
-fi
+TOOL_JEMALLOC=jemalloc-3.0.0/2f45f3a
+GLIBC_RUNTIME_PATH=/usr/local/fbcode/gcc-4.7.1-glibc-2.14.1
 
 # location of snappy headers and libraries
 SNAPPY_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/snappy/snappy-1.0.3/7518bbe/include"
@@ -36,17 +27,21 @@ LIBEVENT_LIBS=" -L $TOOLCHAIN_LIB_BASE/libevent/libevent-1.4.14b/91ddd43/lib"
 # use Intel SSE support for checksum calculations
 export USE_SSE=" -msse -msse4.2 "
 
-CC="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1-glibc-2.14.1/bin/gcc"
-CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1-glibc-2.14.1/bin/g++ $JINCLUDE $SNAPPY_INCLUDE $THRIFT_INCLUDE $LIBEVENT_INCLUDE"
+CC="$TOOLCHAIN_EXECUTABLES/clang/clang-3.1/6ca8a59/bin/clang $CLANG_INCLUDES"
+CXX="$TOOLCHAIN_EXECUTABLES/clang/clang-3.1/6ca8a59/bin/clang++ $CLANG_INCLUDES $JINCLUDE $SNAPPY_INCLUDE $THRIFT_INCLUDE $LIBEVENT_INCLUDE"
 AR=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ar
 RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
 
-CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/bin/gold -m64 -mtune=generic -fPIC"
+CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin -nostdlib -nostdinc -isystem $TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.7.1/afc21dc/include/c++/4.7.1 -isystem $TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.7.1/afc21dc/include/c++/4.7.1/x86_64-facebook-linux -isystem $TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.7.1/afc21dc/include/c++/4.7.1/backward -isystem $TOOLCHAIN_LIB_BASE/glibc/glibc-2.14.1/99df8fc/include -isystem $TOOLCHAIN_LIB_BASE/clang/clang-3.1/c8f7279/lib/clang/3.1/include -isystem $TOOLCHAIN_LIB_BASE/kernel-headers/kernel-headers-3.2.18_70_fbk11_00129_gc8882d0/da39a3e/include/linux -isystem $TOOLCHAIN_LIB_BASE/kernel-headers/kernel-headers-3.2.18_70_fbk11_00129_gc8882d0/da39a3e/include -Wall -Wno-sign-compare -Wno-unused-variable -Winvalid-pch -Wno-deprecated -Woverloaded-virtual"
+CXXFLAGS="$CFLAGS -nostdinc++ -std=gnu++0x"
+
 CFLAGS+=" -I $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/include -DHAVE_JEMALLOC"
 
 EXEC_LDFLAGS=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/lib/libjemalloc.a"
-EXEC_LDFLAGS+=" -Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-20100812_experimental/91ddd43/lib/libunwind.a"
+EXEC_LDFLAGS+=" -Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-1.0.1/91ddd43/lib/libunwind.a"
 EXEC_LDFLAGS+=" $HDFSLIB $SNAPPY_LIBS $THRIFT_LIBS $LIBEVENT_LIBS"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,$GLIBC_RUNTIME_PATH/lib/ld-linux-x86-64.so.2"
+EXEC_LDFLAGS+=" -B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin"
 
 PLATFORM_LDFLAGS="-L$TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.7.1/afc21dc/lib -L$TOOLCHAIN_LIB_BASE/glibc/glibc-2.14.1/99df8fc/lib"
 

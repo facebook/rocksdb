@@ -28,20 +28,6 @@ static int64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
-namespace {
-std::string IntSetToString(const std::set<uint64_t>& s) {
-  std::string result = "{";
-  for (std::set<uint64_t>::const_iterator it = s.begin();
-       it != s.end();
-       ++it) {
-    result += (result.size() > 1) ? "," : "";
-    result += NumberToString(*it);
-  }
-  result += "}";
-  return result;
-}
-}  // namespace
-
 Version::~Version() {
   assert(refs_ == 0);
 
@@ -591,7 +577,7 @@ void Version::ExtendOverlappingInputs(
 #endif
   int startIndex = midIndex + 1;
   int endIndex = midIndex;
-  int count = 0;
+  int count __attribute__((unused)) = 0;
 
   // check backwards from 'mid' to lower indices
   for (int i = midIndex; i >= 0 ; i--) {
@@ -915,7 +901,8 @@ VersionSet::VersionSet(const std::string& dbname,
       dummy_versions_(this),
       current_(NULL),
       compactions_in_progress_(options_->num_levels),
-      current_version_number_(0) {
+      current_version_number_(0),
+      last_observed_manifest_size_(0) {
   compact_pointer_ = new std::string[options_->num_levels];
   Init(options_->num_levels);
   AppendVersion(new Version(this, current_version_number_++));
@@ -1000,6 +987,13 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   std::string new_manifest_file;
   uint64_t new_manifest_file_size = 0;
   Status s;
+
+  //  No need to perform this check if a new Manifest is being created anyways.
+  if (last_observed_manifest_size_ > options_->max_manifest_file_size) {
+    new_descriptor_log = true;
+    manifest_file_number_ = NewFileNumber(); // Change manifest file no.
+  }
+
   if (descriptor_log_ == NULL || new_descriptor_log) {
     // No reason to unlock *mu here since we only hit this path in the
     // first call to LogAndApply (when opening the database).
@@ -1061,6 +1055,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     new_manifest_file_size = descriptor_file_->GetFileSize();
 
     mu->Lock();
+    // cache the manifest_file_size so that it can be used to rollover in the
+    // next call to LogAndApply
+    last_observed_manifest_size_ = new_manifest_file_size;
   }
 
   // Install the new version
@@ -1935,9 +1932,13 @@ Compaction* VersionSet::PickCompaction() {
   // Find compactions needed by seeks
   if (c == NULL && (current_->file_to_compact_ != NULL)) {
     level = current_->file_to_compact_level_;
-    c = new Compaction(level, MaxFileSizeForLevel(level),
-    MaxGrandParentOverlapBytes(level), NumberLevels(), true);
-    c->inputs_[0].push_back(current_->file_to_compact_);
+
+    // Only allow one level 0 compaction at a time.
+    if (level != 0 || compactions_in_progress_[0].empty()) {
+      c = new Compaction(level, MaxFileSizeForLevel(level),
+      MaxGrandParentOverlapBytes(level), NumberLevels(), true);
+      c->inputs_[0].push_back(current_->file_to_compact_);
+    }
   }
 
   if (c == NULL) {
@@ -1948,25 +1949,21 @@ Compaction* VersionSet::PickCompaction() {
   c->input_version_->Ref();
 
   // Files in level 0 may overlap each other, so pick up all overlapping ones
+  // Two level 0 compaction won't run at the same time, so don't need to worry
+  // about files on level 0 being compacted.
   if (level == 0) {
+    assert(compactions_in_progress_[0].empty());
     InternalKey smallest, largest;
     GetRange(c->inputs_[0], &smallest, &largest);
     // Note that the next call will discard the file we placed in
     // c->inputs_[0] earlier and replace it with an overlapping set
     // which will include the picked file.
     c->inputs_[0].clear();
-    std::vector<FileMetaData*> more;
-    current_->GetOverlappingInputs(0, &smallest, &largest, &more);
+    current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
     if (ParentRangeInCompaction(&smallest, &largest,
                                 level, &c->parent_index_)) {
       delete c;
       return NULL;
-    }
-    for (unsigned int i = 0; i < more.size(); i++) {
-      FileMetaData* f = more[i];
-      if (!f->being_compacted) {
-        c->inputs_[0].push_back(f);
-      }
     }
     assert(!c->inputs_[0].empty());
   }

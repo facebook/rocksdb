@@ -57,6 +57,12 @@ class Status {
   // Returns true iff the status indicates a Corruption error.
   bool IsCorruption() const { return code() == kCorruption; }
 
+  // Returns true iff the status indicates a NotSupported error.
+  bool IsNotSupported() const { return code() == kNotSupported; }
+
+  // Returns true iff the status indicates an InvalidArgument error.
+  bool IsInvalidArgument() const { return code() == kInvalidArgument; }
+
   // Returns true iff the status indicates an IOError.
   bool IsIOError() const { return code() == kIOError; }
 
