@@ -1875,6 +1875,7 @@ Status DBImpl::Get(const ReadOptions& options,
   mem->Unref();
   imm.UnrefAll();
   current->Unref();
+  RecordTick(options_.statistics, NUMBER_KEYS_READ);
   return s;
 }
 
@@ -1930,7 +1931,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   if (status.ok() && my_batch != NULL) {  // NULL batch is for compactions
     WriteBatch* updates = BuildBatchGroup(&last_writer);
     WriteBatchInternal::SetSequence(updates, last_sequence + 1);
-    last_sequence += WriteBatchInternal::Count(updates);
+    int my_batch_count = WriteBatchInternal::Count(updates);
+    last_sequence += my_batch_count;
+    // Record statistics
+    RecordTick(options_.statistics, NUMBER_KEYS_WRITTEN, my_batch_count);
 
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
@@ -1977,7 +1981,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   if (!writers_.empty()) {
     writers_.front()->cv.Signal();
   }
-
   return status;
 }
 
