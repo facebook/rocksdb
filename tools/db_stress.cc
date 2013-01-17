@@ -678,19 +678,19 @@ class StressTest {
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
-    char* compression = (char *)std::string("").c_str();
+    const char* compression = "";
     switch (FLAGS_compression_type) {
       case leveldb::kNoCompression:
-        compression = (char *)std::string("none").c_str();
+        compression = "none";
         break;
       case leveldb::kSnappyCompression:
-        compression = (char *)std::string("snappy").c_str();
+        compression = "snappy";
         break;
       case leveldb::kZlibCompression:
-        compression = (char *)std::string("zlib").c_str();
+        compression = "zlib";
         break;
       case leveldb::kBZip2Compression:
-        compression = (char *)std::string("bzip2").c_str();
+        compression = "bzip2";
         break;
     }
 
