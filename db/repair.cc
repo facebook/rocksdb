@@ -50,8 +50,6 @@ class Repairer {
         icmp_(options.comparator),
         ipolicy_(options.filter_policy),
         options_(SanitizeOptions(dbname, &icmp_, &ipolicy_, options)),
-        owns_info_log_(options_.info_log != options.info_log),
-        owns_cache_(options_.block_cache != options.block_cache),
         next_file_number_(1) {
     // TableCache can be small since we expect each table to be opened once.
     table_cache_ = new TableCache(dbname_, &options_, 10);
@@ -61,12 +59,6 @@ class Repairer {
   ~Repairer() {
     delete table_cache_;
     delete edit_;
-    if (owns_info_log_) {
-      delete options_.info_log;
-    }
-    if (owns_cache_) {
-      delete options_.block_cache;
-    }
   }
 
   Status Run() {
@@ -104,7 +96,6 @@ class Repairer {
   InternalKeyComparator const icmp_;
   InternalFilterPolicy const ipolicy_;
   Options const options_;
-  bool owns_info_log_;
   bool owns_cache_;
   TableCache* table_cache_;
   VersionEdit* edit_;
@@ -164,7 +155,7 @@ class Repairer {
   Status ConvertLogToTable(uint64_t log) {
     struct LogReporter : public log::Reader::Reporter {
       Env* env;
-      Logger* info_log;
+      std::shared_ptr<Logger> info_log;
       uint64_t lognum;
       virtual void Corruption(size_t bytes, const Status& s) {
         // We print error messages for corruption, but continue repairing.
@@ -177,7 +168,7 @@ class Repairer {
 
     // Open the log file
     std::string logname = LogFileName(dbname_, log);
-    SequentialFile* lfile;
+    unique_ptr<SequentialFile> lfile;
     Status status = env_->NewSequentialFile(logname, &lfile);
     if (!status.ok()) {
       return status;
@@ -192,7 +183,7 @@ class Repairer {
     // corruptions cause entire commits to be skipped instead of
     // propagating bad information (like overly large sequence
     // numbers).
-    log::Reader reader(lfile, &reporter, false/*do not checksum*/,
+    log::Reader reader(std::move(lfile), &reporter, false/*do not checksum*/,
                        0/*initial_offset*/);
 
     // Read all the records and add to a memtable
@@ -219,7 +210,6 @@ class Repairer {
         status = Status::OK();  // Keep going with rest of file
       }
     }
-    delete lfile;
 
     // Do not record a version edit for this conversion to a Table
     // since ExtractMetaData() will also generate edits.
@@ -304,7 +294,7 @@ class Repairer {
 
   Status WriteDescriptor() {
     std::string tmp = TempFileName(dbname_, 1);
-    WritableFile* file;
+    unique_ptr<WritableFile> file;
     Status status = env_->NewWritableFile(tmp, &file);
     if (!status.ok()) {
       return status;
@@ -331,16 +321,11 @@ class Repairer {
 
     //fprintf(stderr, "NewDescriptor:\n%s\n", edit_.DebugString().c_str());
     {
-      log::Writer log(file);
+      log::Writer log(std::move(file));
       std::string record;
       edit_->EncodeTo(&record);
       status = log.AddRecord(record);
     }
-    if (status.ok()) {
-      status = file->Close();
-    }
-    delete file;
-    file = NULL;
 
     if (!status.ok()) {
       env_->DeleteFile(tmp);

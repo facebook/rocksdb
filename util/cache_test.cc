@@ -35,14 +35,13 @@ class CacheTest {
   static const int kCacheSize = 1000;
   std::vector<int> deleted_keys_;
   std::vector<int> deleted_values_;
-  Cache* cache_;
+  shared_ptr<Cache> cache_;
 
   CacheTest() : cache_(NewLRUCache(kCacheSize)) {
     current_ = this;
   }
 
   ~CacheTest() {
-    delete cache_;
   }
 
   int Lookup(int key) {

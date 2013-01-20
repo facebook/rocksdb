@@ -26,7 +26,7 @@ class AutoSplitLogger : public Logger {
   std::string db_log_dir_;
   std::string db_absolute_path_;
   Env* env_;
-  UnderlyingLogger* logger_;
+  shared_ptr<UnderlyingLogger> logger_;
   const size_t MAX_LOG_FILE_SIZE;
   Status status_;
 
@@ -42,7 +42,6 @@ class AutoSplitLogger : public Logger {
       log_fname_ = InfoLogFileName(dbname_, db_absolute_path_, db_log_dir_);
       InitLogger();
     }
-  ~AutoSplitLogger() { delete logger_; }
 
   virtual void Logv(const char* format, va_list ap) {
     assert(GetStatus().ok());
@@ -50,7 +49,6 @@ class AutoSplitLogger : public Logger {
     logger_->Logv(format, ap);
     // Check if the log file should be splitted.
     if (logger_->GetLogFileSize() > MAX_LOG_FILE_SIZE) {
-      delete logger_;
       std::string old_fname = OldInfoLogFileName(
           dbname_, env_->NowMicros(), db_absolute_path_, db_log_dir_);
       env_->RenameFile(log_fname_, old_fname);

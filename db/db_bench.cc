@@ -469,7 +469,7 @@ struct ThreadState {
 
 class Benchmark {
  private:
-  Cache* cache_;
+  shared_ptr<Cache> cache_;
   const FilterPolicy* filter_policy_;
   DB* db_;
   long num_;
@@ -655,7 +655,6 @@ class Benchmark {
 
   ~Benchmark() {
     delete db_;
-    delete cache_;
     delete filter_policy_;
   }
 
@@ -1276,14 +1275,13 @@ class Benchmark {
   void HeapProfile() {
     char fname[100];
     snprintf(fname, sizeof(fname), "%s/heap-%04d", FLAGS_db, ++heap_counter_);
-    WritableFile* file;
+    unique_ptr<WritableFile> file;
     Status s = FLAGS_env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       fprintf(stderr, "%s\n", s.ToString().c_str());
       return;
     }
-    bool ok = port::GetHeapProfile(WriteToFile, file);
-    delete file;
+    bool ok = port::GetHeapProfile(WriteToFile, file.get());
     if (!ok) {
       fprintf(stderr, "heap profiling not supported\n");
       FLAGS_env->DeleteFile(fname);

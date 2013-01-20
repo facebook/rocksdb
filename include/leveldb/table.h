@@ -5,6 +5,7 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_TABLE_H_
 #define STORAGE_LEVELDB_INCLUDE_TABLE_H_
 
+#include <memory>
 #include <stdint.h>
 #include "leveldb/iterator.h"
 
@@ -17,6 +18,8 @@ struct Options;
 class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
+
+using std::unique_ptr;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
@@ -36,9 +39,9 @@ class Table {
   //
   // *file must remain live while this Table is in use.
   static Status Open(const Options& options,
-                     RandomAccessFile* file,
+                     unique_ptr<RandomAccessFile>&& file,
                      uint64_t file_size,
-                     Table** table);
+                     unique_ptr<Table>* table);
 
   ~Table();
 

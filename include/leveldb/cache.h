@@ -18,17 +18,20 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_CACHE_H_
 #define STORAGE_LEVELDB_INCLUDE_CACHE_H_
 
+#include <memory>
 #include <stdint.h>
 #include "leveldb/slice.h"
 
 namespace leveldb {
 
+using std::shared_ptr;
+
 class Cache;
 
 // Create a new cache with a fixed size capacity.  This implementation
 // of Cache uses a least-recently-used eviction policy.
-extern Cache* NewLRUCache(size_t capacity);
-extern Cache* NewLRUCache(size_t capacity, int numShardBits);
+extern shared_ptr<Cache> NewLRUCache(size_t capacity);
+extern shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits);
 
 class Cache {
  public:

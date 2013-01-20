@@ -510,20 +510,21 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewSequentialFile(const std::string& fname,
-                                   SequentialFile** result) {
+                                   unique_ptr<SequentialFile>* result) {
+    result->reset();
     FILE* f = fopen(fname.c_str(), "r");
     if (f == NULL) {
       *result = NULL;
       return IOError(fname, errno);
     } else {
-      *result = new PosixSequentialFile(fname, f);
+      result->reset(new PosixSequentialFile(fname, f));
       return Status::OK();
     }
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     RandomAccessFile** result) {
-    *result = NULL;
+                                     unique_ptr<RandomAccessFile>* result) {
+    result->reset();
     Status s;
     int fd = open(fname.c_str(), O_RDONLY);
     if (fd < 0) {
@@ -537,30 +538,30 @@ class PosixEnv : public Env {
       if (s.ok()) {
         void* base = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
-          *result = new PosixMmapReadableFile(fname, base, size);
+          result->reset(new PosixMmapReadableFile(fname, base, size));
         } else {
           s = IOError(fname, errno);
         }
       }
       close(fd);
     } else {
-      *result = new PosixRandomAccessFile(fname, fd);
+      result->reset(new PosixRandomAccessFile(fname, fd));
     }
     return s;
   }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 WritableFile** result) {
+                                 unique_ptr<WritableFile>* result) {
+    result->reset();
     Status s;
     const int fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
     if (fd < 0) {
-      *result = NULL;
       s = IOError(fname, errno);
     } else {
       if (useMmapWrite) {
-        *result = new PosixMmapFile(fname, fd, page_size_);
+        result->reset(new PosixMmapFile(fname, fd, page_size_));
       } else {
-        *result = new PosixWritableFile(fname, fd, 65536);
+        result->reset(new PosixWritableFile(fname, fd, 65536));
       }
     }
     return s;
@@ -706,13 +707,14 @@ class PosixEnv : public Env {
     return thread_id;
   }
 
-  virtual Status NewLogger(const std::string& fname, Logger** result) {
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) {
     FILE* f = fopen(fname.c_str(), "w");
     if (f == NULL) {
-      *result = NULL;
+      result->reset();
       return IOError(fname, errno);
     } else {
-      *result = new PosixLogger(f, &PosixEnv::gettid);
+      result->reset(new PosixLogger(f, &PosixEnv::gettid));
       return Status::OK();
     }
   }

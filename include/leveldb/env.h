@@ -15,6 +15,7 @@
 
 #include <cstdarg>
 #include <string>
+#include <memory>
 #include <vector>
 #include <stdint.h>
 #include "leveldb/status.h"
@@ -27,6 +28,9 @@ class RandomAccessFile;
 class SequentialFile;
 class Slice;
 class WritableFile;
+
+using std::unique_ptr;
+using std::shared_ptr;
 
 class Env {
  public:
@@ -47,7 +51,7 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewSequentialFile(const std::string& fname,
-                                   SequentialFile** result) = 0;
+                                   unique_ptr<SequentialFile>* result) = 0;
 
   // Create a brand new random access read-only file with the
   // specified name.  On success, stores a pointer to the new file in
@@ -57,7 +61,7 @@ class Env {
   //
   // The returned file may be concurrently accessed by multiple threads.
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     RandomAccessFile** result) = 0;
+                                     unique_ptr<RandomAccessFile>* result) = 0;
 
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
@@ -67,7 +71,7 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
-                                 WritableFile** result) = 0;
+                                 unique_ptr<WritableFile>* result) = 0;
 
   // Returns true iff the named file exists.
   virtual bool FileExists(const std::string& fname) = 0;
@@ -143,7 +147,8 @@ class Env {
   virtual Status GetTestDirectory(std::string* path) = 0;
 
   // Create and return a log file for storing informational messages.
-  virtual Status NewLogger(const std::string& fname, Logger** result) = 0;
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) = 0;
 
   // Returns the number of micro-seconds since some fixed point in time. Only
   // useful for computing deltas of time.
@@ -288,6 +293,12 @@ class FileLock {
 };
 
 // Log the specified data to *info_log if info_log is non-NULL.
+extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
+#   if defined(__GNUC__) || defined(__clang__)
+    __attribute__((__format__ (__printf__, 2, 3)))
+#   endif
+    ;
+
 extern void Log(Logger* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
@@ -315,13 +326,15 @@ class EnvWrapper : public Env {
   Env* target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
-  Status NewSequentialFile(const std::string& f, SequentialFile** r) {
+  Status NewSequentialFile(const std::string& f,
+                           unique_ptr<SequentialFile>* r) {
     return target_->NewSequentialFile(f, r);
   }
-  Status NewRandomAccessFile(const std::string& f, RandomAccessFile** r) {
+  Status NewRandomAccessFile(const std::string& f,
+                             unique_ptr<RandomAccessFile>* r) {
     return target_->NewRandomAccessFile(f, r);
   }
-  Status NewWritableFile(const std::string& f, WritableFile** r) {
+  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r) {
     return target_->NewWritableFile(f, r);
   }
   bool FileExists(const std::string& f) { return target_->FileExists(f); }
@@ -359,7 +372,8 @@ class EnvWrapper : public Env {
   virtual Status GetTestDirectory(std::string* path) {
     return target_->GetTestDirectory(path);
   }
-  virtual Status NewLogger(const std::string& fname, Logger** result) {
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() {

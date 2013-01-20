@@ -25,7 +25,16 @@ FileLock::~FileLock() {
 }
 
 void Log(Logger* info_log, const char* format, ...) {
-  if (info_log != NULL) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(format, ap);
+    va_end(ap);
+  }
+}
+
+void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
+  if (info_log) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(format, ap);
@@ -36,7 +45,7 @@ void Log(Logger* info_log, const char* format, ...) {
 static Status DoWriteStringToFile(Env* env, const Slice& data,
                                   const std::string& fname,
                                   bool should_sync) {
-  WritableFile* file;
+  unique_ptr<WritableFile> file;
   Status s = env->NewWritableFile(fname, &file);
   if (!s.ok()) {
     return s;
@@ -45,10 +54,6 @@ static Status DoWriteStringToFile(Env* env, const Slice& data,
   if (s.ok() && should_sync) {
     s = file->Sync();
   }
-  if (s.ok()) {
-    s = file->Close();
-  }
-  delete file;  // Will auto-close if we did not close above
   if (!s.ok()) {
     env->DeleteFile(fname);
   }
@@ -67,7 +72,7 @@ Status WriteStringToFileSync(Env* env, const Slice& data,
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
   data->clear();
-  SequentialFile* file;
+  unique_ptr<SequentialFile> file;
   Status s = env->NewSequentialFile(fname, &file);
   if (!s.ok()) {
     return s;
@@ -86,7 +91,6 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
     }
   }
   delete[] space;
-  delete file;
   return s;
 }
 

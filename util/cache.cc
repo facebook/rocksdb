@@ -338,15 +338,15 @@ class ShardedLRUCache : public Cache {
 
 }  // end anonymous namespace
 
-Cache* NewLRUCache(size_t capacity) {
-  return new ShardedLRUCache(capacity);
+shared_ptr<Cache> NewLRUCache(size_t capacity) {
+  return std::make_shared<ShardedLRUCache>(capacity);
 }
 
-Cache* NewLRUCache(size_t capacity, int numShardBits) {
+shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits) {
   if (numShardBits >= 20) {
     return NULL;  // the cache cannot be sharded into too many fine pieces
   }
-  return new ShardedLRUCache(capacity, numShardBits);
+  return std::make_shared<ShardedLRUCache>(capacity, numShardBits);
 }
 
 }  // namespace leveldb

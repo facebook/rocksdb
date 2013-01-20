@@ -606,7 +606,7 @@ void WALDumper::DoCommand() {
     }
   };
 
-  SequentialFile* file;
+  unique_ptr<SequentialFile> file;
   Env* env_ = Env::Default();
   Status status = env_->NewSequentialFile(wal_file_, &file);
   if (!status.ok()) {
@@ -614,7 +614,7 @@ void WALDumper::DoCommand() {
       status.ToString());
   } else {
     StdErrReporter reporter;
-    log::Reader reader(file, &reporter, true, 0);
+    log::Reader reader(std::move(file), &reporter, true, 0);
     std::string scratch;
     WriteBatch batch;
     Slice record;

@@ -12,8 +12,8 @@
 namespace leveldb {
 namespace log {
 
-Writer::Writer(WritableFile* dest)
-    : dest_(dest),
+Writer::Writer(unique_ptr<WritableFile>&& dest)
+    : dest_(std::move(dest)),
       block_offset_(0) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);

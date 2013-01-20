@@ -15,9 +15,9 @@ namespace log {
 Reader::Reporter::~Reporter() {
 }
 
-Reader::Reader(SequentialFile* file, Reporter* reporter, bool checksum,
-               uint64_t initial_offset)
-    : file_(file),
+Reader::Reader(unique_ptr<SequentialFile>&& file, Reporter* reporter,
+               bool checksum, uint64_t initial_offset)
+    : file_(std::move(file)),
       reporter_(reporter),
       checksum_(checksum),
       backing_store_(new char[kBlockSize]),

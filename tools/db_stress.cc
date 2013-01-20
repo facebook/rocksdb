@@ -433,7 +433,6 @@ class StressTest {
 
   ~StressTest() {
     delete db_;
-    delete cache_;
     delete filter_policy_;
   }
 
@@ -757,7 +756,7 @@ class StressTest {
   }
 
  private:
-  Cache* cache_;
+  shared_ptr<Cache> cache_;
   const FilterPolicy* filter_policy_;
   DB* db_;
   int num_times_reopened_;

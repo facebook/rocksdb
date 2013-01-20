@@ -27,7 +27,7 @@ struct Table::Rep {
 
   Options options;
   Status status;
-  RandomAccessFile* file;
+  unique_ptr<RandomAccessFile> file;
   uint64_t cache_id;
   FilterBlockReader* filter;
   const char* filter_data;
@@ -37,10 +37,10 @@ struct Table::Rep {
 };
 
 Status Table::Open(const Options& options,
-                   RandomAccessFile* file,
+                   unique_ptr<RandomAccessFile>&& file,
                    uint64_t size,
-                   Table** table) {
-  *table = NULL;
+                   unique_ptr<Table>* table) {
+  table->reset();
   if (size < Footer::kEncodedLength) {
     return Status::InvalidArgument("file is too short to be an sstable");
   }
@@ -66,7 +66,7 @@ Status Table::Open(const Options& options,
   BlockContents contents;
   Block* index_block = NULL;
   if (s.ok()) {
-    s = ReadBlock(file, ReadOptions(), footer.index_handle(), &contents);
+    s = ReadBlock(file.get(), ReadOptions(), footer.index_handle(), &contents);
     if (s.ok()) {
       index_block = new Block(contents);
     }
@@ -77,13 +77,13 @@ Status Table::Open(const Options& options,
     // ready to serve requests.
     Rep* rep = new Table::Rep;
     rep->options = options;
-    rep->file = file;
+    rep->file = std::move(file);
     rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
     rep->filter_data = NULL;
     rep->filter = NULL;
-    *table = new Table(rep);
+    table->reset(new Table(rep));
     (*table)->ReadMeta(footer);
   } else {
     if (index_block) delete index_block;
@@ -101,7 +101,8 @@ void Table::ReadMeta(const Footer& footer) {
   // it is an empty block.
   ReadOptions opt;
   BlockContents contents;
-  if (!ReadBlock(rep_->file, opt, footer.metaindex_handle(), &contents).ok()) {
+  if (!ReadBlock(rep_->file.get(), opt, footer.metaindex_handle(),
+                 &contents).ok()) {
     // Do not propagate errors since meta info is not needed for operation
     return;
   }
@@ -129,7 +130,7 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   // requiring checksum verification in Table::Open.
   ReadOptions opt;
   BlockContents block;
-  if (!ReadBlock(rep_->file, opt, filter_handle, &block).ok()) {
+  if (!ReadBlock(rep_->file.get(), opt, filter_handle, &block).ok()) {
     return;
   }
   if (block.heap_allocated) {
@@ -164,7 +165,7 @@ Iterator* Table::BlockReader(void* arg,
                              const Slice& index_value,
                              bool* didIO) {
   Table* table = reinterpret_cast<Table*>(arg);
-  Cache* block_cache = table->rep_->options.block_cache;
+  Cache* block_cache = table->rep_->options.block_cache.get();
   Statistics* const statistics = table->rep_->options.statistics;
   Block* block = NULL;
   Cache::Handle* cache_handle = NULL;
@@ -188,7 +189,7 @@ Iterator* Table::BlockReader(void* arg,
 
         RecordTick(statistics, BLOCK_CACHE_HIT);
       } else {
-        s = ReadBlock(table->rep_->file, options, handle, &contents);
+        s = ReadBlock(table->rep_->file.get(), options, handle, &contents);
         if (s.ok()) {
           block = new Block(contents);
           if (contents.cachable && options.fill_cache) {
@@ -203,7 +204,7 @@ Iterator* Table::BlockReader(void* arg,
         RecordTick(statistics, BLOCK_CACHE_MISS);
       }
     } else {
-      s = ReadBlock(table->rep_->file, options, handle, &contents);
+      s = ReadBlock(table->rep_->file.get(), options, handle, &contents);
       if (s.ok()) {
         block = new Block(contents);
       }

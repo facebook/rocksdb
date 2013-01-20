@@ -896,8 +896,6 @@ VersionSet::VersionSet(const std::string& dbname,
       log_number_(0),
       prev_log_number_(0),
       num_levels_(options_->num_levels),
-      descriptor_file_(NULL),
-      descriptor_log_(NULL),
       dummy_versions_(this),
       current_(NULL),
       compactions_in_progress_(options_->num_levels),
@@ -914,8 +912,6 @@ VersionSet::~VersionSet() {
   delete[] compact_pointer_;
   delete[] max_file_size_;
   delete[] level_max_bytes_;
-  delete descriptor_log_;
-  delete descriptor_file_;
 }
 
 void VersionSet::Init(int num_levels) {
@@ -994,16 +990,17 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     manifest_file_number_ = NewFileNumber(); // Change manifest file no.
   }
 
-  if (descriptor_log_ == NULL || new_descriptor_log) {
+  if (!descriptor_log_ || new_descriptor_log) {
     // No reason to unlock *mu here since we only hit this path in the
     // first call to LogAndApply (when opening the database).
-    assert(descriptor_file_ == NULL || new_descriptor_log);
+    assert(!descriptor_log_ || new_descriptor_log);
     new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
-    s = env_->NewWritableFile(new_manifest_file, &descriptor_file_);
+    unique_ptr<WritableFile> descriptor_file;
+    s = env_->NewWritableFile(new_manifest_file, &descriptor_file);
     if (s.ok()) {
-      descriptor_log_ = new log::Writer(descriptor_file_);
-      s = WriteSnapshot(descriptor_log_);
+      descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
+      s = WriteSnapshot(descriptor_log_.get());
     }
   }
 
@@ -1029,9 +1026,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       }
       if (s.ok()) {
         if (options_->use_fsync) {
-          s = descriptor_file_->Fsync();
+          s = descriptor_log_->file()->Fsync();
         } else {
-          s = descriptor_file_->Sync();
+          s = descriptor_log_->file()->Sync();
         }
       }
       if (!s.ok()) {
@@ -1052,7 +1049,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     }
 
     // find offset in manifest file where this version is stored.
-    new_manifest_file_size = descriptor_file_->GetFileSize();
+    new_manifest_file_size = descriptor_log_->file()->GetFileSize();
 
     mu->Lock();
     // cache the manifest_file_size so that it can be used to rollover in the
@@ -1072,10 +1069,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
         v->GetVersionNumber());
     delete v;
     if (!new_manifest_file.empty()) {
-      delete descriptor_log_;
-      delete descriptor_file_;
-      descriptor_log_ = NULL;
-      descriptor_file_ = NULL;
+      descriptor_log_.reset();
       env_->DeleteFile(new_manifest_file);
     }
   }
@@ -1142,7 +1136,7 @@ Status VersionSet::Recover() {
       current.c_str());
 
   std::string dscname = dbname_ + "/" + current;
-  SequentialFile* file;
+  unique_ptr<SequentialFile> file;
   s = env_->NewSequentialFile(dscname, &file);
   if (!s.ok()) {
     return s;
@@ -1166,7 +1160,8 @@ Status VersionSet::Recover() {
   {
     LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(file, &reporter, true/*checksum*/, 0/*initial_offset*/);
+    log::Reader reader(std::move(file), &reporter, true/*checksum*/,
+                       0/*initial_offset*/);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -1206,8 +1201,7 @@ Status VersionSet::Recover() {
       }
     }
   }
-  delete file;
-  file = NULL;
+  file.reset();
 
   if (s.ok()) {
     if (!have_next_file) {
@@ -1260,7 +1254,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   };
 
   // Open the specified manifest file.
-  SequentialFile* file;
+  unique_ptr<SequentialFile> file;
   Status s = options.env->NewSequentialFile(dscname, &file);
   if (!s.ok()) {
     return s;
@@ -1280,7 +1274,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   {
     LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(file, &reporter, true/*checksum*/, 0/*initial_offset*/);
+    log::Reader reader(std::move(file), &reporter, true/*checksum*/,
+                       0/*initial_offset*/);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -1327,8 +1322,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
     }
   }
-  delete file;
-  file = NULL;
+  file.reset();
 
   if (s.ok()) {
     if (!have_next_file) {
@@ -1561,13 +1555,13 @@ const char* VersionSet::LevelDataSizeSummary(
 bool VersionSet::ManifestContains(const std::string& record) const {
   std::string fname = DescriptorFileName(dbname_, manifest_file_number_);
   Log(options_->info_log, "ManifestContains: checking %s\n", fname.c_str());
-  SequentialFile* file = NULL;
+  unique_ptr<SequentialFile> file;
   Status s = env_->NewSequentialFile(fname, &file);
   if (!s.ok()) {
     Log(options_->info_log, "ManifestContains: %s\n", s.ToString().c_str());
     return false;
   }
-  log::Reader reader(file, NULL, true/*checksum*/, 0);
+  log::Reader reader(std::move(file), NULL, true/*checksum*/, 0);
   Slice r;
   std::string scratch;
   bool result = false;
@@ -1577,7 +1571,6 @@ bool VersionSet::ManifestContains(const std::string& record) const {
       break;
     }
   }
-  delete file;
   Log(options_->info_log, "ManifestContains: result = %d\n", result ? 1 : 0);
   return result;
 }

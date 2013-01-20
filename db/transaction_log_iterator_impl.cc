@@ -14,22 +14,23 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   files_(files),
   started_(false),
   isValid_(true),
-  currentFileIndex_(0),
-  currentLogReader_(NULL) {
-  assert( files_ != NULL);
+  currentFileIndex_(0) {
+  assert(files_ != NULL);
 }
 
 LogReporter
 TransactionLogIteratorImpl::NewLogReporter(const uint64_t logNumber) {
   LogReporter reporter;
   reporter.env = options_->env;
-  reporter.info_log = options_->info_log;
+  reporter.info_log = options_->info_log.get();
   reporter.log_number = logNumber;
   return reporter;
 }
 
-Status TransactionLogIteratorImpl::OpenLogFile(const LogFile& logFile,
-                                       SequentialFile** file) {
+Status TransactionLogIteratorImpl::OpenLogFile(
+  const LogFile& logFile,
+  unique_ptr<SequentialFile>* file)
+{
   Env* env = options_->env;
   if (logFile.type == kArchivedLogFile) {
     std::string fname = ArchivedLogFileName(dbname_, logFile.logNumber);
@@ -73,17 +74,18 @@ void TransactionLogIteratorImpl::Next() {
   std::string scratch;
   Slice record;
   if (!started_) {
-    SequentialFile* file = NULL;
+    unique_ptr<SequentialFile> file;
     Status status = OpenLogFile(currentLogFile, &file);
     if (!status.ok()) {
       isValid_ = false;
       currentStatus_ = status;
       return;
     }
-    assert(file != NULL);
+    assert(file);
     WriteBatch batch;
-    log::Reader* reader = new log::Reader(file, &reporter, true, 0);
-    assert(reader != NULL);
+    unique_ptr<log::Reader> reader(
+      new log::Reader(std::move(file), &reporter, true, 0));
+    assert(reader);
     while (reader->ReadRecord(&record, &scratch)) {
       if (record.size() < 12) {
         reporter.Corruption(
@@ -95,7 +97,7 @@ void TransactionLogIteratorImpl::Next() {
       if (currentNum >= sequenceNumber_) {
         isValid_ = true;
         currentRecord_ = record;
-        currentLogReader_ = reader;
+        currentLogReader_ = std::move(reader);
         break;
       }
     }
@@ -108,7 +110,7 @@ void TransactionLogIteratorImpl::Next() {
     started_ = true;
   } else {
 LOOK_NEXT_FILE:
-    assert(currentLogReader_ != NULL);
+    assert(currentLogReader_);
     bool openNextFile = true;
     while (currentLogReader_->ReadRecord(&record, &scratch)) {
       if (record.size() < 12) {
@@ -125,15 +127,16 @@ LOOK_NEXT_FILE:
     if (openNextFile) {
       if (currentFileIndex_ < files_->size() - 1) {
         ++currentFileIndex_;
-        delete currentLogReader_;
-        SequentialFile *file;
+        currentLogReader_.reset();
+        unique_ptr<SequentialFile> file;
         Status status = OpenLogFile(files_->at(currentFileIndex_), &file);
         if (!status.ok()) {
           isValid_ = false;
           currentStatus_ = status;
           return;
         }
-        currentLogReader_ = new log::Reader(file, &reporter, true, 0);
+        currentLogReader_.reset(
+          new log::Reader(std::move(file), &reporter, true, 0));
         goto LOOK_NEXT_FILE;
       } else {
         //  LOOKED AT FILES. WE ARE DONE HERE.

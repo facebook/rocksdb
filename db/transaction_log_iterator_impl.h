@@ -26,14 +26,11 @@ struct LogReporter : public log::Reader::Reporter {
 class TransactionLogIteratorImpl : public TransactionLogIterator {
  public:
   TransactionLogIteratorImpl(const std::string& dbname,
-                     const Options* options,
-                     SequenceNumber& seqNum,
-                     std::vector<LogFile>* files);
+                             const Options* options,
+                             SequenceNumber& seqNum,
+                             std::vector<LogFile>* files);
   virtual ~TransactionLogIteratorImpl() {
     //  TODO move to cc file.
-    if (currentLogReader_ != NULL) {
-      delete currentLogReader_;
-    }
     delete files_;
   }
 
@@ -55,8 +52,8 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   Status currentStatus_;
   size_t currentFileIndex_;
   Slice currentRecord_;
-  log::Reader* currentLogReader_;
-  Status OpenLogFile(const LogFile& logFile, SequentialFile** file);
+  unique_ptr<log::Reader> currentLogReader_;
+  Status OpenLogFile(const LogFile& logFile, unique_ptr<SequentialFile>* file);
   LogReporter NewLogReporter(uint64_t logNumber);
 };
 

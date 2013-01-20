@@ -221,8 +221,7 @@ class BlockConstructor: public Constructor {
 class TableConstructor: public Constructor {
  public:
   TableConstructor(const Comparator* cmp)
-      : Constructor(cmp),
-        source_(NULL), table_(NULL) {
+      : Constructor(cmp) {
   }
   ~TableConstructor() {
     Reset();
@@ -244,11 +243,12 @@ class TableConstructor: public Constructor {
     ASSERT_EQ(sink.contents().size(), builder.FileSize());
 
     // Open the table
-    source_ = new StringSource(sink.contents());
+    source_.reset(new StringSource(sink.contents()));
     Options table_options;
     table_options.comparator = options.comparator;
     table_options.compression_opts = options.compression_opts;
-    return Table::Open(table_options, source_, sink.contents().size(), &table_);
+    return Table::Open(table_options, std::move(source_),
+                       sink.contents().size(), &table_);
   }
 
   virtual Iterator* NewIterator() const {
@@ -261,14 +261,12 @@ class TableConstructor: public Constructor {
 
  private:
   void Reset() {
-    delete table_;
-    delete source_;
-    table_ = NULL;
-    source_ = NULL;
+    table_.reset();
+    source_.reset();
   }
 
-  StringSource* source_;
-  Table* table_;
+  unique_ptr<StringSource> source_;
+  unique_ptr<Table> table_;
 
   TableConstructor();
 };

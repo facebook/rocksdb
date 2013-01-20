@@ -23,7 +23,6 @@ Options::Options()
       write_buffer_size(4<<20),
       max_write_buffer_number(2),
       max_open_files(1000),
-      block_cache(NULL),
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
@@ -61,19 +60,18 @@ Options::Options()
 }
 
 void
-Options::Dump(
-    Logger * log) const
+Options::Dump(Logger* log) const
 {
     Log(log,"              Options.comparator: %s", comparator->Name());
     Log(log,"       Options.create_if_missing: %d", create_if_missing);
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
     Log(log,"                     Options.env: %p", env);
-    Log(log,"                Options.info_log: %p", info_log);
+    Log(log,"                Options.info_log: %p", info_log.get());
     Log(log,"       Options.write_buffer_size: %zd", write_buffer_size);
     Log(log," Options.max_write_buffer_number: %d", max_write_buffer_number);
     Log(log,"          Options.max_open_files: %d", max_open_files);
-    Log(log,"             Options.block_cache: %p", block_cache);
+    Log(log,"             Options.block_cache: %p", block_cache.get());
     if (block_cache) {
       Log(log,"      Options.block_cache_size: %zd",
           block_cache->GetCapacity());

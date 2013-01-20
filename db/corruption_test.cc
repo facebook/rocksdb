@@ -28,7 +28,7 @@ class CorruptionTest {
  public:
   test::ErrorEnv env_;
   std::string dbname_;
-  Cache* tiny_cache_;
+  shared_ptr<Cache> tiny_cache_;
   Options options_;
   DB* db_;
 
@@ -47,7 +47,6 @@ class CorruptionTest {
   ~CorruptionTest() {
      delete db_;
      DestroyDB(dbname_, Options());
-     delete tiny_cache_;
   }
 
   Status TryReopen(Options* options = NULL) {

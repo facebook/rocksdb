@@ -16,6 +16,7 @@
 #define STORAGE_LEVELDB_DB_VERSION_SET_H_
 
 #include <map>
+#include <memory>
 #include <set>
 #include <vector>
 #include <deque>
@@ -419,8 +420,7 @@ class VersionSet {
   int num_levels_;
 
   // Opened lazily
-  WritableFile* descriptor_file_;
-  log::Writer* descriptor_log_;
+  unique_ptr<log::Writer> descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_
 
