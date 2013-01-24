@@ -57,7 +57,7 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size);
   virtual SequenceNumber GetLatestSequenceNumber();
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 TransactionLogIterator ** iter);
+                                 unique_ptr<TransactionLogIterator>* iter);
 
   // Extra methods (for testing) that are not in the public DB interface
 

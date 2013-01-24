@@ -508,6 +508,16 @@ void leveldb_options_set_compression(leveldb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
 }
 
+void leveldb_options_set_compression_per_level(leveldb_options_t* opt,
+                                               int* level_values,
+                                               size_t num_levels) {
+  opt->rep.compression_per_level.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.compression_per_level[i] =
+      static_cast<CompressionType>(level_values[i]);
+  }
+}
+
 void leveldb_options_set_compression_options(
     leveldb_options_t* opt, int w_bits, int level, int strategy) {
   opt->rep.compression_opts.window_bits = w_bits;

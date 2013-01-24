@@ -974,7 +974,7 @@ class Benchmark {
     options.WAL_ttl_seconds = FLAGS_WAL_ttl_seconds;
     if (FLAGS_min_level_to_compress >= 0) {
       assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
-      options.compression_per_level = new CompressionType[FLAGS_num_levels];
+      options.compression_per_level.resize(FLAGS_num_levels);
       for (int i = 0; i < FLAGS_min_level_to_compress; i++) {
         options.compression_per_level[i] = kNoCompression;
       }
@@ -1003,7 +1003,7 @@ class Benchmark {
       exit(1);
     }
     if (FLAGS_min_level_to_compress >= 0) {
-      delete options.compression_per_level;
+      options.compression_per_level.clear();
     }
   }
 

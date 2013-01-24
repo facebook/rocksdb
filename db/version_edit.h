@@ -91,7 +91,7 @@ class VersionEdit {
 
   typedef std::set< std::pair<int, uint64_t> > DeletedFileSet;
 
-  bool GetLevel(Slice* input, int* level);
+  bool GetLevel(Slice* input, int* level, const char** msg);
 
   int number_levels_;
   std::string comparator_;

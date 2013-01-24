@@ -158,12 +158,7 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.block_cache == NULL && !result.no_block_cache) {
     result.block_cache = NewLRUCache(8 << 20);
   }
-  if (src.compression_per_level != NULL) {
-    result.compression_per_level = new CompressionType[src.num_levels];
-    for (int i = 0; i < src.num_levels; i++) {
-      result.compression_per_level[i] = src.compression_per_level[i];
-    }
-  }
+  result.compression_per_level = src.compression_per_level;
   return result;
 }
 
@@ -244,10 +239,6 @@ DBImpl::~DBImpl() {
   imm_.UnrefAll();
   delete tmp_batch_;
   delete[] stats_;
-
-  if (options_.compression_per_level != NULL) {
-    delete[] options_.compression_per_level;
-  }
 
   delete logger_;
 }
@@ -884,7 +875,7 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() {
 }
 
 Status DBImpl::GetUpdatesSince(SequenceNumber seq,
-                               TransactionLogIterator** iter) {
+                               unique_ptr<TransactionLogIterator>* iter) {
 
   //  Get All Log Files.
   //  Sort Files
@@ -916,9 +907,8 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   if (!s.ok()) {
     return s;
   }
-  TransactionLogIteratorImpl* impl =
-    new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles);
-  *iter = impl;
+  iter->reset(
+    new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles));
   return Status::OK();
 }
 

@@ -183,6 +183,10 @@ extern void leveldb_options_destroy(leveldb_options_t*);
 extern void leveldb_options_set_comparator(
     leveldb_options_t*,
     leveldb_comparator_t*);
+extern void leveldb_options_set_compression_per_level(
+  leveldb_options_t* opt,
+  int* level_values,
+  size_t num_levels);
 extern void leveldb_options_set_filter_policy(
     leveldb_options_t*,
     leveldb_filterpolicy_t*);

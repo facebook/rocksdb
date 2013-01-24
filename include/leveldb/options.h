@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <string>
 #include <memory>
+#include <vector>
 #include <stdint.h>
 #include "leveldb/slice.h"
 
@@ -170,7 +171,7 @@ struct Options {
   // array and it could be freed anytime after the return from Open().
   // This could have been a std::vector but that makes the equivalent
   // java/C api hard to construct.
-  CompressionType* compression_per_level;
+  std::vector<CompressionType> compression_per_level;
 
   //different options for compression algorithms
   CompressionOptions compression_opts;

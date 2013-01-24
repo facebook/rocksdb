@@ -156,15 +156,14 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   CompressionType type;
   // If the use has specified a different compression level for each level,
   // then pick the compresison for that level.
-  if (r->options.compression_per_level != NULL) {
-    if (level_ == -1) {
-      // this is mostly for backward compatibility. The builder does not
-      // know which level this file belongs to. Apply the compression level
-      // specified for level 0 to all levels.
-      type = r->options.compression_per_level[0];
-    } else {
-      type = r->options.compression_per_level[level_];
-    }
+  if (!r->options.compression_per_level.empty()) {
+    const int n = r->options.compression_per_level.size();
+    // It is possible for level_ to be -1; in that case, we use level
+    // 0's compression.  This occurs mostly in backwards compatibility
+    // situations when the builder doesn't know what level the file
+    // belongs to.  Likewise, if level_ is beyond the end of the
+    // specified compression levels, use the last value.
+    type = r->options.compression_per_level[std::max(0, std::min(level_, n))];
   } else {
     type = r->options.compression;
   }

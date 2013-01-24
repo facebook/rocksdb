@@ -95,13 +95,16 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
   }
 }
 
-bool VersionEdit::GetLevel(Slice* input, int* level) {
+bool VersionEdit::GetLevel(Slice* input, int* level, const char** msg) {
   uint32_t v;
   if (GetVarint32(input, &v) &&
       (int)v < number_levels_) {
     *level = v;
     return true;
   } else {
+    if ((int)v >= number_levels_) {
+      *msg = "db already has more levels than options.num_levels";
+    }
     return false;
   }
 }
@@ -163,32 +166,38 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       case kCompactPointer:
-        if (GetLevel(&input, &level) &&
+        if (GetLevel(&input, &level, &msg) &&
             GetInternalKey(&input, &key)) {
           compact_pointers_.push_back(std::make_pair(level, key));
         } else {
-          msg = "compaction pointer";
+          if (!msg) {
+            msg = "compaction pointer";
+          }
         }
         break;
 
       case kDeletedFile:
-        if (GetLevel(&input, &level) &&
+        if (GetLevel(&input, &level, &msg) &&
             GetVarint64(&input, &number)) {
           deleted_files_.insert(std::make_pair(level, number));
         } else {
-          msg = "deleted file";
+          if (!msg) {
+            msg = "deleted file";
+          }
         }
         break;
 
       case kNewFile:
-        if (GetLevel(&input, &level) &&
+        if (GetLevel(&input, &level, &msg) &&
             GetVarint64(&input, &f.number) &&
             GetVarint64(&input, &f.file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest)) {
           new_files_.push_back(std::make_pair(level, f));
         } else {
-          msg = "new-file entry";
+          if (!msg) {
+            msg = "new-file entry";
+          }
         }
         break;
 

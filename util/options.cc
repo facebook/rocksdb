@@ -26,7 +26,6 @@ Options::Options()
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
-      compression_per_level(NULL),
       filter_policy(NULL),
       num_levels(7),
       level0_file_num_compaction_trigger(4),
@@ -80,8 +79,8 @@ Options::Dump(Logger* log) const
     }
     Log(log,"              Options.block_size: %zd", block_size);
     Log(log,"  Options.block_restart_interval: %d", block_restart_interval);
-    if (compression_per_level != NULL) {
-       for (int i = 0; i < num_levels; i++){
+    if (!compression_per_level.empty()) {
+      for (int i = 0; i < compression_per_level.size(); i++) {
           Log(log,"       Options.compression[%d]: %d",
               i, compression_per_level[i]);
        }

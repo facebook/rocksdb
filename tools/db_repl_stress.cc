@@ -51,18 +51,13 @@ struct ReplicationThread {
   volatile bool has_more;
 };
 
-//  experimenting with isNull. Makes code more readable?
-static inline bool isNull(const void * const ptr) {
-  return ptr == NULL;
-}
-
 static void ReplicationThreadBody(void* arg) {
   ReplicationThread* t = reinterpret_cast<ReplicationThread*>(arg);
   DB* db = t->db;
-  TransactionLogIterator* iter = NULL;
+  unique_ptr<TransactionLogIterator> iter;
   SequenceNumber currentSeqNum = 0;
   while (t->stop.Acquire_Load() != NULL) {
-    if (isNull(iter)) {
+    if (!iter) {
       db->GetUpdatesSince(currentSeqNum, &iter);
       fprintf(stdout, "Refreshing iterator\n");
       iter->Next();
@@ -83,8 +78,7 @@ static void ReplicationThreadBody(void* arg) {
         t->no_read++;
       }
     }
-    delete iter;
-    iter = NULL;
+    iter.reset();
   }
 }
 

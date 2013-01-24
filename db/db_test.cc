@@ -524,6 +524,33 @@ TEST(DBTest, ReadWrite) {
   } while (ChangeOptions());
 }
 
+static std::string Key(int i) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "key%06d", i);
+  return std::string(buf);
+}
+
+TEST(DBTest, LevelLimitReopen) {
+  Options options = CurrentOptions();
+  Reopen(&options);
+
+  const std::string value(1024 * 1024, ' ');
+  int i = 0;
+  while (NumTableFilesAtLevel(2) == 0) {
+    ASSERT_OK(Put(Key(i++), value));
+  }
+
+  options.num_levels = 1;
+  Status s = TryReopen(&options);
+  ASSERT_EQ(s.IsCorruption(), true);
+  ASSERT_EQ(s.ToString(),
+            "Corruption: VersionEdit: db already has "
+            "more levels than options.num_levels");
+
+  options.num_levels = 10;
+  ASSERT_OK(TryReopen(&options));
+}
+
 TEST(DBTest, Preallocation) {
   const std::string src = dbname_ + "/alloc_test";
   unique_ptr<WritableFile> srcfile;
@@ -1026,12 +1053,6 @@ TEST(DBTest, RecoverDuringMemtableCompaction) {
   } while (ChangeOptions());
 }
 
-static std::string Key(int i) {
-  char buf[100];
-  snprintf(buf, sizeof(buf), "key%06d", i);
-  return std::string(buf);
-}
-
 TEST(DBTest, MinorCompactionsHappen) {
   Options options = CurrentOptions();
   options.write_buffer_size = 10000;
@@ -1221,7 +1242,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
     fprintf(stderr, "skipping test, compression disabled\n");
     return false;
   }
-  options.compression_per_level = new CompressionType[options.num_levels];
+  options.compression_per_level.resize(options.num_levels);
 
   // do not compress L0
   for (int i = 0; i < 1; i++) {
@@ -2439,7 +2460,7 @@ TEST(DBTest, TransactionLogIterator) {
   Put("key2", value);
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3U);
   {
-    TransactionLogIterator* iter;
+    unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(!iter->Valid());
@@ -2465,7 +2486,7 @@ TEST(DBTest, TransactionLogIterator) {
     Put("key6", value);
   }
   {
-    TransactionLogIterator* iter;
+    unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(!iter->Valid());
@@ -2750,7 +2771,7 @@ class ModelDB: public DB {
     return 0;
   }
   virtual Status GetUpdatesSince(leveldb::SequenceNumber,
-                                 leveldb::TransactionLogIterator**) {
+                                 unique_ptr<leveldb::TransactionLogIterator>*) {
     return Status::NotSupported("Not supported in Model DB");
   }
 
