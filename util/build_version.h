@@ -4,7 +4,6 @@
 
 // these variables tell us about the git config and time
 extern const char* leveldb_build_git_sha;
-extern const char* leveldb_build_git_datetime;
 
 // these variables tell us when the compilation occured
 extern const char* leveldb_build_compile_time;

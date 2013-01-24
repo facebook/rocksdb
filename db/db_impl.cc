@@ -2385,8 +2385,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 // A global method that can dump out the build version
 void dumpLeveldbBuildVersion(Logger * log) {
   Log(log, "Git sha %s", leveldb_build_git_sha);
-  Log(log, "Git datetime %s", leveldb_build_git_datetime);
-  Log(log, "Compile time %s %s", leveldb_build_compile_time, leveldb_build_compile_date);
+  Log(log, "Compile time %s %s",
+      leveldb_build_compile_time, leveldb_build_compile_date);
 }
 
 }  // namespace leveldb
