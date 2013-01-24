@@ -1850,7 +1850,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   stats.files_in_leveln = compact->compaction->num_input_files(0);
   stats.files_in_levelnp1 = compact->compaction->num_input_files(1);
-  stats.files_out_levelnp1 = compact->outputs.size();
+
+  int num_output_files = compact->outputs.size();
+  if (compact->builder != NULL) {
+    // An error occured so ignore the last output.
+    assert(num_output_files > 0);
+    --num_output_files;
+  }
+  stats.files_out_levelnp1 = num_output_files;
 
   for (int i = 0; i < compact->compaction->num_input_files(0); i++)
     stats.bytes_readn += compact->compaction->input(0, i)->file_size;
@@ -1858,7 +1865,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   for (int i = 0; i < compact->compaction->num_input_files(1); i++)
     stats.bytes_readnp1 += compact->compaction->input(1, i)->file_size;
 
-  for (size_t i = 0; i < compact->outputs.size(); i++) {
+  for (int i = 0; i < num_output_files; i++) {
     stats.bytes_written += compact->outputs[i].file_size;
   }
 
@@ -2005,6 +2012,7 @@ Status DBImpl::Get(const ReadOptions& options,
   mem->Unref();
   imm.UnrefAll();
   current->Unref();
+  RecordTick(options_.statistics, NUMBER_KEYS_READ);
   return s;
 }
 
@@ -2064,7 +2072,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   if (status.ok() && my_batch != NULL) {  // NULL batch is for compactions
     WriteBatch* updates = BuildBatchGroup(&last_writer);
     WriteBatchInternal::SetSequence(updates, last_sequence + 1);
-    last_sequence += WriteBatchInternal::Count(updates);
+    int my_batch_count = WriteBatchInternal::Count(updates);
+    last_sequence += my_batch_count;
+    // Record statistics
+    RecordTick(options_.statistics, NUMBER_KEYS_WRITTEN, my_batch_count);
 
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
@@ -2111,7 +2122,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   if (!writers_.empty()) {
     writers_.front()->cv.Signal();
   }
-
   return status;
 }
 

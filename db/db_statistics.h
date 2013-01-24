@@ -35,9 +35,9 @@ class DBStatistics: public Statistics {
     return allTickers_[tickerType].getCount();
   }
 
-  void recordTick(Tickers tickerType) {
+  void recordTick(Tickers tickerType, uint64_t count) {
     assert(tickerType < TICKER_ENUM_MAX);
-    allTickers_[tickerType].recordTick();
+    allTickers_[tickerType].recordTick(count);
   }
 
  private:

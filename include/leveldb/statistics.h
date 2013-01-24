@@ -24,7 +24,11 @@ enum Tickers {
   COMPACTION_KEY_DROP_NEWER_ENTRY = 3, // key was written with a newer value.
   COMPACTION_KEY_DROP_OBSOLETE = 4, // The key is obsolete.
   COMPACTION_KEY_DROP_USER = 5, // user compaction function has dropped the key.
-  TICKER_ENUM_MAX = 6,
+  // Number of keys written to the database via the Put and Write call's
+  NUMBER_KEYS_WRITTEN = 6,
+  // Number of Keys read,
+  NUMBER_KEYS_READ = 7,
+  TICKER_ENUM_MAX = 8,
 };
 
 
@@ -40,6 +44,9 @@ class Ticker {
     count_++;
   }
 
+  inline void recordTick(int count) {
+    count_ += count;
+  }
   inline uint64_t getCount() {
     return count_;
   }
@@ -66,7 +73,7 @@ class Statistics {
   virtual ~Statistics() {}
 
   virtual long getTickerCount(Tickers tickerType) = 0;
-  virtual void recordTick(Tickers tickerType) = 0;
+  virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;
 
  protected:
   long numFileOpens_;
@@ -75,11 +82,13 @@ class Statistics {
 };
 
 // Ease of Use functions
-inline void RecordTick(Statistics* const statistics, Tickers ticker) {
+inline void RecordTick(Statistics* const statistics,
+                       Tickers ticker,
+                       uint64_t count = 1) {
   if (statistics != NULL) {
-    statistics->recordTick(ticker);
+    statistics->recordTick(ticker, count);
   }
-};
+}
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_INCLUDE_STATISTICS_H_

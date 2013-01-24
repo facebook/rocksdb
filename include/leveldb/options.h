@@ -252,6 +252,8 @@ struct Options {
   int max_grandparent_overlap_factor;
 
   // If non-null, then we should collect metrics about database operations
+  // Statistics objects should not be shared between DB instances as
+  // it does not use any locks to prevent concurrent updates.
   Statistics* statistics;
 
   // If true, then the contents of data files are not synced

@@ -230,6 +230,9 @@ Iterator* Table::BlockReader(void* arg,
       if (s.ok()) {
         block = new Block(contents);
       }
+      if (didIO != NULL) {
+        *didIO = true; // we did some io from storage
+      }
     }
   }
 
