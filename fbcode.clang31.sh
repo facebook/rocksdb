@@ -3,7 +3,6 @@
 # Set environment variables so that we can compile leveldb using
 # fbcode settings.  It uses the latest g++ compiler and also
 # uses jemalloc
-# This is compiled with gcc version 4.7.1 for zeus proxy
 
 TOOLCHAIN_REV=f365dbeae46a30414a2874a6f45e73e10f1caf7d
 TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
