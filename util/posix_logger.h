@@ -14,7 +14,9 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#ifdef OS_LINUX
 #include <linux/falloc.h>
+#endif
 #include "leveldb/env.h"
 
 namespace leveldb {
@@ -93,6 +95,7 @@ class PosixLogger : public Logger {
 
       assert(p <= limit);
 
+#ifdef OS_LINUX
       // If this write would cross a boundary of kDebugLogChunkSize
       // space, pre-allocate more space to avoid overly large
       // allocations from filesystem allocsize options.
@@ -106,6 +109,7 @@ class PosixLogger : public Logger {
         fallocate(fd_, FALLOC_FL_KEEP_SIZE, 0,
                   desired_allocation_chunk * kDebugLogChunkSize);
       }
+#endif
 
       fwrite(base, 1, write_size, file_);
       fflush(file_);

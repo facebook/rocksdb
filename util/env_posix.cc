@@ -332,6 +332,7 @@ class PosixMmapFile : public WritableFile {
     return file_offset_ + used;
   }
 
+#ifdef OS_LINUX
   virtual Status Allocate(off_t offset, off_t len) {
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
       return Status::OK();
@@ -339,6 +340,7 @@ class PosixMmapFile : public WritableFile {
       return IOError(filename_, errno);
     }
   }
+#endif
 };
 
 // Use posix write to write data to a file.
@@ -466,6 +468,7 @@ class PosixWritableFile : public WritableFile {
     return filesize_;
   }
 
+#ifdef OS_LINUX
   virtual Status Allocate(off_t offset, off_t len) {
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
       return Status::OK();
@@ -473,6 +476,7 @@ class PosixWritableFile : public WritableFile {
       return IOError(filename_, errno);
     }
   }
+#endif
 };
 
 static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
