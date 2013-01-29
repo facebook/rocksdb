@@ -38,6 +38,7 @@ TESTS = \
 	c_test \
 	cache_test \
 	coding_test \
+	histogram_test \
 	corruption_test \
 	crc32c_test \
 	db_test \
@@ -148,6 +149,9 @@ cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS)
+
+histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS)
 
 corruption_test: db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS)
