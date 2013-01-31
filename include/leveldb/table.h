@@ -58,6 +58,10 @@ class Table {
   // be close to the file length.
   uint64_t ApproximateOffsetOf(const Slice& key) const;
 
+  // Returns true if the block for the specified key is in cache.
+  // REQUIRES: key is in this table.
+  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
+
  private:
   struct Rep;
   Rep* rep_;
@@ -79,6 +83,8 @@ class Table {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
+
+  static void SetupCacheKeyPrefix(Rep* rep);
 
   // No copying allowed
   Table(const Table&);

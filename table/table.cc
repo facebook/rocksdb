@@ -18,6 +18,11 @@
 
 namespace leveldb {
 
+// The longest the prefix of the cache key used to identify blocks can be.
+// We are using the fact that we know for Posix files the unique ID is three
+// varints.
+const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
+
 struct Table::Rep {
   ~Rep() {
     delete filter;
@@ -28,13 +33,33 @@ struct Table::Rep {
   Options options;
   Status status;
   unique_ptr<RandomAccessFile> file;
-  uint64_t cache_id;
+  char cache_key_prefix[kMaxCacheKeyPrefixSize];
+  size_t cache_key_prefix_size;
   FilterBlockReader* filter;
   const char* filter_data;
 
   BlockHandle metaindex_handle;  // Handle to metaindex_block: saved from footer
   Block* index_block;
 };
+
+// Helper function to setup the cache key's prefix for the Table.
+void Table::SetupCacheKeyPrefix(Rep* rep) {
+  assert(kMaxCacheKeyPrefixSize >= 10);
+  rep->cache_key_prefix_size = 0;
+  if (rep->options.block_cache) {
+    rep->cache_key_prefix_size = rep->file->GetUniqueId(rep->cache_key_prefix,
+                                                        kMaxCacheKeyPrefixSize);
+
+    if (rep->cache_key_prefix_size == 0) {
+      // If the prefix wasn't generated or was too long, we create one from the
+      // cache.
+      char* end = EncodeVarint64(rep->cache_key_prefix,
+                                 rep->options.block_cache->NewId());
+      rep->cache_key_prefix_size =
+            static_cast<size_t>(end - rep->cache_key_prefix);
+    }
+  }
+}
 
 Status Table::Open(const Options& options,
                    unique_ptr<RandomAccessFile>&& file,
@@ -80,7 +105,7 @@ Status Table::Open(const Options& options,
     rep->file = std::move(file);
     rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
-    rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
+    SetupCacheKeyPrefix(rep);
     rep->filter_data = NULL;
     rep->filter = NULL;
     table->reset(new Table(rep));
@@ -179,10 +204,15 @@ Iterator* Table::BlockReader(void* arg,
   if (s.ok()) {
     BlockContents contents;
     if (block_cache != NULL) {
-      char cache_key_buffer[16];
-      EncodeFixed64(cache_key_buffer, table->rep_->cache_id);
-      EncodeFixed64(cache_key_buffer+8, handle.offset());
-      Slice key(cache_key_buffer, sizeof(cache_key_buffer));
+      char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+      const size_t cache_key_prefix_size = table->rep_->cache_key_prefix_size;
+      assert(cache_key_prefix_size != 0);
+      assert(cache_key_prefix_size <= kMaxCacheKeyPrefixSize);
+      memcpy(cache_key, table->rep_->cache_key_prefix,
+             cache_key_prefix_size);
+      char* end = EncodeVarint64(cache_key + cache_key_prefix_size,
+                                 handle.offset());
+      Slice key(cache_key, static_cast<size_t>(end-cache_key));
       cache_handle = block_cache->Lookup(key);
       if (cache_handle != NULL) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
@@ -274,6 +304,17 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
   return s;
 }
 
+void SaveDidIO(void* arg, const Slice& key, const Slice& value, bool didIO) {
+  *reinterpret_cast<bool*>(arg) = didIO;
+}
+bool Table::TEST_KeyInCache(const ReadOptions& options, const Slice& key) {
+  // We use InternalGet() as it has logic that checks whether we read the
+  // block from the disk or not.
+  bool didIO = false;
+  Status s = InternalGet(options, key, &didIO, SaveDidIO);
+  assert(s.ok());
+  return !didIO;
+}
 
 uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
   Iterator* index_iter =

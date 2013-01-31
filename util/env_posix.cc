@@ -11,18 +11,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(OS_LINUX)
+#include <linux/fs.h>
+#endif
 #if defined(LEVELDB_PLATFORM_ANDROID)
 #include <sys/stat.h>
 #endif
 #include "leveldb/env.h"
 #include "leveldb/slice.h"
 #include "port/port.h"
+#include "util/coding.h"
 #include "util/logging.h"
 #include "util/posix_logger.h"
 
@@ -108,6 +113,35 @@ class PosixRandomAccessFile: public RandomAccessFile {
     }
     return s;
   }
+
+#if defined(OS_LINUX)
+  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+    // TODO: possibly allow this function to handle tighter bounds.
+    if (max_size < kMaxVarint64Length*3) {
+      return 0;
+    }
+
+    struct stat buf;
+    int result = fstat(fd_, &buf);
+    if (result == -1) {
+      return 0;
+    }
+
+    long version = 0;
+    result = ioctl(fd_, FS_IOC_GETVERSION, &version);
+    if (result == -1) {
+      return 0;
+    }
+    uint64_t uversion = (uint64_t)version;
+
+    char* rid = id;
+    rid = EncodeVarint64(rid, buf.st_dev);
+    rid = EncodeVarint64(rid, buf.st_ino);
+    rid = EncodeVarint64(rid, uversion);
+    assert(rid >= id);
+    return static_cast<size_t>(rid-id);
+  }
+#endif
 };
 
 // mmap() based random-access

@@ -4,7 +4,9 @@
 
 #include "leveldb/env.h"
 
+#include <unordered_set>
 #include "port/port.h"
+#include "util/coding.h"
 #include "util/testharness.h"
 
 namespace leveldb {
@@ -95,6 +97,146 @@ TEST(EnvPosixTest, StartThread) {
     Env::Default()->SleepForMicroseconds(kDelayMicros);
   }
   ASSERT_EQ(state.val, 3);
+}
+
+bool IsSingleVarint(const std::string& s) {
+  Slice slice(s);
+
+  uint64_t v;
+  if (!GetVarint64(&slice, &v)) {
+    return false;
+  }
+
+  return slice.size() == 0;
+}
+
+bool IsUniqueIDValid(const std::string& s) {
+  return !s.empty() && !IsSingleVarint(s);
+}
+
+const size_t MAX_ID_SIZE = 100;
+char temp_id[MAX_ID_SIZE];
+
+TEST(EnvPosixTest, RandomAccessUniqueID) {
+  // Create file.
+  std::string fname = test::TmpDir() + "/" + "testfile";
+  unique_ptr<WritableFile> wfile;
+  ASSERT_OK(env_->NewWritableFile(fname, &wfile));
+
+  unique_ptr<RandomAccessFile> file;
+
+  // Get Unique ID
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+  size_t id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
+  ASSERT_TRUE(id_size > 0);
+  std::string unique_id1(temp_id, id_size);
+  ASSERT_TRUE(IsUniqueIDValid(unique_id1));
+
+  // Get Unique ID again
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+  id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
+  ASSERT_TRUE(id_size > 0);
+  std::string unique_id2(temp_id, id_size);
+  ASSERT_TRUE(IsUniqueIDValid(unique_id2));
+
+  // Get Unique ID again after waiting some time.
+  env_->SleepForMicroseconds(1000000);
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+  id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
+  ASSERT_TRUE(id_size > 0);
+  std::string unique_id3(temp_id, id_size);
+  ASSERT_TRUE(IsUniqueIDValid(unique_id3));
+
+  // Check IDs are the same.
+  ASSERT_EQ(unique_id1, unique_id2);
+  ASSERT_EQ(unique_id2, unique_id3);
+
+  // Delete the file
+  env_->DeleteFile(fname);
+}
+
+// Returns true if any of the strings in ss are the prefix of another string.
+bool HasPrefix(const std::unordered_set<std::string>& ss) {
+  for (const std::string& s: ss) {
+    if (s.empty()) {
+      return true;
+    }
+    for (size_t i = 1; i < s.size(); ++i) {
+      if (ss.count(s.substr(0, i)) != 0) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
+  // Check whether a bunch of concurrently existing files have unique IDs.
+
+  // Create the files
+  std::vector<std::string> fnames;
+  for (int i = 0; i < 1000; ++i) {
+    fnames.push_back(test::TmpDir() + "/" + "testfile" + std::to_string(i));
+
+    // Create file.
+    unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env_->NewWritableFile(fnames[i], &wfile));
+  }
+
+  // Collect and check whether the IDs are unique.
+  std::unordered_set<std::string> ids;
+  for (const std::string fname: fnames) {
+    unique_ptr<RandomAccessFile> file;
+    std::string unique_id;
+    ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+    size_t id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
+    ASSERT_TRUE(id_size > 0);
+    unique_id = std::string(temp_id, id_size);
+    ASSERT_TRUE(IsUniqueIDValid(unique_id));
+
+    ASSERT_TRUE(ids.count(unique_id) == 0);
+    ids.insert(unique_id);
+  }
+
+  // Delete the files
+  for (const std::string fname: fnames) {
+    ASSERT_OK(env_->DeleteFile(fname));
+  }
+
+  ASSERT_TRUE(!HasPrefix(ids));
+}
+
+TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
+  std::string fname = test::TmpDir() + "/" + "testfile";
+
+  // Check that after file is deleted we don't get same ID again in a new file.
+  std::unordered_set<std::string> ids;
+  for (int i = 0; i < 1000; ++i) {
+    // Create file.
+    {
+      unique_ptr<WritableFile> wfile;
+      ASSERT_OK(env_->NewWritableFile(fname, &wfile));
+    }
+
+    // Get Unique ID
+    std::string unique_id;
+    {
+      unique_ptr<RandomAccessFile> file;
+      ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+      size_t id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
+      ASSERT_TRUE(id_size > 0);
+      unique_id = std::string(temp_id, id_size);
+    }
+
+    ASSERT_TRUE(IsUniqueIDValid(unique_id));
+    ASSERT_TRUE(ids.count(unique_id) == 0);
+    ids.insert(unique_id);
+
+    // Delete the file
+    ASSERT_OK(env_->DeleteFile(fname));
+  }
+
+  ASSERT_TRUE(!HasPrefix(ids));
 }
 
 }  // namespace leveldb
