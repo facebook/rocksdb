@@ -58,6 +58,11 @@ namespace {
 
 
 Histogram::Histogram() :
+  min_(bucketMapper.LastValue()),
+  max_(0),
+  num_(0),
+  sum_(0),
+  sum_squares_(0),
   buckets_(std::vector<uint64_t>(bucketMapper.BucketCount(), 0)) {}
 
 void Histogram::Clear() {
