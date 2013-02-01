@@ -48,16 +48,16 @@ SstFileReader::SstFileReader(std::string file_path,
 Status SstFileReader::ReadSequential(bool print_kv, uint64_t file_number,
                                      uint64_t read_num)
 {
-  Table* table;
+  unique_ptr<Table> table;
   Options table_options;
-  RandomAccessFile* file = NULL;
+  unique_ptr<RandomAccessFile> file;
   Status s = table_options.env->NewRandomAccessFile(file_name_, &file);
   if(!s.ok()) {
    return s;
   }
   uint64_t file_size;
   table_options.env->GetFileSize(file_name_, &file_size);
-  s = Table::Open(table_options, file_number, file, file_size, &table);
+  s = Table::Open(table_options, file_number, std::move(file), file_size, &table);
   if(!s.ok()) {
    return s;
   }

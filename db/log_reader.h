@@ -5,6 +5,7 @@
 #ifndef STORAGE_LEVELDB_DB_LOG_READER_H_
 #define STORAGE_LEVELDB_DB_LOG_READER_H_
 
+#include <memory>
 #include <stdint.h>
 
 #include "db/log_format.h"
@@ -14,6 +15,7 @@
 namespace leveldb {
 
 class SequentialFile;
+using std::unique_ptr;
 
 namespace log {
 
@@ -40,8 +42,8 @@ class Reader {
   //
   // The Reader will start reading at the first record located at physical
   // position >= initial_offset within the file.
-  Reader(SequentialFile* file, Reporter* reporter, bool checksum,
-         uint64_t initial_offset);
+  Reader(unique_ptr<SequentialFile>&& file, Reporter* reporter,
+         bool checksum, uint64_t initial_offset);
 
   ~Reader();
 
@@ -57,8 +59,10 @@ class Reader {
   // Undefined before the first call to ReadRecord.
   uint64_t LastRecordOffset();
 
+  SequentialFile* file() { return file_.get(); }
+
  private:
-  SequentialFile* const file_;
+  const unique_ptr<SequentialFile> file_;
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;

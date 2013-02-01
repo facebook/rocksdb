@@ -39,6 +39,8 @@ using leveldb::WritableFile;
 using leveldb::WriteBatch;
 using leveldb::WriteOptions;
 
+using std::shared_ptr;
+
 extern "C" {
 
 struct leveldb_t              { DB*               rep; };
@@ -48,12 +50,12 @@ struct leveldb_snapshot_t     { const Snapshot*   rep; };
 struct leveldb_readoptions_t  { ReadOptions       rep; };
 struct leveldb_writeoptions_t { WriteOptions      rep; };
 struct leveldb_options_t      { Options           rep; };
-struct leveldb_cache_t        { Cache*            rep; };
 struct leveldb_seqfile_t      { SequentialFile*   rep; };
 struct leveldb_randomfile_t   { RandomAccessFile* rep; };
 struct leveldb_writablefile_t { WritableFile*     rep; };
-struct leveldb_logger_t       { Logger*           rep; };
 struct leveldb_filelock_t     { FileLock*         rep; };
+struct leveldb_logger_t       { shared_ptr<Logger>  rep; };
+struct leveldb_cache_t        { shared_ptr<Cache>   rep; };
 
 struct leveldb_comparator_t : public Comparator {
   void* state_;
@@ -421,7 +423,9 @@ void leveldb_options_set_env(leveldb_options_t* opt, leveldb_env_t* env) {
 }
 
 void leveldb_options_set_info_log(leveldb_options_t* opt, leveldb_logger_t* l) {
-  opt->rep.info_log = (l ? l->rep : NULL);
+  if (l) {
+    opt->rep.info_log = l->rep;
+  }
 }
 
 void leveldb_options_set_write_buffer_size(leveldb_options_t* opt, size_t s) {
@@ -433,7 +437,9 @@ void leveldb_options_set_max_open_files(leveldb_options_t* opt, int n) {
 }
 
 void leveldb_options_set_cache(leveldb_options_t* opt, leveldb_cache_t* c) {
-  opt->rep.block_cache = c->rep;
+  if (c) {
+    opt->rep.block_cache = c->rep;
+  }
 }
 
 void leveldb_options_set_block_size(leveldb_options_t* opt, size_t s) {
@@ -500,6 +506,16 @@ void leveldb_options_set_max_mem_compaction_level(
 
 void leveldb_options_set_compression(leveldb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
+}
+
+void leveldb_options_set_compression_per_level(leveldb_options_t* opt,
+                                               int* level_values,
+                                               size_t num_levels) {
+  opt->rep.compression_per_level.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.compression_per_level[i] =
+      static_cast<CompressionType>(level_values[i]);
+  }
 }
 
 void leveldb_options_set_compression_options(
@@ -647,7 +663,6 @@ leveldb_cache_t* leveldb_cache_create_lru(size_t capacity) {
 }
 
 void leveldb_cache_destroy(leveldb_cache_t* cache) {
-  delete cache->rep;
   delete cache;
 }
 

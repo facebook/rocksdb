@@ -5,6 +5,7 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_TABLE_H_
 #define STORAGE_LEVELDB_INCLUDE_TABLE_H_
 
+#include <memory>
 #include <stdint.h>
 #include "leveldb/iterator.h"
 
@@ -17,6 +18,8 @@ struct Options;
 class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
+
+using std::unique_ptr;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
@@ -37,9 +40,9 @@ class Table {
   // *file must remain live while this Table is in use.
   static Status Open(const Options& options,
                      uint64_t file_number,
-                     RandomAccessFile* file,
+                     unique_ptr<RandomAccessFile>&& file,
                      uint64_t file_size,
-                     Table** table);
+                     unique_ptr<Table>* table);
 
   ~Table();
 
@@ -55,6 +58,10 @@ class Table {
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
   uint64_t ApproximateOffsetOf(const Slice& key) const;
+
+  // Returns true if the block for the specified key is in cache.
+  // REQUIRES: key is in this table.
+  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
  private:
   struct Rep;
@@ -77,6 +84,8 @@ class Table {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
+
+  static void SetupCacheKeyPrefix(Rep* rep);
 
   // No copying allowed
   Table(const Table&);

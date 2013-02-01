@@ -8,7 +8,8 @@
 #
 
 # create git version file
-VFILE=util/build_version.cc
+VFILE=$(mktemp)
+trap "rm $VFILE" EXIT
 
 # check to see if git is in the path
 which git > /dev/null
@@ -19,6 +20,10 @@ else
   echo "git not found"| awk ' BEGIN {print "#include \"build_version.h\""} {print "const char * leveldb_build_git_sha = \"leveldb_build_git_sha:git not found\";"} END {}' > ${VFILE}
 fi
 
-date | awk 'BEGIN {} {print "const char * leveldb_build_git_datetime = \"leveldb_build_git_datetime:"$0"\";"} END {} ' >> ${VFILE}
 echo "const char * leveldb_build_compile_date = __DATE__;" >> ${VFILE}
 echo "const char * leveldb_build_compile_time = __TIME__;" >> ${VFILE}
+
+OUTFILE=util/build_version.cc
+if [ ! -e $OUTFILE ] || ! cmp -s $VFILE $OUTFILE; then
+    cp $VFILE $OUTFILE
+fi

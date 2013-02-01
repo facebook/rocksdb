@@ -109,8 +109,8 @@ class StringSink: public WritableFile {
 
 class StringSource: public RandomAccessFile {
  public:
-  StringSource(const Slice& contents)
-      : contents_(contents.data(), contents.size()) {
+  StringSource(const Slice& contents, uint64_t uniq_id)
+      : contents_(contents.data(), contents.size()), uniq_id_(uniq_id) {
   }
 
   virtual ~StringSource() { }
@@ -130,8 +130,20 @@ class StringSource: public RandomAccessFile {
     return Status::OK();
   }
 
+  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+    if (max_size < 20) {
+      return 0;
+    }
+
+    char* rid = id;
+    rid = EncodeVarint64(rid, uniq_id_);
+    rid = EncodeVarint64(rid, 0);
+    return static_cast<size_t>(rid-id);
+  }
+
  private:
   std::string contents_;
+  uint64_t uniq_id_;
 };
 
 typedef std::map<std::string, std::string, anon::STLLessThan> KVMap;
@@ -221,16 +233,15 @@ class BlockConstructor: public Constructor {
 class TableConstructor: public Constructor {
  public:
   TableConstructor(const Comparator* cmp)
-      : Constructor(cmp),
-        source_(NULL), table_(NULL) {
+      : Constructor(cmp) {
   }
   ~TableConstructor() {
     Reset();
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     Reset();
-    StringSink sink;
-    TableBuilder builder(options, &sink);
+    sink_.reset(new StringSink());
+    TableBuilder builder(options, sink_.get());
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -241,16 +252,14 @@ class TableConstructor: public Constructor {
     Status s = builder.Finish();
     ASSERT_TRUE(s.ok()) << s.ToString();
 
-    ASSERT_EQ(sink.contents().size(), builder.FileSize());
+    ASSERT_EQ(sink_->contents().size(), builder.FileSize());
 
     // Open the table
-    source_ = new StringSource(sink.contents());
-    Options table_options;
-    table_options.comparator = options.comparator;
-    table_options.compression_opts = options.compression_opts;
+    uniq_id_ = cur_uniq_id_++;
+    source_.reset(new StringSource(sink_->contents(), uniq_id_));
     // Give the table an arbitrary file number.
-    return Table::Open(table_options, 9001u, source_, sink.contents().size(),
-                       &table_);
+    return Table::Open(options, 9001u, std::move(source_),
+                       sink_->contents().size(), &table_);
   }
 
   virtual Iterator* NewIterator() const {
@@ -261,19 +270,34 @@ class TableConstructor: public Constructor {
     return table_->ApproximateOffsetOf(key);
   }
 
- private:
-  void Reset() {
-    delete table_;
-    delete source_;
-    table_ = NULL;
-    source_ = NULL;
+  virtual Status Reopen(const Options& options) {
+    source_.reset(new StringSource(sink_->contents(), uniq_id_));
+    return Table::Open(options, 9001u, std::move(source_),
+                       sink_->contents().size(), &table_);
   }
 
-  StringSource* source_;
-  Table* table_;
+  virtual Table* table() {
+    return table_.get();
+  }
+
+ private:
+  void Reset() {
+    uniq_id_ = 0;
+    table_.reset();
+    sink_.reset();
+    source_.reset();
+  }
+
+  uint64_t uniq_id_;
+  unique_ptr<StringSink> sink_;
+  unique_ptr<StringSource> source_;
+  unique_ptr<Table> table_;
 
   TableConstructor();
+
+  static uint64_t cur_uniq_id_;
 };
+uint64_t TableConstructor::cur_uniq_id_ = 1;
 
 // A helper class that converts internal format keys into user keys
 class KeyConvertingIterator: public Iterator {
@@ -894,6 +918,44 @@ TEST(TableTest, ApproximateOffsetOfCompressed) {
     Do_Compression_Test(compression_state[i]);
   }
 
+}
+
+TEST(TableTest, BlockCacheLeak) {
+  // Check that when we reopen a table we don't lose access to blocks already
+  // in the cache. This test checks whether the Table actually makes use of the
+  // unique ID from the file.
+
+  Options opt;
+  opt.block_size = 1024;
+  opt.compression = kNoCompression;
+  opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever
+                                               // lose cached values.
+
+  TableConstructor c(BytewiseComparator());
+  c.Add("k01", "hello");
+  c.Add("k02", "hello2");
+  c.Add("k03", std::string(10000, 'x'));
+  c.Add("k04", std::string(200000, 'x'));
+  c.Add("k05", std::string(300000, 'x'));
+  c.Add("k06", "hello3");
+  c.Add("k07", std::string(100000, 'x'));
+  std::vector<std::string> keys;
+  KVMap kvmap;
+  c.Finish(opt, &keys, &kvmap);
+
+  unique_ptr<Iterator> iter(c.NewIterator());
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->key();
+    iter->value();
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+
+  ASSERT_OK(c.Reopen(opt));
+  for (const std::string& key: keys) {
+    ASSERT_TRUE(c.table()->TEST_KeyInCache(ReadOptions(), key));
+  }
 }
 
 }  // namespace leveldb

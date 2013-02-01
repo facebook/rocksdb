@@ -52,7 +52,7 @@ class TableCache {
   Env* const env_;
   const std::string dbname_;
   const Options* options_;
-  Cache* cache_;
+  std::shared_ptr<Cache> cache_;
 
   Status FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle**,
                    bool* tableIO = NULL);

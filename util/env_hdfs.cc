@@ -490,7 +490,8 @@ Status HdfsEnv::UnlockFile(FileLock* lock) {
   return Status::OK();
 }
 
-Status HdfsEnv::NewLogger(const std::string& fname, Logger** result) {
+Status HdfsEnv::NewLogger(const std::string& fname,
+                          shared_ptr<Logger>* result) {
   HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname);
   if (f == NULL || !f->isValid()) {
     *result = NULL;
@@ -515,7 +516,7 @@ Status HdfsEnv::NewLogger(const std::string& fname, Logger** result) {
 #include "hdfs/env_hdfs.h"
 namespace leveldb {
  Status HdfsEnv::NewSequentialFile(const std::string& fname,
-                           SequentialFile** result) {
+                                   unique_ptr<SequentialFile>* result) {
    return Status::NotSupported("Not compiled with hdfs support");
  }
 }

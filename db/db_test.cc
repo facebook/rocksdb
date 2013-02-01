@@ -101,18 +101,17 @@ class SpecialEnv : public EnvWrapper {
     manifest_write_error_.Release_Store(NULL);
    }
 
-  Status NewWritableFile(const std::string& f, WritableFile** r) {
+  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r) {
     class SSTableFile : public WritableFile {
      private:
       SpecialEnv* env_;
-      WritableFile* base_;
+      unique_ptr<WritableFile> base_;
 
      public:
-      SSTableFile(SpecialEnv* env, WritableFile* base)
+      SSTableFile(SpecialEnv* env, unique_ptr<WritableFile>&& base)
           : env_(env),
-            base_(base) {
+            base_(std::move(base)) {
       }
-      ~SSTableFile() { delete base_; }
       Status Append(const Slice& data) {
         if (env_->no_space_.Acquire_Load() != NULL) {
           // Drop writes on the floor
@@ -133,10 +132,10 @@ class SpecialEnv : public EnvWrapper {
     class ManifestFile : public WritableFile {
      private:
       SpecialEnv* env_;
-      WritableFile* base_;
+      unique_ptr<WritableFile> base_;
      public:
-      ManifestFile(SpecialEnv* env, WritableFile* b) : env_(env), base_(b) { }
-      ~ManifestFile() { delete base_; }
+      ManifestFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
+          : env_(env), base_(std::move(b)) { }
       Status Append(const Slice& data) {
         if (env_->manifest_write_error_.Acquire_Load() != NULL) {
           return Status::IOError("simulated writer error");
@@ -162,24 +161,25 @@ class SpecialEnv : public EnvWrapper {
     Status s = target()->NewWritableFile(f, r);
     if (s.ok()) {
       if (strstr(f.c_str(), ".sst") != NULL) {
-        *r = new SSTableFile(this, *r);
+        r->reset(new SSTableFile(this, std::move(*r)));
       } else if (strstr(f.c_str(), "MANIFEST") != NULL) {
-        *r = new ManifestFile(this, *r);
+        r->reset(new ManifestFile(this, std::move(*r)));
       }
     }
     return s;
   }
 
-  Status NewRandomAccessFile(const std::string& f, RandomAccessFile** r) {
+  Status NewRandomAccessFile(const std::string& f,
+                             unique_ptr<RandomAccessFile>* r) {
     class CountingFile : public RandomAccessFile {
      private:
-      RandomAccessFile* target_;
+      unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
      public:
-      CountingFile(RandomAccessFile* target, anon::AtomicCounter* counter)
-          : target_(target), counter_(counter) {
+      CountingFile(unique_ptr<RandomAccessFile>&& target,
+                   anon::AtomicCounter* counter)
+          : target_(std::move(target)), counter_(counter) {
       }
-      virtual ~CountingFile() { delete target_; }
       virtual Status Read(uint64_t offset, size_t n, Slice* result,
                           char* scratch) const {
         counter_->Increment();
@@ -189,7 +189,7 @@ class SpecialEnv : public EnvWrapper {
 
     Status s = target()->NewRandomAccessFile(f, r);
     if (s.ok() && count_random_reads_) {
-      *r = new CountingFile(*r, &random_read_counter_);
+      r->reset(new CountingFile(std::move(*r), &random_read_counter_));
     }
     return s;
   }
@@ -549,6 +549,62 @@ TEST(DBTest, ReadWrite) {
     ASSERT_EQ("v3", Get("foo"));
     ASSERT_EQ("v2", Get("bar"));
   } while (ChangeOptions());
+}
+
+static std::string Key(int i) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "key%06d", i);
+  return std::string(buf);
+}
+
+TEST(DBTest, LevelLimitReopen) {
+  Options options = CurrentOptions();
+  Reopen(&options);
+
+  const std::string value(1024 * 1024, ' ');
+  int i = 0;
+  while (NumTableFilesAtLevel(2) == 0) {
+    ASSERT_OK(Put(Key(i++), value));
+  }
+
+  options.num_levels = 1;
+  Status s = TryReopen(&options);
+  ASSERT_EQ(s.IsCorruption(), true);
+  ASSERT_EQ(s.ToString(),
+            "Corruption: VersionEdit: db already has "
+            "more levels than options.num_levels");
+
+  options.num_levels = 10;
+  ASSERT_OK(TryReopen(&options));
+}
+
+TEST(DBTest, Preallocation) {
+  const std::string src = dbname_ + "/alloc_test";
+  unique_ptr<WritableFile> srcfile;
+  ASSERT_OK(env_->NewWritableFile(src, &srcfile));
+  srcfile->SetPreallocationBlockSize(1024 * 1024);
+
+  // No writes should mean no preallocation
+  size_t block_size, last_allocated_block;
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 0UL);
+
+  // Small write should preallocate one block
+  srcfile->Append("test");
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 1UL);
+
+  // Write an entire preallocation block, make sure we increased by two.
+  std::string buf(block_size, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 2UL);
+
+  // Write five more blocks at once, ensure we're where we need to be.
+  buf = std::string(block_size * 5, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 7UL);
 }
 
 TEST(DBTest, PutDeleteGet) {
@@ -1024,12 +1080,6 @@ TEST(DBTest, RecoverDuringMemtableCompaction) {
   } while (ChangeOptions());
 }
 
-static std::string Key(int i) {
-  char buf[100];
-  snprintf(buf, sizeof(buf), "key%06d", i);
-  return std::string(buf);
-}
-
 TEST(DBTest, MinorCompactionsHappen) {
   Options options = CurrentOptions();
   options.write_buffer_size = 10000;
@@ -1219,7 +1269,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
     fprintf(stderr, "skipping test, compression disabled\n");
     return false;
   }
-  options.compression_per_level = new CompressionType[options.num_levels];
+  options.compression_per_level.resize(options.num_levels);
 
   // do not compress L0
   for (int i = 0; i < 1; i++) {
@@ -2226,7 +2276,6 @@ TEST(DBTest, BloomFilter) {
 
   env_->delay_sstable_sync_.Release_Store(NULL);
   Close();
-  delete options.block_cache;
   delete options.filter_policy;
 }
 
@@ -2284,9 +2333,9 @@ TEST(DBTest, SnapshotFiles) {
         }
       }
     }
-    SequentialFile* srcfile;
+    unique_ptr<SequentialFile> srcfile;
     ASSERT_OK(env_->NewSequentialFile(src, &srcfile));
-    WritableFile* destfile;
+    unique_ptr<WritableFile> destfile;
     ASSERT_OK(env_->NewWritableFile(dest, &destfile));
 
     char buffer[4096];
@@ -2298,8 +2347,6 @@ TEST(DBTest, SnapshotFiles) {
       size -= slice.size();
     }
     ASSERT_OK(destfile->Close());
-    delete destfile;
-    delete srcfile;
   }
 
   // release file snapshot
@@ -2440,7 +2487,7 @@ TEST(DBTest, TransactionLogIterator) {
   Put("key2", value);
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3U);
   {
-    TransactionLogIterator* iter;
+    unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(!iter->Valid());
@@ -2466,7 +2513,7 @@ TEST(DBTest, TransactionLogIterator) {
     Put("key6", value);
   }
   {
-    TransactionLogIterator* iter;
+    unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(!iter->Valid());
@@ -2546,7 +2593,6 @@ TEST(DBTest, ReadCompaction) {
     ASSERT_TRUE(NumTableFilesAtLevel(0) < l1 ||
                 NumTableFilesAtLevel(1) < l2 ||
                 NumTableFilesAtLevel(2) < l3);
-    delete options.block_cache;
   }
 }
 
@@ -2660,7 +2706,6 @@ class ModelDB: public DB {
   };
 
   explicit ModelDB(const Options& options): options_(options) { }
-  ~ModelDB() { }
   virtual Status Put(const WriteOptions& o, const Slice& k, const Slice& v) {
     return DB::Put(o, k, v);
   }
@@ -2753,7 +2798,7 @@ class ModelDB: public DB {
     return 0;
   }
   virtual Status GetUpdatesSince(leveldb::SequenceNumber,
-                                 leveldb::TransactionLogIterator**) {
+                                 unique_ptr<leveldb::TransactionLogIterator>*) {
     return Status::NotSupported("Not supported in Model DB");
   }
 

@@ -15,6 +15,7 @@
 
 #include <cstdarg>
 #include <string>
+#include <memory>
 #include <vector>
 #include <stdint.h>
 #include "leveldb/status.h"
@@ -27,6 +28,9 @@ class RandomAccessFile;
 class SequentialFile;
 class Slice;
 class WritableFile;
+
+using std::unique_ptr;
+using std::shared_ptr;
 
 class Env {
  public:
@@ -47,7 +51,7 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewSequentialFile(const std::string& fname,
-                                   SequentialFile** result) = 0;
+                                   unique_ptr<SequentialFile>* result) = 0;
 
   // Create a brand new random access read-only file with the
   // specified name.  On success, stores a pointer to the new file in
@@ -57,7 +61,7 @@ class Env {
   //
   // The returned file may be concurrently accessed by multiple threads.
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     RandomAccessFile** result) = 0;
+                                     unique_ptr<RandomAccessFile>* result) = 0;
 
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
@@ -67,7 +71,7 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
-                                 WritableFile** result) = 0;
+                                 unique_ptr<WritableFile>* result) = 0;
 
   // Returns true iff the named file exists.
   virtual bool FileExists(const std::string& fname) = 0;
@@ -143,7 +147,8 @@ class Env {
   virtual Status GetTestDirectory(std::string* path) = 0;
 
   // Create and return a log file for storing informational messages.
-  virtual Status NewLogger(const std::string& fname, Logger** result) = 0;
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) = 0;
 
   // Returns the number of micro-seconds since some fixed point in time. Only
   // useful for computing deltas of time.
@@ -218,6 +223,26 @@ class RandomAccessFile {
   // Safe for concurrent use by multiple threads.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
+
+  // Tries to get an unique ID for this file that will be the same each time
+  // the file is opened (and will stay the same while the file is open).
+  // Furthermore, it tries to make this ID at most "max_size" bytes. If such an
+  // ID can be created this function returns the length of the ID and places it
+  // in "id"; otherwise, this function returns 0, in which case "id" may more
+  // may not have been modified.
+  //
+  // This function guarantees, for IDs from a given environment, two unique ids
+  // cannot be made equal to eachother by adding arbitrary bytes to one of
+  // them. That is, no unique ID is the prefix of another.
+  //
+  // This function guarantees that the returned ID will not be interpretable as
+  // a single varint.
+  //
+  // Note: these IDs are only valid for the duration of the process.
+  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+    return 0; // Default implementation to prevent issues with backwards
+              // compatibility.
+  };
 };
 
 // A file abstraction for sequential writing.  The implementation
@@ -225,7 +250,8 @@ class RandomAccessFile {
 // at a time to the file.
 class WritableFile {
  public:
-  WritableFile() { }
+  WritableFile() : last_preallocated_block_(0), preallocation_block_size_ (0) {
+  }
   virtual ~WritableFile();
 
   virtual Status Append(const Slice& data) = 0;
@@ -250,7 +276,57 @@ class WritableFile {
     return 0;
   }
 
+  /*
+   * Get and set the default pre-allocation block size for writes to
+   * this file.  If non-zero, then Allocate will be used to extend the
+   * underlying storage of a file (generally via fallocate) if the Env
+   * instance supports it.
+   */
+  void SetPreallocationBlockSize(size_t size) {
+    preallocation_block_size_ = size;
+  }
+
+  virtual void GetPreallocationStatus(size_t* block_size,
+                                      size_t* last_allocated_block) {
+    *last_allocated_block = last_preallocated_block_;
+    *block_size = preallocation_block_size_;
+  }
+
+ protected:
+  // PrepareWrite performs any necessary preparation for a write
+  // before the write actually occurs.  This allows for pre-allocation
+  // of space on devices where it can result in less file
+  // fragmentation and/or less waste from over-zealous filesystem
+  // pre-allocation.
+  void PrepareWrite(size_t offset, size_t len) {
+    if (preallocation_block_size_ == 0) {
+      return;
+    }
+    // If this write would cross one or more preallocation blocks,
+    // determine what the last preallocation block necesessary to
+    // cover this write would be and Allocate to that point.
+    const auto block_size = preallocation_block_size_;
+    size_t new_last_preallocated_block =
+      (offset + len + block_size - 1) / block_size;
+    if (new_last_preallocated_block > last_preallocated_block_) {
+      size_t num_spanned_blocks =
+        new_last_preallocated_block - last_preallocated_block_;
+      Allocate(block_size * last_preallocated_block_,
+               block_size * num_spanned_blocks);
+      last_preallocated_block_ = new_last_preallocated_block;
+    }
+  }
+
+  /*
+   * Pre-allocate space for a file.
+   */
+  virtual Status Allocate(off_t offset, off_t len) {
+    return Status::OK();
+  }
+
  private:
+  size_t last_preallocated_block_;
+  size_t preallocation_block_size_;
   // No copying allowed
   WritableFile(const WritableFile&);
   void operator=(const WritableFile&);
@@ -288,6 +364,12 @@ class FileLock {
 };
 
 // Log the specified data to *info_log if info_log is non-NULL.
+extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
+#   if defined(__GNUC__) || defined(__clang__)
+    __attribute__((__format__ (__printf__, 2, 3)))
+#   endif
+    ;
+
 extern void Log(Logger* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
@@ -315,13 +397,15 @@ class EnvWrapper : public Env {
   Env* target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
-  Status NewSequentialFile(const std::string& f, SequentialFile** r) {
+  Status NewSequentialFile(const std::string& f,
+                           unique_ptr<SequentialFile>* r) {
     return target_->NewSequentialFile(f, r);
   }
-  Status NewRandomAccessFile(const std::string& f, RandomAccessFile** r) {
+  Status NewRandomAccessFile(const std::string& f,
+                             unique_ptr<RandomAccessFile>* r) {
     return target_->NewRandomAccessFile(f, r);
   }
-  Status NewWritableFile(const std::string& f, WritableFile** r) {
+  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r) {
     return target_->NewWritableFile(f, r);
   }
   bool FileExists(const std::string& f) { return target_->FileExists(f); }
@@ -359,7 +443,8 @@ class EnvWrapper : public Env {
   virtual Status GetTestDirectory(std::string* path) {
     return target_->GetTestDirectory(path);
   }
-  virtual Status NewLogger(const std::string& fname, Logger** result) {
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() {

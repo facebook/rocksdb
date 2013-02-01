@@ -13,17 +13,17 @@
 namespace leveldb {
 
 struct TableAndFile {
-  RandomAccessFile* file;
-  Table* table;
+  unique_ptr<RandomAccessFile> file;
+  unique_ptr<Table> table;
 };
 
 static class DBStatistics* dbstatistics;
 
 static void DeleteEntry(const Slice& key, void* value) {
   TableAndFile* tf = reinterpret_cast<TableAndFile*>(value);
-  delete tf->table;
-  delete tf->file;
-  dbstatistics ? dbstatistics->incNumFileCloses() : (void)0;
+  if (dbstatistics) {
+    dbstatistics->incNumFileCloses();
+  }
   delete tf;
 }
 
@@ -44,7 +44,6 @@ TableCache::TableCache(const std::string& dbname,
 }
 
 TableCache::~TableCache() {
-  delete cache_;
 }
 
 Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
@@ -60,24 +59,24 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       *tableIO = true;    // we had to do IO from storage
     }
     std::string fname = TableFileName(dbname_, file_number);
-    RandomAccessFile* file = NULL;
-    Table* table = NULL;
+    unique_ptr<RandomAccessFile> file;
+    unique_ptr<Table> table;
     s = env_->NewRandomAccessFile(fname, &file);
     stats ? stats->incNumFileOpens() : (void)0;
     if (s.ok()) {
-      s = Table::Open(*options_, file_number, file, file_size, &table);
+      s = Table::Open(*options_, file_number, std::move(file), file_size,
+                      &table);
     }
 
     if (!s.ok()) {
       assert(table == NULL);
-      delete file;
       stats ? stats->incNumFileErrors() : (void)0;
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
       TableAndFile* tf = new TableAndFile;
-      tf->file = file;
-      tf->table = table;
+      tf->file = std::move(file);
+      tf->table = std::move(table);
       *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
     }
   }
@@ -98,9 +97,10 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
     return NewErrorIterator(s);
   }
 
-  Table* table = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
+  Table* table =
+    reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table.get();
   Iterator* result = table->NewIterator(options);
-  result->RegisterCleanup(&UnrefEntry, cache_, handle);
+  result->RegisterCleanup(&UnrefEntry, cache_.get(), handle);
   if (tableptr != NULL) {
     *tableptr = table;
   }
@@ -117,7 +117,8 @@ Status TableCache::Get(const ReadOptions& options,
   Cache::Handle* handle = NULL;
   Status s = FindTable(file_number, file_size, &handle, tableIO);
   if (s.ok()) {
-    Table* t = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
+    Table* t =
+      reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table.get();
     s = t->InternalGet(options, k, arg, saver);
     cache_->Release(handle);
   }

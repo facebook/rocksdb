@@ -11,18 +11,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(OS_LINUX)
+#include <linux/fs.h>
+#endif
 #if defined(LEVELDB_PLATFORM_ANDROID)
 #include <sys/stat.h>
 #endif
 #include "leveldb/env.h"
 #include "leveldb/slice.h"
 #include "port/port.h"
+#include "util/coding.h"
 #include "util/logging.h"
 #include "util/posix_logger.h"
 
@@ -108,6 +113,35 @@ class PosixRandomAccessFile: public RandomAccessFile {
     }
     return s;
   }
+
+#if defined(OS_LINUX)
+  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+    // TODO: possibly allow this function to handle tighter bounds.
+    if (max_size < kMaxVarint64Length*3) {
+      return 0;
+    }
+
+    struct stat buf;
+    int result = fstat(fd_, &buf);
+    if (result == -1) {
+      return 0;
+    }
+
+    long version = 0;
+    result = ioctl(fd_, FS_IOC_GETVERSION, &version);
+    if (result == -1) {
+      return 0;
+    }
+    uint64_t uversion = (uint64_t)version;
+
+    char* rid = id;
+    rid = EncodeVarint64(rid, buf.st_dev);
+    rid = EncodeVarint64(rid, buf.st_ino);
+    rid = EncodeVarint64(rid, uversion);
+    assert(rid >= id);
+    return static_cast<size_t>(rid-id);
+  }
+#endif
 };
 
 // mmap() based random-access
@@ -232,6 +266,7 @@ class PosixMmapFile : public WritableFile {
   virtual Status Append(const Slice& data) {
     const char* src = data.data();
     size_t left = data.size();
+    PrepareWrite(GetFileSize(), left);
     while (left > 0) {
       assert(base_ <= dst_);
       assert(dst_ <= limit_);
@@ -330,6 +365,16 @@ class PosixMmapFile : public WritableFile {
     size_t used = dst_ - base_;
     return file_offset_ + used;
   }
+
+#ifdef OS_LINUX
+  virtual Status Allocate(off_t offset, off_t len) {
+    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+      return Status::OK();
+    } else {
+      return IOError(filename_, errno);
+    }
+  }
+#endif
 };
 
 // Use posix write to write data to a file.
@@ -371,6 +416,7 @@ class PosixWritableFile : public WritableFile {
     pending_sync_ = true;
     pending_fsync_ = true;
 
+    PrepareWrite(GetFileSize(), left);
     // if there is no space in the cache, then flush
     if (cursize_ + left > capacity_) {
       s = Flush();
@@ -455,6 +501,16 @@ class PosixWritableFile : public WritableFile {
   virtual uint64_t GetFileSize() {
     return filesize_;
   }
+
+#ifdef OS_LINUX
+  virtual Status Allocate(off_t offset, off_t len) {
+    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+      return Status::OK();
+    } else {
+      return IOError(filename_, errno);
+    }
+  }
+#endif
 };
 
 static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
@@ -510,20 +566,21 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewSequentialFile(const std::string& fname,
-                                   SequentialFile** result) {
+                                   unique_ptr<SequentialFile>* result) {
+    result->reset();
     FILE* f = fopen(fname.c_str(), "r");
     if (f == NULL) {
       *result = NULL;
       return IOError(fname, errno);
     } else {
-      *result = new PosixSequentialFile(fname, f);
+      result->reset(new PosixSequentialFile(fname, f));
       return Status::OK();
     }
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     RandomAccessFile** result) {
-    *result = NULL;
+                                     unique_ptr<RandomAccessFile>* result) {
+    result->reset();
     Status s;
     int fd = open(fname.c_str(), O_RDONLY);
     if (fd < 0) {
@@ -537,30 +594,30 @@ class PosixEnv : public Env {
       if (s.ok()) {
         void* base = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
-          *result = new PosixMmapReadableFile(fname, base, size);
+          result->reset(new PosixMmapReadableFile(fname, base, size));
         } else {
           s = IOError(fname, errno);
         }
       }
       close(fd);
     } else {
-      *result = new PosixRandomAccessFile(fname, fd);
+      result->reset(new PosixRandomAccessFile(fname, fd));
     }
     return s;
   }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 WritableFile** result) {
+                                 unique_ptr<WritableFile>* result) {
+    result->reset();
     Status s;
     const int fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
     if (fd < 0) {
-      *result = NULL;
       s = IOError(fname, errno);
     } else {
       if (useMmapWrite) {
-        *result = new PosixMmapFile(fname, fd, page_size_);
+        result->reset(new PosixMmapFile(fname, fd, page_size_));
       } else {
-        *result = new PosixWritableFile(fname, fd, 65536);
+        result->reset(new PosixWritableFile(fname, fd, 65536));
       }
     }
     return s;
@@ -706,13 +763,14 @@ class PosixEnv : public Env {
     return thread_id;
   }
 
-  virtual Status NewLogger(const std::string& fname, Logger** result) {
+  virtual Status NewLogger(const std::string& fname,
+                           shared_ptr<Logger>* result) {
     FILE* f = fopen(fname.c_str(), "w");
     if (f == NULL) {
-      *result = NULL;
+      result->reset();
       return IOError(fname, errno);
     } else {
-      *result = new PosixLogger(f, &PosixEnv::gettid);
+      result->reset(new PosixLogger(f, &PosixEnv::gettid));
       return Status::OK();
     }
   }

@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <memory>
 #include <vector>
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
@@ -14,6 +15,8 @@
 #include "leveldb/transaction_log_iterator.h"
 
 namespace leveldb {
+
+using std::unique_ptr;
 
 // Update Makefile if you change these
 static const int kMajorVersion = 1;
@@ -201,7 +204,7 @@ class DB {
   // cleared aggressively and the iterator might keep getting invalid before
   // an update is read.
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 TransactionLogIterator** iter) = 0;
+                                 unique_ptr<TransactionLogIterator>* iter) = 0;
  private:
   static Status InternalOpen(const Options& options,
                              const std::string& name,

@@ -26,13 +26,13 @@ Status BuildTable(const std::string& dbname,
 
   std::string fname = TableFileName(dbname, meta->number);
   if (iter->Valid()) {
-    WritableFile* file;
+    unique_ptr<WritableFile> file;
     s = env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       return s;
     }
 
-    TableBuilder* builder = new TableBuilder(options, file, 0);
+    TableBuilder* builder = new TableBuilder(options, file.get(), 0);
     meta->smallest.DecodeFrom(iter->key());
     for (; iter->Valid(); iter->Next()) {
       Slice key = iter->key();
@@ -63,8 +63,6 @@ Status BuildTable(const std::string& dbname,
     if (s.ok()) {
       s = file->Close();
     }
-    delete file;
-    file = NULL;
 
     if (s.ok()) {
       // Verify that the table is usable

@@ -472,7 +472,7 @@ struct ThreadState {
 
 class Benchmark {
  private:
-  Cache* cache_;
+  shared_ptr<Cache> cache_;
   const FilterPolicy* filter_policy_;
   DB* db_;
   long num_;
@@ -658,7 +658,6 @@ class Benchmark {
 
   ~Benchmark() {
     delete db_;
-    delete cache_;
     delete filter_policy_;
   }
 
@@ -978,7 +977,7 @@ class Benchmark {
     options.WAL_ttl_seconds = FLAGS_WAL_ttl_seconds;
     if (FLAGS_min_level_to_compress >= 0) {
       assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
-      options.compression_per_level = new CompressionType[FLAGS_num_levels];
+      options.compression_per_level.resize(FLAGS_num_levels);
       for (int i = 0; i < FLAGS_min_level_to_compress; i++) {
         options.compression_per_level[i] = kNoCompression;
       }
@@ -1009,7 +1008,7 @@ class Benchmark {
       exit(1);
     }
     if (FLAGS_min_level_to_compress >= 0) {
-      delete options.compression_per_level;
+      options.compression_per_level.clear();
     }
   }
 
@@ -1281,14 +1280,13 @@ class Benchmark {
   void HeapProfile() {
     char fname[100];
     snprintf(fname, sizeof(fname), "%s/heap-%04d", FLAGS_db, ++heap_counter_);
-    WritableFile* file;
+    unique_ptr<WritableFile> file;
     Status s = FLAGS_env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       fprintf(stderr, "%s\n", s.ToString().c_str());
       return;
     }
-    bool ok = port::GetHeapProfile(WriteToFile, file);
-    delete file;
+    bool ok = port::GetHeapProfile(WriteToFile, file.get());
     if (!ok) {
       fprintf(stderr, "heap profiling not supported\n");
       FLAGS_env->DeleteFile(fname);

@@ -100,8 +100,26 @@ class LogTest {
     }
   };
 
-  StringDest dest_;
-  StringSource source_;
+  std::string& dest_contents() {
+    auto dest = dynamic_cast<StringDest*>(writer_.file());
+    assert(dest);
+    return dest->contents_;
+  }
+
+  const std::string& dest_contents() const {
+    auto dest = dynamic_cast<const StringDest*>(writer_.file());
+    assert(dest);
+    return dest->contents_;
+  }
+
+  void reset_source_contents() {
+    auto src = dynamic_cast<StringSource*>(reader_.file());
+    assert(src);
+    src->contents_ = dest_contents();
+  }
+
+  unique_ptr<StringDest> dest_holder_;
+  unique_ptr<StringSource> source_holder_;
   ReportCollector report_;
   bool reading_;
   Writer writer_;
@@ -112,9 +130,11 @@ class LogTest {
   static uint64_t initial_offset_last_record_offsets_[];
 
  public:
-  LogTest() : reading_(false),
-              writer_(&dest_),
-              reader_(&source_, &report_, true/*checksum*/,
+  LogTest() : dest_holder_(new StringDest),
+              source_holder_(new StringSource),
+              reading_(false),
+              writer_(std::move(dest_holder_)),
+              reader_(std::move(source_holder_), &report_, true/*checksum*/,
                       0/*initial_offset*/) {
   }
 
@@ -124,13 +144,13 @@ class LogTest {
   }
 
   size_t WrittenBytes() const {
-    return dest_.contents_.size();
+    return dest_contents().size();
   }
 
   std::string Read() {
     if (!reading_) {
       reading_ = true;
-      source_.contents_ = Slice(dest_.contents_);
+      reset_source_contents();
     }
     std::string scratch;
     Slice record;
@@ -142,26 +162,27 @@ class LogTest {
   }
 
   void IncrementByte(int offset, int delta) {
-    dest_.contents_[offset] += delta;
+    dest_contents()[offset] += delta;
   }
 
   void SetByte(int offset, char new_byte) {
-    dest_.contents_[offset] = new_byte;
+    dest_contents()[offset] = new_byte;
   }
 
   void ShrinkSize(int bytes) {
-    dest_.contents_.resize(dest_.contents_.size() - bytes);
+    dest_contents().resize(dest_contents().size() - bytes);
   }
 
   void FixChecksum(int header_offset, int len) {
     // Compute crc of type/len/data
-    uint32_t crc = crc32c::Value(&dest_.contents_[header_offset+6], 1 + len);
+    uint32_t crc = crc32c::Value(&dest_contents()[header_offset+6], 1 + len);
     crc = crc32c::Mask(crc);
-    EncodeFixed32(&dest_.contents_[header_offset], crc);
+    EncodeFixed32(&dest_contents()[header_offset], crc);
   }
 
   void ForceError() {
-    source_.force_error_ = true;
+    auto src = dynamic_cast<StringSource*>(reader_.file());
+    src->force_error_ = true;
   }
 
   size_t DroppedBytes() const {
@@ -192,22 +213,25 @@ class LogTest {
   void CheckOffsetPastEndReturnsNoRecords(uint64_t offset_past_end) {
     WriteInitialOffsetLog();
     reading_ = true;
-    source_.contents_ = Slice(dest_.contents_);
-    Reader* offset_reader = new Reader(&source_, &report_, true/*checksum*/,
-                                       WrittenBytes() + offset_past_end);
+    unique_ptr<StringSource> source(new StringSource);
+    source->contents_ = dest_contents();
+    unique_ptr<Reader> offset_reader(
+      new Reader(std::move(source), &report_, true/*checksum*/,
+                 WrittenBytes() + offset_past_end));
     Slice record;
     std::string scratch;
     ASSERT_TRUE(!offset_reader->ReadRecord(&record, &scratch));
-    delete offset_reader;
   }
 
   void CheckInitialOffsetRecord(uint64_t initial_offset,
                                 int expected_record_offset) {
     WriteInitialOffsetLog();
     reading_ = true;
-    source_.contents_ = Slice(dest_.contents_);
-    Reader* offset_reader = new Reader(&source_, &report_, true/*checksum*/,
-                                       initial_offset);
+    unique_ptr<StringSource> source(new StringSource);
+    source->contents_ = dest_contents();
+    unique_ptr<Reader> offset_reader(
+      new Reader(std::move(source), &report_, true/*checksum*/,
+                 initial_offset));
     Slice record;
     std::string scratch;
     ASSERT_TRUE(offset_reader->ReadRecord(&record, &scratch));
@@ -216,7 +240,6 @@ class LogTest {
     ASSERT_EQ(initial_offset_last_record_offsets_[expected_record_offset],
               offset_reader->LastRecordOffset());
     ASSERT_EQ((char)('a' + expected_record_offset), record.data()[0]);
-    delete offset_reader;
   }
 
 };

@@ -16,6 +16,7 @@
 #define STORAGE_LEVELDB_DB_VERSION_SET_H_
 
 #include <map>
+#include <memory>
 #include <set>
 #include <vector>
 #include <deque>
@@ -408,6 +409,9 @@ class VersionSet {
   // record results in files_by_size_. The largest files are listed first.
   void UpdateFilesBySize(Version *v);
 
+  // Get the max file size in a given level.
+  uint64_t MaxFileSizeForLevel(int level);
+
  private:
   class Builder;
   struct ManifestWriter;
@@ -440,8 +444,6 @@ class VersionSet {
 
   double MaxBytesForLevel(int level);
 
-  uint64_t MaxFileSizeForLevel(int level);
-
   int64_t ExpandedCompactionByteSizeLimit(int level);
 
   int64_t MaxGrandParentOverlapBytes(int level);
@@ -460,8 +462,7 @@ class VersionSet {
   int num_levels_;
 
   // Opened lazily
-  WritableFile* descriptor_file_;
-  log::Writer* descriptor_log_;
+  unique_ptr<log::Writer> descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_
 

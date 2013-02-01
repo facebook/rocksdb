@@ -61,7 +61,7 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size);
   virtual SequenceNumber GetLatestSequenceNumber();
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 TransactionLogIterator ** iter);
+                                 unique_ptr<TransactionLogIterator>* iter);
 
   // Extra methods (for testing) that are not in the public DB interface
 
@@ -110,7 +110,7 @@ class DBImpl : public DB {
  protected:
   Env* const env_;
   const std::string dbname_;
-  VersionSet* versions_;
+  unique_ptr<VersionSet> versions_;
   const InternalKeyComparator internal_comparator_;
   const Options options_;  // options_.comparator == &internal_comparator_
 
@@ -229,11 +229,10 @@ class DBImpl : public DB {
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
-  bool owns_cache_;
   bool is_hotcold_;
 
   // table_cache_ provides its own synchronization
-  TableCache* table_cache_;
+  unique_ptr<TableCache> table_cache_;
 
   // Lock over the persistent DB state.  Non-NULL iff successfully acquired.
   FileLock* db_lock_;
@@ -247,9 +246,8 @@ class DBImpl : public DB {
   port::CondVar bg_cv_;          // Signalled when background work finishes
   MemTable* mem_;
   MemTableList imm_;             // Memtable that are not changing
-  WritableFile* logfile_;
   uint64_t logfile_number_;
-  log::Writer* log_;
+  unique_ptr<log::Writer> log_;
   // Metrics that have been received from the cache, but have not yet been
   // flushed to metrics_db_.
   std::vector<std::vector<BlockMetrics*>*> unflushed_metrics_;

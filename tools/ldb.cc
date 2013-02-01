@@ -10,36 +10,53 @@ class LDBCommandRunner {
 public:
 
   static void PrintHelp(const char* exec_name) {
-    std::string ret;
-    ret.append("--- compact ----:\n");
-    ret.append(exec_name);
-    ret.append(" compact ");
-    Compactor::Help(ret);
+    string ret;
 
-    ret.append("\n--- dump ----:\n");
-    ret.append(exec_name);
-    ret.append(" dump ");
-    DBDumper::Help(ret);
+    ret.append("ldb - LevelDB Tool");
+    ret.append("\n\n");
+    ret.append("All commands MUST specify --" + LDBCommand::ARG_DB +
+        "=<full_path_to_db_directory>\n");
+    ret.append("\n");
+    ret.append("The following optional parameters control if keys/values are "
+        "input/output as hex or as plain strings:\n");
+    ret.append("  --" + LDBCommand::ARG_KEY_HEX +
+        " : Keys are input/output as hex\n");
+    ret.append("  --" + LDBCommand::ARG_VALUE_HEX +
+        " : Values are input/output as hex\n");
+    ret.append("  --" + LDBCommand::ARG_HEX +
+        " : Both keys and values are input/output as hex\n");
+    ret.append("\n");
 
-    ret.append("\n--- load ----:\n");
-    ret.append(exec_name);
-    ret.append(" load ");
-    DBLoader::Help(ret);
+    ret.append("The following optional parameters control the database "
+        "internals:\n");
+    ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
+    ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
+        "=<no|snappy|zlib|bzip2>\n");
+    ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE +
+        "=<block_size_in_bytes>\n");
+    ret.append("  --" + LDBCommand::ARG_AUTO_COMPACTION + "=<true|false>\n");
+    ret.append("  --" + LDBCommand::ARG_WRITE_BUFFER_SIZE +
+        "=<int,e.g.:4194304>\n");
+    ret.append("  --" + LDBCommand::ARG_FILE_SIZE + "=<int,e.g.:2097152>\n");
 
-    ret.append("\n--- query ----:\n");
-    ret.append(exec_name);
-    ret.append(" query ");
-    DBQuerier::Help(ret);
+    ret.append("\n\n");
+    ret.append("Data Access Commands:\n");
+    PutCommand::Help(ret);
+    GetCommand::Help(ret);
+    BatchPutCommand::Help(ret);
+    ScanCommand::Help(ret);
+    DeleteCommand::Help(ret);
+    DBQuerierCommand::Help(ret);
+    ApproxSizeCommand::Help(ret);
 
-    ret.append("\n---reduce_levels ----:\n");
-    ret.append(exec_name);
-    ret.append(" reduce_levels ");
-    ReduceDBLevels::Help(ret);
+    ret.append("\n\n");
+    ret.append("Admin Commands:\n");
+    WALDumperCommand::Help(ret);
+    CompactorCommand::Help(ret);
+    ReduceDBLevelsCommand::Help(ret);
+    DBDumperCommand::Help(ret);
+    DBLoaderCommand::Help(ret);
 
-    ret.append("\n---dump_wal----:\n");
-    ret.append(exec_name);
-    ret.append(" dump_wal ");
-    WALDumper::Help(ret);
     fprintf(stderr, "%s\n", ret.c_str());
   }
 
@@ -48,38 +65,15 @@ public:
       PrintHelp(argv[0]);
       exit(1);
     }
-    const char* cmd = argv[1];
-    std::string db_name;
-    std::vector<std::string> args;
-    for (int i = 2; i < argc; i++) {
-      if (strncmp(argv[i], "--db=", strlen("--db=")) == 0) {
-        db_name = argv[i] + strlen("--db=");
-      } else {
-        args.push_back(argv[i]);
-      }
+
+    LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(argc, argv);
+    if (cmdObj == NULL) {
+      fprintf(stderr, "Unknown command\n");
+      PrintHelp(argv[0]);
+      exit(1);
     }
 
-    LDBCommand* cmdObj = NULL;
-    if (strcmp(cmd, "compact") == 0) {
-      // run compactor
-      cmdObj = new Compactor(db_name, args);
-    } else if (strcmp(cmd, "dump") == 0) {
-      // run dump
-      cmdObj = new DBDumper(db_name, args);
-    } else if (strcmp(cmd, "load") == 0) {
-      // run loader
-      cmdObj = new DBLoader(db_name, args);
-    } else if (strcmp(cmd, "query") == 0) {
-      // run querier
-      cmdObj = new DBQuerier(db_name, args);
-    } else if (strcmp(cmd, "reduce_levels") == 0) {
-      // reduce db levels
-      cmdObj = new ReduceDBLevels(db_name, args);
-    } else if (strcmp(cmd, "dump_wal") == 0) {
-      cmdObj = new WALDumper(args);
-    } else {
-      fprintf(stderr, "Unknown command: %s\n", cmd);
-      PrintHelp(argv[0]);
+    if (!cmdObj->ValidateCmdLineOptions()) {
       exit(1);
     }
 
@@ -87,7 +81,10 @@ public:
     LDBCommandExecuteResult ret = cmdObj->GetExecuteState();
     fprintf(stderr, "%s\n", ret.ToString().c_str());
     delete cmdObj;
+
+    exit(ret.IsFailed());
   }
+
 };
 
 }

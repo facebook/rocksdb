@@ -23,11 +23,9 @@ Options::Options()
       write_buffer_size(4<<20),
       max_write_buffer_number(2),
       max_open_files(1000),
-      block_cache(NULL),
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
-      compression_per_level(NULL),
       filter_policy(NULL),
       num_levels(7),
       level0_file_num_compaction_trigger(4),
@@ -57,31 +55,32 @@ Options::Options()
       compaction_filter_args(NULL),
       CompactionFilter(NULL),
       disable_auto_compactions(false),
-      WAL_ttl_seconds(0){
+      WAL_ttl_seconds(0),
+      manifest_preallocation_size(4 * 1024 * 1024) {
+
 }
 
 void
-Options::Dump(
-    Logger * log) const
+Options::Dump(Logger* log) const
 {
     Log(log,"              Options.comparator: %s", comparator->Name());
     Log(log,"       Options.create_if_missing: %d", create_if_missing);
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
     Log(log,"                     Options.env: %p", env);
-    Log(log,"                Options.info_log: %p", info_log);
+    Log(log,"                Options.info_log: %p", info_log.get());
     Log(log,"       Options.write_buffer_size: %zd", write_buffer_size);
     Log(log," Options.max_write_buffer_number: %d", max_write_buffer_number);
     Log(log,"          Options.max_open_files: %d", max_open_files);
-    Log(log,"             Options.block_cache: %p", block_cache);
+    Log(log,"             Options.block_cache: %p", block_cache.get());
     if (block_cache) {
       Log(log,"      Options.block_cache_size: %zd",
           block_cache->GetCapacity());
     }
     Log(log,"              Options.block_size: %zd", block_size);
     Log(log,"  Options.block_restart_interval: %d", block_restart_interval);
-    if (compression_per_level != NULL) {
-       for (int i = 0; i < num_levels; i++){
+    if (!compression_per_level.empty()) {
+      for (int i = 0; i < compression_per_level.size(); i++) {
           Log(log,"       Options.compression[%d]: %d",
               i, compression_per_level[i]);
        }
@@ -146,8 +145,10 @@ Options::Dump(
         CompactionFilter);
     Log(log,"               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Log(log,"               Options.WAL_ttl_seconds: %ld",
+    Log(log,"                        Options.WAL_ttl_seconds: %ld",
         WAL_ttl_seconds);
+    Log(log,"            Options.manifest_preallocation_size: %ld",
+        manifest_preallocation_size);
 }   // Options::Dump
 
 }  // namespace leveldb

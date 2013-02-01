@@ -7,6 +7,8 @@
 
 #include <stddef.h>
 #include <string>
+#include <memory>
+#include <vector>
 #include <stdint.h>
 #include "leveldb/slice.h"
 
@@ -19,6 +21,8 @@ class FilterPolicy;
 class Logger;
 class Snapshot;
 class Statistics;
+
+using std::shared_ptr;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -84,7 +88,7 @@ struct Options {
   // be written to info_log if it is non-NULL, or to a file stored
   // in the same directory as the DB contents if info_log is NULL.
   // Default: NULL
-  Logger* info_log;
+  shared_ptr<Logger> info_log;
 
   // -------------------
   // Parameters that affect performance
@@ -121,7 +125,7 @@ struct Options {
   // If non-NULL, use the specified cache for blocks.
   // If NULL, leveldb will automatically create and use an 8MB internal cache.
   // Default: NULL
-  Cache* block_cache;
+  shared_ptr<Cache> block_cache;
 
   // Approximate size of user data packed per block.  Note that the
   // block size specified here corresponds to uncompressed data.  The
@@ -167,7 +171,7 @@ struct Options {
   // array and it could be freed anytime after the return from Open().
   // This could have been a std::vector but that makes the equivalent
   // java/C api hard to construct.
-  CompressionType* compression_per_level;
+  std::vector<CompressionType> compression_per_level;
 
   //different options for compression algorithms
   CompressionOptions compression_opts;
@@ -326,7 +330,7 @@ struct Options {
   // Create an Options object with default values for all fields.
   Options();
 
-  void Dump(Logger * log) const;
+  void Dump(Logger* log) const;
 
   // This method allows an application to modify/delete a key-value at
   // the time of compaction. The compaction process invokes this
@@ -360,6 +364,12 @@ struct Options {
   // deleted.
   // Default : 0
   uint64_t WAL_ttl_seconds;
+
+  // Number of bytes to preallocate (via fallocate) the manifest
+  // files.  Default is 4mb, which is reasonable to reduce random IO
+  // as well as prevent overallocation for mounts that preallocate
+  // large amounts of data (such as xfs's allocsize option).
+  size_t manifest_preallocation_size;
 };
 
 // Options that control read operations

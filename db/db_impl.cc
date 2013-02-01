@@ -49,18 +49,17 @@ static Status NewLogger(const std::string& dbname,
                         const std::string& db_log_dir,
                         Env* env,
                         size_t max_log_file_size,
-                        Logger** logger) {
+                        shared_ptr<Logger>* logger) {
   std::string db_absolute_path;
   env->GetAbsolutePath(dbname, &db_absolute_path);
 
   if (max_log_file_size > 0) { // need to auto split the log file?
-    AutoSplitLogger<Logger>* auto_split_logger =
+    auto logger_ptr =
       new AutoSplitLogger<Logger>(env, dbname, db_log_dir, max_log_file_size);
-    Status s = auto_split_logger->GetStatus();
+    logger->reset(logger_ptr);
+    Status s = logger_ptr->GetStatus();
     if (!s.ok()) {
-      delete auto_split_logger;
-    } else {
-      *logger = auto_split_logger;
+      logger->reset();
     }
     return s;
   } else {
@@ -108,8 +107,8 @@ struct DBImpl::CompactionState {
   // We have potentially have more than one outfile due to hot-cold separation
   // needing both a hot file and a cold file to output to.
   size_t num_outfiles;
-  WritableFile** outfiles;
-  TableBuilder** builders;
+  std::vector<unique_ptr<WritableFile>> outfiles;
+  std::vector<unique_ptr<TableBuilder>> builders;
 
   uint64_t total_bytes;
 
@@ -121,8 +120,6 @@ struct DBImpl::CompactionState {
   explicit CompactionState(Compaction* c)
       : compaction(c),
         num_outfiles(0),
-        outfiles(NULL),
-        builders(NULL),
         total_bytes(0) {
   }
 };
@@ -170,12 +167,7 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.block_cache == NULL && !result.no_block_cache) {
     result.block_cache = NewLRUCache(8 << 20);
   }
-  if (src.compression_per_level != NULL) {
-    result.compression_per_level = new CompressionType[src.num_levels];
-    for (int i = 0; i < src.num_levels; i++) {
-      result.compression_per_level[i] = src.compression_per_level[i];
-    }
-  }
+  result.compression_per_level = src.compression_per_level;
   return result;
 }
 
@@ -188,16 +180,13 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname,
           dbname, &internal_comparator_, &internal_filter_policy_, options)),
       internal_filter_policy_(options.filter_policy),
       owns_info_log_(options_.info_log != options.info_log),
-      owns_cache_(options_.block_cache != options.block_cache),
       is_hotcold_(metrics_db != NULL),
       db_lock_(NULL),
       metrics_db_(metrics_db),
       shutting_down_(NULL),
       bg_cv_(&mutex_),
       mem_(new MemTable(internal_comparator_, NumberLevels())),
-      logfile_(NULL),
       logfile_number_(0),
-      log_(NULL),
       tmp_batch_(new WriteBatch),
       bg_compaction_scheduled_(0),
       bg_logstats_scheduled_(false),
@@ -219,13 +208,13 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname,
   stats_ = new CompactionStats[options.num_levels];
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options_.max_open_files - 10;
-  table_cache_ = new TableCache(dbname_, &options_, table_cache_size);
+  table_cache_.reset(new TableCache(dbname_, &options_, table_cache_size));
 
-  versions_ = new VersionSet(dbname_, &options_, table_cache_,
-                             &internal_comparator_);
+  versions_.reset(new VersionSet(dbname_, &options_, table_cache_.get(),
+                                 &internal_comparator_));
 
-  dumpLeveldbBuildVersion(options_.info_log);
-  options_.Dump(options_.info_log);
+  dumpLeveldbBuildVersion(options_.info_log.get());
+  options_.Dump(options_.info_log.get());
 
 #ifdef USE_SCRIBE
   logger_ = new ScribeLogger("localhost", 1456);
@@ -269,25 +258,11 @@ DBImpl::~DBImpl() {
     env_->UnlockFile(db_lock_);
   }
 
-  delete versions_;
   if (mem_ != NULL) mem_->Unref();
   imm_.UnrefAll();
   delete tmp_batch_;
-  delete log_;
-  delete logfile_;
   delete metrics_db_;
-  delete table_cache_;
   delete[] stats_;
-
-  if (owns_info_log_) {
-    delete options_.info_log;
-  }
-  if (owns_cache_) {
-    delete options_.block_cache;
-  }
-  if (options_.compression_per_level != NULL) {
-    delete[] options_.compression_per_level;
-  }
 
   delete logger_;
 }
@@ -313,6 +288,10 @@ void DBImpl::TEST_Destroy_DBImpl() {
   if (db_lock_ != NULL) {
     env_->UnlockFile(db_lock_);
   }
+
+  log_.reset();
+  versions_.reset();
+  table_cache_.reset();
 }
 
 uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
@@ -327,21 +306,18 @@ Status DBImpl::NewDB() {
   new_db.SetLastSequence(0);
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
-  WritableFile* file;
+  unique_ptr<WritableFile> file;
   Status s = env_->NewWritableFile(manifest, &file);
   if (!s.ok()) {
     return s;
   }
+  file->SetPreallocationBlockSize(options_.manifest_preallocation_size);
   {
-    log::Writer log(file);
+    log::Writer log(std::move(file));
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
-    if (s.ok()) {
-      s = file->Close();
-    }
   }
-  delete file;
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(env_, dbname_, 1);
@@ -653,7 +629,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
 
   // Open the log file
   std::string fname = LogFileName(dbname_, log_number);
-  SequentialFile* file;
+  unique_ptr<SequentialFile> file;
   Status status = env_->NewSequentialFile(fname, &file);
   if (!status.ok()) {
     MaybeIgnoreError(&status);
@@ -663,14 +639,14 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   // Create the log reader.
   LogReporter reporter;
   reporter.env = env_;
-  reporter.info_log = options_.info_log;
+  reporter.info_log = options_.info_log.get();
   reporter.fname = fname.c_str();
   reporter.status = (options_.paranoid_checks ? &status : NULL);
   // We intentially make log::Reader do checksumming even if
   // paranoid_checks==false so that corruptions cause entire commits
   // to be skipped instead of propagating bad information (like overly
   // large sequence numbers).
-  log::Reader reader(file, &reporter, true/*checksum*/,
+  log::Reader reader(std::move(file), &reporter, true/*checksum*/,
                      0/*initial_offset*/);
   Log(options_.info_log, "Recovering log #%llu",
       (unsigned long long) log_number);
@@ -728,7 +704,6 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   }
 
   if (mem != NULL && !external_table) mem->Unref();
-  delete file;
   return status;
 }
 
@@ -745,7 +720,7 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
+    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta);
     mutex_.Lock();
   }
 
@@ -791,7 +766,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
+    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta);
     mutex_.Lock();
   }
   base->Unref();
@@ -870,8 +845,9 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   }
 
   // Replace immutable memtable with the generated Table
-  s = imm_.InstallMemtableFlushResults(m, versions_, s, &mutex_,
-                        options_.info_log, file_number, pending_outputs_);
+  s = imm_.InstallMemtableFlushResults(
+    m, versions_.get(), s, &mutex_, options_.info_log.get(),
+    file_number, pending_outputs_);
 
   if (s.ok()) {
     if (madeProgress) {
@@ -924,7 +900,7 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() {
 }
 
 Status DBImpl::GetUpdatesSince(SequenceNumber seq,
-                               TransactionLogIterator** iter) {
+                               unique_ptr<TransactionLogIterator>* iter) {
 
   //  Get All Log Files.
   //  Sort Files
@@ -956,9 +932,8 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   if (!s.ok()) {
     return s;
   }
-  TransactionLogIteratorImpl* impl =
-    new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles);
-  *iter = impl;
+  iter->reset(
+    new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles));
   return Status::OK();
 }
 
@@ -1034,7 +1009,7 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
     }
   };
 
-  SequentialFile* file;
+  unique_ptr<SequentialFile> file;
   Status status = env_->NewSequentialFile(fname, &file);
 
   if (!status.ok()) {
@@ -1044,10 +1019,10 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
 
   LogReporter reporter;
   reporter.env = env_;
-  reporter.info_log = options_.info_log;
+  reporter.info_log = options_.info_log.get();
   reporter.fname = fname.c_str();
   reporter.status = (options_.paranoid_checks ? &status : NULL);
-  log::Reader reader(file, &reporter, true/*checksum*/,
+  log::Reader reader(std::move(file), &reporter, true/*checksum*/,
                      0/*initial_offset*/);
   std::string scratch;
   Slice record;
@@ -1284,7 +1259,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     }
   }
 
-  Compaction* c = NULL;
+  unique_ptr<Compaction> c;
   bool is_manual = (manual_compaction_ != NULL) &&
                    (manual_compaction_->in_progress == false);
   InternalKey manual_end;
@@ -1292,10 +1267,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     ManualCompaction* m = manual_compaction_;
     assert(!m->in_progress);
     m->in_progress = true; // another thread cannot pick up the same work
-    c = versions_->CompactRange(m->level, m->begin, m->end);
-    m->done = (c == NULL);
-    if (c != NULL) {
+    c.reset(versions_->CompactRange(m->level, m->begin, m->end));
+    if (c) {
       manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
+    } else {
+      m->done = true;
     }
     Log(options_.info_log,
         "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
@@ -1304,11 +1280,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         (m->end ? m->end->DebugString().c_str() : "(end)"),
         (m->done ? "(end)" : manual_end.DebugString().c_str()));
   } else if (!options_.disable_auto_compactions) {
-    c = versions_->PickCompaction();
+    c.reset(versions_->PickCompaction());
   }
 
   Status status;
-  if (c == NULL) {
+  if (!c) {
     // Nothing to do
     Log(options_.info_log, "Compaction nothing to do");
   } else if (!is_manual && c->IsTrivialMove()) {
@@ -1326,18 +1302,18 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         static_cast<unsigned long long>(f->file_size),
         status.ToString().c_str(),
         versions_->LevelSummary(&tmp));
-    versions_->ReleaseCompactionFiles(c, status);
+    versions_->ReleaseCompactionFiles(c.get(), status);
     *madeProgress = true;
   } else {
-    CompactionState* compact = new CompactionState(c);
+    CompactionState* compact = new CompactionState(c.get());
     status = DoCompactionWork(compact);
     CleanupCompaction(compact);
-    versions_->ReleaseCompactionFiles(c, status);
+    versions_->ReleaseCompactionFiles(c.get(), status);
     c->ReleaseInputs();
     FindObsoleteFiles(deletion_state);
     *madeProgress = true;
   }
-  delete c;
+  c.reset();
 
   if (status.ok()) {
     // Done
@@ -1370,22 +1346,18 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
 
 void DBImpl::CleanupCompaction(CompactionState* compact) {
   mutex_.AssertHeld();
-  if (compact->builders != NULL) {
+  if (!compact->builders.empty()) {
     // May happen if we get a shutdown call in the middle of compaction
 
     for (size_t i = 0; i < compact->num_outfiles; ++i) {
       compact->builders[i]->Abandon();
-      delete compact->builders[i];
-      delete compact->outfiles[i];
     }
-    delete[] compact->builders;
-    delete[] compact->outfiles;
 
     compact->num_outfiles = 0;
-    compact->builders = NULL;
-    compact->outfiles = NULL;
+    compact->builders.clear();
+    compact->outfiles.clear();
   } else {
-    assert(compact->outfiles == NULL);
+    assert(compact->outfiles.empty());
   }
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
@@ -1400,7 +1372,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
 void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
   mutex_.AssertHeld();
   assert(compact != NULL);
-  assert(compact->builders == NULL);
+  assert(compact->builders.empty());
   int filesNeeded = compact->compaction->num_input_files(1);
   for (int i = 0; i < filesNeeded; i++) {
     uint64_t file_number = versions_->NewFileNumber();
@@ -1423,11 +1395,11 @@ void DBImpl::ReleaseCompactionUnusedFileNumbers(CompactionState* compact) {
 
 Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   assert(compact != NULL);
-  assert(compact->builders == NULL);
+  assert(compact->builders.empty());
 
   compact->num_outfiles = is_hotcold_?2:1;
-  compact->builders = new TableBuilder*[compact->num_outfiles];
-  compact->outfiles = new WritableFile*[compact->num_outfiles];
+  compact->builders.resize(compact->num_outfiles);
+  compact->outfiles.resize(compact->num_outfiles);
 
   Status s;
   for (size_t i = 0; i < compact->num_outfiles; ++i) {
@@ -1453,22 +1425,25 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     // Make the output file
     std::string fname = TableFileName(dbname_, file_number);
     s = env_->NewWritableFile(fname, &compact->outfiles[i]);
+
+    // Over-estimate slightly so we don't end up just barely crossing
+    // the threshold.
+    compact->outfiles[i]->SetPreallocationBlockSize(
+      1.1 * versions_->MaxFileSizeForLevel(compact->compaction->level() + 1));
+
     if (s.ok()) {
-      compact->builders[i] = new TableBuilder(options_, compact->outfiles[i],
-                                              compact->compaction->level() + 1);
+      compact->builders[i].reset(
+          new TableBuilder(options_, compact->outfiles[i].get(),
+                           compact->compaction->level()+1));
     } else {
       // Clean up already constructed builders and outfiles
       for (size_t j = 0; j < i; ++j) {
         compact->builders[j]->Abandon();
-        delete compact->builders[j];
-        delete compact->outfiles[j];
       }
-      delete[] compact->builders;
-      delete[] compact->outfiles;
 
       compact->num_outfiles = 0;
-      compact->builders = NULL;
-      compact->outfiles = NULL;
+      compact->builders.clear();
+      compact->outfiles.clear();
 
       // And stop looping
       break;
@@ -1480,8 +1455,8 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
                                           Iterator* input) {
   assert(compact != NULL);
-  assert(compact->outfiles != NULL);
-  assert(compact->builders != NULL);
+  assert(!compact->outfiles.empty());
+  assert(!compact->builders.empty());
 
   Status s;
 
@@ -1503,8 +1478,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
     compact->current_output(i)->file_size = current_bytes;
     compact->current_output(i)->skip = current_entries == 0;
     compact->total_bytes += current_bytes;
-    delete compact->builders[i];
-    compact->builders[i] = nullptr;
+    compact->builders[i].reset();
 
     // Finish and check for file errors
     if (s.ok() && !options_.disableDataSync && current_entries > 0) {
@@ -1517,8 +1491,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
     if (s.ok() && current_entries > 0) {
       s = compact->outfiles[i]->Close();
     }
-    delete compact->outfiles[i];
-    compact->outfiles[i] = nullptr;
+    compact->outfiles[i].reset();
 
     if (s.ok() && current_entries > 0) {
       // Verify that the table is usable
@@ -1541,17 +1514,12 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   if (!s.ok()) {
     for (; i < compact->num_outfiles; ++i) {
       compact->builders[i]->Abandon();
-      delete compact->builders[i];
-      delete compact->outfiles[i];
     }
   }
 
-  delete[] compact->builders;
-  delete[] compact->outfiles;
-
   compact->num_outfiles = 0;
-  compact->builders = NULL;
-  compact->outfiles = NULL;
+  compact->builders.clear();
+  compact->outfiles.clear();
 
   return s;
 }
@@ -1774,8 +1742,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   Log(options_.info_log, "Compaction start summary: %s\n", scratch);
 
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
-  assert(compact->builders == NULL);
-  assert(compact->outfiles == NULL);
+  assert(compact->builders.empty());
+  assert(compact->outfiles.empty());
 
   SequenceNumber visible_at_tip = 0;
   SequenceNumber earliest_snapshot;
@@ -1800,7 +1768,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   BlockMetrics* block_metrics_store = NULL;
 
   const uint64_t start_micros = env_->NowMicros();
-  Iterator* input = versions_->MakeInputIterator(compact->compaction);
+  unique_ptr<Iterator> input(versions_->MakeInputIterator(compact->compaction));
   input->SeekToFirst();
   Status status;
   ParsedInternalKey ikey;
@@ -1826,8 +1794,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     Slice value = input->value();
     Slice* compaction_filter_value = NULL;
     if (compact->compaction->ShouldStopBefore(key) &&
-        compact->builders != NULL) {
-      status = FinishCompactionOutputFile(compact, input);
+        !compact->builders.empty()) {
+      status = FinishCompactionOutputFile(compact, input.get());
       if (!status.ok()) {
         break;
       }
@@ -1915,7 +1883,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     if (!drop) {
       // Open output file if necessary
-      if (compact->builders == NULL) {
+      if (compact->builders.empty()) {
         status = OpenCompactionOutputFile(compact);
         if (!status.ok()) {
           break;
@@ -1924,7 +1892,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
       // Select output file
       size_t outfile_idx = 0;
-      if (is_hotcold_ && IsRecordHot(input, metrics_db_, ReadOptions(),
+      if (is_hotcold_ && IsRecordHot(input.get(), metrics_db_, ReadOptions(),
                                      &block_metrics_store)) {
         outfile_idx = 1;
       }
@@ -1944,7 +1912,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       // TODO: consider adding the size of all the builders together.
       if (compact->builders[outfile_idx]->FileSize() >=
           compact->compaction->MaxOutputFileSize()) {
-        status = FinishCompactionOutputFile(compact, input);
+        status = FinishCompactionOutputFile(compact, input.get());
         if (!status.ok()) {
           break;
         }
@@ -1959,14 +1927,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   if (status.ok() && shutting_down_.Acquire_Load()) {
     status = Status::IOError("Deleting DB during compaction");
   }
-  if (status.ok() && compact->builders != NULL) {
-    status = FinishCompactionOutputFile(compact, input);
+  if (status.ok() && !compact->builders.empty()) {
+    status = FinishCompactionOutputFile(compact, input.get());
   }
   if (status.ok()) {
     status = input->status();
   }
-  delete input;
-  input = NULL;
+  input.reset();
 
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
@@ -1975,7 +1942,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   stats.files_in_levelnp1 = compact->compaction->num_input_files(1);
 
   int num_output_files = compact->outputs.size();
-  if (compact->builders != NULL) {
+  if (!compact->builders.empty()) {
     // An error occured so ignore the last output.
     assert(num_output_files > 0);
     num_output_files -= compact->num_outfiles;
@@ -2214,9 +2181,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         status = log_->AddRecord(WriteBatchInternal::Contents(updates));
         if (status.ok() && options.sync) {
           if (options_.use_fsync) {
-            status = logfile_->Fsync();
+            status = log_->file()->Fsync();
           } else {
-            status = logfile_->Sync();
+            status = log_->file()->Sync();
           }
         }
       }
@@ -2381,18 +2348,18 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       DelayLoggingAndReset();
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
-      WritableFile* lfile = NULL;
+      unique_ptr<WritableFile> lfile;
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
-  versions_->ReuseFileNumber(new_log_number);
+        versions_->ReuseFileNumber(new_log_number);
         break;
       }
-      delete log_;
-      delete logfile_;
-      logfile_ = lfile;
+      // Our final size should be less than write_buffer_size
+      // (compression, etc) but err on the side of caution.
+      lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
       logfile_number_ = new_log_number;
-      log_ = new log::Writer(lfile);
+      log_.reset(new log::Writer(std::move(lfile)));
       imm_.Add(mem_);
       mem_ = new MemTable(internal_comparator_, NumberLevels());
       mem_->Ref();
@@ -2598,14 +2565,14 @@ Status DB::InternalOpen(const Options& options, const std::string& dbname,
   s = impl->Recover(&edit); // Handles create_if_missing, error_if_exists
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
-    WritableFile* lfile;
+    unique_ptr<WritableFile> lfile;
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
                                      &lfile);
     if (s.ok()) {
+      lfile->SetPreallocationBlockSize(1.1 * options.write_buffer_size);
       edit.SetLogNumber(new_log_number);
-      impl->logfile_ = lfile;
       impl->logfile_number_ = new_log_number;
-      impl->log_ = new log::Writer(lfile);
+      impl->log_.reset(new log::Writer(std::move(lfile)));
       s = impl->versions_->LogAndApply(&edit, &impl->mutex_);
     }
     if (s.ok()) {
@@ -2695,8 +2662,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 // A global method that can dump out the build version
 void dumpLeveldbBuildVersion(Logger * log) {
   Log(log, "Git sha %s", leveldb_build_git_sha);
-  Log(log, "Git datetime %s", leveldb_build_git_datetime);
-  Log(log, "Compile time %s %s", leveldb_build_compile_time, leveldb_build_compile_date);
+  Log(log, "Compile time %s %s",
+      leveldb_build_compile_time, leveldb_build_compile_date);
 }
 
 }  // namespace leveldb
