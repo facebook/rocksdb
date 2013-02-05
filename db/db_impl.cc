@@ -38,38 +38,11 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/build_version.h"
-#include "util/auto_split_logger.h"
+#include "util/auto_roll_logger.h"
 
 namespace leveldb {
 
 void dumpLeveldbBuildVersion(Logger * log);
-
-static Status NewLogger(const std::string& dbname,
-                        const std::string& db_log_dir,
-                        Env* env,
-                        size_t max_log_file_size,
-                        shared_ptr<Logger>* logger) {
-  std::string db_absolute_path;
-  env->GetAbsolutePath(dbname, &db_absolute_path);
-
-  if (max_log_file_size > 0) { // need to auto split the log file?
-    auto logger_ptr =
-      new AutoSplitLogger<Logger>(env, dbname, db_log_dir, max_log_file_size);
-    logger->reset(logger_ptr);
-    Status s = logger_ptr->GetStatus();
-    if (!s.ok()) {
-      logger->reset();
-    }
-    return s;
-  } else {
-    // Open a log file in the same directory as the db
-    env->CreateDir(dbname);  // In case it does not exist
-    std::string fname = InfoLogFileName(dbname, db_absolute_path, db_log_dir);
-    env->RenameFile(fname, OldInfoLogFileName(dbname, env->NowMicros(),
-                                              db_absolute_path, db_log_dir));
-    return env->NewLogger(fname, logger);
-  }
-}
 
 // Information kept for every waiting writer
 struct DBImpl::Writer {
@@ -148,8 +121,8 @@ Options SanitizeOptions(const std::string& dbname,
   ClipToRange(&result.write_buffer_size,         64<<10, 1<<30);
   ClipToRange(&result.block_size,                1<<10,  4<<20);
   if (result.info_log == NULL) {
-    Status s = NewLogger(dbname, result.db_log_dir, src.env,
-                         result.max_log_file_size, &result.info_log);
+    Status s = CreateLoggerFromOptions(dbname, result.db_log_dir, src.env,
+                                       result, &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
       result.info_log = NULL;
@@ -426,11 +399,14 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   }
 
   // Delete old log files.
-  int old_log_file_count = old_log_files.size();
-  if (old_log_file_count >= KEEP_LOG_FILE_NUM &&
-      !options_.db_log_dir.empty()) {
+  size_t old_log_file_count = old_log_files.size();
+  // NOTE: Currently we only support log purge when options_.db_log_dir is
+  // located in `dbname` directory.
+  if (old_log_file_count >= options_.keep_log_file_num &&
+      options_.db_log_dir.empty()) {
     std::sort(old_log_files.begin(), old_log_files.end());
-    for (int i = 0; i >= (old_log_file_count - KEEP_LOG_FILE_NUM); i++) {
+    size_t end = old_log_file_count - options_.keep_log_file_num;
+    for (int i = 0; i <= end; i++) {
       std::string& to_delete = old_log_files.at(i);
       // Log(options_.info_log, "Delete type=%d %s\n",
       //     int(kInfoLogFile), to_delete.c_str());

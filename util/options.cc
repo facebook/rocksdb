@@ -48,6 +48,8 @@ Options::Options()
       delete_obsolete_files_period_micros(0),
       max_background_compactions(1),
       max_log_file_size(0),
+      log_file_time_to_roll(0),
+      keep_log_file_num(1000),
       rate_limit(0.0),
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
@@ -95,6 +97,8 @@ Options::Dump(Logger* log) const
     Log(log,"     Options.max_log_file_size: %ld", max_log_file_size);
     Log(log,"Options.max_manifest_file_size: %ld",
       max_manifest_file_size);
+    Log(log,"     Options.log_file_time_to_roll: %ld", log_file_time_to_roll);
+    Log(log,"     Options.keep_log_file_num: %ld", keep_log_file_num);
     Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
     Log(log,"           Options.compression_opts.window_bits: %d",

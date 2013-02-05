@@ -310,6 +310,16 @@ struct Options {
   // log file.
   size_t max_log_file_size;
 
+  // Time for the info log file to roll (in seconds).
+  // If specified with non-zero value, log file will be rolled
+  // if it has been active longer than `log_file_time_to_roll`.
+  // Default: 0 (disabled)
+  size_t log_file_time_to_roll;
+
+  // Maximal info log files to be kept.
+  // Default: 1000
+  size_t keep_log_file_num;
+
   // Puts are delayed when any level has a compaction score that
   // exceeds rate_limit. This is ignored when <= 1.0.
   double rate_limit;

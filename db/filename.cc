@@ -145,7 +145,8 @@ bool ParseFileName(const std::string& fname,
     *type = kInfoLogFile;
   } else if (rest.starts_with("LOG.old.")) {
     uint64_t ts_suffix;
-    rest.remove_prefix(sizeof("LOG.old."));
+    // sizeof also counts the trailing '\0'.
+    rest.remove_prefix(sizeof("LOG.old.") - 1);
     if (!ConsumeDecimalNumber(&rest, &ts_suffix)) {
       return false;
     }
