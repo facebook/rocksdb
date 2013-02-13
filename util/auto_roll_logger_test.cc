@@ -15,60 +15,11 @@ using namespace std;
 
 namespace leveldb {
 
-// annoymous namespace for test facilities.
-namespace {
-
-// This is a fake logger that keeps counting
-// the size of logged messages.
-class MockLogger: public Logger {
- public:
-  MockLogger(): log_size_(0) { }
-  // In our simple cases, we only use `format` parameter.
-  void Logv(const char* format, va_list ap) {
-    log_size_ += strlen(format);
-  }
-  virtual size_t GetLogFileSize() const {
-    return log_size_;
-  }
-
- private:
-  size_t log_size_;
-};
-
-// A fake Env class that can create MockLogger instance.
-class MockEnv: public EnvWrapper {
- public:
-  static Env* MakeMockEnv() {
-    Env* target = Env::Default();
-    return new MockEnv(target);
-  }
-
-  ~MockEnv() {
-  }
-
-  virtual Status NewLogger(const std::string& fname, shared_ptr<Logger>* result) {
-    result->reset(new MockLogger());
-    return Status::OK();
-  }
-
-  virtual Status RenameFile(const std::string& src,
-                            const std::string& target) {
-    // do nothing
-    return Status::OK();
-  }
-
- private:
-  MockEnv(Env* target): EnvWrapper(target), target_(target) { }
-  Env* target_;
-};
-
-} // end anonymous namespace
-
 class AutoRollLoggerTest {
  public:
   static void InitTestDb() {
     string deleteCmd = "rm -rf " + kTestDir;
-    system(deleteCmd.c_str());
+    ASSERT_TRUE(system(deleteCmd.c_str()) == 0);
     Env::Default()->CreateDir(kTestDir);
   }
 
@@ -83,7 +34,6 @@ class AutoRollLoggerTest {
   static const string kTestDir;
   static const string kLogFile;
   static Env* env;
-  static Env* mockEnv;
 };
 
 const string AutoRollLoggerTest::kSampleMessage(
@@ -92,8 +42,15 @@ const string AutoRollLoggerTest::kTestDir(
     test::TmpDir() + "/db_log_test");
 const string AutoRollLoggerTest::kLogFile(
     test::TmpDir() + "/db_log_test/LOG");
-Env* AutoRollLoggerTest::mockEnv = MockEnv::MakeMockEnv();
 Env* AutoRollLoggerTest::env = Env::Default();
+
+// In this test we only want to Log some simple log message with
+// no format. LogMessage() provides such a simple interface and
+// avoids the [format-security] warning which occurs when you
+// call Log(logger, log_message) directly.
+void LogMessage(Logger* logger, const char* message) {
+  Log(logger, "%s", message);
+}
 
 void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
   struct stat s;
@@ -108,19 +65,19 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                const string& log_message) {
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
-  Log(logger, log_message.c_str());
+  LogMessage(logger, log_message.c_str());
   size_t message_size = logger->GetLogFileSize();
   size_t current_log_size = message_size;
 
   // Test the cases when the log file will not be rolled.
   while (current_log_size + message_size < log_max_size) {
-    Log(logger, log_message.c_str());
+    LogMessage(logger, log_message.c_str());
     current_log_size += message_size;
     ASSERT_EQ(current_log_size, logger->GetLogFileSize());
   }
 
   // Now the log file will be rolled
-  Log(logger, log_message.c_str());
+  LogMessage(logger, log_message.c_str());
   ASSERT_TRUE(0 == logger->GetLogFileSize());
 }
 
@@ -136,7 +93,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   // -- Write to the log for several times, which is supposed
   // to be finished before time.
   for (int i = 0; i < 10; ++i) {
-     Log(logger, log_message.c_str());
+     LogMessage(logger, log_message.c_str());
      ASSERT_OK(logger->GetStatus());
      // Make sure we always write to the same log file (by
      // checking the create time);
@@ -150,7 +107,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
 
   // -- Make the log file expire
   sleep(time);
-  Log(logger, log_message.c_str());
+  LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.
   GetFileCreateTime(kLogFile, &actual_create_time);
@@ -162,10 +119,10 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
 }
 
 TEST(AutoRollLoggerTest, RollLogFileBySize) {
-    size_t log_max_size = 1024;
+    size_t log_max_size = 1024 * 5;
 
     AutoRollLogger* logger = new AutoRollLogger(
-        mockEnv, kTestDir, "", log_max_size, 0);
+        Env::Default(), kTestDir, "", log_max_size, 0);
 
     RollLogFileBySizeTest(logger, log_max_size,
                           kSampleMessage + ":RollLogFileBySize");
@@ -204,7 +161,7 @@ TEST(AutoRollLoggerTest,
   AutoRollLogger* logger = new AutoRollLogger(
     Env::Default(), kTestDir, "", log_size, 0);
 
-  Log(logger, kSampleMessage.c_str());
+  LogMessage(logger, kSampleMessage.c_str());
   ASSERT_GT(logger->GetLogFileSize(), kZero);
   delete logger;
 
@@ -239,7 +196,7 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
 
   // Normal logger
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
-  ASSERT_TRUE(dynamic_cast<PosixLogger*>(logger.get()) != NULL);
+  ASSERT_TRUE(dynamic_cast<PosixLogger*>(logger.get()));
 
   // Only roll by size
   InitTestDb();
@@ -247,7 +204,7 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
   AutoRollLogger* auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
-  ASSERT_TRUE(auto_roll_logger != NULL);
+  ASSERT_TRUE(auto_roll_logger);
   RollLogFileBySizeTest(
       auto_roll_logger, options.max_log_file_size,
       kSampleMessage + ":CreateLoggerFromOptions - size");
