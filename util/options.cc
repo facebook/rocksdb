@@ -52,6 +52,7 @@ Options::Options()
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
       table_cache_numshardbits(4),
+      min_hotcold_level(0),
       compaction_filter_args(NULL),
       CompactionFilter(NULL),
       disable_auto_compactions(false),
@@ -149,6 +150,8 @@ Options::Dump(Logger* log) const
         WAL_ttl_seconds);
     Log(log,"            Options.manifest_preallocation_size: %ld",
         manifest_preallocation_size);
+    Log(log,"                      Options.min_hotcold_level: %u",
+        min_hotcold_level);
 }   // Options::Dump
 
 }  // namespace leveldb

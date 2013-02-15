@@ -227,6 +227,9 @@ static bool FLAGS_read_only = false;
 // Run benchmarks with hot-cold separation.
 static bool FLAGS_hot_cold = false;
 
+// For hot-cold separation only levels numbered FLAGS_min_hotcold_level and above
+static uint32_t FLAGS_min_hotcold_level = 0;
+
 // Do not auto trigger compactions
 static bool FLAGS_disable_auto_compactions = false;
 
@@ -997,6 +1000,7 @@ class Benchmark {
       FLAGS_max_grandparent_overlap_factor;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.source_compaction_factor = FLAGS_source_compaction_factor;
+    options.min_hotcold_level = FLAGS_min_hotcold_level;
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
@@ -1359,6 +1363,7 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
+    unsigned int un;
     long l;
     char junk;
     char hdfsname[2048];
@@ -1524,6 +1529,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--source_compaction_factor=%d%c",
                &n, &junk) == 1 && n > 0) {
       FLAGS_source_compaction_factor = n;
+    } else if (sscanf(argv[i], "--min_hotcold_level=%u%c", &un, &junk) == 1) {
+      FLAGS_min_hotcold_level = un;
     } else if (sscanf(argv[i], "--wal_ttl=%d%c", &n, &junk) == 1) {
       FLAGS_WAL_ttl_seconds = static_cast<uint64_t>(n);
     } else {

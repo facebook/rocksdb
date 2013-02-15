@@ -327,6 +327,14 @@ struct Options {
   // Number of shards used for table cache.
   int table_cache_numshardbits;
 
+  // In a database with hot cold separation. Levels with a level number greater
+  // or equal to this have metrics recorded, so it can be determined whether
+  // records in that level are hot. Only levles with a level number greater
+  // than or equal to this parameter have records split into hot and cold
+  // files.
+  // Default: 0
+  uint32_t min_hotcold_level;
+
   // Create an Options object with default values for all fields.
   Options();
 

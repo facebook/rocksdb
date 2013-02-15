@@ -545,6 +545,11 @@ Status Version::Get(const ReadOptions& options,
     SequenceNumber saved_seq = 0;
     SaverState saved_state = kNotFound;
 
+    ReadOptions read_options = options;
+    if (level < vset_->options_->min_hotcold_level) {
+      read_options.metrics_handler = nullptr;
+    }
+
     for (uint32_t i = 0; i < files.size(); ++i) {
 
       FileMetaData* f = files[i];
@@ -554,7 +559,7 @@ Status Version::Get(const ReadOptions& options,
       saver.value = value;
       saver.didIO = false;
       bool tableIO = false;
-      s = vset_->table_cache_->Get(options, f->number, f->file_size,
+      s = vset_->table_cache_->Get(read_options, f->number, f->file_size,
                                    ikey, &saver, SaveValue, &tableIO);
       if (!s.ok()) {
         return s;

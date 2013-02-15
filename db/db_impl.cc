@@ -1397,7 +1397,12 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   assert(compact != NULL);
   assert(compact->builders.empty());
 
-  compact->num_outfiles = is_hotcold_?2:1;
+  compact->num_outfiles = 1;
+  // Create 2 files if we are going to do hot-cold separation.
+  if (is_hotcold_ &&
+      compact->compaction->level()+1 >= options_.min_hotcold_level) {
+    compact->num_outfiles = 2;
+  }
   compact->builders.resize(compact->num_outfiles);
   compact->outfiles.resize(compact->num_outfiles);
 
@@ -1968,6 +1973,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (is_hotcold_ &&
           !encountered_error_key &&
           can_be_hot &&
+          compact->compaction->level()+1 >= options_.min_hotcold_level &&
           IsRecordHot(input.get(), metrics_db_, ReadOptions(),
                       &block_metrics_store)) {
         outfile_idx = 1; // Use 1 as the hot file as it has a larger file
