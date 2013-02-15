@@ -1309,7 +1309,6 @@ TEST(DBTest, RepeatedWritesToSameKey) {
   for (int i = 0; i < 5 * kMaxFiles; i++) {
     Put("key", value);
     ASSERT_LE(TotalTableFiles(), kMaxFiles);
-    fprintf(stderr, "after %d: %d files\n", int(i+1), TotalTableFiles());
   }
 }
 
@@ -1372,6 +1371,30 @@ TEST(DBTest, CompactionFilter) {
   ASSERT_NE(NumTableFilesAtLevel(2), 0);
   cfilter_count = 0;
 
+  // All the files are in the lowest level.
+  // Verify that all but the 100001st record
+  // has sequence number zero. The 100001st record
+  // is at the tip of this snapshot and cannot
+  // be zeroed out.
+  int count = 0;
+  int total = 0;
+  Iterator* iter = dbfull()->TEST_NewInternalIterator();
+  iter->SeekToFirst();
+  ASSERT_EQ(iter->status().ok(), true);
+  while (iter->Valid()) {
+    ParsedInternalKey ikey;
+    ikey.sequence = -1;
+    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+    total++;
+    if (ikey.sequence != 0) {
+      count++;
+    }
+    iter->Next();
+  }
+  ASSERT_EQ(total, 100001);
+  ASSERT_EQ(count, 1);
+  delete iter;
+
   // overwrite all the 100K+1 keys once again.
   for (int i = 0; i < 100001; i++) {
     char key[100];
@@ -1427,10 +1450,27 @@ TEST(DBTest, CompactionFilter) {
   // 100001th key is left in the db. The 100001th key
   // is part of the default-most-current snapshot and
   // cannot be deleted.
-  Iterator* iter = db_->NewIterator(ReadOptions());
+  iter = db_->NewIterator(ReadOptions());
   iter->SeekToFirst();
-  int count = 0;
+  count = 0;
   while (iter->Valid()) {
+    count++;
+    iter->Next();
+  }
+  ASSERT_EQ(count, 1);
+  delete iter;
+
+  // The sequence number of the remaining record
+  // is not zeroed out even though it is at the 
+  // level Lmax because this record is at the tip
+  count = 0;
+  iter = dbfull()->TEST_NewInternalIterator();
+  iter->SeekToFirst();
+  ASSERT_EQ(iter->status().ok(), true);
+  while (iter->Valid()) {
+    ParsedInternalKey ikey;
+    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+    ASSERT_NE(ikey.sequence, 0);
     count++;
     iter->Next();
   }
@@ -2144,7 +2184,6 @@ TEST(DBTest, NonWritableFileSystem)
   std::string big(100000, 'x');
   int errors = 0;
   for (int i = 0; i < 20; i++) {
-    fprintf(stderr, "iter %d; errors %d\n", i, errors);
     if (!Put("foo", big).ok()) {
       errors++;
       env_->SleepForMicroseconds(100000);

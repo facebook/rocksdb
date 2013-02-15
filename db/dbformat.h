@@ -157,6 +157,16 @@ inline bool ParseInternalKey(const Slice& internal_key,
   return (c <= static_cast<unsigned char>(kTypeValue));
 }
 
+// Update the sequence number in the internal key
+inline void UpdateInternalKey(const Slice& internal_key,
+                              uint64_t seq, ValueType t) {
+  const size_t n = internal_key.size();
+  assert(n >= 8);
+  char* seqtype = (char *)internal_key.data() + n - 8;
+  uint64_t newval = (seq << 8) | t;
+  EncodeFixed64(seqtype, newval);
+}
+
 // A helper class useful for DBImpl::Get()
 class LookupKey {
  public:

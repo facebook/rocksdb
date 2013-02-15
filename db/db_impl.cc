@@ -1508,6 +1508,16 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     earliest_snapshot = compact->existing_snapshots[0];
   }
 
+  // Is this compaction producing files at the bottommost level?
+  bool bottommost_level = true;
+  for (int i = compact->compaction->level() + 2;
+       i < versions_->NumberLevels(); i++) {
+    if (versions_->NumLevelFiles(i) > 0) {
+      bottommost_level = false;
+      break;
+    }
+  }
+
   // Allocate the output file numbers before we release the lock
   AllocateCompactionOutputFileNumbers(compact);
 
@@ -1621,14 +1631,25 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 #if 0
     Log(options_.info_log,
         "  Compact: %s, seq %d, type: %d %d, drop: %d, is_base: %d, "
-        "%d smallest_snapshot: %d",
+        "%d smallest_snapshot: %d level: %d bottommost %d",
         ikey.user_key.ToString().c_str(),
         (int)ikey.sequence, ikey.type, kTypeValue, drop,
         compact->compaction->IsBaseLevelForKey(ikey.user_key),
-        (int)last_sequence_for_key, (int)compact->smallest_snapshot);
+        (int)last_sequence_for_key, (int)earliest_snapshot,
+        compact->compaction->level(), bottommost_level);
 #endif
 
     if (!drop) {
+
+      // Zeroing out the sequence number leads to better compression.
+      // If this is the bottommost level (no files in lower levels)
+      // and the earliest snapshot is larger than this seqno
+      // then we can squash the seqno to zero.
+      if (bottommost_level && ikey.sequence < earliest_snapshot) {
+        assert(ikey.type != kTypeDeletion);
+        UpdateInternalKey(key, (uint64_t)0, ikey.type);
+      }
+  
       // Open output file if necessary
       if (compact->builder == NULL) {
         status = OpenCompactionOutputFile(compact);
