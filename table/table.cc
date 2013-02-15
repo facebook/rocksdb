@@ -197,14 +197,6 @@ struct CacheMetricsInfo {
     : handler(handler), handle(handle), metrics(metrics) {
   }
 };
-// Releases the block's cache handle and flushes the metrics from the iterator.
-static void ReleaseBlockAndRecordMetrics(void* arg, void* cmi) {
-  Cache* cache = reinterpret_cast<Cache*>(arg);
-  CacheMetricsInfo* cmiptr = reinterpret_cast<CacheMetricsInfo*>(cmi);
-  cache->ReleaseAndRecordMetrics(cmiptr->handle, cmiptr->handler,
-                                 cmiptr->metrics);
-  delete cmiptr;
-}
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
@@ -280,19 +272,12 @@ Iterator* Table::BlockReader(void* arg,
         iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
       }
     } else {
-      BlockMetrics* metrics = NULL;
       iter = block->NewMetricsIterator(table->rep_->options.comparator,
                                        table->rep_->file_number,
                                        handle.offset(),
-                                       &metrics);
-
-      if (metrics == NULL) {
-        iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
-      } else {
-        CacheMetricsInfo* cmi = new CacheMetricsInfo(options.metrics_handler,
-                                                     cache_handle, metrics);
-        iter->RegisterCleanup(&ReleaseBlockAndRecordMetrics, block_cache, cmi);
-      }
+                                       block_cache,
+                                       cache_handle,
+                                       options.metrics_handler);
     }
   } else {
     iter = NewErrorIterator(s);

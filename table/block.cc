@@ -80,6 +80,8 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
 class Block::Iter : public Iterator {
  protected:
   const Comparator* const comparator_;
+  uint64_t file_number_;
+  uint64_t block_offset_;
   const char* const data_;      // underlying block contents
   uint32_t const restarts_;     // Offset of restart array (list of fixed32)
   uint32_t const num_restarts_; // Number of uint32_t entries in restart array
@@ -120,10 +122,14 @@ class Block::Iter : public Iterator {
 
  public:
   Iter(const Comparator* comparator,
+       uint64_t file_number,
+       uint64_t block_offset,
        const char* data,
        uint32_t restarts,
        uint32_t num_restarts)
       : comparator_(comparator),
+        file_number_(file_number),
+        block_offset_(block_offset),
         data_(data),
         restarts_(restarts),
         num_restarts_(num_restarts),
@@ -227,6 +233,8 @@ class Block::Iter : public Iterator {
   }
 
  private:
+  friend class Block;
+
   void CorruptionError() {
     current_ = restarts_;
     restart_index_ = num_restarts_;
@@ -274,8 +282,9 @@ class Block::Iter : public Iterator {
 // This is the iterator returned by Block::NewMetricsIterator() on success.
 class Block::MetricsIter : public Block::Iter {
  private:
-  uint64_t file_number_;
-  uint64_t block_offset_;
+  Cache* cache_;
+  Cache::Handle* cache_handle_;
+  void* metrics_handler_;
   BlockMetrics* metrics_;
 
  public:
@@ -285,24 +294,24 @@ class Block::MetricsIter : public Block::Iter {
               const char* data,
               uint32_t restarts,
               uint32_t num_restarts,
-              BlockMetrics* metrics)
-      : Block::Iter(comparator, data, restarts, num_restarts),
-        file_number_(file_number),
-        block_offset_(block_offset),
-        metrics_(metrics) {
+              Cache* cache,
+              Cache::Handle* cache_handle,
+              void* metrics_handler)
+      : Block::Iter(comparator, file_number, block_offset, data, restarts,
+                    num_restarts),
+        cache_(cache),
+        cache_handle_(cache_handle),
+        metrics_handler_(metrics_handler),
+        metrics_(NULL) {
   }
 
   virtual ~MetricsIter() {
-  }
-
-  virtual void Next() {
-    Block::Iter::Next();
-    RecordAccess();
-  }
-
-  virtual void Prev() {
-    Block::Iter::Prev();
-    RecordAccess();
+    if (metrics_) {
+      cache_->ReleaseAndRecordMetrics(cache_handle_, metrics_handler_,
+                                      metrics_);
+    } else {
+      cache_->Release(cache_handle_);
+    }
   }
 
   virtual void Seek(const Slice& target) {
@@ -310,21 +319,13 @@ class Block::MetricsIter : public Block::Iter {
     RecordAccess();
   }
 
-  virtual void SeekToFirst() {
-    Block::Iter::SeekToFirst();
-    RecordAccess();
-  }
-
-  virtual void SeekToLast() {
-    Block::Iter::SeekToLast();
-    RecordAccess();
-  }
-
  private:
-  friend class Block;
-
   void RecordAccess() {
-    if (metrics_ != NULL && Valid()) {
+    if (Valid()) {
+      if (metrics_ == nullptr) {
+        metrics_ = new BlockMetrics(file_number_, block_offset_,
+                                    num_restarts_, kBytesPerRestart);
+      }
       metrics_->RecordAccess(restart_index_, restart_offset_);
     }
   }
@@ -338,7 +339,7 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
   if (num_restarts == 0) {
     return NewEmptyIterator();
   } else {
-    return new Iter(cmp, data_, restart_offset_, num_restarts);
+    return new Iter(cmp, 0, 0, data_, restart_offset_, num_restarts);
   }
 }
 
@@ -353,30 +354,42 @@ Iterator* Block::NewIterator(const Comparator* cmp,
   if (num_restarts == 0) {
     return NewEmptyIterator();
   } else {
-    return new MetricsIter(cmp, file_number, block_offset, data_,
-                           restart_offset_, num_restarts, NULL);
+    return new Iter(cmp, file_number, block_offset, data_,
+                    restart_offset_, num_restarts);
   }
 }
 
 Iterator* Block::NewMetricsIterator(const Comparator* cmp,
                                     uint64_t file_number,
                                     uint64_t block_offset,
-                                    BlockMetrics** metrics) {
-  assert(metrics != NULL);
+                                    Cache* cache,
+                                    Cache::Handle* cache_handle,
+                                    void* metrics_handler) {
+  assert(cache != nullptr);
+  assert(cache_handle != nullptr);
+  assert(metrics_handler != nullptr);
 
-  *metrics = NULL;
+  Iterator* iter = nullptr;
   if (size_ < 2*sizeof(uint32_t)) {
-    return NewErrorIterator(Status::Corruption("bad block contents"));
+    iter = NewErrorIterator(Status::Corruption("bad block contents"));
   }
   const uint32_t num_restarts = NumRestarts();
   if (num_restarts == 0) {
-    return NewEmptyIterator();
-  } else {
-    *metrics = new BlockMetrics(file_number, block_offset, num_restarts,
-                                kBytesPerRestart);
-    return new MetricsIter(cmp, file_number, block_offset, data_,
-                           restart_offset_, num_restarts, *metrics);
+    iter = NewEmptyIterator();
   }
+
+  if (iter == nullptr) {
+    // MetricsIter takes ownership of the cache handle and will delete it.
+    iter = new MetricsIter(cmp, file_number, block_offset, data_,
+                           restart_offset_, num_restarts,
+                           cache, cache_handle, metrics_handler);
+  } else {
+    // Release the cache handle as neither the error iterator nor the empty
+    // iterator need it's contents.
+    cache->Release(cache_handle);
+  }
+
+  return iter;
 }
 
 bool Block::GetBlockIterInfo(const Iterator* iter,
@@ -384,7 +397,7 @@ bool Block::GetBlockIterInfo(const Iterator* iter,
                              uint64_t& block_offset,
                              uint32_t& restart_index,
                              uint32_t& restart_offset) {
-  const MetricsIter* biter = dynamic_cast<const MetricsIter*>(iter);
+  const Iter* biter = dynamic_cast<const Iter*>(iter);
 
   if (biter == NULL) {
     return false;

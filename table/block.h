@@ -5,10 +5,14 @@
 #ifndef STORAGE_LEVELDB_TABLE_BLOCK_H_
 #define STORAGE_LEVELDB_TABLE_BLOCK_H_
 
+#include <memory>
 #include <stddef.h>
 #include <stdint.h>
+#include "leveldb/cache.h"
 #include "leveldb/iterator.h"
 #include "leveldb/slice.h"
+
+using std::unique_ptr;
 
 namespace leveldb {
 
@@ -32,16 +36,15 @@ class Block {
                         uint64_t file_number,
                         uint64_t block_offset);
 
-  // Creates a new iterator that keeps track of accesses.
-  //
-  // Creates a BlockMetrics object on the heap and sets metrics to it.
-  // The caller is responsible for freeing this object. *metrics may be set to
-  // NULL.
-  // REQUIRES: metrics must be non-NULL
+  // Creates a new iterator that keeps track of accesses. When this iterator is
+  // deleted it frees the cache handle and passes the metrics to the cache specified.
+  // REQUIRES: cache, cache_handle, metrics_handler must be non-NULL
   Iterator* NewMetricsIterator(const Comparator* comparator,
                                uint64_t file_number,
                                uint64_t block_offset,
-                               BlockMetrics** metrics);
+                               Cache* cache,
+                               Cache::Handle* cache_handle,
+                               void* metrics_handler);
 
   // Returns true if iter is a Block iterator and also knows that which file
   // and block it belongs to.

@@ -2196,11 +2196,7 @@ Status DBImpl::Get(const ReadOptions& options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
-  ReadOptions read_options = options;
-  if (read_options.record_accesses && is_hotcold_) {
-    read_options.metrics_handler = this;
-  }
-  Iterator* internal_iter = NewInternalIterator(read_options, &latest_snapshot);
+  Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
   return NewDBIterator(
       &dbname_, env_, user_comparator(), internal_iter,
       (options.snapshot != NULL
