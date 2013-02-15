@@ -65,7 +65,9 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options) {
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
   return NewDBIterator(
       &dbname_, env_, user_comparator(), internal_iter,
-      reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_);
+      (options.snapshot != NULL
+      ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+      : versions_->LastSequence()));
 }
 
 

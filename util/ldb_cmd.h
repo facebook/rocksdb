@@ -190,9 +190,7 @@ protected:
     // Open the DB.
     leveldb::Status st;
     if (is_read_only_) {
-      //st = leveldb::DB::OpenForReadOnly(opt, db_path_, &db_);
-      // Could not get this to work
-      st = leveldb::DB::Open(opt, db_path_, &db_);
+      st = leveldb::DB::OpenForReadOnly(opt, db_path_, &db_);
     } else {
       st = leveldb::DB::Open(opt, db_path_, &db_);
     }
