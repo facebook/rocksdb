@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <vector>
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "db/db_statistics.h"
@@ -182,6 +183,9 @@ static int FLAGS_level0_file_num_compaction_trigger = 4;
 // for the ReadRandomWriteRandom workload. The default
 // setting is 9 gets for every 1 put.
 static int FLAGS_readwritepercent = 90;
+
+// Percentage of hot keys
+static int FLAGS_hotkeyspercent = 5;
 
 // Option to disable compation triggered by read.
 static int FLAGS_disable_seek_compaction = false;
@@ -1267,6 +1271,7 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
+  std::vector<int> hot_keys;
   void ReadHotWriteRandom(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
@@ -1276,6 +1281,16 @@ class Benchmark {
     int put_weight = 0;
     long reads_done = 0;
     long writes_done = 0;
+
+    if (hot_keys.empty()) {
+      size_t num_hot_keys = size_t(readwrites_)*FLAGS_hotkeyspercent/100;
+      thread->rand.Next();
+      for (size_t i = 0; i < num_hot_keys; ++i) {
+        int k = thread->rand.Next() % FLAGS_num;
+        hot_keys.push_back(k);
+      }
+    }
+
     // the number of iterations is the larger of read_ or write_
     for (long i = 0; i < readwrites_; i++) {
       char key[100];
@@ -1286,7 +1301,7 @@ class Benchmark {
       }
       int k = thread->rand.Next() % FLAGS_num;
       if (get_weight > 0) {
-        k = k/100*100;
+        k = hot_keys.at(k % hot_keys.size());
       }
       snprintf(key, sizeof(key), "%016d", k);
       if (get_weight > 0) {
@@ -1448,6 +1463,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--readwritepercent=%d%c", &n, &junk) == 1 &&
                n > 0 && n < 100) {
       FLAGS_readwritepercent = n;
+    } else if (sscanf(argv[i], "--hotkeyspercentage=%d%c", &n, &junk) == 1 &&
+               n > 0 && n < 100) {
+      FLAGS_hotkeyspercent = n;
     } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_data_sync = n;
