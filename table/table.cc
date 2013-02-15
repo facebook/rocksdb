@@ -261,23 +261,22 @@ Iterator* Table::BlockReader(void* arg,
 
   Iterator* iter;
   if (block != NULL) {
-    if (options.metrics_handler == NULL || cache_handle == NULL) {
+    if (options.metrics_instance == NULL || cache_handle == NULL) {
       iter = block->NewIterator(table->rep_->options.comparator,
                                 table->rep_->file_number,
                                 handle.offset());
 
-      if (cache_handle == NULL) {
-        iter->RegisterCleanup(&DeleteBlock, block, NULL);
-      } else {
-        iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
-      }
     } else {
       iter = block->NewMetricsIterator(table->rep_->options.comparator,
                                        table->rep_->file_number,
                                        handle.offset(),
-                                       block_cache,
-                                       cache_handle,
-                                       options.metrics_handler);
+                                       options.metrics_instance);
+    }
+
+    if (cache_handle == NULL) {
+      iter->RegisterCleanup(&DeleteBlock, block, NULL);
+    } else {
+      iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
     }
   } else {
     iter = NewErrorIterator(s);

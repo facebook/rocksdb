@@ -20,7 +20,6 @@
 
 #include <memory>
 #include <stdint.h>
-#include <vector>
 #include "leveldb/slice.h"
 
 namespace leveldb {
@@ -33,8 +32,6 @@ class Cache;
 // of Cache uses a least-recently-used eviction policy.
 extern shared_ptr<Cache> NewLRUCache(size_t capacity);
 extern shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits);
-
-class BlockMetrics;
 
 class Cache {
  public:
@@ -90,36 +87,6 @@ class Cache {
 
   // returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() = 0;
-
-
-  // Releases the handle and passes the metrics to the metrics handler
-  // that was added with the AddHandler() method.
-  // If handler was not registered then metrics is deleted.
-  virtual void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
-                                       BlockMetrics* metrics);
-
-  // Adds a handler for a std::vector of metrics. Whenever enough metrics are
-  // acquired by ReleaseAndRecordMetrics() handler_func is called.  The first
-  // parameter for the callback function is the handler itself.
-  // Note that handler_func can get called on any thread and hence must be
-  // thread-safe.
-  //
-  // REQUIRES: handler != NULL
-  // REQUIRES: handler_func != NULL
-  // REQUIRES: hander hasn't been added before. (handler can get re-added after
-  //           it was removed by RemoveHandler())
-  virtual void AddHandler(
-      void* handler,
-      void (*handler_func)(void*, std::vector<BlockMetrics*>*));
-
-  // Removes a handler. This call flushes all the cached metrics before
-  // unregistering the handler.
-  //
-  // REQUIRES: handler has been added with AddHandler()
-  virtual void RemoveHandler(void* handler);
-
-  // Forcefully flushes all metrics currently held by the cache.
-  virtual void ForceFlushMetrics();
 
  private:
   void LRU_Remove(Handle* e);

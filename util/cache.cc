@@ -3,14 +3,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <assert.h>
-#include <map>
 #include <stdio.h>
 #include <stdlib.h>
-#include <vector>
 
 #include "leveldb/cache.h"
 #include "port/port.h"
-#include "table/block.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 
@@ -18,21 +15,6 @@ namespace leveldb {
 
 Cache::~Cache() {
 }
-
-// Stub methods to not break backwards compatibility.
-void Cache::ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
-                                    BlockMetrics* metrics) {
-  delete metrics;
-}
-void Cache::AddHandler(
-      void* handler,
-      void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {
-}
-void Cache::RemoveHandler(void* handler) {
-}
-void Cache::ForceFlushMetrics() {
-}
-
 
 namespace {
 
@@ -149,15 +131,11 @@ class HandleTable {
   }
 };
 
-// Number of metrics that are stored per shard before they get flushed to the
-// handler_func.
-size_t kMetricsFlushThreshold = 10000u;
-
 // A single shard of sharded cache.
 class LRUCache {
  public:
   LRUCache();
-  virtual ~LRUCache();
+  ~LRUCache();
 
   // Separate from constructor so caller can easily make an array of LRUCache
   void SetCapacity(size_t capacity) { capacity_ = capacity; }
@@ -169,15 +147,6 @@ class LRUCache {
   Cache::Handle* Lookup(const Slice& key, uint32_t hash);
   void Release(Cache::Handle* handle);
   void Erase(const Slice& key, uint32_t hash);
-
-
-  void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
-                               BlockMetrics* metrics);
-  void AddHandler(
-      void* handler,
-      void (*handler_func)(void*, std::vector<BlockMetrics*>*));
-  void RemoveHandler(void* handler);
-  void ForceFlushMetrics();
 
  private:
   void LRU_Remove(LRUHandle* e);
@@ -197,11 +166,6 @@ class LRUCache {
   LRUHandle lru_;
 
   HandleTable table_;
-
-  // Stores handler_funcs for the handlers.
-  std::map<void*, void (*)(void*, std::vector<BlockMetrics*>*)> handlers_;
-  // Stores the cache of metrics for specific handlers.
-  std::map<void*, std::vector<BlockMetrics*>*> metrics_store_;
 };
 
 LRUCache::LRUCache()
@@ -213,14 +177,6 @@ LRUCache::LRUCache()
 }
 
 LRUCache::~LRUCache() {
-  // Flush cached metrics to the handlers.
-  std::map<void*, std::vector<BlockMetrics*>*>::iterator it;
-  for (it = metrics_store_.begin();
-       it != metrics_store_.end(); ++it) {
-    void* handler = it->first;
-    (*handlers_[handler])(handler, metrics_store_[handler]);
-  }
-
   for (LRUHandle* e = lru_.next; e != &lru_; ) {
     LRUHandle* next = e->next;
     assert(e->refs == 1);  // Error if caller has an unreleased handle
@@ -310,59 +266,6 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
   }
 }
 
-void LRUCache::ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
-                                       BlockMetrics* metrics) {
-  MutexLock l(&mutex_);
-
-  // Stores the metrics in the cache for the handler if handler has been added;
-  // otherwise, we just delete it.
-  if (metrics_store_.count(handler) != 0) {
-    metrics_store_[handler]->push_back(metrics);
-    if (metrics_store_[handler]->size() >= kMetricsFlushThreshold) {
-      (*handlers_[handler])(handler, metrics_store_[handler]);
-      metrics_store_[handler] = new std::vector<BlockMetrics*>();
-    }
-  } else {
-    delete metrics;
-  }
-
-  Unref(reinterpret_cast<LRUHandle*>(handle));
-}
-
-void LRUCache::AddHandler(
-    void* handler,
-    void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {
-  assert(handler != NULL);
-  assert(handler_func != NULL);
-  assert(handlers_.count(handler) == 0);
-  assert(metrics_store_.count(handler) == 0);
-
-  MutexLock l(&mutex_);
-
-  handlers_[handler] = handler_func;
-  metrics_store_[handler] = new std::vector<BlockMetrics*>();
-}
-
-void LRUCache::RemoveHandler(void* handler) {
-  assert(handlers_.count(handler) != 0);
-  assert(metrics_store_.count(handler) != 0);
-  MutexLock l(&mutex_);
-
-  (*handlers_[handler])(handler, metrics_store_[handler]);
-  handlers_.erase(handler);
-  metrics_store_.erase(handler);
-}
-
-void LRUCache::ForceFlushMetrics() {
-  std::map<void*, std::vector<BlockMetrics*>*>::iterator it;
-  for (it = metrics_store_.begin();
-       it != metrics_store_.end(); ++it) {
-    void* handler = it->first;
-    (*handlers_[handler])(handler, metrics_store_[handler]);
-    metrics_store_[handler] = new std::vector<BlockMetrics*>();
-  }
-}
-
 static int kNumShardBits = 4;         // default values, can be overridden
 
 class ShardedLRUCache : public Cache {
@@ -371,7 +274,6 @@ class ShardedLRUCache : public Cache {
   port::Mutex id_mutex_;
   uint64_t last_id_;
   int numShardBits;
-  size_t numShards_;
   size_t capacity_;
 
   static inline uint32_t HashSlice(const Slice& s) {
@@ -385,10 +287,10 @@ class ShardedLRUCache : public Cache {
   void init(size_t capacity, int numbits) {
     numShardBits = numbits;
     capacity_ = capacity;
-    numShards_ = 1u << numShardBits;
-    shard_ = new LRUCache[numShards_];
-    const size_t per_shard = (capacity + (numShards_ - 1)) / numShards_;
-    for (size_t s = 0; s < numShards_; s++) {
+    int numShards = 1 << numShardBits;
+    shard_ = new LRUCache[numShards];
+    const size_t per_shard = (capacity + (numShards - 1)) / numShards;
+    for (int s = 0; s < numShards; s++) {
       shard_[s].SetCapacity(per_shard);
     }
   }
@@ -431,31 +333,6 @@ class ShardedLRUCache : public Cache {
   }
   virtual uint64_t GetCapacity() {
     return capacity_;
-  }
-
-  void ReleaseAndRecordMetrics(Handle* handle, void* handler,
-                               BlockMetrics* metrics) {
-    LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
-
-    shard_[Shard(h->hash)].ReleaseAndRecordMetrics(handle, handler, metrics);
-  }
-
-  void AddHandler(void* handler,
-                  void (*handler_func)(void*, std::vector<BlockMetrics*>*)) {
-    for (size_t i = 0; i < numShards_; ++i) {
-     shard_[i].AddHandler(handler, handler_func);
-    }
-  }
-  void RemoveHandler(void* handler) {
-    for (size_t i = 0; i < numShards_; ++i) {
-      shard_[i].RemoveHandler(handler);
-    }
-  }
-
-  void ForceFlushMetrics() {
-    for (size_t i = 0; i < numShards_; ++i) {
-      shard_[i].ForceFlushMetrics();
-    }
   }
 };
 

@@ -36,16 +36,12 @@ class Block {
                         uint64_t file_number,
                         uint64_t block_offset);
 
-  // Creates a new iterator that keeps track of accesses. When this iterator is
-  // deleted it frees the cache handle and passes the metrics to the cache
-  // specified.
-  // REQUIRES: cache, cache_handle, metrics_handler must be non-NULL
+  // Creates a new iterator that keeps track of accesses.
+  // REQUIRES: metrics_instance must be non-NULL
   Iterator* NewMetricsIterator(const Comparator* comparator,
                                uint64_t file_number,
                                uint64_t block_offset,
-                               Cache* cache,
-                               Cache::Handle* cache_handle,
-                               void* metrics_handler);
+                               BlockMetrics** metrics_instance);
 
   // Returns true if iter is a Block iterator and also knows that which file
   // and block it belongs to.

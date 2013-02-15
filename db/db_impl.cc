@@ -187,6 +187,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname,
       bg_cv_(&mutex_),
       mem_(new MemTable(internal_comparator_, NumberLevels())),
       logfile_number_(0),
+      tmp_metrics_store_(new std::vector<BlockMetrics*>()),
       tmp_batch_(new WriteBatch),
       bg_compaction_scheduled_(0),
       bg_logstats_scheduled_(false),
@@ -229,13 +230,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname,
     host_name_ = "localhost";
   }
   last_log_ts = 0;
-
-  // Set up metrics taking
-  if (is_hotcold_) {
-    assert(options_.block_cache != NULL);
-
-    options_.block_cache->AddHandler(this, &DBImpl::HandleMetrics);
-  }
 }
 
 DBImpl::~DBImpl() {
@@ -243,10 +237,16 @@ DBImpl::~DBImpl() {
   if (flush_on_destroy_) {
     FlushMemTable(FlushOptions());
   }
-  if (is_hotcold_) {
-    options_.block_cache->RemoveHandler(this);
-  }
   mutex_.Lock();
+  assert(tmp_metrics_store_ != nullptr);
+  if (is_hotcold_) {
+    for (BlockMetrics* bm: *tmp_metrics_store_) {
+      delete bm;
+    }
+    tmp_metrics_store_->clear();
+  }
+  assert(tmp_metrics_store_->empty());
+  delete tmp_metrics_store_;
   shutting_down_.Release_Store(this);  // Any non-NULL value is ok
   while (bg_compaction_scheduled_ || bg_logstats_scheduled_ ||
          bg_flushing_metrics_scheduled_) {
@@ -1156,7 +1156,9 @@ void DBImpl::TEST_ForceFlushMetrics() {
   assert(is_hotcold_);
   assert(options_.block_cache != NULL);
 
-  options_.block_cache->ForceFlushMetrics();
+  mutex_.Lock();
+  FlushTempMetrics();
+  mutex_.Unlock();
 
   TEST_WaitForMetricsFlush();
 }
@@ -1632,145 +1634,6 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
-namespace {
-// Helper function that takes a vector of BlockMetrics and joins all the
-// metrics together that share the same key.
-//
-// Assumes it has exclusive access to metrics.
-void CompactMetrics(std::vector<BlockMetrics*>& metrics) {
-  std::map<std::string, BlockMetrics*> unique;
-
-  for (size_t i = 0; i < metrics.size(); ++i) {
-    assert(metrics[i] != NULL);
-    const std::string& key = metrics[i]->GetDBKey();
-
-    if (unique.count(key) == 0) {
-      unique[key] = metrics[i];
-    } else {
-      assert(unique[key]->IsCompatible(metrics[i]));
-      unique[key]->Join(metrics[i]);
-      delete metrics[i];
-    }
-  }
-
-  metrics.clear();
-
-  for (std::map<std::string, BlockMetrics*>::iterator it = unique.begin();
-       it != unique.end(); ++it) {
-    metrics.push_back(it->second);
-  }
-}
-}
-void DBImpl::FlushMetrics(void* db) {
-  DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
-
-  while (true) {
-    std::vector<std::vector<BlockMetrics*>*> unflushed_metrics;
-
-    // Get unflushed metrics.
-    {
-      MutexLock l(&dbimpl->mutex_);
-
-      if (dbimpl->unflushed_metrics_.empty()) {
-        dbimpl->bg_flushing_metrics_scheduled_ = false;
-        dbimpl->bg_cv_.SignalAll();
-        return;
-      }
-
-      unflushed_metrics = dbimpl->unflushed_metrics_;
-      dbimpl->unflushed_metrics_.clear();
-    }
-
-    // Join all the metrics together in a single vector.
-    std::vector<BlockMetrics*> metrics;
-    for (size_t i = 0; i < unflushed_metrics.size(); ++i) {
-      metrics.insert(metrics.end(), unflushed_metrics[i]->begin(),
-                     unflushed_metrics[i]->end());
-      delete unflushed_metrics[i];
-    }
-
-    CompactMetrics(metrics);
-
-    // Flush metrics to database.
-    DB* metrics_db = dbimpl->metrics_db_;
-    for (size_t i = 0; i < metrics.size(); ++i) {
-      assert(metrics[i] != NULL);
-      const std::string& key = metrics[i]->GetDBKey();
-      // TODO: fix this code by some means so that we don't lose metrics
-      //       already in the database. Using a read-update-write cycle is far
-      //       too slow so we temporarily replaced it with an overwrite, with
-      //       the old code left commented out to show the ideal logic.
-      metrics_db->Put(WriteOptions(), key, metrics[i]->GetDBValue());
-      /*
-      BlockMetrics* db_metrics = NULL;
-
-      std::string db_value;
-      Status s = metrics_db->Get(ReadOptions(), key, &db_value);
-
-      if (s.ok()) {
-        db_metrics = BlockMetrics::Create(key, db_value);
-      }
-
-      // We check if metrics[i] and db_metrics are compatible because
-      // the metrics in the metrics db might have gotten corrupted.
-      if (db_metrics != NULL && metrics[i]->IsCompatible(db_metrics)) {
-        db_metrics->Join(metrics[i]);
-        metrics_db->Put(WriteOptions(), key, db_metrics->GetDBValue());
-      } else {
-        metrics_db->Put(WriteOptions(), key, metrics[i]->GetDBValue());
-        // TODO: Log an error here.
-      }
-      delete db_metrics;
-      */
-    }
-
-    for (size_t i = 0; i < metrics.size(); ++i) {
-      delete metrics[i];
-    }
-  }
-}
-
-void DBImpl::HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics) {
-  DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
-
-  // If we are shutting down or we are not a hot-cold db discard metrics.
-  //
-  // is_hotcold_ is constant after construction and shutting_down_ is an atomic
-  // so we don't need to acquire mutex_ .
-  if (!dbimpl->is_hotcold_ || dbimpl->shutting_down_.Acquire_Load()) {
-    for (size_t i = 0; i < metrics->size(); ++i) {
-      delete (*metrics)[i];
-    }
-    delete metrics;
-
-    return;
-  }
-
-  MutexLock l(&dbimpl->mutex_);
-  dbimpl->unflushed_metrics_.push_back(metrics);
-
-  if (!dbimpl->bg_flushing_metrics_scheduled_) {
-    dbimpl->bg_flushing_metrics_scheduled_ = true;
-    dbimpl->env_->Schedule(&DBImpl::FlushMetrics, dbimpl);
-  }
-}
-
-bool DBImpl::TEST_IsHot(const Iterator* iter) {
-  assert(is_hotcold_);
-  assert(iter != NULL);
-
-  BlockMetrics* bm = NULL;
-  ReadOptions metrics_read_options;
-  bool result = IsRecordHot(iter, metrics_db_, metrics_read_options, &bm);
-  delete bm;
-
-  return result;
-}
-
-bool DBImpl::TEST_IsHotCold() {
-  return is_hotcold_;
-}
-
 //
 // Given a sequence number, return the sequence number of the
 // earliest snapshot that this sequence number is visible in.
@@ -2145,6 +2008,138 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
   return versions_->MaxNextLevelOverlappingBytes();
 }
 
+
+// Number of metrics that are stored they get flushed to the
+// metrics db.
+size_t kMetricsFlushThreshold = 10000u;
+
+namespace {
+// Helper function that takes a vector of BlockMetrics and joins all the
+// metrics together that share the same key.
+//
+// Assumes it has exclusive access to metrics.
+void CompactMetrics(std::vector<BlockMetrics*>& metrics) {
+  std::map<std::string, BlockMetrics*> unique;
+
+  for (size_t i = 0; i < metrics.size(); ++i) {
+    assert(metrics[i] != NULL);
+    const std::string& key = metrics[i]->GetDBKey();
+
+    if (unique.count(key) == 0) {
+      unique[key] = metrics[i];
+    } else {
+      assert(unique[key]->IsCompatible(metrics[i]));
+      unique[key]->Join(metrics[i]);
+      delete metrics[i];
+    }
+  }
+
+  metrics.clear();
+
+  for (std::map<std::string, BlockMetrics*>::iterator it = unique.begin();
+       it != unique.end(); ++it) {
+    metrics.push_back(it->second);
+  }
+}
+}
+void DBImpl::FlushMetrics(void* db) {
+  DBImpl* dbimpl = reinterpret_cast<DBImpl*>(db);
+
+  while (true) {
+    std::vector<std::vector<BlockMetrics*>*> unflushed_metrics;
+
+    // Get unflushed metrics.
+    {
+      MutexLock l(&dbimpl->mutex_);
+
+      if (dbimpl->unflushed_metrics_.empty()) {
+        dbimpl->bg_flushing_metrics_scheduled_ = false;
+        dbimpl->bg_cv_.SignalAll();
+        return;
+      }
+
+      unflushed_metrics = dbimpl->unflushed_metrics_;
+      dbimpl->unflushed_metrics_.clear();
+    }
+
+    // Join all the metrics together in a single vector.
+    std::vector<BlockMetrics*> metrics;
+    for (size_t i = 0; i < unflushed_metrics.size(); ++i) {
+      metrics.insert(metrics.end(), unflushed_metrics[i]->begin(),
+                     unflushed_metrics[i]->end());
+      delete unflushed_metrics[i];
+    }
+
+    CompactMetrics(metrics);
+
+    // Flush metrics to database.
+    DB* metrics_db = dbimpl->metrics_db_;
+    for (size_t i = 0; i < metrics.size(); ++i) {
+      assert(metrics[i] != NULL);
+      const std::string& key = metrics[i]->GetDBKey();
+      // TODO: fix this code by some means so that we don't lose metrics
+      //       already in the database. Using a read-update-write cycle is far
+      //       too slow so we temporarily replaced it with an overwrite, with
+      //       the old code left commented out to show the ideal logic.
+      metrics_db->Put(WriteOptions(), key, metrics[i]->GetDBValue());
+      /*
+      BlockMetrics* db_metrics = NULL;
+
+      std::string db_value;
+      Status s = metrics_db->Get(ReadOptions(), key, &db_value);
+
+      if (s.ok()) {
+        db_metrics = BlockMetrics::Create(key, db_value);
+      }
+
+      // We check if metrics[i] and db_metrics are compatible because
+      // the metrics in the metrics db might have gotten corrupted.
+      if (db_metrics != NULL && metrics[i]->IsCompatible(db_metrics)) {
+        db_metrics->Join(metrics[i]);
+        metrics_db->Put(WriteOptions(), key, db_metrics->GetDBValue());
+      } else {
+        metrics_db->Put(WriteOptions(), key, metrics[i]->GetDBValue());
+        // TODO: Log an error here.
+      }
+      delete db_metrics;
+      */
+    }
+
+    for (size_t i = 0; i < metrics.size(); ++i) {
+      delete metrics[i];
+    }
+  }
+}
+
+void DBImpl::FlushTempMetrics() {
+  mutex_.AssertHeld();
+  assert(is_hotcold_);
+
+  unflushed_metrics_.push_back(tmp_metrics_store_);
+  tmp_metrics_store_ = new std::vector<BlockMetrics*>();
+
+  if (!bg_flushing_metrics_scheduled_) {
+    bg_flushing_metrics_scheduled_ = true;
+    env_->Schedule(&DBImpl::FlushMetrics, this);
+  }
+}
+
+bool DBImpl::TEST_IsHot(const Iterator* iter) {
+  assert(is_hotcold_);
+  assert(iter != NULL);
+
+  BlockMetrics* bm = NULL;
+  ReadOptions metrics_read_options;
+  bool result = IsRecordHot(iter, metrics_db_, metrics_read_options, &bm);
+  delete bm;
+
+  return result;
+}
+
+bool DBImpl::TEST_IsHotCold() {
+  return is_hotcold_;
+}
+
 Status DBImpl::Get(const ReadOptions& options,
                    const Slice& key,
                    std::string* value) {
@@ -2167,6 +2162,7 @@ Status DBImpl::Get(const ReadOptions& options,
   bool have_stat_update = false;
   Version::GetStats stats;
 
+  BlockMetrics* bm = nullptr;
   // Unlock while reading from files and memtables
   {
     mutex_.Unlock();
@@ -2179,7 +2175,7 @@ Status DBImpl::Get(const ReadOptions& options,
     } else {
       ReadOptions read_options = options;
       if (read_options.record_accesses && is_hotcold_) {
-        read_options.metrics_handler = this;
+        read_options.metrics_instance = &bm;
       }
       // If the database is hot-cold then we know we can use short circuiting
       // as the compaction logic guarantees that this will be valid.
@@ -2187,6 +2183,15 @@ Status DBImpl::Get(const ReadOptions& options,
       have_stat_update = true;
     }
     mutex_.Lock();
+  }
+  if (bm != nullptr) {
+    assert(is_hotcold_);
+    assert(tmp_metrics_store_ != nullptr);
+    tmp_metrics_store_->push_back(bm);
+
+    if (tmp_metrics_store_->size() >= kMetricsFlushThreshold) {
+      FlushTempMetrics();
+    }
   }
 
   if (!options_.disable_seek_compaction &&
@@ -2619,11 +2624,6 @@ Status DB::InternalOpen(const Options& options, const std::string& dbname,
   DB* metrics_db = NULL;
 
   if (with_hotcold) {
-    if (options.no_block_cache) {
-      return Status::InvalidArgument("Cannot have HotCold seperation when "
-                                     "no_block_cache is true.");
-    }
-
     // Creates directory for db in case it might not create as we don't create
     // intermediate directories.
     options.env->CreateDir(dbname);

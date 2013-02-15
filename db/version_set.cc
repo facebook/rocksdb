@@ -547,7 +547,7 @@ Status Version::Get(const ReadOptions& options,
 
     ReadOptions read_options = options;
     if (level < vset_->options_->min_hotcold_level) {
-      read_options.metrics_handler = nullptr;
+      read_options.metrics_instance = nullptr;
     }
 
     for (uint32_t i = 0; i < files.size(); ++i) {

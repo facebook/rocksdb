@@ -289,10 +289,7 @@ class Block::Iter : public Iterator {
 // This is the iterator returned by Block::NewMetricsIterator() on success.
 class Block::MetricsIter : public Block::Iter {
  private:
-  Cache* cache_;
-  Cache::Handle* cache_handle_;
-  void* metrics_handler_;
-  BlockMetrics* metrics_;
+  BlockMetrics** metrics_instance_;
   const InternalKeyComparator* icmp_;
 
  public:
@@ -302,25 +299,14 @@ class Block::MetricsIter : public Block::Iter {
               const char* data,
               uint32_t restarts,
               uint32_t num_restarts,
-              Cache* cache,
-              Cache::Handle* cache_handle,
-              void* metrics_handler)
+              BlockMetrics** metrics_instance)
       : Block::Iter(comparator, file_number, block_offset, data, restarts,
                     num_restarts),
-        cache_(cache),
-        cache_handle_(cache_handle),
-        metrics_handler_(metrics_handler),
-        metrics_(NULL),
+        metrics_instance_(metrics_instance),
         icmp_(dynamic_cast<const InternalKeyComparator*>(comparator_)) {
   }
 
   virtual ~MetricsIter() {
-    if (metrics_) {
-      cache_->ReleaseAndRecordMetrics(cache_handle_, metrics_handler_,
-                                      metrics_);
-    } else {
-      cache_->Release(cache_handle_);
-    }
   }
 
   virtual void Seek(const Slice& target) {
@@ -348,11 +334,11 @@ class Block::MetricsIter : public Block::Iter {
  private:
   void RecordAccess() {
     assert(Valid());
-    if (metrics_ == nullptr) {
-      metrics_ = new BlockMetrics(file_number_, block_offset_,
-                                  num_restarts_, kBytesPerRestart);
+    if (*metrics_instance_ == nullptr) {
+      *metrics_instance_ = new BlockMetrics(file_number_, block_offset_,
+                                            num_restarts_, kBytesPerRestart);
     }
-    metrics_->RecordAccess(restart_index_, restart_offset_);
+    (*metrics_instance_)->RecordAccess(restart_index_, restart_offset_);
   }
 };
 
@@ -387,34 +373,21 @@ Iterator* Block::NewIterator(const Comparator* cmp,
 Iterator* Block::NewMetricsIterator(const Comparator* cmp,
                                     uint64_t file_number,
                                     uint64_t block_offset,
-                                    Cache* cache,
-                                    Cache::Handle* cache_handle,
-                                    void* metrics_handler) {
-  assert(cache != nullptr);
-  assert(cache_handle != nullptr);
-  assert(metrics_handler != nullptr);
+                                    BlockMetrics** metrics_instance) {
+  assert(metrics_instance != nullptr);
 
-  Iterator* iter = nullptr;
   if (size_ < 2*sizeof(uint32_t)) {
-    iter = NewErrorIterator(Status::Corruption("bad block contents"));
+    return NewErrorIterator(Status::Corruption("bad block contents"));
   }
   const uint32_t num_restarts = NumRestarts();
   if (num_restarts == 0) {
-    iter = NewEmptyIterator();
-  }
-
-  if (iter == nullptr) {
-    // MetricsIter takes ownership of the cache handle and will delete it.
-    iter = new MetricsIter(cmp, file_number, block_offset, data_,
-                           restart_offset_, num_restarts,
-                           cache, cache_handle, metrics_handler);
+    return NewEmptyIterator();
   } else {
-    // Release the cache handle as neither the error iterator nor the empty
-    // iterator need it's contents.
-    cache->Release(cache_handle);
+    // MetricsIter takes ownership of the cache handle and will delete it.
+    return new MetricsIter(cmp, file_number, block_offset, data_,
+                           restart_offset_, num_restarts,
+                           metrics_instance);
   }
-
-  return iter;
 }
 
 bool Block::GetBlockIterInfo(const Iterator* iter,

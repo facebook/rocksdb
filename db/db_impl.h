@@ -192,10 +192,10 @@ class DBImpl : public DB {
   // This gets run in the background thread to handle flushing metrics we
   // receive from the cache to metrics_db_. Only up to a single instance of this
   // thread will run at a time per DBImpl instance.
-  static void FlushMetrics(void*);
-  // This is the callback function that gets passed to Cache to handle metrics.
-  static void HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics);
+  static void FlushMetrics(void* db);
 
+  // Flushes tmp_metrics_store_ to disk.
+  void FlushTempMetrics();
 
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'allfiles'.
@@ -250,6 +250,7 @@ class DBImpl : public DB {
   unique_ptr<log::Writer> log_;
   // Metrics that have been received from the cache, but have not yet been
   // flushed to metrics_db_.
+  std::vector<BlockMetrics*>* tmp_metrics_store_;
   std::vector<std::vector<BlockMetrics*>*> unflushed_metrics_;
 
   std::string host_name_;

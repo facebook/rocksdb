@@ -380,6 +380,7 @@ struct Options {
   size_t manifest_preallocation_size;
 };
 
+class BlockMetrics;
 // Options that control read operations
 struct ReadOptions {
   // If true, all data read from underlying storage will be
@@ -409,17 +410,17 @@ struct ReadOptions {
         fill_cache(true),
         snapshot(NULL),
         record_accesses(true),
-        metrics_handler(NULL) {
+        metrics_instance(nullptr) {
   }
   ReadOptions(bool cksum, bool cache) :
               verify_checksums(cksum), fill_cache(cache),
               snapshot(NULL),
               record_accesses(true),
-              metrics_handler(NULL) {
+              metrics_instance(nullptr)  {
   }
 
   // Internal parameters
-  void* metrics_handler;
+  BlockMetrics** metrics_instance;
 };
 
 // Options that control write operations
