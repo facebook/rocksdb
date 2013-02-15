@@ -47,13 +47,16 @@ const char* InternalKeyComparator::Name() const {
   return "leveldb.InternalKeyComparator";
 }
 
-int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey,
+                                   bool* user_key_eq) const {
+  assert(user_key_eq != nullptr);
   // Order by:
   //    increasing user key (according to user-supplied comparator)
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
+    *user_key_eq = true;
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
     if (anum > bnum) {
@@ -61,8 +64,15 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
     } else if (anum < bnum) {
       r = +1;
     }
+  } else {
+    *user_key_eq = false;
   }
   return r;
+}
+
+int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
+  bool ignored;
+  return Compare(akey, bkey, &ignored);
 }
 
 void InternalKeyComparator::FindShortestSeparator(

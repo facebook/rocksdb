@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <algorithm>
+#include "db/dbformat.h"
 #include "leveldb/db.h"
 #include "leveldb/comparator.h"
 #include "table/format.h"
@@ -120,6 +121,39 @@ class Block::Iter : public Iterator {
     value_ = Slice(data_ + offset, 0);
   }
 
+  // Returns the first restart index possibly containing "target".
+  // Returns "num_restarts_" if this search encounters an error key.
+  uint32_t FindFirstRestartPointContaining(const Slice& target) {
+    // Binary search in restart array to find the first restart point
+    // with a key >= target
+    uint32_t left = 0;
+    uint32_t right = num_restarts_ - 1;
+    while (left < right) {
+      uint32_t mid = (left + right + 1) / 2;
+      uint32_t region_offset = GetRestartPoint(mid);
+      uint32_t shared, non_shared, value_length;
+      const char* key_ptr = DecodeEntry(data_ + region_offset,
+                                        data_ + restarts_,
+                                        &shared, &non_shared, &value_length);
+      if (key_ptr == NULL || (shared != 0)) {
+        CorruptionError();
+        return num_restarts_;
+      }
+      Slice mid_key(key_ptr, non_shared);
+      if (Compare(mid_key, target) < 0) {
+        // Key at "mid" is smaller than "target".  Therefore all
+        // blocks before "mid" are uninteresting.
+        left = mid;
+      } else {
+        // Key at "mid" is >= "target".  Therefore all blocks at or
+        // after "mid" are uninteresting.
+        right = mid - 1;
+      }
+    }
+
+    return left;
+  }
+
  public:
   Iter(const Comparator* comparator,
        uint64_t file_number,
@@ -181,35 +215,8 @@ class Block::Iter : public Iterator {
   }
 
   virtual void Seek(const Slice& target) {
-    // Binary search in restart array to find the first restart point
-    // with a key >= target
-    uint32_t left = 0;
-    uint32_t right = num_restarts_ - 1;
-    while (left < right) {
-      uint32_t mid = (left + right + 1) / 2;
-      uint32_t region_offset = GetRestartPoint(mid);
-      uint32_t shared, non_shared, value_length;
-      const char* key_ptr = DecodeEntry(data_ + region_offset,
-                                        data_ + restarts_,
-                                        &shared, &non_shared, &value_length);
-      if (key_ptr == NULL || (shared != 0)) {
-        CorruptionError();
-        return;
-      }
-      Slice mid_key(key_ptr, non_shared);
-      if (Compare(mid_key, target) < 0) {
-        // Key at "mid" is smaller than "target".  Therefore all
-        // blocks before "mid" are uninteresting.
-        left = mid;
-      } else {
-        // Key at "mid" is >= "target".  Therefore all blocks at or
-        // after "mid" are uninteresting.
-        right = mid - 1;
-      }
-    }
-
     // Linear search (within restart block) for first key >= target
-    SeekToRestartPoint(left);
+    SeekToRestartPoint(FindFirstRestartPointContaining(target));
     while (true) {
       if (!ParseNextKey()) {
         return;
@@ -232,7 +239,7 @@ class Block::Iter : public Iterator {
     }
   }
 
- private:
+ protected:
   friend class Block;
 
   void CorruptionError() {
@@ -286,6 +293,7 @@ class Block::MetricsIter : public Block::Iter {
   Cache::Handle* cache_handle_;
   void* metrics_handler_;
   BlockMetrics* metrics_;
+  const InternalKeyComparator* icmp_;
 
  public:
   MetricsIter(const Comparator* comparator,
@@ -302,7 +310,8 @@ class Block::MetricsIter : public Block::Iter {
         cache_(cache),
         cache_handle_(cache_handle),
         metrics_handler_(metrics_handler),
-        metrics_(NULL) {
+        metrics_(NULL),
+        icmp_(dynamic_cast<const InternalKeyComparator*>(comparator_)) {
   }
 
   virtual ~MetricsIter() {
@@ -315,19 +324,35 @@ class Block::MetricsIter : public Block::Iter {
   }
 
   virtual void Seek(const Slice& target) {
-    Block::Iter::Seek(target);
-    RecordAccess();
+    if (icmp_ == nullptr) {
+      Block::Iter::Seek(target);
+      return;
+    }
+
+    SeekToRestartPoint(FindFirstRestartPointContaining(target));
+    bool user_key_eq = false;
+    while (true) {
+      if (!ParseNextKey()) {
+        return;
+      }
+      if (icmp_->Compare(key_, target, &user_key_eq) >= 0) {
+        break;
+      }
+    }
+
+    if (user_key_eq && Valid()) {
+      RecordAccess();
+    }
   }
 
  private:
   void RecordAccess() {
-    if (Valid()) {
-      if (metrics_ == nullptr) {
-        metrics_ = new BlockMetrics(file_number_, block_offset_,
-                                    num_restarts_, kBytesPerRestart);
-      }
-      metrics_->RecordAccess(restart_index_, restart_offset_);
+    assert(Valid());
+    if (metrics_ == nullptr) {
+      metrics_ = new BlockMetrics(file_number_, block_offset_,
+                                  num_restarts_, kBytesPerRestart);
     }
+    metrics_->RecordAccess(restart_index_, restart_offset_);
   }
 };
 

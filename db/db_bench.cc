@@ -741,6 +741,8 @@ class Benchmark {
         method = &Benchmark::ReadWhileWriting;
       } else if (name == Slice("readrandomwriterandom")) {
         method = &Benchmark::ReadRandomWriteRandom;
+      } else if (name == Slice("readhotwriterandom")) {
+        method = &Benchmark::ReadHotWriteRandom;
       } else if (name == Slice("compact")) {
         method = &Benchmark::Compact;
       } else if (name == Slice("crc32c")) {
@@ -1235,6 +1237,54 @@ class Benchmark {
         get_weight = FLAGS_readwritepercent;
         put_weight = 100 - get_weight;
       }
+      if (get_weight > 0) {
+        // do all the gets first
+        if (db_->Get(options, key, &value).ok()) {
+          found++;
+        }
+        get_weight--;
+        reads_done++;
+      } else  if (put_weight > 0) {
+        // then do all the corresponding number of puts
+        // for all the gets we have done earlier
+        Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
+        if (!s.ok()) {
+          fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+          exit(1);
+        }
+        put_weight--;
+        writes_done++;
+      }
+      thread->stats.FinishedSingleOp(db_);
+    }
+    char msg[100];
+    snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld )",
+             reads_done, writes_done, readwrites_);
+    thread->stats.AddMessage(msg);
+  }
+
+  void ReadHotWriteRandom(ThreadState* thread) {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    RandomGenerator gen;
+    std::string value;
+    long found = 0;
+    int get_weight = 0;
+    int put_weight = 0;
+    long reads_done = 0;
+    long writes_done = 0;
+    // the number of iterations is the larger of read_ or write_
+    for (long i = 0; i < readwrites_; i++) {
+      char key[100];
+      if (get_weight == 0 && put_weight == 0) {
+        // one batch complated, reinitialize for next batch
+        get_weight = FLAGS_readwritepercent;
+        put_weight = 100 - get_weight;
+      }
+      int k = thread->rand.Next() % FLAGS_num;
+      if (get_weight > 0) {
+        k = k/100*100;
+      }
+      snprintf(key, sizeof(key), "%016d", k);
       if (get_weight > 0) {
         // do all the gets first
         if (db_->Get(options, key, &value).ok()) {

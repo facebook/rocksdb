@@ -96,6 +96,13 @@ class InternalKeyComparator : public Comparator {
 
   const Comparator* user_comparator() const { return user_comparator_; }
 
+  // Compares "a" and "b" and sets "user_key_eq" to true if they have an user
+  // key that compares equal under the user comparator and false otherwise.
+  //
+  // We need to expose this information in terms of an extra flag, because ties
+  // where both values have the same user key are broken with sequence number
+  // and record type.
+  int Compare(const Slice& a, const Slice& b, bool* user_key_eq) const;
   int Compare(const InternalKey& a, const InternalKey& b) const;
 };
 

@@ -104,6 +104,130 @@ TEST(BlockTest, SimpleTest) {
   delete iter;
 }
 
+class MockCache : public Cache {
+ public:
+  bool generated_metrics;
+  bool was_released;
+
+ public:
+  MockCache() {
+    Reset();
+  }
+
+  // Stub implementations so class compiles
+  virtual Cache::Handle* Insert(const Slice& key, void* value, size_t charge,
+                         void (*deleter)(const Slice& key, void* value)) {
+    return nullptr;
+  }
+  virtual Cache::Handle* Lookup(const Slice& key) { return nullptr; }
+  virtual void* Value(Cache::Handle* handle) { return nullptr; }
+  virtual void Erase(const Slice& key) {}
+  virtual uint64_t NewId() { return 4;}
+  virtual size_t GetCapacity() { return 0; }
+
+  virtual void Release(Cache::Handle* handle) {
+    generated_metrics = false;
+    was_released = true;
+  }
+
+  virtual void ReleaseAndRecordMetrics(Cache::Handle* handle, void* handler,
+                                       BlockMetrics* metrics) {
+    generated_metrics = metrics != nullptr;
+    delete metrics;
+    was_released = true;
+  }
+
+  void Reset() {
+    generated_metrics = false;
+    was_released = false;
+  }
+};
+
+TEST(BlockTest, MetricsIter) {
+  Random rnd(301);
+  Options options = Options();
+  options.comparator = new InternalKeyComparator(options.comparator);
+  std::vector<std::string> keys;
+  BlockBuilder builder(&options);
+  int num_records = 1000;
+  char buf[20];
+  char* p = &buf[0];
+
+  // add a bunch of records to a block
+  for (int i = 0; i < num_records; i++) {
+    // generate random kvs
+    sprintf(p, "%6d", i);
+    std::string k(p);
+    std::string v = RandomString(&rnd, 100); // 100 byte values
+
+    // write kvs to the block
+    InternalKey ik(k, 100, kTypeValue);
+    Slice key = ik.Encode();
+    Slice value(v);
+    if (i % 2 == 0) { // only add even keys
+      builder.Add(key, value);
+    }
+
+    // remember kvs in a lookaside array
+    keys.push_back(key.ToString());
+  }
+
+  // read serialized contents of the block
+  Slice rawblock = builder.Finish();
+
+  // create block reader
+  BlockContents contents;
+  contents.data = rawblock;
+  contents.cachable = false;
+  contents.heap_allocated = false;
+  Block reader(contents);
+
+  MockCache c;
+  Cache::Handle* ch = reinterpret_cast<Cache::Handle*>(&c);
+
+  c.Reset();
+  Iterator* iter = reader.NewMetricsIterator(options.comparator, 0, 0,
+                                             &c, ch, &c);
+  delete iter;
+  ASSERT_TRUE(c.was_released);
+  ASSERT_TRUE(!c.generated_metrics) << "needlessly generated metrics.\n";
+
+  for (int i = 1; i < num_records; i += 2) {
+    c.Reset();
+    iter = reader.NewMetricsIterator(options.comparator, 0, 0, &c, ch, &c);
+    iter->Seek(keys[i]);
+    delete iter;
+    ASSERT_TRUE(c.was_released);
+    ASSERT_TRUE(!c.generated_metrics) << "generated metrics for unfound row.\n";
+  }
+
+  c.Reset();
+  iter = reader.NewMetricsIterator(options.comparator, 0, 0, &c, ch, &c);
+  iter->SeekToFirst();
+  iter->Next();
+  iter->SeekToLast();
+  iter->Prev();
+  delete iter;
+  ASSERT_TRUE(c.was_released);
+  ASSERT_TRUE(!c.generated_metrics) << "generated metrics for non-Seek().\n";
+
+  for (int i = 0; i < num_records; i += 2) {
+    c.Reset();
+    iter = reader.NewMetricsIterator(options.comparator, 0, 0, &c, ch, &c);
+    iter->Seek(keys[i]);
+    delete iter;
+    ASSERT_TRUE(c.was_released);
+    ASSERT_TRUE(c.generated_metrics) << "didn't generate metrics for found row\n";
+  }
+
+  c.Reset();
+  iter = reader.NewMetricsIterator(options.comparator, 0, 0, &c, ch, &c);
+  iter->Seek(InternalKey("     2", 140, kTypeDeletion).Encode());
+  delete iter;
+  ASSERT_TRUE(c.was_released);
+  ASSERT_TRUE(c.generated_metrics) << "didn't generate metrics for Seek().\n";
+}
+
 class BlockMetricsTest {
  private:
  public:
