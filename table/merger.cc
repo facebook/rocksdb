@@ -168,6 +168,13 @@ class MergingIterator : public Iterator {
     return status;
   }
 
+  virtual const Iterator* FindSubIterator() const {
+    if (!Valid()) {
+      return NULL;
+    }
+    return current_->iter();
+  };
+
  private:
   void FindSmallest();
   void FindLargest();

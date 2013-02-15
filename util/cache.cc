@@ -30,6 +30,8 @@ void Cache::AddHandler(
 }
 void Cache::RemoveHandler(void* handler) {
 }
+void Cache::ForceFlushMetrics() {
+}
 
 
 namespace {
@@ -175,6 +177,7 @@ class LRUCache {
       void* handler,
       void (*handler_func)(void*, std::vector<BlockMetrics*>*));
   void RemoveHandler(void* handler);
+  void ForceFlushMetrics();
 
  private:
   void LRU_Remove(LRUHandle* e);
@@ -350,6 +353,15 @@ void LRUCache::RemoveHandler(void* handler) {
   metrics_store_.erase(handler);
 }
 
+void LRUCache::ForceFlushMetrics() {
+  std::map<void*, std::vector<BlockMetrics*>*>::iterator it;
+  for (it = metrics_store_.begin();
+       it != metrics_store_.end(); ++it) {
+    void* handler = it->first;
+    (*handlers_[handler])(handler, metrics_store_[handler]);
+    metrics_store_[handler] = new std::vector<BlockMetrics*>();
+  }
+}
 
 static int kNumShardBits = 4;         // default values, can be overridden
 
@@ -437,6 +449,12 @@ class ShardedLRUCache : public Cache {
   void RemoveHandler(void* handler) {
     for (size_t i = 0; i < numShards_; ++i) {
       shard_[i].RemoveHandler(handler);
+    }
+  }
+
+  void ForceFlushMetrics() {
+    for (size_t i = 0; i < numShards_; ++i) {
+      shard_[i].ForceFlushMetrics();
     }
   }
 };

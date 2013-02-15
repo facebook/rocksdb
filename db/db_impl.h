@@ -71,11 +71,18 @@ class DBImpl : public DB {
   // Force current memtable contents to be compacted.
   Status TEST_CompactMemTable();
 
+  // Forcefully flushes metrics to metrics DB from where it can be read.
+  // This method only returns after the flush finishes.
+  void TEST_ForceFlushMetrics();
+
   // Wait for memtable compaction
   Status TEST_WaitForCompactMemTable();
 
   // Wait for any compaction
   Status TEST_WaitForCompact();
+
+  // Wait for flushing of metrics to finish
+  void TEST_WaitForMetricsFlush();
 
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
@@ -91,6 +98,15 @@ class DBImpl : public DB {
 
   // Return the current manifest file no.
   uint64_t TEST_Current_Manifest_FileNo();
+
+  // Returns true if the record pointed to by iter is hot.
+  // REQUIRES: this is a hot-cold database.
+  // REQUIRES: iter is not NULL and belongs to this database.
+  bool TEST_IsHot(const Iterator* iter);
+
+  // Returns true if the DBImpl does hot-cold tracking.
+  bool TEST_IsHotCold();
+
  protected:
   Env* const env_;
   const std::string dbname_;

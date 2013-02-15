@@ -57,6 +57,60 @@ extern bool SomeFileOverlapsRange(
     const Slice* smallest_user_key,
     const Slice* largest_user_key);
 
+// Group of files that overlap.
+class FileGroup {
+ public:
+  // smallest and largest store the smallest and largest key in any file in
+  // files.
+  InternalKey smallest;
+  InternalKey largest;
+
+  // Files are sorted by their smallest key.
+  std::vector<FileMetaData*> files;
+
+  // Total size of all files in files.
+  uint64_t total_file_size;
+
+  // Returns an iterator that iterates over all key-value pairs in this group.
+  // No duplicate suppression is done.
+  Iterator* NewIterator(TableCache* cache, const InternalKeyComparator* icmp,
+                        const ReadOptions& options);
+
+  // Return the approximate offset in the group of the data for
+  // "ikey".
+  uint64_t ApproximateOffsetOf(const VersionSet* vset,
+                               const InternalKey& ikey);
+};
+
+// Given a comparator and list of files, groups files into groups of
+// overlapping files. The groups are stored in file_groups and are
+// non-overlapping and are sorted by the given comparator. Additionally,
+// it is guaranteed that no group is empty and each group has the properties
+// guaranteed in FileGroup.
+// file_groups's contents are discarded by this function.
+void GroupFiles(
+    const InternalKeyComparator* internal_comparator,
+    const std::vector<FileMetaData*>& files,
+    std::vector<FileGroup*>& file_groups);
+
+// Return the smallest index i such that groups[i]->largest >= key.
+// Return groups.size() if there is no such group.
+// REQUIRES: "groups" contains a sorted list of non-overlapping groups.
+extern size_t FindGroup(const InternalKeyComparator& icmp,
+                        const std::vector<FileGroup*>& groups,
+                        const Slice& key);
+
+// Returns true iff some group in "groups" overlaps the user key range
+// [*smallest,*largest].
+// smallest==NULL represents a key smaller than all keys in the DB.
+// largest==NULL represents a key largest than all keys in the DB.
+// REQUIRES: "groups" contains a sorted list of non-overlapping groups.
+extern bool SomeGroupOverlapsRange(
+    const InternalKeyComparator& icmp,
+    const std::vector<FileGroup*>& groups,
+    const Slice* smallest_user_key,
+    const Slice* largest_user_key);
+
 class Version {
  public:
   // Append to *iters a sequence of iterators that will
@@ -88,24 +142,7 @@ class Version {
       int level,
       const InternalKey* begin,         // NULL means before all keys
       const InternalKey* end,           // NULL means after all keys
-      std::vector<FileMetaData*>* inputs,
-      int hint_index = -1,              // index of overlap file
-      int* file_index = NULL);          // return index of overlap file
-
-  void GetOverlappingInputsBinarySearch(
-      int level,
-      const Slice& begin,         // NULL means before all keys
-      const Slice& end,           // NULL means after all keys
-      std::vector<FileMetaData*>* inputs,
-      int hint_index,             // index of overlap file
-      int* file_index);           // return index of overlap file
-
-  void ExtendOverlappingInputs(
-      int level,
-      const Slice& begin,         // NULL means before all keys
-      const Slice& end,           // NULL means after all keys
-      std::vector<FileMetaData*>* inputs,
-      int index);                 // start extending from this index
+      std::vector<FileMetaData*>* inputs);
 
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
@@ -132,10 +169,10 @@ class Version {
 
  private:
   friend class Compaction;
+  friend class FileGroup;
   friend class VersionSet;
 
-  class LevelFileNumIterator;
-  Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;
+  void RebuildGroups(int level);
 
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
@@ -143,8 +180,11 @@ class Version {
   int refs_;                    // Number of live refs to this version
 
   // List of files per level, files in each level are arranged
-  // in increasing order of keys
+  // in increasing order of their start keys. Files may overlap.
   std::vector<FileMetaData*>* files_;
+
+  // List of file groups per level.
+  std::vector<FileGroup*>* file_groups_;
 
   // A list for the same set of files that are stored in files_,
   // but files in each level are now sorted based on file
@@ -373,6 +413,7 @@ class VersionSet {
   struct ManifestWriter;
 
   friend class Compaction;
+  friend class FileGroup;
   friend class Version;
 
   void Init(int num_levels);
@@ -457,7 +498,7 @@ class VersionSet {
 
   // Returns true if any one of the parent files are being compacted
   bool ParentRangeInCompaction(const InternalKey* smallest,
-    const InternalKey* largest, int level, int* index);
+    const InternalKey* largest, int level);
 
   // Returns true if any one of the specified files are being compacted
   bool FilesInCompaction(std::vector<FileMetaData*>& files);
@@ -535,13 +576,11 @@ class Compaction {
 
   // State used to check for number of of overlapping grandparent files
   // (parent == level_ + 1, grandparent == level_ + 2)
-  std::vector<FileMetaData*> grandparents_;
+  std::vector<FileGroup*> grandparents_;
   size_t grandparent_index_;  // Index in grandparent_starts_
   bool seen_key_;             // Some output key has been seen
   int64_t overlapped_bytes_;  // Bytes of overlap between current output
                               // and grandparent files
-  int base_index_;   // index of the file in files_[level_]
-  int parent_index_; // index of some file with same range in files_[level_+1]
   double score_;     // score that was used to pick this compaction.
 
   // State for implementing IsBaseLevelForKey

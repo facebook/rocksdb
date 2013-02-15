@@ -26,6 +26,12 @@ class Block {
   size_t size() const { return size_; }
   Iterator* NewIterator(const Comparator* comparator);
 
+  // Creates an iterator on the block that knows which file and block it
+  // belongs to.
+  Iterator* NewIterator(const Comparator* comparator,
+                        uint64_t file_number,
+                        uint64_t block_offset);
+
   // Creates a new iterator that keeps track of accesses.
   //
   // Creates a BlockMetrics object on the heap and sets metrics to it.
@@ -36,6 +42,14 @@ class Block {
                                uint64_t file_number,
                                uint64_t block_offset,
                                BlockMetrics** metrics);
+
+  // Returns true if iter is a Block iterator and also knows that which file
+  // and block it belongs to.
+  static bool GetBlockIterInfo(const Iterator* iter,
+                               uint64_t& file_number,
+                               uint64_t& block_offset,
+                               uint32_t& restart_index,
+                               uint32_t& restart_offset);
 
  private:
   uint32_t NumRestarts() const;
@@ -75,6 +89,11 @@ class BlockMetrics {
   BlockMetrics(uint64_t file_number, uint64_t block_offset,
                uint32_t num_restarts, uint32_t bytes_per_restart);
 
+  // Clears and puts the DB key for the file_number-block_offset-pair in
+  // *db_key.
+  static void CreateDBKey(uint64_t file_number, uint64_t block_offset,
+                          std::string* db_key);
+
   // Creates a BlockMetrics object from the DB key and value. Returns NULL if
   // either/both are invalid.
   static BlockMetrics* Create(const std::string& db_key,
@@ -100,6 +119,9 @@ class BlockMetrics {
 
   // Returns true if bm represents metrics for the same block.
   bool IsCompatible(const BlockMetrics* bm) const;
+
+  // Returns true if the given file_number and block_offset match this block's.
+  bool IsSameBlock(uint64_t file_number, uint64_t block_offset) const;
 
   // Joins the metrics from the other metrics into this one.
   // REQUIRES: this->IsCompatible(bm);

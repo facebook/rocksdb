@@ -172,6 +172,151 @@ TEST(FindFileTest, OverlappingFiles) {
   ASSERT_TRUE(Overlaps("600", "700"));
 }
 
+class FileGroupTest {
+ public:
+  std::vector<FileMetaData*> files_;
+  std::vector<FileGroup*> groups_;
+
+  FileGroupTest() { }
+
+  ~FileGroupTest() {
+    for (unsigned int i = 0; i < groups_.size(); i++) {
+      delete groups_[i];
+    }
+
+    for (unsigned int i = 0; i < files_.size(); i++) {
+      delete files_[i];
+    }
+  }
+
+  void AddFile(const char* smallest, const char* largest,
+               SequenceNumber smallest_seq = 100,
+               SequenceNumber largest_seq = 100) {
+    FileMetaData* f = new FileMetaData;
+    f->number = files_.size() + 1;
+    f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
+    f->largest = InternalKey(largest, largest_seq, kTypeValue);
+    f->file_size = smallest_seq + (largest_seq - smallest_seq)/2;
+    files_.push_back(f);
+  }
+
+  void RebuildGroups() {
+    for (unsigned int i = 0; i < groups_.size(); i++) {
+      delete groups_[i];
+    }
+
+    InternalKeyComparator cmp(BytewiseComparator());
+    GroupFiles(&cmp, files_, groups_);
+
+    CheckGroupsValid();
+  }
+
+  size_t Find(const char* key, SequenceNumber seq = 100) {
+    InternalKey target(key, seq, kTypeValue);
+    InternalKeyComparator cmp(BytewiseComparator());
+    return FindGroup(cmp, groups_, target.Encode());
+  }
+
+  bool Overlaps(const char* smallest, const char* largest) {
+    InternalKeyComparator cmp(BytewiseComparator());
+    Slice s(smallest != NULL ? smallest : "");
+    Slice l(largest != NULL ? largest : "");
+    return SomeGroupOverlapsRange(cmp, groups_,
+                                 (smallest != NULL ? &s : NULL),
+                                 (largest != NULL ? &l : NULL));
+  }
+
+  void CheckGroupsValid() {
+    InternalKeyComparator cmp(BytewiseComparator());
+
+    // Check group internal consistency.
+    for (size_t i = 0; i < groups_.size(); ++i) {
+      FileGroup& group = *groups_[i];
+
+      // Check all groups are non-empty
+      ASSERT_TRUE(!group.files.empty());
+
+      // Check files in all groups are sorted by smallest key.
+      for (size_t j = 0; j < group.files.size()-1; ++j) {
+        ASSERT_TRUE(cmp.Compare(group.files[j]->smallest,
+                                group.files[j+1]->smallest) < 0);
+      }
+
+      // Check smallest key in group is correct.
+      ASSERT_TRUE(cmp.Compare(group.smallest, group.files[0]->smallest) == 0);
+
+      // Check files in group actually overlap.
+      InternalKey largest_so_far = group.files[0]->largest;
+      for (size_t j = 0; j < group.files.size(); ++j) {
+        ASSERT_TRUE(cmp.Compare(largest_so_far,
+                                group.files[j]->smallest) >= 0);
+
+        if (cmp.Compare(largest_so_far, group.files[j]->largest) < 0) {
+          largest_so_far = group.files[j]->largest;
+        }
+      }
+
+      // Check largest key in group is correct.
+      ASSERT_TRUE(cmp.Compare(group.largest, largest_so_far) == 0);
+
+      // Check total file size is valid.
+      uint64_t total_file_size = 0;
+      for (size_t j = 0; j < group.files.size(); ++j) {
+        total_file_size += group.files[j]->file_size;
+      }
+      ASSERT_EQ(total_file_size, group.total_file_size);
+    }
+
+    // Check groups are sorted and don't overlap.
+    for (size_t i = 0; i < groups_.size()-1; ++i) {
+      ASSERT_TRUE(cmp.Compare(groups_[i]->largest,
+                              groups_[i+1]->smallest) < 0);
+    }
+  }
+};
+
+TEST(FileGroupTest, Construction) {
+  AddFile("150", "600");
+  AddFile("250", "700");
+  AddFile("650", "800");
+  AddFile("801", "805");
+  RebuildGroups();
+
+  ASSERT_EQ(groups_.size(), 2u);
+}
+
+TEST(FileGroupTest, OverlappingGroups) {
+  AddFile("150", "600");
+  AddFile("250", "700");
+  AddFile("650", "800");
+  AddFile("851", "855");
+  RebuildGroups();
+
+  ASSERT_TRUE(Overlaps(NULL, NULL));
+  ASSERT_TRUE(!Overlaps(NULL, "149"));
+  ASSERT_TRUE(Overlaps(NULL, "150"));
+  ASSERT_TRUE(Overlaps("855", NULL));
+  ASSERT_TRUE(!Overlaps("801", "850"));
+  ASSERT_TRUE(Overlaps("601", "649"));
+}
+
+TEST(FileGroupTest, FindingGroups) {
+  AddFile("100", "200");
+  AddFile("300", "400");
+  AddFile("600", "800");
+  RebuildGroups();
+
+  ASSERT_EQ(groups_.size(), 3u);
+
+  ASSERT_EQ(Find("0"), 0u);
+  ASSERT_EQ(Find("200"), 0u);
+  ASSERT_EQ(Find("201"), 1u);
+  ASSERT_EQ(Find("400"), 1u);
+  ASSERT_EQ(Find("401"), 2u);
+  ASSERT_EQ(Find("800"), 2u);
+  ASSERT_EQ(Find("801"), 3u);
+}
+
 }  // namespace leveldb
 
 int main(int argc, char** argv) {

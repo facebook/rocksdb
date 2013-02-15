@@ -381,15 +381,22 @@ struct ReadOptions {
   // Default: NULL
   const Snapshot* snapshot;
 
+  // If true accesses are recorded when the database is in hot-cold mode.
+  // Otherwise, they aren't.
+  // Default: true;
+  bool record_accesses;
+
   ReadOptions()
       : verify_checksums(false),
         fill_cache(true),
         snapshot(NULL),
+        record_accesses(true),
         metrics_handler(NULL) {
   }
   ReadOptions(bool cksum, bool cache) :
               verify_checksums(cksum), fill_cache(cache),
               snapshot(NULL),
+              record_accesses(true),
               metrics_handler(NULL) {
   }
 

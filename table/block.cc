@@ -227,8 +227,6 @@ class Block::Iter : public Iterator {
   }
 
  private:
-  friend class Block;
-
   void CorruptionError() {
     current_ = restarts_;
     restart_index_ = num_restarts_;
@@ -276,15 +274,21 @@ class Block::Iter : public Iterator {
 // This is the iterator returned by Block::NewMetricsIterator() on success.
 class Block::MetricsIter : public Block::Iter {
  private:
+  uint64_t file_number_;
+  uint64_t block_offset_;
   BlockMetrics* metrics_;
 
  public:
   MetricsIter(const Comparator* comparator,
+              uint64_t file_number,
+              uint64_t block_offset,
               const char* data,
               uint32_t restarts,
               uint32_t num_restarts,
               BlockMetrics* metrics)
       : Block::Iter(comparator, data, restarts, num_restarts),
+        file_number_(file_number),
+        block_offset_(block_offset),
         metrics_(metrics) {
   }
 
@@ -317,6 +321,8 @@ class Block::MetricsIter : public Block::Iter {
   }
 
  private:
+  friend class Block;
+
   void RecordAccess() {
     if (metrics_ != NULL && Valid()) {
       metrics_->RecordAccess(restart_index_, restart_offset_);
@@ -336,6 +342,22 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
   }
 }
 
+
+Iterator* Block::NewIterator(const Comparator* cmp,
+                             uint64_t file_number,
+                             uint64_t block_offset) {
+  if (size_ < 2*sizeof(uint32_t)) {
+    return NewErrorIterator(Status::Corruption("bad block contents"));
+  }
+  const uint32_t num_restarts = NumRestarts();
+  if (num_restarts == 0) {
+    return NewEmptyIterator();
+  } else {
+    return new MetricsIter(cmp, file_number, block_offset, data_,
+                           restart_offset_, num_restarts, NULL);
+  }
+}
+
 Iterator* Block::NewMetricsIterator(const Comparator* cmp,
                                     uint64_t file_number,
                                     uint64_t block_offset,
@@ -352,10 +374,30 @@ Iterator* Block::NewMetricsIterator(const Comparator* cmp,
   } else {
     *metrics = new BlockMetrics(file_number, block_offset, num_restarts,
                                 kBytesPerRestart);
-    return new MetricsIter(cmp, data_, restart_offset_, num_restarts,
-                           *metrics);
+    return new MetricsIter(cmp, file_number, block_offset, data_,
+                           restart_offset_, num_restarts, *metrics);
   }
 }
+
+bool Block::GetBlockIterInfo(const Iterator* iter,
+                             uint64_t& file_number,
+                             uint64_t& block_offset,
+                             uint32_t& restart_index,
+                             uint32_t& restart_offset) {
+  const MetricsIter* biter = dynamic_cast<const MetricsIter*>(iter);
+
+  if (biter == NULL) {
+    return false;
+  }
+
+  file_number = biter->file_number_;
+  block_offset = biter->block_offset_;
+  restart_index = biter->restart_index_;
+  restart_offset = biter->restart_offset_;
+
+  return true;
+}
+
 
 BlockMetrics::BlockMetrics(uint64_t file_number, uint64_t block_offset,
                            uint32_t num_restarts, uint32_t bytes_per_restart)
@@ -375,6 +417,15 @@ BlockMetrics::BlockMetrics(uint64_t file_number, uint64_t block_offset,
     bytes_per_restart_(bytes_per_restart) {
   assert(data.size() == kBlockMetricsSize);
   memcpy(metrics_, data.data(), kBlockMetricsSize);
+}
+
+void BlockMetrics::CreateDBKey(uint64_t file_number, uint64_t block_offset,
+                               std::string* db_key) {
+  assert(db_key != NULL);
+
+  db_key->clear();
+  PutFixed64(db_key, file_number);
+  PutFixed64(db_key, block_offset);
 }
 
 BlockMetrics* BlockMetrics::Create(uint64_t file_number, uint64_t block_offset,
@@ -438,6 +489,11 @@ bool BlockMetrics::IsCompatible(const BlockMetrics* bm) const {
           bm->bytes_per_restart_ == bytes_per_restart_ &&
           bm->file_number_ == file_number_ &&
           bm->block_offset_ == block_offset_);
+}
+
+bool BlockMetrics::IsSameBlock(uint64_t file_number, uint64_t block_offset) const {
+  return (file_number_ == file_number &&
+          block_offset_ == block_offset);
 }
 
 void BlockMetrics::Join(const BlockMetrics* bm) {

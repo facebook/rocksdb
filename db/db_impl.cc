@@ -33,6 +33,7 @@
 #include "port/port.h"
 #include "table/block.h"
 #include "table/merger.h"
+#include "table/metrics_info.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
@@ -96,6 +97,7 @@ struct DBImpl::CompactionState {
   // Files produced by compaction
   struct Output {
     uint64_t number;
+    bool skip; // Whether this output should be skipped due to being empty.
     uint64_t file_size;
     InternalKey smallest, largest;
   };
@@ -103,17 +105,24 @@ struct DBImpl::CompactionState {
   std::list<uint64_t> allocated_file_numbers;
 
   // State kept for output being generated
-  WritableFile* outfile;
-  TableBuilder* builder;
+  // We have potentially have more than one outfile due to hot-cold separation
+  // needing both a hot file and a cold file to output to.
+  size_t num_outfiles;
+  WritableFile** outfiles;
+  TableBuilder** builders;
 
   uint64_t total_bytes;
 
-  Output* current_output() { return &outputs[outputs.size()-1]; }
+  Output* current_output(size_t idx) {
+    assert(idx < num_outfiles);
+    return &outputs[outputs.size()-num_outfiles+idx];
+  }
 
   explicit CompactionState(Compaction* c)
       : compaction(c),
-        outfile(NULL),
-        builder(NULL),
+        num_outfiles(0),
+        outfiles(NULL),
+        builders(NULL),
         total_bytes(0) {
   }
 };
@@ -1168,6 +1177,15 @@ Status DBImpl::TEST_CompactMemTable() {
   return FlushMemTable(FlushOptions());
 }
 
+void DBImpl::TEST_ForceFlushMetrics() {
+  assert(is_hotcold_);
+  assert(options_.block_cache != NULL);
+
+  options_.block_cache->ForceFlushMetrics();
+
+  TEST_WaitForMetricsFlush();
+}
+
 Status DBImpl::TEST_WaitForCompactMemTable() {
   return WaitForCompactMemTable();
 }
@@ -1179,6 +1197,13 @@ Status DBImpl::TEST_WaitForCompact() {
     bg_cv_.Wait();
   }
   return bg_error_;
+}
+
+void DBImpl::TEST_WaitForMetricsFlush() {
+  MutexLock l(&mutex_);
+  while (bg_flushing_metrics_scheduled_) {
+    bg_cv_.Wait();
+  }
 }
 
 void DBImpl::MaybeScheduleCompaction() {
@@ -1345,14 +1370,23 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
 
 void DBImpl::CleanupCompaction(CompactionState* compact) {
   mutex_.AssertHeld();
-  if (compact->builder != NULL) {
+  if (compact->builders != NULL) {
     // May happen if we get a shutdown call in the middle of compaction
-    compact->builder->Abandon();
-    delete compact->builder;
+
+    for (size_t i = 0; i < compact->num_outfiles; ++i) {
+      compact->builders[i]->Abandon();
+      delete compact->builders[i];
+      delete compact->outfiles[i];
+    }
+    delete[] compact->builders;
+    delete[] compact->outfiles;
+
+    compact->num_outfiles = 0;
+    compact->builders = NULL;
+    compact->outfiles = NULL;
   } else {
-    assert(compact->outfile == NULL);
+    assert(compact->outfiles == NULL);
   }
-  delete compact->outfile;
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
     pending_outputs_.erase(out.number);
@@ -1366,7 +1400,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
 void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
   mutex_.AssertHeld();
   assert(compact != NULL);
-  assert(compact->builder == NULL);
+  assert(compact->builders == NULL);
   int filesNeeded = compact->compaction->num_input_files(1);
   for (int i = 0; i < filesNeeded; i++) {
     uint64_t file_number = versions_->NewFileNumber();
@@ -1389,32 +1423,56 @@ void DBImpl::ReleaseCompactionUnusedFileNumbers(CompactionState* compact) {
 
 Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   assert(compact != NULL);
-  assert(compact->builder == NULL);
-  uint64_t file_number;
-  // If we have not yet exhausted the pre-allocated file numbers,
-  // then use the one from the front. Otherwise, we have to acquire
-  // the heavyweight lock and allocate a new file number.
-  if (!compact->allocated_file_numbers.empty()) {
-    file_number = compact->allocated_file_numbers.front();
-    compact->allocated_file_numbers.pop_front();
-  } else {
-    mutex_.Lock();
-    file_number = versions_->NewFileNumber();
-    pending_outputs_.insert(file_number);
-    mutex_.Unlock();
-  }
-  CompactionState::Output out;
-  out.number = file_number;
-  out.smallest.Clear();
-  out.largest.Clear();
-  compact->outputs.push_back(out);
+  assert(compact->builders == NULL);
 
-  // Make the output file
-  std::string fname = TableFileName(dbname_, file_number);
-  Status s = env_->NewWritableFile(fname, &compact->outfile);
-  if (s.ok()) {
-    compact->builder = new TableBuilder(options_, compact->outfile,
-                                        compact->compaction->level() + 1);
+  compact->num_outfiles = is_hotcold_?2:1;
+  compact->builders = new TableBuilder*[compact->num_outfiles];
+  compact->outfiles = new WritableFile*[compact->num_outfiles];
+
+  Status s;
+  for (size_t i = 0; i < compact->num_outfiles; ++i) {
+    uint64_t file_number;
+    // If we have not yet exhausted the pre-allocated file numbers,
+    // then use the one from the front. Otherwise, we have to acquire
+    // the heavyweight lock and allocate a new file number.
+    if (!compact->allocated_file_numbers.empty()) {
+      file_number = compact->allocated_file_numbers.front();
+      compact->allocated_file_numbers.pop_front();
+    } else {
+      mutex_.Lock();
+      file_number = versions_->NewFileNumber();
+      pending_outputs_.insert(file_number);
+      mutex_.Unlock();
+    }
+    CompactionState::Output out;
+    out.number = file_number;
+    out.smallest.Clear();
+    out.largest.Clear();
+    compact->outputs.push_back(out);
+
+    // Make the output file
+    std::string fname = TableFileName(dbname_, file_number);
+    s = env_->NewWritableFile(fname, &compact->outfiles[i]);
+    if (s.ok()) {
+      compact->builders[i] = new TableBuilder(options_, compact->outfiles[i],
+                                              compact->compaction->level() + 1);
+    } else {
+      // Clean up already constructed builders and outfiles
+      for (size_t j = 0; j < i; ++j) {
+        compact->builders[j]->Abandon();
+        delete compact->builders[j];
+        delete compact->outfiles[j];
+      }
+      delete[] compact->builders;
+      delete[] compact->outfiles;
+
+      compact->num_outfiles = 0;
+      compact->builders = NULL;
+      compact->outfiles = NULL;
+
+      // And stop looping
+      break;
+    }
   }
   return s;
 }
@@ -1422,55 +1480,79 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
                                           Iterator* input) {
   assert(compact != NULL);
-  assert(compact->outfile != NULL);
-  assert(compact->builder != NULL);
+  assert(compact->outfiles != NULL);
+  assert(compact->builders != NULL);
 
-  const uint64_t output_number = compact->current_output()->number;
-  assert(output_number != 0);
+  Status s;
 
-  // Check for iterator errors
-  Status s = input->status();
-  const uint64_t current_entries = compact->builder->NumEntries();
-  if (s.ok()) {
-    s = compact->builder->Finish();
-  } else {
-    compact->builder->Abandon();
-  }
-  const uint64_t current_bytes = compact->builder->FileSize();
-  compact->current_output()->file_size = current_bytes;
-  compact->total_bytes += current_bytes;
-  delete compact->builder;
-  compact->builder = NULL;
+  size_t i;
+  for (i = 0; i < compact->num_outfiles && s.ok(); ++i) {
+    const uint64_t output_number = compact->current_output(i)->number;
+    assert(output_number != 0);
 
-  // Finish and check for file errors
-  if (s.ok() && !options_.disableDataSync) {
-    if (options_.use_fsync) {
-      s = compact->outfile->Fsync();
+    // Check for iterator errors
+    s = input->status();
+    const uint64_t current_entries = compact->builders[i]->NumEntries();
+    if (s.ok() && current_entries > 0) {
+      // Don't write out the output file if it is empty.
+      s = compact->builders[i]->Finish();
     } else {
-      s = compact->outfile->Sync();
+      compact->builders[i]->Abandon();
     }
-  }
-  if (s.ok()) {
-    s = compact->outfile->Close();
-  }
-  delete compact->outfile;
-  compact->outfile = NULL;
+    const uint64_t current_bytes = compact->builders[i]->FileSize();
+    compact->current_output(i)->file_size = current_bytes;
+    compact->current_output(i)->skip = current_entries == 0;
+    compact->total_bytes += current_bytes;
+    delete compact->builders[i];
+    compact->builders[i] = nullptr;
 
-  if (s.ok() && current_entries > 0) {
-    // Verify that the table is usable
-    Iterator* iter = table_cache_->NewIterator(ReadOptions(),
-                                               output_number,
-                                               current_bytes);
-    s = iter->status();
-    delete iter;
-    if (s.ok()) {
-      Log(options_.info_log,
-          "Generated table #%llu: %lld keys, %lld bytes",
-          (unsigned long long) output_number,
-          (unsigned long long) current_entries,
-          (unsigned long long) current_bytes);
+    // Finish and check for file errors
+    if (s.ok() && !options_.disableDataSync && current_entries > 0) {
+      if (options_.use_fsync) {
+        s = compact->outfiles[i]->Fsync();
+      } else {
+        s = compact->outfiles[i]->Sync();
+      }
+    }
+    if (s.ok() && current_entries > 0) {
+      s = compact->outfiles[i]->Close();
+    }
+    delete compact->outfiles[i];
+    compact->outfiles[i] = nullptr;
+
+    if (s.ok() && current_entries > 0) {
+      // Verify that the table is usable
+      Iterator* iter = table_cache_->NewIterator(ReadOptions(),
+                                                 output_number,
+                                                 current_bytes);
+      s = iter->status();
+      delete iter;
+      if (s.ok()) {
+        Log(options_.info_log,
+            "Generated table #%llu: %lld keys, %lld bytes",
+            (unsigned long long) output_number,
+            (unsigned long long) current_entries,
+            (unsigned long long) current_bytes);
+      }
     }
   }
+
+  // Clean up rest of the output files and builders if we experienced an error.
+  if (!s.ok()) {
+    for (; i < compact->num_outfiles; ++i) {
+      compact->builders[i]->Abandon();
+      delete compact->builders[i];
+      delete compact->outfiles[i];
+    }
+  }
+
+  delete[] compact->builders;
+  delete[] compact->outfiles;
+
+  compact->num_outfiles = 0;
+  compact->builders = NULL;
+  compact->outfiles = NULL;
+
   return s;
 }
 
@@ -1504,6 +1586,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   const int level = compact->compaction->level();
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
+    if (out.skip) continue;
     compact->compaction->edit()->AddFile(
         level + 1,
         out.number, out.file_size, out.smallest, out.largest);
@@ -1571,11 +1654,16 @@ void DBImpl::FlushMetrics(void* db) {
     CompactMetrics(metrics);
 
     // Flush metrics to database.
-    // TODO (opt): Remove read-modify-write as it is incredibly slow.
     DB* metrics_db = dbimpl->metrics_db_;
     for (size_t i = 0; i < metrics.size(); ++i) {
       assert(metrics[i] != NULL);
       const std::string& key = metrics[i]->GetDBKey();
+      // TODO: fix this code by some means so that we don't lose metrics
+      //       already in the database. Using a read-update-write cycle is far
+      //       too slow so we temporarily replaced it with an overwrite, with
+      //       the old code left commented out to show the ideal logic.
+      metrics_db->Put(WriteOptions(), key, metrics[i]->GetDBValue());
+      /*
       BlockMetrics* db_metrics = NULL;
 
       std::string db_value;
@@ -1595,6 +1683,7 @@ void DBImpl::FlushMetrics(void* db) {
         // TODO: Log an error here.
       }
       delete db_metrics;
+      */
     }
 
     for (size_t i = 0; i < metrics.size(); ++i) {
@@ -1626,6 +1715,22 @@ void DBImpl::HandleMetrics(void* db, std::vector<BlockMetrics*>* metrics) {
     dbimpl->bg_flushing_metrics_scheduled_ = true;
     dbimpl->env_->Schedule(&DBImpl::FlushMetrics, dbimpl);
   }
+}
+
+bool DBImpl::TEST_IsHot(const Iterator* iter) {
+  assert(is_hotcold_);
+  assert(iter != NULL);
+
+  BlockMetrics* bm = NULL;
+  ReadOptions metrics_read_options;
+  bool result = IsRecordHot(iter, metrics_db_, metrics_read_options, &bm);
+  delete bm;
+
+  return result;
+}
+
+bool DBImpl::TEST_IsHotCold() {
+  return is_hotcold_;
 }
 
 //
@@ -1669,8 +1774,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   Log(options_.info_log, "Compaction start summary: %s\n", scratch);
 
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
-  assert(compact->builder == NULL);
-  assert(compact->outfile == NULL);
+  assert(compact->builders == NULL);
+  assert(compact->outfiles == NULL);
 
   SequenceNumber visible_at_tip = 0;
   SequenceNumber earliest_snapshot;
@@ -1691,6 +1796,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
+
+  BlockMetrics* block_metrics_store = NULL;
 
   const uint64_t start_micros = env_->NowMicros();
   Iterator* input = versions_->MakeInputIterator(compact->compaction);
@@ -1719,7 +1826,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     Slice value = input->value();
     Slice* compaction_filter_value = NULL;
     if (compact->compaction->ShouldStopBefore(key) &&
-        compact->builder != NULL) {
+        compact->builders != NULL) {
       status = FinishCompactionOutputFile(compact, input);
       if (!status.ok()) {
         break;
@@ -1808,20 +1915,34 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     if (!drop) {
       // Open output file if necessary
-      if (compact->builder == NULL) {
+      if (compact->builders == NULL) {
         status = OpenCompactionOutputFile(compact);
         if (!status.ok()) {
           break;
         }
       }
-      if (compact->builder->NumEntries() == 0) {
-        compact->current_output()->smallest.DecodeFrom(key);
-      }
-      compact->current_output()->largest.DecodeFrom(key);
-      compact->builder->Add(key, value);
 
-      // Close output file if it is big enough
-      if (compact->builder->FileSize() >=
+      // Select output file
+      size_t outfile_idx = 0;
+      if (is_hotcold_ && IsRecordHot(input, metrics_db_, ReadOptions(),
+                                     &block_metrics_store)) {
+        outfile_idx = 1;
+      }
+      assert(outfile_idx < compact->num_outfiles);
+
+
+      if (compact->builders[outfile_idx]->NumEntries() == 0) {
+        compact->current_output(outfile_idx)->smallest.DecodeFrom(key);
+      }
+      compact->current_output(outfile_idx)->largest.DecodeFrom(key);
+      compact->builders[outfile_idx]->Add(key, value);
+
+      // Close all the output files when any of them reach the file size limit.
+      // By checking only the file we added the record to we are still
+      // guaranteed to catch when this happens as none of the other current
+      // output files have changed their size.
+      // TODO: consider adding the size of all the builders together.
+      if (compact->builders[outfile_idx]->FileSize() >=
           compact->compaction->MaxOutputFileSize()) {
         status = FinishCompactionOutputFile(compact, input);
         if (!status.ok()) {
@@ -1833,10 +1954,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     input->Next();
   }
 
+  delete block_metrics_store;
+
   if (status.ok() && shutting_down_.Acquire_Load()) {
     status = Status::IOError("Deleting DB during compaction");
   }
-  if (status.ok() && compact->builder != NULL) {
+  if (status.ok() && compact->builders != NULL) {
     status = FinishCompactionOutputFile(compact, input);
   }
   if (status.ok()) {
@@ -1852,10 +1975,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   stats.files_in_levelnp1 = compact->compaction->num_input_files(1);
 
   int num_output_files = compact->outputs.size();
-  if (compact->builder != NULL) {
+  if (compact->builders != NULL) {
     // An error occured so ignore the last output.
     assert(num_output_files > 0);
-    --num_output_files;
+    num_output_files -= compact->num_outfiles;
   }
   stats.files_out_levelnp1 = num_output_files;
 
@@ -1996,7 +2119,7 @@ Status DBImpl::Get(const ReadOptions& options,
       // Done
     } else {
       ReadOptions read_options = options;
-      if (is_hotcold_) {
+      if (read_options.record_accesses && is_hotcold_) {
         read_options.metrics_handler = this;
       }
       s = current->Get(read_options, lkey, value, &stats);
@@ -2019,7 +2142,7 @@ Status DBImpl::Get(const ReadOptions& options,
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   ReadOptions read_options = options;
-  if (is_hotcold_) {
+  if (read_options.record_accesses && is_hotcold_) {
     read_options.metrics_handler = this;
   }
   Iterator* internal_iter = NewInternalIterator(read_options, &latest_snapshot);

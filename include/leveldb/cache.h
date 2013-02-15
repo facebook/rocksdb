@@ -115,6 +115,9 @@ class Cache {
   // REQUIRES: handler has been added with AddHandler()
   virtual void RemoveHandler(void* handler);
 
+  // Forcefully flushes all metrics currently held by the cache.
+  virtual void ForceFlushMetrics();
+
  private:
   void LRU_Remove(Handle* e);
   void LRU_Append(Handle* e);

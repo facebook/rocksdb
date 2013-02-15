@@ -76,6 +76,13 @@ class DBIter: public Iterator {
     }
   }
 
+  virtual const Iterator* FindSubIterator() const {
+    if (!Valid()) {
+      return NULL;
+    }
+    return iter_;
+  };
+
   virtual void Next();
   virtual void Prev();
   virtual void Seek(const Slice& target);

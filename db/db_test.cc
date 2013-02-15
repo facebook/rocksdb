@@ -14,6 +14,7 @@
 #include "leveldb/cache.h"
 #include "leveldb/env.h"
 #include "leveldb/table.h"
+#include "util/coding.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -282,6 +283,10 @@ class DBTest {
     ASSERT_OK(TryReopen(options));
   }
 
+  void ReopenWithHotCold(Options* options = NULL) {
+    ASSERT_OK(TryReopenWithHotCold(options));
+  }
+
   void Close() {
     delete db_;
     db_ = NULL;
@@ -292,6 +297,13 @@ class DBTest {
     db_ = NULL;
     DestroyDB(dbname_, Options());
     ASSERT_OK(TryReopen(options));
+  }
+
+  void DestroyAndReopenWithHotCold(Options* options = NULL) {
+    delete db_;
+    db_ = NULL;
+    DestroyDB(dbname_, Options());
+    ASSERT_OK(TryReopenWithHotCold(options));
   }
 
   Status PureReopen(Options* options, DB** db) {
@@ -311,6 +323,21 @@ class DBTest {
     last_options_ = opts;
 
     return DB::Open(opts, dbname_, &db_);
+  }
+
+  Status TryReopenWithHotCold(Options* options) {
+    delete db_;
+    db_ = NULL;
+    Options opts;
+    if (options != NULL) {
+      opts = *options;
+    } else {
+      opts = CurrentOptions();
+      opts.create_if_missing = true;
+    }
+    last_options_ = opts;
+
+    return DB::OpenWithHotCold(opts, dbname_, &db_);
   }
 
   Status Put(const std::string& k, const std::string& v) {
@@ -2888,6 +2915,96 @@ TEST(DBTest, Randomized) {
     }
     if (model_snap != NULL) model.ReleaseSnapshot(model_snap);
     if (db_snap != NULL) db_->ReleaseSnapshot(db_snap);
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, HotCold) {
+  const uint32_t kNumKeys = 1 << 9;
+  const uint32_t kKeysToSkip = 6;
+  do {
+    DestroyAndReopenWithHotCold(NULL);
+    ASSERT_TRUE(db_ != NULL);
+
+    // Skip if this db is not hotcold
+    if (!dbfull()->TEST_IsHotCold()) {
+      continue;
+    }
+
+    // Populate db and push all data to sstable
+    for (uint32_t key = 0; key < kNumKeys; ++key) {
+      std::string skey;
+      PutFixed32(&skey, key);
+
+      Put(skey, skey);
+    }
+    dbfull()->TEST_CompactMemTable();
+    dbfull()->CompactRange(NULL, NULL);
+
+    // Flush metrics if any and check that all records are cold
+    dbfull()->TEST_ForceFlushMetrics();
+    {
+      ReadOptions opts;
+      opts.record_accesses = false;
+      Iterator* iter = db_->NewIterator(opts);
+      for (uint32_t key = 0; key < kNumKeys; ++key) {
+        std::string skey;
+        PutFixed32(&skey, key);
+
+        iter->Seek(skey);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(skey, iter->key().ToString());
+
+        ASSERT_TRUE(!dbfull()->TEST_IsHot(iter));
+      }
+      delete iter;
+    }
+
+    // Access a few rows and flush the metrics to the metrics db.
+    for (uint32_t key = 0; key < kNumKeys; key += kKeysToSkip) {
+      std::string skey;
+      PutFixed32(&skey, key);
+
+      ASSERT_EQ(skey, Get(skey));
+    }
+    dbfull()->TEST_ForceFlushMetrics();
+
+    // Check that keys that should be hot are hot.
+    // Due to false positives we don't check whether cold keys are actually
+    // cold.
+    {
+      ReadOptions opts;
+      opts.record_accesses = false;
+      Iterator* iter = db_->NewIterator(opts);
+      uint32_t totalColdKeys = 0; // Total number of keys that are supposed to
+                                  // be cold.
+      uint32_t totalHotColdKeys = 0; // Counts number of keys which are
+                                     // supposed to be cold that are actually
+                                     // hot
+      for (uint32_t key = 0; key < kNumKeys; ++key) {
+        std::string skey;
+        PutFixed32(&skey, key);
+
+        iter->Seek(skey);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(skey, iter->key().ToString());
+
+        if (key % kKeysToSkip == 0) {
+          ASSERT_TRUE(dbfull()->TEST_IsHot(iter));
+        } else {
+          ++totalColdKeys;
+          if (dbfull()->TEST_IsHot(iter)) {
+            ++totalHotColdKeys;
+          }
+        }
+      }
+      delete iter;
+
+      if (totalColdKeys != 0) {
+        fprintf(stderr, "Hot false-positive rate: %.2f%%\n",
+                double(totalHotColdKeys)/totalColdKeys*100);
+      }
+    }
+
   } while (ChangeOptions());
 }
 

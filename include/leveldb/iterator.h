@@ -67,6 +67,14 @@ class Iterator {
   // If an error has occurred, return it.  Else return an ok status.
   virtual Status status() const = 0;
 
+  // If this Iterator makes use of some sub-Iterator to provide the current
+  // key-value pair, then this function returns a pointer to that
+  // Iterator-instance.
+  //
+  // Returns NULL if either Valid() is false or no sub-Iterator is providing
+  // the key-value pair.
+  virtual const Iterator* FindSubIterator() const { return NULL; };
+
   // Clients are allowed to register function/arg1/arg2 triples that
   // will be invoked when this iterator is destroyed.
   //

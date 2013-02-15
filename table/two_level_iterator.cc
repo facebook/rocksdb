@@ -53,6 +53,14 @@ class TwoLevelIterator: public Iterator {
     }
   }
 
+  virtual const Iterator* FindSubIterator() const {
+    if (!Valid()) {
+      return NULL;
+    }
+    return data_iter_.iter();
+  };
+
+
  private:
   void SaveError(const Status& s) {
     if (status_.ok() && !s.ok()) status_ = s;

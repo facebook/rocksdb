@@ -239,7 +239,9 @@ Iterator* Table::BlockReader(void* arg,
   Iterator* iter;
   if (block != NULL) {
     if (options.metrics_handler == NULL || cache_handle == NULL) {
-      iter = block->NewIterator(table->rep_->options.comparator);
+      iter = block->NewIterator(table->rep_->options.comparator,
+                                table->rep_->file_number,
+                                handle.offset());
 
       if (cache_handle == NULL) {
         iter->RegisterCleanup(&DeleteBlock, block, NULL);
