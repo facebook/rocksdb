@@ -121,13 +121,18 @@ class Version {
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
+  //
+  // If short_circuit is true, then if multiple files in a level have a range
+  // that overlaps the given key: The files are sorted from largest to smallest
+  // file number and the first file that contains the lookup key's value is
+  // used and the other files are skip.
   // REQUIRES: lock is not held
   struct GetStats {
     FileMetaData* seek_file;
     int seek_file_level;
   };
   Status Get(const ReadOptions&, const LookupKey& key, std::string* val,
-             GetStats* stats);
+             GetStats* stats, bool short_circuit = false);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.

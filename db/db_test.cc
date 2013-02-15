@@ -3053,6 +3053,84 @@ TEST(DBTest, HotCold) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, HotColdShortCircuit) {
+  const uint32_t kNumKeys = 1 << 9;
+  const uint32_t kKeysToSkip = 6;
+  do {
+    DestroyAndReopenWithHotCold(NULL);
+    ASSERT_TRUE(db_ != NULL);
+
+
+    // Skip if this db is not hotcold
+    if (!dbfull()->TEST_IsHotCold()) {
+      continue;
+    }
+
+    // Populate db and push all data to sstable
+    for (uint32_t key = 0; key < kNumKeys; ++key) {
+      std::string skey;
+      PutFixed32(&skey, key);
+
+      Put(skey, skey);
+    }
+    dbfull()->TEST_CompactMemTable();
+    dbfull()->CompactRange(NULL, NULL);
+
+    // Flush metrics if any and check that all records are cold
+    dbfull()->TEST_ForceFlushMetrics();
+    {
+      ReadOptions opts;
+      opts.record_accesses = false;
+      Iterator* iter = db_->NewIterator(opts);
+      for (uint32_t key = 0; key < kNumKeys; ++key) {
+        std::string skey;
+        PutFixed32(&skey, key);
+
+        iter->Seek(skey);
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ(skey, iter->key().ToString());
+
+        ASSERT_TRUE(!dbfull()->TEST_IsHot(iter));
+      }
+      delete iter;
+    }
+
+    // Access a few rows and flush the metrics to the metrics db.
+    for (uint32_t key = 0; key < kNumKeys; key += kKeysToSkip) {
+      std::string skey;
+      PutFixed32(&skey, key);
+
+      ASSERT_EQ(skey, Get(skey));
+    }
+    dbfull()->TEST_ForceFlushMetrics();
+
+    const Snapshot* snapshot = dbfull()->GetSnapshot();
+
+    // Populate db and push all data to sstable
+    for (uint32_t key = 0; key < kNumKeys; ++key) {
+      std::string skey;
+      PutFixed32(&skey, key);
+
+      Put(skey, skey + "0");
+    }
+    dbfull()->TEST_CompactMemTable();
+    dbfull()->CompactRange(NULL, NULL);
+
+    // Check that all values are valid and that short circuiting logic did not fail us.
+    {
+      for (uint32_t key = 0; key < kNumKeys; ++key) {
+        std::string skey;
+        PutFixed32(&skey, key);
+
+        ASSERT_EQ(skey, Get(skey, snapshot));
+        ASSERT_EQ(skey + "0", Get(skey));
+      }
+    }
+
+    dbfull()->ReleaseSnapshot(snapshot);
+  } while (ChangeOptions());
+}
+
 std::string MakeKey(unsigned int num) {
   char buf[30];
   snprintf(buf, sizeof(buf), "%016u", num);

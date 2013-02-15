@@ -479,7 +479,8 @@ Version::Version(VersionSet* vset, uint64_t version_number)
 Status Version::Get(const ReadOptions& options,
                     const LookupKey& k,
                     std::string* value,
-                    GetStats* stats) {
+                    GetStats* stats,
+                    bool short_circuit) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -534,7 +535,7 @@ Status Version::Get(const ReadOptions& options,
 
     // Sort files since in level 0 we can simply look starting from the newest
     // file.
-    if (level == 0) {
+    if (level == 0 || short_circuit) {
       std::sort(files.begin(), files.end(), NewestFirst);
     }
 
@@ -581,7 +582,7 @@ Status Version::Get(const ReadOptions& options,
         case kNotFound:
           break;      // Keep searching in other files
         case kFound:
-          if (level == 0 || files.size() == 1) {
+          if (level == 0 || short_circuit || files.size() == 1) {
             return s; // no need to look at other files
           }
 
@@ -592,7 +593,7 @@ Status Version::Get(const ReadOptions& options,
           }
           break; // keep searching in other files
         case kDeleted:
-          if (level == 0 || files.size() == 1) {
+          if (level == 0 || short_circuit || files.size() == 1) {
             s = Status::NotFound(Slice());  // Use empty error message for speed
             return s;
           }

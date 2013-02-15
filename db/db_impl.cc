@@ -1421,6 +1421,12 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     out.smallest.Clear();
     out.largest.Clear();
     compact->outputs.push_back(out);
+#ifndef NDEBUG
+    if (i > 0) {
+      // Check that file numbers are strictly increasing.
+      assert(out.number > compact->outputs[compact->outputs.size()-2].number);
+    }
+#endif
 
     // Make the output file
     std::string fname = TableFileName(dbname_, file_number);
@@ -1457,6 +1463,10 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   assert(compact != NULL);
   assert(!compact->outfiles.empty());
   assert(!compact->builders.empty());
+
+#ifndef NDEBUG
+  std::vector<unique_ptr<Iterator>> iters;
+#endif
 
   Status s;
 
@@ -1499,7 +1509,11 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
                                                  output_number,
                                                  current_bytes);
       s = iter->status();
+#ifndef NDEBUG
+      iters.push_back(unique_ptr<Iterator>(iter));
+#else
       delete iter;
+#endif
       if (s.ok()) {
         Log(options_.info_log,
             "Generated table #%llu: %lld keys, %lld bytes",
@@ -1516,6 +1530,57 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
       compact->builders[i]->Abandon();
     }
   }
+
+#ifndef NDEBUG
+  if (s.ok() && is_hotcold_ && iters.size() >= 2) {
+    // Check that for a given user key, that there is no cold record with a
+    // greater sequence number than a record in the hot file.
+    assert(iters.size() == 2); // we should only have 2 files but we may have
+                               // less if one of the files is empty and hence
+                               // gets dropped.
+    assert(iters[0]->status().ok());
+    assert(iters[1]->status().ok());
+
+    Iterator* hot = iters[1].get();
+    Iterator* cold = iters[0].get();
+
+    hot->SeekToFirst();
+    for(hot->SeekToFirst(); hot->Valid(); hot->Next()) {
+      ParsedInternalKey hot_key;
+      if (!ParseInternalKey(hot->key(), &hot_key)) {
+        continue; // skip error keys.
+      }
+
+      // Move the cold iterator to the position past the hot key.
+      cold->Seek(hot->key());
+
+      // Move to the position just before the hot key, skipping error keys.
+      ParsedInternalKey cold_key;
+      if (cold->Valid()) {
+        cold->Prev();
+      } else {
+        assert(cold->status().ok()); // bomb out if we suddenly had an IO error
+        cold->SeekToFirst(); // Assuming !cold->Valid() because hot->key() is
+                             // past the end of cold's last key.
+      }
+      while (cold->Valid() && !ParseInternalKey(cold->key(), &cold_key)) {
+        cold->Prev();
+      }
+
+      assert(cold->status().ok()); // bomb out if we suddenly had an IO error
+      if (!cold->Valid()) {
+        // Went past the start of the cold file iterator, so look at next hot
+        // key.
+        continue;
+      }
+
+      // If the hot user key and the cold user key compare equal then the cold
+      // key has a greater sequence number than the hot key
+      assert(user_comparator()->Compare(hot_key.user_key,
+                                        cold_key.user_key) != 0);
+    }
+  }
+#endif
 
   compact->num_outfiles = 0;
   compact->builders.clear();
@@ -1774,6 +1839,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   ParsedInternalKey ikey;
   std::string current_user_key;
   bool has_current_user_key = false;
+  bool encountered_error_key = false;
+  bool can_be_hot = true; // States whether the current user key can be hot or not.
+                          // Once the user key has been written to the cold
+                          // file other versions of it can no longer be written
+                          // to the hot file.
   SequenceNumber last_sequence_for_key __attribute__((unused)) =
     kMaxSequenceNumber;
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
@@ -1806,6 +1876,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
       current_user_key.clear();
+      encountered_error_key = true;
+      can_be_hot = false;
       has_current_user_key = false;
       last_sequence_for_key = kMaxSequenceNumber;
       visible_in_snapshot = kMaxSequenceNumber;
@@ -1816,6 +1888,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // First occurrence of this user key
         current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
         has_current_user_key = true;
+        can_be_hot = true;
         last_sequence_for_key = kMaxSequenceNumber;
         visible_in_snapshot = kMaxSequenceNumber;
       }
@@ -1892,12 +1965,25 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
       // Select output file
       size_t outfile_idx = 0;
-      if (is_hotcold_ && IsRecordHot(input.get(), metrics_db_, ReadOptions(),
-                                     &block_metrics_store)) {
-        outfile_idx = 1;
+      if (is_hotcold_ &&
+          !encountered_error_key &&
+          can_be_hot &&
+          IsRecordHot(input.get(), metrics_db_, ReadOptions(),
+                      &block_metrics_store)) {
+        outfile_idx = 1; // Use 1 as the hot file as it has a larger file
+                         // number. So we can use the short circuiting logic
+                         // of Version::Get() to avoid having to do lookups per
+                         // level for hot keys.
+                         //
+                         // Due to short circuiting if we encounter an error
+                         // key, we need to make all keys after it cold or else
+                         // our short circuiting logic may be false. As a run
+                         // of user keys can be interrupted with an error key.
       }
       assert(outfile_idx < compact->num_outfiles);
-
+      if (outfile_idx == 0) {
+        can_be_hot = false;
+      }
 
       if (compact->builders[outfile_idx]->NumEntries() == 0) {
         compact->current_output(outfile_idx)->smallest.DecodeFrom(key);
@@ -2089,7 +2175,9 @@ Status DBImpl::Get(const ReadOptions& options,
       if (read_options.record_accesses && is_hotcold_) {
         read_options.metrics_handler = this;
       }
-      s = current->Get(read_options, lkey, value, &stats);
+      // If the database is hot-cold then we know we can use short circuiting
+      // as the compaction logic guarantees that this will be valid.
+      s = current->Get(read_options, lkey, value, &stats, is_hotcold_);
       have_stat_update = true;
     }
     mutex_.Lock();
