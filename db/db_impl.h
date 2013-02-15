@@ -97,9 +97,13 @@ class DBImpl : public DB {
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
   }
+
   MemTable* GetMemTable() {
     return mem_;
   }
+
+  Iterator* NewInternalIterator(const ReadOptions&,
+                                SequenceNumber* latest_snapshot);
 
  private:
   friend class DB;
@@ -107,15 +111,12 @@ class DBImpl : public DB {
   struct Writer;
   struct DeletionState;
 
-  Iterator* NewInternalIterator(const ReadOptions&,
-                                SequenceNumber* latest_snapshot);
-
   Status NewDB();
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
-  Status Recover(VersionEdit* edit, MemTable* external_table = NULL,
+  Status Recover(VersionEdit* edit, MemTable* external_table = nullptr,
       bool error_if_log_file_exist = false);
 
   void MaybeIgnoreError(Status* s) const;
@@ -127,7 +128,7 @@ class DBImpl : public DB {
 
   // Compact the in-memory write buffer to disk.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status CompactMemTable(bool* madeProgress = NULL);
+  Status CompactMemTable(bool* madeProgress = nullptr);
 
   Status RecoverLogFile(uint64_t log_number,
                         VersionEdit* edit,
@@ -206,7 +207,7 @@ class DBImpl : public DB {
   // table_cache_ provides its own synchronization
   unique_ptr<TableCache> table_cache_;
 
-  // Lock over the persistent DB state.  Non-NULL iff successfully acquired.
+  // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
   // State below is protected by mutex_
@@ -241,8 +242,8 @@ class DBImpl : public DB {
     int level;
     bool done;
     bool in_progress;           // compaction request being processed?
-    const InternalKey* begin;   // NULL means beginning of key range
-    const InternalKey* end;     // NULL means end of key range
+    const InternalKey* begin;   // nullptr means beginning of key range
+    const InternalKey* end;     // nullptr means end of key range
     InternalKey tmp_storage;    // Used to keep track of compaction progress
   };
   ManualCompaction* manual_compaction_;

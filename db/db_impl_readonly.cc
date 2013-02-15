@@ -50,28 +50,32 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
                    const Slice& key,
                    std::string* value) {
   Status s;
+  MemTable* mem = GetMemTable();
   Version* current = versions_->current();
   SequenceNumber snapshot = versions_->LastSequence();
   LookupKey lkey(key, snapshot);
-  Version::GetStats stats;
-  s = current->Get(options, lkey, value, &stats);
+  if (mem->Get(lkey, value, &s)) {
+  } else {
+    Version::GetStats stats;
+    s = current->Get(options, lkey, value, &stats);
+  }
   return s;
 }
 
 Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options) {
-  std::vector<Iterator*> list;
-  versions_->current()->AddIterators(options, &list);
-  Iterator* internal_iter =
-      NewMergingIterator(&internal_comparator_, &list[0], list.size());
+  SequenceNumber latest_snapshot;
+  Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
   return NewDBIterator(
       &dbname_, env_, user_comparator(), internal_iter,
-      reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_);
+      (options.snapshot != nullptr
+      ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+      : latest_snapshot));
 }
 
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                 DB** dbptr, bool error_if_log_file_exist) {
-  *dbptr = NULL;
+  *dbptr = nullptr;
 
   DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
   impl->mutex_.Lock();

@@ -61,9 +61,9 @@ public:
   }
 
   virtual ~LDBCommand() {
-    if (db_ != NULL) {
+    if (db_ != nullptr) {
       delete db_;
-      db_ = NULL;
+      db_ = nullptr;
     }
   }
 
@@ -73,7 +73,7 @@ public:
       return;
     }
 
-    if (db_ == NULL && !NoDBOpen()) {
+    if (db_ == nullptr && !NoDBOpen()) {
       OpenDB();
       if (!exec_state_.IsNotStarted()) {
         return;
@@ -85,7 +85,7 @@ public:
       exec_state_ = LDBCommandExecuteResult::SUCCEED("");
     }
 
-    if (db_ != NULL) {
+    if (db_ != nullptr) {
       CloseDB ();
     }
   }
@@ -165,7 +165,7 @@ protected:
 
   LDBCommand(const map<string, string>& options, const vector<string>& flags,
              bool is_read_only, const vector<string>& valid_cmd_line_options) :
-      db_(NULL),
+      db_(nullptr),
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
@@ -190,9 +190,7 @@ protected:
     // Open the DB.
     leveldb::Status st;
     if (is_read_only_) {
-      //st = leveldb::DB::OpenForReadOnly(opt, db_path_, &db_);
-      // Could not get this to work
-      st = leveldb::DB::Open(opt, db_path_, &db_);
+      st = leveldb::DB::OpenForReadOnly(opt, db_path_, &db_);
     } else {
       st = leveldb::DB::Open(opt, db_path_, &db_);
     }
@@ -203,9 +201,9 @@ protected:
   }
 
   void CloseDB () {
-    if (db_ != NULL) {
+    if (db_ != nullptr) {
       delete db_;
-      db_ = NULL;
+      db_ = nullptr;
     }
   }
 
