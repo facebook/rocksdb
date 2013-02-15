@@ -5,6 +5,8 @@
 #ifndef STORAGE_LEVELDB_UTIL_HISTOGRAM_H_
 #define STORAGE_LEVELDB_UTIL_HISTOGRAM_H_
 
+#include "leveldb/statistics.h"
+
 #include <cassert>
 #include <string>
 #include <vector>
@@ -45,21 +47,22 @@ class HistogramBucketMapper {
   std::map<uint64_t, uint64_t> valueIndexMap_;
 };
 
-class Histogram {
+class HistogramImpl {
  public:
-  Histogram();
+  HistogramImpl();
+  virtual ~HistogramImpl() {}
+  virtual void Clear();
+  virtual void Add(uint64_t value);
+  virtual void Add(double value);
+  void Merge(const HistogramImpl& other);
 
-  void Clear();
-  void Add(uint64_t value);
-  void Add(double value);
-  void Merge(const Histogram& other);
+  virtual std::string ToString() const;
 
-  std::string ToString() const;
-
-  double Median() const;
-  double Percentile(double p) const;
-  double Average() const;
-  double StandardDeviation() const;
+  virtual double Median() const;
+  virtual double Percentile(double p) const;
+  virtual double Average() const;
+  virtual double StandardDeviation() const;
+  virtual void Data(HistogramData * const data) const;
 
  private:
   double min_;

@@ -8,7 +8,7 @@ class HistogramTest { };
 
 TEST(HistogramTest, BasicOperation) {
 
-  Histogram histogram;
+  HistogramImpl histogram;
   for (uint64_t i = 1; i <= 100; i++) {
     histogram.Add(i);
   }
@@ -33,14 +33,14 @@ TEST(HistogramTest, BasicOperation) {
 }
 
 TEST(HistogramTest, EmptyHistogram) {
-  Histogram histogram;
+  HistogramImpl histogram;
   ASSERT_EQ(histogram.Median(), 0.0);
   ASSERT_EQ(histogram.Percentile(85.0), 0.0);
   ASSERT_EQ(histogram.Average(), 0.0);
 }
 
 TEST(HistogramTest, ClearHistogram) {
-  Histogram histogram;
+  HistogramImpl histogram;
   for (uint64_t i = 1; i <= 100; i++) {
     histogram.Add(i);
   }

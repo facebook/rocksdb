@@ -2,11 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "util/histogram.h"
+
 #include <cassert>
 #include <math.h>
 #include <stdio.h>
 #include "port/port.h"
-#include "util/histogram.h"
 
 namespace leveldb {
 
@@ -57,7 +58,7 @@ namespace {
 }
 
 
-Histogram::Histogram() :
+HistogramImpl::HistogramImpl() :
   min_(bucketMapper.LastValue()),
   max_(0),
   num_(0),
@@ -65,7 +66,7 @@ Histogram::Histogram() :
   sum_squares_(0),
   buckets_(std::vector<uint64_t>(bucketMapper.BucketCount(), 0)) {}
 
-void Histogram::Clear() {
+void HistogramImpl::Clear() {
   min_ = bucketMapper.LastValue();
   max_ = 0;
   num_ = 0;
@@ -74,7 +75,7 @@ void Histogram::Clear() {
   buckets_.resize(bucketMapper.BucketCount(), 0);
 }
 
-void Histogram::Add(uint64_t value) {
+void HistogramImpl::Add(uint64_t value) {
   const size_t index = bucketMapper.IndexForValue(value);
   buckets_[index] += 1;
   if (min_ > value) min_ = value;
@@ -84,11 +85,11 @@ void Histogram::Add(uint64_t value) {
   sum_squares_ += (value * value);
 }
 
-void Histogram::Add(double value) {
+void HistogramImpl::Add(double value) {
   Add(static_cast<uint64_t>(value));
 }
 
-void Histogram::Merge(const Histogram& other) {
+void HistogramImpl::Merge(const HistogramImpl& other) {
   if (other.min_ < min_) min_ = other.min_;
   if (other.max_ > max_) max_ = other.max_;
   num_ += other.num_;
@@ -99,11 +100,11 @@ void Histogram::Merge(const Histogram& other) {
   }
 }
 
-double Histogram::Median() const {
+double HistogramImpl::Median() const {
   return Percentile(50.0);
 }
 
-double Histogram::Percentile(double p) const {
+double HistogramImpl::Percentile(double p) const {
   double threshold = num_ * (p / 100.0);
   double sum = 0;
   for (int b = 0; b < bucketMapper.BucketCount(); b++) {
@@ -128,18 +129,18 @@ double Histogram::Percentile(double p) const {
   return max_;
 }
 
-double Histogram::Average() const {
+double HistogramImpl::Average() const {
   if (num_ == 0.0) return 0;
   return sum_ / num_;
 }
 
-double Histogram::StandardDeviation() const {
+double HistogramImpl::StandardDeviation() const {
   if (num_ == 0.0) return 0;
   double variance = (sum_squares_ * num_ - sum_ * sum_) / (num_ * num_);
   return sqrt(variance);
 }
 
-std::string Histogram::ToString() const {
+std::string HistogramImpl::ToString() const {
   std::string r;
   char buf[200];
   snprintf(buf, sizeof(buf),
@@ -177,4 +178,13 @@ std::string Histogram::ToString() const {
   return r;
 }
 
-}  // namespace leveldb
+void HistogramImpl::Data(HistogramData * const data) const {
+  assert(data);
+  data->median = Median();
+  data->percentile95 = Percentile(95);
+  data->percentile99 = Percentile(99);
+  data->average = Average();
+  data->standard_deviation = StandardDeviation();
+}
+
+} // namespace levedb

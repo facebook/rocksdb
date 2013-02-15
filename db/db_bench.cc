@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cstddef>
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,7 +124,7 @@ static int FLAGS_bloom_bits = -1;
 static bool FLAGS_use_existing_db = false;
 
 // Use the db with the following name.
-static const char* FLAGS_db = NULL;
+static const char* FLAGS_db = nullptr;
 
 // Number of shards for the block cache is 2 ** FLAGS_cache_numshardbits.
 // Negative means use default settings. This is applied only
@@ -135,7 +136,7 @@ static bool FLAGS_verify_checksum = false;
 
 // Database statistics
 static bool FLAGS_statistics = false;
-static class leveldb::DBStatistics* dbstats = NULL;
+static class leveldb::DBStatistics* dbstats = nullptr;
 
 // Number of write operations to do.  If negative, do FLAGS_num reads.
 static long FLAGS_writes = -1;
@@ -304,7 +305,7 @@ class Stats {
   int64_t bytes_;
   double last_op_finish_;
   double last_report_finish_;
-  Histogram hist_;
+  HistogramImpl hist_;
   std::string message_;
 
  public:
@@ -531,7 +532,7 @@ class Benchmark {
       const int len = FLAGS_block_size;
       char* text = (char*) malloc(len+1);
       bool result = true;
-      const char* name = NULL;
+      const char* name = nullptr;
       std::string compressed;
 
       memset(text, (int) 'y', len);
@@ -573,18 +574,18 @@ class Benchmark {
             kMajorVersion, kMinorVersion);
 
 #if defined(__linux)
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     fprintf(stderr, "Date:       %s", ctime(&now));  // ctime() adds newline
 
     FILE* cpuinfo = fopen("/proc/cpuinfo", "r");
-    if (cpuinfo != NULL) {
+    if (cpuinfo != nullptr) {
       char line[1000];
       int num_cpus = 0;
       std::string cpu_type;
       std::string cache_size;
-      while (fgets(line, sizeof(line), cpuinfo) != NULL) {
+      while (fgets(line, sizeof(line), cpuinfo) != nullptr) {
         const char* sep = strchr(line, ':');
-        if (sep == NULL) {
+        if (sep == nullptr) {
           continue;
         }
         Slice key = TrimSpace(Slice(line, sep - 1 - line));
@@ -603,13 +604,21 @@ class Benchmark {
 #endif
   }
 
+  void PrintHistogram(Histograms histogram_type, std::string name) {
+    HistogramData histogramData;
+    dbstats->histogramData(histogram_type, &histogramData);
+    fprintf(stdout, "%s statistics : \n", name.c_str());
+    fprintf(stdout, "Median : %f\n",histogramData.median);
+    fprintf(stdout, "99ile : %f\n", histogramData.percentile99);
+  }
+
   void PrintStatistics() {
     if (FLAGS_statistics) {
       fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n"
           "Block Cache Hit Count:%ld Block Cache Miss Count:%ld\n"
           "Bloom Filter Useful: %ld \n"
           "Compaction key_drop_newer_entry: %ld key_drop_obsolete: %ld "
-          "Compaction key_drop_user: %ld",
+          "Compaction key_drop_user: %ld\n",
           dbstats->getNumFileOpens(),
           dbstats->getNumFileCloses(),
           dbstats->getNumFileErrors(),
@@ -619,6 +628,8 @@ class Benchmark {
           dbstats->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
           dbstats->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE),
           dbstats->getTickerCount(COMPACTION_KEY_DROP_USER));
+      PrintHistogram(DB_GET, "DB_GET");
+      PrintHistogram(DB_WRITE, "DB_WRITE");
     }
   }
 
@@ -627,11 +638,11 @@ class Benchmark {
   : cache_(FLAGS_cache_size >= 0 ?
            (FLAGS_cache_numshardbits >= 1 ?
             NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits) :
-            NewLRUCache(FLAGS_cache_size)) : NULL),
+            NewLRUCache(FLAGS_cache_size)) : nullptr),
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
-                   : NULL),
-    db_(NULL),
+                   : nullptr),
+    db_(nullptr),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
     entries_per_batch_(1),
@@ -663,12 +674,12 @@ class Benchmark {
     Open();
 
     const char* benchmarks = FLAGS_benchmarks;
-    while (benchmarks != NULL) {
+    while (benchmarks != nullptr) {
       const char* sep = strchr(benchmarks, ',');
       Slice name;
-      if (sep == NULL) {
+      if (sep == nullptr) {
         name = benchmarks;
-        benchmarks = NULL;
+        benchmarks = nullptr;
       } else {
         name = Slice(benchmarks, sep - benchmarks);
         benchmarks = sep + 1;
@@ -687,7 +698,7 @@ class Benchmark {
 
       write_options_.disableWAL = FLAGS_disable_wal;
 
-      void (Benchmark::*method)(ThreadState*) = NULL;
+      void (Benchmark::*method)(ThreadState*) = nullptr;
       bool fresh_db = false;
       int num_threads = FLAGS_threads;
 
@@ -764,16 +775,16 @@ class Benchmark {
         if (FLAGS_use_existing_db) {
           fprintf(stdout, "%-12s : skipped (--use_existing_db is true)\n",
                   name.ToString().c_str());
-          method = NULL;
+          method = nullptr;
         } else {
           delete db_;
-          db_ = NULL;
+          db_ = nullptr;
           DestroyDB(FLAGS_db, Options());
           Open();
         }
       }
 
-      if (method != NULL) {
+      if (method != nullptr) {
         RunBenchmark(num_threads, name, method);
       }
     }
@@ -866,7 +877,7 @@ class Benchmark {
     uint32_t crc = 0;
     while (bytes < 500 * 1048576) {
       crc = crc32c::Value(data.data(), size);
-      thread->stats.FinishedSingleOp(NULL);
+      thread->stats.FinishedSingleOp(nullptr);
       bytes += size;
     }
     // Print so result is not dead
@@ -880,16 +891,16 @@ class Benchmark {
     int dummy;
     port::AtomicPointer ap(&dummy);
     int count = 0;
-    void *ptr = NULL;
+    void *ptr = nullptr;
     thread->stats.AddMessage("(each op is 1000 loads)");
     while (count < 100000) {
       for (int i = 0; i < 1000; i++) {
         ptr = ap.Acquire_Load();
       }
       count++;
-      thread->stats.FinishedSingleOp(NULL);
+      thread->stats.FinishedSingleOp(nullptr);
     }
-    if (ptr == NULL) exit(1); // Disable unused variable warning.
+    if (ptr == nullptr) exit(1); // Disable unused variable warning.
   }
 
   void SnappyCompress(ThreadState* thread) {
@@ -904,7 +915,7 @@ class Benchmark {
                                  input.size(), &compressed);
       produced += compressed.size();
       bytes += input.size();
-      thread->stats.FinishedSingleOp(NULL);
+      thread->stats.FinishedSingleOp(nullptr);
     }
 
     if (!ok) {
@@ -930,7 +941,7 @@ class Benchmark {
       ok =  port::Snappy_Uncompress(compressed.data(), compressed.size(),
                                     uncompressed);
       bytes += input.size();
-      thread->stats.FinishedSingleOp(NULL);
+      thread->stats.FinishedSingleOp(nullptr);
     }
     delete[] uncompressed;
 
@@ -942,11 +953,11 @@ class Benchmark {
   }
 
   void Open() {
-    assert(db_ == NULL);
+    assert(db_ == nullptr);
     Options options;
     options.create_if_missing = !FLAGS_use_existing_db;
     options.block_cache = cache_;
-    if (cache_ == NULL) {
+    if (cache_ == nullptr) {
       options.no_block_cache = true;
     }
     options.write_buffer_size = FLAGS_write_buffer_size;
@@ -1257,7 +1268,7 @@ class Benchmark {
   }
 
   void Compact(ThreadState* thread) {
-    db_->CompactRange(NULL, NULL);
+    db_->CompactRange(nullptr, nullptr);
   }
 
   void PrintStats(const char* key) {
@@ -1479,7 +1490,7 @@ int main(int argc, char** argv) {
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
 
   // Choose a location for the test database if none given with --db=<path>
-  if (FLAGS_db == NULL) {
+  if (FLAGS_db == nullptr) {
       leveldb::Env::Default()->GetTestDirectory(&default_db_path);
       default_db_path += "/dbbench";
       FLAGS_db = default_db_path.c_str();

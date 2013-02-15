@@ -5,6 +5,11 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
 #define STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <memory>
+
 namespace leveldb {
 
 /**
@@ -31,6 +36,46 @@ enum Tickers {
   TICKER_ENUM_MAX = 8,
 };
 
+/**
+ * Keep adding histogram's here.
+ * Any histogram whould have value less than HISTOGRAM_ENUM_MAX
+ * Add a new Histogram by assigning it the current value of HISTOGRAM_ENUM_MAX
+ * And increment HISTOGRAM_ENUM_MAX
+ */
+enum Histograms {
+  DB_GET = 0,
+  DB_WRITE = 1,
+  HISTOGRAM_ENUM_MAX = 2,
+};
+
+struct HistogramData {
+  double median;
+  double percentile95;
+  double percentile99;
+  double average;
+  double standard_deviation;
+};
+
+
+class Histogram {
+ public:
+  // clear's the histogram
+  virtual void Clear() = 0;
+  virtual ~Histogram();
+  // Add a value to be recorded in the histogram.
+  virtual void Add(uint64_t value) = 0;
+  virtual void Add(double value) = 0;
+
+  virtual std::string ToString() const = 0;
+
+  // Get statistics
+  virtual double Median() const = 0;
+  virtual double Percentile(double p) const = 0;
+  virtual double Average() const = 0;
+  virtual double StandardDeviation() const = 0;
+  virtual void Data(HistogramData * const data) const = 0;
+
+};
 
 /**
  * A dumb ticker which keeps incrementing through its life time.
@@ -47,6 +92,7 @@ class Ticker {
   inline void recordTick(int count) {
     count_ += count;
   }
+
   inline uint64_t getCount() {
     return count_;
   }
@@ -70,10 +116,14 @@ class Statistics {
   virtual long getNumFileOpens() { return numFileOpens_;}
   virtual long getNumFileCloses() { return numFileCloses_;}
   virtual long getNumFileErrors() { return numFileErrors_;}
-  virtual ~Statistics() {}
+  ~Statistics() {}
 
   virtual long getTickerCount(Tickers tickerType) = 0;
   virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;
+  virtual void measureTime(Histograms histogramType, uint64_t count) = 0;
+  virtual void measureTime(Histograms histogramType, double count) = 0;
+
+  virtual void histogramData(Histograms type, HistogramData * const data) = 0;
 
  protected:
   long numFileOpens_;
@@ -85,7 +135,7 @@ class Statistics {
 inline void RecordTick(Statistics* const statistics,
                        Tickers ticker,
                        uint64_t count = 1) {
-  if (statistics != NULL) {
+  if (statistics != nullptr) {
     statistics->recordTick(ticker, count);
   }
 }

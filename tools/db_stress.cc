@@ -73,7 +73,7 @@ static int FLAGS_open_files = 0;
 static int FLAGS_bloom_bits = 10;
 
 // Use the db with the following name.
-static const char* FLAGS_db = NULL;
+static const char* FLAGS_db = nullptr;
 
 // Verify checksum for every block read from storage
 static bool FLAGS_verify_checksum = false;
@@ -158,7 +158,7 @@ class Stats {
   int next_report_;
   size_t bytes_;
   double last_op_finish_;
-  Histogram hist_;
+  HistogramImpl hist_;
 
  public:
   Stats() { }
@@ -258,7 +258,7 @@ class SharedState {
  public:
   static const uint32_t SENTINEL = 0xffffffff;
 
-  SharedState(StressTest* stress_test) :
+  explicit SharedState(StressTest* stress_test) :
       cv_(&mu_),
       seed_(FLAGS_seed),
       max_key_(FLAGS_max_key),
@@ -418,8 +418,8 @@ class StressTest {
       : cache_(NewLRUCache(FLAGS_cache_size)),
         filter_policy_(FLAGS_bloom_bits >= 0
                        ? NewBloomFilterPolicy(FLAGS_bloom_bits)
-                       : NULL),
-        db_(NULL),
+                       : nullptr),
+        db_(nullptr),
         num_times_reopened_(0) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
@@ -485,7 +485,7 @@ class StressTest {
 
     for (unsigned int i = 0; i < n; i++) {
       delete threads[i];
-      threads[i] = NULL;
+      threads[i] = nullptr;
     }
     double now = FLAGS_env->NowMicros();
     fprintf(stdout, "%s Verification successful\n",
@@ -698,7 +698,7 @@ class StressTest {
   }
 
   void Open() {
-    assert(db_ == NULL);
+    assert(db_ == nullptr);
     Options options;
     options.block_cache = cache_;
     options.write_buffer_size = FLAGS_write_buffer_size;
@@ -736,7 +736,7 @@ class StressTest {
     // do not close the db. Just delete the lock file. This
     // simulates a crash-recovery kind of situation.
     ((DBImpl*) db_)->TEST_Destroy_DBImpl();
-    db_ = NULL;
+    db_ = nullptr;
 
     num_times_reopened_++;
     double now = FLAGS_env->NowMicros();
@@ -910,7 +910,7 @@ int main(int argc, char** argv) {
   }
 
   // Choose a location for the test database if none given with --db=<path>
-  if (FLAGS_db == NULL) {
+  if (FLAGS_db == nullptr) {
       leveldb::Env::Default()->GetTestDirectory(&default_db_path);
       default_db_path += "/dbstress";
       FLAGS_db = default_db_path.c_str();
