@@ -160,7 +160,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       stall_level0_num_files_(0),
       stall_leveln_slowdown_(0),
       started_at_(options.env->NowMicros()),
-      flush_on_destroy_(true),
+      flush_on_destroy_(false),
       delayed_writes_(0) {
   mem_->Ref();
 
