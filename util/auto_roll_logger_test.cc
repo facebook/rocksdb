@@ -119,6 +119,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
 }
 
 TEST(AutoRollLoggerTest, RollLogFileBySize) {
+    InitTestDb();
     size_t log_max_size = 1024 * 5;
 
     AutoRollLogger* logger = new AutoRollLogger(
