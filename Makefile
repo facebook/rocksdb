@@ -55,9 +55,7 @@ TESTS = \
 	version_set_test \
 	reduce_levels_test \
 	write_batch_test \
-	auto_roll_logger_test \
 	filelock_test
-
 
 TOOLS = \
 	manifest_dump \
