@@ -985,7 +985,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   Status s;
 
   //  No need to perform this check if a new Manifest is being created anyways.
-  if (last_observed_manifest_size_ > options_->max_manifest_file_size) {
+  if (!descriptor_log_ ||
+      last_observed_manifest_size_ > options_->max_manifest_file_size) {
     new_descriptor_log = true;
     manifest_file_number_ = NewFileNumber(); // Change manifest file no.
   }
