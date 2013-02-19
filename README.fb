@@ -1,12 +1,3 @@
-* How to compile using fbcode and jemalloc
-  source fbcode.sh
-  make 
-
-* Compiling for CPUs with SSE4 support
-
-  make OPT='-O2 -DNDEBUG -msse -msse4.2'
-  
-  This makes CRC computation much faster, but
-  binaries won't run on CPUs that don't support it.
+* Detailed instructions on how to compile using fbcode and jemalloc
 
 * Latest release is 1.5.7.fb
