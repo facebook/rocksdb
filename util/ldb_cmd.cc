@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "util/ldb_cmd.h"
+
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
 
@@ -9,7 +11,6 @@
 #include "db/dbformat.h"
 #include "db/log_reader.h"
 #include "db/write_batch_internal.h"
-#include "util/ldb_cmd.h"
 
 namespace leveldb {
 
@@ -46,7 +47,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(int argc, char** argv) {
  *        COMMAND <PARAM1> <PARAM2> ... [-cmdSpecificOpt1=cmdSpecificOpt1Val] ..
  * This is similar to the command line format used by HBaseClientTool.
  * Command name is not included in args.
- * Returns NULL if the command-line cannot be parsed.
+ * Returns nullptr if the command-line cannot be parsed.
  */
 LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
   // --x=y command line arguments are added as x->y map entries.
@@ -81,7 +82,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
 
   if (cmdTokens.size() < 1) {
     fprintf(stderr, "Command not specified!");
-    return NULL;
+    return nullptr;
   }
 
   string cmd = cmdTokens[0];
@@ -113,7 +114,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
     return new DBLoaderCommand(cmdParams, options, flags);
   }
 
-  return NULL;
+  return nullptr;
 }
 
 /**
@@ -306,8 +307,8 @@ void CompactorCommand::Help(string& ret) {
 
 void CompactorCommand::DoCommand() {
 
-  leveldb::Slice* begin = NULL;
-  leveldb::Slice* end = NULL;
+  leveldb::Slice* begin = nullptr;
+  leveldb::Slice* end = nullptr;
   if (!null_from_) {
     begin = new leveldb::Slice(from_);
   }
@@ -601,7 +602,7 @@ void ReduceDBLevelsCommand::DoCommand() {
   }
   // Compact the whole DB to put all files to the highest level.
   fprintf(stdout, "Compacting the db...\n");
-  db_->CompactRange(NULL, NULL);
+  db_->CompactRange(nullptr, nullptr);
   CloseDB();
 
   TableCache* tc = new TableCache(db_path_, &opt, 10);
@@ -629,14 +630,39 @@ void ReduceDBLevelsCommand::DoCommand() {
   }
 }
 
+class InMemoryHandler : public WriteBatch::Handler {
+ public:
+
+  virtual void Put(const Slice& key, const Slice& value) {
+    putMap_[key.ToString()] = value.ToString();
+  }
+  virtual void Delete(const Slice& key) {
+    deleteList_.push_back(key.ToString(true));
+  }
+  virtual ~InMemoryHandler() { };
+
+  map<string, string> PutMap() {
+    return putMap_;
+  }
+  vector<string> DeleteList() {
+    return deleteList_;
+  }
+
+ private:
+  std::map<string, string> putMap_;
+  std::vector<string> deleteList_;
+};
+
 const string WALDumperCommand::ARG_WAL_FILE = "walfile";
+const string WALDumperCommand::ARG_PRINT_VALUE = "print_value";
 const string WALDumperCommand::ARG_PRINT_HEADER = "header";
 
 WALDumperCommand::WALDumperCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, true,
-               BuildCmdLineOptions({ARG_WAL_FILE, ARG_PRINT_HEADER})),
-    print_header_(false) {
+               BuildCmdLineOptions(
+                {ARG_WAL_FILE, ARG_PRINT_HEADER, ARG_PRINT_VALUE})),
+    print_header_(false), print_values_(false) {
 
   wal_file_.clear();
 
@@ -645,8 +671,9 @@ WALDumperCommand::WALDumperCommand(const vector<string>& params,
     wal_file_ = itr->second;
   }
 
-  print_header_ = IsFlagPresent(flags, ARG_PRINT_HEADER);
 
+  print_header_ = IsFlagPresent(flags, ARG_PRINT_HEADER);
+  print_values_ = IsFlagPresent(flags, ARG_PRINT_VALUE);
   if (wal_file_.empty()) {
     exec_state_ = LDBCommandExecuteResult::FAILED(
                     "Argument " + ARG_WAL_FILE + " must be specified.");
@@ -658,6 +685,7 @@ void WALDumperCommand::Help(string& ret) {
   ret.append(WALDumperCommand::Name());
   ret.append(" --" + ARG_WAL_FILE + "=<write_ahead_log_file_path>");
   ret.append(" --[" + ARG_PRINT_HEADER + "] ");
+  ret.append(" --[ " + ARG_PRINT_VALUE + "] ");
   ret.append("\n");
 }
 
@@ -682,7 +710,11 @@ void WALDumperCommand::DoCommand() {
     Slice record;
     std::stringstream row;
     if (print_header_) {
-      std::cout<<"Sequence,Count,ByteSize,Physical Offset\n";
+      std::cout<<"Sequence,Count,ByteSize,Physical Offset,Key(s)";
+      if (print_values_) {
+        std::cout << " : value ";
+      }
+      std::cout << "\n";
     }
     while(reader.ReadRecord(&record, &scratch)) {
       row.str("");
@@ -694,7 +726,28 @@ void WALDumperCommand::DoCommand() {
         row<<WriteBatchInternal::Sequence(&batch)<<",";
         row<<WriteBatchInternal::Count(&batch)<<",";
         row<<WriteBatchInternal::ByteSize(&batch)<<",";
-        row<<reader.LastRecordOffset()<<"\n";
+        row<<reader.LastRecordOffset()<<",";
+        InMemoryHandler handler;
+        batch.Iterate(&handler);
+        row << "PUT : ";
+        if (print_values_) {
+          for (auto& kv : handler.PutMap()) {
+            std::string k = StringToHex(kv.first);
+            std::string v = StringToHex(kv.second);
+            row << k << " : ";
+            row << v << " ";
+          }
+        }
+        else {
+          for(auto& kv : handler.PutMap()) {
+            row << StringToHex(kv.first) << " ";
+          }
+        }
+        row<<",DELETE : ";
+        for(string& s : handler.DeleteList()) {
+          row << StringToHex(s) << " ";
+        }
+        row<<"\n";
       }
       std::cout<<row.str();
     }

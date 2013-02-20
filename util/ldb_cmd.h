@@ -424,9 +424,11 @@ public:
 private:
   bool print_header_;
   string wal_file_;
+  bool print_values_;
 
   static const string ARG_WAL_FILE;
   static const string ARG_PRINT_HEADER;
+  static const string ARG_PRINT_VALUE;
 };
 
 
