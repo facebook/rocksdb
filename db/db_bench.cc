@@ -58,6 +58,7 @@ static const char* FLAGS_benchmarks =
     "readseq,"
     "readreverse,"
     "readrandomwriterandom," // mix reads and writes based on FLAGS_readwritepercent
+    "randomwithverify," // random reads and writes with some verification
     "fill100K,"
     "crc32c,"
     "snappycomp,"
@@ -67,6 +68,11 @@ static const char* FLAGS_benchmarks =
 
 // Number of key/values to place in database
 static long FLAGS_num = 1000000;
+
+// Number of distinct keys to use. Used in RandomWithVerify to read/write
+// on fewer keys so that gets are more likely to find the key and puts
+// are more likely to update the same key
+static long FLAGS_numdistinct = 1000;
 
 // Number of read operations to do.  If negative, do FLAGS_num reads.
 static long FLAGS_reads = -1;
@@ -183,6 +189,10 @@ static int FLAGS_level0_file_num_compaction_trigger = 4;
 // for the ReadRandomWriteRandom workload. The default
 // setting is 9 gets for every 1 put.
 static int FLAGS_readwritepercent = 90;
+
+// This percent of deletes are done (used in RandomWithVerify only)
+// Must be smaller than total writepercent (i.e 100 - FLAGS_readwritepercent)
+static int FLAGS_deletepercent = 2;
 
 // Option to disable compation triggered by read.
 static int FLAGS_disable_seek_compaction = false;
@@ -749,6 +759,8 @@ class Benchmark {
         method = &Benchmark::ReadWhileWriting;
       } else if (name == Slice("readrandomwriterandom")) {
         method = &Benchmark::ReadRandomWriteRandom;
+      } else if (name == Slice("randomwithverify")) {
+        method = &Benchmark::RandomWithVerify;
       } else if (name == Slice("compact")) {
         method = &Benchmark::Compact;
       } else if (name == Slice("crc32c")) {
@@ -1218,6 +1230,151 @@ class Benchmark {
     }
   }
 
+  // Given a key K and value V, this puts (K+"0", V), (K+"1", V), (K+"2", V)
+  // in DB atomically i.e in a single batch. Also refer MultiGet.
+  Status MultiPut(const WriteOptions& writeoptions,
+                  const Slice& key, const Slice& value) {
+    std::string suffixes[3] = {"2", "1", "0"};
+    std::string keys[3];
+
+    WriteBatch batch;
+    Status s;
+    for (int i = 0; i < 3; i++) {
+      keys[i] = key.ToString() + suffixes[i];
+      batch.Put(keys[i], value);
+    }
+
+    s = db_->Write(writeoptions, &batch);
+    return s;
+  }
+
+
+  // Given a key K, this deletes (K+"0", V), (K+"1", V), (K+"2", V)
+  // in DB atomically i.e in a single batch. Also refer MultiGet.
+  Status MultiDelete(const WriteOptions& writeoptions,
+                  const Slice& key) {
+    std::string suffixes[3] = {"1", "2", "0"};
+    std::string keys[3];
+
+    WriteBatch batch;
+    Status s;
+    for (int i = 0; i < 3; i++) {
+      keys[i] = key.ToString() + suffixes[i];
+      batch.Delete(keys[i]);
+    }
+
+    s = db_->Write(writeoptions, &batch);
+    return s;
+  }
+
+  // Given a key K and value V, this gets values for K+"0", K+"1" and K+"2"
+  // in the same snapshot, and verifies that all the values are identical.
+  // ASSUMES that MultiPut was used to put (K, V) into the DB.
+  Status MultiGet(const ReadOptions& readoptions,
+                  const Slice& key, std::string* value) {
+    std::string suffixes[3] = {"0", "1", "2"};
+    std::string keys[3];
+    Slice key_slices[3];
+    std::string values[3];
+    ReadOptions readoptionscopy = readoptions;
+    readoptionscopy.snapshot = db_->GetSnapshot();
+    Status s;
+    for (int i = 0; i < 3; i++) {
+      keys[i] = key.ToString() + suffixes[i];
+      key_slices[i] = keys[i];
+      s = db_->Get(readoptionscopy, key_slices[i], value);
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "get error: %s\n", s.ToString().c_str());
+        values[i] = "";
+        // we continue after error rather than exiting so that we can
+        // find more errors if any
+      } else if (s.IsNotFound()) {
+        values[i] = "";
+      } else {
+        values[i] = *value;
+      }
+    }
+    db_->ReleaseSnapshot(readoptionscopy.snapshot);
+
+    if ((values[0] != values[1]) || (values[1] != values[2])) {
+      fprintf(stderr, "inconsistent values for key %s: %s, %s, %s\n",
+              key.ToString().c_str(), values[0].c_str(), values[1].c_str(),
+              values[2].c_str());
+      // we continue after error rather than exiting so that we can
+      // find more errors if any
+    }
+
+    return s;
+  }
+
+  // Differs from readrandomwriterandom in the following ways:
+  // (a) Uses MultiGet/MultiPut to read/write key values. Refer to those funcs.
+  // (b) Does deletes as well (per FLAGS_deletepercent)
+  // (c) In order to achieve high % of 'found' during lookups, and to do
+  //     multiple writes (including puts and deletes) it uses upto
+  //     FLAGS_numdistinct distinct keys instead of FLAGS_num distinct keys.
+  void RandomWithVerify(ThreadState* thread) {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    RandomGenerator gen;
+    std::string value;
+    long found = 0;
+    int get_weight = 0;
+    int put_weight = 0;
+    int delete_weight = 0;
+    long gets_done = 0;
+    long puts_done = 0;
+    long deletes_done = 0;
+    // the number of iterations is the larger of read_ or write_
+    for (long i = 0; i < readwrites_; i++) {
+      char key[100];
+      const int k = thread->rand.Next() % (FLAGS_numdistinct);
+      snprintf(key, sizeof(key), "%016d", k);
+      if (get_weight == 0 && put_weight == 0 && delete_weight == 0) {
+        // one batch complated, reinitialize for next batch
+        get_weight = FLAGS_readwritepercent;
+        delete_weight = FLAGS_deletepercent;
+        put_weight = 100 - get_weight - delete_weight;
+      }
+      if (get_weight > 0) {
+        // do all the gets first
+        Status s = MultiGet(options, key, &value);
+        if (!s.ok() && !s.IsNotFound()) {
+          fprintf(stderr, "get error: %s\n", s.ToString().c_str());
+          // we continue after error rather than exiting so that we can
+          // find more errors if any
+        } else if (!s.IsNotFound()) {
+          found++;
+        }
+        get_weight--;
+        gets_done++;
+      } else if (put_weight > 0) {
+        // then do all the corresponding number of puts
+        // for all the gets we have done earlier
+        Status s = MultiPut(write_options_, key, gen.Generate(value_size_));
+        if (!s.ok()) {
+          fprintf(stderr, "multiput error: %s\n", s.ToString().c_str());
+          exit(1);
+        }
+        put_weight--;
+        puts_done++;
+      } else if (delete_weight > 0) {
+        Status s = MultiDelete(write_options_, key);
+        if (!s.ok()) {
+          fprintf(stderr, "multidelete error: %s\n", s.ToString().c_str());
+          exit(1);
+        }
+        delete_weight--;
+        deletes_done++;
+      }
+
+      thread->stats.FinishedSingleOp(db_);
+    }
+    char msg[100];
+    snprintf(msg, sizeof(msg), "( get:%ld put:%ld del:%ld total:%ld found:%ld)",
+             gets_done, puts_done, deletes_done, readwrites_, found);
+    thread->stats.AddMessage(msg);
+  }
+
   //
   // This is diffferent from ReadWhileWriting because it does not use
   // an extra thread.
@@ -1243,6 +1400,15 @@ class Benchmark {
       }
       if (get_weight > 0) {
         // do all the gets first
+        Status s = db_->Get(options, key, &value);
+        if (!s.ok() && !s.IsNotFound()) {
+          fprintf(stderr, "get error: %s\n", s.ToString().c_str());
+          // we continue after error rather than exiting so that we can
+          // find more errors if any
+        } else if (!s.IsNotFound()) {
+          found++;
+        }
+
         if (db_->Get(options, key, &value).ok()) {
           found++;
         }
@@ -1262,8 +1428,8 @@ class Benchmark {
       thread->stats.FinishedSingleOp(db_);
     }
     char msg[100];
-    snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld )",
-             reads_done, writes_done, readwrites_);
+    snprintf(msg, sizeof(msg), "( reads:%ld writes:%ld total:%ld found:%ld)",
+             reads_done, writes_done, readwrites_, found);
     thread->stats.AddMessage(msg);
   }
 
