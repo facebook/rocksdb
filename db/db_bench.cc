@@ -1496,6 +1496,8 @@ int main(int argc, char** argv) {
       FLAGS_use_existing_db = n;
     } else if (sscanf(argv[i], "--num=%ld%c", &l, &junk) == 1) {
       FLAGS_num = l;
+    } else if (sscanf(argv[i], "--numdistinct=%ld%c", &l, &junk) == 1) {
+      FLAGS_numdistinct = l;
     } else if (sscanf(argv[i], "--reads=%d%c", &n, &junk) == 1) {
       FLAGS_reads = n;
     } else if (sscanf(argv[i], "--read_range=%d%c", &n, &junk) == 1) {
@@ -1565,6 +1567,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--readwritepercent=%d%c", &n, &junk) == 1 &&
                n > 0 && n < 100) {
       FLAGS_readwritepercent = n;
+    } else if (sscanf(argv[i], "--deletepercent=%d%c", &n, &junk) == 1 &&
+               n > 0 && n < 100) {
+      FLAGS_deletepercent = n;
     } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_data_sync = n;
