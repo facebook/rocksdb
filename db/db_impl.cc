@@ -1650,7 +1650,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         assert(ikey.type != kTypeDeletion);
         UpdateInternalKey(key, (uint64_t)0, ikey.type);
       }
-  
+
       // Open output file if necessary
       if (compact->builder == nullptr) {
         status = OpenCompactionOutputFile(compact);
@@ -1855,6 +1855,7 @@ Status DBImpl::Get(const ReadOptions& options,
   imm.UnrefAll();
   current->Unref();
   RecordTick(options_.statistics, NUMBER_KEYS_READ);
+  RecordTick(options_.statistics, BYTES_READ, value->size());
   return s;
 }
 
@@ -1917,7 +1918,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     last_sequence += my_batch_count;
     // Record statistics
     RecordTick(options_.statistics, NUMBER_KEYS_WRITTEN, my_batch_count);
-
+    RecordTick(options_.statistics,
+               BYTES_WRITTEN,
+               WriteBatchInternal::ByteSize(updates));
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
     // and protects against concurrent loggers and concurrent writes

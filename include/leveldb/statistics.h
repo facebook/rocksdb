@@ -33,8 +33,12 @@ enum Tickers {
   NUMBER_KEYS_WRITTEN = 6,
   // Number of Keys read,
   NUMBER_KEYS_READ = 7,
-  TICKER_ENUM_MAX = 8,
+  // Bytes written / read
+  BYTES_WRITTEN = 8,
+  BYTES_READ = 9,
+  TICKER_ENUM_MAX = 10,
 };
+
 
 /**
  * Keep adding histogram's here.
