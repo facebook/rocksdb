@@ -2,6 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+//The test uses an array to compare against values written to the database.
+//Keys written to the array are in 1:1 correspondence to the actual values in
+//the database according to the formula in the functino GenerateValue
+
+//Space is reserved in the array from 0 to FLAGS_max_key and values are randomly
+//written/deleted/read from those positions. During verification we compare all
+//the positions in the array. Therefore to shorten/elongate the amount of time
+//that this test runs for, you should change the settings:
+//FLAGS_max_key, FLAGS_ops_per_thread, (sometimes also FLAGS_threads)
+
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -622,7 +632,6 @@ class StressTest {
                    std::string *value_from_db, bool strict=false) const {
     Slice k((char*)&key, sizeof(key));
     char value[100];
-    size_t value_sz = 0;
     uint32_t value_base = shared.Get(key);
     if (value_base == SharedState::SENTINEL && !strict) {
       return;
@@ -632,7 +641,7 @@ class StressTest {
       if (value_base == SharedState::SENTINEL) {
         VerificationAbort("Unexpected value found", key);
       }
-      size_t sz = GenerateValue(value_base, value, value_sz);
+      size_t sz = GenerateValue(value_base, value, sizeof(value));
       if (value_from_db->length() != sz) {
         VerificationAbort("Length of value read is not equal", key);
       }
