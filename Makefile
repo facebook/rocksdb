@@ -113,6 +113,9 @@ check: all $(PROGRAMS) $(TESTS) $(TOOLS) ldb_tests
 ldb_tests: all $(PROGRAMS) $(TOOLS)
 	python tools/ldb_test.py
 
+valgrind_check: all $(PROGRAMS) $(TESTS)
+	for t in $(TESTS); do valgrind ./$$t || exit 1; done
+
 clean:
 	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk
 	-rm -rf ios-x86/* ios-arm/*
