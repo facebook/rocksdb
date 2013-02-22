@@ -1690,7 +1690,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
-
+  if (options_.statistics) {
+    options_.statistics->measureTime(COMPACTION_TIME, stats.micros);
+  }
   stats.files_in_leveln = compact->compaction->num_input_files(0);
   stats.files_in_levelnp1 = compact->compaction->num_input_files(1);
 

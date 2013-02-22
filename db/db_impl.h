@@ -275,7 +275,7 @@ class DBImpl : public DB {
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
-    int64_t micros;
+    uint64_t micros;
 
     // Bytes read from level N during compaction between levels N and N+1
     int64_t bytes_readn;

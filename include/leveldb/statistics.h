@@ -49,7 +49,8 @@ enum Tickers {
 enum Histograms {
   DB_GET = 0,
   DB_WRITE = 1,
-  HISTOGRAM_ENUM_MAX = 2,
+  COMPACTION_TIME = 2,
+  HISTOGRAM_ENUM_MAX = 3,
 };
 
 struct HistogramData {
