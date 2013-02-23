@@ -1,7 +1,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
+//
 //The test uses an array to compare against values written to the database.
 //Keys written to the array are in 1:1 correspondence to the actual values in
 //the database according to the formula in the functino GenerateValue
@@ -11,6 +11,8 @@
 //the positions in the array. Therefore to shorten/elongate the amount of time
 //that this test runs for, you should change the settings:
 //FLAGS_max_key, FLAGS_ops_per_thread, (sometimes also FLAGS_threads)
+//NOTE that if FLAGS_test_batches_snapshots is set, the test behaves a little
+//differently. See comment header for the flag.
 
 #include <sys/types.h>
 #include <stdio.h>
@@ -178,6 +180,7 @@ class Stats {
   long done_;
   long writes_;
   long deletes_;
+  long gets_;
   long founds_;
   long errors_;
   int next_report_;
@@ -194,6 +197,7 @@ class Stats {
     done_ = 0;
     writes_ = 0;
     deletes_ = 0;
+    gets_ = 0;
     founds_ = 0;
     errors_ = 0;
     bytes_ = 0;
@@ -208,6 +212,9 @@ class Stats {
     done_ += other.done_;
     writes_ += other.writes_;
     deletes_ += other.deletes_;
+    gets_ += other.gets_;
+    founds_ += other.founds_;
+    errors_ += other.errors_;
     bytes_ += other.bytes_;
     seconds_ += other.seconds_;
     if (other.start_ < start_) start_ = other.start_;
@@ -254,8 +261,9 @@ class Stats {
     deletes_ += n;
   }
 
-  void AddFounds(int n) {
-    founds_ += n;
+  void AddGets(int ngets, int nfounds) {
+    founds_ += nfounds;
+    gets_ += ngets;
   }
 
   void AddErrors(int n) {
@@ -279,8 +287,9 @@ class Stats {
             seconds_ * 1e6 / done_, (long)throughput);
     fprintf(stdout, "%-12s: Wrote %.2f MB (%.2f MB/sec) (%ld%% of %ld ops)\n",
             "", bytes_mb, rate, (100*writes_)/done_, done_);
+    fprintf(stdout, "%-12s: Wrote %ld times\n", "", writes_);
     fprintf(stdout, "%-12s: Deleted %ld times\n", "", deletes_);
-    fprintf(stdout, "%-12s: Found lookups %ld times\n", "", founds_);
+    fprintf(stdout, "%-12s: %ld/%ld gets found the key\n", "", founds_, gets_);
     fprintf(stdout, "%-12s: Got errors %ld times\n", "", errors_);
 
     if (FLAGS_histogram) {
@@ -512,8 +521,13 @@ class StressTest {
       }
 
       now = FLAGS_env->NowMicros();
-      fprintf(stdout, "%s Starting verification\n",
-              FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
+      if (FLAGS_test_batches_snapshots) {
+        fprintf(stdout, "%s Limited verification already done during gets\n",
+                FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
+      } else {
+        fprintf(stdout, "%s Starting verification\n",
+                FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
+      }
 
       shared.SetStartVerify();
       shared.GetCondVar()->SignalAll();
@@ -532,9 +546,10 @@ class StressTest {
       threads[i] = nullptr;
     }
     double now = FLAGS_env->NowMicros();
-    fprintf(stdout, "%s Verification successful\n",
-            FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
-
+    if (!FLAGS_test_batches_snapshots) {
+      fprintf(stdout, "%s Verification successful\n",
+              FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
+    }
     PrintStatistics();
   }
 
@@ -666,6 +681,7 @@ class StressTest {
         // find more errors if any
       } else if (s.IsNotFound()) {
         values[i] = "";
+        thread->stats.AddGets(1, 0);
       } else {
         values[i] = *value;
 
@@ -676,7 +692,7 @@ class StressTest {
                   expected_prefix, actual_prefix);
         }
         (values[i])[0] = ' '; // blank out the differing character
-        thread->stats.AddFounds(1);
+        thread->stats.AddGets(1, 1);
       }
     }
     db_->ReleaseSnapshot(readoptionscopy.snapshot);
@@ -720,7 +736,8 @@ class StressTest {
           else {
             thread->shared->GetCondVar()->Wait();
           }
-          thread->stats.Start();
+          // Commenting this out as we don't want to reset stats on each open.
+          // thread->stats.Start();
         }
       }
 
@@ -730,9 +747,21 @@ class StressTest {
       unsigned int probability_operation = thread->rand.Uniform(100);
       if (probability_operation < FLAGS_readpercent) {
         // read load
-        FLAGS_test_batches_snapshots ?
-          MultiGet(thread, read_opts, key, &from_db) :
-          db_->Get(read_opts, key, &from_db);
+        if (!FLAGS_test_batches_snapshots) {
+          Status s = db_->Get(read_opts, key, &from_db);
+          if (s.ok()) {
+            // found case
+            thread->stats.AddGets(1, 1);
+          } else if (s.IsNotFound()) {
+            // not found case
+            thread->stats.AddGets(1, 0);
+          } else {
+            // errors case
+            thread->stats.AddErrors(1);
+          }
+        } else {
+          MultiGet(thread, read_opts, key, &from_db);
+        }
       } else if (probability_operation < FLAGS_delpercent + FLAGS_readpercent) {
         //introduce delete load
         if (!FLAGS_test_batches_snapshots) {
