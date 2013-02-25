@@ -30,7 +30,9 @@ MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
 
 TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL)
-
+VALGRIND_ERROR = 2
+VALGRIND_DIR = "VALGRIND_LOGS"
+VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
 	arena_test \
@@ -114,7 +116,18 @@ ldb_tests: all $(PROGRAMS) $(TOOLS)
 	python tools/ldb_test.py
 
 valgrind_check: all $(PROGRAMS) $(TESTS)
-	for t in $(TESTS); do valgrind ./$$t || exit 1; done
+	echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \
+	echo TIMES in seconds TAKEN BY TESTS ON VALGRIND > $(VALGRIND_DIR)/valgrind_tests_times; \
+	for t in $(filter-out skiplist_test,$(TESTS)); do \
+		stime=`date '+%s'`; \
+		valgrind $(VALGRIND_OPTS) \
+		--log-file=$(VALGRIND_DIR)/valgrind_log_$$t ./$$t; \
+		if [ $$? -eq $(VALGRIND_ERROR) ] ; then \
+			echo $$t >> $(VALGRIND_DIR)/valgrind_failed_tests; \
+		fi; \
+		etime=`date '+%s'`; \
+		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
+	done
 
 clean:
 	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk
