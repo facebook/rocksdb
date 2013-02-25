@@ -36,7 +36,10 @@ enum Tickers {
   // Bytes written / read
   BYTES_WRITTEN = 8,
   BYTES_READ = 9,
-  TICKER_ENUM_MAX = 10,
+  NO_FILE_CLOSES = 10,
+  NO_FILE_OPENS = 11,
+  NO_FILE_ERRORS = 12,
+  TICKER_ENUM_MAX = 13,
 };
 
 
@@ -110,18 +113,6 @@ class Ticker {
 // Analyze the performance of a db
 class Statistics {
  public:
-  // Create an Statistics object with default values for all fields.
-  Statistics() : numFileOpens_(0), numFileCloses_(0),
-                 numFileErrors_(0) {}
-
-  virtual void incNumFileOpens() = 0;
-  virtual void incNumFileCloses() = 0;
-  virtual void incNumFileErrors() = 0;
-
-  virtual long getNumFileOpens() { return numFileOpens_;}
-  virtual long getNumFileCloses() { return numFileCloses_;}
-  virtual long getNumFileErrors() { return numFileErrors_;}
-  ~Statistics() {}
 
   virtual long getTickerCount(Tickers tickerType) = 0;
   virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;
@@ -130,10 +121,6 @@ class Statistics {
 
   virtual void histogramData(Histograms type, HistogramData * const data) = 0;
 
- protected:
-  long numFileOpens_;
-  long numFileCloses_;
-  long numFileErrors_;
 };
 
 // Ease of Use functions

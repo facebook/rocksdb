@@ -629,9 +629,9 @@ class Benchmark {
           "Bloom Filter Useful: %ld \n"
           "Compaction key_drop_newer_entry: %ld key_drop_obsolete: %ld "
           "Compaction key_drop_user: %ld\n",
-          dbstats->getNumFileOpens(),
-          dbstats->getNumFileCloses(),
-          dbstats->getNumFileErrors(),
+          dbstats->getTickerCount(NO_FILE_OPENS),
+          dbstats->getTickerCount(NO_FILE_CLOSES),
+          dbstats->getTickerCount(NO_FILE_ERRORS),
           dbstats->getTickerCount(BLOCK_CACHE_HIT),
           dbstats->getTickerCount(BLOCK_CACHE_MISS),
           dbstats->getTickerCount(BLOOM_FILTER_USEFUL),

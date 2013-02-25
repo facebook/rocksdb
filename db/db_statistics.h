@@ -24,21 +24,6 @@ class DBStatistics: public Statistics {
 
   virtual ~DBStatistics() {}
 
-  virtual void incNumFileOpens() {
-    MutexLock l(&mu_);
-    numFileOpens_++;
-  }
-
-  virtual void incNumFileCloses() {
-    MutexLock l(&mu_);
-    numFileCloses_++;
-  }
-
-  virtual void incNumFileErrors() {
-    MutexLock l(&mu_);
-    numFileErrors_++;
-  }
-
   virtual long getTickerCount(Tickers tickerType) {
     assert(tickerType < TICKER_ENUM_MAX);
     return allTickers_[tickerType].getCount();
@@ -65,7 +50,6 @@ class DBStatistics: public Statistics {
     allHistograms_[histogramType].Data(data);
   }
 
-  port::Mutex mu_;
   std::vector<Ticker> allTickers_;
   std::vector<HistogramImpl> allHistograms_;
 };
