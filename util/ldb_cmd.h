@@ -372,8 +372,12 @@ public:
 private:
   bool create_if_missing_;
   bool disable_wal_;
+  bool bulk_load_;
+  bool compact_;
 
   static const string ARG_DISABLE_WAL;
+  static const string ARG_BULK_LOAD;
+  static const string ARG_COMPACT;
 };
 
 class ReduceDBLevelsCommand : public LDBCommand {

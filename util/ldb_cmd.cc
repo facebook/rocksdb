@@ -324,17 +324,23 @@ void CompactorCommand::DoCommand() {
 }
 
 const string DBLoaderCommand::ARG_DISABLE_WAL = "disable_wal";
+const string DBLoaderCommand::ARG_BULK_LOAD = "bulk_load";
+const string DBLoaderCommand::ARG_COMPACT = "compact";
 
 DBLoaderCommand::DBLoaderCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, false,
                BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
                                     ARG_FROM, ARG_TO, ARG_CREATE_IF_MISSING,
-                                    ARG_DISABLE_WAL})),
-    create_if_missing_(false) {
+                                    ARG_DISABLE_WAL, ARG_BULK_LOAD,
+                                    ARG_COMPACT})),
+    create_if_missing_(false), disable_wal_(false), bulk_load_(false),
+    compact_(false) {
 
   create_if_missing_ = IsFlagPresent(flags, ARG_CREATE_IF_MISSING);
   disable_wal_ = IsFlagPresent(flags, ARG_DISABLE_WAL);
+  bulk_load_ = IsFlagPresent(flags, ARG_BULK_LOAD);
+  compact_ = IsFlagPresent(flags, ARG_COMPACT);
 }
 
 void DBLoaderCommand::Help(string& ret) {
@@ -342,12 +348,17 @@ void DBLoaderCommand::Help(string& ret) {
   ret.append(DBLoaderCommand::Name());
   ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
   ret.append(" [--" + ARG_DISABLE_WAL + "]");
+  ret.append(" [--" + ARG_BULK_LOAD + "]");
+  ret.append(" [--" + ARG_COMPACT + "]");
   ret.append("\n");
 }
 
 leveldb::Options DBLoaderCommand::PrepareOptionsForOpenDB() {
   leveldb::Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.create_if_missing = create_if_missing_;
+  if (bulk_load_) {
+    opt.PrepareForBulkLoad();
+  }
   return opt;
 }
 
@@ -379,6 +390,9 @@ void DBLoaderCommand::DoCommand() {
 
   if (bad_lines > 0) {
     std::cout << "Warning: " << bad_lines << " bad lines ignored." << std::endl;
+  }
+  if (compact_) {
+    db_->CompactRange(NULL, NULL);
   }
 }
 

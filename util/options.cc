@@ -161,4 +161,18 @@ Options::Dump(Logger* log) const
         manifest_preallocation_size);
 }   // Options::Dump
 
+Options*
+Options::PrepareForBulkLoad()
+{
+  level0_file_num_compaction_trigger = (1<<30);
+  level0_slowdown_writes_trigger = (1<<30);
+  level0_stop_writes_trigger = (1<<30);
+  disable_auto_compactions = true;
+  disable_seek_compaction = true;
+  disableDataSync = true;
+  source_compaction_factor = (1<<30);
+
+  return this;
+}
+
 }  // namespace leveldb

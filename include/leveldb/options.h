@@ -345,6 +345,15 @@ struct Options {
 
   void Dump(Logger* log) const;
 
+  // Set appropriate parameters for bulk loading.
+  // The reason that this is a function that returns "this" instead of a
+  // constructure is to enable chaining of multiple similar calls in the future.
+  //
+  // All data will be in level 0 without any automatic compaction.
+  // It's recommended to manually call CompactRange(NULL, NULL) before reading
+  // from the database, because otherwise the read can be very slow.
+  Options* PrepareForBulkLoad();
+
   // This method allows an application to modify/delete a key-value at
   // the time of compaction. The compaction process invokes this
   // method for every kv that is being compacted. A return value
