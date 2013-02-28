@@ -211,6 +211,7 @@ class DBTest {
     kNumLevel_3,
     kDBLogDir,
     kManifestFileSize,
+    kCompactOnFlush,
     kEnd
   };
   int option_config_;
@@ -268,6 +269,8 @@ class DBTest {
         break;
       case kManifestFileSize:
         options.max_manifest_file_size = 50; // 50 bytes
+      case kCompactOnFlush:
+        options.purge_redundant_kvs_while_flush = !options.purge_redundant_kvs_while_flush;
       default:
         break;
     }
@@ -1817,7 +1820,11 @@ TEST(DBTest, DeletionMarkers1) {
   Put("foo", "v2");
   ASSERT_EQ(AllEntriesFor("foo"), "[ v2, DEL, v1 ]");
   ASSERT_OK(dbfull()->TEST_CompactMemTable());  // Moves to level last-2
-  ASSERT_EQ(AllEntriesFor("foo"), "[ v2, DEL, v1 ]");
+  if (CurrentOptions().purge_redundant_kvs_while_flush) {
+    ASSERT_EQ(AllEntriesFor("foo"), "[ v2, v1 ]");
+  } else {
+    ASSERT_EQ(AllEntriesFor("foo"), "[ v2, DEL, v1 ]");
+  }
   Slice z("z");
   dbfull()->TEST_CompactRange(last-2, nullptr, &z);
   // DEL eliminated, but v1 remains because we aren't compacting that level
@@ -2420,6 +2427,90 @@ TEST(DBTest, SnapshotFiles) {
   dbfull()->DisableFileDeletions();
 }
 
+TEST(DBTest, CompactOnFlush) {
+  Options options = CurrentOptions();
+  options.purge_redundant_kvs_while_flush = true;
+  options.disable_auto_compactions = true;
+  Reopen(&options);
+
+  Put("foo", "v1");
+  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v1 ]");
+
+  // Write two new keys
+  Put("a", "begin");
+  Put("z", "end");
+  dbfull()->TEST_CompactMemTable();
+
+  // Case1: Delete followed by a put
+  Delete("foo");
+  Put("foo", "v2");
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v2, DEL, v1 ]");
+
+  // After the current memtable is flushed, the DEL should
+  // have been removed
+  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v2, v1 ]");
+
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v2 ]");
+
+  // Case 2: Delete followed by another delete
+  Delete("foo");
+  Delete("foo");
+  ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, DEL, v2 ]");
+  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v2 ]");
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(AllEntriesFor("foo"), "[ ]");
+
+  // Case 3: Put followed by a delete
+  Put("foo", "v3");
+  Delete("foo");
+  ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v3 ]");
+  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_EQ(AllEntriesFor("foo"), "[ DEL ]");
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(AllEntriesFor("foo"), "[ ]");
+
+  // Case 4: Put followed by another Put
+  Put("foo", "v4");
+  Put("foo", "v5");
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v5, v4 ]");
+  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v5 ]");
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v5 ]");
+
+  // clear database
+  Delete("foo");
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(AllEntriesFor("foo"), "[ ]");
+
+  // Case 5: Put followed by snapshot followed by another Put
+  // Both puts should remain.
+  Put("foo", "v6");
+  const Snapshot* snapshot = db_->GetSnapshot();
+  Put("foo", "v7");
+  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v7, v6 ]");
+  db_->ReleaseSnapshot(snapshot);
+
+  // clear database
+  Delete("foo");
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(AllEntriesFor("foo"), "[ ]");
+
+  // Case 5: snapshot followed by a put followed by another Put
+  // Only the last put should remain.
+  const Snapshot* snapshot1 = db_->GetSnapshot();
+  Put("foo", "v8");
+  Put("foo", "v9");
+  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_EQ(AllEntriesFor("foo"), "[ v9 ]");
+  db_->ReleaseSnapshot(snapshot1);
+}
+
 void ListLogFiles(Env* env,
                   const std::string& path,
                   std::vector<uint64_t>* logFiles) {
@@ -2898,7 +2989,6 @@ static bool CompareIterators(int step,
       ok = false;
     }
   }
-  fprintf(stderr, "%d entries compared: ok=%d\n", count, ok);
   delete miter;
   delete dbiter;
   return ok;
@@ -2913,9 +3003,6 @@ TEST(DBTest, Randomized) {
     const Snapshot* db_snap = nullptr;
     std::string k, v;
     for (int step = 0; step < N; step++) {
-      if (step % 100 == 0) {
-        fprintf(stderr, "Step %d of %d\n", step, N);
-      }
       // TODO(sanjay): Test Get() works
       int p = rnd.Uniform(100);
       if (p < 45) {                               // Put

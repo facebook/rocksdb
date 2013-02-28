@@ -380,6 +380,10 @@ struct Options {
   // as well as prevent overallocation for mounts that preallocate
   // large amounts of data (such as xfs's allocsize option).
   size_t manifest_preallocation_size;
+
+  // Purge duplicate/deleted keys when a memtable is flushed to storage.
+  // Default: true
+  bool purge_redundant_kvs_while_flush;
 };
 
 // Options that control read operations

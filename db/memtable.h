@@ -68,6 +68,10 @@ class MemTable {
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
+  // Returns the sequence number of the first element that was inserted
+  // into the memtable
+  SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }
+
  private:
   ~MemTable();  // Private since only Unref() should be used to delete it
 
@@ -95,6 +99,9 @@ class MemTable {
   // The udpates to be applied to the transaction log when this
   // memtable is flushed to storage.
   VersionEdit edit_;
+
+  // The sequence number of the kv that was inserted first
+  SequenceNumber first_seqno_;
 
   // No copying allowed
   MemTable(const MemTable&);

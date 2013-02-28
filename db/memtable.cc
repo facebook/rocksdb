@@ -25,7 +25,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp, int numlevel)
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
-      edit_(numlevel) {
+      edit_(numlevel),
+      first_seqno_(0) {
 }
 
 MemTable::~MemTable() {
@@ -107,6 +108,12 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((p + val_size) - buf == (unsigned)encoded_len);
   table_.Insert(buf);
+
+  // The first sequence number inserted into the memtable
+  assert(first_seqno_ == 0 || s > first_seqno_);
+  if (first_seqno_ == 0) {
+    first_seqno_ = s;
+  }
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {

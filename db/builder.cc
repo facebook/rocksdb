@@ -19,10 +19,21 @@ Status BuildTable(const std::string& dbname,
                   const Options& options,
                   TableCache* table_cache,
                   Iterator* iter,
-                  FileMetaData* meta) {
+                  FileMetaData* meta,
+                  const Comparator* user_comparator,
+                  const SequenceNumber newest_snapshot,
+                  const SequenceNumber earliest_seqno_in_memtable) {
   Status s;
   meta->file_size = 0;
   iter->SeekToFirst();
+
+  // If the sequence number of the smallest entry in the memtable is
+  // smaller than the most recent snapshot, then we do not trigger
+  // removal of duplicate/deleted keys as part of this builder.
+  bool purge = options.purge_redundant_kvs_while_flush;
+  if (earliest_seqno_in_memtable <= newest_snapshot) {
+    purge = false;
+  }
 
   std::string fname = TableFileName(dbname, meta->number);
   if (iter->Valid()) {
@@ -31,13 +42,53 @@ Status BuildTable(const std::string& dbname,
     if (!s.ok()) {
       return s;
     }
-
     TableBuilder* builder = new TableBuilder(options, file.get(), 0);
-    meta->smallest.DecodeFrom(iter->key());
-    for (; iter->Valid(); iter->Next()) {
-      Slice key = iter->key();
-      meta->largest.DecodeFrom(key);
-      builder->Add(key, iter->value());
+
+    // the first key is the smallest key
+    Slice key = iter->key();
+    meta->smallest.DecodeFrom(key);
+
+    if (purge) {
+      ParsedInternalKey prev_ikey;
+      std::string prev_value;
+      std::string prev_key;
+
+      // store first key-value
+      prev_key.assign(key.data(), key.size());
+      prev_value.assign(iter->value().data(), iter->value().size());
+      ParseInternalKey(Slice(prev_key), &prev_ikey);
+      assert(prev_ikey.sequence >= earliest_seqno_in_memtable);
+
+      for (iter->Next(); iter->Valid(); iter->Next()) {
+        ParsedInternalKey this_ikey;
+        Slice key = iter->key();
+        ParseInternalKey(key, &this_ikey);
+        assert(this_ikey.sequence >= earliest_seqno_in_memtable);
+
+        if (user_comparator->Compare(prev_ikey.user_key, this_ikey.user_key)) {
+          // This key is different from previous key.
+          // Output prev key and remember current key
+          builder->Add(Slice(prev_key), Slice(prev_value));
+          prev_key.assign(key.data(), key.size());
+          prev_value.assign(iter->value().data(), iter->value().size());
+          ParseInternalKey(Slice(prev_key), &prev_ikey);
+        } else {
+          // seqno within the same key are in decreasing order
+          assert(this_ikey.sequence < prev_ikey.sequence);
+          // This key is an earlier version of the same key in prev_key.
+          // Skip current key.
+        }
+      }
+      // output last key
+      builder->Add(Slice(prev_key), Slice(prev_value));
+      meta->largest.DecodeFrom(Slice(prev_key));
+
+    } else {
+      for (; iter->Valid(); iter->Next()) {
+        Slice key = iter->key();
+        meta->largest.DecodeFrom(key);
+        builder->Add(key, iter->value());
+      }
     }
 
     // Finish and check for builder errors

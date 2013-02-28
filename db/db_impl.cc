@@ -666,13 +666,18 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
   Iterator* iter = mem->NewIterator();
+  const SequenceNumber newest_snapshot = snapshots_.GetNewest();
+  const SequenceNumber earliest_seqno_in_memtable =
+    mem->GetFirstSequenceNumber();
   Log(options_.info_log, "Level-0 table #%llu: started",
       (unsigned long long) meta.number);
 
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta);
+    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta,
+                   user_comparator(), newest_snapshot,
+                   earliest_seqno_in_memtable);
     mutex_.Lock();
   }
 
@@ -710,6 +715,9 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   *filenumber = meta.number;
   pending_outputs_.insert(meta.number);
   Iterator* iter = mem->NewIterator();
+  const SequenceNumber newest_snapshot = snapshots_.GetNewest();
+  const SequenceNumber earliest_seqno_in_memtable =
+    mem->GetFirstSequenceNumber();
   Log(options_.info_log, "Level-0 flush table #%llu: started",
       (unsigned long long) meta.number);
 
@@ -718,7 +726,9 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta);
+    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta,
+                   user_comparator(), newest_snapshot,
+                   earliest_seqno_in_memtable);
     mutex_.Lock();
   }
   base->Unref();

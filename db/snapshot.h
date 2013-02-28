@@ -70,6 +70,14 @@ class SnapshotList {
     }
   }
 
+  // get the sequence number of the most recent snapshot
+  const SequenceNumber GetNewest() {
+    if (empty()) {
+      return 0;
+    }
+    return newest()->number_;
+  }
+
  private:
   // Dummy head of doubly-linked list of snapshots
   SnapshotImpl list_;

@@ -5,7 +5,9 @@
 #ifndef STORAGE_LEVELDB_DB_BUILDER_H_
 #define STORAGE_LEVELDB_DB_BUILDER_H_
 
+#include "leveldb/comparator.h"
 #include "leveldb/status.h"
+#include "leveldb/types.h"
 
 namespace leveldb {
 
@@ -27,7 +29,10 @@ extern Status BuildTable(const std::string& dbname,
                          const Options& options,
                          TableCache* table_cache,
                          Iterator* iter,
-                         FileMetaData* meta);
+                         FileMetaData* meta,
+                         const Comparator* user_comparator,
+                         const SequenceNumber newest_snapshot,
+                         const SequenceNumber earliest_seqno_in_memtable);
 
 }  // namespace leveldb
 
