@@ -88,8 +88,8 @@ static long FLAGS_seed = 0;
 // Number of concurrent threads to run.
 static int FLAGS_threads = 1;
 
-// Time in seconds for the random-ops tests to run. When 0 then
-// FLAGS_num & FLAGS_reads determine the test duration
+// Time in seconds for the random-ops tests to run. When 0 FLAGS_num & FLAGS_reads
+// determine the test duration
 static int FLAGS_duration = 0;
 
 // Size of each value
@@ -518,7 +518,7 @@ class Duration {
       }
     } else {
       return ops_ > max_ops_;
-    }
+    }  
   }
 
  private:
@@ -1206,7 +1206,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
 
       if (FLAGS_use_snapshot) {
         db_->ReleaseSnapshot(options.snapshot);
-        options.snapshot = nullptr;
+        options.snapshot = NULL;
       }
 
       thread->stats.FinishedSingleOp(db_);
