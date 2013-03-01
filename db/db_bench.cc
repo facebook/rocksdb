@@ -65,7 +65,8 @@ static const char* FLAGS_benchmarks =
     "snappyuncomp,"
     "acquireload,"
     ;
-
+// the maximum size of key in bytes
+static const int MAX_KEY_SIZE = 128;
 // Number of key/values to place in database
 static long FLAGS_num = 1000000;
 
@@ -88,6 +89,9 @@ static int FLAGS_threads = 1;
 
 // Size of each value
 static int FLAGS_value_size = 100;
+
+//size of each key
+static int FLAGS_key_size = 16;
 
 // Arrange to generate values that shrink to this fraction of
 // their original size after compression
@@ -485,26 +489,26 @@ class Benchmark {
   DB* db_;
   long num_;
   int value_size_;
+  int key_size_;
   int entries_per_batch_;
   WriteOptions write_options_;
   long reads_;
   long writes_;
   long readwrites_;
   int heap_counter_;
-
+  char keyFormat_[100]; // this string will contain the format of key. e.g "%016d"
   void PrintHeader() {
-    const int kKeySize = 16;
     PrintEnvironment();
-    fprintf(stdout, "Keys:       %d bytes each\n", kKeySize);
+    fprintf(stdout, "Keys:       %d bytes each\n", FLAGS_key_size);
     fprintf(stdout, "Values:     %d bytes each (%d bytes after compression)\n",
             FLAGS_value_size,
             static_cast<int>(FLAGS_value_size * FLAGS_compression_ratio + 0.5));
     fprintf(stdout, "Entries:    %ld\n", num_);
     fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
-            ((static_cast<int64_t>(kKeySize + FLAGS_value_size) * num_)
+            ((static_cast<int64_t>(FLAGS_key_size + FLAGS_value_size) * num_)
              / 1048576.0));
     fprintf(stdout, "FileSize:   %.1f MB (estimated)\n",
-            (((kKeySize + FLAGS_value_size * FLAGS_compression_ratio) * num_)
+            (((FLAGS_key_size + FLAGS_value_size * FLAGS_compression_ratio) * num_)
              / 1048576.0));
 
     switch (FLAGS_compression_type) {
@@ -655,6 +659,7 @@ class Benchmark {
     db_(nullptr),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
+    key_size_(FLAGS_key_size),
     entries_per_batch_(1),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
     writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
@@ -678,7 +683,20 @@ class Benchmark {
     delete db_;
     delete filter_policy_;
   }
+//this function will construct string format for key. e.g "%016d"
+void ConstructStrFormatForKey(char* str, int keySize)
+{
+  str[0] = '%';
+  str[1] = '0';
+  sprintf(str+2, "%dd", keySize);
+}
 
+unique_ptr<char []> GenerateKeyFromInt(int v)
+{
+  unique_ptr<char []> keyInStr(new char[MAX_KEY_SIZE]);
+  snprintf(keyInStr.get(), MAX_KEY_SIZE, keyFormat_, v);
+  return keyInStr;
+}
   void Run() {
     PrintHeader();
     Open();
@@ -700,12 +718,13 @@ class Benchmark {
       reads_ = (FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads);
       writes_ = (FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes);
       value_size_ = FLAGS_value_size;
+      key_size_ = FLAGS_key_size;
+      ConstructStrFormatForKey(keyFormat_, key_size_);
       entries_per_batch_ = 1;
       write_options_ = WriteOptions();
       if (FLAGS_sync) {
         write_options_.sync = true;
       }
-
       write_options_.disableWAL = FLAGS_disable_wal;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
@@ -1053,10 +1072,9 @@ class Benchmark {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
         const int k = seq ? i+j : (thread->rand.Next() % FLAGS_num);
-        char key[100];
-        snprintf(key, sizeof(key), "%016d", k);
-        batch.Put(key, gen.Generate(value_size_));
-        bytes += value_size_ + strlen(key);
+        unique_ptr<char []> key = GenerateKeyFromInt(k);
+        batch.Put(key.get(), gen.Generate(value_size_));
+        bytes += value_size_ + strlen(key.get());
         thread->stats.FinishedSingleOp(db_);
       }
       s = db_->Write(write_options_, &batch);
@@ -1101,16 +1119,14 @@ class Benchmark {
     std::string value;
     long found = 0;
     for (long i = 0; i < reads_; i++) {
-      char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
-      snprintf(key, sizeof(key), "%016d", k);
-
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
       if (FLAGS_read_range < 2) {
-        if (db_->Get(options, key, &value).ok()) {
+        if (db_->Get(options, key.get(), &value).ok()) {
           found++;
         }
       } else {
-        Slice skey(key);
+        Slice skey(key.get());
         int count = 1;
         for (iter->Seek(skey);
              iter->Valid() && count <= FLAGS_read_range;
@@ -1131,10 +1147,9 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
     for (long i = 0; i < reads_; i++) {
-      char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
-      snprintf(key, sizeof(key), "%016d.", k);
-      db_->Get(options, key, &value);
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      db_->Get(options, key.get(), &value);
       thread->stats.FinishedSingleOp(db_);
     }
   }
@@ -1144,10 +1159,9 @@ class Benchmark {
     std::string value;
     const long range = (FLAGS_num + 99) / 100;
     for (long i = 0; i < reads_; i++) {
-      char key[100];
       const int k = thread->rand.Next() % range;
-      snprintf(key, sizeof(key), "%016d", k);
-      db_->Get(options, key, &value);
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      db_->Get(options, key.get(), &value);
       thread->stats.FinishedSingleOp(db_);
     }
   }
@@ -1158,11 +1172,10 @@ class Benchmark {
     long found = 0;
     for (long i = 0; i < reads_; i++) {
       Iterator* iter = db_->NewIterator(options);
-      char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
-      snprintf(key, sizeof(key), "%016d", k);
-      iter->Seek(key);
-      if (iter->Valid() && iter->key() == key) found++;
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      iter->Seek(key.get());
+      if (iter->Valid() && iter->key() == key.get()) found++;
       delete iter;
       thread->stats.FinishedSingleOp(db_);
     }
@@ -1179,9 +1192,8 @@ class Benchmark {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
         const int k = seq ? i+j : (thread->rand.Next() % FLAGS_num);
-        char key[100];
-        snprintf(key, sizeof(key), "%016d", k);
-        batch.Delete(key);
+        unique_ptr<char []> key = GenerateKeyFromInt(k);
+        batch.Delete(key.get());
         thread->stats.FinishedSingleOp(db_);
       }
       s = db_->Write(write_options_, &batch);
@@ -1216,9 +1228,8 @@ class Benchmark {
         }
 
         const int k = thread->rand.Next() % FLAGS_num;
-        char key[100];
-        snprintf(key, sizeof(key), "%016d", k);
-        Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
+        unique_ptr<char []> key = GenerateKeyFromInt(k);
+        Status s = db_->Put(write_options_, key.get(), gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
@@ -1326,9 +1337,8 @@ class Benchmark {
     long deletes_done = 0;
     // the number of iterations is the larger of read_ or write_
     for (long i = 0; i < readwrites_; i++) {
-      char key[100];
       const int k = thread->rand.Next() % (FLAGS_numdistinct);
-      snprintf(key, sizeof(key), "%016d", k);
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
       if (get_weight == 0 && put_weight == 0 && delete_weight == 0) {
         // one batch complated, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
@@ -1337,7 +1347,7 @@ class Benchmark {
       }
       if (get_weight > 0) {
         // do all the gets first
-        Status s = MultiGet(options, key, &value);
+        Status s = MultiGet(options, key.get(), &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
           // we continue after error rather than exiting so that we can
@@ -1350,7 +1360,7 @@ class Benchmark {
       } else if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
-        Status s = MultiPut(write_options_, key, gen.Generate(value_size_));
+        Status s = MultiPut(write_options_, key.get(), gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "multiput error: %s\n", s.ToString().c_str());
           exit(1);
@@ -1358,7 +1368,7 @@ class Benchmark {
         put_weight--;
         puts_done++;
       } else if (delete_weight > 0) {
-        Status s = MultiDelete(write_options_, key);
+        Status s = MultiDelete(write_options_, key.get());
         if (!s.ok()) {
           fprintf(stderr, "multidelete error: %s\n", s.ToString().c_str());
           exit(1);
@@ -1390,9 +1400,8 @@ class Benchmark {
     long writes_done = 0;
     // the number of iterations is the larger of read_ or write_
     for (long i = 0; i < readwrites_; i++) {
-      char key[100];
       const int k = thread->rand.Next() % FLAGS_num;
-      snprintf(key, sizeof(key), "%016d", k);
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
       if (get_weight == 0 && put_weight == 0) {
         // one batch complated, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
@@ -1400,7 +1409,7 @@ class Benchmark {
       }
       if (get_weight > 0) {
         // do all the gets first
-        Status s = db_->Get(options, key, &value);
+        Status s = db_->Get(options, key.get(), &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
           // we continue after error rather than exiting so that we can
@@ -1409,7 +1418,7 @@ class Benchmark {
           found++;
         }
 
-        if (db_->Get(options, key, &value).ok()) {
+        if (db_->Get(options, key.get(), &value).ok()) {
           found++;
         }
         get_weight--;
@@ -1417,7 +1426,7 @@ class Benchmark {
       } else  if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
-        Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
+        Status s = db_->Put(write_options_, key.get(), gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
@@ -1508,6 +1517,13 @@ int main(int argc, char** argv) {
       FLAGS_threads = n;
     } else if (sscanf(argv[i], "--value_size=%d%c", &n, &junk) == 1) {
       FLAGS_value_size = n;
+    } else if (sscanf(argv[i], "--key_size=%d%c", &n, &junk) == 1) {
+      if (MAX_KEY_SIZE < n) {
+         fprintf(stderr, "key_size should not be larger than %d\n", MAX_KEY_SIZE);
+         exit(1);
+      } else {
+        FLAGS_key_size = n;
+      }
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
       FLAGS_write_buffer_size = n;
     } else if (sscanf(argv[i], "--max_write_buffer_number=%d%c", &n, &junk) == 1) {
