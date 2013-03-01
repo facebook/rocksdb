@@ -80,7 +80,7 @@ struct STLLessThan {
   const Comparator* cmp;
 
   STLLessThan() : cmp(BytewiseComparator()) { }
-  STLLessThan(const Comparator* c) : cmp(c) { }
+  explicit STLLessThan(const Comparator* c) : cmp(c) { }
   bool operator()(const std::string& a, const std::string& b) const {
     return cmp->Compare(Slice(a), Slice(b)) < 0;
   }
@@ -184,7 +184,7 @@ class Constructor {
 
   virtual const KVMap& data() { return data_; }
 
-  virtual DB* db() const { return NULL; }  // Overridden in DBConstructor
+  virtual DB* db() const { return nullptr; }  // Overridden in DBConstructor
 
  private:
   KVMap data_;
@@ -195,13 +195,13 @@ class BlockConstructor: public Constructor {
   explicit BlockConstructor(const Comparator* cmp)
       : Constructor(cmp),
         comparator_(cmp),
-        block_(NULL) { }
+        block_(nullptr) { }
   ~BlockConstructor() {
     delete block_;
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     delete block_;
-    block_ = NULL;
+    block_ = nullptr;
     BlockBuilder builder(&options);
 
     for (KVMap::const_iterator it = data.begin();
@@ -232,7 +232,7 @@ class BlockConstructor: public Constructor {
 
 class TableConstructor: public Constructor {
  public:
-  TableConstructor(const Comparator* cmp)
+  explicit TableConstructor(const Comparator* cmp)
       : Constructor(cmp) {
   }
   ~TableConstructor() {
@@ -377,7 +377,7 @@ class DBConstructor: public Constructor {
   explicit DBConstructor(const Comparator* cmp)
       : Constructor(cmp),
         comparator_(cmp) {
-    db_ = NULL;
+    db_ = nullptr;
     NewDB();
   }
   ~DBConstructor() {
@@ -385,7 +385,7 @@ class DBConstructor: public Constructor {
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
     NewDB();
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -491,25 +491,25 @@ static std::vector<TestArgs> Generate_Arg_List()
   for(int i =0; i < test_type_len; i++)
     for (int j =0; j < reverse_compare_len; j++)
       for (int k =0; k < restart_interval_len; k++)
-	for (unsigned int n =0; n < compression_types.size(); n++) {
-	  TestArgs one_arg;
-	  one_arg.type = test_type[i];
-	  one_arg.reverse_compare = reverse_compare[j];
-	  one_arg.restart_interval = restart_interval[k];
-	  one_arg.compression = compression_types[n];
-	  ret.push_back(one_arg);
-	}
+  for (unsigned int n =0; n < compression_types.size(); n++) {
+    TestArgs one_arg;
+    one_arg.type = test_type[i];
+    one_arg.reverse_compare = reverse_compare[j];
+    one_arg.restart_interval = restart_interval[k];
+    one_arg.compression = compression_types[n];
+    ret.push_back(one_arg);
+  }
 
   return ret;
 }
 
 class Harness {
  public:
-  Harness() : constructor_(NULL) { }
+  Harness() : constructor_(nullptr) { }
 
   void Init(const TestArgs& args) {
     delete constructor_;
-    constructor_ = NULL;
+    constructor_ = nullptr;
     options_ = Options();
 
     options_.block_restart_interval = args.restart_interval;
@@ -706,7 +706,7 @@ class Harness {
     }
   }
 
-  // Returns NULL if not running against a DB
+  // Returns nullptr if not running against a DB
   DB* db() const { return constructor_->db(); }
 
  private:

@@ -30,11 +30,11 @@ class MemTableList {
   // A list of memtables.
   MemTableList() : size_(0), num_flush_not_started_(0),
     commit_in_progress_(false) {
-    imm_flush_needed.Release_Store(NULL);
+    imm_flush_needed.Release_Store(nullptr);
   }
   ~MemTableList() {};
 
-  // so that backgrund threads can detect non-NULL pointer to
+  // so that backgrund threads can detect non-nullptr pointer to
   // determine whether this is anything more to start flushing.
   port::AtomicPointer imm_flush_needed;
 

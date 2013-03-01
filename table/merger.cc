@@ -19,7 +19,7 @@ class MergingIterator : public Iterator {
       : comparator_(comparator),
         children_(new IteratorWrapper[n]),
         n_(n),
-        current_(NULL),
+        current_(nullptr),
         direction_(kForward),
         maxHeap_(NewMaxIterHeap(comparator_)),
         minHeap_ (NewMinIterHeap(comparator_)) {
@@ -38,7 +38,7 @@ class MergingIterator : public Iterator {
   }
 
   virtual bool Valid() const {
-    return (current_ != NULL);
+    return (current_ != nullptr);
   }
 
   virtual void SeekToFirst() {
@@ -189,7 +189,7 @@ class MergingIterator : public Iterator {
 
 void MergingIterator::FindSmallest() {
   if (minHeap_.empty()) {
-    current_ = NULL;
+    current_ = nullptr;
   } else {
     current_ = minHeap_.top();
     assert(current_->Valid());
@@ -199,7 +199,7 @@ void MergingIterator::FindSmallest() {
 
 void MergingIterator::FindLargest() {
   if (maxHeap_.empty()) {
-    current_ = NULL;
+    current_ = nullptr;
   } else {
     current_ = maxHeap_.top();
     assert(current_->Valid());

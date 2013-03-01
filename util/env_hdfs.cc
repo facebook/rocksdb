@@ -49,7 +49,7 @@ static Status IOError(const std::string& context, int err_number) {
 
 // assume that there is one global logger for now. It is not thread-safe,
 // but need not be because the logger is initialized at db-open time.
-static Logger* mylog = NULL;
+static Logger* mylog = nullptr;
 
 // Used for reading a file from HDFS. It implements both sequential-read
 // access methods as well as random read access methods.
@@ -61,7 +61,7 @@ class HdfsReadableFile: virtual public SequentialFile, virtual public RandomAcce
 
  public:
   HdfsReadableFile(hdfsFS fileSys, const std::string& fname)
-      : fileSys_(fileSys), filename_(fname), hfile_(NULL) {
+      : fileSys_(fileSys), filename_(fname), hfile_(nullptr) {
     Log(mylog, "[hdfs] HdfsReadableFile opening file %s\n",
         filename_.c_str());
     hfile_ = hdfsOpenFile(fileSys_, filename_.c_str(), O_RDONLY, 0, 0, 0);
@@ -75,11 +75,11 @@ class HdfsReadableFile: virtual public SequentialFile, virtual public RandomAcce
     hdfsCloseFile(fileSys_, hfile_);
     Log(mylog, "[hdfs] HdfsReadableFile closed file %s\n",
         filename_.c_str());
-    hfile_ = NULL;
+    hfile_ = nullptr;
   }
 
   bool isValid() {
-    return hfile_ != NULL;
+    return hfile_ != nullptr;
   }
 
   // sequential access, read data at current offset in file
@@ -149,7 +149,7 @@ class HdfsReadableFile: virtual public SequentialFile, virtual public RandomAcce
     Log(mylog, "[hdfs] HdfsReadableFile fileSize %s\n", filename_.c_str());
     hdfsFileInfo* pFileInfo = hdfsGetPathInfo(fileSys_, filename_.c_str());
     tOffset size = 0L;
-    if (pFileInfo != NULL) {
+    if (pFileInfo != nullptr) {
       size = pFileInfo->mSize;
       hdfsFreeFileInfo(pFileInfo, 1);
     } else {
@@ -169,25 +169,25 @@ class HdfsWritableFile: public WritableFile {
 
  public:
   HdfsWritableFile(hdfsFS fileSys, const std::string& fname)
-      : fileSys_(fileSys), filename_(fname) , hfile_(NULL) {
+      : fileSys_(fileSys), filename_(fname) , hfile_(nullptr) {
     Log(mylog, "[hdfs] HdfsWritableFile opening %s\n", filename_.c_str());
     hfile_ = hdfsOpenFile(fileSys_, filename_.c_str(), O_WRONLY, 0, 0, 0);
     Log(mylog, "[hdfs] HdfsWritableFile opened %s\n", filename_.c_str());
-    assert(hfile_ != NULL);
+    assert(hfile_ != nullptr);
   }
   virtual ~HdfsWritableFile() {
-    if (hfile_ != NULL) {
+    if (hfile_ != nullptr) {
       Log(mylog, "[hdfs] HdfsWritableFile closing %s\n", filename_.c_str());
       hdfsCloseFile(fileSys_, hfile_);
       Log(mylog, "[hdfs] HdfsWritableFile closed %s\n", filename_.c_str());
-      hfile_ = NULL;
+      hfile_ = nullptr;
     }
   }
 
   // If the file was successfully created, then this returns true.
   // Otherwise returns false.
   bool isValid() {
-    return hfile_ != NULL;
+    return hfile_ != nullptr;
   }
 
   // The name of the file, mostly needed for debug logging.
@@ -238,7 +238,7 @@ class HdfsWritableFile: public WritableFile {
       return IOError(filename_, errno);
     }
     Log(mylog, "[hdfs] HdfsWritableFile closed %s\n", filename_.c_str());
-    hfile_ = NULL;
+    hfile_ = nullptr;
     return Status::OK();
   }
 };
@@ -260,8 +260,8 @@ class HdfsLogger : public Logger {
     Log(mylog, "[hdfs] HdfsLogger closed %s\n",
             file_->getName().c_str());
     delete file_;
-    if (mylog != NULL && mylog == this) {
-      mylog = NULL;
+    if (mylog != nullptr && mylog == this) {
+      mylog = nullptr;
     }
   }
 
@@ -285,7 +285,7 @@ class HdfsLogger : public Logger {
       char* limit = base + bufsize;
 
       struct timeval now_tv;
-      gettimeofday(&now_tv, NULL);
+      gettimeofday(&now_tv, nullptr);
       const time_t seconds = now_tv.tv_sec;
       struct tm t;
       localtime_r(&seconds, &t);
@@ -341,8 +341,8 @@ class HdfsLogger : public Logger {
 Status HdfsEnv::NewSequentialFile(const std::string& fname,
                                  SequentialFile** result) {
   HdfsReadableFile* f = new HdfsReadableFile(fileSys_, fname);
-  if (f == NULL) {
-    *result = NULL;
+  if (f == nullptr) {
+    *result = nullptr;
     return IOError(fname, errno);
   }
   *result = dynamic_cast<SequentialFile*>(f);
@@ -353,8 +353,8 @@ Status HdfsEnv::NewSequentialFile(const std::string& fname,
 Status HdfsEnv::NewRandomAccessFile(const std::string& fname,
                                    RandomAccessFile** result) {
   HdfsReadableFile* f = new HdfsReadableFile(fileSys_, fname);
-  if (f == NULL) {
-    *result = NULL;
+  if (f == nullptr) {
+    *result = nullptr;
     return IOError(fname, errno);
   }
   *result = dynamic_cast<RandomAccessFile*>(f);
@@ -366,8 +366,8 @@ Status HdfsEnv::NewWritableFile(const std::string& fname,
                                WritableFile** result) {
   Status s;
   HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname);
-  if (f == NULL || !f->isValid()) {
-    *result = NULL;
+  if (f == nullptr || !f->isValid()) {
+    *result = nullptr;
     return IOError(fname, errno);
   }
   *result = dynamic_cast<WritableFile*>(f);
@@ -394,11 +394,11 @@ Status HdfsEnv::GetChildren(const std::string& path,
       for(int i = 0; i < numEntries; i++) {
         char* pathname = pHdfsFileInfo[i].mName;
         char* filename = rindex(pathname, '/');
-        if (filename != NULL) {
+        if (filename != nullptr) {
           result->push_back(filename+1);
         }
       }
-      if (pHdfsFileInfo != NULL) {
+      if (pHdfsFileInfo != nullptr) {
         hdfsFreeFileInfo(pHdfsFileInfo, numEntries);
       }
     } else {
@@ -448,7 +448,7 @@ Status HdfsEnv::DeleteDir(const std::string& name) {
 Status HdfsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   *size = 0L;
   hdfsFileInfo* pFileInfo = hdfsGetPathInfo(fileSys_, fname.c_str());
-  if (pFileInfo != NULL) {
+  if (pFileInfo != nullptr) {
     *size = pFileInfo->mSize;
     hdfsFreeFileInfo(pFileInfo, 1);
     return Status::OK();
@@ -459,7 +459,7 @@ Status HdfsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
 Status HdfsEnv::GetFileModificationTime(const std::string& fname,
                                         uint64_t* time) {
   hdfsFileInfo* pFileInfo = hdfsGetPathInfo(fileSys_, fname.c_str());
-  if (pFileInfo != NULL) {
+  if (pFileInfo != nullptr) {
     *time = static_cast<uint64_t>(pFileInfo->mLastMod);
     hdfsFreeFileInfo(pFileInfo, 1);
     return Status::OK();
@@ -482,7 +482,7 @@ Status HdfsEnv::RenameFile(const std::string& src, const std::string& target) {
 Status HdfsEnv::LockFile(const std::string& fname, FileLock** lock) {
   // there isn's a very good way to atomically check and create
   // a file via libhdfs
-  *lock = NULL;
+  *lock = nullptr;
   return Status::OK();
 }
 
@@ -493,13 +493,13 @@ Status HdfsEnv::UnlockFile(FileLock* lock) {
 Status HdfsEnv::NewLogger(const std::string& fname,
                           shared_ptr<Logger>* result) {
   HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname);
-  if (f == NULL || !f->isValid()) {
-    *result = NULL;
+  if (f == nullptr || !f->isValid()) {
+    *result = nullptr;
     return IOError(fname, errno);
   }
   HdfsLogger* h = new HdfsLogger(f, &HdfsEnv::gettid);
   *result = h;
-  if (mylog == NULL) {
+  if (mylog == nullptr) {
     // mylog = h; // uncomment this for detailed logging
   }
   return Status::OK();

@@ -53,7 +53,7 @@ struct TableBuilder::Rep {
         index_block(&index_block_options),
         num_entries(0),
         closed(false),
-        filter_block(opt.filter_policy == NULL ? NULL
+        filter_block(opt.filter_policy == nullptr ? nullptr
                      : new FilterBlockBuilder(opt.filter_policy)),
         pending_index_entry(false) {
     index_block_options.block_restart_interval = 1;
@@ -63,7 +63,7 @@ struct TableBuilder::Rep {
 TableBuilder::TableBuilder(const Options& options, WritableFile* file,
                            int level)
     : rep_(new Rep(options, file)), level_(level) {
-  if (rep_->filter_block != NULL) {
+  if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
 }
@@ -107,7 +107,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     r->pending_index_entry = false;
   }
 
-  if (r->filter_block != NULL) {
+  if (r->filter_block != nullptr) {
     r->filter_block->AddKey(key);
   }
 
@@ -132,7 +132,7 @@ void TableBuilder::Flush() {
     r->pending_index_entry = true;
     r->status = r->file->Flush();
   }
-  if (r->filter_block != NULL) {
+  if (r->filter_block != nullptr) {
     r->filter_block->StartBlock(r->offset);
   }
 }
@@ -249,7 +249,7 @@ Status TableBuilder::Finish() {
   BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
 
   // Write filter block
-  if (ok() && r->filter_block != NULL) {
+  if (ok() && r->filter_block != nullptr) {
     WriteRawBlock(r->filter_block->Finish(), kNoCompression,
                   &filter_block_handle);
   }
@@ -257,7 +257,7 @@ Status TableBuilder::Finish() {
   // Write metaindex block
   if (ok()) {
     BlockBuilder meta_index_block(&r->options);
-    if (r->filter_block != NULL) {
+    if (r->filter_block != nullptr) {
       // Add mapping from "filter.Name" to location of filter data
       std::string key = "filter.";
       key.append(r->options.filter_policy->Name());

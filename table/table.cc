@@ -89,7 +89,7 @@ Status Table::Open(const Options& options,
 
   // Read the index block
   BlockContents contents;
-  Block* index_block = NULL;
+  Block* index_block = nullptr;
   if (s.ok()) {
     s = ReadBlock(file.get(), ReadOptions(), footer.index_handle(), &contents);
     if (s.ok()) {
@@ -106,8 +106,8 @@ Status Table::Open(const Options& options,
     rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
     SetupCacheKeyPrefix(rep);
-    rep->filter_data = NULL;
-    rep->filter = NULL;
+    rep->filter_data = nullptr;
+    rep->filter = nullptr;
     table->reset(new Table(rep));
     (*table)->ReadMeta(footer);
   } else {
@@ -118,7 +118,7 @@ Status Table::Open(const Options& options,
 }
 
 void Table::ReadMeta(const Footer& footer) {
-  if (rep_->options.filter_policy == NULL) {
+  if (rep_->options.filter_policy == nullptr) {
     return;  // Do not need any metadata
   }
 
@@ -192,8 +192,8 @@ Iterator* Table::BlockReader(void* arg,
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache.get();
   Statistics* const statistics = table->rep_->options.statistics;
-  Block* block = NULL;
-  Cache::Handle* cache_handle = NULL;
+  Block* block = nullptr;
+  Cache::Handle* cache_handle = nullptr;
 
   BlockHandle handle;
   Slice input = index_value;
@@ -203,7 +203,7 @@ Iterator* Table::BlockReader(void* arg,
 
   if (s.ok()) {
     BlockContents contents;
-    if (block_cache != NULL) {
+    if (block_cache != nullptr) {
       char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
       const size_t cache_key_prefix_size = table->rep_->cache_key_prefix_size;
       assert(cache_key_prefix_size != 0);
@@ -214,7 +214,7 @@ Iterator* Table::BlockReader(void* arg,
                                  handle.offset());
       Slice key(cache_key, static_cast<size_t>(end-cache_key));
       cache_handle = block_cache->Lookup(key);
-      if (cache_handle != NULL) {
+      if (cache_handle != nullptr) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
 
         RecordTick(statistics, BLOCK_CACHE_HIT);
@@ -227,7 +227,7 @@ Iterator* Table::BlockReader(void* arg,
                 key, block, block->size(), &DeleteCachedBlock);
           }
         }
-        if (didIO != NULL) {
+        if (didIO != nullptr) {
           *didIO = true; // we did some io from storage
         }
 
@@ -238,17 +238,17 @@ Iterator* Table::BlockReader(void* arg,
       if (s.ok()) {
         block = new Block(contents);
       }
-      if (didIO != NULL) {
+      if (didIO != nullptr) {
         *didIO = true; // we did some io from storage
       }
     }
   }
 
   Iterator* iter;
-  if (block != NULL) {
+  if (block != nullptr) {
     iter = block->NewIterator(table->rep_->options.comparator);
-    if (cache_handle == NULL) {
-      iter->RegisterCleanup(&DeleteBlock, block, NULL);
+    if (cache_handle == nullptr) {
+      iter->RegisterCleanup(&DeleteBlock, block, nullptr);
     } else {
       iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
     }
@@ -261,7 +261,7 @@ Iterator* Table::BlockReader(void* arg,
 Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
                              const Slice& index_value) {
-  return BlockReader(arg, options, index_value, NULL);
+  return BlockReader(arg, options, index_value, nullptr);
 }
 
 Iterator* Table::NewIterator(const ReadOptions& options) const {
@@ -280,7 +280,7 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
     Slice handle_value = iiter->value();
     FilterBlockReader* filter = rep_->filter;
     BlockHandle handle;
-    if (filter != NULL &&
+    if (filter != nullptr &&
         handle.DecodeFrom(&handle_value).ok() &&
         !filter->KeyMayMatch(handle.offset(), k)) {
       // Not found

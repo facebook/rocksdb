@@ -72,15 +72,15 @@ int FindFile(const InternalKeyComparator& icmp,
 
 static bool AfterFile(const Comparator* ucmp,
                       const Slice* user_key, const FileMetaData* f) {
-  // NULL user_key occurs before all keys and is therefore never after *f
-  return (user_key != NULL &&
+  // nullptr user_key occurs before all keys and is therefore never after *f
+  return (user_key != nullptr &&
           ucmp->Compare(*user_key, f->largest.user_key()) > 0);
 }
 
 static bool BeforeFile(const Comparator* ucmp,
                        const Slice* user_key, const FileMetaData* f) {
-  // NULL user_key occurs after all keys and is therefore never before *f
-  return (user_key != NULL &&
+  // nullptr user_key occurs after all keys and is therefore never before *f
+  return (user_key != nullptr &&
           ucmp->Compare(*user_key, f->smallest.user_key()) < 0);
 }
 
@@ -107,7 +107,7 @@ bool SomeFileOverlapsRange(
 
   // Binary search over file list
   uint32_t index = 0;
-  if (smallest_user_key != NULL) {
+  if (smallest_user_key != nullptr) {
     // Find the earliest possible internal key for smallest_user_key
     InternalKey small(*smallest_user_key, kMaxSequenceNumber,kValueTypeForSeek);
     index = FindFile(icmp, files, small.Encode());
@@ -256,7 +256,7 @@ Version::Version(VersionSet* vset, uint64_t version_number)
     : vset_(vset), next_(this), prev_(this), refs_(0),
       files_by_size_(vset->NumberLevels()),
       next_file_to_compact_by_size_(vset->NumberLevels()),
-      file_to_compact_(NULL),
+      file_to_compact_(nullptr),
       file_to_compact_level_(-1),
       compaction_score_(vset->NumberLevels()),
       compaction_level_(vset->NumberLevels()),
@@ -274,9 +274,9 @@ Status Version::Get(const ReadOptions& options,
   const Comparator* ucmp = vset_->icmp_.user_comparator();
   Status s;
 
-  stats->seek_file = NULL;
+  stats->seek_file = nullptr;
   stats->seek_file_level = -1;
-  FileMetaData* last_file_read = NULL;
+  FileMetaData* last_file_read = nullptr;
   int last_file_read_level = -1;
 
   // We can search level-by-level since entries never hop across
@@ -310,13 +310,13 @@ Status Version::Get(const ReadOptions& options,
       // Binary search to find earliest index whose largest key >= ikey.
       uint32_t index = FindFile(vset_->icmp_, files_[level], ikey);
       if (index >= num_files) {
-        files = NULL;
+        files = nullptr;
         num_files = 0;
       } else {
         tmp2 = files[index];
         if (ucmp->Compare(user_key, tmp2->smallest.user_key()) < 0) {
           // All of "tmp2" is past any data for user_key
-          files = NULL;
+          files = nullptr;
           num_files = 0;
         } else {
           files = &tmp2;
@@ -341,7 +341,7 @@ Status Version::Get(const ReadOptions& options,
         return s;
       }
 
-      if (last_file_read != NULL && stats->seek_file == NULL) {
+      if (last_file_read != nullptr && stats->seek_file == nullptr) {
         // We have had more than one seek for this read.  Charge the 1st file.
         stats->seek_file = last_file_read;
         stats->seek_file_level = last_file_read_level;
@@ -379,9 +379,9 @@ Status Version::Get(const ReadOptions& options,
 
 bool Version::UpdateStats(const GetStats& stats) {
   FileMetaData* f = stats.seek_file;
-  if (f != NULL) {
+  if (f != nullptr) {
     f->allowed_seeks--;
-    if (f->allowed_seeks <= 0 && file_to_compact_ == NULL) {
+    if (f->allowed_seeks <= 0 && file_to_compact_ == nullptr) {
       file_to_compact_ = f;
       file_to_compact_level_ = stats.seek_file_level;
       return true;
@@ -454,17 +454,17 @@ void Version::GetOverlappingInputs(
     int* file_index) {
   inputs->clear();
   Slice user_begin, user_end;
-  if (begin != NULL) {
+  if (begin != nullptr) {
     user_begin = begin->user_key();
   }
-  if (end != NULL) {
+  if (end != nullptr) {
     user_end = end->user_key();
   }
   if (file_index) {
     *file_index = -1;
   }
   const Comparator* user_cmp = vset_->icmp_.user_comparator();
-  if (begin != NULL && end != NULL && level > 0) {
+  if (begin != nullptr && end != nullptr && level > 0) {
     GetOverlappingInputsBinarySearch(level, user_begin, user_end, inputs,
       hint_index, file_index);
     return;
@@ -473,20 +473,21 @@ void Version::GetOverlappingInputs(
     FileMetaData* f = files_[level][i++];
     const Slice file_start = f->smallest.user_key();
     const Slice file_limit = f->largest.user_key();
-    if (begin != NULL && user_cmp->Compare(file_limit, user_begin) < 0) {
+    if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
       // "f" is completely before specified range; skip it
-    } else if (end != NULL && user_cmp->Compare(file_start, user_end) > 0) {
+    } else if (end != nullptr && user_cmp->Compare(file_start, user_end) > 0) {
       // "f" is completely after specified range; skip it
     } else {
       inputs->push_back(f);
       if (level == 0) {
         // Level-0 files may overlap each other.  So check if the newly
         // added file has expanded the range.  If so, restart search.
-        if (begin != NULL && user_cmp->Compare(file_start, user_begin) < 0) {
+        if (begin != nullptr && user_cmp->Compare(file_start, user_begin) < 0) {
           user_begin = file_start;
           inputs->clear();
           i = 0;
-        } else if (end != NULL && user_cmp->Compare(file_limit, user_end) > 0) {
+        } else if (end != nullptr
+            && user_cmp->Compare(file_limit, user_end) > 0) {
           user_end = file_limit;
           inputs->clear();
           i = 0;
@@ -897,7 +898,7 @@ VersionSet::VersionSet(const std::string& dbname,
       prev_log_number_(0),
       num_levels_(options_->num_levels),
       dummy_versions_(this),
-      current_(NULL),
+      current_(nullptr),
       compactions_in_progress_(options_->num_levels),
       current_version_number_(0),
       last_observed_manifest_size_(0) {
@@ -934,7 +935,7 @@ void VersionSet::AppendVersion(Version* v) {
   // Make "v" current
   assert(v->refs_ == 0);
   assert(v != current_);
-  if (current_ != NULL) {
+  if (current_ != nullptr) {
     assert(current_->refs_ > 0);
     current_->Unref();
   }
@@ -1562,7 +1563,7 @@ bool VersionSet::ManifestContains(const std::string& record) const {
     Log(options_->info_log, "ManifestContains: %s\n", s.ToString().c_str());
     return false;
   }
-  log::Reader reader(std::move(file), NULL, true/*checksum*/, 0);
+  log::Reader reader(std::move(file), nullptr, true/*checksum*/, 0);
   Slice r;
   std::string scratch;
   bool result = false;
@@ -1599,7 +1600,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
         Table* tableptr;
         Iterator* iter = table_cache_->NewIterator(
             ReadOptions(), files[i]->number, files[i]->file_size, &tableptr);
-        if (tableptr != NULL) {
+        if (tableptr != nullptr) {
           result += tableptr->ApproximateOffsetOf(ikey.Encode());
         }
         delete iter;
@@ -1827,14 +1828,14 @@ uint64_t VersionSet::SizeBeingCompacted(int level) {
 }
 
 Compaction* VersionSet::PickCompactionBySize(int level, double score) {
-  Compaction* c = NULL;
+  Compaction* c = nullptr;
 
   // level 0 files are overlapping. So we cannot pick more
   // than one concurrent compactions at this level. This
   // could be made better by looking at key-ranges that are
   // being compacted at level 0.
   if (level == 0 && compactions_in_progress_[level].size() == 1) {
-    return NULL;
+    return nullptr;
   }
 
   assert(level >= 0);
@@ -1890,7 +1891,7 @@ Compaction* VersionSet::PickCompactionBySize(int level, double score) {
 
   if (c->inputs_[0].empty()) {
     delete c;
-    c = NULL;
+    c = nullptr;
   }
 
   // store where to start the iteration in the next call to PickCompaction
@@ -1900,7 +1901,7 @@ Compaction* VersionSet::PickCompactionBySize(int level, double score) {
 }
 
 Compaction* VersionSet::PickCompaction() {
-  Compaction* c = NULL;
+  Compaction* c = nullptr;
   int level = -1;
 
   // compute the compactions needed. It is better to do it here
@@ -1917,14 +1918,14 @@ Compaction* VersionSet::PickCompaction() {
     level = current_->compaction_level_[i];
     if ((current_->compaction_score_[i] >= 1)) {
       c = PickCompactionBySize(level, current_->compaction_score_[i]);
-      if (c != NULL) {
+      if (c != nullptr) {
         break;
       }
     }
   }
 
   // Find compactions needed by seeks
-  if (c == NULL && (current_->file_to_compact_ != NULL)) {
+  if (c == nullptr && (current_->file_to_compact_ != nullptr)) {
     level = current_->file_to_compact_level_;
 
     // Only allow one level 0 compaction at a time.
@@ -1935,8 +1936,8 @@ Compaction* VersionSet::PickCompaction() {
     }
   }
 
-  if (c == NULL) {
-    return NULL;
+  if (c == nullptr) {
+    return nullptr;
   }
 
   c->input_version_ = current_;
@@ -1957,7 +1958,7 @@ Compaction* VersionSet::PickCompaction() {
     if (ParentRangeInCompaction(&smallest, &largest,
                                 level, &c->parent_index_)) {
       delete c;
-      return NULL;
+      return nullptr;
     }
     assert(!c->inputs_[0].empty());
   }
@@ -2010,7 +2011,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   if (!c->inputs_[1].empty()) {
     std::vector<FileMetaData*> expanded0;
     current_->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0,
-                                   c->base_index_, NULL);
+                                   c->base_index_, nullptr);
     const int64_t inputs0_size = TotalFileSize(c->inputs_[0]);
     const int64_t inputs1_size = TotalFileSize(c->inputs_[1]);
     const int64_t expanded0_size = TotalFileSize(expanded0);
@@ -2073,7 +2074,7 @@ Compaction* VersionSet::CompactRange(
   std::vector<FileMetaData*> inputs;
   current_->GetOverlappingInputs(level, begin, end, &inputs);
   if (inputs.empty()) {
-    return NULL;
+    return nullptr;
   }
 
   // Avoid compacting too much in one shot in case the range is large.
@@ -2109,7 +2110,7 @@ Compaction::Compaction(int level, uint64_t target_file_size,
     : level_(level),
       max_output_file_size_(target_file_size),
       maxGrandParentOverlapBytes_(max_grandparent_overlap_bytes),
-      input_version_(NULL),
+      input_version_(nullptr),
       number_levels_(number_levels),
       seek_compaction_(seek_compaction),
       grandparent_index_(0),
@@ -2128,7 +2129,7 @@ Compaction::Compaction(int level, uint64_t target_file_size,
 Compaction::~Compaction() {
   delete[] level_ptrs_;
   delete edit_;
-  if (input_version_ != NULL) {
+  if (input_version_ != nullptr) {
     input_version_->Unref();
   }
 }
@@ -2210,9 +2211,9 @@ void Compaction::MarkFilesBeingCompacted(bool value) {
 }
 
 void Compaction::ReleaseInputs() {
-  if (input_version_ != NULL) {
+  if (input_version_ != nullptr) {
     input_version_->Unref();
-    input_version_ = NULL;
+    input_version_ = nullptr;
   }
 }
 

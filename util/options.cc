@@ -19,14 +19,14 @@ Options::Options()
       error_if_exists(false),
       paranoid_checks(false),
       env(Env::Default()),
-      info_log(NULL),
+      info_log(nullptr),
       write_buffer_size(4<<20),
       max_write_buffer_number(2),
       max_open_files(1000),
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
-      filter_policy(NULL),
+      filter_policy(nullptr),
       num_levels(7),
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(8),
@@ -39,7 +39,7 @@ Options::Options()
       expanded_compaction_factor(25),
       source_compaction_factor(1),
       max_grandparent_overlap_factor(10),
-      statistics(NULL),
+      statistics(nullptr),
       disableDataSync(false),
       use_fsync(false),
       db_stats_log_interval(1800),
@@ -54,8 +54,8 @@ Options::Options()
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
       table_cache_numshardbits(4),
-      compaction_filter_args(NULL),
-      CompactionFilter(NULL),
+      compaction_filter_args(nullptr),
+      CompactionFilter(nullptr),
       disable_auto_compactions(false),
       WAL_ttl_seconds(0),
       manifest_preallocation_size(4 * 1024 * 1024) {
@@ -90,7 +90,7 @@ Options::Dump(Logger* log) const
       Log(log,"         Options.compression: %d", compression);
     }
     Log(log,"         Options.filter_policy: %s",
-        filter_policy == NULL ? "NULL" : filter_policy->Name());
+        filter_policy == nullptr ? "nullptr" : filter_policy->Name());
     Log(log,"            Options.num_levels: %d", num_levels);
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);

@@ -308,7 +308,7 @@ class TestState {
 
   explicit TestState(int s)
       : seed_(s),
-        quit_flag_(NULL),
+        quit_flag_(nullptr),
         state_(STARTING),
         state_cv_(&mu_) {}
 
@@ -360,7 +360,7 @@ static void RunConcurrent(int run) {
     for (int i = 0; i < kSize; i++) {
       state.t_.WriteStep(&rnd);
     }
-    state.quit_flag_.Release_Store(&state);  // Any non-NULL arg will do
+    state.quit_flag_.Release_Store(&state);  // Any non-nullptr arg will do
     state.Wait(TestState::DONE);
   }
 }

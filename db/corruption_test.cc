@@ -38,7 +38,7 @@ class CorruptionTest {
     dbname_ = test::TmpDir() + "/db_test";
     DestroyDB(dbname_, options_);
 
-    db_ = NULL;
+    db_ = nullptr;
     options_.create_if_missing = true;
     Reopen();
     options_.create_if_missing = false;
@@ -49,22 +49,22 @@ class CorruptionTest {
      DestroyDB(dbname_, Options());
   }
 
-  Status TryReopen(Options* options = NULL) {
+  Status TryReopen(Options* options = nullptr) {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
     Options opt = (options ? *options : options_);
     opt.env = &env_;
     opt.block_cache = tiny_cache_;
     return DB::Open(opt, dbname_, &db_);
   }
 
-  void Reopen(Options* options = NULL) {
+  void Reopen(Options* options = nullptr) {
     ASSERT_OK(TryReopen(options));
   }
 
   void RepairDB() {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
     ASSERT_OK(::leveldb::RepairDB(dbname_, options_));
   }
 
@@ -228,8 +228,8 @@ TEST(CorruptionTest, TableFile) {
   Build(100);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_CompactMemTable();
-  dbi->TEST_CompactRange(0, NULL, NULL);
-  dbi->TEST_CompactRange(1, NULL, NULL);
+  dbi->TEST_CompactRange(0, nullptr, nullptr);
+  dbi->TEST_CompactRange(1, nullptr, nullptr);
 
   Corrupt(kTableFile, 100, 1);
   Check(99, 99);
@@ -277,7 +277,7 @@ TEST(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "hello"));
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_CompactMemTable();
-  dbi->TEST_CompactRange(0, NULL, NULL);
+  dbi->TEST_CompactRange(0, nullptr, nullptr);
 
   Corrupt(kDescriptorFile, 0, 1000);
   Status s = TryReopen();

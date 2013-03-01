@@ -15,7 +15,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   started_(false),
   isValid_(true),
   currentFileIndex_(0) {
-  assert(files_ != NULL);
+  assert(files_ != nullptr);
 }
 
 LogReporter

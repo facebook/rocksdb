@@ -53,7 +53,7 @@ class DB {
   // Open the database with the specified "name".
   // Stores a pointer to a heap-allocated database in *dbptr and returns
   // OK on success.
-  // Stores NULL in *dbptr and returns a non-OK status on error.
+  // Stores nullptr in *dbptr and returns a non-OK status on error.
   // Caller should delete *dbptr when it is no longer needed.
   static Status Open(const Options& options,
                      const std::string& name,
@@ -149,10 +149,10 @@ class DB {
   // needed to access the data.  This operation should typically only
   // be invoked by users who understand the underlying implementation.
   //
-  // begin==NULL is treated as a key before all keys in the database.
-  // end==NULL is treated as a key after all keys in the database.
+  // begin==nullptr is treated as a key before all keys in the database.
+  // end==nullptr is treated as a key after all keys in the database.
   // Therefore the following call will compact the entire database:
-  //    db->CompactRange(NULL, NULL);
+  //    db->CompactRange(nullptr, nullptr);
   virtual void CompactRange(const Slice* begin, const Slice* end) = 0;
 
   // Number of levels used for this DB.

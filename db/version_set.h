@@ -47,8 +47,8 @@ extern int FindFile(const InternalKeyComparator& icmp,
 
 // Returns true iff some file in "files" overlaps the user key range
 // [*smallest,*largest].
-// smallest==NULL represents a key smaller than all keys in the DB.
-// largest==NULL represents a key largest than all keys in the DB.
+// smallest==nullptr represents a key smaller than all keys in the DB.
+// largest==nullptr represents a key largest than all keys in the DB.
 // REQUIRES: If disjoint_sorted_files, files[] contains disjoint ranges
 //           in sorted order.
 extern bool SomeFileOverlapsRange(
@@ -87,24 +87,24 @@ class Version {
 
   void GetOverlappingInputs(
       int level,
-      const InternalKey* begin,         // NULL means before all keys
-      const InternalKey* end,           // NULL means after all keys
+      const InternalKey* begin,         // nullptr means before all keys
+      const InternalKey* end,           // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
       int hint_index = -1,              // index of overlap file
-      int* file_index = NULL);          // return index of overlap file
+      int* file_index = nullptr);          // return index of overlap file
 
   void GetOverlappingInputsBinarySearch(
       int level,
-      const Slice& begin,         // NULL means before all keys
-      const Slice& end,           // NULL means after all keys
+      const Slice& begin,         // nullptr means before all keys
+      const Slice& end,           // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
       int hint_index,             // index of overlap file
       int* file_index);           // return index of overlap file
 
   void ExtendOverlappingInputs(
       int level,
-      const Slice& begin,         // NULL means before all keys
-      const Slice& end,           // NULL means after all keys
+      const Slice& begin,         // nullptr means before all keys
+      const Slice& end,           // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
       int index);                 // start extending from this index
 
@@ -272,13 +272,13 @@ class VersionSet {
   int NumberLevels() const { return num_levels_; }
 
   // Pick level and inputs for a new compaction.
-  // Returns NULL if there is no compaction to be done.
+  // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
   Compaction* PickCompaction();
 
   // Return a compaction object for compacting the range [begin,end] in
-  // the specified level.  Returns NULL if there is nothing in that
+  // the specified level.  Returns nullptr if there is nothing in that
   // level that overlaps the specified range.  Caller should delete
   // the result.
   Compaction* CompactRange(
@@ -306,7 +306,7 @@ class VersionSet {
   }
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const {
-    return ((current_->file_to_compact_ != NULL) ||
+    return ((current_->file_to_compact_ != nullptr) ||
             NeedsSizeCompaction());
   }
 
@@ -345,9 +345,9 @@ class VersionSet {
   const uint64_t ManifestFileSize() { return current_->offset_manifest_file_; }
 
   // For the specfied level, pick a compaction.
-  // Returns NULL if there is no compaction to be done.
+  // Returns nullptr if there is no compaction to be done.
   // If level is 0 and there is already a compaction on that level, this
-  // function will return NULL.
+  // function will return nullptr.
   Compaction* PickCompactionBySize(int level, double score);
 
   // Free up the files that were participated in a compaction

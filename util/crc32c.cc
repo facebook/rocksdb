@@ -328,14 +328,14 @@ static bool isSSE42() {
 }
 
 typedef void (*Function)(uint64_t*, uint8_t const**);
-static Function func = NULL;
+static Function func = nullptr;
 
 static inline Function Choose_CRC32() {
   return isSSE42() ? Fast_CRC32 : Slow_CRC32;
 }
 
 static inline void CRC32(uint64_t* l, uint8_t const **p) {
-  if (func != NULL) {
+  if (func != nullptr) {
     return func(l, p);
   }
   func = Choose_CRC32();

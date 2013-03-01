@@ -45,7 +45,7 @@ int MemTableList::size() {
 // not yet started.
 bool MemTableList::IsFlushPending() {
   if (num_flush_not_started_ > 0) {
-    assert(imm_flush_needed.NoBarrier_Load() != NULL);
+    assert(imm_flush_needed.NoBarrier_Load() != nullptr);
     return true;
   }
   return false;
@@ -61,13 +61,13 @@ MemTable* MemTableList::PickMemtableToFlush() {
       assert(!m->flush_completed_);
       num_flush_not_started_--;
       if (num_flush_not_started_ == 0) {
-        imm_flush_needed.Release_Store(NULL);
+        imm_flush_needed.Release_Store(nullptr);
       }
       m->flush_in_progress_ = true; // flushing will start very soon
       return m;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 // Record a successful flush in the manifest file

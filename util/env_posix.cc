@@ -202,7 +202,7 @@ class PosixMmapFile : public WritableFile {
 
   bool UnmapCurrentRegion() {
     bool result = true;
-    if (base_ != NULL) {
+    if (base_ != nullptr) {
       if (last_sync_ < limit_) {
         // Defer syncing this data until next Sync() call, if any
         pending_sync_ = true;
@@ -211,10 +211,10 @@ class PosixMmapFile : public WritableFile {
         result = false;
       }
       file_offset_ += limit_ - base_;
-      base_ = NULL;
-      limit_ = NULL;
-      last_sync_ = NULL;
-      dst_ = NULL;
+      base_ = nullptr;
+      limit_ = nullptr;
+      last_sync_ = nullptr;
+      dst_ = nullptr;
 
       // Increase the amount we map the next time, but capped at 1MB
       if (map_size_ < (1<<20)) {
@@ -225,11 +225,11 @@ class PosixMmapFile : public WritableFile {
   }
 
   bool MapNewRegion() {
-    assert(base_ == NULL);
+    assert(base_ == nullptr);
     if (ftruncate(fd_, file_offset_ + map_size_) < 0) {
       return false;
     }
-    void* ptr = mmap(NULL, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED,
+    void* ptr = mmap(nullptr, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED,
                      fd_, file_offset_);
     if (ptr == MAP_FAILED) {
       return false;
@@ -247,10 +247,10 @@ class PosixMmapFile : public WritableFile {
         fd_(fd),
         page_size_(page_size),
         map_size_(Roundup(65536, page_size)),
-        base_(NULL),
-        limit_(NULL),
-        dst_(NULL),
-        last_sync_(NULL),
+        base_(nullptr),
+        limit_(nullptr),
+        dst_(nullptr),
+        last_sync_(nullptr),
         file_offset_(0),
         pending_sync_(false) {
     assert((page_size & (page_size - 1)) == 0);
@@ -306,8 +306,8 @@ class PosixMmapFile : public WritableFile {
     }
 
     fd_ = -1;
-    base_ = NULL;
-    limit_ = NULL;
+    base_ = nullptr;
+    limit_ = nullptr;
     return s;
   }
 
@@ -569,8 +569,8 @@ class PosixEnv : public Env {
                                    unique_ptr<SequentialFile>* result) {
     result->reset();
     FILE* f = fopen(fname.c_str(), "r");
-    if (f == NULL) {
-      *result = NULL;
+    if (f == nullptr) {
+      *result = nullptr;
       return IOError(fname, errno);
     } else {
       result->reset(new PosixSequentialFile(fname, f));
@@ -592,7 +592,7 @@ class PosixEnv : public Env {
       uint64_t size;
       s = GetFileSize(fname, &size);
       if (s.ok()) {
-        void* base = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
+        void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
           result->reset(new PosixMmapReadableFile(fname, base, size));
         } else {
@@ -631,11 +631,11 @@ class PosixEnv : public Env {
                              std::vector<std::string>* result) {
     result->clear();
     DIR* d = opendir(dir.c_str());
-    if (d == NULL) {
+    if (d == nullptr) {
       return IOError(dir, errno);
     }
     struct dirent* entry;
-    while ((entry = readdir(d)) != NULL) {
+    while ((entry = readdir(d)) != nullptr) {
       result->push_back(entry->d_name);
     }
     closedir(d);
@@ -710,7 +710,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status LockFile(const std::string& fname, FileLock** lock) {
-    *lock = NULL;
+    *lock = nullptr;
     Status result;
     int fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
     if (fd < 0) {
@@ -766,7 +766,7 @@ class PosixEnv : public Env {
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result) {
     FILE* f = fopen(fname.c_str(), "w");
-    if (f == NULL) {
+    if (f == nullptr) {
       result->reset();
       return IOError(fname, errno);
     } else {
@@ -777,7 +777,7 @@ class PosixEnv : public Env {
 
   virtual uint64_t NowMicros() {
     struct timeval tv;
-    gettimeofday(&tv, NULL);
+    gettimeofday(&tv, nullptr);
     return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
   }
 
@@ -797,7 +797,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) {
-    time_t ret = time(NULL);
+    time_t ret = time(nullptr);
     if (ret == (time_t) -1) {
       return IOError("GetCurrentTime", errno);
     }
@@ -814,7 +814,7 @@ class PosixEnv : public Env {
 
     char the_path[256];
     char* ret = getcwd(the_path, 256);
-    if (ret == NULL) {
+    if (ret == nullptr) {
       return Status::IOError(strerror(errno));
     }
 
@@ -872,7 +872,7 @@ class PosixEnv : public Env {
   void BGThread();
   static void* BGThreadWrapper(void* arg) {
     reinterpret_cast<PosixEnv*>(arg)->BGThread();
-    return NULL;
+    return nullptr;
   }
 
   size_t page_size_;
@@ -893,8 +893,8 @@ PosixEnv::PosixEnv() : page_size_(getpagesize()),
                        started_bgthread_(0),
                        num_threads_(1),
                        queue_size_(0) {
-  PthreadCall("mutex_init", pthread_mutex_init(&mu_, NULL));
-  PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, NULL));
+  PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
+  PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
   bgthread_.resize(num_threads_);
 }
 
@@ -905,7 +905,10 @@ void PosixEnv::Schedule(void (*function)(void*), void* arg) {
   for (; started_bgthread_ < num_threads_; started_bgthread_++) {
     PthreadCall(
         "create thread",
-        pthread_create(&bgthread_[started_bgthread_], NULL,  &PosixEnv::BGThreadWrapper, this));
+        pthread_create(&bgthread_[started_bgthread_],
+                       nullptr,
+                       &PosixEnv::BGThreadWrapper,
+                       this));
     fprintf(stdout, "Created bg thread 0x%lx\n", bgthread_[started_bgthread_]);
   }
 
@@ -949,7 +952,7 @@ static void* StartThreadWrapper(void* arg) {
   StartThreadState* state = reinterpret_cast<StartThreadState*>(arg);
   state->user_function(state->arg);
   delete state;
-  return NULL;
+  return nullptr;
 }
 
 void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
@@ -958,7 +961,7 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
   state->user_function = function;
   state->arg = arg;
   PthreadCall("start thread",
-              pthread_create(&t, NULL,  &StartThreadWrapper, state));
+              pthread_create(&t, nullptr,  &StartThreadWrapper, state));
 }
 
 }  // namespace

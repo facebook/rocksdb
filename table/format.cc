@@ -42,7 +42,7 @@ void Footer::EncodeTo(std::string* dst) const {
 }
 
 Status Footer::DecodeFrom(Slice* input) {
-  assert(input != NULL);
+  assert(input != nullptr);
   assert(input->size() >= kEncodedLength);
 
   const char* magic_ptr = input->data() + kEncodedLength - 8;
@@ -101,7 +101,7 @@ Status ReadBlock(RandomAccessFile* file,
     }
   }
 
-  char* ubuf = NULL;
+  char* ubuf = nullptr;
   int decompress_size = 0;
   switch (data[n]) {
     case kNoCompression:

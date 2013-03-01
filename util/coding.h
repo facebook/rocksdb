@@ -37,7 +37,7 @@ extern bool GetLengthPrefixedSlice(Slice* input, Slice* result);
 
 // Pointer-based variants of GetVarint...  These either store a value
 // in *v and return a pointer just past the parsed value, or return
-// NULL on error.  These routines only look at bytes in the range
+// nullptr on error.  These routines only look at bytes in the range
 // [p..limit-1]
 extern const char* GetVarint32Ptr(const char* p,const char* limit, uint32_t* v);
 extern const char* GetVarint64Ptr(const char* p,const char* limit, uint64_t* v);
