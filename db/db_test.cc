@@ -212,6 +212,7 @@ class DBTest {
     kDBLogDir,
     kManifestFileSize,
     kCompactOnFlush,
+    kPerfOptions,
     kEnd
   };
   int option_config_;
@@ -271,6 +272,12 @@ class DBTest {
         options.max_manifest_file_size = 50; // 50 bytes
       case kCompactOnFlush:
         options.purge_redundant_kvs_while_flush = !options.purge_redundant_kvs_while_flush;
+        break;
+      case kPerfOptions:
+        options.rate_limit = 2.0;
+        options.rate_limit_delay_milliseconds = 2;
+        // TODO -- test more options
+        break;
       default:
         break;
     }

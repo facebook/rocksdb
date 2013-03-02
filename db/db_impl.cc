@@ -159,7 +159,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       stall_level0_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
-      stall_leveln_slowdown_(0),
       started_at_(options.env->NowMicros()),
       flush_on_destroy_(false),
       delayed_writes_(0) {
@@ -167,6 +166,11 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
   stats_ = new CompactionStats[options.num_levels];
+
+  stall_leveln_slowdown_.resize(options.num_levels);
+  for (int i = 0; i < options.num_levels; ++i)
+    stall_leveln_slowdown_[i] = 0;
+
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options_.max_open_files - 10;
   table_cache_.reset(new TableCache(dbname_, &options_, table_cache_size));
@@ -2042,6 +2046,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
   bool allow_delay = !force;
+  bool allow_rate_limit_delay = !force;
+  uint64_t rate_limit_delay_millis = 0;
   Status s;
   double score;
 
@@ -2095,19 +2101,24 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       bg_cv_.Wait();
       stall_level0_num_files_ += env_->NowMicros() - t1;
     } else if (
-        allow_delay &&
+        allow_rate_limit_delay &&
         options_.rate_limit > 1.0 &&
         (score = versions_->MaxCompactionScore()) > options_.rate_limit) {
       // Delay a write when the compaction score for any level is too large.
+      int max_level = versions_->MaxCompactionScoreLevel();
       mutex_.Unlock();
       uint64_t t1 = env_->NowMicros();
       env_->SleepForMicroseconds(1000);
       uint64_t delayed = env_->NowMicros() - t1;
-      stall_leveln_slowdown_ += delayed;
-      allow_delay = false;  // Do not delay a single write more than once
-      Log(options_.info_log,
-          "delaying write %llu usecs for rate limits with max score %.2f\n",
-          (long long unsigned int)delayed, score);
+      stall_leveln_slowdown_[max_level] += delayed;
+      // Make sure the following value doesn't round to zero.
+      rate_limit_delay_millis += std::max((delayed / 1000), (uint64_t) 1);
+      if (rate_limit_delay_millis >= options_.rate_limit_delay_milliseconds) {
+        allow_rate_limit_delay = false;
+      }
+      // Log(options_.info_log,
+      //    "delaying write %llu usecs for rate limits with max score %.2f\n",
+      //    (long long unsigned int)delayed, score);
       mutex_.Lock();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old
@@ -2163,12 +2174,13 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     uint64_t total_bytes = 0;
     uint64_t micros_up = env_->NowMicros() - started_at_;
     double seconds_up = micros_up / 1000000.0;
+    uint64_t total_slowdown = 0;
 
     // Pardon the long line but I think it is easier to read this way.
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
-             "Level  Files Size(MB) Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count\n"
-             "------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
+             "Level  Files Size(MB) Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall\n"
+             "----------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
              );
     value->append(buf);
     for (int level = 0; level < NumberLevels(); level++) {
@@ -2186,7 +2198,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
         total_bytes += bytes_read + stats_[level].bytes_written;
         snprintf(
             buf, sizeof(buf),
-            "%3d %8d %8.0f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d\n",
+            "%3d %8d %8.0f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f\n",
             level,
             files,
             versions_->NumLevelBytes(level) / 1048576.0,
@@ -2204,7 +2216,9 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             stats_[level].files_in_levelnp1,
             stats_[level].files_out_levelnp1,
             stats_[level].files_out_levelnp1 - stats_[level].files_in_levelnp1,
-            stats_[level].count);
+            stats_[level].count,
+            stall_leveln_slowdown_[level] / 1000000.0);
+        total_slowdown += stall_leveln_slowdown_[level];
         value->append(buf);
       }
     }
@@ -2227,7 +2241,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             stall_level0_slowdown_ / 1000000.0,
             stall_level0_num_files_ / 1000000.0,
             stall_memtable_compaction_ / 1000000.0,
-            stall_leveln_slowdown_ / 1000000.0);
+            total_slowdown / 1000000.0);
     value->append(buf);
 
     return true;

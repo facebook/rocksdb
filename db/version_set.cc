@@ -1376,6 +1376,8 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 void VersionSet::Finalize(Version* v) {
 
   double max_score = 0;
+  int max_score_level = 0;
+
   for (int level = 0; level < NumberLevels()-1; level++) {
     double score;
     if (level == 0) {
@@ -1421,6 +1423,7 @@ void VersionSet::Finalize(Version* v) {
       }
       if (max_score < score) {
         max_score = score;
+        max_score_level = level;
       }
     }
     v->compaction_level_[level] = level;
@@ -1429,6 +1432,7 @@ void VersionSet::Finalize(Version* v) {
 
   // update the max compaction score in levels 1 to n-1
   v->max_compaction_score_ = max_score;
+  v->max_compaction_score_level_ = max_score_level;
 
   // sort all the levels based on their score. Higher scores get listed
   // first. Use bubble sort because the number of entries are small.

@@ -51,6 +51,7 @@ Options::Options()
       log_file_time_to_roll(0),
       keep_log_file_num(1000),
       rate_limit(0.0),
+      rate_limit_delay_milliseconds(1000),
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
       table_cache_numshardbits(4),
@@ -146,6 +147,8 @@ Options::Dump(Logger* log) const
         max_background_compactions);
     Log(log,"                             Options.rate_limit: %.2f",
         rate_limit);
+    Log(log,"          Options.rate_limit_delay_milliseconds: %d",
+        rate_limit_delay_milliseconds);
     Log(log,"                 Options.compaction_filter_args: %p",
         compaction_filter_args);
     Log(log,"                       Options.CompactionFilter: %p",

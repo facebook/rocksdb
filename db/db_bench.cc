@@ -232,6 +232,9 @@ static int FLAGS_stats_per_interval = 0;
 // less than or equal to this value.
 static double FLAGS_rate_limit = 0;
 
+// When FLAGS_rate_limit is set then this is the max time a put will be stalled.
+static int FLAGS_rate_limit_delay_milliseconds = 1000;
+
 // Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
 // stop building a single file in a level->level+1 compaction.
 static int FLAGS_max_grandparent_overlap_factor = 10;
@@ -1029,6 +1032,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
     options.rate_limit = FLAGS_rate_limit;
+    options.rate_limit_delay_milliseconds = FLAGS_rate_limit_delay_milliseconds;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     options.max_grandparent_overlap_factor =
       FLAGS_max_grandparent_overlap_factor;
@@ -1652,6 +1656,10 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--rate_limit=%lf%c", &d, &junk) == 1 &&
                d > 1.0) {
       FLAGS_rate_limit = d;
+    } else if (sscanf(argv[i],
+               "--rate_limit_delay_milliseconds=%d%c", &n, &junk) == 1
+        && n > 0) {
+      FLAGS_rate_limit_delay_milliseconds = n;
     } else if (sscanf(argv[i], "--readonly=%d%c", &n, &junk) == 1 &&
         (n == 0 || n ==1 )) {
       FLAGS_read_only = n;

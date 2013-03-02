@@ -176,6 +176,7 @@ class Version {
   std::vector<double> compaction_score_;
   std::vector<int> compaction_level_;
   double max_compaction_score_; // max score in l1 to ln-1
+  int max_compaction_score_level_; // level on which max score occurs
 
   // The offset in the manifest file where this version is stored.
   uint64_t offset_manifest_file_;
@@ -313,6 +314,11 @@ class VersionSet {
   // Returns the maxmimum compaction score for levels 1 to max
   double MaxCompactionScore() const {
     return current_->max_compaction_score_;
+  }
+
+  // See field declaration
+  int MaxCompactionScoreLevel() const {
+    return current_->max_compaction_score_level_;
   }
 
   // Add all files listed in any live version to *live.
