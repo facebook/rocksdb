@@ -28,7 +28,9 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   TransactionLogIteratorImpl(const std::string& dbname,
                              const Options* options,
                              SequenceNumber& seqNum,
-                             std::vector<LogFile>* files);
+                             std::vector<LogFile>* files,
+                             SequenceNumber const * const lastFlushedSequence);
+
   virtual ~TransactionLogIteratorImpl() {
     //  TODO move to cc file.
     delete files_;
@@ -40,7 +42,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
   virtual Status status();
 
-  virtual void GetBatch(WriteBatch* batch, SequenceNumber* seq);
+  virtual BatchResult GetBatch();
 
  private:
   const std::string& dbname_;
@@ -51,10 +53,15 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   bool isValid_;  // not valid when it starts of.
   Status currentStatus_;
   size_t currentFileIndex_;
-  Slice currentRecord_;
+  std::unique_ptr<WriteBatch> currentBatch_;
   unique_ptr<log::Reader> currentLogReader_;
   Status OpenLogFile(const LogFile& logFile, unique_ptr<SequentialFile>* file);
   LogReporter NewLogReporter(uint64_t logNumber);
+  SequenceNumber const * const lastFlushedSequence_;
+  // represents the sequence number being read currently.
+  SequenceNumber currentSequence_;
+
+  void UpdateCurrentWriteBatch(const Slice& record);
 };
 
 

@@ -323,6 +323,10 @@ class DBImpl : public DB {
   // count of the number of contiguous delaying writes
   int delayed_writes_;
 
+  // store the last flushed sequence.
+  // Used by transaction log iterator.
+  SequenceNumber last_flushed_sequence_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);

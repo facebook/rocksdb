@@ -161,7 +161,9 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       stall_level0_num_files_(0),
       started_at_(options.env->NowMicros()),
       flush_on_destroy_(false),
-      delayed_writes_(0) {
+      delayed_writes_(0),
+      last_flushed_sequence_(0) {
+
   mem_->Ref();
 
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
@@ -547,12 +549,14 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
     std::sort(logs.begin(), logs.end());
     for (size_t i = 0; i < logs.size(); i++) {
       s = RecoverLogFile(logs[i], edit, &max_sequence, external_table);
-
       // The previous incarnation may not have written any MANIFEST
       // records after allocating this log number.  So we manually
       // update the file number allocation counter in VersionSet.
       versions_->MarkFileNumberUsed(logs[i]);
     }
+    // This could be the last_flushed_sequence as the next sequences will be
+    // greater than this.
+    last_flushed_sequence_ = max_sequence;
 
     if (s.ok()) {
       if (versions_->LastSequence() < max_sequence) {
@@ -899,7 +903,12 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
     return s;
   }
   iter->reset(
-    new TransactionLogIteratorImpl(dbname_, &options_, seq, probableWALFiles));
+    new TransactionLogIteratorImpl(dbname_,
+                                   &options_,
+                                   seq,
+                                   probableWALFiles,
+                                   &last_flushed_sequence_));
+  iter->get()->Next();
   return Status::OK();
 }
 
@@ -1939,7 +1948,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   Writer* last_writer = &w;
   if (status.ok() && my_batch != nullptr) {  // nullptr batch is for compactions
     WriteBatch* updates = BuildBatchGroup(&last_writer);
-    WriteBatchInternal::SetSequence(updates, last_sequence + 1);
+    const SequenceNumber current_sequence = last_sequence + 1;
+    WriteBatchInternal::SetSequence(updates, current_sequence);
     int my_batch_count = WriteBatchInternal::Count(updates);
     last_sequence += my_batch_count;
     // Record statistics
@@ -1972,6 +1982,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       }
       mutex_.Lock();
     }
+    last_flushed_sequence_ = current_sequence;
     if (updates == tmp_batch_) tmp_batch_->Clear();
 
     versions_->SetLastSequence(last_sequence);

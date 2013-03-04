@@ -1471,7 +1471,7 @@ TEST(DBTest, CompactionFilter) {
   delete iter;
 
   // The sequence number of the remaining record
-  // is not zeroed out even though it is at the 
+  // is not zeroed out even though it is at the
   // level Lmax because this record is at the tip
   count = 0;
   iter = dbfull()->TEST_NewInternalIterator();
@@ -2600,17 +2600,14 @@ TEST(DBTest, TransactionLogIterator) {
     unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
     ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(!iter->Valid());
-    iter->Next();
+    ASSERT_TRUE(iter->Valid());
     int i = 0;
     SequenceNumber lastSequence = 0;
     while (iter->Valid()) {
-      WriteBatch batch;
-      SequenceNumber current;
-      iter->GetBatch(&batch, &current);
-      ASSERT_TRUE(current > lastSequence);
+      BatchResult res = iter->GetBatch();
+      ASSERT_TRUE(res.sequence > lastSequence);
       ++i;
-      lastSequence = current;
+      lastSequence = res.sequence;
       ASSERT_TRUE(iter->status().ok());
       iter->Next();
     }
@@ -2626,16 +2623,13 @@ TEST(DBTest, TransactionLogIterator) {
     unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
     ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(!iter->Valid());
-    iter->Next();
+    ASSERT_TRUE(iter->Valid());
     int i = 0;
     SequenceNumber lastSequence = 0;
     while (iter->Valid()) {
-      WriteBatch batch;
-      SequenceNumber current;
-      iter->GetBatch(&batch, &current);
-      ASSERT_TRUE(current > lastSequence);
-      lastSequence = current;
+      BatchResult res = iter->GetBatch();
+      ASSERT_TRUE(res.sequence > lastSequence);
+      lastSequence = res.sequence;
       ASSERT_TRUE(iter->status().ok());
       iter->Next();
       ++i;

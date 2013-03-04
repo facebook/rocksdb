@@ -56,24 +56,23 @@ static void ReplicationThreadBody(void* arg) {
   DB* db = t->db;
   unique_ptr<TransactionLogIterator> iter;
   SequenceNumber currentSeqNum = 0;
-  while (t->stop.Acquire_Load() != NULL) {
+  while (t->stop.Acquire_Load() != nullptr) {
     if (!iter) {
       db->GetUpdatesSince(currentSeqNum, &iter);
       fprintf(stdout, "Refreshing iterator\n");
       iter->Next();
       while(iter->Valid()) {
-        WriteBatch batch;
-        SequenceNumber seq;
-        iter->GetBatch(&batch, &seq);
-        if (seq != currentSeqNum +1 && seq != currentSeqNum) {
+        BatchResult res = iter->GetBatch();
+        if (res.sequence != currentSeqNum +1
+            && res.sequence != currentSeqNum) {
           fprintf(stderr,
                   "Missed a seq no. b/w %ld and %ld\n",
                   currentSeqNum,
-                  seq);
+                  res.sequence);
           exit(1);
         }
-        currentSeqNum = seq;
-        t->latest = seq;
+        currentSeqNum = res.sequence;
+        t->latest = res.sequence;
         iter->Next();
         t->no_read++;
       }
@@ -132,7 +131,7 @@ int main(int argc, const char** argv) {
   while(dataPump.is_running) {
     continue;
   }
-  replThread.stop.Release_Store(NULL);
+  replThread.stop.Release_Store(nullptr);
   if ( replThread.no_read < dataPump.no_records ) {
     // no. read should be => than inserted.
     fprintf(stderr, "No. of Record's written and read not same\nRead : %ld"

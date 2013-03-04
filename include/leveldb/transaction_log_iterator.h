@@ -8,6 +8,11 @@
 namespace leveldb {
 
 
+struct BatchResult {
+  SequenceNumber sequence;
+  std::unique_ptr<WriteBatch> writeBatchPtr;
+};
+
 //  A TransactionLogIterator is used to iterate over the Transaction's in a db.
 class TransactionLogIterator {
  public:
@@ -16,19 +21,21 @@ class TransactionLogIterator {
 
   // An iterator is either positioned at a WriteBatch or not valid.
   // This method returns true if the iterator is valid.
+  // Can read data from a valid iterator.
   virtual bool Valid() = 0;
 
   // Moves the iterator to the next WriteBatch.
   // REQUIRES: Valid() to be true.
   virtual void Next() = 0;
 
-  // Return's ok if the iterator is in a valid stated.
-  // Return the Error Status when the iterator is not Valid.
+  // Return's ok if the iterator is valid.
+  // Return the Error when something has gone wrong.
   virtual Status status() = 0;
 
   // If valid return's the current write_batch and the sequence number of the
   // latest transaction contained in the batch.
-  virtual void GetBatch(WriteBatch* batch, SequenceNumber* seq) = 0;
+  // ONLY use if Valid() is true and status() is OK.
+  virtual BatchResult GetBatch() = 0;
 };
 } //  namespace leveldb
 

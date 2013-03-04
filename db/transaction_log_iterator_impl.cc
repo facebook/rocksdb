@@ -4,18 +4,21 @@
 namespace leveldb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
-                                       const std::string& dbname,
-                                       const Options* options,
-                                       SequenceNumber& seq,
-                                       std::vector<LogFile>* files) :
+                           const std::string& dbname,
+                           const Options* options,
+                           SequenceNumber& seq,
+                           std::vector<LogFile>* files,
+                           SequenceNumber const * const lastFlushedSequence) :
   dbname_(dbname),
   options_(options),
   sequenceNumber_(seq),
   files_(files),
   started_(false),
   isValid_(true),
-  currentFileIndex_(0) {
+  currentFileIndex_(0),
+  lastFlushedSequence_(lastFlushedSequence) {
   assert(files_ != nullptr);
+  assert(lastFlushedSequence_);
 }
 
 LogReporter
@@ -29,8 +32,7 @@ TransactionLogIteratorImpl::NewLogReporter(const uint64_t logNumber) {
 
 Status TransactionLogIteratorImpl::OpenLogFile(
   const LogFile& logFile,
-  unique_ptr<SequentialFile>* file)
-{
+  unique_ptr<SequentialFile>* file) {
   Env* env = options_->env;
   if (logFile.type == kArchivedLogFile) {
     std::string fname = ArchivedLogFileName(dbname_, logFile.logNumber);
@@ -44,7 +46,6 @@ Status TransactionLogIteratorImpl::OpenLogFile(
       fname = ArchivedLogFileName(dbname_, logFile.logNumber);
       status = env->NewSequentialFile(fname, file);
       if (!status.ok()) {
-        //  TODO stringprintf
         return Status::IOError(" Requested file not present in the dir");
       }
     }
@@ -52,11 +53,12 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   }
 }
 
-void TransactionLogIteratorImpl::GetBatch(WriteBatch* batch,
-                                          SequenceNumber* seq)  {
+BatchResult TransactionLogIteratorImpl::GetBatch()  {
   assert(isValid_);  //  cannot call in a non valid state.
-  WriteBatchInternal::SetContents(batch, currentRecord_);
-  *seq = WriteBatchInternal::Sequence(batch);
+  BatchResult result;
+  result.sequence = currentSequence_;
+  result.writeBatchPtr = std::move(currentBatch_);
+  return result;
 }
 
 Status TransactionLogIteratorImpl::status() {
@@ -73,16 +75,21 @@ void TransactionLogIteratorImpl::Next() {
   LogReporter reporter = NewLogReporter(currentLogFile.logNumber);
   std::string scratch;
   Slice record;
+
   if (!started_) {
+    isValid_ = false;
+    if (sequenceNumber_ > *lastFlushedSequence_) {
+      currentStatus_ = Status::IOError("Looking for a sequence, "
+                                        "which is not flushed yet.");
+      return;
+    }
     unique_ptr<SequentialFile> file;
     Status status = OpenLogFile(currentLogFile, &file);
     if (!status.ok()) {
-      isValid_ = false;
       currentStatus_ = status;
       return;
     }
     assert(file);
-    WriteBatch batch;
     unique_ptr<log::Reader> reader(
       new log::Reader(std::move(file), &reporter, true, 0));
     assert(reader);
@@ -92,11 +99,10 @@ void TransactionLogIteratorImpl::Next() {
           record.size(), Status::Corruption("log record too small"));
         continue;
       }
-      WriteBatchInternal::SetContents(&batch, record);
-      SequenceNumber currentNum = WriteBatchInternal::Sequence(&batch);
-      if (currentNum >= sequenceNumber_) {
+      UpdateCurrentWriteBatch(record);
+      if (currentSequence_ >= sequenceNumber_) {
+        assert(currentSequence_ < *lastFlushedSequence_);
         isValid_ = true;
-        currentRecord_ = record;
         currentLogReader_ = std::move(reader);
         break;
       }
@@ -112,13 +118,21 @@ void TransactionLogIteratorImpl::Next() {
 LOOK_NEXT_FILE:
     assert(currentLogReader_);
     bool openNextFile = true;
-    while (currentLogReader_->ReadRecord(&record, &scratch)) {
+
+    if (currentSequence_ == *lastFlushedSequence_) {
+      // The last update has been read. and next is being called.
+      isValid_ = false;
+      currentStatus_ = Status::OK();
+    }
+
+    while (currentLogReader_->ReadRecord(&record, &scratch) &&
+           currentSequence_ < *lastFlushedSequence_) {
       if (record.size() < 12) {
         reporter.Corruption(
           record.size(), Status::Corruption("log record too small"));
         continue;
       } else {
-        currentRecord_ = record;
+        UpdateCurrentWriteBatch(record);
         openNextFile = false;
         break;
       }
@@ -146,6 +160,13 @@ LOOK_NEXT_FILE:
     }
 
   }
+}
+
+void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
+  WriteBatch* batch = new WriteBatch();
+  WriteBatchInternal::SetContents(batch, record);
+  currentSequence_ = WriteBatchInternal::Sequence(batch);
+  currentBatch_.reset(batch);
 }
 
 }  //  namespace leveldb
