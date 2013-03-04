@@ -14,7 +14,6 @@
 namespace leveldb {
 
 struct TableAndFile {
-  unique_ptr<RandomAccessFile> file;
   unique_ptr<Table> table;
 };
 
@@ -72,8 +71,8 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       // or somebody repairs the file, we recover automatically.
     } else {
       TableAndFile* tf = new TableAndFile;
-      tf->file = std::move(file);
       tf->table = std::move(table);
+      assert(file.get() == nullptr);
       *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
     }
   }
