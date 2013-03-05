@@ -10,7 +10,7 @@ INSTALL_PATH ?= $(CURDIR)
 # to switch between compilation modes.
 
 # OPT ?= -DNDEBUG     # (A) Production use (optimized mode)
-OPT += -O3 -fno-omit-frame-pointer -momit-leaf-frame-pointer
+OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
 #-----------------------------------------------
 
 # detect what platform we're building on
