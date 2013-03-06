@@ -5,14 +5,10 @@
 VALGRIND_DIR=VALGRIND_LOGS
 make valgrind_check
 NUM_FAILED_TESTS=`wc -l $VALGRIND_DIR/valgrind_failed_tests | awk '{print $1}'`
-if [ $NUM_FAILED_TESTS -le '1' ]; then
-{
-  echo No tests have valgrind errors;
-  exit 0;
-}
+if [ $NUM_FAILED_TESTS -le 1 ]; then
+  echo No tests have valgrind errors
+  exit 0
 else
-{
-  cat $VALGRIND_DIR/valgrind_failed_tests;
-  exit 1;
-}
+  cat $VALGRIND_DIR/valgrind_failed_tests
+  exit 1
 fi
