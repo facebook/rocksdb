@@ -1038,7 +1038,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
         if (ManifestContains(record)) {
           Log(options_->info_log,
               "MANIFEST contains log record despite error; advancing to new "
-              "version to prevent mismatch between in-memory and logged state");
+              "version to prevent mismatch between in-memory and logged state"
+              " If paranoid is set, then the db is now in readonly mode.");
           s = Status::OK();
         }
       }
@@ -1565,6 +1566,9 @@ bool VersionSet::ManifestContains(const std::string& record) const {
   Status s = env_->NewSequentialFile(fname, &file);
   if (!s.ok()) {
     Log(options_->info_log, "ManifestContains: %s\n", s.ToString().c_str());
+    Log(options_->info_log,
+        "ManifestContains: is unable to reopen the manifest file  %s",
+        fname.c_str());
     return false;
   }
   log::Reader reader(std::move(file), nullptr, true/*checksum*/, 0);
@@ -1762,6 +1766,7 @@ int64_t VersionSet::MaxGrandParentOverlapBytes(int level) {
 // verify that the files listed in this compaction are present
 // in the current version
 bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
+#ifndef NDEBUG
   if (c->input_version_ != current_) {
     Log(options_->info_log, "VerifyCompactionFileConsistency version mismatch");
   }
@@ -1802,6 +1807,7 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
       return false; // input files non existant in current version
     }
   }
+#endif
   return true;     // everything good
 }
 

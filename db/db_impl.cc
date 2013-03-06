@@ -1445,8 +1445,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact.
-  if (options_.paranoid_checks &&
-      !versions_->VerifyCompactionFileConsistency(compact->compaction)) {
+  if (!versions_->VerifyCompactionFileConsistency(compact->compaction)) {
     Log(options_.info_log,  "Compaction %d@%d + %d@%d files aborted",
       compact->compaction->num_input_files(0),
       compact->compaction->level(),
