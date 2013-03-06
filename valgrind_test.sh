@@ -3,7 +3,7 @@
 #Returns 0 on success when there are no failed tests 
 
 VALGRIND_DIR=VALGRIND_LOGS
-make valgrind_check
+make -j$(nproc) valgrind_check
 NUM_FAILED_TESTS=`wc -l $VALGRIND_DIR/valgrind_failed_tests | awk '{print $1}'`
 if [ $NUM_FAILED_TESTS -le 1 ]; then
   echo No tests have valgrind errors
