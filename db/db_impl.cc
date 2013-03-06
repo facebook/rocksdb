@@ -1656,14 +1656,24 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     if (!drop) {
 
+      char* kptr = (char*)key.data();
+      std::string kstr;
+
       // Zeroing out the sequence number leads to better compression.
       // If this is the bottommost level (no files in lower levels)
       // and the earliest snapshot is larger than this seqno
       // then we can squash the seqno to zero.
       if (bottommost_level && ikey.sequence < earliest_snapshot) {
         assert(ikey.type != kTypeDeletion);
-        UpdateInternalKey(key, (uint64_t)0, ikey.type);
+        // make a copy because updating in place would cause problems
+        // with the priority queue that is managing the input key iterator
+        kstr.assign(key.data(), key.size());
+        kptr = (char *)kstr.c_str();
+        UpdateInternalKey(kptr, key.size(), (uint64_t)0, ikey.type);
       }
+
+      Slice newkey(kptr, key.size());
+      assert((key.clear(), 1)); // we do not need 'key' anymore
 
       // Open output file if necessary
       if (compact->builder == nullptr) {
@@ -1673,10 +1683,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         }
       }
       if (compact->builder->NumEntries() == 0) {
-        compact->current_output()->smallest.DecodeFrom(key);
+        compact->current_output()->smallest.DecodeFrom(newkey);
       }
-      compact->current_output()->largest.DecodeFrom(key);
-      compact->builder->Add(key, value);
+      compact->current_output()->largest.DecodeFrom(newkey);
+      compact->builder->Add(newkey, value);
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=

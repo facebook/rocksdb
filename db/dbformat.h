@@ -158,11 +158,11 @@ inline bool ParseInternalKey(const Slice& internal_key,
 }
 
 // Update the sequence number in the internal key
-inline void UpdateInternalKey(const Slice& internal_key,
+inline void UpdateInternalKey(char* internal_key,
+                              const size_t internal_key_size,
                               uint64_t seq, ValueType t) {
-  const size_t n = internal_key.size();
-  assert(n >= 8);
-  char* seqtype = (char *)internal_key.data() + n - 8;
+  assert(internal_key_size >= 8);
+  char* seqtype = internal_key + internal_key_size - 8;
   uint64_t newval = (seq << 8) | t;
   EncodeFixed64(seqtype, newval);
 }
