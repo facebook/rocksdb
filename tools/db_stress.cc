@@ -158,6 +158,9 @@ static uint32_t FLAGS_ops_per_thread = 600000;
 // Log2 of number of keys per lock
 static uint32_t FLAGS_log2_keys_per_lock = 2; // implies 2^2 keys per lock
 
+// Percentage of times we want to purge redundant keys in memory before flushing
+static uint32_t FLAGS_purge_redundant_percent = 50;
+
 extern bool useOsBuffer;
 extern bool useFsReadAhead;
 extern bool useMmapRead;
@@ -843,6 +846,8 @@ class StressTest {
     fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
     fprintf(stdout, "Batches/snapshots   : %d\n",
             FLAGS_test_batches_snapshots);
+    fprintf(stdout, "Purge redundant %%   : %d\n",
+            FLAGS_purge_redundant_percent);
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
@@ -894,6 +899,10 @@ class StressTest {
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
     options.max_manifest_file_size = 1024;
+    static Random purge_percent(1000); // no benefit from non-determinism here
+    if (purge_percent.Uniform(100) < FLAGS_purge_redundant_percent - 1) {
+      options.purge_redundant_kvs_while_flush = false;
+    }
     Status s = DB::Open(options, FLAGS_db, &db_);
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1066,6 +1075,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--delete_obsolete_files_period_micros=%ld%c",
                       &l, &junk) == 1) {
       FLAGS_delete_obsolete_files_period_micros = n;
+    } else if (sscanf(argv[i], "--purge_redundant_percent=%d%c", &n, &junk) == 1
+        && (n >= 0 && n <= 100)) {
+      FLAGS_purge_redundant_percent = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
