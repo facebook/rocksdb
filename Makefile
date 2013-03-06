@@ -31,7 +31,8 @@ MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
 TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL)
 VALGRIND_ERROR = 2
-VALGRIND_DIR = "VALGRIND_LOGS"
+VALGRIND_DIR = VALGRIND_LOGS
+VALGRIND_VER = /mnt/gvfs/third-party/3748fabb2c5e033009597bae1f9ef8bf4b218581/gcc-4.7.1-glibc-2.14.1/valgrind/valgrind-3.8.1/91ddd43/bin/valgrind
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
@@ -120,8 +121,7 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 	echo TIMES in seconds TAKEN BY TESTS ON VALGRIND > $(VALGRIND_DIR)/valgrind_tests_times; \
 	for t in $(filter-out skiplist_test,$(TESTS)); do \
 		stime=`date '+%s'`; \
-		valgrind $(VALGRIND_OPTS) \
-		--log-file=$(VALGRIND_DIR)/valgrind_log_$$t ./$$t; \
+		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
 		if [ $$? -eq $(VALGRIND_ERROR) ] ; then \
 			echo $$t >> $(VALGRIND_DIR)/valgrind_failed_tests; \
 		fi; \
