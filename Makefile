@@ -32,7 +32,7 @@ TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL)
 VALGRIND_ERROR = 2
 VALGRIND_DIR = VALGRIND_LOGS
-VALGRIND_VER = /mnt/gvfs/third-party/3748fabb2c5e033009597bae1f9ef8bf4b218581/gcc-4.7.1-glibc-2.14.1/valgrind/valgrind-3.8.1/91ddd43/bin/valgrind
+VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \

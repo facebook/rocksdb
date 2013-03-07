@@ -4,10 +4,10 @@
 # fbcode settings.  It uses the latest g++ compiler and also
 # uses jemalloc
 
-TOOLCHAIN_REV=20d3328ac30f633840ce819ad03019f415267a86
+TOOLCHAIN_REV=3748fabb2c5e033009597bae1f9ef8bf4b218581
 TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
 TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.7.1-glibc-2.14.1"
-TOOL_JEMALLOC=jemalloc-3.0.0/69dc57c
+TOOL_JEMALLOC=jemalloc-3.0.0/2f45f3a
 
 # location of libhdfs libraries
 if test "$USE_HDFS"; then
@@ -28,9 +28,9 @@ ZLIB_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/zlib/zlib-1.2.5/91ddd43/include"
 ZLIB_LIBS=" $TOOLCHAIN_LIB_BASE/zlib/zlib-1.2.5/91ddd43/lib/libz.a"
 
 # location of boost headers and libraries
-THRIFT_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/bef9365/include -std=gnu++0x"
+THRIFT_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/2a0840d/include -std=gnu++0x"
 THRIFT_INCLUDE+=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp"
-THRIFT_LIBS=" -L $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/bef9365/lib"
+THRIFT_LIBS=" -L $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/2a0840d/lib"
 
 # location of libevent
 LIBEVENT_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/libevent/libevent-1.4.14b/91ddd43/include"
@@ -48,7 +48,7 @@ CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/bin/gold -m64 -mtune=g
 CFLAGS+=" -I $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/include -DHAVE_JEMALLOC"
 
 EXEC_LDFLAGS=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/lib/libjemalloc.a"
-EXEC_LDFLAGS+=" -Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-20100812_experimental/91ddd43/lib/libunwind.a"
+EXEC_LDFLAGS+=" -Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-1.0.1/91ddd43/lib/libunwind.a"
 EXEC_LDFLAGS+=" $HDFSLIB $SNAPPY_LIBS $ZLIB_LIBS $THRIFT_LIBS $LIBEVENT_LIBS"
 
 PLATFORM_LDFLAGS="-L$TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.7.1/afc21dc/lib -L$TOOLCHAIN_LIB_BASE/glibc/glibc-2.14.1/99df8fc/lib"
@@ -56,4 +56,6 @@ PLATFORM_LDFLAGS="-L$TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.7.1/afc21dc/lib -L$TOOLC
 EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS"
 SNAPPY_LDFLAGS="$SNAPPY_LIBS $ZLIB_LIBS"
 
-export CC CXX AR RANLIB CFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED SNAPPY_LDFLAGS
+VALGRIND_VER="$TOOLCHAIN_LIB_BASE/valgrind/valgrind-3.8.1/91ddd43/bin/"
+
+export CC CXX AR RANLIB CFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED SNAPPY_LDFLAGS VALGRIND_VER
