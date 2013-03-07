@@ -28,7 +28,7 @@ ZLIB_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/zlib/zlib-1.2.5/91ddd43/include"
 ZLIB_LIBS=" $TOOLCHAIN_LIB_BASE/zlib/zlib-1.2.5/91ddd43/lib/libz.a"
 
 # location of boost headers and libraries
-THRIFT_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/2a0840d/include -std=gnu++0x"
+THRIFT_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/2a0840d/include"
 THRIFT_INCLUDE+=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp"
 THRIFT_LIBS=" -L $TOOLCHAIN_LIB_BASE/boost/boost-1.48.0/2a0840d/lib"
 

@@ -20,7 +20,7 @@ include build_config.mk
 
 WARNING_FLAGS = -Wall -Werror -Wno-unused-parameter -Wno-sign-compare
 CFLAGS += -g $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
-CXXFLAGS += -g $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT)
+CXXFLAGS += -g $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -std=gnu++0x
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
