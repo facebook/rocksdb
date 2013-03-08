@@ -392,7 +392,7 @@ void DBLoaderCommand::DoCommand() {
     std::cout << "Warning: " << bad_lines << " bad lines ignored." << std::endl;
   }
   if (compact_) {
-    db_->CompactRange(NULL, NULL);
+    db_->CompactRange(nullptr, nullptr);
   }
 }
 
@@ -560,27 +560,24 @@ leveldb::Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
 
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(leveldb::Options& opt,
     int* levels) {
-  TableCache* tc = new TableCache(db_path_, &opt, 10);
-  const InternalKeyComparator* cmp = new InternalKeyComparator(
-      opt.comparator);
-  VersionSet* versions = new VersionSet(db_path_, &opt,
-                                   tc, cmp);
+  TableCache tc(db_path_, &opt, 10);
+  const InternalKeyComparator cmp(opt.comparator);
+  VersionSet versions(db_path_, &opt, &tc, &cmp);
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change
   // (like LogAndApply) to the manifest file.
-  Status st = versions->Recover();
+  Status st = versions.Recover();
   if (!st.ok()) {
     return st;
   }
   int max = -1;
-  for (int i = 0; i < versions->NumberLevels(); i++) {
-    if (versions->NumLevelFiles(i)) {
+  for (int i = 0; i < versions.NumberLevels(); i++) {
+    if (versions.NumLevelFiles(i)) {
       max = i;
     }
   }
 
   *levels = max + 1;
-  delete versions;
   return st;
 }
 
@@ -619,15 +616,13 @@ void ReduceDBLevelsCommand::DoCommand() {
   db_->CompactRange(nullptr, nullptr);
   CloseDB();
 
-  TableCache* tc = new TableCache(db_path_, &opt, 10);
-  const InternalKeyComparator* cmp = new InternalKeyComparator(
-      opt.comparator);
-  VersionSet* versions = new VersionSet(db_path_, &opt,
-                                   tc, cmp);
+  TableCache tc(db_path_, &opt, 10);
+  const InternalKeyComparator cmp(opt.comparator);
+  VersionSet versions(db_path_, &opt, &tc, &cmp);
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change (like LogAndApply)
   // to the manifest file.
-  st = versions->Recover();
+  st = versions.Recover();
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());
     return;
@@ -635,7 +630,7 @@ void ReduceDBLevelsCommand::DoCommand() {
 
   port::Mutex mu;
   mu.Lock();
-  st = versions->ReduceNumberOfLevels(new_levels_, &mu);
+  st = versions.ReduceNumberOfLevels(new_levels_, &mu);
   mu.Unlock();
 
   if (!st.ok()) {

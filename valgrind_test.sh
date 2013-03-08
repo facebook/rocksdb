@@ -4,7 +4,7 @@
 
 VALGRIND_DIR=VALGRIND_LOGS
 make -j$(nproc) valgrind_check
-NUM_FAILED_TESTS=`wc -l $VALGRIND_DIR/valgrind_failed_tests | awk '{print $1}'`
+NUM_FAILED_TESTS=$((`wc -l $VALGRIND_DIR/valgrind_failed_tests | awk '{print $1}'` - 1))
 if [ $NUM_FAILED_TESTS -le 1 ]; then
   echo No tests have valgrind errors
   exit 0
