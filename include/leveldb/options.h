@@ -347,7 +347,7 @@ struct Options {
 
   // Set appropriate parameters for bulk loading.
   // The reason that this is a function that returns "this" instead of a
-  // constructure is to enable chaining of multiple similar calls in the future.
+  // constructor is to enable chaining of multiple similar calls in the future.
   //
   // All data will be in level 0 without any automatic compaction.
   // It's recommended to manually call CompactRange(NULL, NULL) before reading
