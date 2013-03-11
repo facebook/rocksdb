@@ -13,7 +13,8 @@ def my_check_output(*popenargs, **kwargs):
     """
     if 'stdout' in kwargs:
         raise ValueError('stdout argument not allowed, it will be overridden.')
-    process = subprocess.Popen(stdout=subprocess.PIPE, *popenargs, **kwargs)
+    process = subprocess.Popen(stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+                               *popenargs, **kwargs)
     output, unused_err = process.communicate()
     retcode = process.poll()
     if retcode:
@@ -24,6 +25,8 @@ def my_check_output(*popenargs, **kwargs):
                 (retcode, cmd))
     return output
 
+def run_err_null(cmd):
+    return os.system(cmd + " 2>/dev/null ")
 
 class LDBTestCase(unittest.TestCase):
     def setUp(self):
@@ -58,8 +61,9 @@ class LDBTestCase(unittest.TestCase):
 
         """
         try:
-            my_check_output("./ldb %s |grep -v \"Created bg thread\"" % params,
-                            shell=True)
+
+            my_check_output("./ldb %s >/dev/null 2>&1 |grep -v \"Created bg \
+                thread\"" % params, shell=True)
         except Exception, e:
             return
         self.fail(
@@ -81,6 +85,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAILFull("%s %s" % (self.dbParam(self.DB_NAME), params))
 
     def testSimpleStringPutGet(self):
+        print "Running testSimpleStringPutGet..."
         self.assertRunFAIL("put x1 y1")
         self.assertRunOK("put --create_if_missing x1 y1", "OK")
         self.assertRunOK("get x1", "y1")
@@ -122,12 +127,13 @@ class LDBTestCase(unittest.TestCase):
         # non-existent key, while delete does not
 
     def dumpDb(self, params, dumpFile):
-        return 0 == os.system("./ldb dump %s > %s" % (params, dumpFile))
+        return 0 == run_err_null("./ldb dump %s > %s" % (params, dumpFile))
 
     def loadDb(self, params, dumpFile):
-        return 0 == os.system("cat %s | ./ldb load %s" % (dumpFile, params))
+        return 0 == run_err_null("cat %s | ./ldb load %s" % (dumpFile, params))
 
     def testStringBatchPut(self):
+        print "Running testStringBatchPut..."
         self.assertRunOK("batchput x1 y1 --create_if_missing", "OK")
         self.assertRunOK("scan", "x1 : y1")
         self.assertRunOK("batchput x2 y2 x3 y3 \"x4 abc\" \"y4 xyz\"", "OK")
@@ -136,8 +142,8 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("batchput k1")
         self.assertRunFAIL("batchput k1 v1 k2")
 
-
     def testHexPutGet(self):
+        print "Running testHexPutGet..."
         self.assertRunOK("put a1 b1 --create_if_missing", "OK")
         self.assertRunOK("scan", "a1 : b1")
         self.assertRunOK("scan --hex", "0x6131 : 0x6231")
@@ -165,8 +171,8 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("delete --hex 0x6133", "OK")
         self.assertRunOK("scan", "a1 : b1\na2 : b2\na4 : b4")
 
-
     def testInvalidCmdLines(self):
+        print "Running testInvalidCmdLines..."
         # db not specified
         self.assertRunFAILFull("put 0x6133 0x6233 --hex --create_if_missing")
         # No param called he
@@ -176,8 +182,8 @@ class LDBTestCase(unittest.TestCase):
         # hex has invalid boolean value
         self.assertRunFAIL("put 0x6133 0x6233 --hex=Boo --create_if_missing")
 
-
     def testDumpLoad(self):
+        print "Running testDumpLoad..."
         self.assertRunOK("batchput --create_if_missing x1 y1 x2 y2 x3 y3 x4 y4",
                 "OK")
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
@@ -267,8 +273,8 @@ class LDBTestCase(unittest.TestCase):
         self.assertFalse(self.dumpDb(
             "--db=%s --create_if_missin" % origDbPath, dumpFilePath))
 
-
     def testMiscAdminTask(self):
+        print "Running testMiscAdminTask..."
         # These tests need to be improved; for example with asserts about
         # whether compaction or level reduction actually took place.
         self.assertRunOK("batchput --create_if_missing x1 y1 x2 y2 x3 y3 x4 y4",
@@ -276,33 +282,32 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
         origDbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
 
-        self.assertTrue(0 == os.system("./ldb compact --db=%s" % origDbPath))
+        self.assertTrue(0 == run_err_null(
+            "./ldb compact --db=%s" % origDbPath))
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
 
-        self.assertTrue(0 == os.system(
+        self.assertTrue(0 == run_err_null(
             "./ldb reduce_levels --db=%s --new_levels=2" % origDbPath))
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
 
-        self.assertTrue(0 == os.system(
+        self.assertTrue(0 == run_err_null(
             "./ldb reduce_levels --db=%s --new_levels=3" % origDbPath))
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
 
-        self.assertTrue(0 == os.system(
+        self.assertTrue(0 == run_err_null(
             "./ldb compact --db=%s --from=x1 --to=x3" % origDbPath))
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
 
-        self.assertTrue(0 == os.system(
-            "./ldb compact --db=%s --hex --from=0x6131 --to=0x6134" %
-            origDbPath))
+        self.assertTrue(0 == run_err_null(
+            "./ldb compact --db=%s --hex --from=0x6131 --to=0x6134"
+            % origDbPath))
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
 
         #TODO(dilip): Not sure what should be passed to WAL.Currently corrupted.
-        self.assertTrue(0 == os.system(
+        self.assertTrue(0 == run_err_null(
             "./ldb dump_wal --db=%s --walfile=%s --header" % (
                 origDbPath, os.path.join(origDbPath, "LOG"))))
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
 
-
 if __name__ == "__main__":
     unittest.main()
-
