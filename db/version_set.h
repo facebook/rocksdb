@@ -387,7 +387,7 @@ class VersionSet {
 
   void Init(int num_levels);
 
-  void Finalize(Version* v);
+  void Finalize(Version* v, std::vector<uint64_t>&);
 
   void GetRange(const std::vector<FileMetaData*>& inputs,
                 InternalKey* smallest,
@@ -459,8 +459,8 @@ class VersionSet {
   void operator=(const VersionSet&);
 
   // Return the total amount of data that is undergoing
-  // compactions at this level
-  uint64_t SizeBeingCompacted(int level);
+  // compactions per level
+  void SizeBeingCompacted(std::vector<uint64_t>&);
 
   // Returns true if any one of the parent files are being compacted
   bool ParentRangeInCompaction(const InternalKey* smallest,

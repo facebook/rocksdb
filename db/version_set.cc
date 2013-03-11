@@ -1009,11 +1009,15 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   // Unlock during expensive MANIFEST log write. New writes cannot get here
   // because &w is ensuring that all new writes get queued.
   {
+    // calculate the amount of data being compacted at every level
+    std::vector<uint64_t> size_being_compacted(NumberLevels()-1);
+    SizeBeingCompacted(size_being_compacted);
+
     mu->Unlock();
 
-    // The calles to Finalize and UpdateFilesBySize are cpu-heavy
+    // The calls to Finalize and UpdateFilesBySize are cpu-heavy
     // and is best called outside the mutex.
-    Finalize(v);
+    Finalize(v, size_being_compacted);
     UpdateFilesBySize(v);
 
     // Write new record to MANIFEST log
@@ -1226,8 +1230,12 @@ Status VersionSet::Recover() {
   if (s.ok()) {
     Version* v = new Version(this, current_version_number_++);
     builder.SaveTo(v);
+
     // Install recovered version
-    Finalize(v);
+    std::vector<uint64_t> size_being_compacted(NumberLevels()-1);
+    SizeBeingCompacted(size_being_compacted);
+    Finalize(v, size_being_compacted);
+
     v->offset_manifest_file_ = manifest_file_size;
     AppendVersion(v);
     manifest_file_number_ = next_file;
@@ -1350,8 +1358,12 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   if (s.ok()) {
     Version* v = new Version(this, 0);
     builder.SaveTo(v);
+
     // Install recovered version
-    Finalize(v);
+    std::vector<uint64_t> size_being_compacted(NumberLevels()-1);
+    SizeBeingCompacted(size_being_compacted);
+    Finalize(v, size_being_compacted);
+
     AppendVersion(v);
     manifest_file_number_ = next_file;
     next_file_number_ = next_file + 1;
@@ -1374,7 +1386,8 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
   }
 }
 
-void VersionSet::Finalize(Version* v) {
+void VersionSet::Finalize(Version* v,
+  std::vector<uint64_t>& size_being_compacted) {
 
   double max_score = 0;
   int max_score_level = 0;
@@ -1417,7 +1430,7 @@ void VersionSet::Finalize(Version* v) {
     } else {
       // Compute the ratio of current size to size limit.
       const uint64_t level_bytes = TotalFileSize(v->files_[level]) -
-                                   SizeBeingCompacted(level);
+                                   size_being_compacted[level];
       score = static_cast<double>(level_bytes) / MaxBytesForLevel(level);
       if (score > 1) {
         // Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
@@ -1822,19 +1835,22 @@ void VersionSet::ReleaseCompactionFiles(Compaction* c, Status status) {
 }
 
 // The total size of files that are currently being compacted
-uint64_t VersionSet::SizeBeingCompacted(int level) {
-  uint64_t total = 0;
-  for (std::set<Compaction*>::iterator it =
-       compactions_in_progress_[level].begin();
-       it != compactions_in_progress_[level].end();
-       ++it) {
-    Compaction* c = (*it);
-    assert(c->level() == level);
-    for (int i = 0; i < c->num_input_files(0); i++) {
-      total += c->input(0,i)->file_size;
+// at at every level upto the penultimate level.
+void VersionSet::SizeBeingCompacted(std::vector<uint64_t>& sizes) {
+  for (int level = 0; level < NumberLevels()-1; level++) {
+    uint64_t total = 0;
+    for (std::set<Compaction*>::iterator it =
+         compactions_in_progress_[level].begin();
+         it != compactions_in_progress_[level].end();
+         ++it) {
+      Compaction* c = (*it);
+      assert(c->level() == level);
+      for (int i = 0; i < c->num_input_files(0); i++) {
+        total += c->input(0,i)->file_size;
+      }
     }
+    sizes[level] = total;
   }
-  return total;
 }
 
 Compaction* VersionSet::PickCompactionBySize(int level, double score) {
@@ -1916,7 +1932,9 @@ Compaction* VersionSet::PickCompaction() {
 
   // compute the compactions needed. It is better to do it here
   // and also in LogAndApply(), otherwise the values could be stale.
-  Finalize(current_);
+  std::vector<uint64_t> size_being_compacted(NumberLevels()-1);
+  current_->vset_->SizeBeingCompacted(size_being_compacted);
+  Finalize(current_, size_being_compacted);
 
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
