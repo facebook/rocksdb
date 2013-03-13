@@ -232,8 +232,7 @@ class Stats {
       double micros = now - last_op_finish_;
       hist_.Add(micros);
       if (micros > 20000) {
-        fprintf(stderr, "long op: %.1f micros%30s\r", micros, "");
-        fflush(stderr);
+        fprintf(stdout, "long op: %.1f micros%30s\r", micros, "");
       }
       last_op_finish_ = now;
     }
@@ -247,8 +246,7 @@ class Stats {
       else if (next_report_ < 100000) next_report_ += 10000;
       else if (next_report_ < 500000) next_report_ += 50000;
       else                            next_report_ += 100000;
-      fprintf(stderr, "... finished %ld ops%30s\r", done_, "");
-      fflush(stderr);
+      fprintf(stdout, "... finished %ld ops%30s\r", done_, "");
     }
   }
 
@@ -868,6 +866,7 @@ class StressTest {
     fprintf(stdout, "Number of threads   : %d\n", FLAGS_threads);
     fprintf(stdout, "Ops per thread      : %d\n", FLAGS_ops_per_thread);
     fprintf(stdout, "Read percentage     : %d\n", FLAGS_readpercent);
+    fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
     fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
     fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);
     fprintf(stdout, "Ratio #ops/#keys    : %ld\n",
