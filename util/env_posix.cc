@@ -14,8 +14,10 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/vfs.h>
 #include <time.h>
 #include <unistd.h>
 #if defined(OS_LINUX)
@@ -30,6 +32,16 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/posix_logger.h"
+
+#if !defined(TMPFS_MAGIC)
+#define TMPFS_MAGIC 0x01021994
+#endif
+#if !defined(XFS_SUPER_MAGIC)
+#define XFS_SUPER_MAGIC 0x58465342
+#endif
+#if !defined(EXT4_SUPER_MAGIC)
+#define EXT4_SUPER_MAGIC 0xEF53
+#endif
 
 bool useOsBuffer = 1;     // cache data in OS buffers
 bool useFsReadAhead = 1;  // allow filesystem to do readaheads
@@ -224,21 +236,26 @@ class PosixMmapFile : public WritableFile {
     return result;
   }
 
-  bool MapNewRegion() {
+  Status MapNewRegion() {
     assert(base_ == nullptr);
-    if (ftruncate(fd_, file_offset_ + map_size_) < 0) {
-      return false;
+
+    int alloc_status = posix_fallocate(fd_, file_offset_, map_size_);
+    if (alloc_status != 0) {
+      return Status::IOError("Error allocating space to file : " + filename_ +
+        "Error : " + strerror(alloc_status));
     }
+
+
     void* ptr = mmap(nullptr, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED,
                      fd_, file_offset_);
     if (ptr == MAP_FAILED) {
-      return false;
+      return Status::IOError("MMap failed on " + filename_);
     }
     base_ = reinterpret_cast<char*>(ptr);
     limit_ = base_ + map_size_;
     dst_ = base_;
     last_sync_ = base_;
-    return true;
+    return Status::OK();
   }
 
  public:
@@ -272,9 +289,11 @@ class PosixMmapFile : public WritableFile {
       assert(dst_ <= limit_);
       size_t avail = limit_ - dst_;
       if (avail == 0) {
-        if (!UnmapCurrentRegion() ||
-            !MapNewRegion()) {
-          return IOError(filename_, errno);
+        if (UnmapCurrentRegion()) {
+          Status s = MapNewRegion();
+          if (!s.ok()) {
+            return s;
+          }
         }
       }
 
@@ -614,6 +633,15 @@ class PosixEnv : public Env {
     if (fd < 0) {
       s = IOError(fname, errno);
     } else {
+      if (!checkedDiskForMmap_) {
+        // this will be executed once in the program's lifetime.
+        if (useMmapWrite) {
+          // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
+          useMmapWrite = SupportsFastAllocate(fname);
+        }
+        checkedDiskForMmap_ = true;
+      }
+
       if (useMmapWrite) {
         result->reset(new PosixMmapFile(fname, fd, page_size_));
       } else {
@@ -851,6 +879,8 @@ class PosixEnv : public Env {
   }
 
  private:
+  bool checkedDiskForMmap_ = false;
+
   void PthreadCall(const char* label, int result) {
     if (result != 0) {
       fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
@@ -873,6 +903,23 @@ class PosixEnv : public Env {
   static void* BGThreadWrapper(void* arg) {
     reinterpret_cast<PosixEnv*>(arg)->BGThread();
     return nullptr;
+  }
+
+  bool SupportsFastAllocate(const std::string& path) {
+    struct statfs s;
+    if (statfs(path.c_str(), &s)){
+      return false;
+    }
+    switch (s.f_type) {
+      case EXT4_SUPER_MAGIC:
+        return true;
+      case XFS_SUPER_MAGIC:
+        return true;
+      case TMPFS_MAGIC:
+        return true;
+      default:
+        return false;
+    }
   }
 
   size_t page_size_;
