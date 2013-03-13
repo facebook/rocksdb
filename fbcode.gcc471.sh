@@ -4,10 +4,10 @@
 # fbcode settings.  It uses the latest g++ compiler and also
 # uses jemalloc
 
-TOOLCHAIN_REV=3748fabb2c5e033009597bae1f9ef8bf4b218581
+TOOLCHAIN_REV=83eb773e262fa705eaebbf3de40db71d53fabf2e
 TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
 TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.7.1-glibc-2.14.1"
-TOOL_JEMALLOC=jemalloc-3.0.0/2f45f3a
+TOOL_JEMALLOC=jemalloc-3.3.1/2f45f3a
 
 # location of libhdfs libraries
 if test "$USE_HDFS"; then
