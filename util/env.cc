@@ -3,6 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "leveldb/env.h"
+#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -46,7 +47,8 @@ static Status DoWriteStringToFile(Env* env, const Slice& data,
                                   const std::string& fname,
                                   bool should_sync) {
   unique_ptr<WritableFile> file;
-  Status s = env->NewWritableFile(fname, &file);
+  StorageOptions soptions;
+  Status s = env->NewWritableFile(fname, &file, soptions);
   if (!s.ok()) {
     return s;
   }
@@ -71,9 +73,10 @@ Status WriteStringToFileSync(Env* env, const Slice& data,
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
+  StorageOptions soptions;
   data->clear();
   unique_ptr<SequentialFile> file;
-  Status s = env->NewSequentialFile(fname, &file);
+  Status s = env->NewSequentialFile(fname, &file, soptions);
   if (!s.ok()) {
     return s;
   }

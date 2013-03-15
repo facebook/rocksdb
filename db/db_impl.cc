@@ -162,7 +162,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       started_at_(options.env->NowMicros()),
       flush_on_destroy_(false),
       delayed_writes_(0),
-      last_flushed_sequence_(0) {
+      last_flushed_sequence_(0),
+      storage_options_(options) {
 
   mem_->Ref();
 
@@ -175,10 +176,11 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options_.max_open_files - 10;
-  table_cache_.reset(new TableCache(dbname_, &options_, table_cache_size));
+  table_cache_.reset(new TableCache(dbname_, &options_,
+                                    storage_options_, table_cache_size));
 
-  versions_.reset(new VersionSet(dbname_, &options_, table_cache_.get(),
-                                 &internal_comparator_));
+  versions_.reset(new VersionSet(dbname_, &options_, storage_options_,
+                                 table_cache_.get(), &internal_comparator_));
 
   dumpLeveldbBuildVersion(options_.info_log.get());
   options_.Dump(options_.info_log.get());
@@ -262,7 +264,7 @@ Status DBImpl::NewDB() {
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
   unique_ptr<WritableFile> file;
-  Status s = env_->NewWritableFile(manifest, &file);
+  Status s = env_->NewWritableFile(manifest, &file, storage_options_);
   if (!s.ok()) {
     return s;
   }
@@ -590,7 +592,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   // Open the log file
   std::string fname = LogFileName(dbname_, log_number);
   unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file);
+  Status status = env_->NewSequentialFile(fname, &file, storage_options_);
   if (!status.ok()) {
     MaybeIgnoreError(&status);
     return status;
@@ -683,7 +685,8 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta,
+    s = BuildTable(dbname_, env_, options_, storage_options_,
+                   table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
                    earliest_seqno_in_memtable);
     mutex_.Lock();
@@ -734,7 +737,8 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, options_, table_cache_.get(), iter, &meta,
+    s = BuildTable(dbname_, env_, options_, storage_options_,
+                   table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
                    earliest_seqno_in_memtable);
     mutex_.Lock();
@@ -905,6 +909,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   iter->reset(
     new TransactionLogIteratorImpl(dbname_,
                                    &options_,
+                                   storage_options_,
                                    seq,
                                    probableWALFiles,
                                    &last_flushed_sequence_));
@@ -1010,7 +1015,7 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
   };
 
   unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file);
+  Status status = env_->NewSequentialFile(fname, &file, storage_options_);
 
   if (!status.ok()) {
     return status;
@@ -1395,7 +1400,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 
   // Make the output file
   std::string fname = TableFileName(dbname_, file_number);
-  Status s = env_->NewWritableFile(fname, &compact->outfile);
+  Status s = env_->NewWritableFile(fname, &compact->outfile, storage_options_);
 
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold.
@@ -1447,6 +1452,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
     Iterator* iter = table_cache_->NewIterator(ReadOptions(),
+                                               storage_options_,
                                                output_number,
                                                current_bytes);
     s = iter->status();
@@ -1842,7 +1848,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   }
 
   // Collect iterators for files in L0 - Ln
-  versions_->current()->AddIterators(options, &list);
+  versions_->current()->AddIterators(options, storage_options_, &list);
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
   versions_->current()->Ref();
@@ -2172,7 +2178,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
       unique_ptr<WritableFile> lfile;
-      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
+      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile,
+                                storage_options_);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
@@ -2369,6 +2376,7 @@ DB::~DB() { }
 Status DB::Open(const Options& options, const std::string& dbname,
                 DB** dbptr) {
   *dbptr = nullptr;
+  StorageOptions soptions;
 
   if (options.block_cache != nullptr && options.no_block_cache) {
     return Status::InvalidArgument(
@@ -2387,7 +2395,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
-                                     &lfile);
+                                     &lfile, soptions);
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * options.write_buffer_size);
       edit.SetLogNumber(new_log_number);

@@ -235,15 +235,18 @@ class HdfsEnv : public Env {
   }
 
   virtual Status NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result);
+                                   unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& options);
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result) {
+                                     unique_ptr<RandomAccessFile>* result,
+                                     const EnvOptions& options) {
     return notsup;
   }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result) {
+                                 unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options) {
     return notsup;
   }
 

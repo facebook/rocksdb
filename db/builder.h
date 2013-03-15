@@ -8,6 +8,7 @@
 #include "leveldb/comparator.h"
 #include "leveldb/status.h"
 #include "leveldb/types.h"
+#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -27,6 +28,7 @@ class VersionEdit;
 extern Status BuildTable(const std::string& dbname,
                          Env* env,
                          const Options& options,
+                         const StorageOptions& soptions,
                          TableCache* table_cache,
                          Iterator* iter,
                          FileMetaData* meta,

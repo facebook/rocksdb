@@ -52,7 +52,7 @@ class Repairer {
         options_(SanitizeOptions(dbname, &icmp_, &ipolicy_, options)),
         next_file_number_(1) {
     // TableCache can be small since we expect each table to be opened once.
-    table_cache_ = new TableCache(dbname_, &options_, 10);
+    table_cache_ = new TableCache(dbname_, &options_, storage_options_, 10);
     edit_ = new VersionEdit(options.num_levels);
   }
 
@@ -105,6 +105,7 @@ class Repairer {
   std::vector<uint64_t> logs_;
   std::vector<TableInfo> tables_;
   uint64_t next_file_number_;
+  const StorageOptions storage_options_;
 
   Status FindFiles() {
     std::vector<std::string> filenames;
@@ -169,7 +170,7 @@ class Repairer {
     // Open the log file
     std::string logname = LogFileName(dbname_, log);
     unique_ptr<SequentialFile> lfile;
-    Status status = env_->NewSequentialFile(logname, &lfile);
+    Status status = env_->NewSequentialFile(logname, &lfile, storage_options_);
     if (!status.ok()) {
       return status;
     }
@@ -216,7 +217,8 @@ class Repairer {
     FileMetaData meta;
     meta.number = next_file_number_++;
     Iterator* iter = mem->NewIterator();
-    status = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta,
+    status = BuildTable(dbname_, env_, options_, storage_options_,
+                        table_cache_, iter, &meta,
                         icmp_.user_comparator(), 0, 0);
     delete iter;
     mem->Unref();
@@ -258,7 +260,7 @@ class Repairer {
     Status status = env_->GetFileSize(fname, &t->meta.file_size);
     if (status.ok()) {
       Iterator* iter = table_cache_->NewIterator(
-          ReadOptions(), t->meta.number, t->meta.file_size);
+          ReadOptions(), storage_options_, t->meta.number, t->meta.file_size);
       bool empty = true;
       ParsedInternalKey parsed;
       t->max_sequence = 0;
@@ -296,7 +298,7 @@ class Repairer {
   Status WriteDescriptor() {
     std::string tmp = TempFileName(dbname_, 1);
     unique_ptr<WritableFile> file;
-    Status status = env_->NewWritableFile(tmp, &file);
+    Status status = env_->NewWritableFile(tmp, &file, storage_options_);
     if (!status.ok()) {
       return status;
     }

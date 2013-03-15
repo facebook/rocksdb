@@ -17,6 +17,7 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/storage_options.h"
 
 static int verbose = 0;
 static int output_hex = 0;
@@ -61,12 +62,13 @@ int main(int argc, char** argv) {
   }
 
   Options options;
+  StorageOptions sopt;
   std::string file(manifestfile);
   std::string dbname("dummy");
-  TableCache* tc = new TableCache(dbname, &options, 10);
+  TableCache* tc = new TableCache(dbname, &options, sopt, 10);
   const InternalKeyComparator* cmp = new InternalKeyComparator(options.comparator);
 
-  VersionSet* versions = new VersionSet(dbname, &options,
+  VersionSet* versions = new VersionSet(dbname, &options, sopt,
                                    tc, cmp);
   Status s = versions->DumpManifest(options, file, verbose, output_hex);
   if (!s.ok()) {

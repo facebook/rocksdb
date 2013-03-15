@@ -10,6 +10,7 @@
 #include "leveldb/transaction_log_iterator.h"
 #include "db/log_file.h"
 #include "db/log_reader.h"
+#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -27,6 +28,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
  public:
   TransactionLogIteratorImpl(const std::string& dbname,
                              const Options* options,
+                             const StorageOptions& soptions,
                              SequenceNumber& seqNum,
                              std::vector<LogFile>* files,
                              SequenceNumber const * const lastFlushedSequence);
@@ -47,6 +49,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
  private:
   const std::string& dbname_;
   const Options* options_;
+  const StorageOptions& soptions_;
   const uint64_t sequenceNumber_;
   const std::vector<LogFile>* files_;
   bool started_;

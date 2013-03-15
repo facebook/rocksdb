@@ -6,11 +6,13 @@ namespace leveldb {
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
                            const std::string& dbname,
                            const Options* options,
+                           const StorageOptions& soptions,
                            SequenceNumber& seq,
                            std::vector<LogFile>* files,
                            SequenceNumber const * const lastFlushedSequence) :
   dbname_(dbname),
   options_(options),
+  soptions_(soptions),
   sequenceNumber_(seq),
   files_(files),
   started_(false),
@@ -36,15 +38,15 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   Env* env = options_->env;
   if (logFile.type == kArchivedLogFile) {
     std::string fname = ArchivedLogFileName(dbname_, logFile.logNumber);
-    return env->NewSequentialFile(fname, file);
+    return env->NewSequentialFile(fname, file, soptions_);
   } else {
     std::string fname = LogFileName(dbname_, logFile.logNumber);
-    Status status = env->NewSequentialFile(fname, file);
+    Status status = env->NewSequentialFile(fname, file, soptions_);
     if (!status.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dbname_, logFile.logNumber);
-      status = env->NewSequentialFile(fname, file);
+      status = env->NewSequentialFile(fname, file, soptions_);
       if (!status.ok()) {
         return Status::IOError(" Requested file not present in the dir");
       }

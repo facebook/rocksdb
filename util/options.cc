@@ -60,8 +60,12 @@ Options::Options()
       disable_auto_compactions(false),
       WAL_ttl_seconds(0),
       manifest_preallocation_size(4 * 1024 * 1024),
-      purge_redundant_kvs_while_flush(true) {
-
+      purge_redundant_kvs_while_flush(true),
+      allow_os_buffer(true),
+      allow_readahead(true),
+      allow_readahead_compactions(true),
+      allow_mmap_reads(false),
+      allow_mmap_writes(true) {
 }
 
 void
@@ -103,6 +107,12 @@ Options::Dump(Logger* log) const
     Log(log,"     Options.keep_log_file_num: %ld", keep_log_file_num);
     Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
+    Log(log,"       Options.allow_os_buffer: %d", allow_os_buffer);
+    Log(log,"       Options.allow_readahead: %d", allow_readahead);
+    Log(log,"      Options.allow_mmap_reads: %d", allow_mmap_reads);
+    Log(log,"     Options.allow_mmap_writes: %d", allow_mmap_writes);
+    Log(log,"            Options.allow_readahead_compactions: %d",
+        allow_readahead_compactions);
     Log(log,"        Options.purge_redundant_kvs_while_flush: %d",
          purge_redundant_kvs_while_flush);
     Log(log,"           Options.compression_opts.window_bits: %d",

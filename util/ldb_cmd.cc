@@ -577,9 +577,10 @@ leveldb::Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
 
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(leveldb::Options& opt,
     int* levels) {
-  TableCache tc(db_path_, &opt, 10);
+  StorageOptions soptions;
+  TableCache tc(db_path_, &opt, soptions, 10);
   const InternalKeyComparator cmp(opt.comparator);
-  VersionSet versions(db_path_, &opt, &tc, &cmp);
+  VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change
   // (like LogAndApply) to the manifest file.
@@ -633,9 +634,10 @@ void ReduceDBLevelsCommand::DoCommand() {
   db_->CompactRange(nullptr, nullptr);
   CloseDB();
 
-  TableCache tc(db_path_, &opt, 10);
+  StorageOptions soptions;
+  TableCache tc(db_path_, &opt, soptions, 10);
   const InternalKeyComparator cmp(opt.comparator);
-  VersionSet versions(db_path_, &opt, &tc, &cmp);
+  VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change (like LogAndApply)
   // to the manifest file.
@@ -724,7 +726,8 @@ void WALDumperCommand::DoCommand() {
 
   unique_ptr<SequentialFile> file;
   Env* env_ = Env::Default();
-  Status status = env_->NewSequentialFile(wal_file_, &file);
+  StorageOptions soptions;
+  Status status = env_->NewSequentialFile(wal_file_, &file, soptions);
   if (!status.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED("Failed to open WAL file " +
       status.ToString());

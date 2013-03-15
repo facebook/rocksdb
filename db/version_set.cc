@@ -178,6 +178,7 @@ class Version::LevelFileNumIterator : public Iterator {
 
 static Iterator* GetFileIterator(void* arg,
                                  const ReadOptions& options,
+                                 const EnvOptions& soptions,
                                  const Slice& file_value) {
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
   if (file_value.size() != 16) {
@@ -185,25 +186,28 @@ static Iterator* GetFileIterator(void* arg,
         Status::Corruption("FileReader invoked with unexpected value"));
   } else {
     return cache->NewIterator(options,
+                              soptions,
                               DecodeFixed64(file_value.data()),
                               DecodeFixed64(file_value.data() + 8));
   }
 }
 
 Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
+                                            const StorageOptions& soptions,
                                             int level) const {
   return NewTwoLevelIterator(
       new LevelFileNumIterator(vset_->icmp_, &files_[level]),
-      &GetFileIterator, vset_->table_cache_, options);
+      &GetFileIterator, vset_->table_cache_, options, soptions);
 }
 
 void Version::AddIterators(const ReadOptions& options,
+                           const StorageOptions& soptions,
                            std::vector<Iterator*>* iters) {
   // Merge all level zero files together since they may overlap
   for (size_t i = 0; i < files_[0].size(); i++) {
     iters->push_back(
         vset_->table_cache_->NewIterator(
-            options, files_[0][i]->number, files_[0][i]->file_size));
+            options, soptions, files_[0][i]->number, files_[0][i]->file_size));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -211,7 +215,7 @@ void Version::AddIterators(const ReadOptions& options,
   // lazily.
   for (int level = 1; level < vset_->NumberLevels(); level++) {
     if (!files_[level].empty()) {
-      iters->push_back(NewConcatenatingIterator(options, level));
+      iters->push_back(NewConcatenatingIterator(options, soptions, level));
     }
   }
 }
@@ -887,6 +891,7 @@ class VersionSet::Builder {
 
 VersionSet::VersionSet(const std::string& dbname,
                        const Options* options,
+                       const StorageOptions& storage_options,
                        TableCache* table_cache,
                        const InternalKeyComparator* cmp)
     : env_(options->env),
@@ -904,7 +909,9 @@ VersionSet::VersionSet(const std::string& dbname,
       current_(nullptr),
       compactions_in_progress_(options_->num_levels),
       current_version_number_(0),
-      last_observed_manifest_size_(0) {
+      last_observed_manifest_size_(0),
+      storage_options_(storage_options),
+      storage_options_compactions_(storage_options_)  {
   compact_pointer_ = new std::string[options_->num_levels];
   Init(options_->num_levels);
   AppendVersion(new Version(this, current_version_number_++));
@@ -1002,7 +1009,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
     unique_ptr<WritableFile> descriptor_file;
-    s = env_->NewWritableFile(new_manifest_file, &descriptor_file);
+    s = env_->NewWritableFile(new_manifest_file, &descriptor_file,
+                              storage_options_);
     if (s.ok()) {
       descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
       s = WriteSnapshot(descriptor_log_.get());
@@ -1147,7 +1155,7 @@ Status VersionSet::Recover() {
 
   std::string dscname = dbname_ + "/" + current;
   unique_ptr<SequentialFile> file;
-  s = env_->NewSequentialFile(dscname, &file);
+  s = env_->NewSequentialFile(dscname, &file, storage_options_);
   if (!s.ok()) {
     return s;
   }
@@ -1269,7 +1277,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
   // Open the specified manifest file.
   unique_ptr<SequentialFile> file;
-  Status s = options.env->NewSequentialFile(dscname, &file);
+  Status s = options.env->NewSequentialFile(dscname, &file, storage_options_);
   if (!s.ok()) {
     return s;
   }
@@ -1579,7 +1587,7 @@ bool VersionSet::ManifestContains(const std::string& record) const {
   std::string fname = DescriptorFileName(dbname_, manifest_file_number_);
   Log(options_->info_log, "ManifestContains: checking %s\n", fname.c_str());
   unique_ptr<SequentialFile> file;
-  Status s = env_->NewSequentialFile(fname, &file);
+  Status s = env_->NewSequentialFile(fname, &file, storage_options_);
   if (!s.ok()) {
     Log(options_->info_log, "ManifestContains: %s\n", s.ToString().c_str());
     Log(options_->info_log,
@@ -1623,7 +1631,8 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
         // approximate offset of "ikey" within the table.
         Table* tableptr;
         Iterator* iter = table_cache_->NewIterator(
-            ReadOptions(), files[i]->number, files[i]->file_size, &tableptr);
+            ReadOptions(), storage_options_, files[i]->number,
+            files[i]->file_size, &tableptr);
         if (tableptr != nullptr) {
           result += tableptr->ApproximateOffsetOf(ikey.Encode());
         }
@@ -1735,13 +1744,14 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         const std::vector<FileMetaData*>& files = c->inputs_[which];
         for (size_t i = 0; i < files.size(); i++) {
           list[num++] = table_cache_->NewIterator(
-              options, files[i]->number, files[i]->file_size);
+              options, storage_options_compactions_,
+              files[i]->number, files[i]->file_size);
         }
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-            &GetFileIterator, table_cache_, options);
+            &GetFileIterator, table_cache_, options, storage_options_);
       }
     }
   }

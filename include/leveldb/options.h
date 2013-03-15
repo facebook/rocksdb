@@ -396,6 +396,25 @@ struct Options {
   // Purge duplicate/deleted keys when a memtable is flushed to storage.
   // Default: true
   bool purge_redundant_kvs_while_flush;
+
+  // Data being read from file storage may be buffered in the OS
+  // Default: true
+  bool allow_os_buffer;
+
+  // Reading a single block from a file can cause the OS/FS to start
+  // readaheads of other blocks from the file. Default: true
+  bool allow_readahead;
+
+  // The reads triggered by compaction allows data to be readahead
+  // by the OS/FS. This overrides the setting of 'allow_readahead'
+  // for compaction-reads. Default: true
+  bool allow_readahead_compactions;
+
+  // Allow the OS to mmap file for reading. Default: false
+  bool allow_mmap_reads;
+
+  // Allow the OS to mmap file for writing. Default: true
+  bool allow_mmap_writes;
 };
 
 // Options that control read operations

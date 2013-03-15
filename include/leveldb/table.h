@@ -8,6 +8,7 @@
 #include <memory>
 #include <stdint.h>
 #include "leveldb/iterator.h"
+#include "leveldb/env.h"
 
 namespace leveldb {
 
@@ -39,6 +40,7 @@ class Table {
   //
   // *file must remain live while this Table is in use.
   static Status Open(const Options& options,
+                     const EnvOptions& soptions,
                      unique_ptr<RandomAccessFile>&& file,
                      uint64_t file_size,
                      unique_ptr<Table>* table);
@@ -67,7 +69,8 @@ class Table {
   Rep* rep_;
 
   explicit Table(Rep* rep) { rep_ = rep; }
-  static Iterator* BlockReader(void*, const ReadOptions&, const Slice&);
+  static Iterator* BlockReader(void*, const ReadOptions&,
+                               const EnvOptions& soptions, const Slice&);
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
                                bool* didIO);
 

@@ -329,6 +329,9 @@ class DBImpl : public DB {
   // Used by transaction log iterator.
   SequenceNumber last_flushed_sequence_;
 
+  // The options to access storage files
+  const StorageOptions storage_options_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);

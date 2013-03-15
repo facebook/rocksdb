@@ -19,6 +19,7 @@
 #include "util/mutexlock.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -100,7 +101,8 @@ class SpecialEnv : public EnvWrapper {
     manifest_write_error_.Release_Store(nullptr);
    }
 
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r) {
+  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+                         const EnvOptions& soptions) {
     class SSTableFile : public WritableFile {
      private:
       SpecialEnv* env_;
@@ -157,7 +159,7 @@ class SpecialEnv : public EnvWrapper {
       return Status::IOError("simulated write error");
     }
 
-    Status s = target()->NewWritableFile(f, r);
+    Status s = target()->NewWritableFile(f, r, soptions);
     if (s.ok()) {
       if (strstr(f.c_str(), ".sst") != nullptr) {
         r->reset(new SSTableFile(this, std::move(*r)));
@@ -169,7 +171,8 @@ class SpecialEnv : public EnvWrapper {
   }
 
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r) {
+                             unique_ptr<RandomAccessFile>* r,
+                             const EnvOptions& soptions) {
     class CountingFile : public RandomAccessFile {
      private:
       unique_ptr<RandomAccessFile> target_;
@@ -186,7 +189,7 @@ class SpecialEnv : public EnvWrapper {
       }
     };
 
-    Status s = target()->NewRandomAccessFile(f, r);
+    Status s = target()->NewRandomAccessFile(f, r, soptions);
     if (s.ok() && count_random_reads_) {
       r->reset(new CountingFile(std::move(*r), &random_read_counter_));
     }
@@ -564,7 +567,8 @@ TEST(DBTest, LevelLimitReopen) {
 TEST(DBTest, Preallocation) {
   const std::string src = dbname_ + "/alloc_test";
   unique_ptr<WritableFile> srcfile;
-  ASSERT_OK(env_->NewWritableFile(src, &srcfile));
+  const StorageOptions soptions;
+  ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
   srcfile->SetPreallocationBlockSize(1024 * 1024);
 
   // No writes should mean no preallocation
@@ -2307,6 +2311,7 @@ TEST(DBTest, BloomFilter) {
 
 TEST(DBTest, SnapshotFiles) {
   Options options = CurrentOptions();
+  const StorageOptions soptions;
   options.write_buffer_size = 100000000;        // Large write buffer
   Reopen(&options);
 
@@ -2360,9 +2365,9 @@ TEST(DBTest, SnapshotFiles) {
       }
     }
     unique_ptr<SequentialFile> srcfile;
-    ASSERT_OK(env_->NewSequentialFile(src, &srcfile));
+    ASSERT_OK(env_->NewSequentialFile(src, &srcfile, soptions));
     unique_ptr<WritableFile> destfile;
-    ASSERT_OK(env_->NewWritableFile(dest, &destfile));
+    ASSERT_OK(env_->NewWritableFile(dest, &destfile, soptions));
 
     char buffer[4096];
     Slice slice;
@@ -3122,7 +3127,8 @@ void BM_LogAndApply(int iters, int num_base_files) {
 
   InternalKeyComparator cmp(BytewiseComparator());
   Options options;
-  VersionSet vset(dbname, &options, nullptr, &cmp);
+  StorageOptions sopt;
+  VersionSet vset(dbname, &options, sopt, nullptr, &cmp);
   ASSERT_OK(vset.Recover());
   VersionEdit vbase(vset.NumberLevels());
   uint64_t fnum = 1;

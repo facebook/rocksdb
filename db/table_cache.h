@@ -10,9 +10,11 @@
 #include <string>
 #include <stdint.h>
 #include "db/dbformat.h"
+#include "leveldb/env.h"
 #include "leveldb/cache.h"
 #include "leveldb/table.h"
 #include "port/port.h"
+#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -20,7 +22,8 @@ class Env;
 
 class TableCache {
  public:
-  TableCache(const std::string& dbname, const Options* options, int entries);
+  TableCache(const std::string& dbname, const Options* options,
+             const StorageOptions& storage_options, int entries);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -31,6 +34,7 @@ class TableCache {
   // the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
   Iterator* NewIterator(const ReadOptions& options,
+                        const EnvOptions& toptions,
                         uint64_t file_number,
                         uint64_t file_size,
                         Table** tableptr = nullptr);
@@ -52,9 +56,11 @@ class TableCache {
   Env* const env_;
   const std::string dbname_;
   const Options* options_;
+  const StorageOptions& storage_options_;
   std::shared_ptr<Cache> cache_;
 
-  Status FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle**,
+  Status FindTable(const EnvOptions& toptions,
+                   uint64_t file_number, uint64_t file_size, Cache::Handle**,
                    bool* tableIO = nullptr);
 };
 

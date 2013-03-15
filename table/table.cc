@@ -29,8 +29,12 @@ struct Table::Rep {
     delete [] filter_data;
     delete index_block;
   }
+  Rep(const EnvOptions& storage_options) :
+    soptions(storage_options) {
+  }
 
   Options options;
+  const EnvOptions& soptions;
   Status status;
   unique_ptr<RandomAccessFile> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
@@ -62,6 +66,7 @@ void Table::SetupCacheKeyPrefix(Rep* rep) {
 }
 
 Status Table::Open(const Options& options,
+                   const EnvOptions& soptions,
                    unique_ptr<RandomAccessFile>&& file,
                    uint64_t size,
                    unique_ptr<Table>* table) {
@@ -100,7 +105,7 @@ Status Table::Open(const Options& options,
   if (s.ok()) {
     // We've successfully read the footer and the index block: we're
     // ready to serve requests.
-    Rep* rep = new Table::Rep;
+    Rep* rep = new Table::Rep(soptions);
     rep->options = options;
     rep->file = std::move(file);
     rep->metaindex_handle = footer.metaindex_handle();
@@ -260,6 +265,7 @@ Iterator* Table::BlockReader(void* arg,
 
 Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
+                             const EnvOptions& soptions,
                              const Slice& index_value) {
   return BlockReader(arg, options, index_value, nullptr);
 }
@@ -267,7 +273,7 @@ Iterator* Table::BlockReader(void* arg,
 Iterator* Table::NewIterator(const ReadOptions& options) const {
   return NewTwoLevelIterator(
       rep_->index_block->NewIterator(rep_->options.comparator),
-      &Table::BlockReader, const_cast<Table*>(this), options);
+      &Table::BlockReader, const_cast<Table*>(this), options, rep_->soptions);
 }
 
 Status Table::InternalGet(const ReadOptions& options, const Slice& k,

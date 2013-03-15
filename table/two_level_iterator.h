@@ -6,6 +6,7 @@
 #define STORAGE_LEVELDB_TABLE_TWO_LEVEL_ITERATOR_H_
 
 #include "leveldb/iterator.h"
+#include "leveldb/env.h"
 
 namespace leveldb {
 
@@ -25,9 +26,11 @@ extern Iterator* NewTwoLevelIterator(
     Iterator* (*block_function)(
         void* arg,
         const ReadOptions& options,
+        const EnvOptions& soptions,
         const Slice& index_value),
     void* arg,
-    const ReadOptions& options);
+    const ReadOptions& options,
+    const EnvOptions& soptions);
 
 }  // namespace leveldb
 

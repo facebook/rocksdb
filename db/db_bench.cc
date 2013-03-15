@@ -269,10 +269,20 @@ static int FLAGS_source_compaction_factor = 1;
 // Set the TTL for the WAL Files.
 static uint64_t FLAGS_WAL_ttl_seconds = 0;
 
-extern bool useOsBuffer;
-extern bool useFsReadAhead;
-extern bool useMmapRead;
-extern bool useMmapWrite;
+// Allow buffered io using OS buffers
+static bool FLAGS_use_os_buffer;
+
+// Allow filesystem to do read-aheads
+static bool FLAGS_use_fsreadahead;
+
+// Allow reads to occur via mmap-ing files
+static bool FLAGS_use_mmap_reads;
+
+// Allow writes to occur via mmap-ing files
+static bool FLAGS_use_mmap_writes;
+
+// Allow readaheads to occur for compactions
+static bool FLAGS_use_readahead_compactions;
 
 namespace leveldb {
 
@@ -1099,6 +1109,13 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
       FLAGS_max_grandparent_overlap_factor;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.source_compaction_factor = FLAGS_source_compaction_factor;
+
+    // fill storage options
+    options.allow_os_buffer = FLAGS_use_os_buffer;
+    options.allow_readahead = FLAGS_use_fsreadahead;
+    options.allow_mmap_reads = FLAGS_use_mmap_reads;
+    options.allow_mmap_writes = FLAGS_use_mmap_writes;
+    options.allow_readahead_compactions = FLAGS_use_readahead_compactions;
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
@@ -1629,9 +1646,10 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
 
   void HeapProfile() {
     char fname[100];
+    StorageOptions soptions;
     snprintf(fname, sizeof(fname), "%s/heap-%04d", FLAGS_db, ++heap_counter_);
     unique_ptr<WritableFile> file;
-    Status s = FLAGS_env->NewWritableFile(fname, &file);
+    Status s = FLAGS_env->NewWritableFile(fname, &file, soptions);
     if (!s.ok()) {
       fprintf(stderr, "%s\n", s.ToString().c_str());
       return;
@@ -1654,6 +1672,13 @@ int main(int argc, char** argv) {
     leveldb::Options().max_background_compactions;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
+  FLAGS_use_os_buffer = leveldb::StorageOptions().UseOsBuffer();
+  FLAGS_use_fsreadahead = leveldb::StorageOptions().UseReadahead();
+  FLAGS_use_mmap_reads = leveldb::StorageOptions().UseMmapReads();
+  FLAGS_use_mmap_writes = leveldb::StorageOptions().UseMmapWrites();
+  FLAGS_use_readahead_compactions =
+    leveldb::StorageOptions().UseReadaheadCompactions();
+
   std::string default_db_path;
 
   for (int i = 1; i < argc; i++) {
@@ -1730,16 +1755,19 @@ int main(int argc, char** argv) {
       FLAGS_verify_checksum = n;
     } else if (sscanf(argv[i], "--bufferedio=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
-      useOsBuffer = n;
+      FLAGS_use_os_buffer = n;
     } else if (sscanf(argv[i], "--mmap_read=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
-      useMmapRead = n;
+      FLAGS_use_mmap_reads = n;
     } else if (sscanf(argv[i], "--mmap_write=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
-      useMmapWrite = n;
+      FLAGS_use_mmap_writes = n;
     } else if (sscanf(argv[i], "--readahead=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
-      useFsReadAhead = n;
+      FLAGS_use_fsreadahead = n;
+    } else if (sscanf(argv[i], "--readahead_compactions=%d%c", &n, &junk) == 1&&
+               (n == 0 || n == 1)) {
+      FLAGS_use_readahead_compactions = n;
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {

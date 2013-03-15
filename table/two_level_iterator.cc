@@ -13,7 +13,8 @@ namespace leveldb {
 
 namespace {
 
-typedef Iterator* (*BlockFunction)(void*, const ReadOptions&, const Slice&);
+typedef Iterator* (*BlockFunction)(void*, const ReadOptions&,
+                                   const EnvOptions& soptions, const Slice&);
 
 class TwoLevelIterator: public Iterator {
  public:
@@ -21,7 +22,8 @@ class TwoLevelIterator: public Iterator {
     Iterator* index_iter,
     BlockFunction block_function,
     void* arg,
-    const ReadOptions& options);
+    const ReadOptions& options,
+    const EnvOptions& soptions);
 
   virtual ~TwoLevelIterator();
 
@@ -65,6 +67,7 @@ class TwoLevelIterator: public Iterator {
   BlockFunction block_function_;
   void* arg_;
   const ReadOptions options_;
+  const EnvOptions& soptions_;
   Status status_;
   IteratorWrapper index_iter_;
   IteratorWrapper data_iter_; // May be nullptr
@@ -77,10 +80,12 @@ TwoLevelIterator::TwoLevelIterator(
     Iterator* index_iter,
     BlockFunction block_function,
     void* arg,
-    const ReadOptions& options)
+    const ReadOptions& options,
+    const EnvOptions& soptions)
     : block_function_(block_function),
       arg_(arg),
       options_(options),
+      soptions_(soptions),
       index_iter_(index_iter),
       data_iter_(nullptr) {
 }
@@ -163,7 +168,7 @@ void TwoLevelIterator::InitDataBlock() {
       // data_iter_ is already constructed with this iterator, so
       // no need to change anything
     } else {
-      Iterator* iter = (*block_function_)(arg_, options_, handle);
+      Iterator* iter = (*block_function_)(arg_, options_, soptions_, handle);
       data_block_handle_.assign(handle.data(), handle.size());
       SetDataIterator(iter);
     }
@@ -176,8 +181,10 @@ Iterator* NewTwoLevelIterator(
     Iterator* index_iter,
     BlockFunction block_function,
     void* arg,
-    const ReadOptions& options) {
-  return new TwoLevelIterator(index_iter, block_function, arg, options);
+    const ReadOptions& options,
+    const EnvOptions& soptions) {
+  return new TwoLevelIterator(index_iter, block_function, arg,
+                              options, soptions);
 }
 
 }  // namespace leveldb

@@ -64,10 +64,17 @@ class PosixSequentialFile: public SequentialFile {
  private:
   std::string filename_;
   FILE* file_;
+  int fd_;
+  bool use_os_buffer = true;
 
  public:
-  PosixSequentialFile(const std::string& fname, FILE* f)
-      : filename_(fname), file_(f) { }
+  PosixSequentialFile(const std::string& fname, FILE* f,
+      const EnvOptions& options)
+      : filename_(fname), file_(f) {
+    fd_ = fileno(f);
+    assert(!options.UseMmapReads());
+    use_os_buffer = options.UseOsBuffer();
+  }
   virtual ~PosixSequentialFile() { fclose(file_); }
 
   virtual Status Read(size_t n, Slice* result, char* scratch) {
@@ -81,6 +88,11 @@ class PosixSequentialFile: public SequentialFile {
         // A partial read with an error: return a non-ok status
         s = IOError(filename_, errno);
       }
+    }
+    if (!use_os_buffer) {
+      // we need to fadvise away the entire range of pages because
+      // we do not want readahead pages to be cached.
+      posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
     }
     return s;
   }
@@ -98,14 +110,17 @@ class PosixRandomAccessFile: public RandomAccessFile {
  private:
   std::string filename_;
   int fd_;
+  bool use_os_buffer = true;
 
  public:
-  PosixRandomAccessFile(const std::string& fname, int fd)
+  PosixRandomAccessFile(const std::string& fname, int fd,
+                        const EnvOptions& options)
       : filename_(fname), fd_(fd) {
-    if (!useFsReadAhead) {
-      // disable read-aheads
+    assert(!options.UseMmapReads());
+    if (!options.UseReadahead()) { // disable read-aheads
       posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
     }
+    use_os_buffer = options.UseOsBuffer();
   }
   virtual ~PosixRandomAccessFile() { close(fd_); }
 
@@ -118,7 +133,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
       // An error: return a non-ok status
       s = IOError(filename_, errno);
     }
-    if (!useOsBuffer) {
+    if (!use_os_buffer) {
       // we need to fadvise away the entire range of pages because
       // we do not want readahead pages to be cached.
       posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
@@ -165,8 +180,13 @@ class PosixMmapReadableFile: public RandomAccessFile {
 
  public:
   // base[0,length-1] contains the mmapped contents of the file.
-  PosixMmapReadableFile(const std::string& fname, void* base, size_t length)
-      : filename_(fname), mmapped_region_(base), length_(length) { }
+  PosixMmapReadableFile(const std::string& fname, void* base, size_t length,
+                        const EnvOptions& options)
+      : filename_(fname), mmapped_region_(base), length_(length) {
+    assert(options.UseMmapReads());
+    assert(options.UseOsBuffer());
+    assert(options.UseReadahead());
+  }
   virtual ~PosixMmapReadableFile() { munmap(mmapped_region_, length_); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
@@ -259,7 +279,8 @@ class PosixMmapFile : public WritableFile {
   }
 
  public:
-  PosixMmapFile(const std::string& fname, int fd, size_t page_size)
+  PosixMmapFile(const std::string& fname, int fd, size_t page_size,
+                const EnvOptions& options)
       : filename_(fname),
         fd_(fd),
         page_size_(page_size),
@@ -271,6 +292,7 @@ class PosixMmapFile : public WritableFile {
         file_offset_(0),
         pending_sync_(false) {
     assert((page_size & (page_size - 1)) == 0);
+    assert(options.UseMmapWrites());
   }
 
 
@@ -409,7 +431,8 @@ class PosixWritableFile : public WritableFile {
   bool pending_fsync_;
 
  public:
-  PosixWritableFile(const std::string& fname, int fd, size_t capacity) :
+  PosixWritableFile(const std::string& fname, int fd, size_t capacity,
+                    const EnvOptions& options) :
     filename_(fname),
     fd_(fd),
     cursize_(0),
@@ -418,6 +441,7 @@ class PosixWritableFile : public WritableFile {
     filesize_(0),
     pending_sync_(false),
     pending_fsync_(false) {
+    assert(!options.UseMmapWrites());
   }
 
   ~PosixWritableFile() {
@@ -585,26 +609,28 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result) {
+                                   unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& options) {
     result->reset();
     FILE* f = fopen(fname.c_str(), "r");
     if (f == nullptr) {
       *result = nullptr;
       return IOError(fname, errno);
     } else {
-      result->reset(new PosixSequentialFile(fname, f));
+      result->reset(new PosixSequentialFile(fname, f, options));
       return Status::OK();
     }
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result) {
+                                     unique_ptr<RandomAccessFile>* result,
+                                     const EnvOptions& options) {
     result->reset();
     Status s;
     int fd = open(fname.c_str(), O_RDONLY);
     if (fd < 0) {
       s = IOError(fname, errno);
-    } else if (useMmapRead && sizeof(void*) >= 8) {
+    } else if (options.UseMmapReads() && sizeof(void*) >= 8) {
       // Use of mmap for random reads has been removed because it
       // kills performance when storage is fast.
       // Use mmap when virtual address-space is plentiful.
@@ -613,39 +639,41 @@ class PosixEnv : public Env {
       if (s.ok()) {
         void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
-          result->reset(new PosixMmapReadableFile(fname, base, size));
+          result->reset(new PosixMmapReadableFile(fname, base, size, options));
         } else {
           s = IOError(fname, errno);
         }
       }
       close(fd);
     } else {
-      result->reset(new PosixRandomAccessFile(fname, fd));
+      result->reset(new PosixRandomAccessFile(fname, fd, options));
     }
     return s;
   }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result) {
+                                 unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options) {
     result->reset();
     Status s;
     const int fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
     if (fd < 0) {
       s = IOError(fname, errno);
     } else {
-      if (!checkedDiskForMmap_) {
-        // this will be executed once in the program's lifetime.
-        if (useMmapWrite) {
+      if (options.UseMmapWrites()) {
+        if (!checkedDiskForMmap_) {
+          // this will be executed once in the program's lifetime.
           // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-          useMmapWrite = SupportsFastAllocate(fname);
+          if (!SupportsFastAllocate(fname)) {
+            forceMmapOff = true;
+          }
+          checkedDiskForMmap_ = true;
         }
-        checkedDiskForMmap_ = true;
       }
-
-      if (useMmapWrite) {
-        result->reset(new PosixMmapFile(fname, fd, page_size_));
+      if (options.UseMmapWrites() && !forceMmapOff) {
+        result->reset(new PosixMmapFile(fname, fd, page_size_, options));
       } else {
-        result->reset(new PosixWritableFile(fname, fd, 65536));
+        result->reset(new PosixWritableFile(fname, fd, 65536, options));
       }
     }
     return s;
@@ -880,6 +908,7 @@ class PosixEnv : public Env {
 
  private:
   bool checkedDiskForMmap_ = false;
+  bool forceMmapOff = false; // do we override Env options?
 
   void PthreadCall(const char* label, int result) {
     if (result != 0) {

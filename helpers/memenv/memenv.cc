@@ -233,7 +233,8 @@ class InMemoryEnv : public EnvWrapper {
 
   // Partial implementation of the Env interface.
   virtual Status NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result) {
+                                   unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& soptions) {
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) == file_map_.end()) {
       *result = NULL;
@@ -245,7 +246,8 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result) {
+                                     unique_ptr<RandomAccessFile>* result,
+                                     const EnvOptions& soptions) {
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) == file_map_.end()) {
       *result = NULL;
@@ -257,7 +259,8 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result) {
+                                 unique_ptr<WritableFile>* result,
+                                 const EnvOptions& soptions) {
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) != file_map_.end()) {
       DeleteFileInternal(fname);

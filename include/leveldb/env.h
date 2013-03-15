@@ -23,6 +23,7 @@
 namespace leveldb {
 
 class FileLock;
+class EnvOptions;
 class Logger;
 class RandomAccessFile;
 class SequentialFile;
@@ -51,7 +52,9 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewSequentialFile(const std::string& fname,
-                                   unique_ptr<SequentialFile>* result) = 0;
+                                   unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& options)
+                                   = 0;
 
   // Create a brand new random access read-only file with the
   // specified name.  On success, stores a pointer to the new file in
@@ -61,7 +64,9 @@ class Env {
   //
   // The returned file may be concurrently accessed by multiple threads.
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     unique_ptr<RandomAccessFile>* result) = 0;
+                                     unique_ptr<RandomAccessFile>* result,
+                                     const EnvOptions& options)
+                                     = 0;
 
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
@@ -71,7 +76,8 @@ class Env {
   //
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result) = 0;
+                                 unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options) = 0;
 
   // Returns true iff the named file exists.
   virtual bool FileExists(const std::string& fname) = 0;
@@ -228,7 +234,7 @@ class RandomAccessFile {
   // the file is opened (and will stay the same while the file is open).
   // Furthermore, it tries to make this ID at most "max_size" bytes. If such an
   // ID can be created this function returns the length of the ID and places it
-  // in "id"; otherwise, this function returns 0, in which case "id" may more
+  // in "id"; otherwise, this function returns 0, in which case "id"
   // may not have been modified.
   //
   // This function guarantees, for IDs from a given environment, two unique ids
@@ -363,6 +369,24 @@ class FileLock {
   void operator=(const FileLock&);
 };
 
+// Options while opening a file to read/write
+class EnvOptions {
+  public:
+   virtual ~EnvOptions() {}
+
+   // If true, then allow caching of data in environment buffers
+   virtual bool UseOsBuffer() const = 0;
+
+   // If true, then allow the environment to readahead data
+   virtual bool UseReadahead() const = 0;
+
+   // If true, then use mmap to read data
+   virtual bool UseMmapReads() const = 0;
+
+   // If true, then use mmap to write data
+   virtual bool UseMmapWrites() const = 0;
+};
+
 // Log the specified data to *info_log if info_log is non-nullptr.
 extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
@@ -398,15 +422,18 @@ class EnvWrapper : public Env {
 
   // The following text is boilerplate that forwards all methods to target()
   Status NewSequentialFile(const std::string& f,
-                           unique_ptr<SequentialFile>* r) {
-    return target_->NewSequentialFile(f, r);
+                           unique_ptr<SequentialFile>* r,
+                           const EnvOptions& options) {
+    return target_->NewSequentialFile(f, r, options);
   }
   Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r) {
-    return target_->NewRandomAccessFile(f, r);
+                             unique_ptr<RandomAccessFile>* r,
+                             const EnvOptions& options) {
+    return target_->NewRandomAccessFile(f, r, options);
   }
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r) {
-    return target_->NewWritableFile(f, r);
+  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+                         const EnvOptions& options) {
+    return target_->NewWritableFile(f, r, options);
   }
   bool FileExists(const std::string& f) { return target_->FileExists(f); }
   Status GetChildren(const std::string& dir, std::vector<std::string>* r) {

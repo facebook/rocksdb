@@ -63,7 +63,8 @@ class Version {
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
+  void AddIterators(const ReadOptions&, const StorageOptions& soptions,
+                    std::vector<Iterator*>* iters);
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
@@ -136,7 +137,9 @@ class Version {
   friend class VersionSet;
 
   class LevelFileNumIterator;
-  Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;
+  Iterator* NewConcatenatingIterator(const ReadOptions&,
+                                     const StorageOptions& soptions,
+                                     int level) const;
 
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
@@ -204,6 +207,7 @@ class VersionSet {
  public:
   VersionSet(const std::string& dbname,
              const Options* options,
+             const StorageOptions& storage_options,
              TableCache* table_cache,
              const InternalKeyComparator*);
   ~VersionSet();
@@ -453,6 +457,13 @@ class VersionSet {
   // Store the manifest file size when it is checked.
   // Save us the cost of checking file size twice in LogAndApply
   uint64_t last_observed_manifest_size_;
+
+  // storage options for all reads and writes except compactions
+  const StorageOptions& storage_options_;
+
+  // storage options used for compactions. This is a copy of
+  // storage_options_ but with readaheads set to readahead_compactions_.
+  const StorageOptions storage_options_compactions_;
 
   // No copying allowed
   VersionSet(const VersionSet&);

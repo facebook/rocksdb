@@ -8,6 +8,7 @@
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/testharness.h"
+#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -119,21 +120,22 @@ char temp_id[MAX_ID_SIZE];
 
 TEST(EnvPosixTest, RandomAccessUniqueID) {
   // Create file.
+  const StorageOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
   unique_ptr<WritableFile> wfile;
-  ASSERT_OK(env_->NewWritableFile(fname, &wfile));
+  ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
 
   unique_ptr<RandomAccessFile> file;
 
   // Get Unique ID
-  ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
   size_t id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
   ASSERT_TRUE(id_size > 0);
   std::string unique_id1(temp_id, id_size);
   ASSERT_TRUE(IsUniqueIDValid(unique_id1));
 
   // Get Unique ID again
-  ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
   id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
   ASSERT_TRUE(id_size > 0);
   std::string unique_id2(temp_id, id_size);
@@ -141,7 +143,7 @@ TEST(EnvPosixTest, RandomAccessUniqueID) {
 
   // Get Unique ID again after waiting some time.
   env_->SleepForMicroseconds(1000000);
-  ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+  ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
   id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
   ASSERT_TRUE(id_size > 0);
   std::string unique_id3(temp_id, id_size);
@@ -172,6 +174,7 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
 
 TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Check whether a bunch of concurrently existing files have unique IDs.
+  const StorageOptions soptions;
 
   // Create the files
   std::vector<std::string> fnames;
@@ -180,7 +183,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 
     // Create file.
     unique_ptr<WritableFile> wfile;
-    ASSERT_OK(env_->NewWritableFile(fnames[i], &wfile));
+    ASSERT_OK(env_->NewWritableFile(fnames[i], &wfile, soptions));
   }
 
   // Collect and check whether the IDs are unique.
@@ -188,7 +191,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   for (const std::string fname: fnames) {
     unique_ptr<RandomAccessFile> file;
     std::string unique_id;
-    ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
     size_t id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
     ASSERT_TRUE(id_size > 0);
     unique_id = std::string(temp_id, id_size);
@@ -207,6 +210,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 }
 
 TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
+  const StorageOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
 
   // Check that after file is deleted we don't get same ID again in a new file.
@@ -215,14 +219,14 @@ TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
     // Create file.
     {
       unique_ptr<WritableFile> wfile;
-      ASSERT_OK(env_->NewWritableFile(fname, &wfile));
+      ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
     }
 
     // Get Unique ID
     std::string unique_id;
     {
       unique_ptr<RandomAccessFile> file;
-      ASSERT_OK(env_->NewRandomAccessFile(fname, &file));
+      ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
       size_t id_size = file->GetUniqueId(temp_id, MAX_ID_SIZE);
       ASSERT_TRUE(id_size > 0);
       unique_id = std::string(temp_id, id_size);

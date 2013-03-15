@@ -6,7 +6,6 @@
 
 #include "db/filename.h"
 
-#include "leveldb/env.h"
 #include "leveldb/table.h"
 #include "leveldb/statistics.h"
 #include "util/coding.h"
@@ -33,10 +32,12 @@ static void UnrefEntry(void* arg1, void* arg2) {
 
 TableCache::TableCache(const std::string& dbname,
                        const Options* options,
+                       const StorageOptions& storage_options,
                        int entries)
     : env_(options->env),
       dbname_(dbname),
       options_(options),
+      storage_options_(storage_options),
       cache_(NewLRUCache(entries, options->table_cache_numshardbits)) {
   dbstatistics = options->statistics;
 }
@@ -44,7 +45,8 @@ TableCache::TableCache(const std::string& dbname,
 TableCache::~TableCache() {
 }
 
-Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
+Status TableCache::FindTable(const EnvOptions& toptions,
+                             uint64_t file_number, uint64_t file_size,
                              Cache::Handle** handle, bool* tableIO) {
   Status s;
   char buf[sizeof(file_number)];
@@ -58,10 +60,10 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
     std::string fname = TableFileName(dbname_, file_number);
     unique_ptr<RandomAccessFile> file;
     unique_ptr<Table> table;
-    s = env_->NewRandomAccessFile(fname, &file);
+    s = env_->NewRandomAccessFile(fname, &file, toptions);
     RecordTick(options_->statistics, NO_FILE_OPENS);
     if (s.ok()) {
-      s = Table::Open(*options_, std::move(file), file_size, &table);
+      s = Table::Open(*options_, toptions, std::move(file), file_size, &table);
     }
 
     if (!s.ok()) {
@@ -80,6 +82,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
 }
 
 Iterator* TableCache::NewIterator(const ReadOptions& options,
+                                  const EnvOptions& toptions,
                                   uint64_t file_number,
                                   uint64_t file_size,
                                   Table** tableptr) {
@@ -88,7 +91,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   }
 
   Cache::Handle* handle = nullptr;
-  Status s = FindTable(file_number, file_size, &handle);
+  Status s = FindTable(toptions, file_number, file_size, &handle);
   if (!s.ok()) {
     return NewErrorIterator(s);
   }
@@ -111,7 +114,8 @@ Status TableCache::Get(const ReadOptions& options,
                        void (*saver)(void*, const Slice&, const Slice&, bool),
                        bool* tableIO) {
   Cache::Handle* handle = nullptr;
-  Status s = FindTable(file_number, file_size, &handle, tableIO);
+  Status s = FindTable(storage_options_, file_number, file_size,
+                       &handle, tableIO);
   if (s.ok()) {
     Table* t =
       reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table.get();

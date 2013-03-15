@@ -257,7 +257,7 @@ class TableConstructor: public Constructor {
     // Open the table
     uniq_id_ = cur_uniq_id_++;
     source_.reset(new StringSource(sink_->contents(), uniq_id_));
-    return Table::Open(options, std::move(source_),
+    return Table::Open(options, soptions, std::move(source_),
                        sink_->contents().size(), &table_);
   }
 
@@ -271,7 +271,7 @@ class TableConstructor: public Constructor {
 
   virtual Status Reopen(const Options& options) {
     source_.reset(new StringSource(sink_->contents(), uniq_id_));
-    return Table::Open(options, std::move(source_),
+    return Table::Open(options, soptions, std::move(source_),
                        sink_->contents().size(), &table_);
   }
 
@@ -295,6 +295,7 @@ class TableConstructor: public Constructor {
   TableConstructor();
 
   static uint64_t cur_uniq_id_;
+  const StorageOptions soptions;
 };
 uint64_t TableConstructor::cur_uniq_id_ = 1;
 
