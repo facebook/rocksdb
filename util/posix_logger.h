@@ -111,11 +111,12 @@ class PosixLogger : public Logger {
       }
 #endif
 
-      fwrite(base, 1, write_size, file_);
-      fflush(file_);
-
-      log_size_ += write_size;
-
+      size_t sz = fwrite(base, 1, write_size, file_);
+      assert(sz == write_size);
+      if (sz > 0) {
+        fflush(file_);
+        log_size_ += write_size;
+      }
       if (base != buffer) {
         delete[] base;
       }
