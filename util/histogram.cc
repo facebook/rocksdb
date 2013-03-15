@@ -95,7 +95,7 @@ void HistogramImpl::Merge(const HistogramImpl& other) {
   num_ += other.num_;
   sum_ += other.sum_;
   sum_squares_ += other.sum_squares_;
-  for (int b = 0; b < bucketMapper.BucketCount(); b++) {
+  for (unsigned int b = 0; b < bucketMapper.BucketCount(); b++) {
     buckets_[b] += other.buckets_[b];
   }
 }
@@ -107,7 +107,7 @@ double HistogramImpl::Median() const {
 double HistogramImpl::Percentile(double p) const {
   double threshold = num_ * (p / 100.0);
   double sum = 0;
-  for (int b = 0; b < bucketMapper.BucketCount(); b++) {
+  for (unsigned int b = 0; b < bucketMapper.BucketCount(); b++) {
     sum += buckets_[b];
     if (sum >= threshold) {
       // Scale linearly within this bucket
@@ -158,7 +158,7 @@ std::string HistogramImpl::ToString() const {
   r.append("------------------------------------------------------\n");
   const double mult = 100.0 / num_;
   double sum = 0;
-  for (int b = 0; b < bucketMapper.BucketCount(); b++) {
+  for (unsigned int b = 0; b < bucketMapper.BucketCount(); b++) {
     if (buckets_[b] <= 0.0) continue;
     sum += buckets_[b];
     snprintf(buf, sizeof(buf),

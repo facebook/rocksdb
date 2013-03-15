@@ -183,7 +183,7 @@ static bool FLAGS_use_snapshot = false;
 static bool FLAGS_get_approx = false;
 
 // The total number of levels
-static unsigned int FLAGS_num_levels = 7;
+static int FLAGS_num_levels = 7;
 
 // Target level-0 file size for compaction
 static int FLAGS_target_file_size_base = 2 * 1048576;
@@ -289,7 +289,7 @@ class RandomGenerator {
     // large enough to serve all typical value sizes we want to write.
     Random rnd(301);
     std::string piece;
-    while (data_.size() < std::max(1048576, FLAGS_value_size)) {
+    while (data_.size() < (unsigned)std::max(1048576, FLAGS_value_size)) {
       // Add a short fragment that is as compressible as specified
       // by FLAGS_compression_ratio.
       test::CompressibleString(&rnd, FLAGS_compression_ratio, 100, &piece);
@@ -298,7 +298,7 @@ class RandomGenerator {
     pos_ = 0;
   }
 
-  Slice Generate(int len) {
+  Slice Generate(unsigned int len) {
     if (pos_ + len > data_.size()) {
       pos_ = 0;
       assert(len < data_.size());
@@ -1084,7 +1084,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
       for (int i = 0; i < FLAGS_min_level_to_compress; i++) {
         options.compression_per_level[i] = kNoCompression;
       }
-      for (unsigned int i = FLAGS_min_level_to_compress;
+      for (int i = FLAGS_min_level_to_compress;
            i < FLAGS_num_levels; i++) {
         options.compression_per_level[i] = FLAGS_compression_type;
       }

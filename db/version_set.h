@@ -106,7 +106,7 @@ class Version {
       const Slice& begin,         // nullptr means before all keys
       const Slice& end,           // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int index);                 // start extending from this index
+      unsigned int index);                 // start extending from this index
 
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].

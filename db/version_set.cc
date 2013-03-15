@@ -559,7 +559,7 @@ void Version::ExtendOverlappingInputs(
     const Slice& user_begin,
     const Slice& user_end,
     std::vector<FileMetaData*>* inputs,
-    int midIndex) {
+    unsigned int midIndex) {
 
   const Comparator* user_cmp = vset_->icmp_.user_comparator();
 #ifndef NDEBUG
@@ -736,13 +736,16 @@ class VersionSet::Builder {
 #endif
   }
 
-  void CheckConsistencyForDeletes(VersionEdit* edit, int number, int level) {
+  void CheckConsistencyForDeletes(
+    VersionEdit* edit,
+    unsigned int number,
+    int level) {
 #ifndef NDEBUG
       // a file to be deleted better exist in the previous version
       bool found = false;
       for (int l = 0; !found && l < edit->number_levels_; l++) {
         const std::vector<FileMetaData*>& base_files = base_->files_[l];
-        for (int i = 0; i < base_files.size(); i++) {
+        for (unsigned int i = 0; i < base_files.size(); i++) {
           FileMetaData* f = base_files[i];
           if (f->number == number) {
             found =  true;

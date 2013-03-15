@@ -413,7 +413,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       options_.db_log_dir.empty()) {
     std::sort(old_log_files.begin(), old_log_files.end());
     size_t end = old_log_file_count - options_.keep_log_file_num;
-    for (int i = 0; i <= end; i++) {
+    for (unsigned int i = 0; i <= end; i++) {
       std::string& to_delete = old_log_files.at(i);
       // Log(options_.info_log, "Delete type=%d %s\n",
       //     int(kInfoLogFile), to_delete.c_str());
@@ -2158,7 +2158,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       stall_leveln_slowdown_[max_level] += delayed;
       // Make sure the following value doesn't round to zero.
       rate_limit_delay_millis += std::max((delayed / 1000), (uint64_t) 1);
-      if (rate_limit_delay_millis >= options_.rate_limit_delay_milliseconds) {
+      if (rate_limit_delay_millis >=
+          (unsigned)options_.rate_limit_delay_milliseconds) {
         allow_rate_limit_delay = false;
       }
       // Log(options_.info_log,

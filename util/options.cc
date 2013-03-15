@@ -84,7 +84,7 @@ Options::Dump(Logger* log) const
     Log(log,"              Options.block_size: %zd", block_size);
     Log(log,"  Options.block_restart_interval: %d", block_restart_interval);
     if (!compression_per_level.empty()) {
-      for (int i = 0; i < compression_per_level.size(); i++) {
+      for (unsigned int i = 0; i < compression_per_level.size(); i++) {
           Log(log,"       Options.compression[%d]: %d",
               i, compression_per_level[i]);
        }

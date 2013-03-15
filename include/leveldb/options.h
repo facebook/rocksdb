@@ -325,7 +325,7 @@ struct Options {
   double rate_limit;
 
   // Max time a put will be stalled when rate_limit is enforced
-  int rate_limit_delay_milliseconds;
+  unsigned int rate_limit_delay_milliseconds;
 
   // manifest file is rolled over on reaching this limit.
   // The older manifest file be deleted.
