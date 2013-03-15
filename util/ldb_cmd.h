@@ -12,9 +12,6 @@
 #include <algorithm>
 #include <stdio.h>
 
-#include <boost/algorithm/string/case_conv.hpp>
-#include <boost/algorithm/string/predicate.hpp>
-
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/options.h"
@@ -102,7 +99,7 @@ public:
 
   static string HexToString(const string& str) {
     string parsed;
-    if (!boost::starts_with(str, "0x")) {
+    if (str[0] == '0' && str[1] == 'x') {
       fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
               str.c_str());
       throw "Invalid hex input";
@@ -301,7 +298,7 @@ private:
    * Otherwise an exception is thrown.
    */
   bool StringToBool(string val) {
-    boost::algorithm::to_lower(val);
+    std::transform(val.begin(), val.end(), val.begin(), ::tolower);
     if (val == "true") {
       return true;
     } else if (val == "false") {
