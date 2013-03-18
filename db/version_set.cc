@@ -1657,10 +1657,8 @@ void VersionSet::AddLiveFilesCurrentVersion(std::set<uint64_t>* live) {
 int64_t VersionSet::NumLevelBytes(int level) const {
   assert(level >= 0);
   assert(level < NumberLevels());
-  if(current_ && level < (int)current_->files_->size())
-    return TotalFileSize(current_->files_[level]);
-  else
-    return 0;
+  assert(current_);
+  return TotalFileSize(current_->files_[level]);
 }
 
 int64_t VersionSet::MaxNextLevelOverlappingBytes() {
