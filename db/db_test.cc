@@ -2638,6 +2638,38 @@ TEST(DBTest, TransactionLogIterator) {
   }
 }
 
+TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
+  std::string value(1024, '1');
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.WAL_ttl_seconds = 1000;
+  DestroyAndReopen(&options);
+  // Do a plain Reopen.
+  Put("key1", value);
+  // Two reopens should create a zero record WAL file.
+  Reopen(&options);
+  Reopen(&options);
+
+  Put("key2", value);
+  unique_ptr<TransactionLogIterator> iter;
+  Status status = dbfull()->GetUpdatesSince(0, &iter);
+  ASSERT_TRUE(status.ok());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_TRUE(status.ok());
+  ASSERT_TRUE(iter->Valid());
+  int i = 0;
+  SequenceNumber lastSequence = 0;
+  while (iter->Valid()) {
+    BatchResult res = iter->GetBatch();
+    ASSERT_TRUE(res.sequence > lastSequence);
+    lastSequence = res.sequence;
+    ASSERT_TRUE(iter->status().ok());
+    iter->Next();
+    ++i;
+  }
+  ASSERT_EQ(i, 2);
+}
+
 TEST(DBTest, ReadCompaction) {
   std::string value(4096, '4'); // a string of size 4K
   {

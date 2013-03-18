@@ -194,6 +194,8 @@ class DBImpl : public DB {
   Status FindProbableWALFiles(std::vector<LogFile>* const allLogs,
                               std::vector<LogFile>* const result,
                               const SequenceNumber target);
+  //  return true if
+  bool CheckFileExistsAndEmpty(const LogFile& file);
 
 
   Status ReadFirstRecord(const LogFile& file, WriteBatch* const result);

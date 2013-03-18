@@ -927,6 +927,13 @@ Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
     WriteBatch batch;
     Status s = ReadFirstRecord(allLogs->at(mid), &batch);
     if (!s.ok()) {
+      if (CheckFileExistsAndEmpty(allLogs->at(mid))) {
+        allLogs->erase(allLogs->begin() + mid);
+        if (mid == start) {
+          ++start;
+        }
+        continue;
+      }
       return s;
     }
     SequenceNumber currentSeqNum = WriteBatchInternal::Sequence(&batch);
@@ -945,6 +952,24 @@ Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
     result->push_back(allLogs->at(i));
   }
   return Status::OK();
+}
+
+bool DBImpl::CheckFileExistsAndEmpty(const LogFile& file) {
+  if (file.type == kAliveLogFile) {
+    const std::string fname = LogFileName(dbname_, file.logNumber);
+    uint64_t file_size;
+    Status s = env_->GetFileSize(fname, &file_size);
+    if (s.ok() && file_size == 0) {
+      return true;
+    }
+  }
+  const std::string fname = ArchivedLogFileName(dbname_, file.logNumber);
+  uint64_t file_size;
+  Status s = env_->GetFileSize(fname, &file_size);
+  if (s.ok() && file_size == 0) {
+    return true;
+  }
+  return false;
 }
 
 Status DBImpl::ReadFirstRecord(const LogFile& file, WriteBatch* const result) {
