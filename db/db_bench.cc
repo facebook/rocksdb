@@ -36,12 +36,16 @@
 //      readrandom    -- read N times in random order
 //      readmissing   -- read N missing keys in random order
 //      readhot       -- read N times in random order from 1% section of DB
+//      readwhilewriting -- 1 writer, N threads doing random reads
+//      readrandomwriterandom - N threads doing random-read, random-write
+//      updaterandom  -- N threads doing read-modify-write for random keys
 //      seekrandom    -- N random seeks
 //      crc32c        -- repeated crc32c of 4K of data
 //      acquireload   -- load N*1000 times
 //   Meta operations:
 //      compact     -- Compact the entire DB
 //      stats       -- Print DB stats
+//      levelstats  -- Print the number of files and bytes per level
 //      sstables    -- Print sstable info
 //      heapprofile -- Dump a heap profile (if supported by this port)
 static const char* FLAGS_benchmarks =
@@ -57,6 +61,7 @@ static const char* FLAGS_benchmarks =
     "readrandom,"
     "readseq,"
     "readreverse,"
+    "readwhilewriting,"
     "readrandomwriterandom," // mix reads and writes based on FLAGS_readwritepercent
     "updaterandom," // read-modify-write for random keys
     "randomwithverify," // random reads and writes with some verification
@@ -336,6 +341,7 @@ class Stats {
   double last_report_finish_;
   HistogramImpl hist_;
   std::string message_;
+  bool exclude_from_merge_;
 
  public:
   Stats() { Start(-1); }
@@ -353,9 +359,14 @@ class Stats {
     finish_ = start_;
     last_report_finish_ = start_;
     message_.clear();
+    // When set, stats from this thread won't be merged with others.
+    exclude_from_merge_ = false;
   }
 
   void Merge(const Stats& other) {
+    if (other.exclude_from_merge_)
+      return;
+
     hist_.Merge(other.hist_);
     done_ += other.done_;
     bytes_ += other.bytes_;
@@ -377,6 +388,7 @@ class Stats {
   }
 
   void SetId(int id) { id_ = id; }
+  void SetExcludeFromMerge() { exclude_from_merge_ = true; }
 
   void FinishedSingleOp(DB* db) {
     if (FLAGS_histogram) {
@@ -842,6 +854,8 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
         HeapProfile();
       } else if (name == Slice("stats")) {
         PrintStats("leveldb.stats");
+      } else if (name == Slice("levelstats")) {
+        PrintStats("leveldb.levelstats");
       } else if (name == Slice("sstables")) {
         PrintStats("leveldb.sstables");
       } else {
@@ -936,10 +950,12 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
     }
     shared.mu.Unlock();
 
-    for (int i = 1; i < n; i++) {
-      arg[0].thread->stats.Merge(arg[i].thread->stats);
+    // Stats for some threads can be excluded.
+    Stats merge_stats;
+    for (int i = 0; i < n; i++) {
+      merge_stats.Merge(arg[i].thread->stats);
     }
-    arg[0].thread->stats.Report(name);
+    merge_stats.Report(name);
 
     for (int i = 0; i < n; i++) {
       delete arg[i].thread;
@@ -1298,6 +1314,10 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
     } else {
       // Special thread that keeps writing until other threads are done.
       RandomGenerator gen;
+
+      // Don't merge stats from this thread with the readers.
+      thread->stats.SetExcludeFromMerge();
+
       while (true) {
         {
           MutexLock l(&thread->shared->mu);
@@ -1314,10 +1334,8 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
         }
+        thread->stats.FinishedSingleOp(db_);
       }
-
-      // Do not count any of the preceding work/delay in stats.
-      thread->stats.Start(thread->tid);
     }
   }
 
