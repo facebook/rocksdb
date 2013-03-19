@@ -450,13 +450,13 @@ TEST(LogTest, ErrorJoinsRecords) {
   Write("correct");
 
   // Wipe the middle block
-  for (int offset = kBlockSize; offset < 2*kBlockSize; offset++) {
+  for (unsigned int offset = kBlockSize; offset < 2*kBlockSize; offset++) {
     SetByte(offset, 'x');
   }
 
   ASSERT_EQ("correct", Read());
   ASSERT_EQ("EOF", Read());
-  const int dropped = DroppedBytes();
+  const unsigned int dropped = DroppedBytes();
   ASSERT_LE(dropped, 2*kBlockSize + 100);
   ASSERT_GE(dropped, 2*kBlockSize);
 }

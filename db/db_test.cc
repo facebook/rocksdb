@@ -1480,7 +1480,7 @@ TEST(DBTest, CompactionFilter) {
   while (iter->Valid()) {
     ParsedInternalKey ikey;
     ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-    ASSERT_NE(ikey.sequence, 0);
+    ASSERT_NE(ikey.sequence, (unsigned)0);
     count++;
     iter->Next();
   }
