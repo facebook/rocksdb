@@ -1294,6 +1294,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     versions_->ReleaseCompactionFiles(c.get(), status);
     *madeProgress = true;
   } else {
+    MaybeScheduleCompaction(); // do more compaction work in parallel.
     CompactionState* compact = new CompactionState(c.get());
     status = DoCompactionWork(compact);
     CleanupCompaction(compact);
