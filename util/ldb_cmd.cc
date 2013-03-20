@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 #include "util/ldb_cmd.h"
-
-#include <boost/algorithm/string.hpp>
-#include <boost/lexical_cast.hpp>
+#include <sstream>
+#include <string>
+#include <stdexcept>
 
 #include "leveldb/write_batch.h"
 #include "db/dbformat.h"
@@ -13,6 +13,18 @@
 #include "db/write_batch_internal.h"
 
 namespace leveldb {
+
+using namespace std;
+
+vector<string> stringSplit(string arg, char delim) {
+  vector<string> splits;
+  stringstream ss(arg);
+  string item;
+  while(getline(ss, item, delim)) {
+    splits.push_back(item);
+  }
+  return splits;
+}
 
 const string LDBCommand::ARG_DB = "db";
 const string LDBCommand::ARG_HEX = "hex";
@@ -65,9 +77,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
   for (vector<string>::const_iterator itr = args.begin();
       itr != args.end(); itr++) {
     string arg = *itr;
-    if (boost::starts_with(arg, OPTION_PREFIX)){
-      vector<string> splits;
-      boost::split(splits, arg, boost::is_any_of("="));
+    if (arg[0] == '-' && arg[1] == '-'){
+      vector<string> splits = stringSplit(arg, '=');
       if (splits.size() == 2) {
         string optionKey = splits[0].substr(OPTION_PREFIX.size());
         options[optionKey] = splits[1];
@@ -130,11 +141,14 @@ bool LDBCommand::ParseIntOption(const map<string, string>& options,
   map<string, string>::const_iterator itr = options_.find(option);
   if (itr != options_.end()) {
     try {
-      value = boost::lexical_cast<int>(itr->second);
+      value = stoi(itr->second);
       return true;
-    } catch( const boost::bad_lexical_cast & ) {
+    } catch(const invalid_argument&) {
       exec_state = LDBCommandExecuteResult::FAILED(option +
                       " has an invalid value.");
+    } catch(const out_of_range&) {
+      exec_state = LDBCommandExecuteResult::FAILED(option +
+                      " has a value out-of-range.");
     }
   }
   return false;
@@ -217,7 +231,7 @@ leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
 bool LDBCommand::ParseKeyValue(const string& line, string* key, string* value,
                               bool is_key_hex, bool is_value_hex) {
   size_t pos = line.find(DELIM);
-  if (pos != std::string::npos) {
+  if (pos != string::npos) {
     *key = line.substr(0, pos);
     *value = line.substr(pos + strlen(DELIM));
     if (is_key_hex) {
@@ -243,7 +257,7 @@ bool LDBCommand::ValidateCmdLineOptions() {
 
   for (map<string, string>::const_iterator itr = options_.begin();
         itr != options_.end(); itr++) {
-    if (std::find(valid_cmd_line_options_.begin(),
+    if (find(valid_cmd_line_options_.begin(),
           valid_cmd_line_options_.end(), itr->first) ==
           valid_cmd_line_options_.end()) {
       fprintf(stderr, "Invalid command-line option %s\n", itr->first.c_str());
@@ -253,7 +267,7 @@ bool LDBCommand::ValidateCmdLineOptions() {
 
   for (vector<string>::const_iterator itr = flags_.begin();
         itr != flags_.end(); itr++) {
-    if (std::find(valid_cmd_line_options_.begin(),
+    if (find(valid_cmd_line_options_.begin(),
           valid_cmd_line_options_.end(), *itr) ==
           valid_cmd_line_options_.end()) {
       fprintf(stderr, "Invalid command-line flag %s\n", itr->c_str());
@@ -374,7 +388,7 @@ void DBLoaderCommand::DoCommand() {
 
   int bad_lines = 0;
   string line;
-  while (std::getline(std::cin, line, '\n')) {
+  while (getline(cin, line, '\n')) {
     string key;
     string value;
     if (ParseKeyValue(line, &key, &value, is_key_hex_, is_value_hex_)) {
@@ -389,7 +403,7 @@ void DBLoaderCommand::DoCommand() {
   }
 
   if (bad_lines > 0) {
-    std::cout << "Warning: " << bad_lines << " bad lines ignored." << std::endl;
+    cout << "Warning: " << bad_lines << " bad lines ignored." << endl;
   }
   if (compact_) {
     db_->CompactRange(nullptr, nullptr);
@@ -426,10 +440,13 @@ DBDumperCommand::DBDumperCommand(const vector<string>& params,
   itr = options.find(ARG_MAX_KEYS);
   if (itr != options.end()) {
     try {
-      max_keys_ = boost::lexical_cast<int>(itr->second);
-    } catch( const boost::bad_lexical_cast & ) {
+      max_keys_ = stoi(itr->second);
+    } catch(const invalid_argument&) {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_MAX_KEYS +
                         " has an invalid value");
+    } catch(const out_of_range&) {
+      exec_state_ = LDBCommandExecuteResult::FAILED(ARG_MAX_KEYS +
+                        " has a valuei out-of-range");
     }
   }
 
@@ -533,7 +550,7 @@ vector<string> ReduceDBLevelsCommand::PrepareArgs(const string& db_path,
   vector<string> ret;
   ret.push_back("reduce_levels");
   ret.push_back("--" + ARG_DB + "=" + db_path);
-  ret.push_back("--" + ARG_NEW_LEVELS + "=" + std::to_string(new_levels));
+  ret.push_back("--" + ARG_NEW_LEVELS + "=" + to_string(new_levels));
   if(print_old_level) {
     ret.push_back("--" + ARG_PRINT_OLD_LEVELS);
   }
@@ -658,8 +675,8 @@ class InMemoryHandler : public WriteBatch::Handler {
   }
 
  private:
-  std::map<string, string> putMap_;
-  std::vector<string> deleteList_;
+  map<string, string> putMap_;
+  vector<string> deleteList_;
 };
 
 const string WALDumperCommand::ARG_WAL_FILE = "walfile";
@@ -701,7 +718,7 @@ void WALDumperCommand::Help(string& ret) {
 void WALDumperCommand::DoCommand() {
   struct StdErrReporter : public log::Reader::Reporter {
     virtual void Corruption(size_t bytes, const Status& s) {
-      std::cerr<<"Corruption detected in log file "<<s.ToString()<<"\n";
+      cerr<<"Corruption detected in log file "<<s.ToString()<<"\n";
     }
   };
 
@@ -713,17 +730,17 @@ void WALDumperCommand::DoCommand() {
       status.ToString());
   } else {
     StdErrReporter reporter;
-    log::Reader reader(std::move(file), &reporter, true, 0);
+    log::Reader reader(move(file), &reporter, true, 0);
     string scratch;
     WriteBatch batch;
     Slice record;
-    std::stringstream row;
+    stringstream row;
     if (print_header_) {
-      std::cout<<"Sequence,Count,ByteSize,Physical Offset,Key(s)";
+      cout<<"Sequence,Count,ByteSize,Physical Offset,Key(s)";
       if (print_values_) {
-        std::cout << " : value ";
+        cout << " : value ";
       }
-      std::cout << "\n";
+      cout << "\n";
     }
     while(reader.ReadRecord(&record, &scratch)) {
       row.str("");
@@ -741,8 +758,8 @@ void WALDumperCommand::DoCommand() {
         row << "PUT : ";
         if (print_values_) {
           for (auto& kv : handler.PutMap()) {
-            std::string k = StringToHex(kv.first);
-            std::string v = StringToHex(kv.second);
+            string k = StringToHex(kv.first);
+            string v = StringToHex(kv.second);
             row << k << " : ";
             row << v << " ";
           }
@@ -758,7 +775,7 @@ void WALDumperCommand::DoCommand() {
         }
         row<<"\n";
       }
-      std::cout<<row.str();
+      cout<<row.str();
     }
   }
 }
@@ -867,7 +884,7 @@ BatchPutCommand::BatchPutCommand(const vector<string>& params,
     for (size_t i = 0; i < params.size(); i += 2) {
       string key = params.at(i);
       string value = params.at(i+1);
-      key_values_.push_back(std::pair<string, string>(
+      key_values_.push_back(pair<string, string>(
                     is_key_hex_ ? HexToString(key) : key,
                     is_value_hex_ ? HexToString(value) : value));
     }
@@ -884,7 +901,7 @@ void BatchPutCommand::Help(string& ret) {
 void BatchPutCommand::DoCommand() {
   leveldb::WriteBatch batch;
 
-  for (vector<std::pair<string, string>>::const_iterator itr
+  for (vector<pair<string, string>>::const_iterator itr
         = key_values_.begin(); itr != key_values_.end(); itr++) {
       batch.Put(itr->first, itr->second);
   }
@@ -932,10 +949,13 @@ ScanCommand::ScanCommand(const vector<string>& params,
   itr = options.find(ARG_MAX_KEYS);
   if (itr != options.end()) {
     try {
-      max_keys_scanned_ = boost::lexical_cast< int >(itr->second);
-    } catch( const boost::bad_lexical_cast & ) {
+      max_keys_scanned_ = stoi(itr->second);
+    } catch(const invalid_argument&) {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_MAX_KEYS +
                         " has an invalid value");
+    } catch(const out_of_range&) {
+      exec_state_ = LDBCommandExecuteResult::FAILED(ARG_MAX_KEYS +
+                        " has a value out-of-range");
     }
   }
 }
@@ -1088,7 +1108,7 @@ void DBQuerierCommand::DoCommand() {
   string line;
   string key;
   string value;
-  while (getline(std::cin, line, '\n')) {
+  while (getline(cin, line, '\n')) {
 
     // Parse line into vector<string>
     vector<string> tokens;
