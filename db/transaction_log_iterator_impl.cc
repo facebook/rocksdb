@@ -172,6 +172,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   currentSequence_ = WriteBatchInternal::Sequence(batch);
   currentBatch_.reset(batch);
   isValid_ = true;
+  currentStatus_ = Status::OK();
 }
 
 }  //  namespace leveldb
