@@ -907,8 +907,8 @@ class PosixEnv : public Env {
   }
 
  private:
-  bool checkedDiskForMmap_ = false;
-  bool forceMmapOff = false; // do we override Env options?
+  bool checkedDiskForMmap_;
+  bool forceMmapOff; // do we override Env options?
 
   void PthreadCall(const char* label, int result) {
     if (result != 0) {
@@ -965,7 +965,9 @@ class PosixEnv : public Env {
   BGQueue queue_;
 };
 
-PosixEnv::PosixEnv() : page_size_(getpagesize()),
+PosixEnv::PosixEnv() : checkedDiskForMmap_(false),
+                       forceMmapOff(false),
+                       page_size_(getpagesize()),
                        started_bgthread_(0),
                        num_threads_(1),
                        queue_size_(0) {
