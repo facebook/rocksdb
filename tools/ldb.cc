@@ -67,7 +67,7 @@ public:
     }
 
     LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(argc, argv);
-    if (cmdObj == NULL) {
+    if (cmdObj == nullptr) {
       fprintf(stderr, "Unknown command\n");
       PrintHelp(argv[0]);
       exit(1);

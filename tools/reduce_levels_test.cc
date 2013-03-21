@@ -18,7 +18,7 @@ public:
   ReduceLevelTest() {
     dbname_ = test::TmpDir() + "/db_reduce_levels_test";
     DestroyDB(dbname_, Options());
-    db_ = NULL;
+    db_ = nullptr;
   }
 
   Status OpenDB(bool create_if_missing, int levels,
@@ -41,7 +41,7 @@ public:
   }
 
   Status CompactMemTable() {
-    if (db_ == NULL) {
+    if (db_ == nullptr) {
       return Status::InvalidArgument("DB not opened.");
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
@@ -49,9 +49,9 @@ public:
   }
 
   void CloseDB() {
-    if (db_ != NULL) {
+    if (db_ != nullptr) {
       delete db_;
-      db_ = NULL;
+      db_ = nullptr;
     }
   }
 

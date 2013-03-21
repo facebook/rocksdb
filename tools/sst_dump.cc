@@ -22,7 +22,7 @@ namespace leveldb {
 
 class SstFileReader {
 public:
-  SstFileReader(std::string file_name,
+  explicit SstFileReader(std::string file_name,
                 bool verify_checksum = false,
                 bool output_hex = false);
   Status ReadSequential(bool print_kv, uint64_t read_num = -1);
@@ -95,7 +95,7 @@ static void print_help() {
 
 int main(int argc, char** argv) {
 
-  const char* dir_or_file = NULL;
+  const char* dir_or_file = nullptr;
   uint64_t read_num = -1;
   std::string command;
 
@@ -121,7 +121,7 @@ int main(int argc, char** argv) {
     }
   }
 
-  if(dir_or_file == NULL) {
+  if(dir_or_file == nullptr) {
     print_help();
     exit(1);
   }
