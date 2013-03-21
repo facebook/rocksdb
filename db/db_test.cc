@@ -517,6 +517,26 @@ class DBTest {
     }
     return result;
   }
+
+  Options OptionsForLogIterTest() {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.WAL_ttl_seconds = 1000;
+    return options;
+  }
+
+  std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
+    const SequenceNumber seq) {
+    unique_ptr<TransactionLogIterator> iter;
+    Status status = dbfull()->GetUpdatesSince(seq, &iter);
+    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(iter->Valid());
+    return std::move(iter);
+  }
+
+  std::string DummyString(size_t len, char c = 'a') {
+    return std::string(len, c);
+  }
 };
 
 TEST(DBTest, Empty) {
@@ -2591,88 +2611,74 @@ TEST(DBTest, WALArchival) {
 
 }
 
-TEST(DBTest, TransactionLogIterator) {
-  std::string value(1024, '1');
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.WAL_ttl_seconds = 1000;
-  DestroyAndReopen(&options);
-  Put("key1", value);
-  Put("key2", value);
-  Put("key2", value);
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3U);
-  {
-    unique_ptr<TransactionLogIterator> iter;
-    Status status = dbfull()->GetUpdatesSince(0, &iter);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(iter->Valid());
-    int i = 0;
-    SequenceNumber lastSequence = 0;
-    while (iter->Valid()) {
-      BatchResult res = iter->GetBatch();
-      ASSERT_TRUE(res.sequence > lastSequence);
-      ++i;
-      lastSequence = res.sequence;
-      ASSERT_TRUE(iter->status().ok());
-      iter->Next();
-    }
-    ASSERT_EQ(i, 3);
-  }
-  Reopen(&options);
-  {
-    Put("key4", value);
-    Put("key5", value);
-    Put("key6", value);
-  }
-  {
-    unique_ptr<TransactionLogIterator> iter;
-    Status status = dbfull()->GetUpdatesSince(0, &iter);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(iter->Valid());
-    int i = 0;
-    SequenceNumber lastSequence = 0;
-    while (iter->Valid()) {
-      BatchResult res = iter->GetBatch();
-      ASSERT_TRUE(res.sequence > lastSequence);
-      lastSequence = res.sequence;
-      ASSERT_TRUE(iter->status().ok());
-      iter->Next();
-      ++i;
-    }
-    ASSERT_EQ(i, 6);
-  }
-}
-
-TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
-  std::string value(1024, '1');
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.WAL_ttl_seconds = 1000;
-  DestroyAndReopen(&options);
-  // Do a plain Reopen.
-  Put("key1", value);
-  // Two reopens should create a zero record WAL file.
-  Reopen(&options);
-  Reopen(&options);
-
-  Put("key2", value);
-  unique_ptr<TransactionLogIterator> iter;
-  Status status = dbfull()->GetUpdatesSince(0, &iter);
-  ASSERT_TRUE(status.ok());
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_TRUE(status.ok());
-  ASSERT_TRUE(iter->Valid());
+void ExpectRecords(
+  const int expected_no_records,
+  std::unique_ptr<TransactionLogIterator>& iter) {
   int i = 0;
   SequenceNumber lastSequence = 0;
   while (iter->Valid()) {
     BatchResult res = iter->GetBatch();
     ASSERT_TRUE(res.sequence > lastSequence);
+    ++i;
     lastSequence = res.sequence;
     ASSERT_TRUE(iter->status().ok());
     iter->Next();
-    ++i;
   }
-  ASSERT_EQ(i, 2);
+  ASSERT_EQ(i, expected_no_records);
+}
+
+TEST(DBTest, TransactionLogIterator) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(&options);
+  Put("key1", DummyString(1024));
+  Put("key2", DummyString(1024));
+  Put("key2", DummyString(1024));
+  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3U);
+  {
+    auto iter = OpenTransactionLogIter(0);
+    ExpectRecords(3, iter);
+  }
+  Reopen(&options);
+  {
+    Put("key4", DummyString(1024));
+    Put("key5", DummyString(1024));
+    Put("key6", DummyString(1024));
+  }
+  {
+    auto iter = OpenTransactionLogIter(0);
+    ExpectRecords(6, iter);
+  }
+}
+
+TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(&options);
+  // Do a plain Reopen.
+  Put("key1", DummyString(1024));
+  // Two reopens should create a zero record WAL file.
+  Reopen(&options);
+  Reopen(&options);
+
+  Put("key2", DummyString(1024));
+
+  auto iter = OpenTransactionLogIter(0);
+  ExpectRecords(2, iter);
+}
+
+TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(&options);
+  Put("key1", DummyString(1024));
+  auto iter = OpenTransactionLogIter(0);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
+  Put("key2", DummyString(1024));
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
 }
 
 TEST(DBTest, ReadCompaction) {

@@ -1,6 +1,7 @@
 #include "db/transaction_log_iterator_impl.h"
 #include "db/write_batch_internal.h"
 #include "db/filename.h"
+
 namespace leveldb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
@@ -103,7 +104,7 @@ void TransactionLogIteratorImpl::Next() {
       }
       UpdateCurrentWriteBatch(record);
       if (currentSequence_ >= sequenceNumber_) {
-        assert(currentSequence_ < *lastFlushedSequence_);
+        assert(currentSequence_ <= *lastFlushedSequence_);
         isValid_ = true;
         currentLogReader_ = std::move(reader);
         break;
@@ -120,23 +121,20 @@ void TransactionLogIteratorImpl::Next() {
 LOOK_NEXT_FILE:
     assert(currentLogReader_);
     bool openNextFile = true;
-
-    if (currentSequence_ == *lastFlushedSequence_) {
-      // The last update has been read. and next is being called.
-      isValid_ = false;
-      currentStatus_ = Status::OK();
-    }
-
-    while (currentLogReader_->ReadRecord(&record, &scratch) &&
-           currentSequence_ < *lastFlushedSequence_) {
-      if (record.size() < 12) {
-        reporter.Corruption(
-          record.size(), Status::Corruption("log record too small"));
-        continue;
-      } else {
-        UpdateCurrentWriteBatch(record);
-        openNextFile = false;
-        break;
+    if (currentSequence_ < *lastFlushedSequence_) {
+      if (currentLogReader_->IsEOF()) {
+        currentLogReader_->UnmarkEOF();
+      }
+      while (currentLogReader_->ReadRecord(&record, &scratch)) {
+        if (record.size() < 12) {
+          reporter.Corruption(
+            record.size(), Status::Corruption("log record too small"));
+          continue;
+        } else {
+          UpdateCurrentWriteBatch(record);
+          openNextFile = false;
+          break;
+        }
       }
     }
 
@@ -154,6 +152,10 @@ LOOK_NEXT_FILE:
         currentLogReader_.reset(
           new log::Reader(std::move(file), &reporter, true, 0));
         goto LOOK_NEXT_FILE;
+      } else if (currentSequence_ == *lastFlushedSequence_) {
+        // The last update has been read. and next is being called.
+        isValid_ = false;
+        currentStatus_ = Status::OK();
       } else {
         //  LOOKED AT FILES. WE ARE DONE HERE.
         isValid_ = false;
@@ -169,6 +171,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   WriteBatchInternal::SetContents(batch, record);
   currentSequence_ = WriteBatchInternal::Sequence(batch);
   currentBatch_.reset(batch);
+  isValid_ = true;
 }
 
 }  //  namespace leveldb

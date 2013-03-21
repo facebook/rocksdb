@@ -59,6 +59,17 @@ class Reader {
   // Undefined before the first call to ReadRecord.
   uint64_t LastRecordOffset();
 
+  // returns true if the reader has encountered an eof condition.
+  bool IsEOF() {
+    return eof_;
+  }
+
+  // when we know more data has been written to the file. we can use this
+  // function to force the reader to look again in the file.
+  void UnmarkEOF() {
+    eof_ = false;
+  }
+
   SequentialFile* file() { return file_.get(); }
 
  private:
