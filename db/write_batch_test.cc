@@ -33,6 +33,14 @@ static std::string PrintContents(WriteBatch* b) {
         state.append(")");
         count++;
         break;
+      case kTypeMerge:
+        state.append("Merge(");
+        state.append(ikey.user_key.ToString());
+        state.append(", ");
+        state.append(iter->value().ToString());
+        state.append(")");
+        count++;
+        break;
       case kTypeDeletion:
         state.append("Delete(");
         state.append(ikey.user_key.ToString());

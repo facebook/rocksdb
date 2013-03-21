@@ -6,6 +6,7 @@
 
 #include "db/filename.h"
 #include "db/dbformat.h"
+#include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "leveldb/db.h"
@@ -49,36 +50,75 @@ Status BuildTable(const std::string& dbname,
     Slice key = iter->key();
     meta->smallest.DecodeFrom(key);
 
+    MergeHelper merge(user_comparator, options.merge_operator,
+                      options.info_log.get(),
+                      true /* internal key corruption is not ok */);
+
     if (purge) {
+      ParsedInternalKey ikey;
+      // Ugly walkaround to avoid compiler error for release build
+      // TODO: find a clean way to treat in memory key corruption
+      ikey.type = kTypeValue;
       ParsedInternalKey prev_ikey;
       std::string prev_value;
       std::string prev_key;
 
-      // store first key-value
-      prev_key.assign(key.data(), key.size());
-      prev_value.assign(iter->value().data(), iter->value().size());
-      ParseInternalKey(Slice(prev_key), &prev_ikey);
-      assert(prev_ikey.sequence >= earliest_seqno_in_memtable);
+      // Ugly walkaround to avoid compiler error for release build
+      // TODO: find a clean way to treat in memory key corruption
+      auto ok __attribute__((unused)) = ParseInternalKey(key, &ikey);
+      // in-memory key corruption is not ok;
+      assert(ok);
 
-      for (iter->Next(); iter->Valid(); iter->Next()) {
+      if (ikey.type == kTypeMerge) {
+        // merge values if the first entry is of merge type
+        merge.MergeUntil(iter,  0 /* don't worry about snapshot */);
+        prev_key.assign(merge.key().data(), merge.key().size());
+        ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
+        assert(ok);
+        prev_value.assign(merge.value().data(), merge.value().size());
+      } else {
+        // store first key-value
+        prev_key.assign(key.data(), key.size());
+        prev_value.assign(iter->value().data(), iter->value().size());
+        ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
+        assert(ok);
+        assert(prev_ikey.sequence >= earliest_seqno_in_memtable);
+        iter->Next();
+      }
+
+      while (iter->Valid()) {
+        bool iterator_at_next = false;
         ParsedInternalKey this_ikey;
         Slice key = iter->key();
-        ParseInternalKey(key, &this_ikey);
+        ok = ParseInternalKey(key, &this_ikey);
+        assert(ok);
         assert(this_ikey.sequence >= earliest_seqno_in_memtable);
 
         if (user_comparator->Compare(prev_ikey.user_key, this_ikey.user_key)) {
           // This key is different from previous key.
           // Output prev key and remember current key
           builder->Add(Slice(prev_key), Slice(prev_value));
-          prev_key.assign(key.data(), key.size());
-          prev_value.assign(iter->value().data(), iter->value().size());
-          ParseInternalKey(Slice(prev_key), &prev_ikey);
+          if (this_ikey.type == kTypeMerge) {
+            merge.MergeUntil(iter, 0 /* don't worry about snapshot */);
+            iterator_at_next = true;
+            prev_key.assign(merge.key().data(), merge.key().size());
+            ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
+            assert(ok);
+            prev_value.assign(merge.value().data(), merge.value().size());
+          } else {
+            prev_key.assign(key.data(), key.size());
+            prev_value.assign(iter->value().data(), iter->value().size());
+            ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
+            assert(ok);
+          }
         } else {
           // seqno within the same key are in decreasing order
           assert(this_ikey.sequence < prev_ikey.sequence);
           // This key is an earlier version of the same key in prev_key.
           // Skip current key.
         }
+
+        if (!iterator_at_next) iter->Next();
       }
       // output last key
       builder->Add(Slice(prev_key), Slice(prev_value));

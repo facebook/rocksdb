@@ -7,6 +7,7 @@
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
+#include "leveldb/merge_operator.h"
 #include "util/coding.h"
 
 namespace leveldb {
@@ -116,11 +117,23 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   }
 }
 
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
+bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
+                  const Options& options) {
   Slice memkey = key.memtable_key();
   Table::Iterator iter(&table_);
   iter.Seek(memkey.data());
-  if (iter.Valid()) {
+
+  bool merge_in_progress = false;
+  std::string operand;
+  if (s->IsMergeInProgress()) {
+    swap(*value, operand);
+    merge_in_progress = true;
+  }
+
+
+  auto merge_operator = options.merge_operator;
+  auto logger = options.info_log;
+  for (; iter.Valid(); iter.Next()) {
     // entry format is:
     //    klength  varint32
     //    userkey  char[klength-8]
@@ -141,14 +154,43 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-          value->assign(v.data(), v.size());
+          if (merge_in_progress) {
+            merge_operator->Merge(key.user_key(), &v, operand,
+                                   value, logger.get());
+          } else {
+            value->assign(v.data(), v.size());
+          }
           return true;
         }
-        case kTypeDeletion:
-          *s = Status::NotFound(Slice());
+        case kTypeMerge: {
+          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          if (merge_in_progress) {
+            merge_operator->Merge(key.user_key(), &v, operand,
+                                  value, logger.get());
+            swap(*value, operand);
+          } else {
+            assert(merge_operator);
+            merge_in_progress = true;
+            operand.assign(v.data(), v.size());
+          }
+          break;
+        }
+        case kTypeDeletion: {
+          if (merge_in_progress) {
+            merge_operator->Merge(key.user_key(), nullptr, operand,
+                                   value, logger.get());
+          } else {
+            *s = Status::NotFound(Slice());
+          }
           return true;
+        }
       }
     }
+  }
+
+  if (merge_in_progress) {
+    swap(*value, operand);
+    *s = Status::MergeInProgress("");
   }
   return false;
 }

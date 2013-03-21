@@ -20,6 +20,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/storage_options.h"
+#include "utilities/merge_operators.h"
 
 namespace leveldb {
 
@@ -209,6 +210,7 @@ class DBTest {
   // Sequence of option configurations to try
   enum OptionConfig {
     kDefault,
+    kMergePut,
     kFilter,
     kUncompressed,
     kNumLevel_3,
@@ -220,6 +222,8 @@ class DBTest {
   };
   int option_config_;
 
+  std::shared_ptr<MergeOperator> merge_operator_;
+
  public:
   std::string dbname_;
   SpecialEnv* env_;
@@ -228,6 +232,7 @@ class DBTest {
   Options last_options_;
 
   DBTest() : option_config_(kDefault),
+             merge_operator_(MergeOperators::CreatePutOperator()),
              env_(new SpecialEnv(Env::Default())) {
     filter_policy_ = NewBloomFilterPolicy(10);
     dbname_ = test::TmpDir() + "/db_test";
@@ -259,6 +264,9 @@ class DBTest {
   Options CurrentOptions() {
     Options options;
     switch (option_config_) {
+      case kMergePut:
+        options.merge_operator = merge_operator_.get();
+        break;
       case kFilter:
         options.filter_policy = filter_policy_;
         break;
@@ -326,8 +334,12 @@ class DBTest {
     return DB::Open(opts, dbname_, &db_);
   }
 
-  Status Put(const std::string& k, const std::string& v) {
-    return db_->Put(WriteOptions(), k, v);
+  Status Put(const Slice& k, const Slice& v) {
+    if (kMergePut == option_config_ ) {
+      return db_->Merge(WriteOptions(), k, v);
+    } else {
+      return db_->Put(WriteOptions(), k, v);
+    }
   }
 
   Status Delete(const std::string& k) {
@@ -398,6 +410,10 @@ class DBTest {
           first = false;
           switch (ikey.type) {
             case kTypeValue:
+              result += iter->value().ToString();
+              break;
+            case kTypeMerge:
+              // keep it the same as kTypeValue for testing kMergePut
               result += iter->value().ToString();
               break;
             case kTypeDeletion:
@@ -935,8 +951,11 @@ TEST(DBTest, IterMultiWithDelete) {
     Iterator* iter = db_->NewIterator(ReadOptions());
     iter->Seek("c");
     ASSERT_EQ(IterStatus(iter), "c->vc");
-    iter->Prev();
-    ASSERT_EQ(IterStatus(iter), "a->va");
+    if (!CurrentOptions().merge_operator) {
+      // TODO: merge operator does not support backward iteration yet
+      iter->Prev();
+      ASSERT_EQ(IterStatus(iter), "a->va");
+    }
     delete iter;
   } while (ChangeOptions());
 }
@@ -2822,7 +2841,7 @@ static void MTThreadBody(void* arg) {
       // We add some padding for force compactions.
       snprintf(valbuf, sizeof(valbuf), "%d.%d.%-1000d",
                key, id, static_cast<int>(counter));
-      ASSERT_OK(db->Put(WriteOptions(), Slice(keybuf), Slice(valbuf)));
+      ASSERT_OK(t->state->test->Put(Slice(keybuf), Slice(valbuf)));
     } else {
       // Read a value and verify that it matches the pattern written above.
       Status s = db->Get(ReadOptions(), Slice(keybuf), &value);
@@ -2895,6 +2914,9 @@ class ModelDB: public DB {
   virtual Status Put(const WriteOptions& o, const Slice& k, const Slice& v) {
     return DB::Put(o, k, v);
   }
+  virtual Status Merge(const WriteOptions& o, const Slice& k, const Slice& v) {
+    return DB::Merge(o, k, v);
+  }
   virtual Status Delete(const WriteOptions& o, const Slice& key) {
     return DB::Delete(o, key);
   }
@@ -2929,6 +2951,10 @@ class ModelDB: public DB {
       KVMap* map_;
       virtual void Put(const Slice& key, const Slice& value) {
         (*map_)[key.ToString()] = value.ToString();
+      }
+      virtual void Merge(const Slice& key, const Slice& value) {
+        // ignore merge for now
+        //(*map_)[key.ToString()] = value.ToString();
       }
       virtual void Delete(const Slice& key) {
         map_->erase(key.ToString());

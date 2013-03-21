@@ -62,8 +62,13 @@ class MemTable {
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
+  // If memtable contains Merge operation as the most recent entry for a key,
+  //   and the merge process does not stop (not reaching a value or delete),
+  //   store the current merged result in value and MergeInProgress in s.
+  //   return false
   // Else, return false.
-  bool Get(const LookupKey& key, std::string* value, Status* s);
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+          const Options& options);
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }

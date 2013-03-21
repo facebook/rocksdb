@@ -37,6 +37,10 @@ public:
  virtual Status Put(const WriteOptions&, const Slice& key, const Slice& value) {
    return Status::NotSupported("Not supported operation in read only mode.");
  }
+ virtual Status Merge(const WriteOptions&, const Slice& key,
+                      const Slice& value) {
+   return Status::NotSupported("Not supported operation in read only mode.");
+ }
  virtual Status Delete(const WriteOptions&, const Slice& key) {
    return Status::NotSupported("Not supported operation in read only mode.");
  }

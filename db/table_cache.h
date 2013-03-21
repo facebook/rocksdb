@@ -40,13 +40,14 @@ class TableCache {
                         Table** tableptr = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
-  // call (*handle_result)(arg, found_key, found_value).
+  // call (*handle_result)(arg, found_key, found_value) repeatedly until
+  // it returns false.
   Status Get(const ReadOptions& options,
              uint64_t file_number,
              uint64_t file_size,
              const Slice& k,
              void* arg,
-             void (*handle_result)(void*, const Slice&, const Slice&, bool),
+             bool (*handle_result)(void*, const Slice&, const Slice&, bool),
              bool* tableIO);
 
   // Evict any entry for the specified file number

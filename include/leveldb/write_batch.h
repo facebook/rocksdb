@@ -36,6 +36,10 @@ class WriteBatch {
   // Store the mapping "key->value" in the database.
   void Put(const Slice& key, const Slice& value);
 
+  // Merge "value" with the existing value of "key" in the database.
+  // "key->merge(existing, value)"
+  void Merge(const Slice& key, const Slice& value);
+
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   void Delete(const Slice& key);
 
@@ -47,6 +51,10 @@ class WriteBatch {
    public:
     virtual ~Handler();
     virtual void Put(const Slice& key, const Slice& value) = 0;
+    // Merge is not pure virtual. Otherwise, we would break existing
+    // clients of Handler on a source code level.
+    // The default implementation simply throws a runtime exception.
+    virtual void Merge(const Slice& key, const Slice& value);
     virtual void Delete(const Slice& key) = 0;
   };
   Status Iterate(Handler* handler) const;

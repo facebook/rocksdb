@@ -12,6 +12,7 @@
 #include "db/memtable.h"
 #include "db/table_cache.h"
 #include "leveldb/env.h"
+#include "leveldb/merge_operator.h"
 #include "leveldb/table_builder.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
@@ -227,29 +228,78 @@ enum SaverState {
   kFound,
   kDeleted,
   kCorrupt,
+  kMerge // value contains the current merge result (the operand)
 };
 struct Saver {
   SaverState state;
   const Comparator* ucmp;
   Slice user_key;
   std::string* value;
+  const MergeOperator* merge_operator;
+  Logger* logger;
   bool didIO;    // did we do any disk io?
 };
 }
-static void SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
+static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
   Saver* s = reinterpret_cast<Saver*>(arg);
   ParsedInternalKey parsed_key;
+  // TODO: didIO and Merge?
   s->didIO = didIO;
   if (!ParseInternalKey(ikey, &parsed_key)) {
+    // TODO: what about corrupt during Merge?
     s->state = kCorrupt;
   } else {
     if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
-      s->state = (parsed_key.type == kTypeValue) ? kFound : kDeleted;
-      if (s->state == kFound) {
-        s->value->assign(v.data(), v.size());
+      switch (parsed_key.type) {
+        case kTypeValue:
+          if (kNotFound == s->state) {
+            s->value->assign(v.data(), v.size());
+          } else if (kMerge == s->state) {
+            std::string operand;
+            swap(operand, *s->value);
+            s->merge_operator->Merge(s->user_key, &v, operand,
+                                     s->value, s->logger);
+          } else {
+            assert(false);
+          }
+          s->state = kFound;
+          return false;
+
+        case kTypeMerge:
+          if (kNotFound == s->state) {
+            s->state = kMerge;
+            s->value->assign(v.data(), v.size());
+          } else if (kMerge == s->state) {
+            std::string operand;
+            swap(operand, *s->value);
+            s->merge_operator->Merge(s->user_key, &v, operand,
+                                     s->value, s->logger);
+          } else {
+            assert(false);
+          }
+          return true;
+
+        case kTypeDeletion:
+          if (kNotFound == s->state) {
+            s->state = kDeleted;
+          } else if (kMerge == s->state) {
+            std::string operand;
+            swap(operand, *s->value);
+            s->merge_operator->Merge(s->user_key, nullptr, operand,
+                                     s->value, s->logger);
+            s->state = kFound;
+          } else {
+            assert(false);
+          }
+          return false;
+
       }
     }
   }
+
+  // s->state could be Corrupt, merge or notfound
+
+  return false;
 }
 
 static bool NewestFirst(FileMetaData* a, FileMetaData* b) {
@@ -269,14 +319,28 @@ Version::Version(VersionSet* vset, uint64_t version_number)
   files_ = new std::vector<FileMetaData*>[vset->NumberLevels()];
 }
 
-Status Version::Get(const ReadOptions& options,
-                    const LookupKey& k,
-                    std::string* value,
-                    GetStats* stats) {
+void Version::Get(const ReadOptions& options,
+                  const LookupKey& k,
+                  std::string* value,
+                  Status *status,
+                  GetStats* stats,
+                  const Options& db_options) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
-  Status s;
+
+  auto merge_operator = db_options.merge_operator;
+  auto logger = db_options.info_log;
+
+  assert(status->ok() || status->IsMergeInProgress());
+  Saver saver;
+  saver.state = status->ok()? kNotFound : kMerge;
+  saver.ucmp = ucmp;
+  saver.user_key = user_key;
+  saver.value = value;
+  saver.merge_operator = merge_operator;
+  saver.logger = logger.get();
+  saver.didIO = false;
 
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
@@ -325,24 +389,21 @@ Status Version::Get(const ReadOptions& options,
         } else {
           files = &tmp2;
           num_files = 1;
+          // TODO, is level 1-n files all disjoint in user key space?
         }
       }
     }
 
-    for (uint32_t i = 0; i < num_files; ++i) {
 
+
+    for (uint32_t i = 0; i < num_files; ++i) {
       FileMetaData* f = files[i];
-      Saver saver;
-      saver.state = kNotFound;
-      saver.ucmp = ucmp;
-      saver.user_key = user_key;
-      saver.value = value;
-      saver.didIO = false;
       bool tableIO = false;
-      s = vset_->table_cache_->Get(options, f->number, f->file_size,
-                                   ikey, &saver, SaveValue, &tableIO);
-      if (!s.ok()) {
-        return s;
+      *status = vset_->table_cache_->Get(options, f->number, f->file_size,
+                                         ikey, &saver, SaveValue, &tableIO);
+      // TODO: examine the behavior for corrupted key
+      if (!status->ok()) {
+        return;
       }
 
       if (last_file_read != nullptr && stats->seek_file == nullptr) {
@@ -367,18 +428,33 @@ Status Version::Get(const ReadOptions& options,
         case kNotFound:
           break;      // Keep searching in other files
         case kFound:
-          return s;
+          return;
         case kDeleted:
-          s = Status::NotFound(Slice());  // Use empty error message for speed
-          return s;
+          *status = Status::NotFound(Slice());  // Use empty error message for speed
+          return;
         case kCorrupt:
-          s = Status::Corruption("corrupted key for ", user_key);
-          return s;
+          *status = Status::Corruption("corrupted key for ", user_key);
+          return;
+        case kMerge:
+          break;
       }
     }
   }
 
-  return Status::NotFound(Slice());  // Use an empty error message for speed
+
+  if (kMerge == saver.state) {
+    // merge operand is in *value and we hit the beginning of the key history
+    // do a final merge of nullptr and operand;
+    std::string operand;
+    swap(operand, *value);
+    merge_operator->Merge(user_key, nullptr, operand,
+                          value, logger.get());
+    *status = Status::OK();
+    return;
+  } else {
+    *status = Status::NotFound(Slice()); // Use an empty error message for speed
+    return;
+  }
 }
 
 bool Version::UpdateStats(const GetStats& stats) {

@@ -29,6 +29,11 @@ class DBWithTTL : public DB {
 
   virtual Status Delete(const WriteOptions& wopts, const Slice& key);
 
+  virtual Status Merge(const WriteOptions& options,
+                       const Slice& key,
+                       const Slice& value);
+
+
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates);
 
   virtual Iterator* NewIterator(const ReadOptions& opts);

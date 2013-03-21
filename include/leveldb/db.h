@@ -83,6 +83,14 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Delete(const WriteOptions& options, const Slice& key) = 0;
 
+  // Merge the database entry for "key" with "value".  Returns OK on success,
+  // and a non-OK status on error. The semantics of this operation is
+  // determined by the user provided merge_operator when opening DB.
+  // Note: consider setting options.sync = true.
+  virtual Status Merge(const WriteOptions& options,
+                       const Slice& key,
+                       const Slice& value) = 0;
+
   // Apply the specified updates to the database.
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
@@ -185,7 +193,7 @@ class DB {
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size) = 0;
 
-  // The sequence number of the most recent transaction. 
+  // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() = 0;
 
   // Return's an iterator for all writes since the sequence number

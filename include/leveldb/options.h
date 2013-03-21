@@ -20,6 +20,7 @@ class Comparator;
 class Env;
 class FilterPolicy;
 class Logger;
+class MergeOperator;
 class Snapshot;
 
 using std::shared_ptr;
@@ -62,6 +63,18 @@ struct Options {
   // here has the same name and orders keys *exactly* the same as the
   // comparator provided to previous open calls on the same DB.
   const Comparator* comparator;
+
+  // REQUIRES: The client must provide a merge operator if Merge operation
+  // needs to be accessed. Calling Merge on a DB without a merge operator
+  // would result in Status::NotSupported. The client must ensure that the
+  // merge operator supplied here has the same name and *exactly* the same
+  // semantics as the merge operator provided to previous open calls on
+  // the same DB. The only exception is reserved for upgrade, where a DB
+  // previously without a merge operator is introduced to Merge operation
+  // for the first time. It's necessary to specify a merge operator when
+  // openning the DB in this case.
+  // Default: nullptr
+  const MergeOperator* merge_operator;
 
   // If true, the database will be created if it is missing.
   // Default: false

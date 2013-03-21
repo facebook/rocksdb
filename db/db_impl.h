@@ -36,6 +36,8 @@ class DBImpl : public DB {
 
   // Implementations of the DB interface
   virtual Status Put(const WriteOptions&, const Slice& key, const Slice& value);
+  virtual Status Merge(const WriteOptions&, const Slice& key,
+                       const Slice& value);
   virtual Status Delete(const WriteOptions&, const Slice& key);
   virtual Status Write(const WriteOptions& options, WriteBatch* updates);
   virtual Status Get(const ReadOptions& options,
@@ -339,9 +341,12 @@ class DBImpl : public DB {
   // dump the delayed_writes_ to the log file and reset counter.
   void DelayLoggingAndReset();
 
-  // find the earliest snapshot where seqno is visible
-  inline SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
-    std::vector<SequenceNumber>& snapshots);
+  // Return the earliest snapshot where seqno is visible.
+  // Store the snapshot right before that, if any, in prev_snapshot
+  inline SequenceNumber findEarliestVisibleSnapshot(
+    SequenceNumber in,
+    std::vector<SequenceNumber>& snapshots,
+    SequenceNumber* prev_snapshot);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

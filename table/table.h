@@ -74,14 +74,14 @@ class Table {
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
                                bool* didIO);
 
-  // Calls (*handle_result)(arg, ...) with the entry found after a call
-  // to Seek(key).  May not make such a call if filter policy says
-  // that key is not present.
+  // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
+  // after a call to Seek(key), until handle_result returns false.
+  // May not make such a call if filter policy says that key is not present.
   friend class TableCache;
   Status InternalGet(
       const ReadOptions&, const Slice& key,
       void* arg,
-      void (*handle_result)(void* arg, const Slice& k, const Slice& v, bool));
+      bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool));
 
 
   void ReadMeta(const Footer& footer);

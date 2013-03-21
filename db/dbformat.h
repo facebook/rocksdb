@@ -24,7 +24,8 @@ class InternalKey;
 // data structures.
 enum ValueType {
   kTypeDeletion = 0x0,
-  kTypeValue = 0x1
+  kTypeValue = 0x1,
+  kTypeMerge = 0x2
 };
 // kValueTypeForSeek defines the ValueType that should be passed when
 // constructing a ParsedInternalKey object for seeking to a particular
@@ -32,7 +33,7 @@ enum ValueType {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-static const ValueType kValueTypeForSeek = kTypeValue;
+static const ValueType kValueTypeForSeek = kTypeMerge;
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
@@ -154,7 +155,7 @@ inline bool ParseInternalKey(const Slice& internal_key,
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
   result->user_key = Slice(internal_key.data(), n - 8);
-  return (c <= static_cast<unsigned char>(kTypeValue));
+  return (c <= static_cast<unsigned char>(kValueTypeForSeek));
 }
 
 // Update the sequence number in the internal key

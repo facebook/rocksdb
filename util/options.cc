@@ -6,15 +6,17 @@
 
 #include <limits>
 
+#include "leveldb/cache.h"
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
-#include "leveldb/cache.h"
+#include "leveldb/merge_operator.h"
 
 namespace leveldb {
 
 Options::Options()
     : comparator(BytewiseComparator()),
+      merge_operator(nullptr),
       create_if_missing(false),
       error_if_exists(false),
       paranoid_checks(false),
@@ -72,7 +74,8 @@ void
 Options::Dump(Logger* log) const
 {
     Log(log,"              Options.comparator: %s", comparator->Name());
-    Log(log,"       Options.create_if_missing: %d", create_if_missing);
+    Log(log,"          Options.merge_operator: %s",
+        merge_operator? merge_operator->Name() : "None");
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
     Log(log,"                     Options.env: %p", env);

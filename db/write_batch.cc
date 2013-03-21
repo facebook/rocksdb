@@ -7,7 +7,8 @@
 //    count: fixed32
 //    data: record[count]
 // record :=
-//    kTypeValue varstring varstring         |
+//    kTypeValue varstring varstring
+//    kTypeMerge varstring varstring
 //    kTypeDeletion varstring
 // varstring :=
 //    len: varint32
@@ -20,6 +21,7 @@
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
+#include <stdexcept>
 
 namespace leveldb {
 
@@ -33,6 +35,10 @@ WriteBatch::WriteBatch() {
 WriteBatch::~WriteBatch() { }
 
 WriteBatch::Handler::~Handler() { }
+
+void WriteBatch::Handler::Merge(const Slice& key, const Slice& value) {
+  throw std::runtime_error("Handler::Merge not implemented!");
+}
 
 void WriteBatch::Clear() {
   rep_.clear();
@@ -66,6 +72,14 @@ Status WriteBatch::Iterate(Handler* handler) const {
           handler->Delete(key);
         } else {
           return Status::Corruption("bad WriteBatch Delete");
+        }
+        break;
+      case kTypeMerge:
+        if (GetLengthPrefixedSlice(&input, &key) &&
+            GetLengthPrefixedSlice(&input, &value)) {
+          handler->Merge(key, value);
+        } else {
+          return Status::Corruption("bad WriteBatch Merge");
         }
         break;
       default:
@@ -108,6 +122,14 @@ void WriteBatch::Delete(const Slice& key) {
   PutLengthPrefixedSlice(&rep_, key);
 }
 
+void WriteBatch::Merge(const Slice& key, const Slice& value) {
+  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeMerge));
+  PutLengthPrefixedSlice(&rep_, key);
+  PutLengthPrefixedSlice(&rep_, value);
+}
+
+
 namespace {
 class MemTableInserter : public WriteBatch::Handler {
  public:
@@ -116,6 +138,10 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual void Put(const Slice& key, const Slice& value) {
     mem_->Add(sequence_, kTypeValue, key, value);
+    sequence_++;
+  }
+  virtual void Merge(const Slice& key, const Slice& value) {
+    mem_->Add(sequence_, kTypeMerge, key, value);
     sequence_++;
   }
   virtual void Delete(const Slice& key) {

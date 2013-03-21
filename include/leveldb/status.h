@@ -47,6 +47,9 @@ class Status {
   static Status IOError(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, msg, msg2);
   }
+  static Status MergeInProgress(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kMergeInProgress, msg, msg2);
+  }
 
   // Returns true iff the status indicates success.
   bool ok() const { return (state_ == nullptr); }
@@ -66,6 +69,9 @@ class Status {
   // Returns true iff the status indicates an IOError.
   bool IsIOError() const { return code() == kIOError; }
 
+  // Returns true iff the status indicates an MergeInProgress.
+  bool IsMergeInProgress() const { return code() == kMergeInProgress; }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
@@ -84,7 +90,8 @@ class Status {
     kCorruption = 2,
     kNotSupported = 3,
     kInvalidArgument = 4,
-    kIOError = 5
+    kIOError = 5,
+    kMergeInProgress = 6
   };
 
   Code code() const {

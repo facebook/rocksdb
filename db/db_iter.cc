@@ -2,12 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <stdexcept>
 #include "db/db_iter.h"
 
 #include "db/filename.h"
 #include "db/dbformat.h"
 #include "leveldb/env.h"
+#include "leveldb/options.h"
 #include "leveldb/iterator.h"
+#include "leveldb/merge_operator.h"
 #include "port/port.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -36,6 +39,7 @@ namespace {
 // numbers, deletion markers, overwrites, etc.
 class DBIter: public Iterator {
  public:
+  // The following is grossly complicated. TODO: clean it up
   // Which direction is the iterator currently moving?
   // (1) When moving forward, the internal iterator is positioned at
   //     the exact entry that yields this->key(), this->value()
@@ -46,15 +50,18 @@ class DBIter: public Iterator {
     kReverse
   };
 
-  DBIter(const std::string* dbname, Env* env,
+  DBIter(const std::string* dbname, Env* env, const Options& options,
          const Comparator* cmp, Iterator* iter, SequenceNumber s)
       : dbname_(dbname),
         env_(env),
+        logger_(options.info_log),
         user_comparator_(cmp),
+        user_merge_operator_(options.merge_operator),
         iter_(iter),
         sequence_(s),
         direction_(kForward),
-        valid_(false) {
+        valid_(false),
+        current_entry_is_merged_(false) {
   }
   virtual ~DBIter() {
     delete iter_;
@@ -62,11 +69,12 @@ class DBIter: public Iterator {
   virtual bool Valid() const { return valid_; }
   virtual Slice key() const {
     assert(valid_);
-    return (direction_ == kForward) ? ExtractUserKey(iter_->key()) : saved_key_;
+    return saved_key_;
   }
   virtual Slice value() const {
     assert(valid_);
-    return (direction_ == kForward) ? iter_->value() : saved_value_;
+    return (direction_ == kForward && !current_entry_is_merged_) ?
+      iter_->value() : saved_value_;
   }
   virtual Status status() const {
     if (status_.ok()) {
@@ -83,9 +91,10 @@ class DBIter: public Iterator {
   virtual void SeekToLast();
 
  private:
-  void FindNextUserEntry(bool skipping, std::string* skip);
+  void FindNextUserEntry(bool skipping);
   void FindPrevUserEntry();
   bool ParseKey(ParsedInternalKey* key);
+  void MergeValuesNewToOld();
 
   inline void SaveKey(const Slice& k, std::string* dst) {
     dst->assign(k.data(), k.size());
@@ -102,15 +111,19 @@ class DBIter: public Iterator {
 
   const std::string* const dbname_;
   Env* const env_;
+  shared_ptr<Logger> logger_;
   const Comparator* const user_comparator_;
+  const MergeOperator* const user_merge_operator_;
   Iterator* const iter_;
   SequenceNumber const sequence_;
 
   Status status_;
   std::string saved_key_;     // == current key when direction_==kReverse
   std::string saved_value_;   // == current raw value when direction_==kReverse
+  std::string skip_key_;
   Direction direction_;
   bool valid_;
+  bool current_entry_is_merged_;
 
   // No copying allowed
   DBIter(const DBIter&);
@@ -120,6 +133,8 @@ class DBIter: public Iterator {
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   if (!ParseInternalKey(iter_->key(), ikey)) {
     status_ = Status::Corruption("corrupted internal key in DBIter");
+    Log(logger_, "corrupted internal key in DBIter: %s",
+        iter_->key().ToString(true).c_str());
     return false;
   } else {
     return true;
@@ -146,46 +161,135 @@ void DBIter::Next() {
     }
   }
 
-  // Temporarily use saved_key_ as storage for key to skip.
-  std::string* skip = &saved_key_;
-  SaveKey(ExtractUserKey(iter_->key()), skip);
-  FindNextUserEntry(true, skip);
+  // If the current value is merged, we might already hit end of iter_
+  if (!iter_->Valid()) {
+    valid_ = false;
+    return;
+  }
+  FindNextUserEntry(true /* skipping the current user key */);
 }
 
-void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
+
+// PRE: saved_key_ has the current user key if skipping
+// POST: saved_key_ should have the next user key if valid_,
+//       if the current entry is a result of merge
+//           current_entry_is_merged_ => true
+//           saved_value_             => the merged value
+//
+// NOTE: In between, saved_key_ can point to a user key that has
+//       a delete marker
+void DBIter::FindNextUserEntry(bool skipping) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_->Valid());
   assert(direction_ == kForward);
+  current_entry_is_merged_ = false;
   do {
     ParsedInternalKey ikey;
     if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
-      switch (ikey.type) {
-        case kTypeDeletion:
-          // Arrange to skip all upcoming entries for this key since
-          // they are hidden by this deletion.
-          SaveKey(ikey.user_key, skip);
-          skipping = true;
-          break;
-        case kTypeValue:
-          if (skipping &&
-              user_comparator_->Compare(ikey.user_key, *skip) <= 0) {
-            // Entry hidden
-          } else {
+      if (skipping &&
+          user_comparator_->Compare(ikey.user_key, saved_key_) <= 0) {
+        // skip this entry
+      } else {
+        skipping = false;
+        switch (ikey.type) {
+          case kTypeDeletion:
+            // Arrange to skip all upcoming entries for this key since
+            // they are hidden by this deletion.
+            SaveKey(ikey.user_key, &saved_key_);
+            skipping = true;
+            break;
+          case kTypeValue:
             valid_ = true;
-            saved_key_.clear();
+            SaveKey(ikey.user_key, &saved_key_);
             return;
-          }
-          break;
+          case kTypeMerge:
+            // By now, we are sure the current ikey is going to yield a value
+            SaveKey(ikey.user_key, &saved_key_);
+            current_entry_is_merged_ = true;
+            valid_ = true;
+            // Go to a different state machine
+            MergeValuesNewToOld();
+            // TODO: what if !iter_->Valid()
+            return;
+            break;
+        }
       }
     }
     iter_->Next();
   } while (iter_->Valid());
-  saved_key_.clear();
   valid_ = false;
+}
+
+// Merge values of the same user key starting from the current iter_ position
+// Scan from the newer entries to older entries.
+// PRE: iter_->key() points to the first merge type entry
+//      saved_key_ stores the user key
+// POST: saved_value_ has the merged value for the user key
+//       iter_ points to the next entry (or invalid)
+void DBIter::MergeValuesNewToOld() {
+
+  const Slice value = iter_->value();
+  std::string operand(value.data(), value.size());
+
+  ParsedInternalKey ikey;
+  for (iter_->Next(); iter_->Valid(); iter_->Next()) {
+    if (!ParseKey(&ikey)) {
+      // skip corrupted key
+      continue;
+    }
+
+    if (user_comparator_->Compare(ikey.user_key, saved_key_) != 0) {
+      // hit the next user key, stop right here
+      break;
+    }
+
+    if (kTypeDeletion == ikey.type) {
+      // hit a delete with the same user key, stop right here
+      // iter_ is positioned after delete
+      iter_->Next();
+      break;
+    }
+
+    if (kTypeValue == ikey.type) {
+      // hit a put, merge the put value with operand and store it in the
+      // final result saved_value_. We are done!
+      const Slice value = iter_->value();
+      user_merge_operator_->Merge(ikey.user_key, &value, Slice(operand),
+                                  &saved_value_, logger_.get());
+      // iter_ is positioned after put
+      iter_->Next();
+      return;
+    }
+
+    if (kTypeMerge == ikey.type) {
+      // hit a merge, merge the value with operand and continue.
+      // saved_value_ is used as a scratch area. The result is put
+      // back in operand
+      const Slice value = iter_->value();
+      user_merge_operator_->Merge(ikey.user_key, &value, operand,
+                                  &saved_value_, logger_.get());
+      swap(saved_value_, operand);
+    }
+  }
+
+  // we either exhausted all internal keys under this user key, or hit
+  // a deletion marker.
+  // feed null as the existing value to the merge opexrator, such that
+  // client can differentiate this scenario and do things accordingly.
+  user_merge_operator_->Merge(ikey.user_key, nullptr, operand,
+                              &saved_value_, logger_.get());
 }
 
 void DBIter::Prev() {
   assert(valid_);
+
+  // TODO: support backward iteration
+  // Throw an exception now if merge_operator is provided
+  if (user_merge_operator_) {
+    Log(logger_, "Prev not supported yet if merge_operator is provided");
+    throw std::logic_error("DBIter::Prev backward iteration not supported"
+                           " if merge_operator is provided");
+  }
 
   if (direction_ == kForward) {  // Switch directions?
     // iter_ is pointing at the current entry.  Scan backwards until
@@ -261,7 +365,7 @@ void DBIter::Seek(const Slice& target) {
       &saved_key_, ParsedInternalKey(target, sequence_, kValueTypeForSeek));
   iter_->Seek(saved_key_);
   if (iter_->Valid()) {
-    FindNextUserEntry(false, &saved_key_ /* temporary storage */);
+    FindNextUserEntry(false /*not skipping */);
   } else {
     valid_ = false;
   }
@@ -272,13 +376,21 @@ void DBIter::SeekToFirst() {
   ClearSavedValue();
   iter_->SeekToFirst();
   if (iter_->Valid()) {
-    FindNextUserEntry(false, &saved_key_ /* temporary storage */);
+    FindNextUserEntry(false /* not skipping */);
   } else {
     valid_ = false;
   }
 }
 
 void DBIter::SeekToLast() {
+  // TODO: support backward iteration
+  // throw an exception for now if merge_operator is provided
+  if (user_merge_operator_) {
+    Log(logger_, "SeekToLast not supported yet if merge_operator is provided");
+    throw std::logic_error("DBIter::SeekToLast: backward iteration not"
+                           " supported if merge_operator is provided");
+  }
+
   direction_ = kReverse;
   ClearSavedValue();
   iter_->SeekToLast();
@@ -290,10 +402,12 @@ void DBIter::SeekToLast() {
 Iterator* NewDBIterator(
     const std::string* dbname,
     Env* env,
-    const Comparator* user_key_comparator,
+    const Options& options,
+    const Comparator *user_key_comparator,
     Iterator* internal_iter,
     const SequenceNumber& sequence) {
-  return new DBIter(dbname, env, user_key_comparator, internal_iter, sequence);
+  return new DBIter(dbname, env, options, user_key_comparator,
+                    internal_iter, sequence);
 }
 
 }  // namespace leveldb

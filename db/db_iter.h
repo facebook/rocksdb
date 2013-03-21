@@ -17,7 +17,8 @@ namespace leveldb {
 extern Iterator* NewDBIterator(
     const std::string* dbname,
     Env* env,
-    const Comparator* user_key_comparator,
+    const Options& options,
+    const Comparator *user_key_comparator,
     Iterator* internal_iter,
     const SequenceNumber& sequence);
 

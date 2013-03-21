@@ -100,7 +100,7 @@ Status TableCache::Get(const ReadOptions& options,
                        uint64_t file_size,
                        const Slice& k,
                        void* arg,
-                       void (*saver)(void*, const Slice&, const Slice&, bool),
+                       bool (*saver)(void*, const Slice&, const Slice&, bool),
                        bool* tableIO) {
   Cache::Handle* handle = nullptr;
   Status s = FindTable(storage_options_, file_number, file_size,

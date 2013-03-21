@@ -285,11 +285,11 @@ Iterator* Table::NewIterator(const ReadOptions& options) const {
 
 Status Table::InternalGet(const ReadOptions& options, const Slice& k,
                           void* arg,
-                          void (*saver)(void*, const Slice&, const Slice&, bool)) {
+                          bool (*saver)(void*, const Slice&, const Slice&, bool)) {
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
-  iiter->Seek(k);
-  if (iiter->Valid()) {
+  bool done = false;
+  for (iiter->Seek(k); iiter->Valid() && !done; iiter->Next()) {
     Slice handle_value = iiter->value();
     FilterBlockReader* filter = rep_->filter;
     BlockHandle handle;
@@ -297,14 +297,20 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
         handle.DecodeFrom(&handle_value).ok() &&
         !filter->KeyMayMatch(handle.offset(), k)) {
       // Not found
+      // TODO: think about interaction with Merge. If a user key cannot
+      // cross one data block, we should be fine.
       RecordTick(rep_->options.statistics, BLOOM_FILTER_USEFUL);
+      break;
     } else {
       bool didIO = false;
       Iterator* block_iter = BlockReader(this, options, iiter->value(),
                                          &didIO);
-      block_iter->Seek(k);
-      if (block_iter->Valid()) {
-        (*saver)(arg, block_iter->key(), block_iter->value(), didIO);
+
+      for (block_iter->Seek(k); block_iter->Valid(); block_iter->Next()) {
+        if (!(*saver)(arg, block_iter->key(), block_iter->value(), didIO)) {
+          done = true;
+          break;
+        }
       }
       s = block_iter->status();
       delete block_iter;
@@ -317,8 +323,9 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
   return s;
 }
 
-void SaveDidIO(void* arg, const Slice& key, const Slice& value, bool didIO) {
+bool SaveDidIO(void* arg, const Slice& key, const Slice& value, bool didIO) {
   *reinterpret_cast<bool*>(arg) = didIO;
+  return false;
 }
 bool Table::TEST_KeyInCache(const ReadOptions& options, const Slice& key) {
   // We use InternalGet() as it has logic that checks whether we read the

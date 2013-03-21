@@ -21,12 +21,14 @@
 #include "db/log_writer.h"
 #include "db/memtable.h"
 #include "db/memtablelist.h"
+#include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/transaction_log_iterator_impl.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "leveldb/merge_operator.h"
 #include "leveldb/statistics.h"
 #include "leveldb/status.h"
 #include "leveldb/table_builder.h"
@@ -497,6 +499,7 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
 
     if (!env_->FileExists(CurrentFileName(dbname_))) {
       if (options_.create_if_missing) {
+        // TODO: add merge_operator name check
         s = NewDB();
         if (!s.ok()) {
           return s;
@@ -1514,11 +1517,13 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 // Employ a sequential search because the total number of
 // snapshots are typically small.
 inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
-  SequenceNumber in, std::vector<SequenceNumber>& snapshots) {
+  SequenceNumber in, std::vector<SequenceNumber>& snapshots,
+  SequenceNumber* prev_snapshot) {
   SequenceNumber prev __attribute__((unused)) = 0;
   for (const auto cur : snapshots) {
     assert(prev <= cur);
     if (cur >= in) {
+      *prev_snapshot = prev;
       return cur;
     }
     prev = cur; // assignment
@@ -1591,6 +1596,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     kMaxSequenceNumber;
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
   std::string compaction_filter_value;
+  MergeHelper merge(user_comparator(), options_.merge_operator,
+                    options_.info_log.get(),
+                    false /* internal key corruption is expected */);
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (imm_.imm_flush_needed.NoBarrier_Load() != nullptr) {
@@ -1617,8 +1625,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     // Handle key/value, add to state, etc.
     bool drop = false;
+    bool current_entry_is_merged = false;
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
+      // TODO: error key stays in db forever? Figure out the intention/rationale
+      // v10 error v8 : we cannot hide v8 even though it's pretty obvious.
       current_user_key.clear();
       has_current_user_key = false;
       last_sequence_for_key = kMaxSequenceNumber;
@@ -1637,15 +1648,19 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       // If there are no snapshots, then this kv affect visibility at tip.
       // Otherwise, search though all existing snapshots to find
       // the earlist snapshot that is affected by this kv.
-      SequenceNumber visible = visible_at_tip ? visible_at_tip :
-                                 findEarliestVisibleSnapshot(ikey.sequence,
-                                 compact->existing_snapshots);
+      SequenceNumber prev_snapshot = 0; // 0 means no previous snapshot
+      SequenceNumber visible = visible_at_tip ?
+        visible_at_tip :
+        findEarliestVisibleSnapshot(ikey.sequence,
+                                    compact->existing_snapshots,
+                                    &prev_snapshot);
 
       if (visible_in_snapshot == visible) {
         // If the earliest snapshot is which this key is visible in
         // is the same as the visibily of a previous instance of the
         // same key, then this kv is not visible in any snapshot.
         // Hidden by an newer entry for same user key
+        // TODO: why not > ?
         assert(last_sequence_for_key >= ikey.sequence);
         drop = true;    // (A)
         RecordTick(options_.statistics, COMPACTION_KEY_DROP_NEWER_ENTRY);
@@ -1661,6 +1676,19 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // Therefore this deletion marker is obsolete and can be dropped.
         drop = true;
         RecordTick(options_.statistics, COMPACTION_KEY_DROP_OBSOLETE);
+      } else if (ikey.type == kTypeMerge) {
+        // We know the merge type entry is not hidden, otherwise we would
+        // have hit (A)
+        // We encapsulate the merge related state machine in a different
+        // object to minimize change to the existing flow. Turn out this
+        // logic could also be nicely re-used for memtable flush purge
+        // optimization in BuildTable.
+        merge.MergeUntil(input.get(), prev_snapshot, bottommost_level);
+        current_entry_is_merged = true;
+        // get the merge result
+        key = merge.key();
+        ParseInternalKey(key, &ikey);
+        value = merge.value();
       } else if (options_.CompactionFilter != nullptr &&
                  ikey.type != kTypeDeletion &&
                  ikey.sequence < earliest_snapshot) {
@@ -1709,7 +1737,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       // If this is the bottommost level (no files in lower levels)
       // and the earliest snapshot is larger than this seqno
       // then we can squash the seqno to zero.
-      if (bottommost_level && ikey.sequence < earliest_snapshot) {
+      if (bottommost_level && ikey.sequence < earliest_snapshot &&
+         ikey.type != kTypeMerge) {
         assert(ikey.type != kTypeDeletion);
         // make a copy because updating in place would cause problems
         // with the priority queue that is managing the input key iterator
@@ -1744,7 +1773,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       }
     }
 
-    input->Next();
+    // MergeUntil has moved input to the next entry
+    if (!current_entry_is_merged) {
+      input->Next();
+    }
   }
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
@@ -1906,14 +1938,17 @@ Status DBImpl::Get(const ReadOptions& options,
   mutex_.Unlock();
   bool have_stat_update = false;
   Version::GetStats stats;
+
   // First look in the memtable, then in the immutable memtable (if any).
+  // s is both in/out. When in, s could either be OK or MergeInProgress.
+  // value will contain the current merge operand in the latter case.
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s)) {
+  if (mem->Get(lkey, value, &s, options_)) {
     // Done
-  } else if (imm.Get(lkey, value, &s)) {
+  } else if (imm.Get(lkey, value, &s, options_)) {
     // Done
   } else {
-    s = current->Get(options, lkey, value, &stats);
+    current->Get(options, lkey, value, &s, &stats, options_);
     have_stat_update = true;
   }
   mutex_.Lock();
@@ -1934,7 +1969,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
   return NewDBIterator(
-      &dbname_, env_, user_comparator(), internal_iter,
+      &dbname_, env_, options_, user_comparator(), internal_iter,
       (options.snapshot != nullptr
        ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
        : latest_snapshot));
@@ -1953,6 +1988,15 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, const Slice& key, const Slice& val) {
   return DB::Put(o, key, val);
+}
+
+Status DBImpl::Merge(const WriteOptions& o, const Slice& key,
+                     const Slice& val) {
+  if (!options_.merge_operator) {
+    return Status::NotSupported("Provide a merge_operator when opening DB");
+  } else {
+    return DB::Merge(o, key, val);
+  }
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
@@ -2379,6 +2423,13 @@ Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
 Status DB::Delete(const WriteOptions& opt, const Slice& key) {
   WriteBatch batch;
   batch.Delete(key);
+  return Write(opt, &batch);
+}
+
+Status DB::Merge(const WriteOptions& opt, const Slice& key,
+                 const Slice& value) {
+  WriteBatch batch;
+  batch.Merge(key, value);
   return Write(opt, &batch);
 }
 

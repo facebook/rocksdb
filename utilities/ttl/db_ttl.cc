@@ -185,6 +185,12 @@ Status DBWithTTL::Delete(const WriteOptions& wopts, const Slice& key) {
   return db_->Delete(wopts, key);
 }
 
+Status DBWithTTL::Merge(const WriteOptions& options,
+                        const Slice& key,
+                        const Slice& value) {
+  return Status::NotSupported("Merge operation not supported.");
+}
+
 Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
   return db_->Write(opts, updates);
 }
