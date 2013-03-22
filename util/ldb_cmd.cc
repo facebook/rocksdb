@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 #include "util/ldb_cmd.h"
+#include <dirent.h>
+
 #include <sstream>
 #include <string>
 #include <stdexcept>
@@ -10,6 +12,7 @@
 #include "leveldb/write_batch.h"
 #include "db/dbformat.h"
 #include "db/log_reader.h"
+#include "db/filename.h"
 #include "db/write_batch_internal.h"
 
 namespace leveldb {
@@ -123,6 +126,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
     return new DBDumperCommand(cmdParams, options, flags);
   } else if (cmd == DBLoaderCommand::Name()) {
     return new DBLoaderCommand(cmdParams, options, flags);
+  } else if (cmd == ManifestDumpCommand::Name()) {
+    return new ManifestDumpCommand(cmdParams, options, flags);
   }
 
   return nullptr;
@@ -409,6 +414,97 @@ void DBLoaderCommand::DoCommand() {
     db_->CompactRange(nullptr, nullptr);
   }
 }
+
+// ----------------------------------------------------------------------------
+
+const string ManifestDumpCommand::ARG_VERBOSE = "verbose";
+const string ManifestDumpCommand::ARG_PATH    = "path";
+
+void ManifestDumpCommand::Help(string& ret) {
+  ret.append("  ");
+  ret.append(ManifestDumpCommand::Name());
+  ret.append(" [--" + ARG_VERBOSE + "]");
+  ret.append(" [--" + ARG_PATH + "=<path_to_manifest_file>]");
+  ret.append("\n");
+}
+
+ManifestDumpCommand::ManifestDumpCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags) :
+    LDBCommand(options, flags, false,
+               BuildCmdLineOptions({ARG_VERBOSE,ARG_PATH})),
+    verbose_(false),
+    path_("")
+{
+  verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
+
+  map<string, string>::const_iterator itr = options.find(ARG_PATH);
+  if (itr != options.end()) {
+    path_ = itr->second;
+    if (path_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::FAILED("--path: missing pathname");
+    }
+  }
+}
+
+void ManifestDumpCommand::DoCommand() {
+
+  std::string manifestfile;
+
+  if (!path_.empty()) {
+    manifestfile = path_;
+  } else {
+    bool found = false;
+    // We need to find the manifest file by searching the directory
+    // containing the db for files of the form MANIFEST_[0-9]+
+    DIR* d = opendir(db_path_.c_str());
+    if (d == nullptr) {
+      exec_state_ = LDBCommandExecuteResult::FAILED(
+        db_path_ + " is not a directory");
+      return;
+    }
+    struct dirent* entry;
+    while ((entry = readdir(d)) != nullptr) {
+      unsigned int match;
+      unsigned long long num;
+      if (sscanf(entry->d_name, "MANIFEST-%llu%n", &num, &match)
+          && match == strlen(entry->d_name)) {
+        if (!found) {
+          manifestfile = db_path_ + "/" + std::string(entry->d_name);
+          found = true;
+        } else {
+          exec_state_ = LDBCommandExecuteResult::FAILED(
+            "Multiple MANIFEST files found; use --path to select one");
+          return;
+        }
+      }
+    }
+    closedir(d);
+  }
+
+  if (verbose_) {
+    printf("Processing Manifest file %s\n", manifestfile.c_str());
+  }
+
+  Options options;
+  StorageOptions sopt;
+  std::string file(manifestfile);
+  std::string dbname("dummy");
+  TableCache* tc = new TableCache(dbname, &options, sopt, 10);
+  const InternalKeyComparator* cmp =
+    new InternalKeyComparator(options.comparator);
+
+  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc, cmp);
+  Status s = versions->DumpManifest(options, file, verbose_, is_key_hex_);
+  if (!s.ok()) {
+    printf("Error in processing file %s %s\n", manifestfile.c_str(),
+           s.ToString().c_str());
+  }
+  if (verbose_) {
+    printf("Processing Manifest file %s done\n", manifestfile.c_str());
+  }
+}
+
+// ----------------------------------------------------------------------------
 
 const string DBDumperCommand::ARG_COUNT_ONLY = "count_only";
 const string DBDumperCommand::ARG_STATS = "stats";

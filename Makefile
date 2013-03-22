@@ -63,7 +63,6 @@ TESTS = \
 
 
 TOOLS = \
-	manifest_dump \
         sst_dump \
         db_stress \
         ldb \
@@ -228,9 +227,6 @@ leveldb_shell: tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/L
 
 DBClientProxy_test: tools/shell/test/DBClientProxyTest.o tools/shell/DBClientProxy.o $(LIBRARY) 
 	$(CXX) tools/shell/test/DBClientProxyTest.o tools/shell/DBClientProxy.o $(LIBRARY) $(EXEC_LDFLAGS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS)
-
-manifest_dump: tools/manifest_dump.o $(LIBOBJECTS)
-	$(CXX) tools/manifest_dump.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)

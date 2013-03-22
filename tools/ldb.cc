@@ -56,6 +56,7 @@ public:
     ReduceDBLevelsCommand::Help(ret);
     DBDumperCommand::Help(ret);
     DBLoaderCommand::Help(ret);
+    ManifestDumpCommand::Help(ret);
 
     fprintf(stderr, "%s\n", ret.c_str());
   }

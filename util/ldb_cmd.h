@@ -377,6 +377,28 @@ private:
   static const string ARG_COMPACT;
 };
 
+class ManifestDumpCommand: public LDBCommand {
+public:
+  static string Name() { return "manifest_dump"; }
+
+  ManifestDumpCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  static void Help(string& ret);
+  virtual void DoCommand();
+
+  virtual bool NoDBOpen() {
+    return true;
+  }
+
+private:
+  bool verbose_;
+  string path_;
+
+  static const string ARG_VERBOSE;
+  static const string ARG_PATH;
+};
+
 class ReduceDBLevelsCommand : public LDBCommand {
 public:
   static string Name() { return "reduce_levels"; }
