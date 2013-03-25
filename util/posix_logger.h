@@ -18,6 +18,7 @@
 #include <linux/falloc.h>
 #endif
 #include "leveldb/env.h"
+#include <atomic>
 
 namespace leveldb {
 
@@ -27,8 +28,7 @@ class PosixLogger : public Logger {
  private:
   FILE* file_;
   uint64_t (*gettid_)();  // Return the thread id for the current thread
-
-  size_t log_size_;
+  std::atomic_size_t log_size_;
   int fd_;
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)()) :
@@ -100,10 +100,11 @@ class PosixLogger : public Logger {
       // If this write would cross a boundary of kDebugLogChunkSize
       // space, pre-allocate more space to avoid overly large
       // allocations from filesystem allocsize options.
+      const size_t log_size = log_size_;
       const int last_allocation_chunk =
-        ((kDebugLogChunkSize - 1 + log_size_) / kDebugLogChunkSize);
+        ((kDebugLogChunkSize - 1 + log_size) / kDebugLogChunkSize);
       const int desired_allocation_chunk =
-        ((kDebugLogChunkSize - 1 + log_size_ + write_size) /
+        ((kDebugLogChunkSize - 1 + log_size + write_size) /
            kDebugLogChunkSize);
       if (last_allocation_chunk != desired_allocation_chunk) {
         fallocate(fd_, FALLOC_FL_KEEP_SIZE, 0,

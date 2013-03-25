@@ -8,8 +8,9 @@
 #ifndef STORAGE_LEVELDB_UTIL_AUTO_ROLL_LOGGER_H
 #define STORAGE_LEVELDB_UTIL_AUTO_ROLL_LOGGER_H
 
-#include "util/posix_logger.h"
 #include "db/filename.h"
+#include "port/port.h"
+#include "util/posix_logger.h"
 
 namespace leveldb {
 
@@ -29,7 +30,8 @@ class AutoRollLogger : public Logger {
      cached_now(static_cast<uint64_t>(env_->NowMicros() * 1e-6)),
      ctime_(cached_now),
      cached_now_access_count(0),
-     call_NowMicros_every_N_records_(100) {
+     call_NowMicros_every_N_records_(100),
+     mutex_() {
     env->GetAbsolutePath(dbname, &db_absolute_path_);
     log_fname_ = InfoLogFileName(dbname_, db_absolute_path_, db_log_dir_);
     RollLogFile();
@@ -75,6 +77,7 @@ class AutoRollLogger : public Logger {
   uint64_t ctime_;
   uint64_t cached_now_access_count;
   uint64_t call_NowMicros_every_N_records_;
+  port::Mutex mutex_;
 };
 
 // Facade to craete logger automatically

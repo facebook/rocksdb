@@ -1,4 +1,5 @@
 #include "util/auto_roll_logger.h"
+#include "util/mutexlock.h"
 
 using namespace std;
 
@@ -35,17 +36,26 @@ void AutoRollLogger::RollLogFile() {
 void AutoRollLogger::Logv(const char* format, va_list ap) {
   assert(GetStatus().ok());
 
-  if (kLogFileTimeToRoll > 0 && LogExpired()) {
-    RollLogFile();
-    ResetLogger();
+  std::shared_ptr<Logger> logger;
+  {
+    MutexLock l(&mutex_);
+    if ((kLogFileTimeToRoll > 0 && LogExpired()) ||
+        (kMaxLogFileSize > 0 && logger_->GetLogFileSize() >= kMaxLogFileSize)) {
+      RollLogFile();
+      ResetLogger();
+    }
+
+    // pin down the current logger_ instance before releasing the mutex.
+    logger = logger_;
   }
 
-  logger_->Logv(format, ap);
-
-  if (kMaxLogFileSize > 0 && logger_->GetLogFileSize() > kMaxLogFileSize) {
-    RollLogFile();
-    ResetLogger();
-  }
+  // Another thread could have put a new Logger instance into logger_ by now.
+  // However, since logger is still hanging on to the previous instance
+  // (reference count is not zero), we don't have to worry about it being
+  // deleted while we are accessing it.
+  // Note that logv itself is not mutex protected to allow maximum concurrency,
+  // as thread safety should have been handled by the underlying logger.
+  logger->Logv(format, ap);
 }
 
 bool AutoRollLogger::LogExpired() {

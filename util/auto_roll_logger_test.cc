@@ -78,7 +78,11 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
 
   // Now the log file will be rolled
   LogMessage(logger, log_message.c_str());
-  ASSERT_TRUE(0 == logger->GetLogFileSize());
+  // Since rotation is checked before actual logging, we need to
+  // trigger the rotation by logging another message.
+  LogMessage(logger, log_message.c_str());
+
+  ASSERT_TRUE(message_size == logger->GetLogFileSize());
 }
 
 uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
