@@ -1876,11 +1876,12 @@ Status DBImpl::Get(const ReadOptions& options,
                    const Slice& key,
                    std::string* value) {
   Status s;
-  MutexLock l(&mutex_);
+
   std::unique_ptr<StopWatch> sw = stats::StartStopWatch(env_,
                                                         options_.statistics,
                                                         DB_GET);
   SequenceNumber snapshot;
+  MutexLock l(&mutex_);
   if (options.snapshot != nullptr) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
   } else {
@@ -1894,24 +1895,22 @@ Status DBImpl::Get(const ReadOptions& options,
   imm.RefAll();
   current->Ref();
 
+  // Unlock while reading from files and memtables
+
+  mutex_.Unlock();
   bool have_stat_update = false;
   Version::GetStats stats;
-
-  // Unlock while reading from files and memtables
-  {
-    mutex_.Unlock();
-    // First look in the memtable, then in the immutable memtable (if any).
-    LookupKey lkey(key, snapshot);
-    if (mem->Get(lkey, value, &s)) {
-      // Done
-    } else if (imm.Get(lkey, value, &s)) {
-      // Done
-    } else {
-      s = current->Get(options, lkey, value, &stats);
-      have_stat_update = true;
-    }
-    mutex_.Lock();
+  // First look in the memtable, then in the immutable memtable (if any).
+  LookupKey lkey(key, snapshot);
+  if (mem->Get(lkey, value, &s)) {
+    // Done
+  } else if (imm.Get(lkey, value, &s)) {
+    // Done
+  } else {
+    s = current->Get(options, lkey, value, &stats);
+    have_stat_update = true;
   }
+  mutex_.Lock();
 
   if (!options_.disable_seek_compaction &&
       have_stat_update && current->UpdateStats(stats)) {
@@ -1961,10 +1960,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   w.disableWAL = options.disableWAL;
   w.done = false;
 
-  MutexLock l(&mutex_);
   std::unique_ptr<StopWatch> sw = stats::StartStopWatch(env_,
                                                         options_.statistics,
                                                         DB_WRITE);
+  MutexLock l(&mutex_);
   writers_.push_back(&w);
   while (!w.done && &w != writers_.front()) {
     w.cv.Wait();
