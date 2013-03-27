@@ -11,6 +11,7 @@
 #include <vector>
 #include <stdint.h>
 #include "leveldb/slice.h"
+#include "leveldb/statistics.h"
 
 namespace leveldb {
 
@@ -20,7 +21,6 @@ class Env;
 class FilterPolicy;
 class Logger;
 class Snapshot;
-class Statistics;
 
 using std::shared_ptr;
 
@@ -258,7 +258,7 @@ struct Options {
   // If non-null, then we should collect metrics about database operations
   // Statistics objects should not be shared between DB instances as
   // it does not use any locks to prevent concurrent updates.
-  Statistics* statistics;
+  shared_ptr<Statistics> statistics;
 
   // If true, then the contents of data files are not synced
   // to stable storage. Their contents remain in the OS buffers till the

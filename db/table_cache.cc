@@ -16,11 +16,9 @@ struct TableAndFile {
   unique_ptr<Table> table;
 };
 
-static class Statistics* dbstatistics;
 
 static void DeleteEntry(const Slice& key, void* value) {
   TableAndFile* tf = reinterpret_cast<TableAndFile*>(value);
-  RecordTick(dbstatistics, NO_FILE_CLOSES);
   delete tf;
 }
 
@@ -38,9 +36,7 @@ TableCache::TableCache(const std::string& dbname,
       dbname_(dbname),
       options_(options),
       storage_options_(storage_options),
-      cache_(NewLRUCache(entries, options->table_cache_numshardbits)) {
-  dbstatistics = options->statistics;
-}
+      cache_(NewLRUCache(entries, options->table_cache_numshardbits)) {}
 
 TableCache::~TableCache() {
 }

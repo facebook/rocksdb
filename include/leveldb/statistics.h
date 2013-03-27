@@ -124,10 +124,10 @@ class Statistics {
 };
 
 // Ease of Use functions
-inline void RecordTick(Statistics* const statistics,
+inline void RecordTick(std::shared_ptr<Statistics> statistics,
                        Tickers ticker,
                        uint64_t count = 1) {
-  if (statistics != nullptr) {
+  if (statistics) {
     statistics->recordTick(ticker, count);
   }
 }

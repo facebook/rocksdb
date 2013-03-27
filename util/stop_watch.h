@@ -24,7 +24,7 @@ class DoNothingStopWatch : public StopWatch {
 class ScopedRecordingStopWatch : public StopWatch {
  public:
   ScopedRecordingStopWatch(Env * const env,
-                           Statistics * const statistics,
+                           std::shared_ptr<Statistics> statistics,
                            const Histograms histogram_name) :
                             env_(env),
                             start_time_(env->NowMicros()),
@@ -43,7 +43,7 @@ class ScopedRecordingStopWatch : public StopWatch {
  private:
   Env* const env_;
   const uint64_t start_time_;
-  Statistics* const statistics_;
+  std::shared_ptr<Statistics> statistics_;
   const Histograms histogram_name_;
 
 };
@@ -51,13 +51,13 @@ class ScopedRecordingStopWatch : public StopWatch {
 namespace stats {
 // Helper method
 std::unique_ptr<StopWatch> StartStopWatch(Env * const env,
-                                          Statistics * const statistics,
+                                          std::shared_ptr<Statistics> stats,
                                           Histograms histogram_name) {
   assert(env);
-  if (statistics != nullptr) {
+  if (stats) {
     return std::unique_ptr<StopWatch>(new ScopedRecordingStopWatch(
                                            env,
-                                           statistics,
+                                           stats,
                                            histogram_name));
   } else {
     return std::unique_ptr<StopWatch>(new DoNothingStopWatch());

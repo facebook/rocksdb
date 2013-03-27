@@ -101,7 +101,7 @@ static const char* FLAGS_db = nullptr;
 static bool FLAGS_verify_checksum = false;
 
 // Database statistics
-static class leveldb::DBStatistics* dbstats;
+static std::shared_ptr<leveldb::Statistics> dbstats;
 
 // Sync all writes to disk
 static bool FLAGS_sync = false;
@@ -1045,7 +1045,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
-        dbstats =  new leveldb::DBStatistics();
+        dbstats.reset(new leveldb::DBStatistics());
       }
     } else if (sscanf(argv[i], "--sync=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
@@ -1131,8 +1131,5 @@ int main(int argc, char** argv) {
 
   leveldb::StressTest stress;
   stress.Run();
-  if (dbstats) {
-    delete dbstats;
-  }
   return 0;
 }

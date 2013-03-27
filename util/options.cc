@@ -39,7 +39,6 @@ Options::Options()
       expanded_compaction_factor(25),
       source_compaction_factor(1),
       max_grandparent_overlap_factor(10),
-      statistics(nullptr),
       disableDataSync(false),
       use_fsync(false),
       db_stats_log_interval(1800),

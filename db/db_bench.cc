@@ -156,7 +156,7 @@ static bool FLAGS_verify_checksum = false;
 
 // Database statistics
 static bool FLAGS_statistics = false;
-static class leveldb::DBStatistics* dbstats = nullptr;
+static class std::shared_ptr<leveldb::Statistics> dbstats;
 
 // Number of write operations to do.  If negative, do FLAGS_num reads.
 static long FLAGS_writes = -1;
@@ -1771,7 +1771,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
-        dbstats = new leveldb::DBStatistics();
+        dbstats.reset(new leveldb::DBStatistics());
         FLAGS_statistics = true;
       }
     } else if (sscanf(argv[i], "--writes=%d%c", &n, &junk) == 1) {

@@ -196,7 +196,7 @@ Iterator* Table::BlockReader(void* arg,
                              bool* didIO) {
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache.get();
-  Statistics* const statistics = table->rep_->options.statistics;
+  std::shared_ptr<Statistics> statistics = table->rep_->options.statistics;
   Block* block = nullptr;
   Cache::Handle* cache_handle = nullptr;
 
