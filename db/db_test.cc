@@ -2681,6 +2681,13 @@ TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
   ASSERT_TRUE(iter->Valid());
 }
 
+TEST(DBTest, TransactionLogIteratorJustEmptyFile) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(&options);
+  unique_ptr<TransactionLogIterator> iter;
+  Status status = dbfull()->GetUpdatesSince(0, &iter);
+  ASSERT_TRUE(!status.ok());
+}
 TEST(DBTest, ReadCompaction) {
   std::string value(4096, '4'); // a string of size 4K
   {

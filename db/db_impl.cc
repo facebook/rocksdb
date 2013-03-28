@@ -956,6 +956,10 @@ Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
   for( size_t i = startIndex; i < allLogs->size(); ++i) {
     result->push_back(allLogs->at(i));
   }
+  if (result->empty()) {
+    return Status::IOError(
+        "No probable files. Check if the db contains log files");
+  }
   return Status::OK();
 }
 
