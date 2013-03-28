@@ -149,7 +149,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       bg_cv_(&mutex_),
       mem_(new MemTable(internal_comparator_, NumberLevels())),
       logfile_number_(0),
-      tmp_batch_(new WriteBatch),
+      tmp_batch_(),
       bg_compaction_scheduled_(0),
       bg_logstats_scheduled_(false),
       manual_compaction_(nullptr),
@@ -161,6 +161,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       stall_level0_num_files_(0),
       started_at_(options.env->NowMicros()),
       flush_on_destroy_(false),
+      stats_(options.num_levels),
       delayed_writes_(0),
       last_flushed_sequence_(0),
       storage_options_(options) {
@@ -168,7 +169,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   mem_->Ref();
 
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
-  stats_ = new CompactionStats[options.num_levels];
 
   stall_leveln_slowdown_.resize(options.num_levels);
   for (int i = 0; i < options.num_levels; ++i)
@@ -186,7 +186,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   options_.Dump(options_.info_log.get());
 
 #ifdef USE_SCRIBE
-  logger_ = new ScribeLogger("localhost", 1456);
+  logger_.reset(new ScribeLogger("localhost", 1456));
 #endif
 
   char name[100];
@@ -219,10 +219,6 @@ DBImpl::~DBImpl() {
 
   if (mem_ != nullptr) mem_->Unref();
   imm_.UnrefAll();
-  delete tmp_batch_;
-  delete[] stats_;
-
-  delete logger_;
 }
 
 // Do not flush and close database elegantly. Simulate a crash.
@@ -2015,7 +2011,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       mutex_.Lock();
     }
     last_flushed_sequence_ = current_sequence;
-    if (updates == tmp_batch_) tmp_batch_->Clear();
+    if (updates == &tmp_batch_) tmp_batch_.Clear();
 
     versions_->SetLastSequence(last_sequence);
   }
@@ -2082,7 +2078,7 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
       // Append to *reuslt
       if (result == first->batch) {
         // Switch to temporary batch instead of disturbing caller's batch
-        result = tmp_batch_;
+        result = &tmp_batch_;
         assert(WriteBatchInternal::Count(result) == 0);
         WriteBatchInternal::Append(result, first->batch);
       }

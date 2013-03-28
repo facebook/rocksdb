@@ -225,7 +225,7 @@ class DBImpl : public DB {
 
   // Queue of writers.
   std::deque<Writer*> writers_;
-  WriteBatch* tmp_batch_;
+  WriteBatch tmp_batch_;
 
   SnapshotList snapshots_;
 
@@ -253,7 +253,7 @@ class DBImpl : public DB {
   // Have we encountered a background error in paranoid mode?
   Status bg_error_;
 
-  StatsLogger* logger_;
+  std::unique_ptr<StatsLogger> logger_;
 
   int64_t volatile last_log_ts;
 
@@ -317,7 +317,7 @@ class DBImpl : public DB {
     }
   };
 
-  CompactionStats* stats_;
+  std::vector<CompactionStats> stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   std::string db_absolute_path_;
