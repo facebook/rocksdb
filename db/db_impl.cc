@@ -2178,8 +2178,13 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
       unique_ptr<WritableFile> lfile;
-      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile,
-                                storage_options_);
+      StorageOptions soptions(storage_options_);
+      soptions.DisableMmapWrites();
+      s = env_->NewWritableFile(
+            LogFileName(dbname_, new_log_number),
+            &lfile,
+            soptions
+          );
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
@@ -2394,6 +2399,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
+    soptions.DisableMmapWrites();
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
                                      &lfile, soptions);
     if (s.ok()) {

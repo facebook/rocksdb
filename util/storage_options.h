@@ -50,6 +50,10 @@ class StorageOptions : public EnvOptions {
   bool UseMmapWrites() const { return use_mmap_writes_; }
   bool UseReadaheadCompactions() const { return readahead_compactions_;}
 
+  void DisableMmapWrites() {
+    use_mmap_writes_ = false;
+  }
+
  private:
   bool data_in_os_;
   bool fs_readahead_;
