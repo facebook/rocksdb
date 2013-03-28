@@ -934,9 +934,7 @@ Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
     if (!s.ok()) {
       if (CheckFileExistsAndEmpty(allLogs->at(mid))) {
         allLogs->erase(allLogs->begin() + mid);
-        if (mid == start) {
-          ++start;
-        }
+        --end;
         continue;
       }
       return s;
