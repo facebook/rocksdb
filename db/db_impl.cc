@@ -443,24 +443,21 @@ void DBImpl::PurgeObsoleteWALFiles() {
     int64_t currentTime;
     const Status status = env_->GetCurrentTime(&currentTime);
     assert(status.ok());
-    for (std::vector<std::string>::iterator it = WALFiles.begin();
-         it != WALFiles.end();
-         ++it) {
-
-    uint64_t fileMTime;
-    const std::string filePath = archivalDir + "/" + *it;
-    const Status s = env_->GetFileModificationTime(filePath, &fileMTime);
-    if (s.ok()) {
-      if (status.ok() &&
-         (currentTime - fileMTime > options_.WAL_ttl_seconds)) {
-        Status delStatus = env_->DeleteFile(filePath);
-        if (!delStatus.ok()) {
-          Log(options_.info_log,
-              "Failed Deleting a WAL file Error : i%s",
-              delStatus.ToString().c_str());
+    for (const auto& f : WALFiles) {
+      uint64_t fileMTime;
+      const std::string filePath = archivalDir + "/" + f;
+      const Status s = env_->GetFileModificationTime(filePath, &fileMTime);
+      if (s.ok()) {
+        if (status.ok() &&
+            (currentTime - fileMTime > options_.WAL_ttl_seconds)) {
+          Status delStatus = env_->DeleteFile(filePath);
+          if (!delStatus.ok()) {
+            Log(options_.info_log,
+                "Failed Deleting a WAL file Error : i%s",
+                delStatus.ToString().c_str());
+          }
         }
-      }
-    } // Ignore errors.
+      } // Ignore errors.
     }
   }
 }
@@ -1051,12 +1048,10 @@ Status DBImpl::ListAllWALFiles(const std::string& path,
   if (!status.ok()) {
     return status;
   }
-  for(std::vector<std::string>::iterator it = allFiles.begin();
-      it != allFiles.end();
-      ++it) {
+  for (const auto& f : allFiles) {
     uint64_t number;
     FileType type;
-    if (ParseFileName(*it, &number, &type) && type == kLogFile){
+    if (ParseFileName(f, &number, &type) && type == kLogFile){
       logFiles->push_back(LogFile(number, logType));
     }
   }
@@ -1366,10 +1361,7 @@ void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
 // Frees up unused file number.
 void DBImpl::ReleaseCompactionUnusedFileNumbers(CompactionState* compact) {
   mutex_.AssertHeld();
-  for (std::list<uint64_t>::iterator it =
-       compact->allocated_file_numbers.begin();
-       it != compact->allocated_file_numbers.end(); ++it) {
-    uint64_t file_number = *it;
+  for (const auto file_number : compact->allocated_file_numbers) {
     pending_outputs_.erase(file_number);
     // Log(options_.info_log, "XXX releasing unused file num %d", file_number);
   }
@@ -1513,13 +1505,13 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
   SequenceNumber in, std::vector<SequenceNumber>& snapshots) {
   SequenceNumber prev __attribute__((unused)) = 0;
-  for (std::vector<SequenceNumber>::iterator it = snapshots.begin();
-       it < snapshots.end(); it++) {
-    assert (prev <= *it);
-    if (*it >= in) {
-      return *it;
+  for (const auto cur : snapshots) {
+    assert(prev <= cur);
+    if (cur >= in) {
+      return cur;
     }
-    assert(prev = *it); // assignment
+    prev = cur; // assignment
+    assert(prev);
   }
   Log(options_.info_log,
       "Looking for seqid %ld but maxseqid is %ld", in,
