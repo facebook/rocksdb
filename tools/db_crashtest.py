@@ -25,7 +25,8 @@ def main(argv):
     interval = 120  # time for one db_stress instance to run
     duration = 6000  # total time for this script to test db_stress
     threads = 32
-    ops_per_thread = 500000
+    # since we will be killing anyway, use large value for ops_per_thread
+    ops_per_thread = 10000000
     write_buf_size = 4 * 1024 * 1024
 
     for opt, arg in opts:
@@ -62,10 +63,10 @@ def main(argv):
                         --ops_per_thread=0' + str(ops_per_thread) + ' \
                         --threads=0' + str(threads) + ' \
                         --write_buffer_size=' + str(write_buf_size) + '\
-                        --reopen=10 \
+                        --reopen=0 \
                         --readpercent=50 \
                         --db=/tmp/rocksdb/crashtest \
-                        --max_key=100'], stderr=subprocess.PIPE, shell=True)
+                        --max_key=1000'], stderr=subprocess.PIPE, shell=True)
         time.sleep(interval)
         while True:
             if time.time() > killtime:
