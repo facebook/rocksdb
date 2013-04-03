@@ -549,13 +549,13 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
       // update the file number allocation counter in VersionSet.
       versions_->MarkFileNumberUsed(logs[i]);
     }
-    // This could be the last_flushed_sequence as the next sequences will be
-    // greater than this.
-    last_flushed_sequence_ = max_sequence;
 
     if (s.ok()) {
       if (versions_->LastSequence() < max_sequence) {
         versions_->SetLastSequence(max_sequence);
+        last_flushed_sequence_ = max_sequence;
+      } else {
+        last_flushed_sequence_ = versions_->LastSequence();
       }
     }
   }

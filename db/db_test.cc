@@ -2688,6 +2688,18 @@ TEST(DBTest, TransactionLogIteratorJustEmptyFile) {
   Status status = dbfull()->GetUpdatesSince(0, &iter);
   ASSERT_TRUE(!status.ok());
 }
+
+TEST(DBTest, TransactionLogIteratorCheckAfterRestart) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(&options);
+  Put("key1", DummyString(1024));
+  Put("key2", DummyString(1023));
+  dbfull()->Flush(FlushOptions());
+  Reopen(&options);
+  auto iter = OpenTransactionLogIter(0);
+  ExpectRecords(2, iter);
+}
+
 TEST(DBTest, ReadCompaction) {
   std::string value(4096, '4'); // a string of size 4K
   {
