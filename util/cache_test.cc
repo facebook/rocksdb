@@ -5,6 +5,8 @@
 #include "leveldb/cache.h"
 
 #include <vector>
+#include <string>
+#include <iostream>
 #include "util/coding.h"
 #include "util/testharness.h"
 
@@ -176,6 +178,51 @@ TEST(CacheTest, NewId) {
   uint64_t a = cache_->NewId();
   uint64_t b = cache_->NewId();
   ASSERT_NE(a, b);
+}
+
+
+class Value {
+ private:
+  int v_;
+ public:
+  Value(int v) : v_(v) { }
+
+  ~Value() { std::cout << v_ << " is destructed\n"; }
+};
+
+void deleter(const Slice& key, void* value) {
+  delete (Value *)value;
+}
+
+
+TEST(CacheTest, BadEviction) {
+  int n = 10;
+
+  // a LRUCache with n entries and one shard only
+  std::shared_ptr<Cache> cache = NewLRUCache(n, 0);
+
+  std::vector<Cache::Handle*> handles(n+1);
+
+  // Insert n+1 entries, but not releasing.
+  for (int i = 0; i < n+1; i++) {
+    std::string key = std::to_string(i+1);
+    handles[i] = cache->Insert(key, new Value(i+1), 1, &deleter);
+  }
+
+  // Guess what's in the cache now?
+  for (int i = 0; i < n+1; i++) {
+    std::string key = std::to_string(i+1);
+    auto h = cache->Lookup(key);
+    std::cout << key << (h?" found\n":" not found\n");
+    // Only the first entry should be missing
+    ASSERT_TRUE(h || i == 0);
+    if (h) cache->Release(h);
+  }
+
+  for (int i = 0; i < n+1; i++) {
+    cache->Release(handles[i]);
+  }
+  std::cout << "Poor entries\n";
 }
 
 }  // namespace leveldb

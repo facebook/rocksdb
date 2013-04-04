@@ -189,7 +189,7 @@ void LRUCache::Unref(LRUHandle* e) {
   assert(e->refs > 0);
   e->refs--;
   if (e->refs <= 0) {
-    usage_ -= e->charge;
+
     (*e->deleter)(e->key(), e->value);
     free(e);
   }
@@ -198,6 +198,7 @@ void LRUCache::Unref(LRUHandle* e) {
 void LRUCache::LRU_Remove(LRUHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
+  usage_ -= e->charge;
 }
 
 void LRUCache::LRU_Append(LRUHandle* e) {
@@ -206,6 +207,7 @@ void LRUCache::LRU_Append(LRUHandle* e) {
   e->prev = lru_.prev;
   e->prev->next = e;
   e->next->prev = e;
+  usage_ += e->charge;
 }
 
 Cache::Handle* LRUCache::Lookup(const Slice& key, uint32_t hash) {
@@ -239,7 +241,6 @@ Cache::Handle* LRUCache::Insert(
   e->refs = 2;  // One from LRUCache, one for the returned handle
   memcpy(e->key_data, key.data(), key.size());
   LRU_Append(e);
-  usage_ += charge;
 
   LRUHandle* old = table_.Insert(e);
   if (old != nullptr) {
@@ -281,7 +282,8 @@ class ShardedLRUCache : public Cache {
   }
 
   uint32_t Shard(uint32_t hash) {
-    return hash >> (32 - numShardBits);
+    // Note, hash >> 32 yields hash in gcc, not the zero we expect!
+    return (numShardBits > 0) ? (hash >> (32 - numShardBits)) : 0;
   }
 
   void init(size_t capacity, int numbits) {
