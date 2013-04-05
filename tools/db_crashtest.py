@@ -1,9 +1,11 @@
+#! /usr/bin/env python
 import os
 import sys
 import time
 import shlex
 import getopt
 import logging
+import tempfile
 import subprocess
 
 # This python script runs and kills db_stress multiple times with
@@ -13,7 +15,6 @@ import subprocess
 # This checks consistency in case of unsafe crashes in  Rocksdb
 
 def main(argv):
-    os.system("make -C ~/rocksdb db_stress")
     try:
         opts, args = getopt.getopt(argv, "hd:t:i:o:b:")
     except getopt.GetoptError:
@@ -53,19 +54,21 @@ def main(argv):
 
     exit_time = time.time() + duration
 
+    dirpath = tempfile.mkdtemp()
+
     while time.time() < exit_time:
         run_had_errors = False
         print "Running db_stress \n"
-        os.system("mkdir -p /tmp/rocksdb/crashtest")
         killtime = time.time() + interval
-        child = subprocess.Popen(['~/rocksdb/db_stress \
+        child = subprocess.Popen(['./db_stress \
                         --test_batches_snapshots=1 \
                         --ops_per_thread=0' + str(ops_per_thread) + ' \
                         --threads=0' + str(threads) + ' \
                         --write_buffer_size=' + str(write_buf_size) + '\
+                        --destroy_db_initially=0 \
                         --reopen=0 \
                         --readpercent=50 \
-                        --db=/tmp/rocksdb/crashtest \
+                        --db=' + dirpath + '\
                         --max_key=1000'], stderr=subprocess.PIPE, shell=True)
         time.sleep(interval)
         while True:

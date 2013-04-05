@@ -115,6 +115,9 @@ check: all $(PROGRAMS) $(TESTS) $(TOOLS) ldb_tests
 ldb_tests: all $(PROGRAMS) $(TOOLS)
 	python tools/ldb_test.py
 
+crash_test: db_stress
+	python tools/db_crashtest.py
+
 valgrind_check: all $(PROGRAMS) $(TESTS)
 	echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \
 	echo TIMES in seconds TAKEN BY TESTS ON VALGRIND > $(VALGRIND_DIR)/valgrind_tests_times; \
