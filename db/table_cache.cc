@@ -12,14 +12,9 @@
 
 namespace leveldb {
 
-struct TableAndFile {
-  unique_ptr<Table> table;
-};
-
-
 static void DeleteEntry(const Slice& key, void* value) {
-  TableAndFile* tf = reinterpret_cast<TableAndFile*>(value);
-  delete tf;
+  Table* table = reinterpret_cast<Table*>(value);
+  delete table;
 }
 
 static void UnrefEntry(void* arg1, void* arg2) {
@@ -68,10 +63,8 @@ Status TableCache::FindTable(const EnvOptions& toptions,
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
-      TableAndFile* tf = new TableAndFile;
-      tf->table = std::move(table);
       assert(file.get() == nullptr);
-      *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
+      *handle = cache_->Insert(key, table.release(), 1, &DeleteEntry);
     }
   }
   return s;
@@ -93,7 +86,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   }
 
   Table* table =
-    reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table.get();
+    reinterpret_cast<Table*>(cache_->Value(handle));
   Iterator* result = table->NewIterator(options);
   result->RegisterCleanup(&UnrefEntry, cache_.get(), handle);
   if (tableptr != nullptr) {
@@ -114,7 +107,7 @@ Status TableCache::Get(const ReadOptions& options,
                        &handle, tableIO);
   if (s.ok()) {
     Table* t =
-      reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table.get();
+      reinterpret_cast<Table*>(cache_->Value(handle));
     s = t->InternalGet(options, k, arg, saver);
     cache_->Release(handle);
   }
