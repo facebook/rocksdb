@@ -122,6 +122,10 @@ static bool FLAGS_disable_data_sync = false;
 // If true, issue fsync instead of fdatasync
 static bool FLAGS_use_fsync = false;
 
+// If non-zero, kill at various points in source code with probability 1/this
+static int FLAGS_kill_random_test = 0;
+extern int leveldb_kill_odds;
+
 // If true, do not write WAL for write.
 static bool FLAGS_disable_wal = false;
 
@@ -698,7 +702,7 @@ class StressTest {
         char expected_prefix = (keys[i])[0];
         char actual_prefix = (values[i])[0];
         if (actual_prefix != expected_prefix) {
-          fprintf(stderr, "expected prefix = %c actual = %c\n",
+          fprintf(stderr, "error expected prefix = %c actual = %c\n",
                   expected_prefix, actual_prefix);
         }
         (values[i])[0] = ' '; // blank out the differing character
@@ -710,7 +714,7 @@ class StressTest {
     // Now that we retrieved all values, check that they all match
     for (int i = 1; i < 10; i++) {
       if (values[i] != values[0]) {
-        fprintf(stderr, "inconsistent values for key %s: %s, %s\n",
+        fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
                 key.ToString().c_str(), values[0].c_str(),
                 values[i].c_str());
       // we continue after error rather than exiting so that we can
@@ -931,6 +935,7 @@ class StressTest {
     options.env = FLAGS_env;
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
+    leveldb_kill_odds = FLAGS_kill_random_test;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
@@ -1093,6 +1098,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--use_fsync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_use_fsync = n;
+    } else if (sscanf(argv[i], "--kill_random_test=%d%c", &n, &junk) == 1 &&
+               (n >= 0)) {
+      FLAGS_kill_random_test = n;
     } else if (sscanf(argv[i], "--disable_wal=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_wal = n;

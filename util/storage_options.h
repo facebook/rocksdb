@@ -21,8 +21,7 @@ class StorageOptions : public EnvOptions {
     readahead_compactions_(opt.allow_readahead_compactions),
     use_mmap_reads_(opt.allow_mmap_reads),
     use_mmap_writes_(opt.allow_mmap_writes),
-    set_fd_cloexec_(opt.is_fd_close_on_exec)
-    {
+    set_fd_cloexec_(opt.is_fd_close_on_exec) {
   }
 
   // copy constructor with readaheads set to readahead_compactions_
