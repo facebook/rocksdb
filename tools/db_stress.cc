@@ -62,6 +62,9 @@ static bool FLAGS_verify_before_write = false;
 // Print histogram of operation timings
 static bool FLAGS_histogram = false;
 
+// Destroys the database dir before start if this is true
+static bool FLAGS_destroy_db_initially = true;
+
 static bool FLAGS_verbose = false;
 
 // Number of bytes to buffer in memtable before compacting
@@ -472,14 +475,16 @@ class StressTest {
                        : nullptr),
         db_(nullptr),
         num_times_reopened_(0) {
-    std::vector<std::string> files;
-    FLAGS_env->GetChildren(FLAGS_db, &files);
-    for (unsigned int i = 0; i < files.size(); i++) {
-      if (Slice(files[i]).starts_with("heap-")) {
-        FLAGS_env->DeleteFile(std::string(FLAGS_db) + "/" + files[i]);
+    if (FLAGS_destroy_db_initially) {
+      std::vector<std::string> files;
+      FLAGS_env->GetChildren(FLAGS_db, &files);
+      for (unsigned int i = 0; i < files.size(); i++) {
+        if (Slice(files[i]).starts_with("heap-")) {
+          FLAGS_env->DeleteFile(std::string(FLAGS_db) + "/" + files[i]);
+        }
       }
+      DestroyDB(FLAGS_db, Options());
     }
-    DestroyDB(FLAGS_db, Options());
   }
 
   ~StressTest() {
@@ -1001,6 +1006,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--histogram=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_histogram = n;
+    } else if (sscanf(argv[i], "--destroy_db_initially=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_destroy_db_initially = n;
     } else if (sscanf(argv[i], "--verify_before_write=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_verify_before_write = n;
