@@ -50,7 +50,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   const std::string& dbname_;
   const Options* options_;
   const StorageOptions& soptions_;
-  const uint64_t sequenceNumber_;
+  const uint64_t startingSequenceNumber_;
   const std::vector<LogFile>* files_;
   bool started_;
   bool isValid_;  // not valid when it starts of.
@@ -65,6 +65,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   SequenceNumber currentSequence_;
 
   void UpdateCurrentWriteBatch(const Slice& record);
+  Status OpenLogReader(const LogFile& file);
 };
 
 

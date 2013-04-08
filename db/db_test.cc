@@ -2700,6 +2700,22 @@ TEST(DBTest, TransactionLogIteratorCheckAfterRestart) {
   ExpectRecords(2, iter);
 }
 
+TEST(DBTest, TransactionLogIteratorBatchOperations) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(&options);
+  WriteBatch batch;
+  batch.Put("key1", DummyString(1024));
+  batch.Put("key2", DummyString(1024));
+  batch.Put("key3", DummyString(1024));
+  batch.Delete("key2");
+  dbfull()->Write(WriteOptions(), &batch);
+  dbfull()->Flush(FlushOptions());
+  Reopen(&options);
+  Put("key4", DummyString(1024));
+  auto iter = OpenTransactionLogIter(3);
+  ExpectRecords(1, iter);
+}
+
 TEST(DBTest, ReadCompaction) {
   std::string value(4096, '4'); // a string of size 4K
   {

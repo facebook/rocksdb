@@ -907,7 +907,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                    probableWALFiles,
                                    &last_flushed_sequence_));
   iter->get()->Next();
-  return Status::OK();
+  return iter->get()->status();
 }
 
 Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
