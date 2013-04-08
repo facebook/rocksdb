@@ -1121,6 +1121,13 @@ int main(int argc, char** argv) {
       exit(1);
   }
 
+  if ((unsigned)FLAGS_reopen >= FLAGS_ops_per_thread) {
+      fprintf(stderr, "Error: #DB-reopens should be < ops_per_thread\n"
+        "Provided reopens = %d and ops_per_thread = %u\n", FLAGS_reopen,
+        FLAGS_ops_per_thread);
+      exit(1);
+  }
+
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db == nullptr) {
       leveldb::Env::Default()->GetTestDirectory(&default_db_path);
