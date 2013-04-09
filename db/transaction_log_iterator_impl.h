@@ -30,13 +30,8 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
                              const Options* options,
                              const StorageOptions& soptions,
                              SequenceNumber& seqNum,
-                             std::vector<LogFile>* files,
+                             std::unique_ptr<std::vector<LogFile>> files,
                              SequenceNumber const * const lastFlushedSequence);
-
-  virtual ~TransactionLogIteratorImpl() {
-    //  TODO move to cc file.
-    delete files_;
-  }
 
   virtual bool Valid();
 
@@ -51,7 +46,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   const Options* options_;
   const StorageOptions& soptions_;
   const uint64_t startingSequenceNumber_;
-  const std::vector<LogFile>* files_;
+  std::unique_ptr<std::vector<LogFile>> files_;
   bool started_;
   bool isValid_;  // not valid when it starts of.
   Status currentStatus_;

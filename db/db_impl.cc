@@ -894,8 +894,9 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   }
   //  std::shared_ptr would have been useful here.
 
-  std::vector<LogFile>* probableWALFiles = new std::vector<LogFile>();
-  s = FindProbableWALFiles(&walFiles, probableWALFiles, seq);
+  std::unique_ptr<std::vector<LogFile>> probableWALFiles(
+    new std::vector<LogFile>());
+  s = FindProbableWALFiles(&walFiles, probableWALFiles.get(), seq);
   if (!s.ok()) {
     return s;
   }
@@ -904,7 +905,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                    &options_,
                                    storage_options_,
                                    seq,
-                                   probableWALFiles,
+                                   std::move(probableWALFiles),
                                    &last_flushed_sequence_));
   iter->get()->Next();
   return iter->get()->status();

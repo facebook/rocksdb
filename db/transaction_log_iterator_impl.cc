@@ -9,18 +9,18 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
                            const Options* options,
                            const StorageOptions& soptions,
                            SequenceNumber& seq,
-                           std::vector<LogFile>* files,
+                           std::unique_ptr<std::vector<LogFile>> files,
                            SequenceNumber const * const lastFlushedSequence) :
   dbname_(dbname),
   options_(options),
   soptions_(soptions),
   startingSequenceNumber_(seq),
-  files_(files),
+  files_(std::move(files)),
   started_(false),
   isValid_(false),
   currentFileIndex_(0),
   lastFlushedSequence_(lastFlushedSequence) {
-  assert(files_ != nullptr);
+  assert(files_.get() != nullptr);
   assert(lastFlushedSequence_);
 }
 
@@ -73,7 +73,7 @@ bool TransactionLogIteratorImpl::Valid() {
 }
 
 void TransactionLogIteratorImpl::Next() {
-  LogFile currentLogFile = files_->at(currentFileIndex_);
+  LogFile currentLogFile = files_.get()->at(currentFileIndex_);
   LogReporter reporter = NewLogReporter(currentLogFile.logNumber);
 
 //  First seek to the given seqNo. in the current file.
@@ -134,9 +134,9 @@ void TransactionLogIteratorImpl::Next() {
     }
 
     if (openNextFile) {
-      if (currentFileIndex_ < files_->size() - 1) {
+      if (currentFileIndex_ < files_.get()->size() - 1) {
         ++currentFileIndex_;
-        Status status = OpenLogReader(files_->at(currentFileIndex_));
+        Status status = OpenLogReader(files_.get()->at(currentFileIndex_));
         if (!status.ok()) {
           isValid_ = false;
           currentStatus_ = status;
