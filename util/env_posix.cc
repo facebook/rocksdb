@@ -425,7 +425,7 @@ class PosixWritableFile : public WritableFile {
   int fd_;
   size_t cursize_;      // current size of cached data in buf_
   size_t capacity_;     // max size of buf_
-  char* buf_;           // a buffer to cache writes
+  unique_ptr<char[]> buf_;           // a buffer to cache writes
   uint64_t filesize_;
   bool pending_sync_;
   bool pending_fsync_;
@@ -448,8 +448,6 @@ class PosixWritableFile : public WritableFile {
     if (fd_ >= 0) {
       PosixWritableFile::Close();
     }
-    delete buf_;
-    buf_ = 0;
   }
 
   virtual Status Append(const Slice& data) {
@@ -468,9 +466,8 @@ class PosixWritableFile : public WritableFile {
       }
       // Increase the buffer size, but capped at 1MB
       if (capacity_ < (1<<20)) {
-        delete buf_;
         capacity_ *= 2;
-        buf_ = new char[capacity_];
+        buf_.reset(new char[capacity_]);
       }
       assert(cursize_ == 0);
     }
@@ -478,7 +475,7 @@ class PosixWritableFile : public WritableFile {
     // if the write fits into the cache, then write to cache
     // otherwise do a write() syscall to write to OS buffers.
     if (cursize_ + left <= capacity_) {
-      memcpy(buf_+cursize_, src, left);
+      memcpy(buf_.get()+cursize_, src, left);
       cursize_ += left;
     } else {
       while (left != 0) {
@@ -511,7 +508,7 @@ class PosixWritableFile : public WritableFile {
   // write out the cached data to the OS cache
   virtual Status Flush() {
     size_t left = cursize_;
-    char* src = buf_;
+    char* src = buf_.get();
     while (left != 0) {
       ssize_t done = write(fd_, src, left);
       if (done < 0) {
