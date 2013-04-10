@@ -20,7 +20,9 @@ class StorageOptions : public EnvOptions {
     fs_readahead_(opt.allow_readahead),
     readahead_compactions_(opt.allow_readahead_compactions),
     use_mmap_reads_(opt.allow_mmap_reads),
-    use_mmap_writes_(opt.allow_mmap_writes) {
+    use_mmap_writes_(opt.allow_mmap_writes),
+    set_fd_cloexec_(opt.is_fd_close_on_exec)
+    {
   }
 
   // copy constructor with readaheads set to readahead_compactions_
@@ -30,6 +32,7 @@ class StorageOptions : public EnvOptions {
     readahead_compactions_ = opt.UseReadaheadCompactions();
     use_mmap_reads_ = opt.UseMmapReads();
     use_mmap_writes_ = opt.UseMmapWrites();
+    set_fd_cloexec_ = opt.IsFDCloseOnExec();
   }
 
   // constructor with default options
@@ -40,6 +43,7 @@ class StorageOptions : public EnvOptions {
     readahead_compactions_ = fs_readahead_;
     use_mmap_reads_ = opt.allow_mmap_reads;
     use_mmap_writes_ = opt.allow_mmap_writes;
+    set_fd_cloexec_ = opt.is_fd_close_on_exec;
   }
 
   virtual ~StorageOptions() {}
@@ -49,6 +53,7 @@ class StorageOptions : public EnvOptions {
   bool UseMmapReads() const { return use_mmap_reads_; }
   bool UseMmapWrites() const { return use_mmap_writes_; }
   bool UseReadaheadCompactions() const { return readahead_compactions_;}
+  bool IsFDCloseOnExec() const { return set_fd_cloexec_;}
 
   void DisableMmapWrites() {
     use_mmap_writes_ = false;
@@ -60,6 +65,7 @@ class StorageOptions : public EnvOptions {
   bool readahead_compactions_;
   bool use_mmap_reads_;
   bool use_mmap_writes_;
+  bool set_fd_cloexec_;
 };
 
 }  // namespace leveldb

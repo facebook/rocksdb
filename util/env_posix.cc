@@ -605,6 +605,12 @@ class PosixEnv : public Env {
     exit(1);
   }
 
+  void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
+    if ((options == nullptr || options->IsFDCloseOnExec()) && fd > 0) {
+      fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
+    }
+  }
+
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) {
@@ -614,6 +620,8 @@ class PosixEnv : public Env {
       *result = nullptr;
       return IOError(fname, errno);
     } else {
+      int fd = fileno(f);
+      SetFD_CLOEXEC(fd, &options);
       result->reset(new PosixSequentialFile(fname, f, options));
       return Status::OK();
     }
@@ -625,6 +633,7 @@ class PosixEnv : public Env {
     result->reset();
     Status s;
     int fd = open(fname.c_str(), O_RDONLY);
+    SetFD_CLOEXEC(fd, &options);
     if (fd < 0) {
       s = IOError(fname, errno);
     } else if (options.UseMmapReads() && sizeof(void*) >= 8) {
@@ -657,6 +666,7 @@ class PosixEnv : public Env {
     if (fd < 0) {
       s = IOError(fname, errno);
     } else {
+      SetFD_CLOEXEC(fd, &options);
       if (options.UseMmapWrites()) {
         if (!checkedDiskForMmap_) {
           // this will be executed once in the program's lifetime.
@@ -772,6 +782,7 @@ class PosixEnv : public Env {
       result = IOError("lock " + fname, errno);
       close(fd);
     } else {
+      SetFD_CLOEXEC(fd, nullptr);
       PosixFileLock* my_lock = new PosixFileLock;
       my_lock->fd_ = fd;
       my_lock->filename = fname;
@@ -823,6 +834,8 @@ class PosixEnv : public Env {
       result->reset();
       return IOError(fname, errno);
     } else {
+      int fd = fileno(f);
+      SetFD_CLOEXEC(fd, nullptr);
       result->reset(new PosixLogger(f, &PosixEnv::gettid));
       return Status::OK();
     }

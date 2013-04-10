@@ -415,6 +415,9 @@ struct Options {
 
   // Allow the OS to mmap file for writing. Default: true
   bool allow_mmap_writes;
+
+  // Disable child process inherit open files. Default: true
+  bool is_fd_close_on_exec;
 };
 
 // Options that control read operations

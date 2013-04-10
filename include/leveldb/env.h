@@ -385,6 +385,9 @@ class EnvOptions {
 
    // If true, then use mmap to write data
    virtual bool UseMmapWrites() const = 0;
+
+   // If true, set the FD_CLOEXEC on open fd.
+   virtual bool IsFDCloseOnExec() const = 0;
 };
 
 // Log the specified data to *info_log if info_log is non-nullptr.

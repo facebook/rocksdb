@@ -64,7 +64,8 @@ Options::Options()
       allow_readahead(true),
       allow_readahead_compactions(true),
       allow_mmap_reads(false),
-      allow_mmap_writes(true) {
+      allow_mmap_writes(true),
+      is_fd_close_on_exec(true) {
 }
 
 void
@@ -168,6 +169,20 @@ Options::Dump(Logger* log) const
         WAL_ttl_seconds);
     Log(log,"            Options.manifest_preallocation_size: %ld",
         manifest_preallocation_size);
+    Log(log,"         Options.purge_redundant_kvs_while_flush: %d",
+        purge_redundant_kvs_while_flush);
+    Log(log,"                         Options.allow_os_buffer: %d",
+        allow_os_buffer);
+    Log(log,"                         Options.allow_readahead: %d",
+        allow_readahead);
+    Log(log,"             Options.allow_readahead_compactions: %d",
+        allow_readahead_compactions);
+    Log(log,"                        Options.allow_mmap_reads: %d",
+        allow_mmap_reads);
+    Log(log,"                       Options.allow_mmap_writes: %d",
+        allow_mmap_writes);
+    Log(log,"                     Options.is_fd_close_on_exec: %d",
+        is_fd_close_on_exec);
 }   // Options::Dump
 
 //
