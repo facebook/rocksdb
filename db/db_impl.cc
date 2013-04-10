@@ -1393,12 +1393,12 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   std::string fname = TableFileName(dbname_, file_number);
   Status s = env_->NewWritableFile(fname, &compact->outfile, storage_options_);
 
-  // Over-estimate slightly so we don't end up just barely crossing
-  // the threshold.
-  compact->outfile->SetPreallocationBlockSize(
-    1.1 * versions_->MaxFileSizeForLevel(compact->compaction->level() + 1));
-
   if (s.ok()) {
+    // Over-estimate slightly so we don't end up just barely crossing
+    // the threshold.
+    compact->outfile->SetPreallocationBlockSize(
+      1.1 * versions_->MaxFileSizeForLevel(compact->compaction->level() + 1));
+
     compact->builder.reset(new TableBuilder(options_, compact->outfile.get(),
                                             compact->compaction->level() + 1));
   }
