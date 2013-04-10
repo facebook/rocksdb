@@ -18,8 +18,8 @@ def main(argv):
     try:
         opts, args = getopt.getopt(argv, "hd:t:i:o:b:")
     except getopt.GetoptError:
-        print "db_crashtest.py -d <duration_test> -t <#threads> " \
-            "-i <interval for one run> -o <ops_per_thread>\n"
+        print("db_crashtest.py -d <duration_test> -t <#threads> "
+              "-i <interval for one run> -o <ops_per_thread>\n")
         sys.exit(2)
 
     # default values, will be overridden by cmdline args
@@ -32,9 +32,9 @@ def main(argv):
 
     for opt, arg in opts:
         if opt == '-h':
-            print "db_crashtest.py -d <duration_test> -t <#threads> " \
-                "-i <interval for one run> -o <ops_per_thread> "\
-                "-b <write_buffer_size>\n"
+            print("db_crashtest.py -d <duration_test>"
+                  " -t <#threads> -i <interval for one run>"
+                  " -o <ops_per_thread> -b <write_buffer_size>\n")
             sys.exit()
         elif opt == ("-d"):
             duration = int(arg)
@@ -47,18 +47,23 @@ def main(argv):
         elif opt == ("-b"):
             write_buf_size = int(arg)
         else:
-            print "db_crashtest.py -d <duration_test> -t <#threads> " \
-                "-i <interval for one run> -o <ops_per_thread> " \
-                "-b <write_buffer_size>\n"
+            print("db_crashtest.py -d <duration_test>"
+                  " -t <#threads> -i <interval for one run>"
+                  " -o <ops_per_thread> -b <write_buffer_size>\n")
             sys.exit(2)
 
     exit_time = time.time() + duration
 
     dirpath = tempfile.mkdtemp()
 
+    print("Running crash-test with \ninterval_between_crash="
+          + str(interval) + "\ntotal-duration=" + str(duration)
+          + "\nthreads=" + str(threads) + "\nops_per_thread="
+          + str(ops_per_thread) + "\nwrite_buffer_size="
+          + str(write_buf_size) + "\n")
+
     while time.time() < exit_time:
         run_had_errors = False
-        print "Running db_stress \n"
         killtime = time.time() + interval
         child = subprocess.Popen(['./db_stress \
                         --test_batches_snapshots=1 \
@@ -70,21 +75,22 @@ def main(argv):
                         --readpercent=50 \
                         --db=' + dirpath + '\
                         --max_key=1000'], stderr=subprocess.PIPE, shell=True)
+        print("Running db_stress with pid=%d\n" % child.pid)
         time.sleep(interval)
         while True:
             if time.time() > killtime:
                 if child.poll() is not None:
-                    logging.warn("WARNING: db_stress completed before kill\n")
+                    print("WARNING: db_stress ended before kill\n")
                 else:
                     child.kill()
-                    print "KILLED \n"
+                    print("KILLED %d\n" % child.pid)
                     time.sleep(1)  # time to stabilize after a kill
 
                 while True:
                     line = child.stderr.readline().strip()
                     if line != '':
                         run_had_errors = True
-                        print '***' + line + '^'
+                        print('***' + line + '^')
                     else:
                         break
                 if run_had_errors:
