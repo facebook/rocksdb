@@ -11,6 +11,7 @@
 #include <string>
 #include <stdint.h>
 #include <vector>
+#include <unordered_set>
 
 #include "db/builder.h"
 #include "db/db_iter.h"
@@ -91,8 +92,8 @@ struct DBImpl::CompactionState {
 
 struct DBImpl::DeletionState {
 
-  // the set of all live files that cannot be deleted
-  std::set<uint64_t> live;
+  // the list of all live files that cannot be deleted
+  std::vector<uint64_t> live;
 
   // a list of all siles that exists in the db directory
   std::vector<std::string> allfiles;
@@ -101,7 +102,7 @@ struct DBImpl::DeletionState {
   // that corresponds to the set of files in 'live'.
   uint64_t filenumber, lognumber, prevlognumber;
 
-  // the list of all files to be evicted from the table cahce
+  // the list of all files to be evicted from the table cache
   std::vector<uint64_t> files_to_evict;
 };
 
@@ -319,8 +320,10 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
     delete_obsolete_files_last_run_ = now_micros;
   }
 
-  // Make a set of all of the live files
-  deletion_state.live = pending_outputs_;
+  // Make a list of all of the live files; set is slow, should not
+  // be used.
+  deletion_state.live.assign(pending_outputs_.begin(),
+                             pending_outputs_.end());
   versions_->AddLiveFiles(&deletion_state.live);
 
   // set of all files in the directory
@@ -341,6 +344,11 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   FileType type;
   std::vector<std::string> old_log_files;
 
+  // Now, convert live list to an unordered set, WITHOUT mutex held;
+  // set is slow.
+  std::unordered_set<uint64_t> live_set(state.live.begin(),
+                                        state.live.end());
+
   for (size_t i = 0; i < state.allfiles.size(); i++) {
     if (ParseFileName(state.allfiles[i], &number, &type)) {
       bool keep = true;
@@ -355,12 +363,12 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           keep = (number >= state.filenumber);
           break;
         case kTableFile:
-          keep = (state.live.find(number) != state.live.end());
+          keep = (live_set.find(number) != live_set.end());
           break;
         case kTempFile:
           // Any temp files that are currently being written to must
           // be recorded in pending_outputs_, which is inserted into "live"
-          keep = (state.live.find(number) != state.live.end());
+          keep = (live_set.find(number) != live_set.end());
           break;
         case kInfoLogFile:
           keep = true;

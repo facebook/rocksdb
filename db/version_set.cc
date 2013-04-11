@@ -1643,14 +1643,26 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   return result;
 }
 
-void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
+void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
+  // pre-calculate space requirement
+  int64_t total_files = 0;
   for (Version* v = dummy_versions_.next_;
        v != &dummy_versions_;
        v = v->next_) {
     for (int level = 0; level < NumberLevels(); level++) {
-      const std::vector<FileMetaData*>& files = v->files_[level];
-      for (size_t i = 0; i < files.size(); i++) {
-        live->insert(files[i]->number);
+      total_files += v->files_[level].size();
+    }
+  }
+
+  // just one time extension to the right size
+  live_list->reserve(live_list->size() + total_files);
+
+  for (Version* v = dummy_versions_.next_;
+       v != &dummy_versions_;
+       v = v->next_) {
+    for (int level = 0; level < NumberLevels(); level++) {
+      for (const auto& f : v->files_[level]) {
+        live_list->push_back(f->number);
       }
     }
   }

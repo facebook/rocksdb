@@ -326,8 +326,7 @@ class VersionSet {
   }
 
   // Add all files listed in any live version to *live.
-  // May also mutate some internal state.
-  void AddLiveFiles(std::set<uint64_t>* live);
+  void AddLiveFiles(std::vector<uint64_t>* live_list);
 
   // Add all files listed in the current version to *live.
   void AddLiveFilesCurrentVersion(std::set<uint64_t>* live);
