@@ -64,6 +64,9 @@ PLATFORM_SHARED_LDFLAGS="${EXEC_LDFLAGS_SHARED} -shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=true
 
+# generic port files (working on all platform by #ifdef) go directly in /port
+GENERIC_PORT_FILES=`find port -name '*.cc' | tr "\n" " "`
+
 # On GCC, we pick libc's memcmp over GCC's memcmp via -fno-builtin-memcmp
 case "$TARGET_OS" in
     Darwin)
@@ -71,7 +74,7 @@ case "$TARGET_OS" in
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -DOS_MACOSX"
         PLATFORM_SHARED_EXT=dylib
         PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/darwin/darwin_specific.cc
         ;;
     Linux)
         PLATFORM=OS_LINUX
@@ -80,43 +83,43 @@ case "$TARGET_OS" in
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)
         PLATFORM=OS_SOLARIS
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_SOLARIS"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/sunos/sunos_specific.cc
         ;;
     FreeBSD)
         PLATFORM=OS_FREEBSD
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/freebsd/freebsd_specific.cc
         ;;
     NetBSD)
         PLATFORM=OS_NETBSD
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_NETBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lgcc_s"
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/netbsd/netbsd_specific.cc
         ;;
     OpenBSD)
         PLATFORM=OS_OPENBSD
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_OPENBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread"
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/openbsd/openbsd_specific.cc
         ;;
     DragonFly)
         PLATFORM=OS_DRAGONFLYBSD
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_DRAGONFLYBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/dragonfly/dragonfly_specific.cc
         ;;
     OS_ANDROID_CROSSCOMPILE)
         PLATFORM=OS_ANDROID
 	COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_ANDROID -DLEVELDB_PLATFORM_POSIX"
 	PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS "  # All pthread features are in the Android C library
-        PORT_FILE=port/port_posix.cc
+        # PORT_FILES=port/android/android.cc
         CROSS_COMPILE=true
         ;;
     *)
@@ -149,7 +152,7 @@ set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port
 # file.
-echo "SOURCES=$PORTABLE_FILES $PORT_FILE" >> $OUTPUT
+echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> $OUTPUT
 echo "SOURCESCPP=$PORTABLE_CPP" >> $OUTPUT
 echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> $OUTPUT
 

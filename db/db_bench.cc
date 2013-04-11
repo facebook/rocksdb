@@ -19,6 +19,7 @@
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/stack_trace.h"
 #include "util/testutil.h"
 #include "hdfs/env_hdfs.h"
 
@@ -1665,6 +1666,8 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
 }  // namespace leveldb
 
 int main(int argc, char** argv) {
+  leveldb::InstallStackTraceHandler();
+
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
   FLAGS_max_write_buffer_number = leveldb::Options().max_write_buffer_number;
   FLAGS_open_files = leveldb::Options().max_open_files;
