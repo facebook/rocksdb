@@ -46,12 +46,16 @@ const string LDBCommand::ARG_CREATE_IF_MISSING = "create_if_missing";
 
 const char* LDBCommand::DELIM = " ==> ";
 
-LDBCommand* LDBCommand::InitFromCmdLineArgs(int argc, char** argv) {
+LDBCommand* LDBCommand::InitFromCmdLineArgs(
+  int argc,
+  char** argv,
+  Options options
+) {
   vector<string> args;
   for (int i = 1; i < argc; i++) {
     args.push_back(argv[i]);
   }
-  return InitFromCmdLineArgs(args);
+  return InitFromCmdLineArgs(args, options);
 }
 
 /**
@@ -64,14 +68,17 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(int argc, char** argv) {
  * Command name is not included in args.
  * Returns nullptr if the command-line cannot be parsed.
  */
-LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
+LDBCommand* LDBCommand::InitFromCmdLineArgs(
+  const vector<string>& args,
+  Options options
+) {
   // --x=y command line arguments are added as x->y map entries.
-  map<string, string> options;
+  map<string, string> option_map;
 
   // Command-line arguments of the form --hex end up in this array as hex
   vector<string> flags;
 
-  // Everything other than options and flags. Represents commands
+  // Everything other than option_map and flags. Represents commands
   // and their parameters.  For eg: put key1 value1 go into this vector.
   vector<string> cmdTokens;
 
@@ -84,7 +91,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
       vector<string> splits = stringSplit(arg, '=');
       if (splits.size() == 2) {
         string optionKey = splits[0].substr(OPTION_PREFIX.size());
-        options[optionKey] = splits[1];
+        option_map[optionKey] = splits[1];
       } else {
         string optionKey = splits[0].substr(OPTION_PREFIX.size());
         flags.push_back(optionKey);
@@ -101,37 +108,56 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
 
   string cmd = cmdTokens[0];
   vector<string> cmdParams(cmdTokens.begin()+1, cmdTokens.end());
+  LDBCommand* command = LDBCommand::SelectCommand(
+    cmd,
+    cmdParams,
+    option_map,
+    flags
+  );
+
+  if (command) {
+    command->SetOptions(options);
+  }
+  return command;
+}
+
+LDBCommand* LDBCommand::SelectCommand(
+    const std::string& cmd,
+    vector<string>& cmdParams,
+    map<string, string>& option_map,
+    vector<string>& flags
+  ) {
 
   if (cmd == GetCommand::Name()) {
-    return new GetCommand(cmdParams, options, flags);
+    return new GetCommand(cmdParams, option_map, flags);
   } else if (cmd == PutCommand::Name()) {
-    return new PutCommand(cmdParams, options, flags);
+    return new PutCommand(cmdParams, option_map, flags);
   } else if (cmd == BatchPutCommand::Name()) {
-    return new BatchPutCommand(cmdParams, options, flags);
+    return new BatchPutCommand(cmdParams, option_map, flags);
   } else if (cmd == ScanCommand::Name()) {
-    return new ScanCommand(cmdParams, options, flags);
+    return new ScanCommand(cmdParams, option_map, flags);
   } else if (cmd == DeleteCommand::Name()) {
-    return new DeleteCommand(cmdParams, options, flags);
+    return new DeleteCommand(cmdParams, option_map, flags);
   } else if (cmd == ApproxSizeCommand::Name()) {
-    return new ApproxSizeCommand(cmdParams, options, flags);
+    return new ApproxSizeCommand(cmdParams, option_map, flags);
   } else if (cmd == DBQuerierCommand::Name()) {
-    return new DBQuerierCommand(cmdParams, options, flags);
+    return new DBQuerierCommand(cmdParams, option_map, flags);
   } else if (cmd == CompactorCommand::Name()) {
-    return new CompactorCommand(cmdParams, options, flags);
+    return new CompactorCommand(cmdParams, option_map, flags);
   } else if (cmd == WALDumperCommand::Name()) {
-    return new WALDumperCommand(cmdParams, options, flags);
+    return new WALDumperCommand(cmdParams, option_map, flags);
   } else if (cmd == ReduceDBLevelsCommand::Name()) {
-    return new ReduceDBLevelsCommand(cmdParams, options, flags);
+    return new ReduceDBLevelsCommand(cmdParams, option_map, flags);
   } else if (cmd == DBDumperCommand::Name()) {
-    return new DBDumperCommand(cmdParams, options, flags);
+    return new DBDumperCommand(cmdParams, option_map, flags);
   } else if (cmd == DBLoaderCommand::Name()) {
-    return new DBLoaderCommand(cmdParams, options, flags);
+    return new DBLoaderCommand(cmdParams, option_map, flags);
   } else if (cmd == ManifestDumpCommand::Name()) {
-    return new ManifestDumpCommand(cmdParams, options, flags);
+    return new ManifestDumpCommand(cmdParams, option_map, flags);
   }
-
   return nullptr;
 }
+
 
 /**
  * Parses the specific integer option and fills in the value.
@@ -143,8 +169,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(const vector<string>& args) {
 bool LDBCommand::ParseIntOption(const map<string, string>& options,
     string option, int& value, LDBCommandExecuteResult& exec_state) {
 
-  map<string, string>::const_iterator itr = options_.find(option);
-  if (itr != options_.end()) {
+  map<string, string>::const_iterator itr = option_map_.find(option);
+  if (itr != option_map_.end()) {
     try {
       value = stoi(itr->second);
       return true;
@@ -159,17 +185,17 @@ bool LDBCommand::ParseIntOption(const map<string, string>& options,
   return false;
 }
 
-leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
+Options LDBCommand::PrepareOptionsForOpenDB() {
 
-  leveldb::Options opt;
+  Options opt = options_;
   opt.create_if_missing = false;
 
   map<string, string>::const_iterator itr;
 
   int bits;
-  if (ParseIntOption(options_, ARG_BLOOM_BITS, bits, exec_state_)) {
+  if (ParseIntOption(option_map_, ARG_BLOOM_BITS, bits, exec_state_)) {
     if (bits > 0) {
-      opt.filter_policy = leveldb::NewBloomFilterPolicy(bits);
+      opt.filter_policy = NewBloomFilterPolicy(bits);
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_BLOOM_BITS +
                       " must be > 0.");
@@ -177,7 +203,7 @@ leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
   }
 
   int block_size;
-  if (ParseIntOption(options_, ARG_BLOCK_SIZE, block_size, exec_state_)) {
+  if (ParseIntOption(option_map_, ARG_BLOCK_SIZE, block_size, exec_state_)) {
     if (block_size > 0) {
       opt.block_size = block_size;
     } else {
@@ -186,22 +212,22 @@ leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
     }
   }
 
-  itr = options_.find(ARG_AUTO_COMPACTION);
-  if (itr != options_.end()) {
+  itr = option_map_.find(ARG_AUTO_COMPACTION);
+  if (itr != option_map_.end()) {
     opt.disable_auto_compactions = ! StringToBool(itr->second);
   }
 
-  itr = options_.find(ARG_COMPRESSION_TYPE);
-  if (itr != options_.end()) {
+  itr = option_map_.find(ARG_COMPRESSION_TYPE);
+  if (itr != option_map_.end()) {
     string comp = itr->second;
     if (comp == "no") {
-      opt.compression = leveldb::kNoCompression;
+      opt.compression = kNoCompression;
     } else if (comp == "snappy") {
-      opt.compression = leveldb::kSnappyCompression;
+      opt.compression = kSnappyCompression;
     } else if (comp == "zlib") {
-      opt.compression = leveldb::kZlibCompression;
+      opt.compression = kZlibCompression;
     } else if (comp == "bzip2") {
-      opt.compression = leveldb::kBZip2Compression;
+      opt.compression = kBZip2Compression;
     } else {
       // Unknown compression.
       exec_state_ = LDBCommandExecuteResult::FAILED(
@@ -210,7 +236,7 @@ leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
   }
 
   int write_buffer_size;
-  if (ParseIntOption(options_, ARG_WRITE_BUFFER_SIZE, write_buffer_size,
+  if (ParseIntOption(option_map_, ARG_WRITE_BUFFER_SIZE, write_buffer_size,
         exec_state_)) {
     if (write_buffer_size > 0) {
       opt.write_buffer_size = write_buffer_size;
@@ -221,7 +247,7 @@ leveldb::Options LDBCommand::PrepareOptionsForOpenDB() {
   }
 
   int file_size;
-  if (ParseIntOption(options_, ARG_FILE_SIZE, file_size, exec_state_)) {
+  if (ParseIntOption(option_map_, ARG_FILE_SIZE, file_size, exec_state_)) {
     if (file_size > 0) {
       opt.target_file_size_base = file_size;
     } else {
@@ -260,8 +286,8 @@ bool LDBCommand::ParseKeyValue(const string& line, string* key, string* value,
  */
 bool LDBCommand::ValidateCmdLineOptions() {
 
-  for (map<string, string>::const_iterator itr = options_.begin();
-        itr != options_.end(); itr++) {
+  for (map<string, string>::const_iterator itr = option_map_.begin();
+        itr != option_map_.end(); itr++) {
     if (find(valid_cmd_line_options_.begin(),
           valid_cmd_line_options_.end(), itr->first) ==
           valid_cmd_line_options_.end()) {
@@ -280,7 +306,7 @@ bool LDBCommand::ValidateCmdLineOptions() {
     }
   }
 
-  if (options_.find(ARG_DB) == options_.end()) {
+  if (!NoDBOpen() && option_map_.find(ARG_DB) == option_map_.end()) {
     fprintf(stderr, "%s must be specified\n", ARG_DB.c_str());
     return false;
   }
@@ -326,13 +352,13 @@ void CompactorCommand::Help(string& ret) {
 
 void CompactorCommand::DoCommand() {
 
-  leveldb::Slice* begin = nullptr;
-  leveldb::Slice* end = nullptr;
+  Slice* begin = nullptr;
+  Slice* end = nullptr;
   if (!null_from_) {
-    begin = new leveldb::Slice(from_);
+    begin = new Slice(from_);
   }
   if (!null_to_) {
-    end = new leveldb::Slice(to_);
+    end = new Slice(to_);
   }
 
   db_->CompactRange(begin, end);
@@ -372,8 +398,8 @@ void DBLoaderCommand::Help(string& ret) {
   ret.append("\n");
 }
 
-leveldb::Options DBLoaderCommand::PrepareOptionsForOpenDB() {
-  leveldb::Options opt = LDBCommand::PrepareOptionsForOpenDB();
+Options DBLoaderCommand::PrepareOptionsForOpenDB() {
+  Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.create_if_missing = create_if_missing_;
   if (bulk_load_) {
     opt.PrepareForBulkLoad();
@@ -583,8 +609,8 @@ void DBDumperCommand::DoCommand() {
   }
 
   // Setup key iterator
-  leveldb::Iterator* iter = db_->NewIterator(leveldb::ReadOptions());
-  leveldb::Status st = iter->status();
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  Status st = iter->status();
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED("Iterator error."
         + st.ToString());
@@ -632,7 +658,7 @@ ReduceDBLevelsCommand::ReduceDBLevelsCommand(const vector<string>& params,
     print_old_levels_(false) {
 
 
-  ParseIntOption(options_, ARG_NEW_LEVELS, new_levels_, exec_state_);
+  ParseIntOption(option_map_, ARG_NEW_LEVELS, new_levels_, exec_state_);
   print_old_levels_ = IsFlagPresent(flags, ARG_PRINT_OLD_LEVELS);
 
   if(new_levels_ <= 0) {
@@ -661,8 +687,8 @@ void ReduceDBLevelsCommand::Help(string& ret) {
   ret.append("\n");
 }
 
-leveldb::Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
-  leveldb::Options opt = LDBCommand::PrepareOptionsForOpenDB();
+Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
+  Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.num_levels = old_levels_;
   // Disable size compaction
   opt.max_bytes_for_level_base = 1UL << 50;
@@ -671,7 +697,7 @@ leveldb::Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
   return opt;
 }
 
-Status ReduceDBLevelsCommand::GetOldNumOfLevels(leveldb::Options& opt,
+Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
     int* levels) {
   StorageOptions soptions;
   TableCache tc(db_path_, &opt, soptions, 10);
@@ -702,8 +728,8 @@ void ReduceDBLevelsCommand::DoCommand() {
     return;
   }
 
-  leveldb::Status st;
-  leveldb::Options opt = PrepareOptionsForOpenDB();
+  Status st;
+  Options opt = PrepareOptionsForOpenDB();
   int old_level_num = -1;
   st = GetOldNumOfLevels(opt, &old_level_num);
   if (!st.ok()) {
@@ -906,7 +932,7 @@ void GetCommand::Help(string& ret) {
 
 void GetCommand::DoCommand() {
   string value;
-  leveldb::Status st = db_->Get(leveldb::ReadOptions(), key_, &value);
+  Status st = db_->Get(ReadOptions(), key_, &value);
   if (st.ok()) {
     fprintf(stdout, "%s\n",
               (is_value_hex_ ? StringToHex(value) : value).c_str());
@@ -953,8 +979,8 @@ void ApproxSizeCommand::Help(string& ret) {
 
 void ApproxSizeCommand::DoCommand() {
 
-  leveldb::Range ranges[1];
-  ranges[0] = leveldb::Range(start_key_, end_key_);
+  Range ranges[1];
+  ranges[0] = Range(start_key_, end_key_);
   uint64_t sizes[1];
   db_->GetApproximateSizes(ranges, 1, sizes);
   fprintf(stdout, "%ld\n", sizes[0]);
@@ -998,13 +1024,13 @@ void BatchPutCommand::Help(string& ret) {
 }
 
 void BatchPutCommand::DoCommand() {
-  leveldb::WriteBatch batch;
+  WriteBatch batch;
 
   for (vector<pair<string, string>>::const_iterator itr
         = key_values_.begin(); itr != key_values_.end(); itr++) {
       batch.Put(itr->first, itr->second);
   }
-  leveldb::Status st = db_->Write(leveldb::WriteOptions(), &batch);
+  Status st = db_->Write(WriteOptions(), &batch);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {
@@ -1012,8 +1038,8 @@ void BatchPutCommand::DoCommand() {
   }
 }
 
-leveldb::Options BatchPutCommand::PrepareOptionsForOpenDB() {
-  leveldb::Options opt = LDBCommand::PrepareOptionsForOpenDB();
+Options BatchPutCommand::PrepareOptionsForOpenDB() {
+  Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.create_if_missing = IsFlagPresent(flags_, ARG_CREATE_IF_MISSING);
   return opt;
 }
@@ -1070,7 +1096,7 @@ void ScanCommand::Help(string& ret) {
 void ScanCommand::DoCommand() {
 
   int num_keys_scanned = 0;
-  Iterator* it = db_->NewIterator(leveldb::ReadOptions());
+  Iterator* it = db_->NewIterator(ReadOptions());
   if (start_key_specified_) {
     it->Seek(start_key_);
   } else {
@@ -1120,7 +1146,7 @@ void DeleteCommand::Help(string& ret) {
 }
 
 void DeleteCommand::DoCommand() {
-  leveldb::Status st = db_->Delete(leveldb::WriteOptions(), key_);
+  Status st = db_->Delete(WriteOptions(), key_);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {
@@ -1160,7 +1186,7 @@ void PutCommand::Help(string& ret) {
 }
 
 void PutCommand::DoCommand() {
-  leveldb::Status st = db_->Put(leveldb::WriteOptions(), key_, value_);
+  Status st = db_->Put(WriteOptions(), key_, value_);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {
@@ -1168,8 +1194,8 @@ void PutCommand::DoCommand() {
   }
 }
 
-leveldb::Options PutCommand::PrepareOptionsForOpenDB() {
-  leveldb::Options opt = LDBCommand::PrepareOptionsForOpenDB();
+Options PutCommand::PrepareOptionsForOpenDB() {
+  Options opt = LDBCommand::PrepareOptionsForOpenDB();
   opt.create_if_missing = IsFlagPresent(flags_, ARG_CREATE_IF_MISSING);
   return opt;
 }
@@ -1201,8 +1227,8 @@ void DBQuerierCommand::DoCommand() {
     return;
   }
 
-  leveldb::ReadOptions read_options;
-  leveldb::WriteOptions write_options;
+  ReadOptions read_options;
+  WriteOptions write_options;
 
   string line;
   string key;

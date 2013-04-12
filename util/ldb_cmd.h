@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef LEVELDB_UTIL_LDB_CMD_H_
-#define LEVELDB_UTIL_LDB_CMD_H_
+#ifndef STORAGE_LEVELDB_UTIL_LDB_CMD_H_
+#define STORAGE_LEVELDB_UTIL_LDB_CMD_H_
 
 #include <string>
 #include <iostream>
@@ -47,11 +47,24 @@ public:
   static const string ARG_FILE_SIZE;
   static const string ARG_CREATE_IF_MISSING;
 
-  static LDBCommand* InitFromCmdLineArgs(const vector<string>& args);
-  static LDBCommand* InitFromCmdLineArgs(int argc, char** argv);
+  static LDBCommand* InitFromCmdLineArgs(
+    const vector<string>& args,
+    Options options = Options()
+  );
+
+  static LDBCommand* InitFromCmdLineArgs(
+    int argc,
+    char** argv,
+    Options options = Options()
+  );
+
   bool ValidateCmdLineOptions();
 
-  virtual leveldb::Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB();
+
+  virtual void SetOptions(Options options) {
+    options_ = options;
+  }
 
   virtual bool NoDBOpen() {
     return false;
@@ -129,8 +142,8 @@ public:
 protected:
 
   LDBCommandExecuteResult exec_state_;
-  std::string db_path_;
-  leveldb::DB* db_;
+  string db_path_;
+  DB* db_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -147,7 +160,7 @@ protected:
   /**
    * Map of options passed on the command-line.
    */
-  const map<string, string> options_;
+  const map<string, string> option_map_;
 
   /**
    * Flags passed on the command-line.
@@ -166,7 +179,7 @@ protected:
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
-      options_(options),
+      option_map_(options),
       flags_(flags),
       valid_cmd_line_options_(valid_cmd_line_options) {
 
@@ -180,19 +193,19 @@ protected:
   }
 
   void OpenDB() {
-    leveldb::Options opt = PrepareOptionsForOpenDB();
+    Options opt = PrepareOptionsForOpenDB();
     if (!exec_state_.IsNotStarted()) {
       return;
     }
     // Open the DB.
-    leveldb::Status st;
+    Status st;
     if (is_read_only_) {
-      st = leveldb::DB::OpenForReadOnly(opt, db_path_, &db_);
+      st = DB::OpenForReadOnly(opt, db_path_, &db_);
     } else {
-      st = leveldb::DB::Open(opt, db_path_, &db_);
+      st = DB::Open(opt, db_path_, &db_);
     }
     if (!st.ok()) {
-      std::string msg = st.ToString();
+      string msg = st.ToString();
       exec_state_ = LDBCommandExecuteResult::FAILED(msg);
     }
   }
@@ -251,6 +264,8 @@ protected:
 
 private:
 
+  Options options_;
+
   /**
    * Interpret command line options and flags to determine if the key
    * should be input/output in hex.
@@ -308,6 +323,13 @@ private:
     }
   }
 
+  static LDBCommand* SelectCommand(
+    const string& cmd,
+    vector<string>& cmdParams,
+    map<string, string>& option_map,
+    vector<string>& flags
+  );
+
 };
 
 class CompactorCommand: public LDBCommand {
@@ -364,7 +386,7 @@ public:
   static void Help(string& ret);
   virtual void DoCommand();
 
-  virtual leveldb::Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB();
 
 private:
   bool create_if_missing_;
@@ -406,7 +428,7 @@ public:
   ReduceDBLevelsCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual leveldb::Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB();
 
   virtual void DoCommand();
 
@@ -427,7 +449,7 @@ private:
   static const string ARG_NEW_LEVELS;
   static const string ARG_PRINT_OLD_LEVELS;
 
-  Status GetOldNumOfLevels(leveldb::Options& opt, int* levels);
+  Status GetOldNumOfLevels(Options& opt, int* levels);
 };
 
 class WALDumperCommand : public LDBCommand {
@@ -497,7 +519,7 @@ public:
 
   static void Help(string& ret);
 
-  virtual leveldb::Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB();
 
 private:
   /**
@@ -551,7 +573,7 @@ public:
 
   static void Help(string& ret);
 
-  virtual leveldb::Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB();
 
 private:
   string key_;
@@ -580,5 +602,5 @@ private:
   static const char* DELETE_CMD;
 };
 
-}
-#endif
+} // namespace leveldb
+#endif // STORAGE_LEVELDB_UTIL_LDB_CMD_H_
