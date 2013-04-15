@@ -2169,16 +2169,15 @@ Compaction::Compaction(int level, uint64_t target_file_size,
       overlapped_bytes_(0),
       base_index_(-1),
       parent_index_(-1),
-      score_(0) {
+      score_(0),
+      level_ptrs_(std::vector<size_t>(number_levels)) {
   edit_ = new VersionEdit(number_levels_);
-  level_ptrs_ = new size_t[number_levels_];
   for (int i = 0; i < number_levels_; i++) {
     level_ptrs_[i] = 0;
   }
 }
 
 Compaction::~Compaction() {
-  delete[] level_ptrs_;
   delete edit_;
   if (input_version_ != nullptr) {
     input_version_->Unref();

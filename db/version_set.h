@@ -567,7 +567,7 @@ class Compaction {
   // is that we are positioned at one of the file ranges for each
   // higher level than the ones involved in this compaction (i.e. for
   // all L >= level_ + 2).
-  size_t* level_ptrs_;
+  std::vector<size_t> level_ptrs_;
 
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool);
