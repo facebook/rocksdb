@@ -816,7 +816,9 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   Status s = WriteLevel0Table(m, edit, &file_number);
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
-    s = Status::IOError("Deleting DB during memtable compaction");
+    s = Status::IOError(
+      "Database shutdown started during memtable compaction"
+    );
   }
 
   // Replace immutable memtable with the generated Table
@@ -1741,7 +1743,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   }
 
   if (status.ok() && shutting_down_.Acquire_Load()) {
-    status = Status::IOError("Deleting DB during compaction");
+    status = Status::IOError("Database shutdown started during compaction");
   }
   if (status.ok() && compact->builder != nullptr) {
     status = FinishCompactionOutputFile(compact, input.get());
