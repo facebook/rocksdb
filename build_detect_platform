@@ -130,7 +130,7 @@ esac
 # except for the test and benchmark files. By default, find will output a list
 # of all files matching either rule, so we need to append -print to make the
 # prune take effect.
-DIRS="util db table"
+DIRS="util db table utilities"
 if test "$USE_THRIFT"; then
   DIRS="$DIRS thrift/server_utils.cpp thrift/gen-cpp "
   THRIFTSERVER=leveldb_server

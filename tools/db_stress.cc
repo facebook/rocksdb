@@ -21,7 +21,7 @@
 #include "db/version_set.h"
 #include "db/db_statistics.h"
 #include "leveldb/cache.h"
-#include "leveldb/db.h"
+#include "utilities/utility_db.h"
 #include "leveldb/env.h"
 #include "leveldb/write_batch.h"
 #include "leveldb/statistics.h"
@@ -31,6 +31,8 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/testutil.h"
+#include "util/logging.h"
+#include "utilities/ttl/db_ttl.h"
 #include "hdfs/env_hdfs.h"
 
 static const long KB = 1024;
@@ -53,6 +55,11 @@ static bool FLAGS_test_batches_snapshots = false;
 
 // Number of concurrent threads to run.
 static int FLAGS_threads = 32;
+
+// Opens the db with this ttl value if this is not -1
+// Carefully specify a large value such that verifications on deleted
+//  values don't fail
+static int FLAGS_ttl = -1;
 
 // Size of each value will be this number times rand_int(1,3) bytes
 static int FLAGS_value_size_mult = 8;
@@ -870,6 +877,11 @@ class StressTest {
             kMajorVersion, kMinorVersion);
     fprintf(stdout, "Number of threads   : %d\n", FLAGS_threads);
     fprintf(stdout, "Ops per thread      : %d\n", FLAGS_ops_per_thread);
+    std::string ttl_state("unused");
+    if (FLAGS_ttl > 0) {
+      ttl_state = NumberToString(FLAGS_ttl);
+    }
+    fprintf(stdout, "Time to live(sec)   : %s\n", ttl_state.c_str());
     fprintf(stdout, "Read percentage     : %d\n", FLAGS_readpercent);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
     fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
@@ -936,7 +948,12 @@ class StressTest {
     if (purge_percent.Uniform(100) < FLAGS_purge_redundant_percent - 1) {
       options.purge_redundant_kvs_while_flush = false;
     }
-    Status s = DB::Open(options, FLAGS_db, &db_);
+    Status s;
+    if (FLAGS_ttl == -1) {
+      s = DB::Open(options, FLAGS_db, &db_);
+    } else {
+      s = UtilityDB::OpenTtlDB(options, FLAGS_db, &db_, FLAGS_ttl);
+    }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
       exit(1);
@@ -946,7 +963,11 @@ class StressTest {
   void Reopen() {
     // do not close the db. Just delete the lock file. This
     // simulates a crash-recovery kind of situation.
-    ((DBImpl*) db_)->TEST_Destroy_DBImpl();
+    if (FLAGS_ttl != -1) {
+      ((DBWithTTL*) db_)->TEST_Destroy_DBWithTtl();
+    } else {
+      ((DBImpl*) db_)->TEST_Destroy_DBImpl();
+    }
     db_ = nullptr;
 
     num_times_reopened_++;
@@ -1017,6 +1038,8 @@ int main(int argc, char** argv) {
       FLAGS_test_batches_snapshots = n;
     } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
       FLAGS_threads = n;
+    } else if (sscanf(argv[i], "--ttl=%d%c", &n, &junk) == 1) {
+      FLAGS_ttl = n;
     } else if (sscanf(argv[i], "--value_size_mult=%d%c", &n, &junk) == 1) {
       FLAGS_value_size_mult = n;
     } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
