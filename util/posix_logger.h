@@ -94,12 +94,12 @@ class PosixLogger : public Logger {
       }
 
       assert(p <= limit);
+      const size_t write_size = p - base;
 
 #ifdef OS_LINUX
       // If this write would cross a boundary of kDebugLogChunkSize
       // space, pre-allocate more space to avoid overly large
       // allocations from filesystem allocsize options.
-      const size_t write_size = p - base;
       const int last_allocation_chunk =
         ((kDebugLogChunkSize - 1 + log_size_) / kDebugLogChunkSize);
       const int desired_allocation_chunk =
