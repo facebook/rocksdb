@@ -162,6 +162,10 @@ static class std::shared_ptr<leveldb::Statistics> dbstats;
 // Number of write operations to do.  If negative, do FLAGS_num reads.
 static long FLAGS_writes = -1;
 
+// Per-thread rate limit on writes per second. No limit when <= 0.
+// Only for the readwhilewriting test.
+static int FLAGS_writes_per_second = 0;
+
 // These default values might change if the hardcoded
 
 // Sync all writes to disk
@@ -579,6 +583,7 @@ class Benchmark {
     fprintf(stdout, "FileSize:   %.1f MB (estimated)\n",
             (((FLAGS_key_size + FLAGS_value_size * FLAGS_compression_ratio) * num_)
              / 1048576.0));
+    fprintf(stdout, "Write rate limit: %d\n", FLAGS_writes_per_second);
 
     switch (FLAGS_compression_type) {
       case leveldb::kNoCompression:
@@ -1296,7 +1301,6 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
   }
 
   void DoDelete(ThreadState* thread, bool seq) {
-    RandomGenerator gen;
     WriteBatch batch;
     Status s;
     Duration duration(seq ? 0 : FLAGS_duration, num_);
@@ -1332,6 +1336,15 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
     } else {
       // Special thread that keeps writing until other threads are done.
       RandomGenerator gen;
+      double last = FLAGS_env->NowMicros();
+      int writes_per_second_by_10 = 0;
+      int num_writes = 0;
+
+      // --writes_per_second rate limit is enforced per 100 milliseconds
+      // intervals to avoid a burst of writes at the start of each second.
+
+      if (FLAGS_writes_per_second > 0)
+        writes_per_second_by_10 = FLAGS_writes_per_second / 10;
 
       // Don't merge stats from this thread with the readers.
       thread->stats.SetExcludeFromMerge();
@@ -1353,6 +1366,20 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
           exit(1);
         }
         thread->stats.FinishedSingleOp(db_);
+
+        ++num_writes;
+        if (writes_per_second_by_10 && num_writes >= writes_per_second_by_10) {
+          double now = FLAGS_env->NowMicros();
+          double usecs_since_last = now - last;
+
+          num_writes = 0;
+          last = now;
+
+          if (usecs_since_last < 100000.0) {
+            FLAGS_env->SleepForMicroseconds(100000.0 - usecs_since_last);
+            last = FLAGS_env->NowMicros();
+          }
+        }
       }
     }
   }
@@ -1779,6 +1806,8 @@ int main(int argc, char** argv) {
       }
     } else if (sscanf(argv[i], "--writes=%d%c", &n, &junk) == 1) {
       FLAGS_writes = n;
+    } else if (sscanf(argv[i], "--writes_per_second=%d%c", &n, &junk) == 1) {
+      FLAGS_writes_per_second = n;
     } else if (sscanf(argv[i], "--sync=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_sync = n;
