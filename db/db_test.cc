@@ -1351,22 +1351,26 @@ TEST(DBTest, RepeatedWritesToSameKey) {
 static int cfilter_count;
 static std::string NEW_VALUE = "NewValue";
 static bool keep_filter(void* arg, int level, const Slice& key,
-  const Slice& value, Slice** new_value) {
+                        const Slice& value, std::string* new_value,
+                        bool* value_changed) {
   assert(arg == nullptr);
   cfilter_count++;
   return false;
 }
 static bool delete_filter(void*argv, int level, const Slice& key,
-  const Slice& value, Slice** new_value) {
+                          const Slice& value, std::string* new_value,
+                          bool* value_changed) {
   assert(argv == nullptr);
   cfilter_count++;
   return true;
 }
 static bool change_filter(void*argv, int level, const Slice& key,
-  const Slice& value, Slice** new_value) {
+                          const Slice& value, std::string* new_value,
+                          bool* value_changed) {
   assert(argv == (void*)100);
   assert(new_value != nullptr);
-  *new_value = new Slice(NEW_VALUE);
+  *new_value = NEW_VALUE;
+  *value_changed = true;
   return false;
 }
 

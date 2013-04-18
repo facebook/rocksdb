@@ -1590,6 +1590,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   SequenceNumber last_sequence_for_key __attribute__((unused)) =
     kMaxSequenceNumber;
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
+  std::string compaction_filter_value;
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (imm_.imm_flush_needed.NoBarrier_Load() != nullptr) {
@@ -1605,7 +1606,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     Slice key = input->key();
     Slice value = input->value();
-    Slice* compaction_filter_value = nullptr;
+
     if (compact->compaction->ShouldStopBefore(key) &&
         compact->builder != nullptr) {
       status = FinishCompactionOutputFile(compact, input.get());
@@ -1664,20 +1665,24 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
                  ikey.type != kTypeDeletion &&
                  ikey.sequence < earliest_snapshot) {
         // If the user has specified a compaction filter, then invoke
-        // it. If this key is not visible via any snapshot and the
-        // return value of the compaction filter is true and then
+        // it. If the return value of the compaction filter is true,
         // drop this key from the output.
+        bool value_changed = false;
+        compaction_filter_value.clear();
         drop = options_.CompactionFilter(options_.compaction_filter_args,
-                         compact->compaction->level(),
-                         ikey.user_key, value, &compaction_filter_value);
-
+                                         compact->compaction->level(),
+                                         ikey.user_key, value,
+                                         &compaction_filter_value,
+                                         &value_changed);
+        // Another example of statistics update without holding the lock
+        // TODO: clean it up
         if (drop) {
           RecordTick(options_.statistics, COMPACTION_KEY_DROP_USER);
         }
+
         // If the application wants to change the value, then do so here.
-        if (compaction_filter_value != nullptr) {
-          value = *compaction_filter_value;
-          delete compaction_filter_value;
+        if (value_changed) {
+          value = compaction_filter_value;
         }
       }
 
