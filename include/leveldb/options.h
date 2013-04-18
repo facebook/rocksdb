@@ -356,22 +356,25 @@ struct Options {
 
   // This method allows an application to modify/delete a key-value at
   // the time of compaction. The compaction process invokes this
-  // method for every kv that is being compacted. A return value
+  // method for kv that is being compacted. A return value
   // of false indicates that the kv should be preserved in the
   // output of this compaction run and a return value of true
   // indicates that this key-value should be removed from the
   // output of the compaction.  The application can inspect
-  // the existing value of the key, modify it if needed and
-  // return back the new value for this key. The application
-  // should allocate memory for the Slice object that is used to
-  // return the new value and the leveldb framework will
-  // free up that memory.
+  // the existing value of the key and make decision based on it.
+
+  // When the value is to be preserved, the application has the option
+  // to modify the existing_value and pass it back through new_value.
+  // value_changed needs to be set to true in this case.
+
   // The compaction_filter_args, if specified here, are passed
   // back to the invocation of the CompactionFilter.
   void* compaction_filter_args;
   bool (*CompactionFilter)(void* compaction_filter_args,
-         int level, const Slice& key,
-         const Slice& existing_value, Slice** new_value);
+                           int level, const Slice& key,
+                           const Slice& existing_value,
+                           std::string* new_value,
+                           bool* value_changed);
 
   // Disable automatic compactions. Manual compactions can still
   // be issued on this database.
