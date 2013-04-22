@@ -13,7 +13,7 @@
 #include "db/write_batch_internal.h"
 #include "leveldb/cache.h"
 #include "leveldb/env.h"
-#include "leveldb/table.h"
+#include "table/table.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"

@@ -1,4 +1,4 @@
-#include "leveldb/table.h"
+#include "table/table.h"
 
 #include <map>
 #include <string>

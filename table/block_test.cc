@@ -1,9 +1,6 @@
 // Copyright (c) 2012 Facebook.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
-#include "leveldb/table.h"
-
 #include <string>
 #include "db/dbformat.h"
 #include "db/memtable.h"
@@ -14,6 +11,7 @@
 #include "leveldb/table_builder.h"
 #include "table/block.h"
 #include "table/block_builder.h"
+#include "table/table.h"
 #include "table/format.h"
 #include "util/random.h"
 #include "util/testharness.h"
@@ -60,7 +58,7 @@ TEST(BlockTest, SimpleTest) {
   // read serialized contents of the block
   Slice rawblock = builder.Finish();
 
-  // create block reader 
+  // create block reader
   BlockContents contents;
   contents.data = rawblock;
   contents.cachable = false;
@@ -71,7 +69,7 @@ TEST(BlockTest, SimpleTest) {
   int count = 0;
   Iterator* iter = reader.NewIterator(options.comparator);
   for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
-    
+
     // read kv from block
     Slice k = iter->key();
     Slice v = iter->value();
@@ -81,8 +79,8 @@ TEST(BlockTest, SimpleTest) {
     ASSERT_EQ(v.ToString().compare(values[count]), 0);
   }
   delete iter;
-  
-  // read block contents randomly 
+
+  // read block contents randomly
   iter = reader.NewIterator(options.comparator);
   for (int i = 0; i < num_records; i++) {
 

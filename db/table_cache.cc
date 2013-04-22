@@ -6,8 +6,8 @@
 
 #include "db/filename.h"
 
-#include "leveldb/table.h"
 #include "leveldb/statistics.h"
+#include "table/table.h"
 #include "util/coding.h"
 
 namespace leveldb {

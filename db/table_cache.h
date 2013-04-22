@@ -12,8 +12,8 @@
 #include "db/dbformat.h"
 #include "leveldb/env.h"
 #include "leveldb/cache.h"
-#include "leveldb/table.h"
 #include "port/port.h"
+#include "table/table.h"
 #include "util/storage_options.h"
 
 namespace leveldb {
