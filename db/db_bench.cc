@@ -762,13 +762,13 @@ void ConstructStrFormatForKey(char* str, int keySize)
 {
   str[0] = '%';
   str[1] = '0';
-  sprintf(str+2, "%dd", keySize);
+  sprintf(str+2, "%dd%s", keySize, "%s");
 }
 
-unique_ptr<char []> GenerateKeyFromInt(int v)
+unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
 {
   unique_ptr<char []> keyInStr(new char[MAX_KEY_SIZE]);
-  snprintf(keyInStr.get(), MAX_KEY_SIZE, keyFormat_, v);
+  snprintf(keyInStr.get(), MAX_KEY_SIZE, keyFormat_, v, suffix);
   return keyInStr;
 }
   void Run() {
@@ -1214,7 +1214,6 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
     while (!duration.Done(1)) {
       const int k = thread->rand.Next() % FLAGS_num;
       unique_ptr<char []> key = GenerateKeyFromInt(k);
-
       if (FLAGS_use_snapshot) {
         options.snapshot = db_->GetSnapshot();
       }
@@ -1262,7 +1261,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v)
     std::string value;
     while (!duration.Done(1)) {
       const int k = thread->rand.Next() % FLAGS_num;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      unique_ptr<char []> key = GenerateKeyFromInt(k, ".");
       db_->Get(options, key.get(), &value);
       thread->stats.FinishedSingleOp(db_);
     }
