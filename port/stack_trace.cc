@@ -30,7 +30,7 @@ static void StackTraceHandler(int sig) {
   // reset to default handler
   signal(sig, SIG_DFL);
 
-  printf("Received signal %d (%s)\n", sig, strsignal(sig));
+  fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
 
   const int kMaxFrames = 100;
   void *frames[kMaxFrames];
@@ -44,9 +44,9 @@ static void StackTraceHandler(int sig) {
 
   for (int i = kSkip; i < num_frames; ++i)
   {
-    printf("#%-2d %p ", i - kSkip, frames[i]);
+    fprintf(stderr, "#%-2d %p ", i - kSkip, frames[i]);
     if (symbols) {
-      printf("%s ", symbols[i]);
+      fprintf(stderr, "%s ", symbols[i]);
     }
     if (executable) {
       // out source to addr2line, for the address translation
@@ -57,14 +57,14 @@ static void StackTraceHandler(int sig) {
       if (f) {
         char line[kLineMax];
         while (fgets(line, sizeof(line), f)) {
-          printf("%s", line);
+          fprintf(stderr, "%s", line);
         }
         pclose(f);
       } else {
-        printf("\n");
+        fprintf(stderr, "\n");
       }
     } else {
-      printf("\n");
+      fprintf(stderr, "\n");
     }
   }
 
@@ -79,6 +79,9 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
+
+  printf("Installed stack trace handler for SIGILL SIGSEGV SIGBUS SIGABRT\n");
+
 }
 
 }   // namespace leveldb
