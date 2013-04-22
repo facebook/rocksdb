@@ -65,15 +65,14 @@ class PosixSequentialFile: public SequentialFile {
   std::string filename_;
   FILE* file_;
   int fd_;
-  bool use_os_buffer = true;
+  bool use_os_buffer_;
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* f,
       const EnvOptions& options)
-      : filename_(fname), file_(f) {
-    fd_ = fileno(f);
+      : filename_(fname), file_(f), fd_(fileno(f)),
+        use_os_buffer_(options.UseOsBuffer()) {
     assert(!options.UseMmapReads());
-    use_os_buffer = options.UseOsBuffer();
   }
   virtual ~PosixSequentialFile() { fclose(file_); }
 
@@ -89,7 +88,7 @@ class PosixSequentialFile: public SequentialFile {
         s = IOError(filename_, errno);
       }
     }
-    if (!use_os_buffer) {
+    if (!use_os_buffer_) {
       // we need to fadvise away the entire range of pages because
       // we do not want readahead pages to be cached.
       posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
@@ -110,17 +109,16 @@ class PosixRandomAccessFile: public RandomAccessFile {
  private:
   std::string filename_;
   int fd_;
-  bool use_os_buffer = true;
+  bool use_os_buffer_;
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
                         const EnvOptions& options)
-      : filename_(fname), fd_(fd) {
+      : filename_(fname), fd_(fd), use_os_buffer_(options.UseOsBuffer()) {
     assert(!options.UseMmapReads());
     if (!options.UseReadahead()) { // disable read-aheads
       posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
     }
-    use_os_buffer = options.UseOsBuffer();
   }
   virtual ~PosixRandomAccessFile() { close(fd_); }
 
@@ -133,7 +131,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
       // An error: return a non-ok status
       s = IOError(filename_, errno);
     }
-    if (!use_os_buffer) {
+    if (!use_os_buffer_) {
       // we need to fadvise away the entire range of pages because
       // we do not want readahead pages to be cached.
       posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
