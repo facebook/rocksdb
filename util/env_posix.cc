@@ -1078,9 +1078,8 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
 
 }  // namespace
 
-static PosixEnv default_env;
-
 Env* Env::Default() {
+  static PosixEnv default_env;
   return &default_env;
 }
 
