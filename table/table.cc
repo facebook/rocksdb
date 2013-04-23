@@ -64,6 +64,32 @@ void Table::SetupCacheKeyPrefix(Rep* rep) {
   }
 }
 
+namespace {  // anonymous namespace, not visible externally
+
+// Read the block identified by "handle" from "file".
+// The only relevant option is options.verify_checksums for now.
+// Set *didIO to true if didIO is not null.
+// On failure return non-OK.
+// On success fill *result and return OK - caller owns *result
+Status ReadBlock(RandomAccessFile* file,
+                 const ReadOptions& options,
+                 const BlockHandle& handle,
+                 Block** result,
+                 bool* didIO = nullptr) {
+  BlockContents contents;
+  Status s = ReadBlockContents(file, options, handle, &contents);
+  if (s.ok()) {
+    *result = new Block(contents);
+  }
+
+  if (didIO) {
+    *didIO = true;
+  }
+  return s;
+}
+
+} // end of anonymous namespace
+
 Status Table::Open(const Options& options,
                    const EnvOptions& soptions,
                    unique_ptr<RandomAccessFile>&& file,
@@ -91,15 +117,9 @@ Status Table::Open(const Options& options,
   s = footer.DecodeFrom(&footer_input);
   if (!s.ok()) return s;
 
-  // Read the index block
-  BlockContents contents;
   Block* index_block = nullptr;
-  if (s.ok()) {
-    s = ReadBlock(file.get(), ReadOptions(), footer.index_handle(), &contents);
-    if (s.ok()) {
-      index_block = new Block(contents);
-    }
-  }
+  // TODO: we never really verify check sum for index block
+  s = ReadBlock(file.get(), ReadOptions(), footer.index_handle(), &index_block);
 
   if (s.ok()) {
     // We've successfully read the footer and the index block: we're
@@ -128,14 +148,13 @@ void Table::ReadMeta(const Footer& footer) {
 
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
   // it is an empty block.
-  ReadOptions opt;
-  BlockContents contents;
-  if (!ReadBlock(rep_->file.get(), opt, footer.metaindex_handle(),
-                 &contents).ok()) {
+  //  TODO: we never really verify check sum for meta index block
+  Block* meta = nullptr;
+  if (!ReadBlock(rep_->file.get(), ReadOptions(), footer.metaindex_handle(),
+                 &meta).ok()) {
     // Do not propagate errors since meta info is not needed for operation
     return;
   }
-  Block* meta = new Block(contents);
 
   Iterator* iter = meta->NewIterator(BytewiseComparator());
   std::string key = "filter.";
@@ -155,11 +174,11 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
     return;
   }
 
-  // We might want to unify with ReadBlock() if we start
+  // TODO: We might want to unify with ReadBlock() if we start
   // requiring checksum verification in Table::Open.
   ReadOptions opt;
   BlockContents block;
-  if (!ReadBlock(rep_->file.get(), opt, filter_handle, &block).ok()) {
+  if (!ReadBlockContents(rep_->file.get(), opt, filter_handle, &block).ok()) {
     return;
   }
   if (block.heap_allocated) {
@@ -206,7 +225,6 @@ Iterator* Table::BlockReader(void* arg,
   // can add more features in the future.
 
   if (s.ok()) {
-    BlockContents contents;
     if (block_cache != nullptr) {
       char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
       const size_t cache_key_prefix_size = table->rep_->cache_key_prefix_size;
@@ -223,28 +241,18 @@ Iterator* Table::BlockReader(void* arg,
 
         RecordTick(statistics, BLOCK_CACHE_HIT);
       } else {
-        s = ReadBlock(table->rep_->file.get(), options, handle, &contents);
+        s = ReadBlock(table->rep_->file.get(), options, handle, &block, didIO);
         if (s.ok()) {
-          block = new Block(contents);
-          if (contents.cachable && options.fill_cache) {
+          if (block->isCachable() && options.fill_cache) {
             cache_handle = block_cache->Insert(
-                key, block, block->size(), &DeleteCachedBlock);
+              key, block, block->size(), &DeleteCachedBlock);
           }
-        }
-        if (didIO != nullptr) {
-          *didIO = true; // we did some io from storage
         }
 
         RecordTick(statistics, BLOCK_CACHE_MISS);
       }
     } else {
-      s = ReadBlock(table->rep_->file.get(), options, handle, &contents);
-      if (s.ok()) {
-        block = new Block(contents);
-      }
-      if (didIO != nullptr) {
-        *didIO = true; // we did some io from storage
-      }
+      s = ReadBlock(table->rep_->file.get(), options, handle, &block, didIO);
     }
   }
 

@@ -22,6 +22,7 @@ class Block {
   ~Block();
 
   size_t size() const { return size_; }
+  bool   isCachable() const { return cachable_; }
   Iterator* NewIterator(const Comparator* comparator);
 
  private:
@@ -31,6 +32,7 @@ class Block {
   size_t size_;
   uint32_t restart_offset_;     // Offset in data_ of restart array
   bool owned_;                  // Block owns data_[]
+  bool cachable_;
 
   // No copying allowed
   Block(const Block&);
