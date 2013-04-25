@@ -695,9 +695,10 @@ class Benchmark {
   void PrintHistogram(Histograms histogram_type, std::string name) {
     HistogramData histogramData;
     dbstats->histogramData(histogram_type, &histogramData);
-    fprintf(stdout, "%s statistics : \n", name.c_str());
-    fprintf(stdout, "Median : %f\n",histogramData.median);
-    fprintf(stdout, "99ile : %f\n", histogramData.percentile99);
+    fprintf(stdout, "%s statistics Percentiles :", name.c_str());
+    fprintf(stdout, "50 : %f ",histogramData.median);
+    fprintf(stdout, "95 : %f ", histogramData.percentile95);
+    fprintf(stdout, "99 : %f\n", histogramData.percentile99);
   }
 
   void PrintStatistics() {
@@ -718,6 +719,7 @@ class Benchmark {
           dbstats->getTickerCount(COMPACTION_KEY_DROP_USER));
       PrintHistogram(DB_GET, "DB_GET");
       PrintHistogram(DB_WRITE, "DB_WRITE");
+      PrintHistogram(COMPACTION_TIME, "COMPACTION_TIME");
     }
   }
 
