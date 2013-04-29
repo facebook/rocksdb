@@ -17,10 +17,8 @@ namespace leveldb {
 struct LogReporter : public log::Reader::Reporter {
   Env* env;
   Logger* info_log;
-  uint64_t log_number;
   virtual void Corruption(size_t bytes, const Status& s) {
-    Log(info_log, "%ld: dropping %d bytes; %s",
-        log_number, static_cast<int>(bytes), s.ToString().c_str());
+    Log(info_log, "dropping %zu bytes; %s", bytes, s.ToString().c_str());
   }
 };
 
@@ -54,7 +52,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   std::unique_ptr<WriteBatch> currentBatch_;
   unique_ptr<log::Reader> currentLogReader_;
   Status OpenLogFile(const LogFile& logFile, unique_ptr<SequentialFile>* file);
-  LogReporter NewLogReporter(uint64_t logNumber);
+  LogReporter reporter_;
   SequenceNumber const * const lastFlushedSequence_;
   // represents the sequence number being read currently.
   SequenceNumber currentSequence_;

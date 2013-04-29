@@ -22,15 +22,9 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
   lastFlushedSequence_(lastFlushedSequence) {
   assert(files_.get() != nullptr);
   assert(lastFlushedSequence_);
-}
 
-LogReporter
-TransactionLogIteratorImpl::NewLogReporter(const uint64_t logNumber) {
-  LogReporter reporter;
-  reporter.env = options_->env;
-  reporter.info_log = options_->info_log.get();
-  reporter.log_number = logNumber;
-  return reporter;
+  reporter_.env = options_->env;
+  reporter_.info_log = options_->info_log.get();
 }
 
 Status TransactionLogIteratorImpl::OpenLogFile(
@@ -74,7 +68,6 @@ bool TransactionLogIteratorImpl::Valid() {
 
 void TransactionLogIteratorImpl::Next() {
   LogFile currentLogFile = files_.get()->at(currentFileIndex_);
-  LogReporter reporter = NewLogReporter(currentLogFile.logNumber);
 
 //  First seek to the given seqNo. in the current file.
   std::string scratch;
@@ -95,7 +88,7 @@ void TransactionLogIteratorImpl::Next() {
     }
     while (currentLogReader_->ReadRecord(&record, &scratch)) {
       if (record.size() < 12) {
-        reporter.Corruption(
+        reporter_.Corruption(
           record.size(), Status::Corruption("log record too small"));
         continue;
       }
@@ -122,7 +115,7 @@ void TransactionLogIteratorImpl::Next() {
       }
       while (currentLogReader_->ReadRecord(&record, &scratch)) {
         if (record.size() < 12) {
-          reporter.Corruption(
+          reporter_.Corruption(
             record.size(), Status::Corruption("log record too small"));
           continue;
         } else {
@@ -165,7 +158,6 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
 }
 
 Status TransactionLogIteratorImpl::OpenLogReader(const LogFile& logFile) {
-  LogReporter reporter = NewLogReporter(logFile.logNumber);
   unique_ptr<SequentialFile> file;
   Status status = OpenLogFile(logFile, &file);
   if (!status.ok()) {
@@ -173,7 +165,7 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile& logFile) {
   }
   assert(file);
   currentLogReader_.reset(
-    new log::Reader(std::move(file), &reporter, true, 0)
+    new log::Reader(std::move(file), &reporter_, true, 0)
   );
   return Status::OK();
 }
