@@ -1400,13 +1400,9 @@ TEST(DBTest, CompactionFilter) {
   options.CompactionFilter = keep_filter;
   Reopen(&options);
 
-  // Write 100K+1 keys, these are written to a few files
-  // in L0. We do this so that the current snapshot points
-  // to the 100001 key.The compaction filter is  not invoked
-  // on keys that are visible via a snapshot because we
-  // anyways cannot delete it.
+  // Write 100K keys, these are written to a few files in L0.
   const std::string value(10, 'x');
-  for (int i = 0; i < 100001; i++) {
+  for (int i = 0; i < 100000; i++) {
     char key[100];
     snprintf(key, sizeof(key), "B%010d", i);
     Put(key, value);
@@ -1433,6 +1429,7 @@ TEST(DBTest, CompactionFilter) {
   // has sequence number zero. The 100001st record
   // is at the tip of this snapshot and cannot
   // be zeroed out.
+  // TODO: figure out sequence number squashtoo
   int count = 0;
   int total = 0;
   Iterator* iter = dbfull()->TEST_NewInternalIterator();
@@ -1448,12 +1445,12 @@ TEST(DBTest, CompactionFilter) {
     }
     iter->Next();
   }
-  ASSERT_EQ(total, 100001);
+  ASSERT_EQ(total, 100000);
   ASSERT_EQ(count, 1);
   delete iter;
 
-  // overwrite all the 100K+1 keys once again.
-  for (int i = 0; i < 100001; i++) {
+  // overwrite all the 100K keys once again.
+  for (int i = 0; i < 100000; i++) {
     char key[100];
     snprintf(key, sizeof(key), "B%010d", i);
     Put(key, value);
@@ -1480,7 +1477,7 @@ TEST(DBTest, CompactionFilter) {
   DestroyAndReopen(&options);
 
   // write all the keys once again.
-  for (int i = 0; i < 100001; i++) {
+  for (int i = 0; i < 100000; i++) {
     char key[100];
     snprintf(key, sizeof(key), "B%010d", i);
     Put(key, value);
@@ -1503,10 +1500,7 @@ TEST(DBTest, CompactionFilter) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
 
-  // Scan the entire database to ensure that only the
-  // 100001th key is left in the db. The 100001th key
-  // is part of the default-most-current snapshot and
-  // cannot be deleted.
+  // Scan the entire database to ensure that nothing is left
   iter = db_->NewIterator(ReadOptions());
   iter->SeekToFirst();
   count = 0;
@@ -1514,12 +1508,14 @@ TEST(DBTest, CompactionFilter) {
     count++;
     iter->Next();
   }
-  ASSERT_EQ(count, 1);
+  ASSERT_EQ(count, 0);
   delete iter;
 
   // The sequence number of the remaining record
   // is not zeroed out even though it is at the
   // level Lmax because this record is at the tip
+  // TODO: remove the following or design a different
+  // test
   count = 0;
   iter = dbfull()->TEST_NewInternalIterator();
   iter->SeekToFirst();
@@ -1531,7 +1527,7 @@ TEST(DBTest, CompactionFilter) {
     count++;
     iter->Next();
   }
-  ASSERT_EQ(count, 1);
+  ASSERT_EQ(count, 0);
   delete iter;
 }
 

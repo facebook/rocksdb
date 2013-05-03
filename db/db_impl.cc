@@ -1703,10 +1703,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         value = merge.value();
       } else if (options_.CompactionFilter != nullptr &&
                  ikey.type != kTypeDeletion &&
-                 ikey.sequence < earliest_snapshot) {
-        // If the user has specified a compaction filter, then invoke
-        // it. If the return value of the compaction filter is true,
+                 visible_at_tip) {
+        // If the user has specified a compaction filter and there are no
+        // outstanding external snapshots, then invoke the filter.
+        // If the return value of the compaction filter is true,
         // drop this key from the output.
+        assert(ikey.type == kTypeValue);
+        assert(!drop);
         bool value_changed = false;
         compaction_filter_value.clear();
         drop = options_.CompactionFilter(options_.compaction_filter_args,

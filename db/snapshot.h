@@ -59,12 +59,9 @@ class SnapshotList {
 
   // retrieve all snapshot numbers. They are sorted in ascending order.
   void getAll(std::vector<SequenceNumber>& ret) {
-    SnapshotImpl* s = &list_;
     if (empty()) return;
-    SequenceNumber prev __attribute__((unused)) = 0;
+    SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
-      assert(prev <= s->next_->number_);
-      assert(prev = s->next_->number_); // assignment
       ret.push_back(s->next_->number_);
       s = s ->next_;
     }
