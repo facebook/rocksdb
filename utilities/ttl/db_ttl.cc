@@ -54,7 +54,9 @@ class TtlIterator : public Iterator {
 
   Slice value() const {
     assert(iter_->value().size() >= (unsigned)ts_len_);
-    return std::string(iter_->value().data(), iter_->value().size() - ts_len_);
+    Slice trimmed_value = iter_->value();
+    trimmed_value.size_ -= ts_len_;
+    return trimmed_value;
   }
 
   Status status() const {
