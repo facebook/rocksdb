@@ -2566,20 +2566,20 @@ TEST(DBTest, CompactOnFlush) {
   db_->ReleaseSnapshot(snapshot1);
 }
 
-void ListLogFiles(Env* env,
-                  const std::string& path,
-                  std::vector<uint64_t>* logFiles) {
+std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
   std::vector<std::string> files;
+  std::vector<uint64_t> log_files;
   env->GetChildren(path, &files);
   uint64_t number;
   FileType type;
   for (size_t i = 0; i < files.size(); ++i) {
     if (ParseFileName(files[i], &number, &type)) {
       if (type == kLogFile) {
-        logFiles->push_back(number);
+        log_files.push_back(number);
       }
     }
   }
+  return std::move(log_files);
 }
 
 TEST(DBTest, WALArchival) {
@@ -2598,40 +2598,50 @@ TEST(DBTest, WALArchival) {
   std::string archiveDir = ArchivalDirectory(dbname_);
 
   for (int i = 0; i < 10; ++i) {
-
     for (int j = 0; j < 10; ++j) {
       ASSERT_OK(Put(Key(10*i+j), value));
     }
 
-    std::vector<uint64_t> logFiles;
-    ListLogFiles(env_, dbname_, &logFiles);
+    std::vector<uint64_t> logFiles = ListLogFiles(env_, dbname_);
 
     options.create_if_missing = false;
     Reopen(&options);
 
-    std::vector<uint64_t> logs;
-    ListLogFiles(env_, archiveDir, &logs);
+    std::vector<uint64_t> logs = ListLogFiles(env_, archiveDir);
     std::set<uint64_t> archivedFiles(logs.begin(), logs.end());
 
-    for (std::vector<uint64_t>::iterator it = logFiles.begin();
-         it != logFiles.end();
-         ++it) {
-      ASSERT_TRUE(archivedFiles.find(*it) != archivedFiles.end());
+    for (auto& log : logFiles) {
+      ASSERT_TRUE(archivedFiles.find(log) != archivedFiles.end());
     }
   }
 
-  // REOPEN database with 0 TTL. all files should have been deleted.
-  std::vector<uint64_t> logFiles;
-  ListLogFiles(env_, archiveDir, &logFiles);
+  std::vector<uint64_t> logFiles = ListLogFiles(env_, archiveDir);
   ASSERT_TRUE(logFiles.size() > 0);
   options.WAL_ttl_seconds = 1;
   env_->SleepForMicroseconds(2*1000*1000);
   Reopen(&options);
 
-  logFiles.clear();
-  ListLogFiles(env_, archiveDir, &logFiles);
+  logFiles = ListLogFiles(env_, archiveDir);
   ASSERT_TRUE(logFiles.size() == 0);
 
+}
+
+TEST(DBTest, WALClear) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.WAL_ttl_seconds = 1;
+
+  for (int j = 0; j < 10; ++j)
+  for (int i = 0; i < 10; ++i)
+    ASSERT_OK(Put(Key(10*i+j), DummyString(1024)));
+  Reopen(&options);
+  std::string archive_dir = ArchivalDirectory(dbname_);
+  std::vector<std::uint64_t> log_files = ListLogFiles(env_, archive_dir);
+  ASSERT_TRUE(!log_files.empty());
+  env_->SleepForMicroseconds(2 * 1000 * 1000);
+  dbfull()->TEST_PurgeObsoleteteWAL();
+  log_files = ListLogFiles(env_, archive_dir);
+  ASSERT_TRUE(log_files.empty());
 }
 
 void ExpectRecords(
@@ -2662,7 +2672,7 @@ TEST(DBTest, TransactionLogIterator) {
     ExpectRecords(3, iter);
   }
   Reopen(&options);
-  {
+    env_->SleepForMicroseconds(2 * 1000 * 1000);{
     Put("key4", DummyString(1024));
     Put("key5", DummyString(1024));
     Put("key6", DummyString(1024));

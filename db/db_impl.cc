@@ -159,6 +159,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       logger_(nullptr),
       disable_delete_obsolete_files_(false),
       delete_obsolete_files_last_run_(0),
+      purge_wal_files_last_run_(0),
       stall_level0_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
@@ -390,16 +391,19 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           // record the files to be evicted from the cache
           state.files_to_evict.push_back(number);
         }
-        Log(options_.info_log, "Delete type=%d #%lld\n",
-            int(type),
-            static_cast<unsigned long long>(number));
+        Log(options_.info_log, "Delete type=%d #%lu", int(type), number);
         if (type == kLogFile && options_.WAL_ttl_seconds > 0) {
-          Status st = env_->RenameFile(LogFileName(dbname_, number),
-                                       ArchivedLogFileName(dbname_, number));
+          Status st = env_->RenameFile(
+            LogFileName(dbname_, number),
+            ArchivedLogFileName(dbname_, number)
+          );
+
           if (!st.ok()) {
-            Log(options_.info_log, "RenameFile type=%d #%lld FAILED\n",
+            Log(
+              options_.info_log, "RenameFile type=%d #%lu FAILED",
               int(type),
-              static_cast<unsigned long long>(number));
+              number
+            );
           }
         } else {
           Status st = env_->DeleteFile(dbname_ + "/" + state.allfiles[i]);
@@ -428,6 +432,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       env_->DeleteFile(dbname_ + "/" + to_delete);
     }
   }
+  PurgeObsoleteWALFiles();
 }
 
 void DBImpl::EvictObsoleteFiles(DeletionState& state) {
@@ -442,34 +447,36 @@ void DBImpl::DeleteObsoleteFiles() {
   FindObsoleteFiles(deletion_state);
   PurgeObsoleteFiles(deletion_state);
   EvictObsoleteFiles(deletion_state);
-  PurgeObsoleteWALFiles();
 }
 
 void DBImpl::PurgeObsoleteWALFiles() {
+  int64_t current_time;
+  Status s = env_->GetCurrentTime(&current_time);
+  uint64_t now_micros = static_cast<uint64_t>(current_time);
+  assert(s.ok());
+
   if (options_.WAL_ttl_seconds != ULONG_MAX && options_.WAL_ttl_seconds > 0) {
-    std::vector<std::string> WALFiles;
-    std::string archivalDir = ArchivalDirectory(dbname_);
-    env_->GetChildren(archivalDir, &WALFiles);
-    int64_t currentTime;
-    const Status status = env_->GetCurrentTime(&currentTime);
-    assert(status.ok());
-    for (const auto& f : WALFiles) {
-      uint64_t fileMTime;
-      const std::string filePath = archivalDir + "/" + f;
-      const Status s = env_->GetFileModificationTime(filePath, &fileMTime);
-      if (s.ok()) {
-        if (status.ok() &&
-            (currentTime - fileMTime > options_.WAL_ttl_seconds)) {
-          Status delStatus = env_->DeleteFile(filePath);
-          if (!delStatus.ok()) {
-            Log(options_.info_log,
-                "Failed Deleting a WAL file Error : i%s",
-                delStatus.ToString().c_str());
-          }
+    if (purge_wal_files_last_run_ + options_.WAL_ttl_seconds > now_micros) {
+      return;
+    }
+    std::vector<std::string> wal_files;
+    std::string archival_dir = ArchivalDirectory(dbname_);
+    env_->GetChildren(archival_dir, &wal_files);
+    for (const auto& f : wal_files) {
+      uint64_t file_m_time;
+      const std::string file_path = archival_dir + "/" + f;
+      const Status s = env_->GetFileModificationTime(file_path, &file_m_time);
+      if (s.ok() && (now_micros - file_m_time > options_.WAL_ttl_seconds)) {
+        Status status = env_->DeleteFile(file_path);
+        if (!status.ok()) {
+          Log(options_.info_log,
+              "Failed Deleting a WAL file Error : i%s",
+              status.ToString().c_str());
         }
       } // Ignore errors.
     }
   }
+  purge_wal_files_last_run_ = now_micros;
 }
 
 // If externalTable is set, then apply recovered transactions
@@ -1197,6 +1204,10 @@ void DBImpl::BGWork(void* db) {
   reinterpret_cast<DBImpl*>(db)->BackgroundCall();
 }
 
+void DBImpl::TEST_PurgeObsoleteteWAL() {
+  PurgeObsoleteWALFiles();
+}
+
 void DBImpl::BackgroundCall() {
   bool madeProgress = false;
   DeletionState deletion_state;
@@ -1225,6 +1236,7 @@ void DBImpl::BackgroundCall() {
     PurgeObsoleteFiles(deletion_state);
     EvictObsoleteFiles(deletion_state);
     mutex_.Lock();
+
   }
 
   bg_compaction_scheduled_--;

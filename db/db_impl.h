@@ -89,6 +89,10 @@ class DBImpl : public DB {
 
   // Return the current manifest file no.
   uint64_t TEST_Current_Manifest_FileNo();
+
+  // Trigger's a background call for testing.
+  void TEST_PurgeObsoleteteWAL();
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -264,6 +268,9 @@ class DBImpl : public DB {
 
   // last time when DeleteObsoleteFiles was invoked
   uint64_t delete_obsolete_files_last_run_;
+
+  // last time when PurgeObsoleteWALFiles ran.
+  uint64_t purge_wal_files_last_run_;
 
   // These count the number of microseconds for which MakeRoomForWrite stalls.
   uint64_t stall_level0_slowdown_;
