@@ -2082,6 +2082,11 @@ Compaction* VersionSet::PickCompaction() {
     // which will include the picked file.
     c->inputs_[0].clear();
     current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
+
+    // If we include more L0 files in the same compaction run it can
+    // cause the 'smallest' and 'largest' key to get extended to a
+    // larger range. So, re-invoke GetRange to get the new key range
+    GetRange(c->inputs_[0], &smallest, &largest);
     if (ParentRangeInCompaction(&smallest, &largest,
                                 level, &c->parent_index_)) {
       delete c;
