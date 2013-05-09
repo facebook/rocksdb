@@ -5,7 +5,7 @@
 #ifndef LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_
 #define LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_
 
-#include "include/leveldb/db.h"
+#include "leveldb/db.h"
 
 namespace leveldb {
 
