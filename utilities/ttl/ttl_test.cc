@@ -44,6 +44,12 @@ class TtlTest {
     ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_, ttl));
   }
 
+  // Open database with TTL support in read_only mode
+  void OpenReadOnlyTtl(int32_t ttl) {
+    assert(db_ttl_ == nullptr);
+    ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_, ttl, true));
+  }
+
   void CloseTtl() {
     delete db_ttl_;
     db_ttl_ = nullptr;
@@ -270,6 +276,19 @@ TEST(TtlTest, MultiOpenDifferent) {
 
   OpenTtl(3);                           // T=0: Set deleted at t=3
   SleepCompactCheck(2, 0, kSampleSize); // T=2: Set should be there
+  CloseTtl();
+}
+
+// Checks presence during ttl in read_only mode
+TEST(TtlTest, ReadOnlyPresentForever) {
+  MakeKVMap(kSampleSize);
+
+  OpenTtl(1);                                 // T=0:Open the db normally
+  PutValues(0, kSampleSize);                  // T=0:Insert Set1. Delete at t=1
+  CloseTtl();
+
+  OpenReadOnlyTtl(1);
+  SleepCompactCheck(2, 0, kSampleSize, true); // T=2:Set1 should still be there
   CloseTtl();
 }
 
