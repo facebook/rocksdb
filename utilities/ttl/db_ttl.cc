@@ -72,13 +72,18 @@ class TtlIterator : public Iterator {
 DBWithTTL::DBWithTTL(const int32_t ttl,
                      const Options& options,
                      const std::string& dbname,
-                     Status& st)
+                     Status& st,
+                     bool read_only)
     : ttl_(ttl) {
   assert(options.CompactionFilter == nullptr);
   Options options_to_open = options;
   options_to_open.compaction_filter_args = &ttl_;
   options_to_open.CompactionFilter = DeleteByTS;
-  st = DB::Open(options_to_open, dbname, &db_);
+  if (read_only) {
+    st = DB::OpenForReadOnly(options_to_open, dbname, &db_);
+  } else {
+    st = DB::Open(options_to_open, dbname, &db_);
+  }
 }
 
 DBWithTTL::~DBWithTTL() {
@@ -89,9 +94,10 @@ Status UtilityDB::OpenTtlDB(
     const Options& options,
     const std::string& dbname,
     DB** dbptr,
-    int32_t ttl) {
+    int32_t ttl,
+    bool read_only) {
   Status st;
-  *dbptr = new DBWithTTL(ttl, options, dbname, st);
+  *dbptr = new DBWithTTL(ttl, options, dbname, st, read_only);
   if (!st.ok()) {
     delete dbptr;
   }

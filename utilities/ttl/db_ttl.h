@@ -15,7 +15,8 @@ class DBWithTTL : public DB {
   DBWithTTL(const int32_t ttl,
             const Options& options,
             const std::string& dbname,
-            Status& st);
+            Status& st,
+            bool read_only);
 
   virtual ~DBWithTTL();
 
