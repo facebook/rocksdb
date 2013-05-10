@@ -76,11 +76,15 @@ class DBWithTTL : public DB {
 
   static Status AppendTS(const Slice& val, std::string& val_with_ts);
 
+  static Status SanityCheckTimestamp(const std::string& str);
+
   static Status StripTS(std::string* str);
 
   static Status GetCurrentTime(int32_t& curtime);
 
   static const int32_t kTSLength = sizeof(int32_t); // size of timestamp
+
+  static const int32_t kMinTimestamp = 1368146402; // 05/09/2013:5:40PM
 
  private:
   DB* db_;

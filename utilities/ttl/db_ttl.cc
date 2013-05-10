@@ -53,7 +53,7 @@ class TtlIterator : public Iterator {
   }
 
   Slice value() const {
-    assert(iter_->value().size() >= (unsigned)ts_len_);
+    assert(DBWithTTL::SanityCheckTimestamp(iter_->value().ToString()).ok());
     Slice trimmed_value = iter_->value();
     trimmed_value.size_ -= ts_len_;
     return trimmed_value;
@@ -130,6 +130,22 @@ Status DBWithTTL::AppendTS(const Slice& val, std::string& val_with_ts) {
   return st;
 }
 
+// Returns corruption if the length of the string is lesser than timestamp, or
+// timestamp refers to a time lesser than ttl-feature release time
+Status DBWithTTL::SanityCheckTimestamp(const std::string& str) {
+  if (str.length() < (unsigned)kTSLength) {
+    return Status::Corruption("Error: value's length less than timestamp's\n");
+  }
+  // Checks that TS is not lesser than kMinTimestamp
+  // Gaurds against corruption & normal database opened incorrectly in ttl mode
+  int32_t timestamp_value =
+    DecodeFixed32(str.data() + str.size() - kTSLength);
+  if (timestamp_value < kMinTimestamp){
+    return Status::Corruption("Error: Timestamp < ttl feature release time!\n");
+  }
+  return Status::OK();
+}
+
 // Checks if the string is stale or not according to TTl provided
 bool DBWithTTL::IsStale(const Slice& value, int32_t ttl) {
   if (ttl <= 0) { // Data is fresh if TTL is non-positive
@@ -151,9 +167,6 @@ bool DBWithTTL::IsStale(const Slice& value, int32_t ttl) {
 // Strips the TS from the end of the string
 Status DBWithTTL::StripTS(std::string* str) {
   Status st;
-  if (str->length() < (unsigned)kTSLength) {
-    return Status::IOError("Error: value's length less than timestamp's\n");
-  }
   // Erasing characters which hold the TS
   str->erase(str->length() - kTSLength, kTSLength);
   return st;
@@ -175,6 +188,10 @@ Status DBWithTTL::Get(const ReadOptions& options,
                       const Slice& key,
                       std::string* value) {
   Status st = db_->Get(options, key, value);
+  if (!st.ok()) {
+    return st;
+  }
+  st = SanityCheckTimestamp(*value);
   if (!st.ok()) {
     return st;
   }
