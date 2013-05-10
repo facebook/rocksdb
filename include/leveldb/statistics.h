@@ -5,6 +5,7 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
 #define STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -106,8 +107,7 @@ class Ticker {
   }
 
  private:
-  uint64_t count_;
-
+  std::atomic_uint_fast64_t count_;
 };
 
 // Analyze the performance of a db
