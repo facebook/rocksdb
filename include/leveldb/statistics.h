@@ -40,7 +40,14 @@ enum Tickers {
   NO_FILE_CLOSES = 10,
   NO_FILE_OPENS = 11,
   NO_FILE_ERRORS = 12,
-  TICKER_ENUM_MAX = 13,
+  // Time system had to wait to do LO-L1 compactions
+  STALL_L0_SLOWDOWN_MICROS = 13,
+  // Time system had to wait to move memtable to L1.
+  STALL_MEMTABLE_COMPACTION_MICROS = 14,
+  // write throttle because of too many files in L0
+  STALL_L0_NUM_FILES_MICROS = 15,
+  RATE_LIMIT_DELAY_MILLIS = 16,
+  TICKER_ENUM_MAX = 17
 };
 
 

@@ -2183,6 +2183,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       uint64_t t1 = env_->NowMicros();
       env_->SleepForMicroseconds(1000);
       uint64_t delayed = env_->NowMicros() - t1;
+      RecordTick(options_.statistics, STALL_L0_SLOWDOWN_MICROS, delayed);
       stall_level0_slowdown_ += delayed;
       allow_delay = false;  // Do not delay a single write more than once
       //Log(options_.info_log,
@@ -2204,7 +2205,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       Log(options_.info_log, "wait for memtable compaction...\n");
       uint64_t t1 = env_->NowMicros();
       bg_cv_.Wait();
-      stall_memtable_compaction_ += env_->NowMicros() - t1;
+      const uint64_t stall = env_->NowMicros() -t1;
+      RecordTick(options_.statistics, STALL_MEMTABLE_COMPACTION_MICROS, stall);
+      stall_memtable_compaction_ += stall;
     } else if (versions_->NumLevelFiles(0) >=
                options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
@@ -2212,7 +2215,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       uint64_t t1 = env_->NowMicros();
       Log(options_.info_log, "wait for fewer level0 files...\n");
       bg_cv_.Wait();
-      stall_level0_num_files_ += env_->NowMicros() - t1;
+      const uint64_t stall = env_->NowMicros() - t1;
+      RecordTick(options_.statistics, STALL_L0_NUM_FILES_MICROS, stall);
+      stall_level0_num_files_ += stall;
     } else if (
         allow_rate_limit_delay &&
         options_.rate_limit > 1.0 &&
@@ -2225,7 +2230,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       uint64_t delayed = env_->NowMicros() - t1;
       stall_leveln_slowdown_[max_level] += delayed;
       // Make sure the following value doesn't round to zero.
-      rate_limit_delay_millis += std::max((delayed / 1000), (uint64_t) 1);
+      uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
+      rate_limit_delay_millis += rate_limit;
+      RecordTick(options_.statistics, RATE_LIMIT_DELAY_MILLIS, rate_limit);
       if (rate_limit_delay_millis >=
           (unsigned)options_.rate_limit_delay_milliseconds) {
         allow_rate_limit_delay = false;
