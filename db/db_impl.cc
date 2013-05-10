@@ -162,6 +162,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       disable_delete_obsolete_files_(false),
       delete_obsolete_files_last_run_(0),
       purge_wal_files_last_run_(0),
+      last_stats_dump_time_microsec_(0),
       stall_level0_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
@@ -301,6 +302,24 @@ const Status DBImpl::CreateArchivalDirectory() {
     return env_->CreateDirIfMissing(archivalPath);
   }
   return Status::OK();
+}
+
+void DBImpl::MaybeDumpStats() {
+  mutex_.AssertHeld();
+
+  if (options_.stats_dump_period_sec != 0) {
+    const uint64_t now_micros = env_->NowMicros();
+    if (last_stats_dump_time_microsec_ +
+        options_.stats_dump_period_sec * 1000000
+        <= now_micros) {
+      last_stats_dump_time_microsec_ = now_micros;
+      mutex_.Unlock();
+      std::string stats;
+      GetProperty("leveldb.stats", &stats);
+      Log(options_.info_log, "%s", stats.c_str());
+      mutex_.Lock();
+    }
+  }
 }
 
 // Returns the list of live files in 'live' and the list
@@ -1253,6 +1272,8 @@ void DBImpl::BackgroundCall() {
     MaybeScheduleCompaction();
   }
   bg_cv_.SignalAll();
+
+  MaybeDumpStats();
 }
 
 Status DBImpl::BackgroundCompaction(bool* madeProgress,

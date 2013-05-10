@@ -430,6 +430,9 @@ struct Options {
   // Default: false
   bool skip_log_error_on_recovery;
 
+  // if not zero, dump leveldb.stats to LOG every stats_dump_period_sec
+  // Default: 3600 (1 hour)
+  unsigned int stats_dump_period_sec;
 };
 
 // Options that control read operations

@@ -208,6 +208,10 @@ class DBImpl : public DB {
 
 
   Status ReadFirstLine(const std::string& fname, WriteBatch* const batch);
+
+  // dump leveldb.stats to LOG
+  void MaybeDumpStats();
+
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
@@ -271,6 +275,9 @@ class DBImpl : public DB {
 
   // last time when PurgeObsoleteWALFiles ran.
   uint64_t purge_wal_files_last_run_;
+
+  // last time stats were dumped to LOG
+  uint64_t last_stats_dump_time_microsec_;
 
   // These count the number of microseconds for which MakeRoomForWrite stalls.
   uint64_t stall_level0_slowdown_;

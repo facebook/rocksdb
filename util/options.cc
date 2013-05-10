@@ -69,7 +69,8 @@ Options::Options()
       allow_mmap_reads(false),
       allow_mmap_writes(true),
       is_fd_close_on_exec(true),
-      skip_log_error_on_recovery(false) {
+      skip_log_error_on_recovery(false),
+      stats_dump_period_sec(3600) {
 }
 
 void
@@ -161,7 +162,7 @@ Options::Dump(Logger* log) const
     Log(log,"                         Options.no_block_cache: %d",
         no_block_cache);
     Log(log,"               Options.table_cache_numshardbits: %d",
-  table_cache_numshardbits);
+        table_cache_numshardbits);
     Log(log,"    Options.delete_obsolete_files_period_micros: %ld",
         delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",
@@ -192,6 +193,8 @@ Options::Dump(Logger* log) const
         is_fd_close_on_exec);
     Log(log,"              Options.skip_log_error_on_recovery: %d",
         skip_log_error_on_recovery);
+    Log(log,"                   Options.stats_dump_period_sec: %d",
+        stats_dump_period_sec);
 }   // Options::Dump
 
 //
