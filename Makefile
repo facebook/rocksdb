@@ -61,7 +61,8 @@ TESTS = \
 	write_batch_test \
 	auto_roll_logger_test \
 	filelock_test \
-	merge_test
+	merge_test \
+	stringappend_test
 
 TOOLS = \
         sst_dump \
@@ -173,6 +174,9 @@ cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+
+stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS)
