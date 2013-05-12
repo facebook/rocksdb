@@ -22,6 +22,7 @@ class FilterPolicy;
 class Logger;
 class MergeOperator;
 class Snapshot;
+class CompactionFilter;
 
 using std::shared_ptr;
 
@@ -75,6 +76,11 @@ struct Options {
   // openning the DB in this case.
   // Default: nullptr
   const MergeOperator* merge_operator;
+
+  // Allows an application to modify/delete a key-value during background
+  // compaction.
+  // Default: nullptr
+  const CompactionFilter* compaction_filter;
 
   // If true, the database will be created if it is missing.
   // Default: false
@@ -366,28 +372,6 @@ struct Options {
   // It's recommended to manually call CompactRange(NULL, NULL) before reading
   // from the database, because otherwise the read can be very slow.
   Options* PrepareForBulkLoad();
-
-  // This method allows an application to modify/delete a key-value at
-  // the time of compaction. The compaction process invokes this
-  // method for kv that is being compacted. A return value
-  // of false indicates that the kv should be preserved in the
-  // output of this compaction run and a return value of true
-  // indicates that this key-value should be removed from the
-  // output of the compaction.  The application can inspect
-  // the existing value of the key and make decision based on it.
-
-  // When the value is to be preserved, the application has the option
-  // to modify the existing_value and pass it back through new_value.
-  // value_changed needs to be set to true in this case.
-
-  // The compaction_filter_args, if specified here, are passed
-  // back to the invocation of the CompactionFilter.
-  void* compaction_filter_args;
-  bool (*CompactionFilter)(void* compaction_filter_args,
-                           int level, const Slice& key,
-                           const Slice& existing_value,
-                           std::string* new_value,
-                           bool* value_changed);
 
   // Disable automatic compactions. Manual compactions can still
   // be issued on this database.

@@ -7,6 +7,7 @@
 #include <limits>
 
 #include "leveldb/cache.h"
+#include "leveldb/compaction_filter.h"
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
@@ -17,6 +18,7 @@ namespace leveldb {
 Options::Options()
     : comparator(BytewiseComparator()),
       merge_operator(nullptr),
+      compaction_filter(nullptr),
       create_if_missing(false),
       error_if_exists(false),
       paranoid_checks(false),
@@ -56,8 +58,6 @@ Options::Options()
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
       table_cache_numshardbits(4),
-      compaction_filter_args(nullptr),
-      CompactionFilter(nullptr),
       disable_auto_compactions(false),
       WAL_ttl_seconds(0),
       manifest_preallocation_size(4 * 1024 * 1024),
@@ -76,6 +76,8 @@ Options::Dump(Logger* log) const
     Log(log,"              Options.comparator: %s", comparator->Name());
     Log(log,"          Options.merge_operator: %s",
         merge_operator? merge_operator->Name() : "None");
+    Log(log,"       Options.compaction_filter: %s",
+        compaction_filter? compaction_filter->Name() : "None");
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
     Log(log,"                     Options.env: %p", env);
@@ -162,10 +164,6 @@ Options::Dump(Logger* log) const
         rate_limit);
     Log(log,"          Options.rate_limit_delay_milliseconds: %d",
         rate_limit_delay_milliseconds);
-    Log(log,"                 Options.compaction_filter_args: %p",
-        compaction_filter_args);
-    Log(log,"                       Options.CompactionFilter: %p",
-        CompactionFilter);
     Log(log,"               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
     Log(log,"                        Options.WAL_ttl_seconds: %ld",

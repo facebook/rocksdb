@@ -12,6 +12,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "leveldb/cache.h"
+#include "leveldb/compaction_filter.h"
 #include "leveldb/env.h"
 #include "table/table.h"
 #include "util/hash.h"
@@ -1369,35 +1370,64 @@ TEST(DBTest, RepeatedWritesToSameKey) {
 // kvs during the compaction process.
 static int cfilter_count;
 static std::string NEW_VALUE = "NewValue";
-static bool keep_filter(void* arg, int level, const Slice& key,
-                        const Slice& value, std::string* new_value,
-                        bool* value_changed) {
-  assert(arg == nullptr);
-  cfilter_count++;
-  return false;
-}
-static bool delete_filter(void*argv, int level, const Slice& key,
-                          const Slice& value, std::string* new_value,
-                          bool* value_changed) {
-  assert(argv == nullptr);
-  cfilter_count++;
-  return true;
-}
-static bool change_filter(void*argv, int level, const Slice& key,
-                          const Slice& value, std::string* new_value,
-                          bool* value_changed) {
-  assert(argv == (void*)100);
-  assert(new_value != nullptr);
-  *new_value = NEW_VALUE;
-  *value_changed = true;
-  return false;
-}
+
+class KeepFilter : public CompactionFilter {
+ public:
+  virtual bool Filter(int level, const Slice& key,
+                      const Slice& value, std::string* new_value,
+                      bool* value_changed) const override {
+    cfilter_count++;
+    return false;
+  }
+
+  virtual const char* Name() const override {
+    return "KeepFilter";
+  }
+
+};
+
+class DeleteFilter : public CompactionFilter {
+ public:
+  virtual bool Filter(int level, const Slice& key,
+                      const Slice& value, std::string* new_value,
+                      bool* value_changed) const override {
+    cfilter_count++;
+    return true;
+  }
+
+  virtual const char* Name() const override {
+    return "DeleteFilter";
+  }
+};
+
+class ChangeFilter : public CompactionFilter {
+ public:
+  ChangeFilter(int argv) : argv_(argv) {}
+
+  virtual bool Filter(int level, const Slice& key,
+                      const Slice& value, std::string* new_value,
+                      bool* value_changed) const override {
+    assert(argv_ == 100);
+    assert(new_value != nullptr);
+    *new_value = NEW_VALUE;
+    *value_changed = true;
+    return false;
+  }
+
+  virtual const char* Name() const override {
+    return "ChangeFilter";
+  }
+
+ private:
+  const int argv_;
+};
 
 TEST(DBTest, CompactionFilter) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
-  options.CompactionFilter = keep_filter;
+  auto keep_filter = std::make_shared<KeepFilter>();
+  options.compaction_filter = keep_filter.get();
   Reopen(&options);
 
   // Write 100K keys, these are written to a few files in L0.
@@ -1472,7 +1502,8 @@ TEST(DBTest, CompactionFilter) {
 
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
-  options.CompactionFilter = delete_filter;
+  auto delete_filter = std::make_shared<DeleteFilter>();
+  options.compaction_filter = delete_filter.get();
   options.create_if_missing = true;
   DestroyAndReopen(&options);
 
@@ -1535,8 +1566,8 @@ TEST(DBTest, CompactionFilterWithValueChange) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
-  options.compaction_filter_args = (void *)100;
-  options.CompactionFilter = change_filter;
+  auto change_filter = std::make_shared<ChangeFilter>(100);
+  options.compaction_filter = change_filter.get();
   Reopen(&options);
 
   // Write 100K+1 keys, these are written to a few files

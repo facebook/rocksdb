@@ -75,10 +75,9 @@ DBWithTTL::DBWithTTL(const int32_t ttl,
                      Status& st,
                      bool read_only)
     : ttl_(ttl) {
-  assert(options.CompactionFilter == nullptr);
+  assert(options.compaction_filter == nullptr);
   Options options_to_open = options;
-  options_to_open.compaction_filter_args = &ttl_;
-  options_to_open.CompactionFilter = DeleteByTS;
+  options_to_open.compaction_filter = this;
   if (read_only) {
     st = DB::OpenForReadOnly(options_to_open, dbname, &db_);
   } else {
@@ -105,15 +104,19 @@ Status UtilityDB::OpenTtlDB(
 }
 
 // returns true(i.e. key-value to be deleted) if its TS has expired based on ttl
-bool DBWithTTL::DeleteByTS(
-    void* args,
+bool DBWithTTL::Filter(
     int level,
     const Slice& key,
     const Slice& old_val,
     std::string* new_val,
-    bool* value_changed) {
-  return IsStale(old_val, *(int32_t*)args);
+    bool* value_changed) const {
+  return IsStale(old_val, ttl_);
 }
+
+const char* DBWithTTL::Name() const {
+  return "Delete By TTL";
+}
+
 
 // Gives back the current time
 Status DBWithTTL::GetCurrentTime(int32_t& curtime) {

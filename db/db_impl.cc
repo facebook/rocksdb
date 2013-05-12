@@ -26,6 +26,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/transaction_log_iterator_impl.h"
+#include "leveldb/compaction_filter.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/merge_operator.h"
@@ -1701,7 +1702,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         key = merge.key();
         ParseInternalKey(key, &ikey);
         value = merge.value();
-      } else if (options_.CompactionFilter != nullptr &&
+      } else if (options_.compaction_filter &&
                  ikey.type != kTypeDeletion &&
                  visible_at_tip) {
         // If the user has specified a compaction filter and there are no
@@ -1712,11 +1713,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         assert(!drop);
         bool value_changed = false;
         compaction_filter_value.clear();
-        drop = options_.CompactionFilter(options_.compaction_filter_args,
-                                         compact->compaction->level(),
-                                         ikey.user_key, value,
-                                         &compaction_filter_value,
-                                         &value_changed);
+        drop = options_.compaction_filter->Filter(compact->compaction->level(),
+                                                  ikey.user_key, value,
+                                                  &compaction_filter_value,
+                                                  &value_changed);
         // Another example of statistics update without holding the lock
         // TODO: clean it up
         if (drop) {

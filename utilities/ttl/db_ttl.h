@@ -6,11 +6,12 @@
 #define LEVELDB_UTILITIES_TTL_DB_TTL_H_
 
 #include "include/leveldb/db.h"
+#include "include/leveldb/compaction_filter.h"
 #include "db/db_impl.h"
 
 namespace leveldb {
 
-class DBWithTTL : public DB {
+class DBWithTTL : public DB, CompactionFilter {
  public:
   DBWithTTL(const int32_t ttl,
             const Options& options,
@@ -71,12 +72,14 @@ class DBWithTTL : public DB {
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBWithTtl();
 
-  static bool DeleteByTS(void* args,
-                         int level,
-                         const Slice& key,
-                         const Slice& old_val,
-                         std::string* new_val,
-                         bool* value_changed);
+  // The following two methods are for CompactionFilter
+  virtual bool Filter(int level,
+                      const Slice& key,
+                      const Slice& old_val,
+                      std::string* new_val,
+                      bool* value_changed) const override;
+
+  virtual const char* Name() const override;
 
   static bool IsStale(const Slice& value, int32_t ttl);
 
