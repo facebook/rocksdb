@@ -12,14 +12,14 @@
 #include <algorithm>
 #include <stdio.h>
 
-#include "leveldb/db.h"
+#include "db/version_set.h"
 #include "leveldb/env.h"
 #include "leveldb/options.h"
 #include "leveldb/iterator.h"
 #include "leveldb/slice.h"
-#include "db/version_set.h"
 #include "util/logging.h"
 #include "util/ldb_cmd_execute_result.h"
+#include "utilities/utility_db.h"
 
 using std::string;
 using std::map;
@@ -36,6 +36,7 @@ public:
   static const string ARG_HEX;
   static const string ARG_KEY_HEX;
   static const string ARG_VALUE_HEX;
+  static const string ARG_TTL;
   static const string ARG_FROM;
   static const string ARG_TO;
   static const string ARG_MAX_KEYS;
@@ -157,6 +158,9 @@ protected:
   /** If true, the value is input/output as hex in get/put/scan/delete etc. */
   bool is_value_hex_;
 
+  /** If true, the value is treated as timestamp suffixed */
+  bool is_db_ttl_;
+
   /**
    * Map of options passed on the command-line.
    */
@@ -179,6 +183,7 @@ protected:
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
+      is_db_ttl_(false),
       option_map_(options),
       flags_(flags),
       valid_cmd_line_options_(valid_cmd_line_options) {
@@ -190,6 +195,7 @@ protected:
 
     is_key_hex_ = IsKeyHex(options, flags);
     is_value_hex_ = IsValueHex(options, flags);
+    is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   }
 
   void OpenDB() {
@@ -199,7 +205,13 @@ protected:
     }
     // Open the DB.
     Status st;
-    if (is_read_only_) {
+    if (is_db_ttl_) {
+      if (is_read_only_) {
+        st = UtilityDB::OpenTtlDB(opt, db_path_, &db_, 0, true);
+      } else {
+        st = UtilityDB::OpenTtlDB(opt, db_path_, &db_);
+      }
+    } else if (is_read_only_) {
       st = DB::OpenForReadOnly(opt, db_path_, &db_);
     } else {
       st = DB::Open(opt, db_path_, &db_);

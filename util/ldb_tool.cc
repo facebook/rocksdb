@@ -18,6 +18,9 @@ public:
     ret.append("\n");
     ret.append("The following optional parameters control if keys/values are "
         "input/output as hex or as plain strings:\n");
+    ret.append("  --" + LDBCommand::ARG_TTL +
+        " with 'put','get','scan','dump','query','batchput'"
+        " : DB supports ttl and value is internally timestamp-suffixed\n");
     ret.append("  --" + LDBCommand::ARG_KEY_HEX +
         " : Keys are input/output as hex\n");
     ret.append("  --" + LDBCommand::ARG_VALUE_HEX +

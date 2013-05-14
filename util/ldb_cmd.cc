@@ -33,6 +33,7 @@ const string LDBCommand::ARG_DB = "db";
 const string LDBCommand::ARG_HEX = "hex";
 const string LDBCommand::ARG_KEY_HEX = "key_hex";
 const string LDBCommand::ARG_VALUE_HEX = "value_hex";
+const string LDBCommand::ARG_TTL = "ttl";
 const string LDBCommand::ARG_FROM = "from";
 const string LDBCommand::ARG_TO = "to";
 const string LDBCommand::ARG_MAX_KEYS = "max_keys";
@@ -538,9 +539,9 @@ const string DBDumperCommand::ARG_STATS = "stats";
 DBDumperCommand::DBDumperCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, true,
-               BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
-                                    ARG_FROM, ARG_TO, ARG_MAX_KEYS,
-                                    ARG_COUNT_ONLY, ARG_STATS})),
+               BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
+                                    ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+                                    ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_STATS})),
     null_from_(true),
     null_to_(true),
     max_keys_(-1),
@@ -568,7 +569,7 @@ DBDumperCommand::DBDumperCommand(const vector<string>& params,
                         " has an invalid value");
     } catch(const out_of_range&) {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_MAX_KEYS +
-                        " has a valuei out-of-range");
+                        " has a value out-of-range");
     }
   }
 
@@ -636,8 +637,8 @@ void DBDumperCommand::DoCommand() {
     ++count;
     if (!count_only_) {
       string str = PrintKeyValue(iter->key().ToString(),
-                                      iter->value().ToString(),
-                                      is_key_hex_, is_value_hex_);
+                                 iter->value().ToString(),
+                                 is_key_hex_, is_value_hex_);
       fprintf(stdout, "%s\n", str.c_str());
     }
   }
@@ -908,8 +909,9 @@ void WALDumperCommand::DoCommand() {
 
 GetCommand::GetCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
-  LDBCommand(options, flags, true,
-             BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+  LDBCommand(options, flags, true, BuildCmdLineOptions({ARG_TTL, ARG_HEX,
+                                                        ARG_KEY_HEX,
+                                                        ARG_VALUE_HEX})) {
 
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::FAILED(
@@ -996,7 +998,7 @@ void ApproxSizeCommand::DoCommand() {
 BatchPutCommand::BatchPutCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
   LDBCommand(options, flags, false,
-             BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
+             BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
                                   ARG_CREATE_IF_MISSING})) {
 
   if (params.size() < 2) {
@@ -1048,8 +1050,9 @@ Options BatchPutCommand::PrepareOptionsForOpenDB() {
 ScanCommand::ScanCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, true,
-               BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
-                                    ARG_FROM, ARG_TO, ARG_MAX_KEYS})),
+               BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
+                                    ARG_VALUE_HEX, ARG_FROM, ARG_TO,
+                                    ARG_MAX_KEYS})),
     start_key_specified_(false),
     end_key_specified_(false),
     max_keys_scanned_(-1) {
@@ -1158,7 +1161,7 @@ void DeleteCommand::DoCommand() {
 PutCommand::PutCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
   LDBCommand(options, flags, false,
-             BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
+             BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
                                   ARG_CREATE_IF_MISSING})) {
 
   if (params.size() != 2) {
@@ -1209,7 +1212,8 @@ const char* DBQuerierCommand::DELETE_CMD = "delete";
 DBQuerierCommand::DBQuerierCommand(const vector<string>& params,
     const map<string, string>& options, const vector<string>& flags) :
   LDBCommand(options, flags, false,
-             BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX})) {
+             BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
+                                  ARG_VALUE_HEX})) {
 
 }
 

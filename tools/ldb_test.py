@@ -43,7 +43,7 @@ class LDBTestCase(unittest.TestCase):
     def dbParam(self, dbName):
         return "--db=%s" % os.path.join(self.TMP_DIR, dbName)
 
-    def assertRunOKFull(self, params, expectedOutput):
+    def assertRunOKFull(self, params, expectedOutput, unexpected=False):
         """
         All command-line params must be specified.
         Allows full flexibility in testing; for example: missing db param.
@@ -52,7 +52,10 @@ class LDBTestCase(unittest.TestCase):
 
         output = my_check_output("./ldb %s |grep -v \"Created bg thread\"" %
                             params, shell=True)
-        self.assertEquals(output.strip(), expectedOutput.strip());
+        if not unexpected:
+            self.assertEqual(output.strip(), expectedOutput.strip())
+        else:
+            self.assertNotEqual(output.strip(), expectedOutput.strip())
 
     def assertRunFAILFull(self, params):
         """
@@ -70,13 +73,13 @@ class LDBTestCase(unittest.TestCase):
             "Exception should have been raised for command with params: %s" %
             params)
 
-    def assertRunOK(self, params, expectedOutput):
+    def assertRunOK(self, params, expectedOutput, unexpected=False):
         """
         Uses the default test db.
 
         """
         self.assertRunOKFull("%s %s" % (self.dbParam(self.DB_NAME), params),
-                expectedOutput)
+                             expectedOutput, unexpected)
 
     def assertRunFAIL(self, params):
         """
@@ -123,7 +126,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("scan", "x2 : y2\nx3 : y3")
 
         self.assertRunOK("delete NonExistentKey", "OK")
-        # It is wierd that GET and SCAN raise exception for
+        # It is weird that GET and SCAN raise exception for
         # non-existent key, while delete does not
 
     def dumpDb(self, params, dumpFile):
@@ -141,6 +144,16 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("batchput")
         self.assertRunFAIL("batchput k1")
         self.assertRunFAIL("batchput k1 v1 k2")
+
+    def testInvalidCmdLines(self):
+        print "Running testInvalidCmdLines..."
+        # db not specified
+        self.assertRunFAILFull("put 0x6133 0x6233 --hex --create_if_missing")
+        # No param called he
+        self.assertRunFAIL("put 0x6133 0x6233 --he --create_if_missing")
+        # max_keys is not applicable for put
+        self.assertRunFAIL("put 0x6133 0x6233 --max_keys=1 --create_if_missing")
+        # hex has invalid boolean value
 
     def testHexPutGet(self):
         print "Running testHexPutGet..."
@@ -170,6 +183,18 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("scan", "a1 : b1\na2 : b2\na3 : b3\na4 : b4")
         self.assertRunOK("delete --hex 0x6133", "OK")
         self.assertRunOK("scan", "a1 : b1\na2 : b2\na4 : b4")
+
+    def testTtlPutGet(self):
+        print "Running testTtlPutGet..."
+        self.assertRunOK("put a1 b1 --ttl --create_if_missing", "OK")
+        self.assertRunOK("scan ", "a1 : b1", True)
+        self.assertRunOK("dump --ttl ", "a1 ==> b1", True)
+        self.assertRunOK("scan --hex --ttl", "0x6131 : 0x6231")
+        self.assertRunOK("get a1", "b1", True)
+        self.assertRunOK("get --ttl a1", "b1")
+        self.assertRunOK("put a3 b3 --create_if_missing", "OK")
+        # fails because timstamp's length is greater than value's
+        self.assertRunFAIL("get --ttl a3")
 
     def testInvalidCmdLines(self):
         print "Running testInvalidCmdLines..."
