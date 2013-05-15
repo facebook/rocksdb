@@ -433,6 +433,14 @@ struct Options {
   // if not zero, dump leveldb.stats to LOG every stats_dump_period_sec
   // Default: 3600 (1 hour)
   unsigned int stats_dump_period_sec;
+
+  // This is used to close a block before it reaches the configured
+  // 'block_size'. If the percentage of free space in the current block is less
+  // than this specified number and adding a new record to the block will
+  // exceed the configured block size, then this block will be closed and the
+  // new record will be written to the next block.
+  // Default is 10.
+  int block_size_deviation;
 };
 
 // Options that control read operations

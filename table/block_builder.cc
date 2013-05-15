@@ -60,6 +60,21 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
           sizeof(uint32_t));                      // Restart array length
 }
 
+size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
+  const {
+  size_t estimate = CurrentSizeEstimate();
+  estimate += key.size() + value.size();
+  if (counter_ >= options_->block_restart_interval) {
+    estimate += sizeof(uint32_t); // a new restart entry.
+  }
+
+  estimate += sizeof(int32_t); // varint for shared prefix length.
+  estimate += VarintLength(key.size()); // varint for key length.
+  estimate += VarintLength(value.size()); // varint for value length.
+
+  return estimate;
+}
+
 Slice BlockBuilder::Finish() {
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {

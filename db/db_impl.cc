@@ -138,6 +138,9 @@ Options SanitizeOptions(const std::string& dbname,
     result.block_cache = NewLRUCache(8 << 20);
   }
   result.compression_per_level = src.compression_per_level;
+  if (result.block_size_deviation < 0 || result.block_size_deviation > 100) {
+    result.block_size_deviation = 0;
+  }
   return result;
 }
 

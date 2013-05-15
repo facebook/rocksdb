@@ -98,6 +98,22 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
+  const size_t curr_size = r->data_block.CurrentSizeEstimate();
+  const size_t estimated_size_after = r->data_block.EstimateSizeAfterKV(key,
+      value);
+  // Do flush if one of the below two conditions is true:
+  // 1) if the current estimated size already exceeds the block size,
+  // 2) block_size_deviation is set and the estimated size after appending
+  // the kv will exceed the block size and the current size is under the
+  // the deviation.
+  if (curr_size >= r->options.block_size ||
+      (estimated_size_after > r->options.block_size &&
+      r->options.block_size_deviation > 0 &&
+      (curr_size * 100) >
+        r->options.block_size * (100 - r->options.block_size_deviation))) {
+    Flush();
+  }
+
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
@@ -114,11 +130,6 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   r->last_key.assign(key.data(), key.size());
   r->num_entries++;
   r->data_block.Add(key, value);
-
-  const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
-  if (estimated_block_size >= r->options.block_size) {
-    Flush();
-  }
 }
 
 void TableBuilder::Flush() {
