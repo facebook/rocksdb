@@ -226,7 +226,34 @@ Status DBWithTTL::Merge(const WriteOptions& options,
 }
 
 Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
-  return db_->Write(opts, updates);
+  class Handler : public WriteBatch::Handler {
+   public:
+    WriteBatch updates_ttl;
+    Status batch_rewrite_status;
+    virtual void Put(const Slice& key, const Slice& value) {
+      std::string value_with_ts;
+      Status st = AppendTS(value, value_with_ts);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        updates_ttl.Put(key, value_with_ts);
+      }
+    }
+    virtual void Merge(const Slice& key, const Slice& value) {
+      // TTL doesn't support merge operation
+      batch_rewrite_status = Status::NotSupported("TTL doesn't support Merge");
+    }
+    virtual void Delete(const Slice& key) {
+      updates_ttl.Delete(key);
+    }
+  };
+  Handler handler;
+  updates->Iterate(&handler);
+  if (!handler.batch_rewrite_status.ok()) {
+    return handler.batch_rewrite_status;
+  } else {
+    return db_->Write(opts, &(handler.updates_ttl));
+  }
 }
 
 Iterator* DBWithTTL::NewIterator(const ReadOptions& opts) {

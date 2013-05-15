@@ -12,6 +12,10 @@ namespace leveldb {
 
 namespace {
 typedef std::map<std::string, std::string> KVMap;
+enum BatchOperation {
+  PUT = 0,
+  DELETE = 1
+};
 }
 
 class TtlTest {
@@ -67,6 +71,29 @@ class TtlTest {
       kvmap_[key] = value;
     }
     ASSERT_EQ((int)kvmap_.size(), num_entries);//check all insertions done
+  }
+
+  // Makes a write-batch with key-vals from kvmap_ and 'Write''s it
+  void MakePutWriteBatch(const BatchOperation* batch_ops, int num_ops) {
+    assert(num_ops <= (int)kvmap_.size());
+    static WriteOptions wopts;
+    static FlushOptions flush_opts;
+    WriteBatch batch;
+    kv_it_ = kvmap_.begin();
+    for (int i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, kv_it_++) {
+      switch (batch_ops[i]) {
+        case PUT:
+          batch.Put(kv_it_->first, kv_it_->second);
+          break;
+        case DELETE:
+          batch.Delete(kv_it_->first);
+          break;
+        default:
+          assert(false);
+      }
+    }
+    db_ttl_->Write(wopts, &batch);
+    db_ttl_->Flush(flush_opts);
   }
 
   // Puts num_entries starting from start_pos_map from kvmap_ into the database
@@ -288,7 +315,27 @@ TEST(TtlTest, ReadOnlyPresentForever) {
   CloseTtl();
 
   OpenReadOnlyTtl(1);
-  SleepCompactCheck(2, 0, kSampleSize, true); // T=2:Set1 should still be there
+  SleepCompactCheck(2, 0, kSampleSize);       // T=2:Set1 should still be there
+  CloseTtl();
+}
+
+// Checks whether WriteBatch works well with TTL
+// Puts all kvs in kvmap_ in a batch and writes first, then deletes first half
+TEST(TtlTest, WriteBatchTest) {
+  MakeKVMap(kSampleSize);
+  BatchOperation batch_ops[kSampleSize];
+  for (int i = 0; i < kSampleSize; i++) {
+    batch_ops[i] = PUT;
+  }
+
+  OpenTtl(2);
+  MakePutWriteBatch(batch_ops, kSampleSize);
+  for (int i = 0; i < kSampleSize / 2; i++) {
+    batch_ops[i] = DELETE;
+  }
+  MakePutWriteBatch(batch_ops, kSampleSize / 2);
+  SleepCompactCheck(0, 0, kSampleSize / 2, false);
+  SleepCompactCheck(0, kSampleSize / 2, kSampleSize - kSampleSize / 2);
   CloseTtl();
 }
 
