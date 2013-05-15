@@ -192,15 +192,12 @@ Options::Dump(Logger* log) const
         allow_mmap_writes);
     Log(log,"                     Options.is_fd_close_on_exec: %d",
         is_fd_close_on_exec);
-<<<<<<< HEAD
     Log(log,"              Options.skip_log_error_on_recovery: %d",
         skip_log_error_on_recovery);
     Log(log,"                   Options.stats_dump_period_sec: %d",
         stats_dump_period_sec);
-=======
     Log(log,"                    Options.block_size_deviation: %d",
         block_size_deviation);
->>>>>>> add block deviation option to terminate a block before it exceeds block_size
 }   // Options::Dump
 
 //
