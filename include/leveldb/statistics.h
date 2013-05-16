@@ -80,7 +80,6 @@ class Histogram {
   virtual ~Histogram();
   // Add a value to be recorded in the histogram.
   virtual void Add(uint64_t value) = 0;
-  virtual void Add(double value) = 0;
 
   virtual std::string ToString() const = 0;
 
@@ -123,8 +122,7 @@ class Statistics {
 
   virtual long getTickerCount(Tickers tickerType) = 0;
   virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;
-  virtual void measureTime(Histograms histogramType, uint64_t count) = 0;
-  virtual void measureTime(Histograms histogramType, double count) = 0;
+  virtual void measureTime(Histograms histogramType, uint64_t time) = 0;
 
   virtual void histogramData(Histograms type, HistogramData * const data) = 0;
 

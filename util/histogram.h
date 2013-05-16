@@ -53,7 +53,6 @@ class HistogramImpl {
   virtual ~HistogramImpl() {}
   virtual void Clear();
   virtual void Add(uint64_t value);
-  virtual void Add(double value);
   void Merge(const HistogramImpl& other);
 
   virtual std::string ToString() const;

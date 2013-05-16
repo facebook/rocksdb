@@ -39,11 +39,6 @@ class DBStatistics: public Statistics {
     allHistograms_[histogramType].Add(value);
   }
 
-  virtual void measureTime(Histograms histogramType, double value) {
-    assert(histogramType < HISTOGRAM_ENUM_MAX);
-    allHistograms_[histogramType].Add(value);
-  }
-
   virtual void histogramData(Histograms histogramType,
                              HistogramData * const data) {
     assert(histogramType < HISTOGRAM_ENUM_MAX);

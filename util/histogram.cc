@@ -85,10 +85,6 @@ void HistogramImpl::Add(uint64_t value) {
   sum_squares_ += (value * value);
 }
 
-void HistogramImpl::Add(double value) {
-  Add(static_cast<uint64_t>(value));
-}
-
 void HistogramImpl::Merge(const HistogramImpl& other) {
   if (other.min_ < min_) min_ = other.min_;
   if (other.max_ > max_) max_ = other.max_;
