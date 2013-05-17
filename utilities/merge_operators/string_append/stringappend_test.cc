@@ -110,7 +110,7 @@ TEST(StringAppendOperatorTest,SimpleTest) {
   std::string res;
   bool status = slists.Get("k1",&res);
 
-  assert(status);
+  ASSERT_TRUE(status);
   ASSERT_EQ(res,"v1,v2,v3");
 }
 
@@ -165,7 +165,7 @@ TEST(StringAppendOperatorTest,VariousKeys) {
   sb = slists.Get("b",&b);
   sc = slists.Get("c",&c);
 
-  assert(sa && sb && sc); // All three keys should have been found
+  ASSERT_TRUE(sa && sb && sc); // All three keys should have been found
 
   ASSERT_EQ(a,"x\nt\nr");
   ASSERT_EQ(b,"y\n2");
@@ -356,7 +356,7 @@ TEST(StringAppendOperatorTest,PersistentFlushAndCompaction) {
     slists.Append("c","asdasd");
     db->Flush(leveldb::FlushOptions());
     success = slists.Get("c",&c);
-    assert(success == true);
+    ASSERT_TRUE(success);
     ASSERT_EQ(c,"asdasd");
 
     // Append, Flush, Append, Get
@@ -453,7 +453,7 @@ TEST(StringAppendOperatorTest,SimpleTestNullDelimiter) {
 
   std::string res;
   bool status = slists.Get("k1",&res);
-  assert(status);
+  ASSERT_TRUE(status);
 
   // Construct the desired string. Default constructor doesn't like '\0' chars.
   std::string checker("v1,v2,v3");    // Verify that the string is right size.
