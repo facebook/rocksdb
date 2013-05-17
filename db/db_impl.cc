@@ -1930,9 +1930,7 @@ Status DBImpl::Get(const ReadOptions& options,
                    std::string* value) {
   Status s;
 
-  std::unique_ptr<StopWatch> sw = stats::StartStopWatch(env_,
-                                                        options_.statistics,
-                                                        DB_GET);
+  StopWatch sw(env_, options_.statistics, DB_GET);
   SequenceNumber snapshot;
   MutexLock l(&mutex_);
   if (options.snapshot != nullptr) {
@@ -2025,9 +2023,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   w.disableWAL = options.disableWAL;
   w.done = false;
 
-  std::unique_ptr<StopWatch> sw = stats::StartStopWatch(env_,
-                                                        options_.statistics,
-                                                        DB_WRITE);
+  StopWatch sw(env_, options_.statistics, DB_WRITE);
   MutexLock l(&mutex_);
   writers_.push_back(&w);
   while (!w.done && &w != writers_.front()) {
