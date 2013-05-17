@@ -141,6 +141,24 @@ Status Table::Open(const Options& options,
   return s;
 }
 
+void Table::SetAccessHintForCompaction() {
+  switch (rep_->options.access_hint_on_compaction_start) {
+    case Options::NONE:
+      break;
+    case Options::NORMAL:
+      rep_->file->Hint(RandomAccessFile::NORMAL);
+      break;
+    case Options::SEQUENTIAL:
+      rep_->file->Hint(RandomAccessFile::SEQUENTIAL);
+      break;
+    case Options::WILLNEED:
+      rep_->file->Hint(RandomAccessFile::WILLNEED);
+      break;
+    default:
+      assert(false);
+  }
+}
+
 void Table::ReadMeta(const Footer& footer) {
   if (rep_->options.filter_policy == nullptr) {
     return;  // Do not need any metadata
@@ -273,7 +291,8 @@ Iterator* Table::BlockReader(void* arg,
 Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
                              const EnvOptions& soptions,
-                             const Slice& index_value) {
+                             const Slice& index_value,
+                             bool for_compaction) {
   return BlockReader(arg, options, index_value, nullptr);
 }
 
@@ -285,7 +304,8 @@ Iterator* Table::NewIterator(const ReadOptions& options) const {
 
 Status Table::InternalGet(const ReadOptions& options, const Slice& k,
                           void* arg,
-                          bool (*saver)(void*, const Slice&, const Slice&, bool)) {
+                          bool (*saver)(void*, const Slice&, const Slice&,
+                                        bool)) {
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   bool done = false;

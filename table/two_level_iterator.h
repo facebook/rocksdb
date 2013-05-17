@@ -27,10 +27,12 @@ extern Iterator* NewTwoLevelIterator(
         void* arg,
         const ReadOptions& options,
         const EnvOptions& soptions,
-        const Slice& index_value),
+        const Slice& index_value,
+        bool for_compaction),
     void* arg,
     const ReadOptions& options,
-    const EnvOptions& soptions);
+    const EnvOptions& soptions,
+    bool for_compaction = false);
 
 }  // namespace leveldb
 

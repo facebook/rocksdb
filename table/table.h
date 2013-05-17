@@ -64,13 +64,16 @@ class Table {
   // REQUIRES: key is in this table.
   bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
+  void SetAccessHintForCompaction();
+
  private:
   struct Rep;
   Rep* rep_;
 
   explicit Table(Rep* rep) { rep_ = rep; }
   static Iterator* BlockReader(void*, const ReadOptions&,
-                               const EnvOptions& soptions, const Slice&);
+                               const EnvOptions& soptions, const Slice&,
+                               bool for_compaction);
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
                                bool* didIO);
 

@@ -37,7 +37,8 @@ class TableCache {
                         const EnvOptions& toptions,
                         uint64_t file_number,
                         uint64_t file_size,
-                        Table** tableptr = nullptr);
+                        Table** tableptr = nullptr,
+                        bool for_compaction = false);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until

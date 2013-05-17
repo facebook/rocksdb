@@ -207,6 +207,30 @@ class PosixRandomAccessFile: public RandomAccessFile {
     return static_cast<size_t>(rid-id);
   }
 #endif
+
+  virtual void Hint(AccessPattern pattern) {
+    switch(pattern) {
+      case NORMAL:
+        posix_fadvise(fd_, 0, 0, POSIX_FADV_NORMAL);
+        break;
+      case RANDOM:
+        posix_fadvise(fd_, 0, 0, POSIX_FADV_RANDOM);
+        break;
+      case SEQUENTIAL:
+        posix_fadvise(fd_, 0, 0, POSIX_FADV_SEQUENTIAL);
+        break;
+      case WILLNEED:
+        posix_fadvise(fd_, 0, 0, POSIX_FADV_WILLNEED);
+        break;
+      case DONTNEED:
+        posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);
+        break;
+      default:
+        assert(false);
+        break;
+    }
+  }
+
 };
 
 // mmap() based random-access

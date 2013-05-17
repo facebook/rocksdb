@@ -180,7 +180,8 @@ class Version::LevelFileNumIterator : public Iterator {
 static Iterator* GetFileIterator(void* arg,
                                  const ReadOptions& options,
                                  const EnvOptions& soptions,
-                                 const Slice& file_value) {
+                                 const Slice& file_value,
+                                 bool for_compaction) {
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
   if (file_value.size() != 16) {
     return NewErrorIterator(
@@ -189,7 +190,9 @@ static Iterator* GetFileIterator(void* arg,
     return cache->NewIterator(options,
                               soptions,
                               DecodeFixed64(file_value.data()),
-                              DecodeFixed64(file_value.data() + 8));
+                              DecodeFixed64(file_value.data() + 8),
+                              nullptr /* don't need reference to table*/,
+                              for_compaction);
   }
 }
 
@@ -1834,13 +1837,15 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         for (size_t i = 0; i < files.size(); i++) {
           list[num++] = table_cache_->NewIterator(
               options, storage_options_compactions_,
-              files[i]->number, files[i]->file_size);
+              files[i]->number, files[i]->file_size, nullptr,
+              true /* for compaction */);
         }
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-            &GetFileIterator, table_cache_, options, storage_options_);
+            &GetFileIterator, table_cache_, options, storage_options_,
+            true /* for compaction */);
       }
     }
   }

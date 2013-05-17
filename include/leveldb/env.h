@@ -249,6 +249,12 @@ class RandomAccessFile {
     return 0; // Default implementation to prevent issues with backwards
               // compatibility.
   };
+
+
+  enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
+
+  virtual void Hint(AccessPattern pattern) {}
+
 };
 
 // A file abstraction for sequential writing.  The implementation

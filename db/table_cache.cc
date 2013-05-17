@@ -54,6 +54,9 @@ Status TableCache::FindTable(const EnvOptions& toptions,
     s = env_->NewRandomAccessFile(fname, &file, toptions);
     RecordTick(options_->statistics, NO_FILE_OPENS);
     if (s.ok()) {
+      if (options_->advise_random_on_open) {
+        file->Hint(RandomAccessFile::RANDOM);
+      }
       s = Table::Open(*options_, toptions, std::move(file), file_size, &table);
     }
 
@@ -74,7 +77,8 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   const EnvOptions& toptions,
                                   uint64_t file_number,
                                   uint64_t file_size,
-                                  Table** tableptr) {
+                                  Table** tableptr,
+                                  bool for_compaction) {
   if (tableptr != nullptr) {
     *tableptr = nullptr;
   }
@@ -92,6 +96,11 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   if (tableptr != nullptr) {
     *tableptr = table;
   }
+
+  if (for_compaction) {
+    table->SetAccessHintForCompaction();
+  }
+
   return result;
 }
 

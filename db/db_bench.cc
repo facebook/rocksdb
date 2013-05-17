@@ -293,6 +293,14 @@ static bool FLAGS_use_mmap_writes;
 // Allow readaheads to occur for compactions
 static bool FLAGS_use_readahead_compactions;
 
+// Advise random access on table file open
+static bool FLAGS_advise_random_on_open =
+  leveldb::Options().advise_random_on_open;
+
+// Access pattern advice when a file is compacted
+static auto FLAGS_compaction_fadvice =
+  leveldb::Options().access_hint_on_compaction_start;
+
 namespace leveldb {
 
 // Helper for quickly generating random data.
@@ -900,6 +908,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
       }
 
       if (method != nullptr) {
+        fprintf(stdout, "DB path: [%s]\n", FLAGS_db);
         RunBenchmark(num_threads, name, method);
       }
     }
@@ -1138,6 +1147,8 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.allow_mmap_reads = FLAGS_use_mmap_reads;
     options.allow_mmap_writes = FLAGS_use_mmap_writes;
     options.allow_readahead_compactions = FLAGS_use_readahead_compactions;
+    options.advise_random_on_open = FLAGS_advise_random_on_open;
+    options.access_hint_on_compaction_start = FLAGS_compaction_fadvice;
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
@@ -1731,8 +1742,9 @@ int main(int argc, char** argv) {
     int n;
     long l;
     char junk;
-    char hdfsname[2048];
+    char buf[2048];
     char str[512];
+
     if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
       FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
     } else if (sscanf(argv[i], "--compression_ratio=%lf%c", &d, &junk) == 1) {
@@ -1848,8 +1860,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--get_approx=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_get_approx = n;
-    } else if (sscanf(argv[i], "--hdfs=%s", hdfsname) == 1) {
-      FLAGS_env  = new leveldb::HdfsEnv(hdfsname);
+    } else if (sscanf(argv[i], "--hdfs=%s", buf) == 1) {
+      FLAGS_env  = new leveldb::HdfsEnv(buf);
     } else if (sscanf(argv[i], "--num_levels=%d%c",
         &n, &junk) == 1) {
       FLAGS_num_levels = n;
@@ -1931,6 +1943,21 @@ int main(int argc, char** argv) {
       FLAGS_source_compaction_factor = n;
     } else if (sscanf(argv[i], "--wal_ttl=%d%c", &n, &junk) == 1) {
       FLAGS_WAL_ttl_seconds = static_cast<uint64_t>(n);
+    } else if (sscanf(argv[i], "--advise_random_on_open=%d%c", &n, &junk) == 1
+               && (n == 0 || n ==1 )) {
+      FLAGS_advise_random_on_open = n;
+    } else if (sscanf(argv[i], "--compaction_fadvice=%s", buf) == 1) {
+      if (!strcasecmp(buf, "NONE"))
+        FLAGS_compaction_fadvice = leveldb::Options::NONE;
+      else if (!strcasecmp(buf, "NORMAL"))
+        FLAGS_compaction_fadvice = leveldb::Options::NORMAL;
+      else if (!strcasecmp(buf, "SEQUENTIAL"))
+        FLAGS_compaction_fadvice = leveldb::Options::SEQUENTIAL;
+      else if (!strcasecmp(buf, "WILLNEED"))
+        FLAGS_compaction_fadvice = leveldb::Options::WILLNEED;
+      else {
+        fprintf(stdout, "Unknown compaction fadvice:%s\n", buf);
+      }
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

@@ -71,8 +71,14 @@ Options::Options()
       is_fd_close_on_exec(true),
       skip_log_error_on_recovery(false),
       stats_dump_period_sec(3600),
-      block_size_deviation (10) {
+      block_size_deviation (10),
+      advise_random_on_open(true),
+      access_hint_on_compaction_start(NORMAL) {
 }
+
+static const char* const access_hints[] = {
+  "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
+};
 
 void
 Options::Dump(Logger* log) const
@@ -198,6 +204,10 @@ Options::Dump(Logger* log) const
         stats_dump_period_sec);
     Log(log,"                    Options.block_size_deviation: %d",
         block_size_deviation);
+    Log(log,"                   Options.advise_random_on_open: %d",
+        advise_random_on_open);
+    Log(log,"         Options.access_hint_on_compaction_start: %s",
+        access_hints[access_hint_on_compaction_start]);
 }   // Options::Dump
 
 //

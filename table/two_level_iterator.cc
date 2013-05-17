@@ -14,7 +14,8 @@ namespace leveldb {
 namespace {
 
 typedef Iterator* (*BlockFunction)(void*, const ReadOptions&,
-                                   const EnvOptions& soptions, const Slice&);
+                                   const EnvOptions& soptions, const Slice&,
+                                   bool for_compaction);
 
 class TwoLevelIterator: public Iterator {
  public:
@@ -23,7 +24,8 @@ class TwoLevelIterator: public Iterator {
     BlockFunction block_function,
     void* arg,
     const ReadOptions& options,
-    const EnvOptions& soptions);
+    const EnvOptions& soptions,
+    bool for_compaction);
 
   virtual ~TwoLevelIterator();
 
@@ -74,6 +76,7 @@ class TwoLevelIterator: public Iterator {
   // If data_iter_ is non-nullptr, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the data_iter_.
   std::string data_block_handle_;
+  bool for_compaction_;
 };
 
 TwoLevelIterator::TwoLevelIterator(
@@ -81,13 +84,15 @@ TwoLevelIterator::TwoLevelIterator(
     BlockFunction block_function,
     void* arg,
     const ReadOptions& options,
-    const EnvOptions& soptions)
+    const EnvOptions& soptions,
+    bool for_compaction)
     : block_function_(block_function),
       arg_(arg),
       options_(options),
       soptions_(soptions),
       index_iter_(index_iter),
-      data_iter_(nullptr) {
+      data_iter_(nullptr),
+      for_compaction_(for_compaction) {
 }
 
 TwoLevelIterator::~TwoLevelIterator() {
@@ -168,7 +173,8 @@ void TwoLevelIterator::InitDataBlock() {
       // data_iter_ is already constructed with this iterator, so
       // no need to change anything
     } else {
-      Iterator* iter = (*block_function_)(arg_, options_, soptions_, handle);
+      Iterator* iter = (*block_function_)(arg_, options_, soptions_, handle,
+                                          for_compaction_);
       data_block_handle_.assign(handle.data(), handle.size());
       SetDataIterator(iter);
     }
@@ -182,9 +188,10 @@ Iterator* NewTwoLevelIterator(
     BlockFunction block_function,
     void* arg,
     const ReadOptions& options,
-    const EnvOptions& soptions) {
+    const EnvOptions& soptions,
+    bool for_compaction) {
   return new TwoLevelIterator(index_iter, block_function, arg,
-                              options, soptions);
+                              options, soptions, for_compaction);
 }
 
 }  // namespace leveldb

@@ -441,6 +441,16 @@ struct Options {
   // new record will be written to the next block.
   // Default is 10.
   int block_size_deviation;
+
+  // If set true, will hint the underlying file system that the file
+  // access pattern is random, when a sst file is opened.
+  // Default: true
+  bool advise_random_on_open;
+
+  // Specify the file access pattern once a compaction is started.
+  // It will be applied to all input files of a compaction.
+  // Default: NORMAL
+  enum { NONE, NORMAL, SEQUENTIAL, WILLNEED } access_hint_on_compaction_start;
 };
 
 // Options that control read operations
