@@ -869,6 +869,7 @@ class StressTest {
     for (size_t i=sizeof(uint32_t); i < value_sz; i++) {
       v[i] = (char)(rand ^ i);
     }
+    v[value_sz] = '\0';
     return value_sz; // the size of the value set.
   }
 
