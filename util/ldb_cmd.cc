@@ -19,16 +19,6 @@ namespace leveldb {
 
 using namespace std;
 
-vector<string> stringSplit(string arg, char delim) {
-  vector<string> splits;
-  stringstream ss(arg);
-  string item;
-  while(getline(ss, item, delim)) {
-    splits.push_back(item);
-  }
-  return splits;
-}
-
 const string LDBCommand::ARG_DB = "db";
 const string LDBCommand::ARG_HEX = "hex";
 const string LDBCommand::ARG_KEY_HEX = "key_hex";

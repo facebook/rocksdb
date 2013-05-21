@@ -1009,7 +1009,8 @@ void VersionSet::Init(int num_levels) {
   for (int i = 0; i < num_levels; i++) {
     if (i > 1) {
       max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
-      level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier;
+      level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier *
+        options_->max_bytes_for_level_multiplier_additional[i-1];
     } else {
       max_file_size_[i] = options_->target_file_size_base;
       level_max_bytes_[i] = options_->max_bytes_for_level_base;

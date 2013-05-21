@@ -255,6 +255,12 @@ struct Options {
   // by default 'max_bytes_for_level_base' is 10.
   int max_bytes_for_level_multiplier;
 
+  // Different max-size multipliers for different levels.
+  // These are multiplied by max_bytes_for_level_multiplier to arrive
+  // at the max-size of each level.
+  // Default: 1
+  std::vector<int> max_bytes_for_level_multiplier_additional;
+
   // Maximum number of bytes in all compacted files.  We avoid expanding
   // the lower level file set of a compaction if it would make the
   // total compaction cover more than

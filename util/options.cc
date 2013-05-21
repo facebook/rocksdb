@@ -40,6 +40,7 @@ Options::Options()
       target_file_size_multiplier(1),
       max_bytes_for_level_base(10 * 1048576),
       max_bytes_for_level_multiplier(10),
+      max_bytes_for_level_multiplier_additional(num_levels, 1),
       expanded_compaction_factor(25),
       source_compaction_factor(1),
       max_grandparent_overlap_factor(10),
@@ -142,6 +143,10 @@ Options::Dump(Logger* log) const
         max_bytes_for_level_base);
     Log(log,"         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);
+    for (int i = 0; i < num_levels; i++) {
+      Log(log,"Options.max_bytes_for_level_multiplier_addtl[%d]: %d",
+          i, max_bytes_for_level_multiplier_additional[i]);
+    }
     Log(log,"             Options.expanded_compaction_factor: %d",
         expanded_compaction_factor);
     Log(log,"               Options.source_compaction_factor: %d",

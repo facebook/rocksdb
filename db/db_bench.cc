@@ -20,6 +20,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stack_trace.h"
+#include "util/string_util.h"
 #include "util/testutil.h"
 #include "hdfs/env_hdfs.h"
 
@@ -201,6 +202,9 @@ static uint64_t FLAGS_max_bytes_for_level_base = 10 * 1048576;
 
 // A multiplier to compute max bytes for level-N
 static int FLAGS_max_bytes_for_level_multiplier = 10;
+
+// A vector that specifies additional fanout per level
+static std::vector<int> FLAGS_max_bytes_for_level_multiplier_additional;
 
 // Number of files in level-0 that will trigger put stop.
 static int FLAGS_level0_stop_writes_trigger = 12;
@@ -1089,6 +1093,16 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
+    if (FLAGS_max_bytes_for_level_multiplier_additional.size() > 0) {
+      if (FLAGS_max_bytes_for_level_multiplier_additional.size() !=
+          (unsigned int)FLAGS_num_levels) {
+        fprintf(stderr, "Insufficient number of fanouts specified %d\n",
+                (int)FLAGS_max_bytes_for_level_multiplier_additional.size());
+        exit(1);
+      }
+      options.max_bytes_for_level_multiplier_additional =
+        FLAGS_max_bytes_for_level_multiplier_additional;
+    }
     options.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
     options.level0_file_num_compaction_trigger =
         FLAGS_level0_file_num_compaction_trigger;
@@ -1718,6 +1732,7 @@ int main(int argc, char** argv) {
     long l;
     char junk;
     char hdfsname[2048];
+    char str[512];
     if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
       FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
     } else if (sscanf(argv[i], "--compression_ratio=%lf%c", &d, &junk) == 1) {
@@ -1853,6 +1868,14 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i],"--level0_stop_writes_trigger=%d%c",
         &n, &junk) == 1) {
       FLAGS_level0_stop_writes_trigger = n;
+    } else if (sscanf(argv[i],
+                "--max_bytes_for_level_multiplier_additional=%s%c",
+                str, &junk) == 1) {
+      std::vector<std::string> fanout = leveldb::stringSplit(str, ',');
+      for (unsigned int j= 0; j < fanout.size(); j++) {
+        FLAGS_max_bytes_for_level_multiplier_additional.push_back(
+          std::stoi(fanout[j]));
+      }
     } else if (sscanf(argv[i],"--level0_slowdown_writes_trigger=%d%c",
         &n, &junk) == 1) {
       FLAGS_level0_slowdown_writes_trigger = n;

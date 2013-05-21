@@ -19,6 +19,7 @@
 #include "leveldb/slice.h"
 #include "util/logging.h"
 #include "util/ldb_cmd_execute_result.h"
+#include "util/string_util.h"
 #include "utilities/utility_db.h"
 
 using std::string;
