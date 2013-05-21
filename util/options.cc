@@ -68,7 +68,8 @@ Options::Options()
       allow_readahead_compactions(true),
       allow_mmap_reads(false),
       allow_mmap_writes(true),
-      is_fd_close_on_exec(true) {
+      is_fd_close_on_exec(true),
+      skip_log_error_on_recovery(false) {
 }
 
 void
@@ -189,6 +190,8 @@ Options::Dump(Logger* log) const
         allow_mmap_writes);
     Log(log,"                     Options.is_fd_close_on_exec: %d",
         is_fd_close_on_exec);
+    Log(log,"              Options.skip_log_error_on_recovery: %d",
+        skip_log_error_on_recovery);
 }   // Options::Dump
 
 //

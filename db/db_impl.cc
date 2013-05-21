@@ -590,7 +590,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
     Env* env;
     Logger* info_log;
     const char* fname;
-    Status* status;  // nullptr if options_.paranoid_checks==false
+    Status* status;  // nullptr if options_.paranoid_checks==false or
+                     //            options_.skip_log_error_on_recovery==true
     virtual void Corruption(size_t bytes, const Status& s) {
       Log(info_log, "%s%s: dropping %d bytes; %s",
           (this->status == nullptr ? "(ignoring error) " : ""),
@@ -615,7 +616,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   reporter.env = env_;
   reporter.info_log = options_.info_log.get();
   reporter.fname = fname.c_str();
-  reporter.status = (options_.paranoid_checks ? &status : nullptr);
+  reporter.status = (options_.paranoid_checks &&
+                     !options_.skip_log_error_on_recovery ? &status : nullptr);
   // We intentially make log::Reader do checksumming even if
   // paranoid_checks==false so that corruptions cause entire commits
   // to be skipped instead of propagating bad information (like overly
@@ -633,8 +635,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   if (external_table) {
     mem = external_table;
   }
-  while (reader.ReadRecord(&record, &scratch) &&
-         status.ok()) {
+  while (reader.ReadRecord(&record, &scratch) && status.ok()) {
     if (record.size() < 12) {
       reporter.Corruption(
           record.size(), Status::Corruption("log record too small"));

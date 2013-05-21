@@ -424,6 +424,12 @@ struct Options {
 
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec;
+
+  // Skip log corruption error on recovery (If client is ok with
+  // losing most recent changes)
+  // Default: false
+  bool skip_log_error_on_recovery;
+
 };
 
 // Options that control read operations
