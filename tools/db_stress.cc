@@ -1152,7 +1152,10 @@ int main(int argc, char** argv) {
       fprintf(stderr, "Error: Read + Delete percents > 100!\n");
       exit(1);
   }
-
+  if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
+      fprintf(stderr, "Error: Db cannot reopen safely with disable_wal set!\n");
+      exit(1);
+  }
   if ((unsigned)FLAGS_reopen >= FLAGS_ops_per_thread) {
       fprintf(stderr, "Error: #DB-reopens should be < ops_per_thread\n"
         "Provided reopens = %d and ops_per_thread = %u\n", FLAGS_reopen,
