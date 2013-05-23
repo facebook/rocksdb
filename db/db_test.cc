@@ -591,6 +591,7 @@ TEST(DBTest, LevelLimitReopen) {
   }
 
   options.num_levels = 1;
+  options.max_bytes_for_level_multiplier_additional.resize(1, 1);
   Status s = TryReopen(&options);
   ASSERT_EQ(s.IsCorruption(), true);
   ASSERT_EQ(s.ToString(),
@@ -598,6 +599,7 @@ TEST(DBTest, LevelLimitReopen) {
             "more levels than options.num_levels");
 
   options.num_levels = 10;
+  options.max_bytes_for_level_multiplier_additional.resize(10, 1);
   ASSERT_OK(TryReopen(&options));
 }
 
