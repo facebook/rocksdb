@@ -8,6 +8,7 @@
 #include <cassert>
 #include <stdlib.h>
 #include <vector>
+#include <memory>
 
 #include "leveldb/statistics.h"
 #include "util/histogram.h"
@@ -48,6 +49,11 @@ class DBStatistics: public Statistics {
   std::vector<Ticker> allTickers_;
   std::vector<HistogramImpl> allHistograms_;
 };
+
+std::shared_ptr<Statistics> CreateDBStatistics() {
+  return std::make_shared<DBStatistics>();
+}
+
 } // namespace leveldb
 
 #endif // LEVELDB_STORAGE_DB_DB_STATISTICS_H_

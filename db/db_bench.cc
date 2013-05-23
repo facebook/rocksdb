@@ -1817,7 +1817,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
-        dbstats.reset(new leveldb::DBStatistics());
+        dbstats = leveldb::CreateDBStatistics();
         FLAGS_statistics = true;
       }
     } else if (sscanf(argv[i], "--writes=%d%c", &n, &junk) == 1) {

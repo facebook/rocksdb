@@ -128,6 +128,9 @@ class Statistics {
 
 };
 
+// Create a concrete DBStatistics object
+std::shared_ptr<Statistics> CreateDBStatistics();
+
 // Ease of Use functions
 inline void RecordTick(std::shared_ptr<Statistics> statistics,
                        Tickers ticker,
