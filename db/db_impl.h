@@ -5,6 +5,7 @@
 #ifndef STORAGE_LEVELDB_DB_DB_IMPL_H_
 #define STORAGE_LEVELDB_DB_DB_IMPL_H_
 
+#include <atomic>
 #include <deque>
 #include <set>
 #include "db/dbformat.h"
@@ -277,7 +278,7 @@ class DBImpl : public DB {
   uint64_t purge_wal_files_last_run_;
 
   // last time stats were dumped to LOG
-  uint64_t last_stats_dump_time_microsec_;
+  std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
   // These count the number of microseconds for which MakeRoomForWrite stalls.
   uint64_t stall_level0_slowdown_;

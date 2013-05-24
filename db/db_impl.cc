@@ -305,20 +305,21 @@ const Status DBImpl::CreateArchivalDirectory() {
 }
 
 void DBImpl::MaybeDumpStats() {
-  mutex_.AssertHeld();
+  if (options_.stats_dump_period_sec == 0) return;
 
-  if (options_.stats_dump_period_sec != 0) {
-    const uint64_t now_micros = env_->NowMicros();
-    if (last_stats_dump_time_microsec_ +
-        options_.stats_dump_period_sec * 1000000
-        <= now_micros) {
-      last_stats_dump_time_microsec_ = now_micros;
-      mutex_.Unlock();
-      std::string stats;
-      GetProperty("leveldb.stats", &stats);
-      Log(options_.info_log, "%s", stats.c_str());
-      mutex_.Lock();
-    }
+  const uint64_t now_micros = env_->NowMicros();
+
+  if (last_stats_dump_time_microsec_ +
+      options_.stats_dump_period_sec * 1000000
+      <= now_micros) {
+    // Multiple threads could race in here simultaneously.
+    // However, the last one will update last_stats_dump_time_microsec_
+    // atomically. We could see more than one dump during one dump
+    // period in rare cases.
+    last_stats_dump_time_microsec_ = now_micros;
+    std::string stats;
+    GetProperty("leveldb.stats", &stats);
+    Log(options_.info_log, "%s", stats.c_str());
   }
 }
 
@@ -1233,6 +1234,9 @@ void DBImpl::TEST_PurgeObsoleteteWAL() {
 void DBImpl::BackgroundCall() {
   bool madeProgress = false;
   DeletionState deletion_state;
+
+  MaybeDumpStats();
+
   MutexLock l(&mutex_);
   // Log(options_.info_log, "XXX BG Thread %llx process new work item", pthread_self());
   assert(bg_compaction_scheduled_);
@@ -1273,7 +1277,6 @@ void DBImpl::BackgroundCall() {
   }
   bg_cv_.SignalAll();
 
-  MaybeDumpStats();
 }
 
 Status DBImpl::BackgroundCompaction(bool* madeProgress,
