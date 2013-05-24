@@ -14,7 +14,6 @@ import subprocess
 # checks can be performed.
 #
 def main(argv):
-    os.system("make -C ~/rocksdb db_stress")
     try:
         opts, args = getopt.getopt(argv, "hd:t:k:o:b:")
     except getopt.GetoptError:
@@ -60,6 +59,11 @@ def main(argv):
 
     dirpath = tempfile.mkdtemp()
 
+    print("Running whitebox-crash-test with \ntotal-duration=" + str(duration)
+          + "\nthreads=" + str(threads) + "\nops_per_thread="
+          + str(ops_per_thread) + "\nwrite_buffer_size="
+          + str(write_buf_size) + "\n")
+
     # kill in every alternate run. toggle tracks which run we are doing.
     toggle = True
 
@@ -77,7 +81,7 @@ def main(argv):
 
         toggle = not toggle
 
-        cmd = ['~/rocksdb/db_stress \
+        cmd = ['./db_stress \
                 --test_batches_snapshots=1 \
                 --ops_per_thread=0' + str(new_ops_per_thread) + ' \
                 --threads=0' + str(threads) + ' \
@@ -87,21 +91,33 @@ def main(argv):
                 --readpercent=50 \
                 --db=' + dirpath + ' \
                 --max_key=10000']
-        try:
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
-            if killoption != '':
-                logging.warn("WARNING: db_stress did not kill itself\n")
-            continue
 
-        except subprocess.CalledProcessError as e:
-            msg = "db_stress retncode {0} output {1}".format(e.returncode,
-                                                             e.output)
-            logging.info(msg)
-            print msg
-            msglower = msg.lower()
-            if ('error' in msglower) or ('fail' in msglower):
-                print "TEST FAILED!!!\n"
-                sys.exit(2)
+        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT,
+                                 shell=True)
+        stdoutdata, stderrdata = popen.communicate()
+        retncode = popen.returncode
+        msg = ("kill option = {0}, exitcode = {1}".format(
+               killoption, retncode))
+        print msg
+        print stdoutdata
+
+        expected = False
+        if (killoption == '') and (retncode == 0):
+            # we expect zero retncode if no kill option
+            expected = True
+        elif killoption != '' and retncode < 0:
+            # we expect negative retncode if kill option was given
+            expected = True
+
+        if not expected:
+            print "TEST FAILED!!!\n"
+            sys.exit(1)
+
+        stdoutdata = stdoutdata.lower()
+        if ('error' in stdoutdata) or ('fail' in stdoutdata):
+            print "TEST FAILED!!!\n"
+            sys.exit(2)
         time.sleep(1)  # time to stabilize after a kill
 
 if __name__ == "__main__":

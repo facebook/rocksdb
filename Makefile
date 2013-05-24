@@ -117,8 +117,13 @@ check: all $(PROGRAMS) $(TESTS) $(TOOLS) ldb_tests
 ldb_tests: all $(PROGRAMS) $(TOOLS)
 	python tools/ldb_test.py
 
-crash_test: db_stress
-	python -u tools/db_crashtest.py
+crash_test: blackbox_crash_test whitebox_crash_test
+
+blackbox_crash_test: db_stress
+	python tools/db_crashtest.py
+
+whitebox_crash_test: db_stress
+	python tools/db_crashtest2.py
 
 valgrind_check: all $(PROGRAMS) $(TESTS)
 	echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \

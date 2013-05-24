@@ -56,7 +56,7 @@ def main(argv):
 
     dirpath = tempfile.mkdtemp()
 
-    print("Running crash-test with \ninterval_between_crash="
+    print("Running blackbox-crash-test with \ninterval_between_crash="
           + str(interval) + "\ntotal-duration=" + str(duration)
           + "\nthreads=" + str(threads) + "\nops_per_thread="
           + str(ops_per_thread) + "\nwrite_buffer_size="
