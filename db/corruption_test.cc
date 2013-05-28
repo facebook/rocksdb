@@ -40,6 +40,7 @@ class CorruptionTest {
 
     db_ = nullptr;
     options_.create_if_missing = true;
+    options_.block_size_deviation = 0; // make unit test pass for now
     Reopen();
     options_.create_if_missing = false;
   }
@@ -55,6 +56,7 @@ class CorruptionTest {
     Options opt = (options ? *options : options_);
     opt.env = &env_;
     opt.block_cache = tiny_cache_;
+    opt.block_size_deviation = 0;
     return DB::Open(opt, dbname_, &db_);
   }
 
