@@ -204,11 +204,13 @@ class DBImpl : public DB {
   //  return true if
   bool CheckFileExistsAndEmpty(const LogFile& file);
 
-
   Status ReadFirstRecord(const LogFile& file, WriteBatch* const result);
 
-
   Status ReadFirstLine(const std::string& fname, WriteBatch* const batch);
+
+  void PrintHistogram(Histograms histogram_type, std::string name);
+
+  void PrintStatistics();
 
   // dump leveldb.stats to LOG
   void MaybeDumpStats();

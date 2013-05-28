@@ -307,6 +307,41 @@ const Status DBImpl::CreateArchivalDirectory() {
   return Status::OK();
 }
 
+void DBImpl::PrintHistogram(Histograms histogram_type, std::string name) {
+  assert(options_.statistics);
+  HistogramData histogramData;
+  options_.statistics->histogramData(histogram_type, &histogramData);
+  Log(options_.info_log, "%s statistics Percentiles :", name.c_str());
+  Log(options_.info_log, "50 : %f ",histogramData.median);
+  Log(options_.info_log, "95 : %f ", histogramData.percentile95);
+  Log(options_.info_log, "99 : %f\n", histogramData.percentile99);
+}
+
+void DBImpl::PrintStatistics() {
+  auto dbstats = options_.statistics;
+  if (dbstats) {
+    Log(options_.info_log,
+        "Statistics counters:\n"
+        "File opened:%ld closed:%ld errors:%ld\n"
+        "Block Cache Hit Count:%ld Block Cache Miss Count:%ld\n"
+        "Bloom Filter Useful: %ld \n"
+        "Compaction key_drop_newer_entry: %ld key_drop_obsolete: %ld "
+        "Compaction key_drop_user: %ld\n",
+        dbstats->getTickerCount(NO_FILE_OPENS),
+        dbstats->getTickerCount(NO_FILE_CLOSES),
+        dbstats->getTickerCount(NO_FILE_ERRORS),
+        dbstats->getTickerCount(BLOCK_CACHE_HIT),
+        dbstats->getTickerCount(BLOCK_CACHE_MISS),
+        dbstats->getTickerCount(BLOOM_FILTER_USEFUL),
+        dbstats->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
+        dbstats->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE),
+        dbstats->getTickerCount(COMPACTION_KEY_DROP_USER));
+    PrintHistogram(DB_GET, "DB_GET");
+    PrintHistogram(DB_WRITE, "DB_WRITE");
+    PrintHistogram(COMPACTION_TIME, "COMPACTION_TIME");
+  }
+}
+
 void DBImpl::MaybeDumpStats() {
   if (options_.stats_dump_period_sec == 0) return;
 
@@ -323,6 +358,7 @@ void DBImpl::MaybeDumpStats() {
     std::string stats;
     GetProperty("leveldb.stats", &stats);
     Log(options_.info_log, "%s", stats.c_str());
+    PrintStatistics();
   }
 }
 
