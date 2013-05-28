@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdexcept>
 #include "db/db_iter.h"
+#include <stdexcept>
 
 #include "db/filename.h"
 #include "db/dbformat.h"
@@ -61,9 +61,12 @@ class DBIter: public Iterator {
         sequence_(s),
         direction_(kForward),
         valid_(false),
-        current_entry_is_merged_(false) {
+        current_entry_is_merged_(false),
+        statistics_(options.statistics) {
+    RecordTick(statistics_, NO_ITERATORS, 1);
   }
   virtual ~DBIter() {
+    RecordTick(statistics_, NO_ITERATORS, -1);
     delete iter_;
   }
   virtual bool Valid() const { return valid_; }
@@ -124,6 +127,7 @@ class DBIter: public Iterator {
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
+  std::shared_ptr<Statistics> statistics_;
 
   // No copying allowed
   DBIter(const DBIter&);

@@ -47,7 +47,8 @@ enum Tickers {
   // write throttle because of too many files in L0
   STALL_L0_NUM_FILES_MICROS = 15,
   RATE_LIMIT_DELAY_MILLIS = 16,
-  TICKER_ENUM_MAX = 17
+  NO_ITERATORS = 17, // number of iterators currently open
+  TICKER_ENUM_MAX = 18
 };
 
 
