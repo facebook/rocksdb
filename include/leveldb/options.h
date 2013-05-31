@@ -451,6 +451,14 @@ struct Options {
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
   enum { NONE, NORMAL, SEQUENTIAL, WILLNEED } access_hint_on_compaction_start;
+
+  // Use adaptive mutex, which spins in the user space before resorting
+  // to kernel. This could reduce context switch when the mutex is not
+  // heavily contended. However, if the mutex is hot, we could end up
+  // wasting spin time.
+  // Default: false
+  bool use_adaptive_mutex;
+
 };
 
 // Options that control read operations

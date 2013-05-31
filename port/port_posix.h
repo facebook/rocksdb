@@ -82,7 +82,7 @@ class CondVar;
 
 class Mutex {
  public:
-  Mutex();
+  Mutex(bool adaptive = false);
   ~Mutex();
 
   void Lock();

@@ -153,6 +153,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       internal_filter_policy_(options.filter_policy),
       owns_info_log_(options_.info_log != options.info_log),
       db_lock_(nullptr),
+      mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
       mem_(new MemTable(internal_comparator_, NumberLevels())),

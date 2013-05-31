@@ -73,7 +73,8 @@ Options::Options()
       stats_dump_period_sec(3600),
       block_size_deviation (10),
       advise_random_on_open(true),
-      access_hint_on_compaction_start(NORMAL) {
+      access_hint_on_compaction_start(NORMAL),
+      use_adaptive_mutex(false) {
 }
 
 static const char* const access_hints[] = {
@@ -208,6 +209,8 @@ Options::Dump(Logger* log) const
         advise_random_on_open);
     Log(log,"         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
+    Log(log,"                      Options.use_adaptive_mutex: %d",
+        use_adaptive_mutex);
 }   // Options::Dump
 
 //

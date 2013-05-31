@@ -301,6 +301,10 @@ static bool FLAGS_advise_random_on_open =
 static auto FLAGS_compaction_fadvice =
   leveldb::Options().access_hint_on_compaction_start;
 
+// Use adaptive mutex
+static auto FLAGS_use_adaptive_mutex =
+  leveldb::Options().use_adaptive_mutex;
+
 namespace leveldb {
 
 // Helper for quickly generating random data.
@@ -1149,6 +1153,9 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.allow_readahead_compactions = FLAGS_use_readahead_compactions;
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice;
+
+    options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;
+
     Status s;
     if(FLAGS_read_only) {
       s = DB::OpenForReadOnly(options, FLAGS_db, &db_);
@@ -1958,6 +1965,9 @@ int main(int argc, char** argv) {
       else {
         fprintf(stdout, "Unknown compaction fadvice:%s\n", buf);
       }
+    } else if (sscanf(argv[i], "--use_adaptive_mutex=%d%c", &n, &junk) == 1
+               && (n == 0 || n ==1 )) {
+      FLAGS_use_adaptive_mutex = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
