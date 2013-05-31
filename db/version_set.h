@@ -381,6 +381,8 @@ class VersionSet {
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level);
 
+  double MaxBytesForLevel(int level);
+
  private:
   class Builder;
   struct ManifestWriter;
@@ -409,8 +411,6 @@ class VersionSet {
   void AppendVersion(Version* v);
 
   bool ManifestContains(const std::string& record) const;
-
-  double MaxBytesForLevel(int level);
 
   int64_t ExpandedCompactionByteSizeLimit(int level);
 

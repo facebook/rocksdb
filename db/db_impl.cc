@@ -2388,8 +2388,8 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     // Pardon the long line but I think it is easier to read this way.
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
-             "Level  Files Size(MB) Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall\n"
-             "----------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
+             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall\n"
+             "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
              );
     value->append(buf);
     for (int level = 0; level < NumberLevels(); level++) {
@@ -2407,10 +2407,12 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
         total_bytes += bytes_read + stats_[level].bytes_written;
         snprintf(
             buf, sizeof(buf),
-            "%3d %8d %8.0f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f\n",
+            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f\n",
             level,
             files,
             versions_->NumLevelBytes(level) / 1048576.0,
+            versions_->NumLevelBytes(level) /
+            versions_->MaxBytesForLevel(level),
             stats_[level].micros / 1e6,
             bytes_read / 1048576.0,
             stats_[level].bytes_written / 1048576.0,
