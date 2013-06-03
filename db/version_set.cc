@@ -2061,14 +2061,23 @@ Compaction* VersionSet::PickCompaction() {
   }
 
   // Find compactions needed by seeks
-  if (c == nullptr && (current_->file_to_compact_ != nullptr)) {
+  FileMetaData* f = current_->file_to_compact_;
+  if (c == nullptr && f != nullptr && !f->being_compacted) {
+
     level = current_->file_to_compact_level_;
+    int parent_index = -1;
 
     // Only allow one level 0 compaction at a time.
+    // Do not pick this file if its parents at level+1 are being compacted.
     if (level != 0 || compactions_in_progress_[0].empty()) {
-      c = new Compaction(level, MaxFileSizeForLevel(level),
-      MaxGrandParentOverlapBytes(level), NumberLevels(), true);
-      c->inputs_[0].push_back(current_->file_to_compact_);
+      if(!ParentRangeInCompaction(&f->smallest, &f->largest, level,
+                                  &parent_index)) {
+        c = new Compaction(level, MaxFileSizeForLevel(level),
+                MaxGrandParentOverlapBytes(level), NumberLevels(), true);
+        c->inputs_[0].push_back(f);
+        c->parent_index_ = parent_index;
+        current_->file_to_compact_ = nullptr;
+      }
     }
   }
 
