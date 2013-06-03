@@ -2380,10 +2380,16 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
 
   } else if (in == "stats") {
     char buf[1000];
-    uint64_t total_bytes = 0;
+    uint64_t total_bytes_written = 0;
+    uint64_t total_bytes_read = 0;
     uint64_t micros_up = env_->NowMicros() - started_at_;
-    double seconds_up = micros_up / 1000000.0;
+    // Add "+1" to make sure seconds_up is > 0 and avoid NaN later
+    double seconds_up = (micros_up + 1) / 1000000.0;
     uint64_t total_slowdown = 0;
+    uint64_t interval_bytes_written = 0;
+    uint64_t interval_bytes_read = 0;
+    uint64_t interval_bytes_new = 0;
+    double   interval_seconds_up = 0;
 
     // Pardon the long line but I think it is easier to read this way.
     snprintf(buf, sizeof(buf),
@@ -2404,7 +2410,9 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             : (stats_[level].bytes_written + stats_[level].bytes_readnp1) /
                 (double) stats_[level].bytes_readn;
 
-        total_bytes += bytes_read + stats_[level].bytes_written;
+        total_bytes_read += bytes_read;
+        total_bytes_written += stats_[level].bytes_written;
+
         snprintf(
             buf, sizeof(buf),
             "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f\n",
@@ -2435,16 +2443,66 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       }
     }
 
-    snprintf(buf, sizeof(buf),
-             "Amplification: %.1f rate, %.2f GB in, %.2f GB out, %.2f MB/sec in, %.2f MB/sec out\n",
-             (double) total_bytes / stats_[0].bytes_written,
-             stats_[0].bytes_written / (1048576.0 * 1024),
-             total_bytes / (1048576.0 * 1024),
-             stats_[0].bytes_written / 1048576.0 / seconds_up,
-             total_bytes / 1048576.0 / seconds_up);
+    interval_bytes_new = stats_[0].bytes_written - last_stats_.bytes_new_;
+    interval_bytes_read = total_bytes_read - last_stats_.bytes_read_;
+    interval_bytes_written = total_bytes_written - last_stats_.bytes_written_;
+    interval_seconds_up = seconds_up - last_stats_.seconds_up_;
+
+    snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
+             seconds_up, interval_seconds_up);
     value->append(buf);
 
-    snprintf(buf, sizeof(buf), "Uptime(secs): %.1f\n", seconds_up);
+    snprintf(buf, sizeof(buf),
+             "Compaction IO cumulative (GB): "
+             "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
+             stats_[0].bytes_written / (1048576.0 * 1024),
+             total_bytes_read / (1048576.0 * 1024),
+             total_bytes_written / (1048576.0 * 1024),
+             (total_bytes_read + total_bytes_written) / (1048576.0 * 1024));
+    value->append(buf);
+
+    snprintf(buf, sizeof(buf),
+             "Compaction IO cumulative (MB/sec): "
+             "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
+             stats_[0].bytes_written / 1048576.0 / seconds_up,
+             total_bytes_read / 1048576.0 / seconds_up,
+             total_bytes_written / 1048576.0 / seconds_up,
+             (total_bytes_read + total_bytes_written) / 1048576.0 / seconds_up);
+    value->append(buf);
+
+    // +1 to avoid divide by 0 and NaN
+    snprintf(buf, sizeof(buf),
+             "Amplification cumulative: %.1f write, %.1f compaction\n",
+             (double) total_bytes_written / (stats_[0].bytes_written+1),
+             (double) (total_bytes_written + total_bytes_read)
+                  / (stats_[0].bytes_written+1));
+    value->append(buf);
+
+    snprintf(buf, sizeof(buf),
+             "Compaction IO interval (MB): "
+             "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
+             interval_bytes_new / 1048576.0,
+             interval_bytes_read/ 1048576.0,
+             interval_bytes_written / 1048576.0,
+             (interval_bytes_read + interval_bytes_written) / 1048576.0);
+    value->append(buf);
+
+    snprintf(buf, sizeof(buf),
+             "Compaction IO interval (MB/sec): "
+             "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
+             interval_bytes_new / 1048576.0 / interval_seconds_up,
+             interval_bytes_read / 1048576.0 / interval_seconds_up,
+             interval_bytes_written / 1048576.0 / interval_seconds_up,
+             (interval_bytes_read + interval_bytes_written)
+                 / 1048576.0 / interval_seconds_up);
+    value->append(buf);
+
+    // +1 to avoid divide by 0 and NaN
+    snprintf(buf, sizeof(buf),
+             "Amplification interval: %.1f write, %.1f compaction\n",
+             (double) interval_bytes_written / (interval_bytes_new+1),
+             (double) (interval_bytes_written + interval_bytes_read) /
+                  (interval_bytes_new+1));
     value->append(buf);
 
     snprintf(buf, sizeof(buf),
@@ -2455,6 +2513,11 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             stall_memtable_compaction_ / 1000000.0,
             total_slowdown / 1000000.0);
     value->append(buf);
+
+    last_stats_.bytes_read_ = total_bytes_read;
+    last_stats_.bytes_written_ = total_bytes_written;
+    last_stats_.bytes_new_ = stats_[0].bytes_written;
+    last_stats_.seconds_up_ = seconds_up;
 
     return true;
   } else if (in == "sstables") {

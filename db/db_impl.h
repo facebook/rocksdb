@@ -338,6 +338,19 @@ class DBImpl : public DB {
 
   std::vector<CompactionStats> stats_;
 
+  // Used to compute per-interval statistics
+  struct StatsSnapshot {
+    uint64_t bytes_read_;
+    uint64_t bytes_written_;
+    uint64_t bytes_new_;
+    double   seconds_up_;
+
+    StatsSnapshot() : bytes_read_(0), bytes_written_(0),
+                      bytes_new_(0), seconds_up_(0) {}
+  };
+
+  StatsSnapshot last_stats_;
+
   static const int KEEP_LOG_FILE_NUM = 1000;
   std::string db_absolute_path_;
 
