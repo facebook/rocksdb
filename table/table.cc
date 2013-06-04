@@ -19,6 +19,7 @@
 #include "table/two_level_iterator.h"
 
 #include "util/coding.h"
+#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 
 namespace leveldb {
@@ -81,9 +82,10 @@ Status ReadBlock(RandomAccessFile* file,
                  const ReadOptions& options,
                  const BlockHandle& handle,
                  Block** result,
+                 Env* env,
                  bool* didIO = nullptr) {
   BlockContents contents;
-  Status s = ReadBlockContents(file, options, handle, &contents);
+  Status s = ReadBlockContents(file, options, handle, &contents, env);
   if (s.ok()) {
     *result = new Block(contents);
   }
@@ -118,14 +120,14 @@ Status Table::Open(const Options& options,
     return Status::InvalidArgument("file is too short to be an sstable");
   }
 
-
   Footer footer;
   s = footer.DecodeFrom(&footer_input);
   if (!s.ok()) return s;
 
   Block* index_block = nullptr;
   // TODO: we never really verify check sum for index block
-  s = ReadBlock(file.get(), ReadOptions(), footer.index_handle(), &index_block);
+  s = ReadBlock(file.get(), ReadOptions(), footer.index_handle(), &index_block,
+                options.env);
 
   if (s.ok()) {
     // We've successfully read the footer and the index block: we're
@@ -176,7 +178,7 @@ void Table::ReadMeta(const Footer& footer) {
   //  TODO: we never really verify check sum for meta index block
   Block* meta = nullptr;
   if (!ReadBlock(rep_->file.get(), ReadOptions(), footer.metaindex_handle(),
-                 &meta).ok()) {
+                 &meta, rep_->options.env).ok()) {
     // Do not propagate errors since meta info is not needed for operation
     return;
   }
@@ -203,7 +205,8 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   // requiring checksum verification in Table::Open.
   ReadOptions opt;
   BlockContents block;
-  if (!ReadBlockContents(rep_->file.get(), opt, filter_handle, &block).ok()) {
+  if (!ReadBlockContents(rep_->file.get(), opt, filter_handle, &block,
+                        rep_->options.env).ok()) {
     return;
   }
   if (block.heap_allocated) {
@@ -266,6 +269,7 @@ Iterator* Table::BlockReader(void* arg,
       if (cache_handle != nullptr) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
 
+        BumpPerfCount(&perf_context.block_cache_hit_count);
         RecordTick(statistics, BLOCK_CACHE_HIT);
       } else if (no_io) {
         // Did not find in block_cache and can't do IO
@@ -280,6 +284,7 @@ Iterator* Table::BlockReader(void* arg,
                 options,
                 handle,
                 &block,
+                table->rep_->options.env,
                 didIO
               );
         }
@@ -295,8 +300,9 @@ Iterator* Table::BlockReader(void* arg,
     } else if (no_io) {
       // Could not read from block_cache and can't do IO
       return NewErrorIterator(Status::Incomplete("no blocking io"));
-    }else {
-      s = ReadBlock(table->rep_->file.get(), options, handle, &block, didIO);
+    } else {
+      s = ReadBlock(table->rep_->file.get(), options, handle, &block,
+                    table->rep_->options.env, didIO);
     }
   }
 

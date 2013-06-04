@@ -94,7 +94,8 @@ struct BlockContents {
 extern Status ReadBlockContents(RandomAccessFile* file,
                                 const ReadOptions& options,
                                 const BlockHandle& handle,
-                                BlockContents* result);
+                                BlockContents* result,
+                                Env* env);
 
 // Implementation details follow.  Clients should ignore,
 

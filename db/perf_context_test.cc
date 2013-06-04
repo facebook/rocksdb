@@ -1,7 +1,10 @@
 #include <iostream>
+#include <vector>
 
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
+#include "util/histogram.h"
+#include "util/stop_watch.h"
 #include "util/testharness.h"
 
 
@@ -10,11 +13,11 @@ namespace leveldb {
 // Path to the database on file system
 const std::string kDbName = test::TmpDir() + "/perf_context_test";
 
-std::shared_ptr<DB> OpenDb() {
+std::shared_ptr<DB> OpenDb(size_t write_buffer_size) {
     DB* db;
     Options options;
     options.create_if_missing = true;
-    options.write_buffer_size = 1000000000;     // give it a big memtable
+    options.write_buffer_size = write_buffer_size;
     Status s = DB::Open(options, kDbName,  &db);
     ASSERT_OK(s);
     return std::shared_ptr<DB>(db);
@@ -24,11 +27,48 @@ class PerfContextTest { };
 
 int kTotalKeys = 100;
 
-TEST(PerfContextTest, KeyComparisonCount) {
+TEST(PerfContextTest, StopWatchNanoOverhead) {
+  // profile the timer cost by itself!
+  const int kTotalIterations = 1000000;
+  std::vector<uint64_t> timings(kTotalIterations);
 
+  StopWatchNano timer(Env::Default(), true);
+  for (auto& timing : timings) {
+    timing = timer.ElapsedNanos(true /* reset */);
+  }
+
+  HistogramImpl histogram;
+  for (const auto timing : timings) {
+    histogram.Add(timing);
+  }
+
+  std::cout << histogram.ToString();
+}
+
+TEST(PerfContextTest, StopWatchOverhead) {
+  // profile the timer cost by itself!
+  const int kTotalIterations = 1000000;
+  std::vector<uint64_t> timings(kTotalIterations);
+
+  StopWatch timer(Env::Default());
+  for (auto& timing : timings) {
+    timing = timer.ElapsedMicros();
+  }
+
+  HistogramImpl histogram;
+  uint64_t prev_timing = 0;
+  for (const auto timing : timings) {
+    histogram.Add(timing - prev_timing);
+    prev_timing = timing;
+  }
+
+  std::cout << histogram.ToString();
+}
+
+void ProfileKeyComparison() {
   DestroyDB(kDbName, Options());    // Start this test with a fresh DB
 
-  auto db = OpenDb();
+  auto db = OpenDb(1000000000);
 
   WriteOptions write_options;
   ReadOptions read_options;
@@ -63,12 +103,20 @@ TEST(PerfContextTest, KeyComparisonCount) {
             << max_user_key_comparison_get << "\n"
             << "avg user key comparison get:"
             << total_user_key_comparison_get/kTotalKeys << "\n";
-
 }
 
+TEST(PerfContextTest, KeyComparisonCount) {
+  SetPerfLevel(kDisable);
+  ProfileKeyComparison();
 
+  SetPerfLevel(kEnableCount);
+  ProfileKeyComparison();
+
+  SetPerfLevel(kEnableTime);
+  ProfileKeyComparison();
 }
 
+}
 
 int main(int argc, char** argv) {
 

@@ -11,8 +11,8 @@ class StopWatch {
  public:
   StopWatch(
     Env * const env,
-    std::shared_ptr<Statistics> statistics,
-    const Histograms histogram_name) :
+    std::shared_ptr<Statistics> statistics = nullptr,
+    const Histograms histogram_name = DB_GET) :
       env_(env),
       start_time_(env->NowMicros()),
       statistics_(statistics),
@@ -37,5 +37,32 @@ class StopWatch {
   const Histograms histogram_name_;
 
 };
+
+// a nano second precision stopwatch
+class StopWatchNano {
+ public:
+  StopWatchNano(Env* const env, bool auto_start = false)
+      : env_(env), start_(0) {
+    if (auto_start) {
+      Start();
+    }
+  }
+
+  void Start() { start_ = env_->NowNanos(); }
+
+  uint64_t ElapsedNanos(bool reset = false) {
+    auto now = env_->NowNanos();
+    auto elapsed = now - start_;
+    if (reset) {
+      start_ = now;
+    }
+    return elapsed;
+  }
+
+ private:
+  Env* const env_;
+  uint64_t start_;
+};
+
 } // namespace leveldb
 #endif // STORAGE_LEVELDB_UTIL_STOP_WATCH_H_

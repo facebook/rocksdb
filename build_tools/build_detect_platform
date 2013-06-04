@@ -82,7 +82,7 @@ case "$TARGET_OS" in
         if [ -z "$USE_CLANG" ]; then
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
         fi
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
         # PORT_FILES=port/linux/linux_specific.cc
         ;;
     SunOS)

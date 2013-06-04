@@ -6,7 +6,7 @@
 #include "db/dbformat.h"
 #include "port/port.h"
 #include "util/coding.h"
-#include "rocksdb/perf_context.h"
+#include "util/perf_context_imp.h"
 
 namespace leveldb {
 
@@ -54,7 +54,7 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  perf_context.user_key_comparison_count++;
+  BumpPerfCount(&perf_context.user_key_comparison_count);
   if (r == 0) {
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);

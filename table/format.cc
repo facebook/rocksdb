@@ -4,11 +4,12 @@
 
 #include "table/format.h"
 
-#include "rocksdb/env.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
 #include "table/block.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/perf_context_imp.h"
 
 namespace leveldb {
 
@@ -69,7 +70,8 @@ Status Footer::DecodeFrom(Slice* input) {
 Status ReadBlockContents(RandomAccessFile* file,
                          const ReadOptions& options,
                          const BlockHandle& handle,
-                         BlockContents* result) {
+                         BlockContents* result,
+                         Env* env) {
   result->data = Slice();
   result->cachable = false;
   result->heap_allocated = false;
@@ -79,7 +81,14 @@ Status ReadBlockContents(RandomAccessFile* file,
   size_t n = static_cast<size_t>(handle.size());
   char* buf = new char[n + kBlockTrailerSize];
   Slice contents;
+
+  StopWatchNano timer(env);
+  StartPerfTimer(&timer);
   Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
+  BumpPerfCount(&perf_context.block_read_count);
+  BumpPerfCount(&perf_context.block_read_byte, n + kBlockTrailerSize);
+  BumpPerfTime(&perf_context.block_read_time, &timer);
+
   if (!s.ok()) {
     delete[] buf;
     return s;
@@ -99,6 +108,7 @@ Status ReadBlockContents(RandomAccessFile* file,
       s = Status::Corruption("block checksum mismatch");
       return s;
     }
+    BumpPerfTime(&perf_context.block_checksum_time, &timer);
   }
 
   char* ubuf = nullptr;
@@ -171,6 +181,8 @@ Status ReadBlockContents(RandomAccessFile* file,
       delete[] buf;
       return Status::Corruption("bad block type");
   }
+
+  BumpPerfTime(&perf_context.block_decompress_time, &timer);
 
   return Status::OK();
 }

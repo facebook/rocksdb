@@ -190,6 +190,13 @@ class Env {
   // useful for computing deltas of time.
   virtual uint64_t NowMicros() = 0;
 
+  // Returns the number of nano-seconds since some fixed point in time. Only
+  // useful for computing deltas of time in one run.
+  // Default implementation simply relies on NowMicros
+  virtual uint64_t NowNanos() {
+    return NowMicros() * 1000;
+  }
+
   // Sleep/delay the thread for the perscribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
