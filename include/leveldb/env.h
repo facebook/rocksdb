@@ -360,6 +360,16 @@ class WritableFile {
     return Status::OK();
   }
 
+  // Sync a file range with disk.
+  // offset is the starting byte of the file range to be synchronized.
+  // nbytes specifies the length of the range to be synchronized.
+  // This asks the OS to initiate flushing the cached data to disk,
+  // without waiting for completion.
+  // Default implementation does nothing.
+  virtual Status RangeSync(off64_t offset, off64_t nbytes) {
+    return Status::OK();
+  }
+
  private:
   size_t last_preallocated_block_;
   size_t preallocation_block_size_;

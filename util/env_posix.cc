@@ -22,6 +22,7 @@
 #include <unistd.h>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
+#include <fcntl.h>
 #endif
 #if defined(LEVELDB_PLATFORM_ANDROID)
 #include <sys/stat.h>
@@ -503,6 +504,7 @@ class PosixWritableFile : public WritableFile {
   uint64_t filesize_;
   bool pending_sync_;
   bool pending_fsync_;
+  uint64_t last_sync_size_;
 
  public:
   PosixWritableFile(const std::string& fname, int fd, size_t capacity,
@@ -514,7 +516,8 @@ class PosixWritableFile : public WritableFile {
     buf_(new char[capacity]),
     filesize_(0),
     pending_sync_(false),
-    pending_fsync_(false) {
+    pending_fsync_(false),
+    last_sync_size_(0) {
     assert(!options.use_mmap_writes);
   }
 
@@ -601,6 +604,13 @@ class PosixWritableFile : public WritableFile {
       src += done;
     }
     cursize_ = 0;
+
+    // sync OS cache to disk for every 2MB written
+    if (filesize_ - last_sync_size_ >= 2 * 1024 * 1024) {
+      RangeSync(last_sync_size_, filesize_ - last_sync_size_);
+      last_sync_size_ = filesize_;
+    }
+
     return Status::OK();
   }
 
@@ -633,6 +643,14 @@ class PosixWritableFile : public WritableFile {
   virtual Status Allocate(off_t offset, off_t len) {
     TEST_KILL_RANDOM(leveldb_kill_odds);
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+      return Status::OK();
+    } else {
+      return IOError(filename_, errno);
+    }
+  }
+
+  virtual Status RangeSync(off64_t offset, off64_t nbytes) {
+    if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
       return Status::OK();
     } else {
       return IOError(filename_, errno);
