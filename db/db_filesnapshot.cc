@@ -17,12 +17,14 @@ namespace leveldb {
 Status DBImpl::DisableFileDeletions() {
   MutexLock l(&mutex_);
   disable_delete_obsolete_files_ = true;
+  Log(options_.info_log, "File Deletions Disabled");
   return Status::OK();
 }
 
 Status DBImpl::EnableFileDeletions() {
   MutexLock l(&mutex_);
   disable_delete_obsolete_files_ = false;
+  Log(options_.info_log, "File Deletions Enabled");
   return Status::OK();
 }
 
