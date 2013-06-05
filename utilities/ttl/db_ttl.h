@@ -29,6 +29,10 @@ class DBWithTTL : public DB, CompactionFilter {
                      const Slice& key,
                      std::string* value);
 
+  virtual std::vector<Status> MultiGet(const ReadOptions& options,
+                                       const std::vector<Slice>& keys,
+                                       std::vector<std::string>* values);
+
   virtual Status Delete(const WriteOptions& wopts, const Slice& key);
 
   virtual Status Merge(const WriteOptions& options,

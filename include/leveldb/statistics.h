@@ -47,8 +47,15 @@ enum Tickers {
   // write throttle because of too many files in L0
   STALL_L0_NUM_FILES_MICROS = 15,
   RATE_LIMIT_DELAY_MILLIS = 16,
+
   NO_ITERATORS = 17, // number of iterators currently open
-  TICKER_ENUM_MAX = 18
+
+  // Number of MultiGet calls, keys read, and bytes read
+  NUMBER_MULTIGET_CALLS = 18,
+  NUMBER_MULTIGET_KEYS_READ = 19,
+  NUMBER_MULTIGET_BYTES_READ = 20,
+
+  TICKER_ENUM_MAX = 21
 };
 
 
@@ -66,8 +73,8 @@ enum Histograms {
   COMPACTION_OUTFILE_SYNC_MICROS = 4,
   WAL_FILE_SYNC_MICROS = 5,
   MANIFEST_FILE_SYNC_MICROS = 6,
-  HISTOGRAM_ENUM_MAX = 7
-
+  DB_MULTIGET = 7,
+  HISTOGRAM_ENUM_MAX = 8
 };
 
 struct HistogramData {

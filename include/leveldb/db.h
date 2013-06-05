@@ -106,6 +106,20 @@ class DB {
   virtual Status Get(const ReadOptions& options,
                      const Slice& key, std::string* value) = 0;
 
+  // If keys[i] does not exist in the database, then the i'th returned
+  // status will be one for which Status::IsNotFound() is true, and
+  // (*values)[i] will be set to some arbitrary value (often ""). Otherwise,
+  // the i'th returned status will have Status::ok() true, and (*values)[i]
+  // will store the value associated with keys[i].
+  //
+  // (*values) will always be resized to be the same size as (keys).
+  // Similarly, the number of returned statuses will be the number of keys.
+  // Note: keys will not be "de-duplicated". Duplicate keys will return
+  // duplicate values in order.
+  virtual std::vector<Status> MultiGet(const ReadOptions& options,
+                                       const std::vector<Slice>& keys,
+                                       std::vector<std::string>* values) = 0;
+
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).

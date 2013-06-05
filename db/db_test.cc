@@ -2961,8 +2961,15 @@ class ModelDB: public DB {
   }
   virtual Status Get(const ReadOptions& options,
                      const Slice& key, std::string* value) {
-    assert(false);      // Not implemented
-    return Status::NotFound(key);
+    return Status::NotSupported(key);
+  }
+
+  virtual std::vector<Status> MultiGet(const ReadOptions& options,
+                                       const std::vector<Slice>& keys,
+                                       std::vector<std::string>* values) {
+    std::vector<Status> s(keys.size(),
+                          Status::NotSupported("Not implemented."));
+    return s;
   }
   virtual Iterator* NewIterator(const ReadOptions& options) {
     if (options.snapshot == nullptr) {
@@ -3208,6 +3215,61 @@ TEST(DBTest, Randomized) {
     if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
     if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
   } while (ChangeOptions());
+}
+
+TEST(DBTest, MultiGetSimple) {
+  ASSERT_OK(db_->Put(WriteOptions(),"k1","v1"));
+  ASSERT_OK(db_->Put(WriteOptions(),"k2","v2"));
+  ASSERT_OK(db_->Put(WriteOptions(),"k3","v3"));
+  ASSERT_OK(db_->Put(WriteOptions(),"k4","v4"));
+  ASSERT_OK(db_->Delete(WriteOptions(),"k4"));
+  ASSERT_OK(db_->Put(WriteOptions(),"k5","v5"));
+  ASSERT_OK(db_->Delete(WriteOptions(),"no_key"));
+
+  std::vector<Slice> keys(6);
+  keys[0] = "k1";
+  keys[1] = "k2";
+  keys[2] = "k3";
+  keys[3] = "k4";
+  keys[4] = "k5";
+  keys[6] = "no_key";
+
+  std::vector<std::string> values(20,"Temporary data to be overwritten");
+
+  std::vector<Status> s =  db_->MultiGet(ReadOptions(),keys,&values);
+  ASSERT_EQ(values.size(),keys.size());
+  ASSERT_EQ(values[0], "v1");
+  ASSERT_EQ(values[1], "v2");
+  ASSERT_EQ(values[2], "v3");
+  ASSERT_EQ(values[4], "v5");
+
+  ASSERT_OK(s[0]);
+  ASSERT_OK(s[1]);
+  ASSERT_OK(s[2]);
+  ASSERT_TRUE(s[3].IsNotFound());
+  ASSERT_OK(s[4]);
+  ASSERT_TRUE(s[5].IsNotFound());
+}
+
+TEST(DBTest, MultiGetEmpty) {
+  // Empty Key Set
+  std::vector<Slice> keys;
+  std::vector<std::string> values;
+  std::vector<Status> s = db_->MultiGet(ReadOptions(),keys,&values);
+  ASSERT_EQ((int)s.size(),0);
+
+  // Empty Database, Empty Key Set
+  DestroyAndReopen();
+  s = db_->MultiGet(ReadOptions(), keys, &values);
+  ASSERT_EQ((int)s.size(),0);
+
+  // Empty Database, Search for Keys
+  keys.resize(2);
+  keys[0] = "a";
+  keys[1] = "b";
+  s = db_->MultiGet(ReadOptions(),keys,&values);
+  ASSERT_EQ((int)s.size(), 2);
+  ASSERT_TRUE(s[0].IsNotFound() && s[1].IsNotFound());
 }
 
 std::string MakeKey(unsigned int num) {

@@ -110,7 +110,7 @@ struct DBImpl::DeletionState {
 };
 
 // Fix user-supplied options to be reasonable
-template <class T,class V>
+template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
@@ -2044,6 +2044,80 @@ Status DBImpl::Get(const ReadOptions& options,
   RecordTick(options_.statistics, NUMBER_KEYS_READ);
   RecordTick(options_.statistics, BYTES_READ, value->size());
   return s;
+}
+
+std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
+                                     const std::vector<Slice>& keys,
+                                     std::vector<std::string>* values) {
+
+  StopWatch sw(env_, options_.statistics, DB_MULTIGET);
+  SequenceNumber snapshot;
+  MutexLock l(&mutex_);
+  if (options.snapshot != nullptr) {
+    snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
+  } else {
+    snapshot = versions_->LastSequence();
+  }
+
+  MemTable* mem = mem_;
+  MemTableList imm = imm_;
+  Version* current = versions_->current();
+  mem->Ref();
+  imm.RefAll();
+  current->Ref();
+
+  // Unlock while reading from files and memtables
+
+  mutex_.Unlock();
+  bool have_stat_update = false;
+  Version::GetStats stats;
+
+  // Note: this always resizes the values array
+  int numKeys = keys.size();
+  std::vector<Status> statList(numKeys);
+  values->resize(numKeys);
+
+  // Keep track of bytes that we read for statistics-recording later
+  uint64_t bytesRead = 0;
+
+  // For each of the given keys, apply the entire "get" process as follows:
+  // First look in the memtable, then in the immutable memtable (if any).
+  // s is both in/out. When in, s could either be OK or MergeInProgress.
+  // value will contain the current merge operand in the latter case.
+  // TODO: Maybe these could be run concurrently?
+  for(int i=0; i<numKeys; ++i) {
+    Status& s = statList[i];
+    std::string* value = &(*values)[i];
+
+    LookupKey lkey(keys[i], snapshot);
+    if (mem->Get(lkey, value, &s, options_)) {
+      // Done
+    } else if (imm.Get(lkey, value, &s, options_)) {
+      // Done
+    } else {
+      current->Get(options, lkey, value, &s, &stats, options_);
+      have_stat_update = true;
+    }
+
+    if (s.ok()) {
+      bytesRead += value->size();
+    }
+  }
+
+  // Post processing (decrement reference counts and record statistics)
+  mutex_.Lock();
+  if (!options_.disable_seek_compaction &&
+      have_stat_update && current->UpdateStats(stats)) {
+    MaybeScheduleCompaction();
+  }
+  mem->Unref();
+  imm.UnrefAll();
+  current->Unref();
+  RecordTick(options_.statistics, NUMBER_MULTIGET_CALLS);
+  RecordTick(options_.statistics, NUMBER_MULTIGET_KEYS_READ, numKeys);
+  RecordTick(options_.statistics, NUMBER_MULTIGET_BYTES_READ, bytesRead);
+
+  return statList;
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
