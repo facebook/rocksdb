@@ -262,6 +262,11 @@ sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 ldb: tools/ldb.o $(LIBOBJECTS)
 	$(CXX) tools/ldb.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
+.PHONY: tags
+tags:
+	ctags `find . -name '*.cc'` `find . -name '*.h'`
+	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
+
 ifeq ($(PLATFORM), IOS)
 # For iOS, create universal object files to be used on both the simulator and
 # a device.
