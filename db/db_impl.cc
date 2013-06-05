@@ -1523,8 +1523,10 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   // Finish and check for file errors
   if (s.ok() && !options_.disableDataSync) {
     if (options_.use_fsync) {
+      StopWatch sw(env_, options_.statistics, COMPACTION_OUTFILE_SYNC_MICROS);
       s = compact->outfile->Fsync();
     } else {
+      StopWatch sw(env_, options_.statistics, COMPACTION_OUTFILE_SYNC_MICROS);
       s = compact->outfile->Sync();
     }
   }
@@ -2128,8 +2130,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         status = log_->AddRecord(WriteBatchInternal::Contents(updates));
         if (status.ok() && options.sync) {
           if (options_.use_fsync) {
+            StopWatch(env_, options_.statistics, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Fsync();
           } else {
+            StopWatch(env_, options_.statistics, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Sync();
           }
         }

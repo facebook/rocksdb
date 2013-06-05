@@ -18,6 +18,7 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/stop_watch.h"
 
 namespace leveldb {
 
@@ -1123,8 +1124,10 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       }
       if (s.ok()) {
         if (options_->use_fsync) {
+          StopWatch sw(env_, options_->statistics, MANIFEST_FILE_SYNC_MICROS);
           s = descriptor_log_->file()->Fsync();
         } else {
+          StopWatch sw(env_, options_->statistics, MANIFEST_FILE_SYNC_MICROS);
           s = descriptor_log_->file()->Sync();
         }
       }

@@ -12,6 +12,7 @@
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
+#include "util/stop_watch.h"
 
 namespace leveldb {
 
@@ -147,8 +148,10 @@ Status BuildTable(const std::string& dbname,
     // Finish and check for file errors
     if (s.ok() && !options.disableDataSync) {
       if (options.use_fsync) {
+        StopWatch sw(env, options.statistics, TABLE_SYNC_MICROS);
         s = file->Fsync();
       } else {
+        StopWatch sw(env, options.statistics, TABLE_SYNC_MICROS);
         s = file->Sync();
       }
     }

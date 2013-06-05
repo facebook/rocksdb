@@ -736,6 +736,12 @@ class Benchmark {
       PrintHistogram(DB_GET, "DB_GET");
       PrintHistogram(DB_WRITE, "DB_WRITE");
       PrintHistogram(COMPACTION_TIME, "COMPACTION_TIME");
+      PrintHistogram(TABLE_SYNC_MICROS, "TABLE SYNC MICROS");
+      PrintHistogram(
+        COMPACTION_OUTFILE_SYNC_MICROS,
+        "COMPACTION OUT FILE SYNC MICROS");
+      PrintHistogram(WAL_FILE_SYNC_MICROS, "WAL FILE SYNC MICROS");
+      PrintHistogram(MANIFEST_FILE_SYNC_MICROS, "Manifest SYNC MICROS");
     }
   }
 
