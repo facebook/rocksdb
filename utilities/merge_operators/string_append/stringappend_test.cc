@@ -291,10 +291,9 @@ TEST(StringAppendOperatorTest,BIGRandomMixGetAppend) {
 TEST(StringAppendOperatorTest,PersistentVariousKeys) {
   DestroyDB(kDbName, Options());    // Start this test with a fresh DB
 
-  StringAppendOperator append_op('\n');
-
   // Perform the following operations in limited scope
   {
+    StringAppendOperator append_op('\n');
     auto db = OpenDb(&append_op);
     StringLists slists(db);
 
@@ -318,6 +317,7 @@ TEST(StringAppendOperatorTest,PersistentVariousKeys) {
 
   // Reopen the database (the previous changes should persist / be remembered)
   {
+    StringAppendOperator append_op('\n');
     auto db = OpenDb(&append_op);
     StringLists slists(db);
 

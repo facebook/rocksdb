@@ -3232,7 +3232,7 @@ TEST(DBTest, MultiGetSimple) {
   keys[2] = "k3";
   keys[3] = "k4";
   keys[4] = "k5";
-  keys[6] = "no_key";
+  keys[5] = "no_key";
 
   std::vector<std::string> values(20,"Temporary data to be overwritten");
 
