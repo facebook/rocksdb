@@ -9,6 +9,7 @@
 #include "leveldb/statistics.h"
 #include "table/table.h"
 #include "util/coding.h"
+#include "util/stop_watch.h"
 
 namespace leveldb {
 
@@ -57,6 +58,7 @@ Status TableCache::FindTable(const EnvOptions& toptions,
       if (options_->advise_random_on_open) {
         file->Hint(RandomAccessFile::RANDOM);
       }
+      StopWatch sw(env_, options_->statistics, TABLE_OPEN_IO_MICROS);
       s = Table::Open(*options_, toptions, std::move(file), file_size, &table);
     }
 

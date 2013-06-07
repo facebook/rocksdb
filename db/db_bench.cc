@@ -742,6 +742,7 @@ class Benchmark {
         "COMPACTION OUT FILE SYNC MICROS");
       PrintHistogram(WAL_FILE_SYNC_MICROS, "WAL FILE SYNC MICROS");
       PrintHistogram(MANIFEST_FILE_SYNC_MICROS, "Manifest SYNC MICROS");
+      PrintHistogram(TABLE_OPEN_IO_MICROS, "Table Open IO Micros");
     }
   }
 
