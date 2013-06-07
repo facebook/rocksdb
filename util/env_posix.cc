@@ -45,11 +45,6 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
-bool useOsBuffer = 1;     // cache data in OS buffers
-bool useFsReadAhead = 1;  // allow filesystem to do readaheads
-bool useMmapRead = 0;     // do not use mmaps for reading files
-bool useMmapWrite = 1;    // use mmaps for appending to files
-
 // This is only set from db_stress.cc and for testing only.
 // If non-zero, kill at various points in source code with probability 1/this
 int leveldb_kill_odds = 0;
@@ -111,8 +106,8 @@ class PosixSequentialFile: public SequentialFile {
   PosixSequentialFile(const std::string& fname, FILE* f,
       const EnvOptions& options)
       : filename_(fname), file_(f), fd_(fileno(f)),
-        use_os_buffer_(options.UseOsBuffer()) {
-    assert(!options.UseMmapReads());
+        use_os_buffer_(options.use_os_buffer) {
+    assert(!options.use_mmap_reads);
   }
   virtual ~PosixSequentialFile() { fclose(file_); }
 
@@ -154,11 +149,8 @@ class PosixRandomAccessFile: public RandomAccessFile {
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
                         const EnvOptions& options)
-      : filename_(fname), fd_(fd), use_os_buffer_(options.UseOsBuffer()) {
-    assert(!options.UseMmapReads());
-    if (!options.UseReadahead()) { // disable read-aheads
-      posix_fadvise(fd, 0, 0, POSIX_FADV_RANDOM);
-    }
+      : filename_(fname), fd_(fd), use_os_buffer_(options.use_os_buffer) {
+    assert(!options.use_mmap_reads);
   }
   virtual ~PosixRandomAccessFile() { close(fd_); }
 
@@ -245,9 +237,8 @@ class PosixMmapReadableFile: public RandomAccessFile {
   PosixMmapReadableFile(const std::string& fname, void* base, size_t length,
                         const EnvOptions& options)
       : filename_(fname), mmapped_region_(base), length_(length) {
-    assert(options.UseMmapReads());
-    assert(options.UseOsBuffer());
-    assert(options.UseReadahead());
+    assert(options.use_mmap_reads);
+    assert(options.use_os_buffer);
   }
   virtual ~PosixMmapReadableFile() { munmap(mmapped_region_, length_); }
 
@@ -359,7 +350,7 @@ class PosixMmapFile : public WritableFile {
         file_offset_(0),
         pending_sync_(false) {
     assert((page_size & (page_size - 1)) == 0);
-    assert(options.UseMmapWrites());
+    assert(options.use_mmap_writes);
   }
 
 
@@ -524,7 +515,7 @@ class PosixWritableFile : public WritableFile {
     filesize_(0),
     pending_sync_(false),
     pending_fsync_(false) {
-    assert(!options.UseMmapWrites());
+    assert(!options.use_mmap_writes);
   }
 
   ~PosixWritableFile() {
@@ -703,7 +694,7 @@ class PosixEnv : public Env {
   }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
-    if ((options == nullptr || options->IsFDCloseOnExec()) && fd > 0) {
+    if ((options == nullptr || options->set_fd_cloexec) && fd > 0) {
       fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC);
     }
   }
@@ -733,7 +724,7 @@ class PosixEnv : public Env {
     SetFD_CLOEXEC(fd, &options);
     if (fd < 0) {
       s = IOError(fname, errno);
-    } else if (options.UseMmapReads() && sizeof(void*) >= 8) {
+    } else if (options.use_mmap_reads && sizeof(void*) >= 8) {
       // Use of mmap for random reads has been removed because it
       // kills performance when storage is fast.
       // Use mmap when virtual address-space is plentiful.
@@ -764,7 +755,7 @@ class PosixEnv : public Env {
       s = IOError(fname, errno);
     } else {
       SetFD_CLOEXEC(fd, &options);
-      if (options.UseMmapWrites()) {
+      if (options.use_mmap_writes) {
         if (!checkedDiskForMmap_) {
           // this will be executed once in the program's lifetime.
           // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
@@ -774,7 +765,7 @@ class PosixEnv : public Env {
           checkedDiskForMmap_ = true;
         }
       }
-      if (options.UseMmapWrites() && !forceMmapOff) {
+      if (options.use_mmap_writes && !forceMmapOff) {
         result->reset(new PosixMmapFile(fname, fd, page_size_, options));
       } else {
         result->reset(new PosixWritableFile(fname, fd, 65536, options));

@@ -1157,7 +1157,6 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.allow_readahead = FLAGS_use_fsreadahead;
     options.allow_mmap_reads = FLAGS_use_mmap_reads;
     options.allow_mmap_writes = FLAGS_use_mmap_writes;
-    options.allow_readahead_compactions = FLAGS_use_readahead_compactions;
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice;
 
@@ -1714,7 +1713,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
 
   void HeapProfile() {
     char fname[100];
-    StorageOptions soptions;
+    EnvOptions soptions;
     snprintf(fname, sizeof(fname), "%s/heap-%04d", FLAGS_db, ++heap_counter_);
     unique_ptr<WritableFile> file;
     Status s = FLAGS_env->NewWritableFile(fname, &file, soptions);
@@ -1742,12 +1741,9 @@ int main(int argc, char** argv) {
     leveldb::Options().max_background_compactions;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
-  FLAGS_use_os_buffer = leveldb::StorageOptions().UseOsBuffer();
-  FLAGS_use_fsreadahead = leveldb::StorageOptions().UseReadahead();
-  FLAGS_use_mmap_reads = leveldb::StorageOptions().UseMmapReads();
-  FLAGS_use_mmap_writes = leveldb::StorageOptions().UseMmapWrites();
-  FLAGS_use_readahead_compactions =
-    leveldb::StorageOptions().UseReadaheadCompactions();
+  FLAGS_use_os_buffer = leveldb::EnvOptions().use_os_buffer;
+  FLAGS_use_mmap_reads = leveldb::EnvOptions().use_mmap_reads;
+  FLAGS_use_mmap_writes = leveldb::EnvOptions().use_mmap_writes;
 
   std::string default_db_path;
 

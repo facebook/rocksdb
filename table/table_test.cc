@@ -293,7 +293,7 @@ class TableConstructor: public Constructor {
   TableConstructor();
 
   static uint64_t cur_uniq_id_;
-  const StorageOptions soptions;
+  const EnvOptions soptions;
 };
 uint64_t TableConstructor::cur_uniq_id_ = 1;
 

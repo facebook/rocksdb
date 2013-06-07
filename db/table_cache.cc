@@ -26,7 +26,7 @@ static void UnrefEntry(void* arg1, void* arg2) {
 
 TableCache::TableCache(const std::string& dbname,
                        const Options* options,
-                       const StorageOptions& storage_options,
+                       const EnvOptions& storage_options,
                        int entries)
     : env_(options->env),
       dbname_(dbname),

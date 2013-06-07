@@ -14,7 +14,6 @@
 #include "leveldb/cache.h"
 #include "port/port.h"
 #include "table/table.h"
-#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -23,7 +22,7 @@ class Env;
 class TableCache {
  public:
   TableCache(const std::string& dbname, const Options* options,
-             const StorageOptions& storage_options, int entries);
+             const EnvOptions& storage_options, int entries);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -58,7 +57,7 @@ class TableCache {
   Env* const env_;
   const std::string dbname_;
   const Options* options_;
-  const StorageOptions& storage_options_;
+  const EnvOptions& storage_options_;
   std::shared_ptr<Cache> cache_;
 
   Status FindTable(const EnvOptions& toptions,

@@ -8,7 +8,6 @@
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/testharness.h"
-#include "util/storage_options.h"
 
 namespace leveldb {
 
@@ -120,7 +119,7 @@ char temp_id[MAX_ID_SIZE];
 
 TEST(EnvPosixTest, RandomAccessUniqueID) {
   // Create file.
-  const StorageOptions soptions;
+  const EnvOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
   unique_ptr<WritableFile> wfile;
   ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
@@ -174,7 +173,7 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
 
 TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Check whether a bunch of concurrently existing files have unique IDs.
-  const StorageOptions soptions;
+  const EnvOptions soptions;
 
   // Create the files
   std::vector<std::string> fnames;
@@ -210,7 +209,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 }
 
 TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
-  const StorageOptions soptions;
+  const EnvOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
 
   // Check that after file is deleted we don't get same ID again in a new file.

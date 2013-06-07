@@ -198,7 +198,7 @@ static Iterator* GetFileIterator(void* arg,
 }
 
 Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
-                                            const StorageOptions& soptions,
+                                            const EnvOptions& soptions,
                                             int level) const {
   return NewTwoLevelIterator(
       new LevelFileNumIterator(vset_->icmp_, &files_[level]),
@@ -206,7 +206,7 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
 }
 
 void Version::AddIterators(const ReadOptions& options,
-                           const StorageOptions& soptions,
+                           const EnvOptions& soptions,
                            std::vector<Iterator*>* iters) {
   // Merge all level zero files together since they may overlap
   for (size_t i = 0; i < files_[0].size(); i++) {
@@ -971,7 +971,7 @@ class VersionSet::Builder {
 
 VersionSet::VersionSet(const std::string& dbname,
                        const Options* options,
-                       const StorageOptions& storage_options,
+                       const EnvOptions& storage_options,
                        TableCache* table_cache,
                        const InternalKeyComparator* cmp)
     : env_(options->env),

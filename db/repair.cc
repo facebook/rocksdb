@@ -105,7 +105,7 @@ class Repairer {
   std::vector<uint64_t> logs_;
   std::vector<TableInfo> tables_;
   uint64_t next_file_number_;
-  const StorageOptions storage_options_;
+  const EnvOptions storage_options_;
 
   Status FindFiles() {
     std::vector<std::string> filenames;

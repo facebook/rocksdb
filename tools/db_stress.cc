@@ -177,10 +177,6 @@ static uint32_t FLAGS_log2_keys_per_lock = 2; // implies 2^2 keys per lock
 // Percentage of times we want to purge redundant keys in memory before flushing
 static uint32_t FLAGS_purge_redundant_percent = 50;
 
-extern bool useOsBuffer;
-extern bool useFsReadAhead;
-extern bool useMmapRead;
-
 namespace leveldb {
 
 class StressTest;
@@ -1069,15 +1065,6 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--verify_checksum=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_verify_checksum = n;
-    } else if (sscanf(argv[i], "--bufferedio=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      useOsBuffer = n;
-    } else if (sscanf(argv[i], "--mmap_read=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      useMmapRead = n;
-    } else if (sscanf(argv[i], "--readhead=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      useFsReadAhead = n;
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {

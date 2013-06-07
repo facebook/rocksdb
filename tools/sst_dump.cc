@@ -34,7 +34,7 @@ private:
   uint64_t read_num_;
   bool verify_checksum_;
   bool output_hex_;
-  StorageOptions soptions_;
+  EnvOptions soptions_;
 };
 
 SstFileReader::SstFileReader(std::string file_path,

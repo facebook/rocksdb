@@ -19,7 +19,7 @@ namespace leveldb {
 Status BuildTable(const std::string& dbname,
                   Env* env,
                   const Options& options,
-                  const StorageOptions& soptions,
+                  const EnvOptions& soptions,
                   TableCache* table_cache,
                   Iterator* iter,
                   FileMetaData* meta,

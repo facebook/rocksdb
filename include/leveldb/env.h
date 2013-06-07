@@ -23,15 +23,39 @@
 namespace leveldb {
 
 class FileLock;
-class EnvOptions;
 class Logger;
 class RandomAccessFile;
 class SequentialFile;
 class Slice;
 class WritableFile;
+class Options;
 
 using std::unique_ptr;
 using std::shared_ptr;
+
+
+// Options while opening a file to read/write
+struct EnvOptions {
+
+  // construct with default Options
+  EnvOptions();
+
+  // construct from Options
+  EnvOptions(const Options& options);
+
+  // If true, then allow caching of data in environment buffers
+  bool use_os_buffer;
+
+   // If true, then use mmap to read data
+  bool use_mmap_reads;
+
+   // If true, then use mmap to write data
+  bool use_mmap_writes;
+
+  // If true, set the FD_CLOEXEC on open fd.
+  bool set_fd_cloexec;
+
+};
 
 class Env {
  public:
@@ -373,27 +397,6 @@ class FileLock {
   // No copying allowed
   FileLock(const FileLock&);
   void operator=(const FileLock&);
-};
-
-// Options while opening a file to read/write
-class EnvOptions {
-  public:
-   virtual ~EnvOptions() {}
-
-   // If true, then allow caching of data in environment buffers
-   virtual bool UseOsBuffer() const = 0;
-
-   // If true, then allow the environment to readahead data
-   virtual bool UseReadahead() const = 0;
-
-   // If true, then use mmap to read data
-   virtual bool UseMmapReads() const = 0;
-
-   // If true, then use mmap to write data
-   virtual bool UseMmapWrites() const = 0;
-
-   // If true, set the FD_CLOEXEC on open fd.
-   virtual bool IsFDCloseOnExec() const = 0;
 };
 
 // Log the specified data to *info_log if info_log is non-nullptr.

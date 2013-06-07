@@ -3,7 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "leveldb/env.h"
-#include "util/storage_options.h"
+#include "leveldb/options.h"
 
 namespace leveldb {
 
@@ -47,7 +47,7 @@ static Status DoWriteStringToFile(Env* env, const Slice& data,
                                   const std::string& fname,
                                   bool should_sync) {
   unique_ptr<WritableFile> file;
-  StorageOptions soptions;
+  EnvOptions soptions;
   Status s = env->NewWritableFile(fname, &file, soptions);
   if (!s.ok()) {
     return s;
@@ -73,7 +73,7 @@ Status WriteStringToFileSync(Env* env, const Slice& data,
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
-  StorageOptions soptions;
+  EnvOptions soptions;
   data->clear();
   unique_ptr<SequentialFile> file;
   Status s = env->NewSequentialFile(fname, &file, soptions);
@@ -99,5 +99,26 @@ Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
 
 EnvWrapper::~EnvWrapper() {
 }
+
+namespace {  // anonymous namespace
+
+void AssignEnvOptions(EnvOptions* env_options, const Options& options) {
+  env_options->use_os_buffer = options.allow_os_buffer;
+  env_options->use_mmap_reads = options.allow_mmap_reads;
+  env_options->use_mmap_writes = options.allow_mmap_writes;
+  env_options->set_fd_cloexec = options.is_fd_close_on_exec;
+}
+
+}
+
+EnvOptions::EnvOptions(const Options& options) {
+  AssignEnvOptions(this, options);
+}
+
+EnvOptions::EnvOptions() {
+  Options options;
+  AssignEnvOptions(this, options);
+}
+
 
 }  // namespace leveldb

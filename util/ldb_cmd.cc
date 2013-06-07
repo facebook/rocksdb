@@ -503,7 +503,7 @@ void ManifestDumpCommand::DoCommand() {
   }
 
   Options options;
-  StorageOptions sopt;
+  EnvOptions sopt;
   std::string file(manifestfile);
   std::string dbname("dummy");
   TableCache* tc = new TableCache(dbname, &options, sopt, 10);
@@ -691,7 +691,7 @@ Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
 
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
     int* levels) {
-  StorageOptions soptions;
+  EnvOptions soptions;
   TableCache tc(db_path_, &opt, soptions, 10);
   const InternalKeyComparator cmp(opt.comparator);
   VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
@@ -748,7 +748,7 @@ void ReduceDBLevelsCommand::DoCommand() {
   db_->CompactRange(nullptr, nullptr);
   CloseDB();
 
-  StorageOptions soptions;
+  EnvOptions soptions;
   TableCache tc(db_path_, &opt, soptions, 10);
   const InternalKeyComparator cmp(opt.comparator);
   VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
@@ -840,7 +840,7 @@ void WALDumperCommand::DoCommand() {
 
   unique_ptr<SequentialFile> file;
   Env* env_ = Env::Default();
-  StorageOptions soptions;
+  EnvOptions soptions;
   Status status = env_->NewSequentialFile(wal_file_, &file, soptions);
   if (!status.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED("Failed to open WAL file " +

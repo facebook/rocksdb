@@ -8,7 +8,6 @@
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "util/testharness.h"
-#include "util/storage_options.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -18,7 +17,7 @@ namespace leveldb {
 class MemEnvTest {
  public:
   Env* env_;
-  const StorageOptions soptions_;
+  const EnvOptions soptions_;
 
   MemEnvTest()
       : env_(NewMemEnv(Env::Default())) {

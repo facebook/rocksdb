@@ -409,11 +409,13 @@ struct Options {
 
   // Reading a single block from a file can cause the OS/FS to start
   // readaheads of other blocks from the file. Default: true
+  // Note: Deprecated
   bool allow_readahead;
 
   // The reads triggered by compaction allows data to be readahead
   // by the OS/FS. This overrides the setting of 'allow_readahead'
   // for compaction-reads. Default: true
+  // Note: Deprecated
   bool allow_readahead_compactions;
 
   // Allow the OS to mmap file for reading. Default: false

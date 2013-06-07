@@ -366,7 +366,7 @@ class DBImpl : public DB {
   SequenceNumber last_flushed_sequence_;
 
   // The options to access storage files
-  const StorageOptions storage_options_;
+  const EnvOptions storage_options_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

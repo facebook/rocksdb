@@ -20,7 +20,6 @@
 #include "util/mutexlock.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/storage_options.h"
 #include "utilities/merge_operators.h"
 
 namespace leveldb {
@@ -606,7 +605,7 @@ TEST(DBTest, LevelLimitReopen) {
 TEST(DBTest, Preallocation) {
   const std::string src = dbname_ + "/alloc_test";
   unique_ptr<WritableFile> srcfile;
-  const StorageOptions soptions;
+  const EnvOptions soptions;
   ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
   srcfile->SetPreallocationBlockSize(1024 * 1024);
 
@@ -2383,7 +2382,7 @@ TEST(DBTest, BloomFilter) {
 
 TEST(DBTest, SnapshotFiles) {
   Options options = CurrentOptions();
-  const StorageOptions soptions;
+  const EnvOptions soptions;
   options.write_buffer_size = 100000000;        // Large write buffer
   Reopen(&options);
 
@@ -3299,7 +3298,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
 
   InternalKeyComparator cmp(BytewiseComparator());
   Options options;
-  StorageOptions sopt;
+  EnvOptions sopt;
   VersionSet vset(dbname, &options, sopt, nullptr, &cmp);
   ASSERT_OK(vset.Recover());
   VersionEdit vbase(vset.NumberLevels());

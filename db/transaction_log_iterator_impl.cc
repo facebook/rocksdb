@@ -7,7 +7,7 @@ namespace leveldb {
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
                            const std::string& dbname,
                            const Options* options,
-                           const StorageOptions& soptions,
+                           const EnvOptions& soptions,
                            SequenceNumber& seq,
                            std::unique_ptr<std::vector<LogFile>> files,
                            SequenceNumber const * const lastFlushedSequence) :

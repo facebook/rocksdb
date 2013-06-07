@@ -2393,8 +2393,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
       unique_ptr<WritableFile> lfile;
-      StorageOptions soptions(storage_options_);
-      soptions.DisableMmapWrites();
+      EnvOptions soptions(storage_options_);
+      soptions.use_mmap_writes = false;
       s = env_->NewWritableFile(
             LogFileName(dbname_, new_log_number),
             &lfile,
@@ -2668,7 +2668,7 @@ DB::~DB() { }
 Status DB::Open(const Options& options, const std::string& dbname,
                 DB** dbptr) {
   *dbptr = nullptr;
-  StorageOptions soptions;
+  EnvOptions soptions;
 
   if (options.block_cache != nullptr && options.no_block_cache) {
     return Status::InvalidArgument(
@@ -2686,7 +2686,7 @@ Status DB::Open(const Options& options, const std::string& dbname,
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
-    soptions.DisableMmapWrites();
+    soptions.use_mmap_writes = false;
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
                                      &lfile, soptions);
     if (s.ok()) {
