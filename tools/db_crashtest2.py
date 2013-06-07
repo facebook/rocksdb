@@ -111,12 +111,19 @@ def main(argv):
             expected = True
 
         if not expected:
-            print "TEST FAILED!!!\n"
+            print "TEST FAILED. See kill option and exit code above!!!\n"
             sys.exit(1)
 
         stdoutdata = stdoutdata.lower()
-        if ('error' in stdoutdata) or ('fail' in stdoutdata):
-            print "TEST FAILED!!!\n"
+        errorcount = (stdoutdata.count('error') -
+                      stdoutdata.count('got errors 0 times'))
+        print "#times error occured in output is " + str(errorcount) + "\n"
+
+        if (errorcount > 0):
+            print "TEST FAILED. Output has 'error'!!!\n"
+            sys.exit(2)
+        if (stdoutdata.find('fail') >= 0):
+            print "TEST FAILED. Output has 'fail'!!!\n"
             sys.exit(2)
         time.sleep(1)  # time to stabilize after a kill
 

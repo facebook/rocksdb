@@ -120,10 +120,10 @@ ldb_tests: all $(PROGRAMS) $(TOOLS)
 crash_test: blackbox_crash_test whitebox_crash_test
 
 blackbox_crash_test: db_stress
-	python tools/db_crashtest.py
+	python -u tools/db_crashtest.py
 
 whitebox_crash_test: db_stress
-	python tools/db_crashtest2.py
+	python -u tools/db_crashtest2.py
 
 valgrind_check: all $(PROGRAMS) $(TESTS)
 	echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \
