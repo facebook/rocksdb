@@ -2,7 +2,7 @@
 import os
 import sys
 import time
-import shlex
+import random
 import getopt
 import logging
 import tempfile
@@ -27,7 +27,7 @@ def main(argv):
     duration = 6000  # total time for this script to test db_stress
     threads = 32
     # since we will be killing anyway, use large value for ops_per_thread
-    ops_per_thread = 10000000
+    ops_per_thread = 100000000
     write_buf_size = 4 * 1024 * 1024
 
     for opt, arg in opts:
@@ -64,6 +64,22 @@ def main(argv):
 
     while time.time() < exit_time:
         run_had_errors = False
+        additional_opts = ' --disable_seek_compaction=' + \
+                          str(random.randint(0, 1)) + \
+                          ' --mmap_read=' + str(random.randint(0, 1)) + \
+                          ' --block_size=16384 ' + \
+                          ' --cache_size=1048576 ' + \
+                          ' --open_files=500000 ' + \
+                          ' --verify_checksum=1 ' + \
+                          ' --sync=' + str(random.randint(0, 1)) + \
+                          ' --disable_wal=0 ' + \
+                          ' --disable_data_sync=' + \
+                          str(random.randint(0, 1)) + \
+                          ' --target_file_size_base=2097152 ' + \
+                          ' --target_file_size_multiplier=2 ' + \
+                          ' --max_write_buffer_number=3 ' + \
+                          ' --max_background_compactions=20 ' + \
+                          ' --max_bytes_for_level_base=10485760'
         killtime = time.time() + interval
         child = subprocess.Popen(['./db_stress \
                         --test_batches_snapshots=1 \
@@ -74,8 +90,10 @@ def main(argv):
                         --reopen=0 \
                         --readpercent=50 \
                         --db=' + dirpath + '\
-                        --max_key=1000'], stderr=subprocess.PIPE, shell=True)
-        print("Running db_stress with pid=%d\n" % child.pid)
+                        --max_key=100000000 ' + additional_opts],
+                                 stderr=subprocess.PIPE, shell=True)
+        print("Running db_stress with pid=%d and additional options=\n"
+              % child.pid + additional_opts + "\n")
         time.sleep(interval)
         while True:
             if time.time() > killtime:

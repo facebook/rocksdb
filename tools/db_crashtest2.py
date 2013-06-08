@@ -2,7 +2,7 @@
 import os
 import sys
 import time
-import shlex
+import random
 import getopt
 import logging
 import tempfile
@@ -69,7 +69,24 @@ def main(argv):
 
     while time.time() < exit_time:
         run_had_errors = False
-        print "Running db_stress \n"
+        additional_opts = ' --disable_seek_compaction=' + \
+                          str(random.randint(0, 1)) + \
+                          ' --mmap_read=' + str(random.randint(0, 1)) + \
+                          ' --block_size=16384 ' + \
+                          ' --cache_size=1048576 ' + \
+                          ' --open_files=500000 ' + \
+                          ' --verify_checksum=1 ' + \
+                          ' --sync=' + str(random.randint(0, 1)) + \
+                          ' --disable_wal=0 ' + \
+                          ' --disable_data_sync=' + \
+                          str(random.randint(0, 1)) + \
+                          ' --target_file_size_base=2097152 ' + \
+                          ' --target_file_size_multiplier=2 ' + \
+                          ' --max_write_buffer_number=3 ' + \
+                          ' --max_background_compactions=20 ' + \
+                          ' --max_bytes_for_level_base=10485760'
+        print ("Running db_stress with additional options=\n"
+               + additional_opts + "\n")
 
         if toggle:
             # since we are going to kill anyway, use more ops per thread
@@ -90,7 +107,7 @@ def main(argv):
                 --reopen=0 \
                 --readpercent=50 \
                 --db=' + dirpath + ' \
-                --max_key=10000']
+                --max_key=100000000 ' + additional_opts]
 
         popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT,
