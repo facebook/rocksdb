@@ -141,6 +141,9 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.block_size_deviation < 0 || result.block_size_deviation > 100) {
     result.block_size_deviation = 0;
   }
+  if (result.max_mem_compaction_level >= result.num_levels) {
+    result.max_mem_compaction_level = result.num_levels - 1;
+  }
   return result;
 }
 
