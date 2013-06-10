@@ -44,8 +44,7 @@ std::string InternalKey::DebugString(bool hex) const {
 }
 
 const char* InternalKeyComparator::Name() const {
-  return ("leveldb.InternalKeyComparator:" +
-          std::string(user_comparator_->Name())).c_str();
+  return name_.c_str();
 }
 
 int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {

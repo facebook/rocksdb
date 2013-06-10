@@ -86,8 +86,13 @@ inline ValueType ExtractValueType(const Slice& internal_key) {
 class InternalKeyComparator : public Comparator {
  private:
   const Comparator* user_comparator_;
+  std::string name_;
  public:
-  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c) { }
+  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c),
+    name_("leveldb.InternalKeyComparator:" +
+          std::string(user_comparator_->Name())) {
+  }
+
   virtual const char* Name() const;
   virtual int Compare(const Slice& a, const Slice& b) const;
   virtual void FindShortestSeparator(
