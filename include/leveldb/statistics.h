@@ -6,10 +6,12 @@
 #define STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
 
 #include <atomic>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace leveldb {
 
@@ -17,6 +19,7 @@ namespace leveldb {
  * Keep adding ticker's here.
  * Any ticker should have a value less than TICKER_ENUM_MAX.
  * Add a new ticker by assigning it the current value of TICKER_ENUM_MAX
+ * Add a string representation in TickersNameMap below.
  * And incrementing TICKER_ENUM_MAX.
  */
 enum Tickers {
@@ -58,11 +61,35 @@ enum Tickers {
   TICKER_ENUM_MAX = 21
 };
 
+const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
+  std::make_pair(BLOCK_CACHE_MISS, "levledb.block.cache.miss"),
+  std::make_pair(BLOCK_CACHE_HIT, "rocksdb.block.cache.hit"),
+  std::make_pair(BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"),
+  std::make_pair(COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"),
+  std::make_pair(COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"),
+  std::make_pair(COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"),
+  std::make_pair(NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"),
+  std::make_pair(NUMBER_KEYS_READ, "rocksdb.number.keys.read"),
+  std::make_pair(BYTES_WRITTEN, "rocksdb.bytes.written"),
+  std::make_pair(BYTES_READ, "rocksdb.bytes.read"),
+  std::make_pair(NO_FILE_CLOSES, "rocksdb.no.file.closes"),
+  std::make_pair(NO_FILE_OPENS, "rocksdb.no.file.opens"),
+  std::make_pair(NO_FILE_ERRORS, "rocksdb.no.file.errors"),
+  std::make_pair(STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"),
+  std::make_pair(STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"),
+  std::make_pair(STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"),
+  std::make_pair(RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.dleay.millis"),
+  std::make_pair(NO_ITERATORS, "rocksdb.num.iterators"),
+  std::make_pair(NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"),
+  std::make_pair(NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read"),
+  std::make_pair(NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read")
+};
 
 /**
  * Keep adding histogram's here.
  * Any histogram whould have value less than HISTOGRAM_ENUM_MAX
  * Add a new Histogram by assigning it the current value of HISTOGRAM_ENUM_MAX
+ * Add a string representation in HistogramsNameMap below
  * And increment HISTOGRAM_ENUM_MAX
  */
 enum Histograms {
@@ -77,6 +104,18 @@ enum Histograms {
   TABLE_OPEN_IO_MICROS = 7,
   DB_MULTIGET = 8,
   HISTOGRAM_ENUM_MAX = 9
+};
+
+const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
+  std::make_pair(DB_GET, "rocksdb.db.get.micros"),
+  std::make_pair(DB_WRITE, "rocksdb.db.write.micros"),
+  std::make_pair(COMPACTION_TIME, "rocksdb.compaction.times.micros"),
+  std::make_pair(TABLE_SYNC_MICROS, "rocksdb.table.sync.micros"),
+  std::make_pair(COMPACTION_OUTFILE_SYNC_MICROS, "rocksdb.compaction.outfile.sync.micros"),
+  std::make_pair(WAL_FILE_SYNC_MICROS, "rocksdb.wal.file.sync.micros"),
+  std::make_pair(MANIFEST_FILE_SYNC_MICROS, "rocksdb.manifest.file.sync.micros"),
+  std::make_pair(TABLE_OPEN_IO_MICROS, "rocksdb.table.open.io.micros"),
+  std::make_pair(DB_MULTIGET, "rocksdb.db.multiget.micros")
 };
 
 struct HistogramData {
@@ -115,7 +154,7 @@ class Ticker {
  public:
   Ticker() : count_(0) { }
 
-  inline void recordTick() {
+ inline void recordTick() {
     count_++;
   }
 
@@ -150,6 +189,8 @@ std::shared_ptr<Statistics> CreateDBStatistics();
 inline void RecordTick(std::shared_ptr<Statistics> statistics,
                        Tickers ticker,
                        uint64_t count = 1) {
+  assert(HistogramsNameMap.size() == HISTOGRAM_ENUM_MAX - 1);
+  assert(TickersNameMap.size() == TICKER_ENUM_MAX -1);
   if (statistics) {
     statistics->recordTick(ticker, count);
   }
