@@ -8,10 +8,10 @@
 
 #include <memory>
 #include <assert.h>
+
 #include "leveldb/slice.h"
 #include "leveldb/merge_operator.h"
 #include "utilities/merge_operators.h"
-#include <iostream>
 
 namespace leveldb {
 
