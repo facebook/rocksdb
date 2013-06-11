@@ -18,7 +18,7 @@ class Mutex;
 class MemTableListIterator;
 
 //
-// This class stores refeernces to all the immutable memtables.
+// This class stores references to all the immutable memtables.
 // The memtables are flushed to L0 as soon as possible and in
 // any order. If there are more than one immutable memtable, their
 // flushes can occur concurrently.  However, they are 'committed'
@@ -49,14 +49,13 @@ class MemTableList {
 
   // Returns true if there is at least one memtable on which flush has
   // not yet started.
-  bool IsFlushPending();
+  bool IsFlushPending(int min_write_buffer_number_to_merge);
 
-  // Returns the earliest memtable that needs to be flushed.
-  // Returns null, if no such memtable exist.
-  MemTable* PickMemtableToFlush();
+  // Returns the earliest memtables that needs to be flushed.
+  void PickMemtablesToFlush(std::vector<MemTable*>* mems);
 
   // Commit a successful flush in the manifest file
-  Status InstallMemtableFlushResults(MemTable* m,
+  Status InstallMemtableFlushResults(const std::vector<MemTable*> &m,
                       VersionSet* vset, Status flushStatus,
                       port::Mutex* mu, Logger* info_log,
                       uint64_t file_number,

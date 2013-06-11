@@ -77,6 +77,14 @@ class MemTable {
   // into the memtable
   SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }
 
+  // Returns the logfile number that can be safely deleted when this
+  // memstore is flushed to storage
+  uint64_t GetLogNumber() { return mem_logfile_number_; }
+
+  // Sets the logfile number that can be safely deleted when this
+  // memstore is flushed to storage
+  void SetLogNumber(uint64_t num) { mem_logfile_number_ = num; }
+
  private:
   ~MemTable();  // Private since only Unref() should be used to delete it
 
@@ -107,6 +115,9 @@ class MemTable {
 
   // The sequence number of the kv that was inserted first
   SequenceNumber first_seqno_;
+
+  // The log files earlier than this number can be deleted.
+  uint64_t mem_logfile_number_;
 
   // No copying allowed
   MemTable(const MemTable&);

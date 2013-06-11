@@ -122,6 +122,16 @@ static int FLAGS_write_buffer_size = 0;
 // This is initialized to default value of 2 in "main" function.
 static int FLAGS_max_write_buffer_number = 0;
 
+// The minimum number of write buffers that will be merged together
+// before writing to storage. This is cheap because it is an
+// in-memory merge. If this feature is not enabled, then all these
+// write buffers are fushed to L0 as seperate files and this increases
+// read amplification because a get request has to check in all of these
+// files. Also, an in-memory merge may result in writing lesser
+// data to storage if there are duplicate records in each of these
+// individual write buffers.
+static int FLAGS_min_write_buffer_number_to_merge = 0;
+
 // The maximum number of concurrent background compactions
 // that can occur in parallel.
 // This is initialized to default value of 1 in "main" function.
@@ -1122,6 +1132,8 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     }
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    options.min_write_buffer_number_to_merge =
+      FLAGS_min_write_buffer_number_to_merge;
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
@@ -1999,6 +2011,8 @@ int main(int argc, char** argv) {
 
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
   FLAGS_max_write_buffer_number = leveldb::Options().max_write_buffer_number;
+  FLAGS_min_write_buffer_number_to_merge =
+    leveldb::Options().min_write_buffer_number_to_merge;
   FLAGS_open_files = leveldb::Options().max_open_files;
   FLAGS_max_background_compactions =
     leveldb::Options().max_background_compactions;
@@ -2055,6 +2069,9 @@ int main(int argc, char** argv) {
       FLAGS_write_buffer_size = n;
     } else if (sscanf(argv[i], "--max_write_buffer_number=%d%c", &n, &junk) == 1) {
       FLAGS_max_write_buffer_number = n;
+    } else if (sscanf(argv[i], "--min_write_buffer_number_to_merge=%d%c",
+               &n, &junk) == 1) {
+      FLAGS_min_write_buffer_number_to_merge = n;
     } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
       FLAGS_max_background_compactions = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {

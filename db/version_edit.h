@@ -81,6 +81,11 @@ class VersionEdit {
     deleted_files_.insert(std::make_pair(level, file));
   }
 
+  // Number of edits
+  int NumEntries() {
+    return new_files_.size() + deleted_files_.size();
+  }
+
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
 

@@ -26,6 +26,7 @@ Options::Options()
       info_log(nullptr),
       write_buffer_size(4<<20),
       max_write_buffer_number(2),
+      min_write_buffer_number_to_merge(1),
       max_open_files(1000),
       block_size(4096),
       block_restart_interval(16),
@@ -127,6 +128,8 @@ Options::Dump(Logger* log) const
     Log(log,"       Options.allow_readahead: %d", allow_readahead);
     Log(log,"      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Log(log,"     Options.allow_mmap_writes: %d", allow_mmap_writes);
+    Log(log,"       Options.min_write_buffer_number_to_merge: %d",
+        min_write_buffer_number_to_merge);
     Log(log,"            Options.allow_readahead_compactions: %d",
         allow_readahead_compactions);
     Log(log,"        Options.purge_redundant_kvs_while_flush: %d",

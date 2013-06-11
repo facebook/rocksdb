@@ -27,7 +27,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp, int numlevel)
       flush_completed_(false),
       file_number_(0),
       edit_(numlevel),
-      first_seqno_(0) {
+      first_seqno_(0),
+      mem_logfile_number_(0) {
 }
 
 MemTable::~MemTable() {

@@ -131,6 +131,15 @@ struct Options {
   // Default: 2
   int max_write_buffer_number;
 
+  // The minimum number of write buffers that will be merged together
+  // before writing to storage.  If set to 1, then 
+  // all write buffers are fushed to L0 as individual files and this increases
+  // read amplification because a get request has to check in all of these
+  // files. Also, an in-memory merge may result in writing lesser
+  // data to storage if there are duplicate records in each of these
+  // individual write buffers.  Default: 1
+  int min_write_buffer_number_to_merge;
+
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set (budget
   // one open file per 2MB of working set).

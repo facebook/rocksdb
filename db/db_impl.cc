@@ -126,6 +126,9 @@ Options SanitizeOptions(const std::string& dbname,
   ClipToRange(&result.write_buffer_size,         ((size_t)64)<<10,
                                                  ((size_t)64)<<30);
   ClipToRange(&result.block_size,                1<<10,  4<<20);
+
+  result.min_write_buffer_number_to_merge = std::min(
+    result.min_write_buffer_number_to_merge, result.max_write_buffer_number-1);
   if (result.info_log == nullptr) {
     Status s = CreateLoggerFromOptions(dbname, result.db_log_dir, src.env,
                                        result, &result.info_log);
@@ -217,7 +220,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish
-  if (flush_on_destroy_) {
+  if (flush_on_destroy_ && mem_->GetFirstSequenceNumber() != 0) {
     FlushMemTable(FlushOptions());
   }
   mutex_.Lock();
@@ -794,7 +797,7 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
 }
 
 
-Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
+Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
                                 uint64_t* filenumber) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
@@ -802,15 +805,21 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   meta.number = versions_->NewFileNumber();
   *filenumber = meta.number;
   pending_outputs_.insert(meta.number);
-  Iterator* iter = mem->NewIterator();
+
+  std::vector<Iterator*> list;
+  for (MemTable* m : mems) {
+    list.push_back(m->NewIterator());
+  }
+  Iterator* iter = NewMergingIterator(&internal_comparator_, &list[0],
+                                      list.size());
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
-    mem->GetFirstSequenceNumber();
+    mems[0]->GetFirstSequenceNumber();
   Log(options_.info_log, "Level-0 flush table #%llu: started",
       (unsigned long long) meta.number);
 
   Version* base = versions_->current();
-  base->Ref();
+  base->Ref();          // it is likely that we do not need this reference
   Status s;
   {
     mutex_.Unlock();
@@ -868,7 +877,7 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   mutex_.AssertHeld();
   assert(imm_.size() != 0);
 
-  if (!imm_.IsFlushPending()) {
+  if (!imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
     Log(options_.info_log, "Memcompaction already in progress");
     Status s = Status::IOError("Memcompaction already in progress");
     return s;
@@ -877,19 +886,21 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   // Save the contents of the earliest memtable as a new Table
   // This will release and re-acquire the mutex.
   uint64_t file_number;
-  MemTable* m = imm_.PickMemtableToFlush();
-  if (m == nullptr) {
+  std::vector<MemTable*> mems;
+  imm_.PickMemtablesToFlush(&mems);
+  if (mems.empty()) {
     Log(options_.info_log, "Nothing in memstore to flush");
     Status s = Status::IOError("Nothing in memstore to flush");
     return s;
   }
 
   // record the logfile_number_ before we release the mutex
+  MemTable* m = mems[0];
   VersionEdit* edit = m->GetEdits();
   edit->SetPrevLogNumber(0);
-  edit->SetLogNumber(logfile_number_);  // Earlier logs no longer needed
+  edit->SetLogNumber(m->GetLogNumber());  // Earlier logs no longer needed
 
-  Status s = WriteLevel0Table(m, edit, &file_number);
+  Status s = WriteLevel0Table(mems, edit, &file_number);
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
     s = Status::IOError(
@@ -899,7 +910,7 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
 
   // Replace immutable memtable with the generated Table
   s = imm_.InstallMemtableFlushResults(
-    m, versions_.get(), s, &mutex_, options_.info_log.get(),
+    mems, versions_.get(), s, &mutex_, options_.info_log.get(),
     file_number, pending_outputs_);
 
   if (s.ok()) {
@@ -1256,7 +1267,7 @@ void DBImpl::MaybeScheduleCompaction() {
     // Already scheduled
   } else if (shutting_down_.Acquire_Load()) {
     // DB is being deleted; no more background compactions
-  } else if (!imm_.IsFlushPending() &&
+  } else if (!imm_.IsFlushPending(options_.min_write_buffer_number_to_merge) &&
              manual_compaction_ == nullptr &&
              !versions_->NeedsCompaction()) {
     // No work to be done
@@ -1327,7 +1338,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   *madeProgress = false;
   mutex_.AssertHeld();
 
-  while (imm_.IsFlushPending()) {
+  while (imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
     Log(options_.info_log,
         "BackgroundCompaction doing CompactMemTable, compaction slots available %d",
         options_.max_background_compactions - bg_compaction_scheduled_);
@@ -1691,7 +1702,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     if (imm_.imm_flush_needed.NoBarrier_Load() != nullptr) {
       const uint64_t imm_start = env_->NowMicros();
       mutex_.Lock();
-      if (imm_.IsFlushPending()) {
+      if (imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
         CompactMemTable();
         bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
       }
@@ -2422,6 +2433,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
       logfile_number_ = new_log_number;
       log_.reset(new log::Writer(std::move(lfile)));
+      mem_->SetLogNumber(logfile_number_);
       imm_.Add(mem_);
       mem_ = new MemTable(internal_comparator_, NumberLevels());
       mem_->Ref();

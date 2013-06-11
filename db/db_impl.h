@@ -152,7 +152,7 @@ class DBImpl : public DB {
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit);
-  Status WriteLevel0Table(MemTable* mem, VersionEdit* edit,
+  Status WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
                                 uint64_t* filenumber);
 
   Status MakeRoomForWrite(bool force /* compact even if there is room? */);

@@ -43,17 +43,16 @@ int MemTableList::size() {
 
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
-bool MemTableList::IsFlushPending() {
-  if (num_flush_not_started_ > 0) {
+bool MemTableList::IsFlushPending(int min_write_buffer_number_to_merge) {
+  if (num_flush_not_started_ >= min_write_buffer_number_to_merge) {
     assert(imm_flush_needed.NoBarrier_Load() != nullptr);
     return true;
   }
   return false;
 }
 
-// Returns the earliest memtable that needs to be flushed.
-// Returns null, if no such memtable exist.
-MemTable* MemTableList::PickMemtableToFlush() {
+// Returns the memtables that need to be flushed.
+void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
   for (list<MemTable*>::reverse_iterator it = memlist_.rbegin();
        it != memlist_.rend(); it++) {
     MemTable* m = *it;
@@ -64,37 +63,48 @@ MemTable* MemTableList::PickMemtableToFlush() {
         imm_flush_needed.Release_Store(nullptr);
       }
       m->flush_in_progress_ = true; // flushing will start very soon
-      return m;
+      ret->push_back(m);
     }
   }
-  return nullptr;
 }
 
 // Record a successful flush in the manifest file
-Status MemTableList::InstallMemtableFlushResults(MemTable* m,
+Status MemTableList::InstallMemtableFlushResults(
+                      const std::vector<MemTable*> &mems,
                       VersionSet* vset, Status flushStatus,
                       port::Mutex* mu, Logger* info_log,
                       uint64_t file_number,
                       std::set<uint64_t>& pending_outputs) {
   mu->AssertHeld();
-  assert(m->flush_in_progress_);
-  assert(m->file_number_ == 0);
 
   // If the flush was not successful, then just reset state.
   // Maybe a suceeding attempt to flush will be successful.
   if (!flushStatus.ok()) {
-    m->flush_in_progress_ = false;
-    m->flush_completed_ = false;
-    m->edit_.Clear();
-    num_flush_not_started_++;
-    imm_flush_needed.Release_Store((void *)1);
-    pending_outputs.erase(file_number);
+    for (MemTable* m : mems) {
+      assert(m->flush_in_progress_);
+      assert(m->file_number_ == 0);
+
+      m->flush_in_progress_ = false;
+      m->flush_completed_ = false;
+      m->edit_.Clear();
+      num_flush_not_started_++;
+      imm_flush_needed.Release_Store((void *)1);
+      pending_outputs.erase(file_number);
+    }
     return flushStatus;
   }
 
   // flush was sucessful
-  m->flush_completed_ = true;
-  m->file_number_ = file_number;
+  bool first = true;
+  for (MemTable* m : mems) {
+
+    // All the edits are associated with the first memtable of this batch.
+    assert(first || m->GetEdits()->NumEntries() == 0);
+    first = false;
+
+    m->flush_completed_ = true;
+    m->file_number_ = file_number;
+  }
 
   // if some other thread is already commiting, then return
   Status s;
@@ -106,12 +116,15 @@ Status MemTableList::InstallMemtableFlushResults(MemTable* m,
   commit_in_progress_ = true;
 
   // scan all memtables from the earliest, and commit those
-  // (in that order) that have finished flushing.
-  while (!memlist_.empty()) {
-    m = memlist_.back(); // get the last element
+  // (in that order) that have finished flushing. Memetables
+  // are always committed in the order that they were created.
+  while (!memlist_.empty() && s.ok()) {
+    MemTable* m = memlist_.back(); // get the last element
     if (!m->flush_completed_) {
       break;
     }
+    first = true;
+
     Log(info_log,
         "Level-0 commit table #%llu: started",
         (unsigned long long)m->file_number_);
@@ -119,33 +132,39 @@ Status MemTableList::InstallMemtableFlushResults(MemTable* m,
     // this can release and reacquire the mutex.
     s = vset->LogAndApply(&m->edit_, mu);
 
-    if (s.ok()) { // commit new state
-      Log(info_log, "Level-0 commit table #%llu: done",
-                     (unsigned long long)m->file_number_);
-      memlist_.remove(m);
-      assert(m->file_number_ > 0);
+    // All the later memtables that have the same filenum
+    // are part of the same batch. They can be committed now.
+    do {
+      if (s.ok()) { // commit new state
+        Log(info_log, "Level-0 commit table #%llu: done %s",
+                       (unsigned long long)m->file_number_,
+                       first ? "": "bulk");
+        memlist_.remove(m);
+        assert(m->file_number_ > 0);
 
-      // pending_outputs can be cleared only after the newly created file
-      // has been written to a committed version so that other concurrently
-      // executing compaction threads do not mistakenly assume that this
-      // file is not live.
-      pending_outputs.erase(m->file_number_);
-      m->Unref();
-      size_--;
-    } else {
-      //commit failed. setup state so that we can flush again.
-      Log(info_log, "Level-0 commit table #%llu: failed",
-                     (unsigned long long)m->file_number_);
-      m->flush_completed_ = false;
-      m->flush_in_progress_ = false;
-      m->edit_.Clear();
-      num_flush_not_started_++;
-      pending_outputs.erase(m->file_number_);
-      m->file_number_ = 0;
-      imm_flush_needed.Release_Store((void *)1);
-      s = Status::IOError("Unable to commit flushed memtable");
-      break;
-    }
+        // pending_outputs can be cleared only after the newly created file
+        // has been written to a committed version so that other concurrently
+        // executing compaction threads do not mistakenly assume that this
+        // file is not live.
+        pending_outputs.erase(m->file_number_);
+        m->Unref();
+        size_--;
+      } else {
+        //commit failed. setup state so that we can flush again.
+        Log(info_log, "Level-0 commit table #%llu: failed",
+                       (unsigned long long)m->file_number_);
+        m->flush_completed_ = false;
+        m->flush_in_progress_ = false;
+        m->edit_.Clear();
+        num_flush_not_started_++;
+        pending_outputs.erase(m->file_number_);
+        m->file_number_ = 0;
+        imm_flush_needed.Release_Store((void *)1);
+        s = Status::IOError("Unable to commit flushed memtable");
+      }
+      first = false;
+    } while (!memlist_.empty() && (m = memlist_.back()) &&
+             m->file_number_ == file_number);
   }
   commit_in_progress_ = false;
   return s;
