@@ -2087,7 +2087,6 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // value will contain the current merge operand in the latter case.
-  // TODO: Maybe these could be run concurrently?
   for(int i=0; i<numKeys; ++i) {
     Status& s = statList[i];
     std::string* value = &(*values)[i];
