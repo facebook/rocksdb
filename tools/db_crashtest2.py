@@ -71,7 +71,6 @@ def main(argv):
         run_had_errors = False
         additional_opts = ' --disable_seek_compaction=' + \
                           str(random.randint(0, 1)) + \
-                          ' --mmap_read=' + str(random.randint(0, 1)) + \
                           ' --block_size=16384 ' + \
                           ' --cache_size=1048576 ' + \
                           ' --open_files=500000 ' + \
