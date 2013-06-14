@@ -22,6 +22,7 @@
 #include "util/stack_trace.h"
 #include "util/string_util.h"
 #include "util/testutil.h"
+#include "util/bit_set.h"
 #include "hdfs/env_hdfs.h"
 
 // Comma-separated list of operations to run in the specified order
@@ -854,6 +855,14 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
       } else if (name == Slice("fillrandom")) {
         fresh_db = true;
         method = &Benchmark::WriteRandom;
+      } else if (name == Slice("filluniquerandom")) {
+        fresh_db = true;
+        if (num_threads > 1) {
+          fprintf(stderr, "filluniquerandom multithreaded not supported"
+                           " set --threads=1");
+          exit(1);
+        }
+        method = &Benchmark::WriteUniqueRandom;
       } else if (name == Slice("overwrite")) {
         fresh_db = false;
         method = &Benchmark::WriteRandom;
@@ -1191,16 +1200,31 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     }
   }
 
+  enum WriteMode {
+    RANDOM, SEQUENTIAL, UNIQUE_RANDOM
+  };
+
   void WriteSeq(ThreadState* thread) {
-    DoWrite(thread, true);
+    DoWrite(thread, SEQUENTIAL);
   }
 
   void WriteRandom(ThreadState* thread) {
-    DoWrite(thread, false);
+    DoWrite(thread, RANDOM);
   }
 
-  void DoWrite(ThreadState* thread, bool seq) {
-    Duration duration(seq ? 0 : FLAGS_duration, writes_);
+  void WriteUniqueRandom(ThreadState* thread) {
+    DoWrite(thread, UNIQUE_RANDOM);
+  }
+
+  void DoWrite(ThreadState* thread, WriteMode write_mode) {
+    const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
+    const int num_ops = writes_ == 0 ? num_ : writes_ ;
+    Duration duration(test_duration, num_ops);
+    unique_ptr<BitSet> bit_set;
+
+    if (write_mode == UNIQUE_RANDOM) {
+      bit_set.reset(new BitSet(num_ops));
+    }
 
     if (num_ != FLAGS_num) {
       char msg[100];
@@ -1216,7 +1240,44 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     while (!duration.Done(entries_per_batch_)) {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
-        const int k = seq ? i+j : (thread->rand.Next() % FLAGS_num);
+        int k = 0;
+        switch(write_mode) {
+          case SEQUENTIAL:
+            k = i +j;
+            break;
+          case RANDOM:
+            k = thread->rand.Next() % FLAGS_num;
+            break;
+          case UNIQUE_RANDOM:
+            {
+              int t = thread->rand.Next() % FLAGS_num;
+              if (!bit_set->test(t)) {
+                // best case
+                k = t;
+              } else {
+                bool found = false;
+                // look forward
+                for (size_t i = t + 1; i < bit_set->size(); ++i) {
+                  if (!bit_set->test(i)) {
+                    found = true;
+                    k = i;
+                    break;
+                  }
+                }
+                if (!found) {
+                  for (size_t i = t; i-- > 0;) {
+                    if (!bit_set->test(i)) {
+                      found = true;
+                      k = i;
+                      break;
+                    }
+                  }
+                }
+              }
+              bit_set->set(k);
+              break;
+            }
+        };
         unique_ptr<char []> key = GenerateKeyFromInt(k);
         batch.Put(key.get(), gen.Generate(value_size_));
         bytes += value_size_ + strlen(key.get());
