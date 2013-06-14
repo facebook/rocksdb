@@ -470,6 +470,12 @@ struct Options {
   // Default: false
   bool use_adaptive_mutex;
 
+  // Allows OS to incrementally sync files to disk while they are being
+  // written, asynchronously, in the background.
+  // Issue one request for every bytes_per_sync written. 0 turns it off.
+  // Default: 0
+  uint64_t bytes_per_sync;
+
 };
 
 // Options that control read operations

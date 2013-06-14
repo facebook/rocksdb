@@ -505,6 +505,7 @@ class PosixWritableFile : public WritableFile {
   bool pending_sync_;
   bool pending_fsync_;
   uint64_t last_sync_size_;
+  uint64_t bytes_per_sync_;
 
  public:
   PosixWritableFile(const std::string& fname, int fd, size_t capacity,
@@ -517,7 +518,8 @@ class PosixWritableFile : public WritableFile {
     filesize_(0),
     pending_sync_(false),
     pending_fsync_(false),
-    last_sync_size_(0) {
+    last_sync_size_(0),
+    bytes_per_sync_(options.bytes_per_sync) {
     assert(!options.use_mmap_writes);
   }
 
@@ -605,8 +607,12 @@ class PosixWritableFile : public WritableFile {
     }
     cursize_ = 0;
 
-    // sync OS cache to disk for every 2MB written
-    if (filesize_ - last_sync_size_ >= 2 * 1024 * 1024) {
+    // sync OS cache to disk for every bytes_per_sync_
+    // TODO: give log file and sst file different options (log
+    // files could be potentially cached in OS for their whole
+    // life time, thus we might not want to flush at all).
+    if (bytes_per_sync_ &&
+        filesize_ - last_sync_size_ >= bytes_per_sync_) {
       RangeSync(last_sync_size_, filesize_ - last_sync_size_);
       last_sync_size_ = filesize_;
     }

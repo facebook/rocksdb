@@ -327,6 +327,12 @@ static bool FLAGS_warn_missing_keys = true;
 static auto FLAGS_use_adaptive_mutex =
   leveldb::Options().use_adaptive_mutex;
 
+// Allows OS to incrementally sync files to disk while they are being
+// written, in the background. Issue one request for every bytes_per_sync
+// written. 0 turns it off.
+static auto FLAGS_bytes_per_sync =
+  leveldb::Options().bytes_per_sync;
+
 namespace leveldb {
 
 // Helper for quickly generating random data.
@@ -1183,6 +1189,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice;
 
     options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;
+    options.bytes_per_sync = FLAGS_bytes_per_sync;
 
     Status s;
     if(FLAGS_read_only) {
@@ -2244,6 +2251,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--keys_per_multiget=%d%c",
                &n, &junk) == 1) {
       FLAGS_keys_per_multiget = n;
+    }  else if (sscanf(argv[i], "--bytes_per_sync=%ld%c", &l, &junk) == 1) {
+      FLAGS_bytes_per_sync = l;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

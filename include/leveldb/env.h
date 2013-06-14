@@ -55,6 +55,12 @@ struct EnvOptions {
   // If true, set the FD_CLOEXEC on open fd.
   bool set_fd_cloexec;
 
+  // Allows OS to incrementally sync files to disk while they are being
+  // written, in the background. Issue one request for every bytes_per_sync
+  // written. 0 turns it off.
+  // Default: 0
+  uint64_t bytes_per_sync;
+
 };
 
 class Env {
