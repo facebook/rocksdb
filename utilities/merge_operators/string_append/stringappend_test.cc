@@ -77,7 +77,7 @@ class StringLists {
 
     //NotFound is okay; just return empty (similar to std::map)
     //But network or db errors, etc, should fail the test (or at least yell)
-    if (s.ToString() != "NotFound: "){
+    if (!s.IsNotFound()) {
       std::cerr << "ERROR " << s.ToString() << std::endl;
     }
 

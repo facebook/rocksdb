@@ -62,7 +62,6 @@ TESTS = \
 	auto_roll_logger_test \
 	filelock_test \
 	merge_test \
-	stringappend_test \
 	redis_test
 
 TOOLS = \

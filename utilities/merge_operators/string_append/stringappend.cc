@@ -16,7 +16,7 @@
 namespace leveldb {
 
 
-// Constructor: also specify the  delimiter character.
+// Constructor: also specify the delimiter character.
 StringAppendOperator::StringAppendOperator(char delim_char)
     : delim_(delim_char) {
 }
@@ -43,8 +43,6 @@ void StringAppendOperator::Merge(const Slice& key,
     new_value->append(1,delim_);
     new_value->append(value.data(), value.size());
   }
-
-  return;
 }
 
 const char* StringAppendOperator::Name() const  {
