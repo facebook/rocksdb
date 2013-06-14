@@ -88,6 +88,9 @@ static int FLAGS_max_write_buffer_number = 0;
 // This is initialized to default value of 1 in "main" function.
 static int FLAGS_max_background_compactions = 0;
 
+// This is initialized to default value of false
+static bool FLAGS_hybrid_mode = false;
+
 // Number of bytes to use as a cache of uncompressed data.
 static long FLAGS_cache_size = 2 * KB * KB * KB;
 
@@ -930,6 +933,7 @@ class StressTest {
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.max_background_compactions = FLAGS_max_background_compactions;
+    options.hybrid_mode = FLAGS_hybrid_mode;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.max_open_files = FLAGS_open_files;
@@ -1016,6 +1020,8 @@ int main(int argc, char** argv) {
   FLAGS_open_files = leveldb::Options().max_open_files;
   FLAGS_max_background_compactions =
     leveldb::Options().max_background_compactions;
+  FLAGS_hybrid_mode =
+    leveldb::Options().hybrid_mode;
   FLAGS_level0_file_num_compaction_trigger =
     leveldb::Options().level0_file_num_compaction_trigger;
   FLAGS_level0_slowdown_writes_trigger =
@@ -1068,6 +1074,8 @@ int main(int argc, char** argv) {
       FLAGS_max_write_buffer_number = n;
     } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
       FLAGS_max_background_compactions = n;
+    } else if (sscanf(argv[i], "--hybrid_mode=%d%c", &n, &junk) == 1) {
+      FLAGS_hybrid_mode = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
       FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {

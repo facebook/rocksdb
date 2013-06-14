@@ -20,7 +20,10 @@ enum Tag {
   kDeletedFile          = 6,
   kNewFile              = 7,
   // 8 was used for large value refs
-  kPrevLogNumber        = 9
+  kPrevLogNumber        = 9,
+
+  // these are new formats divergent from open source leveldb
+  kNewFile2             = 100  // store smallest & largest seqno
 };
 
 void VersionEdit::Clear() {
@@ -76,12 +79,14 @@ void VersionEdit::EncodeTo(std::string* dst) const {
 
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
-    PutVarint32(dst, kNewFile);
+    PutVarint32(dst, kNewFile2);
     PutVarint32(dst, new_files_[i].first);  // level
     PutVarint64(dst, f.number);
     PutVarint64(dst, f.file_size);
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
+    PutVarint64(dst, f.smallest_seqno);
+    PutVarint64(dst, f.largest_seqno);
   }
 }
 
@@ -197,6 +202,22 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         } else {
           if (!msg) {
             msg = "new-file entry";
+          }
+        }
+        break;
+
+      case kNewFile2:
+        if (GetLevel(&input, &level, &msg) &&
+            GetVarint64(&input, &f.number) &&
+            GetVarint64(&input, &f.file_size) &&
+            GetInternalKey(&input, &f.smallest) &&
+            GetInternalKey(&input, &f.largest) &&
+            GetVarint64(&input, &f.smallest_seqno) &&
+            GetVarint64(&input, &f.largest_seqno) ) {
+          new_files_.push_back(std::make_pair(level, f));
+        } else {
+          if (!msg) {
+            msg = "new-file2 entry";
           }
         }
         break;

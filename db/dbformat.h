@@ -173,6 +173,15 @@ inline void UpdateInternalKey(char* internal_key,
   EncodeFixed64(seqtype, newval);
 }
 
+// Get the sequence number from the internal key
+inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
+  const size_t n = internal_key.size();
+  assert(n >= 8);
+  uint64_t num = DecodeFixed64(internal_key.data() + n - 8);
+  return num >> 8;
+}
+
+
 // A helper class useful for DBImpl::Get()
 class LookupKey {
  public:

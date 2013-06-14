@@ -5,6 +5,7 @@
 #include "db/version_set.h"
 
 #include <algorithm>
+#include <climits>
 #include <stdio.h>
 #include "db/filename.h"
 #include "db/log_reader.h"
@@ -309,6 +310,14 @@ static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
 static bool NewestFirst(FileMetaData* a, FileMetaData* b) {
   return a->number > b->number;
 }
+static bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
+  if (a->smallest_seqno > b->smallest_seqno) {
+    assert(a->largest_seqno > b->largest_seqno);
+    return true;
+  }
+  assert(a->largest_seqno <= b->largest_seqno);
+  return false;
+}
 
 Version::Version(VersionSet* vset, uint64_t version_number)
     : vset_(vset), next_(this), prev_(this), refs_(0),
@@ -375,7 +384,11 @@ void Version::Get(const ReadOptions& options,
       }
       if (tmp.empty()) continue;
 
-      std::sort(tmp.begin(), tmp.end(), NewestFirst);
+      if (vset_->options_->hybrid_mode) {
+        std::sort(tmp.begin(), tmp.end(), NewestFirstBySeqNo);
+      } else {
+        std::sort(tmp.begin(), tmp.end(), NewestFirst);
+      }
       files = &tmp[0];
       num_files = tmp.size();
     } else {
@@ -1011,7 +1024,10 @@ void VersionSet::Init(int num_levels) {
   int target_file_size_multiplier = options_->target_file_size_multiplier;
   int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
   for (int i = 0; i < num_levels; i++) {
-    if (i > 1) {
+    if (i == 0) {
+      max_file_size_[i] = LLONG_MAX;
+      level_max_bytes_[i] = options_->max_bytes_for_level_base;
+    } else if (i > 1) {
       max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
       level_max_bytes_[i] = level_max_bytes_[i-1] * max_bytes_multiplier *
         options_->max_bytes_for_level_multiplier_additional[i-1];
@@ -1558,17 +1574,32 @@ void VersionSet::Finalize(Version* v,
   }
 }
 
-// a static compator used to sort files based on their size
-static bool compareSize(const VersionSet::Fsize& first,
+// A static compator used to sort files based on their size
+// In normal mode: descending size
+static bool compareSizeDescending(const VersionSet::Fsize& first,
   const VersionSet::Fsize& second) {
   return (first.file->file_size > second.file->file_size);
+}
+// A static compator used to sort files based on their seqno
+// In hybrid mode: descending seqno
+static bool compareSeqnoDescending(const VersionSet::Fsize& first,
+  const VersionSet::Fsize& second) {
+  if (first.file->smallest_seqno > second.file->smallest_seqno) {
+    assert(first.file->largest_seqno > second.file->largest_seqno);
+    return true;
+  }
+  assert(first.file->largest_seqno <= second.file->largest_seqno);
+  return false;
 }
 
 // sort all files in level1 to level(n-1) based on file size
 void VersionSet::UpdateFilesBySize(Version* v) {
 
   // No need to sort the highest level because it is never compacted.
-  for (int level = 0; level < NumberLevels()-1; level++) {
+  int max_level = options_->hybrid_mode? NumberLevels() :
+                  NumberLevels() - 1;
+
+  for (int level = 0; level < max_level; level++) {
 
     const std::vector<FileMetaData*>& files = v->files_[level];
     std::vector<int>& files_by_size = v->files_by_size_[level];
@@ -1582,12 +1613,18 @@ void VersionSet::UpdateFilesBySize(Version* v) {
     }
 
     // sort the top number_of_files_to_sort_ based on file size
-    int num = Version::number_of_files_to_sort_;
-    if (num > (int)temp.size()) {
-      num = temp.size();
+    if (options_->hybrid_mode) {
+      int num = temp.size();
+      std::partial_sort(temp.begin(),  temp.begin() + num,
+                        temp.end(), compareSeqnoDescending);
+    } else {
+      int num = Version::number_of_files_to_sort_;
+      if (num > (int)temp.size()) {
+        num = temp.size();
+      }
+      std::partial_sort(temp.begin(),  temp.begin() + num,
+                        temp.end(), compareSizeDescending);
     }
-    std::partial_sort(temp.begin(),  temp.begin() + num,
-                      temp.end(), compareSize);
     assert(temp.size() == files.size());
 
     // initialize files_by_size_
@@ -1620,7 +1657,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     const std::vector<FileMetaData*>& files = current_->files_[level];
     for (size_t i = 0; i < files.size(); i++) {
       const FileMetaData* f = files[i];
-      edit.AddFile(level, f->number, f->file_size, f->smallest, f->largest);
+      edit.AddFile(level, f->number, f->file_size, f->smallest, f->largest,
+                   f->smallest_seqno, f->largest_seqno);
     }
   }
 
@@ -1656,6 +1694,23 @@ const char* VersionSet::LevelDataSizeSummary(
     int sz = sizeof(scratch->buffer) - len;
     int ret = snprintf(scratch->buffer + len, sz, "%ld ",
         NumLevelBytes(i));
+    if (ret < 0 || ret >= sz)
+      break;
+    len += ret;
+  }
+  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
+  return scratch->buffer;
+}
+
+const char* VersionSet::LevelFileSummary(
+    FileSummaryStorage* scratch, int level) const {
+  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files_size[");
+  for (unsigned int i = 0; i < current_->files_[level].size(); i++) {
+    FileMetaData* f = current_->files_[level][i];
+    int sz = sizeof(scratch->buffer) - len;
+    int ret = snprintf(scratch->buffer + len, sz, "#%ld(seq=%ld,sz=%ld,%d) ",
+                       f->number, f->smallest_seqno,
+                       f->file_size, f->being_compacted);
     if (ret < 0 || ret >= sz)
       break;
     len += ret;
@@ -1961,6 +2016,171 @@ void VersionSet::SizeBeingCompacted(std::vector<uint64_t>& sizes) {
   }
 }
 
+Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
+  assert (level == 0);
+
+  // percentage flexibilty while comparing file sizes
+  uint64_t ratio = (uint64_t)options_->hybrid_size_ratio;
+
+  if ((current_->files_[level].size() <=
+      (unsigned int)options_->level0_file_num_compaction_trigger)) {
+    Log(options_->info_log, "Hybrid: nothing to do\n");
+    return nullptr;
+  }
+  VersionSet::FileSummaryStorage tmp;
+  Log(options_->info_log, "Hybrid: candidate files(%lu): %s\n",
+      current_->files_[level].size(),
+      LevelFileSummary(&tmp, 0));
+
+  Compaction* c = nullptr;
+  c = new Compaction(level, level, MaxFileSizeForLevel(level),
+                     LLONG_MAX, NumberLevels());
+  c->score_ = score;
+
+  // The files are sorted from newest first to oldest last.
+  std::vector<int>& file_by_time = current_->files_by_size_[level];
+  FileMetaData* f = nullptr;
+  bool done = false;
+  assert(file_by_time.size() == current_->files_[level].size());
+
+  unsigned int max_files_to_compact = UINT_MAX;
+
+  // Make two pass. The first pass considers a candidate file
+  // only if it is smaller than the total size accumulated so far.
+  // The second pass does not look at the slope of the
+  // file-size  curve to decide what to pick for compaction.
+  for (int iter = 0; !done && iter < 2; iter++) {
+
+    for (unsigned int loop = 0; loop < file_by_time.size(); ) {
+
+      // Skip files that are already being compacted
+      for (f = nullptr; loop < file_by_time.size(); loop++) {
+        int index = file_by_time[loop];
+        f = current_->files_[level][index];
+
+        if (!f->being_compacted) {
+          break;
+        }
+        Log(options_->info_log, "Hybrid: file %ld[%d] being compacted, skipping",
+            f->number, loop);
+        f = nullptr;
+      }
+
+      // This file is not being compacted. Consider it as the
+      // first candidate to be compacted.
+      unsigned int candidate_count = 1;
+      uint64_t candidate_size =  f != nullptr? f->file_size : 0;
+      if (f != nullptr) {
+        Log(options_->info_log, "Hybrid: Possible candidate file %ld[%d] %s.",
+            f->number, loop, iter == 0? "" : "forced ");
+      }
+
+      // Check if the suceeding files need compaction.
+      for (unsigned int i = loop+1;
+           candidate_count < max_files_to_compact && i < file_by_time.size();
+           i++) {
+        int index = file_by_time[i];
+        FileMetaData* f = current_->files_[level][index];
+        if (f->being_compacted) {
+          break;
+        }
+        // If this is the first iteration, then we pick files if the
+        // total candidate file size (increased by the specified ratio)
+        // is still larger than the next candidate file.
+        if (iter == 0) {
+          uint64_t sz = (candidate_size * (100 + ratio)) /100;
+          if (sz < f->file_size) {
+            break;
+          }
+        }
+        candidate_count++;
+        candidate_size += f->file_size;
+      }
+
+      // Found a series of consecutive files that need compaction.
+      if (candidate_count >= (unsigned int)
+          options_->hybrid_min_numfiles_in_single_compaction) {
+        for (unsigned int i = loop; i < loop + candidate_count; i++) {
+          int index = file_by_time[i];
+          FileMetaData* f = current_->files_[level][index];
+          c->inputs_[0].push_back(f);
+          Log(options_->info_log, "Hybrid: Picking file %ld[%d] with size %ld %s",
+              f->number, i, f->file_size,
+              (iter == 0 ? "" : "forced"));
+        }
+        done = true;
+        break;
+      } else {
+        for (unsigned int i = loop;
+             i < loop + candidate_count && i < file_by_time.size(); i++) {
+         int index = file_by_time[i];
+         FileMetaData* f = current_->files_[level][index];
+         Log(options_->info_log, "Hybrid: Skipping file %ld[%d] with size %ld %d %s",
+             f->number, i, f->file_size, f->being_compacted,
+              (iter == 0 ? "" : "forced"));
+        }
+      }
+      loop += candidate_count;
+    }
+    assert(done || c->inputs_[0].size() == 0);
+
+    // If we are unable to find a normal compaction run and we are still
+    // above the compaction threshold, iterate again to pick compaction
+    // candidates, this time without considering their size differences.
+    if (!done) {
+      int files_not_in_compaction = 0;
+      for (unsigned int i = 0; i < current_->files_[level].size(); i++) {
+        f = current_->files_[level][i];
+        if (!f->being_compacted) {
+          files_not_in_compaction++;
+        }
+      }
+      int expected_num_files = files_not_in_compaction +
+                compactions_in_progress_[level].size();
+      if (expected_num_files <=
+          options_->level0_file_num_compaction_trigger + 1) {
+        done = true;     // nothing more to do
+      } else {
+        max_files_to_compact = expected_num_files -
+                               options_->level0_file_num_compaction_trigger;
+        Log(options_->info_log, "Hybrid: second loop with maxfiles %d",
+            max_files_to_compact);
+      }
+    }
+  }
+  if (c->inputs_[0].size() <= 1) {
+    Log(options_->info_log, "Hybrid: only %ld files, nothing to do.\n",
+        c->inputs_[0].size());
+    delete c;
+    return nullptr;
+  }
+
+  // validate that all the chosen files are non overlapping in time
+  FileMetaData* newerfile __attribute__((unused)) = nullptr;
+  for (unsigned int i = 0; i < c->inputs_[0].size(); i++) {
+    FileMetaData* f = c->inputs_[0][i];
+    assert (f->smallest_seqno <= f->largest_seqno);
+    assert(newerfile == nullptr ||
+           newerfile->smallest_seqno > f->largest_seqno);
+    newerfile = f;
+  }
+
+  // update statistics
+  options_->statistics->measureTime(NUM_FILES_IN_SINGLE_COMPACTION,
+                                     c->inputs_[0].size());
+
+  c->input_version_ = current_;
+  c->input_version_->Ref();
+
+  // mark all the files that are being compacted
+  c->MarkFilesBeingCompacted(true);
+
+  // remember this currently undergoing compaction
+  compactions_in_progress_[level].insert(c);
+
+  return c;
+}
+
 Compaction* VersionSet::PickCompactionBySize(int level, double score) {
   Compaction* c = nullptr;
 
@@ -1974,7 +2194,7 @@ Compaction* VersionSet::PickCompactionBySize(int level, double score) {
 
   assert(level >= 0);
   assert(level+1 < NumberLevels());
-  c = new Compaction(level, MaxFileSizeForLevel(level),
+  c = new Compaction(level, level+1, MaxFileSizeForLevel(level),
       MaxGrandParentOverlapBytes(level), NumberLevels());
   c->score_ = score;
 
@@ -2044,6 +2264,13 @@ Compaction* VersionSet::PickCompaction() {
   current_->vset_->SizeBeingCompacted(size_being_compacted);
   Finalize(current_, size_being_compacted);
 
+  // In hybrid mode compact L0 files back into L0.
+  if (options_->hybrid_mode) {
+    int level = 0;
+    c = PickCompactionHybrid(level, current_->compaction_score_[level]);
+    return c;
+  }
+
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   //
@@ -2072,7 +2299,7 @@ Compaction* VersionSet::PickCompaction() {
     if (level != 0 || compactions_in_progress_[0].empty()) {
       if(!ParentRangeInCompaction(&f->smallest, &f->largest, level,
                                   &parent_index)) {
-        c = new Compaction(level, MaxFileSizeForLevel(level),
+        c = new Compaction(level, level, MaxFileSizeForLevel(level),
                 MaxGrandParentOverlapBytes(level), NumberLevels(), true);
         c->inputs_[0].push_back(f);
         c->parent_index_ = parent_index;
@@ -2246,8 +2473,9 @@ Compaction* VersionSet::CompactRange(
       }
     }
   }
+  int out_level = options_->hybrid_mode ? level : level+1;
 
-  Compaction* c = new Compaction(level, MaxFileSizeForLevel(level),
+  Compaction* c = new Compaction(level, out_level, MaxFileSizeForLevel(level),
     MaxGrandParentOverlapBytes(level), NumberLevels());
   c->input_version_ = current_;
   c->input_version_->Ref();
@@ -2261,10 +2489,11 @@ Compaction* VersionSet::CompactRange(
   return c;
 }
 
-Compaction::Compaction(int level, uint64_t target_file_size,
+Compaction::Compaction(int level, int out_level, uint64_t target_file_size,
   uint64_t max_grandparent_overlap_bytes, int number_levels,
   bool seek_compaction)
     : level_(level),
+      out_level_(out_level),
       max_output_file_size_(target_file_size),
       maxGrandParentOverlapBytes_(max_grandparent_overlap_bytes),
       input_version_(nullptr),

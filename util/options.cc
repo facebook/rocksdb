@@ -76,7 +76,10 @@ Options::Options()
       advise_random_on_open(true),
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
-      bytes_per_sync(0) {
+      bytes_per_sync(0),
+      hybrid_mode(false),
+      hybrid_size_ratio(1),
+      hybrid_min_numfiles_in_single_compaction(2) {
 }
 
 static const char* const access_hints[] = {
@@ -217,6 +220,12 @@ Options::Dump(Logger* log) const
         use_adaptive_mutex);
     Log(log,"                          Options.bytes_per_sync: %ld",
         bytes_per_sync);
+    Log(log,"                             Options.hybrid_mode: %d",
+        hybrid_mode);
+    Log(log,"                       Options.hybrid_size_ratio: %d",
+        hybrid_size_ratio);
+    Log(log,"Options.hybrid_min_numfiles_in_single_compaction: %d",
+        hybrid_min_numfiles_in_single_compaction);
 }   // Options::Dump
 
 //

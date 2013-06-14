@@ -476,6 +476,17 @@ struct Options {
   // Default: 0
   uint64_t bytes_per_sync;
 
+  // Hybrid Mode. There is only a single level and files in L0 are
+  // compacted back into L0. Default: false
+  bool hybrid_mode;
+
+  // Percentage flexibilty while comparing file size. If the candidate file(s)
+  // size is 1% smaller than the next file's size, then include next file into
+  // this candidate set. // Default: 1
+  int hybrid_size_ratio;
+
+  // The minimum number of files in a single compaction run. Default: 2
+  int hybrid_min_numfiles_in_single_compaction;
 };
 
 // Options that control read operations

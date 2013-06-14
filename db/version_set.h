@@ -340,6 +340,9 @@ class VersionSet {
   struct LevelSummaryStorage {
     char buffer[100];
   };
+  struct FileSummaryStorage {
+    char buffer[1000];
+  };
   const char* LevelSummary(LevelSummaryStorage* scratch) const;
 
   // printf contents (for debugging)
@@ -350,6 +353,10 @@ class VersionSet {
   // of files per level.  Uses *scratch as backing store.
   const char* LevelDataSizeSummary(LevelSummaryStorage* scratch) const;
 
+  // Return a human-readable short (single-line) summary of files
+  // in a specified level.  Uses *scratch as backing store.
+  const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
+
   // Return the size of the current manifest file
   const uint64_t ManifestFileSize() { return current_->offset_manifest_file_; }
 
@@ -358,6 +365,9 @@ class VersionSet {
   // If level is 0 and there is already a compaction on that level, this
   // function will return nullptr.
   Compaction* PickCompactionBySize(int level, double score);
+
+  // Pick files to compact in hybrid mode
+  Compaction* PickCompactionHybrid(int level, double score);
 
   // Free up the files that were participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
@@ -489,8 +499,11 @@ class Compaction {
   ~Compaction();
 
   // Return the level that is being compacted.  Inputs from "level"
-  // and "level+1" will be merged to produce a set of "level+1" files.
+  // will be merged.
   int level() const { return level_; }
+
+  // Outputs will go to this level
+  int output_level() const { return out_level_; }
 
   // Return the object that holds the edits to the descriptor done
   // by this compaction.
@@ -534,11 +547,12 @@ class Compaction {
   friend class Version;
   friend class VersionSet;
 
-  explicit Compaction(int level, uint64_t target_file_size,
+  explicit Compaction(int level, int out_level, uint64_t target_file_size,
     uint64_t max_grandparent_overlap_bytes, int number_levels,
     bool seek_compaction = false);
 
   int level_;
+  int out_level_; // levels to which output files are stored
   uint64_t max_output_file_size_;
   int64_t maxGrandParentOverlapBytes_;
   Version* input_version_;
