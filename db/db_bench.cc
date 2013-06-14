@@ -1388,7 +1388,9 @@ void ReadMissing(ThreadState* thread) {
       long found;
       while(num_keys = std::min(keys_left, kpg), !duration.Done(num_keys)) {
         found = MultiGetRandom(options, num_keys, thread->rand, FLAGS_num,".");
-        assert(!found);
+        if (!found) {
+          assert(false);
+        }
         thread->stats.FinishedSingleOp(db_);
         keys_left -= num_keys;
       }
