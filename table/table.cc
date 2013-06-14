@@ -2,18 +2,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "table/table.h"
+
 #include "leveldb/cache.h"
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
 #include "leveldb/options.h"
 #include "leveldb/statistics.h"
+
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
-#include "table/table.h"
 #include "table/two_level_iterator.h"
+
 #include "util/coding.h"
+#include "util/stop_watch.h"
 
 namespace leveldb {
 
@@ -141,7 +145,7 @@ Status Table::Open(const Options& options,
   return s;
 }
 
-void Table::SetAccessHintForCompaction() {
+void Table::SetupForCompaction() {
   switch (rep_->options.access_hint_on_compaction_start) {
     case Options::NONE:
       break;
@@ -157,6 +161,7 @@ void Table::SetAccessHintForCompaction() {
     default:
       assert(false);
   }
+  compaction_optimized_ = true;
 }
 
 void Table::ReadMeta(const Footer& footer) {
@@ -229,7 +234,8 @@ static void ReleaseBlock(void* arg, void* h) {
 Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
                              const Slice& index_value,
-                             bool* didIO) {
+                             bool* didIO,
+                             bool for_compaction) {
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache.get();
   std::shared_ptr<Statistics> statistics = table->rep_->options.statistics;
@@ -259,7 +265,18 @@ Iterator* Table::BlockReader(void* arg,
 
         RecordTick(statistics, BLOCK_CACHE_HIT);
       } else {
-        s = ReadBlock(table->rep_->file.get(), options, handle, &block, didIO);
+        Histograms histogram = for_compaction ?
+          READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
+        {  // block for stop watch
+          StopWatch sw(table->rep_->options.env, statistics, histogram);
+          s = ReadBlock(
+                table->rep_->file.get(),
+                options,
+                handle,
+                &block,
+                didIO
+              );
+        }
         if (s.ok()) {
           if (block->isCachable() && options.fill_cache) {
             cache_handle = block_cache->Insert(
@@ -293,7 +310,7 @@ Iterator* Table::BlockReader(void* arg,
                              const EnvOptions& soptions,
                              const Slice& index_value,
                              bool for_compaction) {
-  return BlockReader(arg, options, index_value, nullptr);
+  return BlockReader(arg, options, index_value, nullptr, for_compaction);
 }
 
 Iterator* Table::NewIterator(const ReadOptions& options) const {

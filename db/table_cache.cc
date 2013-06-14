@@ -100,7 +100,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   }
 
   if (for_compaction) {
-    table->SetAccessHintForCompaction();
+    table->SetupForCompaction();
   }
 
   return result;

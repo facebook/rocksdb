@@ -64,18 +64,20 @@ class Table {
   // REQUIRES: key is in this table.
   bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
-  void SetAccessHintForCompaction();
+  // Set up the table for Compaction. Might change some parameters with
+  // posix_fadvise
+  void SetupForCompaction();
 
  private:
   struct Rep;
   Rep* rep_;
-
-  explicit Table(Rep* rep) { rep_ = rep; }
+  bool compaction_optimized_;
+  explicit Table(Rep* rep) : compaction_optimized_(false) { rep_ = rep; }
   static Iterator* BlockReader(void*, const ReadOptions&,
                                const EnvOptions& soptions, const Slice&,
                                bool for_compaction);
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
-                               bool* didIO);
+                               bool* didIO, bool for_compaction = false);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.

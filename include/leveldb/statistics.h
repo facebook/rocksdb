@@ -103,10 +103,13 @@ enum Histograms {
   // TIME SPENT IN IO DURING TABLE OPEN
   TABLE_OPEN_IO_MICROS = 7,
   DB_MULTIGET = 8,
-  HISTOGRAM_ENUM_MAX = 9
+  READ_BLOCK_COMPACTION_MICROS = 9,
+  READ_BLOCK_GET_MICROS = 10,
+  HISTOGRAM_ENUM_MAX = 11
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
+  // Over 80 char by choice
   std::make_pair(DB_GET, "rocksdb.db.get.micros"),
   std::make_pair(DB_WRITE, "rocksdb.db.write.micros"),
   std::make_pair(COMPACTION_TIME, "rocksdb.compaction.times.micros"),
@@ -115,7 +118,9 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
   std::make_pair(WAL_FILE_SYNC_MICROS, "rocksdb.wal.file.sync.micros"),
   std::make_pair(MANIFEST_FILE_SYNC_MICROS, "rocksdb.manifest.file.sync.micros"),
   std::make_pair(TABLE_OPEN_IO_MICROS, "rocksdb.table.open.io.micros"),
-  std::make_pair(DB_MULTIGET, "rocksdb.db.multiget.micros")
+  std::make_pair(DB_MULTIGET, "rocksdb.db.multiget.micros"),
+  std::make_pair(READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros"),
+  std::make_pair(READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros")
 };
 
 struct HistogramData {
