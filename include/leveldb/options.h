@@ -476,6 +476,9 @@ struct Options {
   // Default: 0
   uint64_t bytes_per_sync;
 
+  // Hybrid Mode. There is only a single level and files in L0 are
+  // compacted back into L0. Default: false
+  bool hybrid_mode;
 };
 
 // Options that control read operations

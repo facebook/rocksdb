@@ -75,6 +75,7 @@ struct DBImpl::CompactionState {
     uint64_t number;
     uint64_t file_size;
     InternalKey smallest, largest;
+    SequenceNumber smallest_seqno, largest_seqno;
   };
   std::vector<Output> outputs;
   std::list<uint64_t> allocated_file_numbers;
@@ -759,7 +760,8 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
   int level = 0;
   if (s.ok() && meta.file_size > 0) {
     edit->AddFile(level, meta.number, meta.file_size,
-                  meta.smallest, meta.largest);
+                  meta.smallest, meta.largest,
+                  meta.smallest_seqno, meta.largest_seqno);
   }
 
   CompactionStats stats;
@@ -833,11 +835,13 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
     // that key range.
-    if (base != nullptr && options_.max_background_compactions <= 1) {
+    if (base != nullptr && options_.max_background_compactions <= 1 &&
+        !options_.hybrid_mode) {
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
     edit->AddFile(level, meta.number, meta.file_size,
-                  meta.smallest, meta.largest);
+                  meta.smallest, meta.largest,
+                  meta.smallest_seqno, meta.largest_seqno);
   }
 
   CompactionStats stats;
@@ -1356,7 +1360,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     FileMetaData* f = c->input(0, 0);
     c->edit()->DeleteFile(c->level(), f->number);
     c->edit()->AddFile(c->level() + 1, f->number, f->file_size,
-                       f->smallest, f->largest);
+                       f->smallest, f->largest,
+                       f->smallest_seqno, f->largest_seqno);
     status = versions_->LogAndApply(c->edit(), &mutex_);
     VersionSet::LevelSummaryStorage tmp;
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
@@ -1468,6 +1473,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   out.number = file_number;
   out.smallest.Clear();
   out.largest.Clear();
+  out.smallest_seqno = out.largest_seqno = 0;
   compact->outputs.push_back(out);
 
   // Make the output file
@@ -1478,10 +1484,10 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     // Over-estimate slightly so we don't end up just barely crossing
     // the threshold.
     compact->outfile->SetPreallocationBlockSize(
-      1.1 * versions_->MaxFileSizeForLevel(compact->compaction->level() + 1));
+      1.1 * versions_->MaxFileSizeForLevel(compact->compaction->output_level()));
 
     compact->builder.reset(new TableBuilder(options_, compact->outfile.get(),
-                                            compact->compaction->level() + 1));
+                                            compact->compaction->output_level()));
   }
   return s;
 }
@@ -1572,8 +1578,9 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
     compact->compaction->edit()->AddFile(
-        level + 1,
-        out.number, out.file_size, out.smallest, out.largest);
+        options_.hybrid_mode? level : level + 1,
+        out.number, out.file_size, out.smallest, out.largest,
+        out.smallest_seqno, out.largest_seqno);
   }
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
@@ -1821,7 +1828,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       // If this is the bottommost level (no files in lower levels)
       // and the earliest snapshot is larger than this seqno
       // then we can squash the seqno to zero.
-      if (bottommost_level && ikey.sequence < earliest_snapshot &&
+      // Hybrid mode depends on the sequence number to determine
+      // time-order of files that is needed for compactions.
+      if (!options_.hybrid_mode &&
+          bottommost_level && ikey.sequence < earliest_snapshot &&
          ikey.type != kTypeMerge) {
         assert(ikey.type != kTypeDeletion);
         // make a copy because updating in place would cause problems
@@ -1841,11 +1851,18 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           break;
         }
       }
+      SequenceNumber seqno = GetInternalKeySeqno(newkey);
       if (compact->builder->NumEntries() == 0) {
         compact->current_output()->smallest.DecodeFrom(newkey);
+        compact->current_output()->smallest_seqno = seqno;
+      } else {
+        compact->current_output()->smallest_seqno =
+          std::min(compact->current_output()->smallest_seqno, seqno);
       }
       compact->current_output()->largest.DecodeFrom(newkey);
       compact->builder->Add(newkey, value);
+      compact->current_output()->largest_seqno =
+        std::max(compact->current_output()->largest_seqno, seqno);
 
       // Close output file if it is big enough
       if (compact->builder->FileSize() >=

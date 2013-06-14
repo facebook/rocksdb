@@ -22,6 +22,8 @@ struct FileMetaData {
   InternalKey smallest;       // Smallest internal key served by table
   InternalKey largest;        // Largest internal key served by table
   bool being_compacted;       // Is this file undergoing compaction?
+  SequenceNumber smallest_seqno;// The smallest seqno in this file
+  SequenceNumber largest_seqno; // The largest seqno in this file
 
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0),
                    being_compacted(false) { }
@@ -67,12 +69,17 @@ class VersionEdit {
   void AddFile(int level, uint64_t file,
                uint64_t file_size,
                const InternalKey& smallest,
-               const InternalKey& largest) {
+               const InternalKey& largest,
+               const SequenceNumber& smallest_seqno,
+               const SequenceNumber& largest_seqno) {
     FileMetaData f;
     f.number = file;
     f.file_size = file_size;
     f.smallest = smallest;
     f.largest = largest;
+    f.smallest_seqno = smallest_seqno;
+    f.largest_seqno = largest_seqno;
+    assert(smallest_seqno <= largest_seqno);
     new_files_.push_back(std::make_pair(level, f));
   }
 
