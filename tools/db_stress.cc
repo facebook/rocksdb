@@ -177,6 +177,9 @@ static uint32_t FLAGS_log2_keys_per_lock = 2; // implies 2^2 keys per lock
 // Percentage of times we want to purge redundant keys in memory before flushing
 static uint32_t FLAGS_purge_redundant_percent = 50;
 
+// Level0 compaction start trigger
+static int FLAGS_level0_file_num_compaction_trigger = 0;
+
 namespace leveldb {
 
 class StressTest;
@@ -940,6 +943,8 @@ class StressTest {
     options.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
+    options.level0_file_num_compaction_trigger =
+      FLAGS_level0_file_num_compaction_trigger;
     options.compression = FLAGS_compression_type;
     options.create_if_missing = true;
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
@@ -1004,6 +1009,12 @@ int main(int argc, char** argv) {
   FLAGS_open_files = leveldb::Options().max_open_files;
   FLAGS_max_background_compactions =
     leveldb::Options().max_background_compactions;
+  FLAGS_level0_file_num_compaction_trigger =
+    leveldb::Options().level0_file_num_compaction_trigger;
+  FLAGS_level0_slowdown_writes_trigger =
+    leveldb::Options().level0_slowdown_writes_trigger;
+  FLAGS_level0_stop_writes_trigger =
+    leveldb::Options().level0_stop_writes_trigger;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
   std::string default_db_path;
@@ -1111,6 +1122,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i],"--level0_slowdown_writes_trigger=%d%c",
         &n, &junk) == 1) {
       FLAGS_level0_slowdown_writes_trigger = n;
+    } else if (sscanf(argv[i],"--level0_file_num_compaction_trigger=%d%c",
+        &n, &junk) == 1) {
+      FLAGS_level0_file_num_compaction_trigger = n;
     } else if (strncmp(argv[i], "--compression_type=", 19) == 0) {
       const char* ctype = argv[i] + 19;
       if (!strcasecmp(ctype, "none"))
