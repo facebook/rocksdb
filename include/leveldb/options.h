@@ -427,7 +427,7 @@ struct Options {
   // Note: Deprecated
   bool allow_readahead_compactions;
 
-  // Allow the OS to mmap file for reading. Default: false
+  // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
   // Allow the OS to mmap file for writing. Default: true

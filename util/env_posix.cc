@@ -108,7 +108,6 @@ class PosixSequentialFile: public SequentialFile {
       const EnvOptions& options)
       : filename_(fname), file_(f), fd_(fileno(f)),
         use_os_buffer_(options.use_os_buffer) {
-    assert(!options.use_mmap_reads);
   }
   virtual ~PosixSequentialFile() { fclose(file_); }
 

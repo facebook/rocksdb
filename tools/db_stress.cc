@@ -110,6 +110,9 @@ static const char* FLAGS_db = nullptr;
 // Verify checksum for every block read from storage
 static bool FLAGS_verify_checksum = false;
 
+// Allow reads to occur via mmap-ing files
+static bool FLAGS_use_mmap_reads = leveldb::EnvOptions().use_mmap_reads;
+
 // Database statistics
 static std::shared_ptr<leveldb::Statistics> dbstats;
 
@@ -934,6 +937,7 @@ class StressTest {
     options.env = FLAGS_env;
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
+    options.allow_mmap_reads = FLAGS_use_mmap_reads;
     leveldb_kill_odds = FLAGS_kill_random_test;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
@@ -955,6 +959,9 @@ class StressTest {
     if (purge_percent.Uniform(100) < FLAGS_purge_redundant_percent - 1) {
       options.purge_redundant_kvs_while_flush = false;
     }
+
+    fprintf(stdout, "DB path: [%s]\n", FLAGS_db);
+
     Status s;
     if (FLAGS_ttl == -1) {
       s = DB::Open(options, FLAGS_db, &db_);
@@ -1076,6 +1083,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--verify_checksum=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_verify_checksum = n;
+    } else if (sscanf(argv[i], "--mmap_read=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_use_mmap_reads = n;
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
