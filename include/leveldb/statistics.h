@@ -105,7 +105,8 @@ enum Histograms {
   DB_MULTIGET = 8,
   READ_BLOCK_COMPACTION_MICROS = 9,
   READ_BLOCK_GET_MICROS = 10,
-  HISTOGRAM_ENUM_MAX = 11
+  WRITE_RAW_BLOCK_MICROS = 11,
+  HISTOGRAM_ENUM_MAX = 12
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -120,7 +121,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
   std::make_pair(TABLE_OPEN_IO_MICROS, "rocksdb.table.open.io.micros"),
   std::make_pair(DB_MULTIGET, "rocksdb.db.multiget.micros"),
   std::make_pair(READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros"),
-  std::make_pair(READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros")
+  std::make_pair(READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros"),
+  std::make_pair(WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros")
 };
 
 struct HistogramData {

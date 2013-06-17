@@ -14,6 +14,7 @@
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/stop_watch.h"
 
 namespace leveldb {
 
@@ -231,6 +232,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
                                  CompressionType type,
                                  BlockHandle* handle) {
   Rep* r = rep_;
+  StopWatch sw(r->options.env, r->options.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
   r->status = r->file->Append(block_contents);
