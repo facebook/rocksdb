@@ -62,7 +62,7 @@ enum Tickers {
 };
 
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
-  std::make_pair(BLOCK_CACHE_MISS, "levledb.block.cache.miss"),
+  std::make_pair(BLOCK_CACHE_MISS, "rocksdb.block.cache.miss"),
   std::make_pair(BLOCK_CACHE_HIT, "rocksdb.block.cache.hit"),
   std::make_pair(BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"),
   std::make_pair(COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"),
