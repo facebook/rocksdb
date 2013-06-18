@@ -82,7 +82,7 @@ class CondVar;
 
 class Mutex {
  public:
-  Mutex(bool adaptive = false);
+  /* implicit */ Mutex(bool adaptive = false);
   ~Mutex();
 
   void Lock();
@@ -192,17 +192,20 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
   _stream.avail_out = length;
   _stream.next_out = (Bytef *)&(*output)[0];
 
-  int old_sz =0, new_sz =0;
-  while(_stream.next_in != NULL && _stream.avail_in != 0) {
+  int old_sz =0, new_sz =0, new_sz_delta =0;
+  bool done = false;
+  while (!done) {
     int st = deflate(&_stream, Z_FINISH);
     switch (st) {
       case Z_STREAM_END:
+        done = true;
         break;
       case Z_OK:
         // No output space. Increase the output space by 20%.
         // (Should we fail the compression since it expands the size?)
         old_sz = output->size();
-        new_sz = (int)(output->size() * 1.2);
+        new_sz_delta = (int)(output->size() * 0.2);
+        new_sz = output->size() + (new_sz_delta < 10 ? 10 : new_sz_delta);
         output->resize(new_sz);
         // Set more output.
         _stream.next_out = (Bytef *)&(*output)[old_sz];
@@ -228,13 +231,13 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   z_stream _stream;
   memset(&_stream, 0, sizeof(z_stream));
 
-  // For raw inflate, the windowBits should be Ð8..Ð15.
+  // For raw inflate, the windowBits should be -8..-15.
   // If windowBits is bigger than zero, it will use either zlib
   // header or gzip header. Adding 32 to it will do automatic detection.
   int st = inflateInit2(&_stream,
       windowBits > 0 ? windowBits + 32 : windowBits);
   if (st != Z_OK) {
-    return NULL;
+    return nullptr;
   }
 
   _stream.next_in = (Bytef *)input_data;
@@ -248,17 +251,22 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   _stream.next_out = (Bytef *)output;
   _stream.avail_out = output_len;
 
-  char* tmp = NULL;
+  char* tmp = nullptr;
+  int output_len_delta;
+  bool done = false;
 
-  while(_stream.next_in != NULL && _stream.avail_in != 0) {
+  //while(_stream.next_in != nullptr && _stream.avail_in != 0) {
+  while (!done) {
     int st = inflate(&_stream, Z_SYNC_FLUSH);
     switch (st) {
       case Z_STREAM_END:
+        done = true;
         break;
       case Z_OK:
         // No output space. Increase the output space by 20%.
         old_sz = output_len;
-        output_len = (int)(output_len * 1.2);
+        output_len_delta = (int)(output_len * 0.2);
+        output_len += output_len_delta < 10 ? 10 : output_len_delta;
         tmp = new char[output_len];
         memcpy(tmp, output, old_sz);
         delete[] output;
@@ -272,7 +280,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
       default:
         delete[] output;
         inflateEnd(&_stream);
-        return NULL;
+        return nullptr;
     }
   }
 
@@ -281,7 +289,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   return output;
 #endif
 
-  return NULL;
+  return nullptr;
 }
 
 inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
@@ -311,7 +319,7 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
   _stream.avail_out = length;
 
   int old_sz =0, new_sz =0;
-  while(_stream.next_in != NULL && _stream.avail_in != 0) {
+  while(_stream.next_in != nullptr && _stream.avail_in != 0) {
     int st = BZ2_bzCompress(&_stream, BZ_FINISH);
     switch (st) {
       case BZ_STREAM_END:
@@ -349,7 +357,7 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
 
   int st = BZ2_bzDecompressInit(&_stream, 0, 0);
   if (st != BZ_OK) {
-    return NULL;
+    return nullptr;
   }
 
   _stream.next_in = (char *)input_data;
@@ -363,9 +371,9 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
   _stream.next_out = (char *)output;
   _stream.avail_out = output_len;
 
-  char* tmp = NULL;
+  char* tmp = nullptr;
 
-  while(_stream.next_in != NULL && _stream.avail_in != 0) {
+  while(_stream.next_in != nullptr && _stream.avail_in != 0) {
     int st = BZ2_bzDecompress(&_stream);
     switch (st) {
       case BZ_STREAM_END:
@@ -387,7 +395,7 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
       default:
         delete[] output;
         BZ2_bzDecompressEnd(&_stream);
-        return NULL;
+        return nullptr;
     }
   }
 
@@ -395,7 +403,7 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
   BZ2_bzDecompressEnd(&_stream);
   return output;
 #endif
-  return NULL;
+  return nullptr;
 }
 
 inline bool GetHeapProfile(void (*func)(void*, const char*, int), void* arg) {
