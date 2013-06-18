@@ -732,7 +732,8 @@ class Benchmark {
 #endif
   }
 
-  void PrintHistogram(Histograms histogram_type, std::string name) {
+  void PrintHistogram(const Histograms& histogram_type,
+                      const std::string& name) {
     HistogramData histogramData;
     dbstats->histogramData(histogram_type, &histogramData);
     fprintf(stdout, "%s statistics Percentiles :", name.c_str());
@@ -741,33 +742,19 @@ class Benchmark {
     fprintf(stdout, "99 : %f\n", histogramData.percentile99);
   }
 
+  void PrintTicker(const Tickers& ticker, const std::string& name) {
+    fprintf(stdout, "%s COUNT : %ld\n",
+            name.c_str(), dbstats->getTickerCount(ticker));
+  }
+
   void PrintStatistics() {
     if (FLAGS_statistics) {
-      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n"
-          "Block Cache Hit Count:%ld Block Cache Miss Count:%ld\n"
-          "Bloom Filter Useful: %ld \n"
-          "Compaction key_drop_newer_entry: %ld key_drop_obsolete: %ld "
-          "Compaction key_drop_user: %ld\n",
-          dbstats->getTickerCount(NO_FILE_OPENS),
-          dbstats->getTickerCount(NO_FILE_CLOSES),
-          dbstats->getTickerCount(NO_FILE_ERRORS),
-          dbstats->getTickerCount(BLOCK_CACHE_HIT),
-          dbstats->getTickerCount(BLOCK_CACHE_MISS),
-          dbstats->getTickerCount(BLOOM_FILTER_USEFUL),
-          dbstats->getTickerCount(COMPACTION_KEY_DROP_NEWER_ENTRY),
-          dbstats->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE),
-          dbstats->getTickerCount(COMPACTION_KEY_DROP_USER));
-      PrintHistogram(DB_GET, "DB_GET");
-      PrintHistogram(DB_WRITE, "DB_WRITE");
-      PrintHistogram(COMPACTION_TIME, "COMPACTION_TIME");
-      PrintHistogram(TABLE_SYNC_MICROS, "TABLE SYNC MICROS");
-      PrintHistogram(
-        COMPACTION_OUTFILE_SYNC_MICROS,
-        "COMPACTION OUT FILE SYNC MICROS");
-      PrintHistogram(WAL_FILE_SYNC_MICROS, "WAL FILE SYNC MICROS");
-      PrintHistogram(MANIFEST_FILE_SYNC_MICROS, "Manifest SYNC MICROS");
-      PrintHistogram(TABLE_OPEN_IO_MICROS, "Table Open IO Micros");
-      PrintHistogram(DB_MULTIGET, "DB_MULTIGET");
+      for (auto& t : TickersNameMap) {
+        PrintTicker(t.first, t.second);
+      }
+      for (auto& h : HistogramsNameMap) {
+        PrintHistogram(h.first, h.second);
+      }
     }
   }
 
