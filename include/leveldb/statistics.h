@@ -62,27 +62,27 @@ enum Tickers {
 };
 
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
-  std::make_pair(BLOCK_CACHE_MISS, "rocksdb.block.cache.miss"),
-  std::make_pair(BLOCK_CACHE_HIT, "rocksdb.block.cache.hit"),
-  std::make_pair(BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"),
-  std::make_pair(COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"),
-  std::make_pair(COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"),
-  std::make_pair(COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"),
-  std::make_pair(NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"),
-  std::make_pair(NUMBER_KEYS_READ, "rocksdb.number.keys.read"),
-  std::make_pair(BYTES_WRITTEN, "rocksdb.bytes.written"),
-  std::make_pair(BYTES_READ, "rocksdb.bytes.read"),
-  std::make_pair(NO_FILE_CLOSES, "rocksdb.no.file.closes"),
-  std::make_pair(NO_FILE_OPENS, "rocksdb.no.file.opens"),
-  std::make_pair(NO_FILE_ERRORS, "rocksdb.no.file.errors"),
-  std::make_pair(STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"),
-  std::make_pair(STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"),
-  std::make_pair(STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"),
-  std::make_pair(RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.dleay.millis"),
-  std::make_pair(NO_ITERATORS, "rocksdb.num.iterators"),
-  std::make_pair(NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"),
-  std::make_pair(NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read"),
-  std::make_pair(NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read")
+  { BLOCK_CACHE_MISS, "rocksdb.block.cache.miss" },
+  { BLOCK_CACHE_HIT, "rocksdb.block.cache.hit" },
+  { BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful" },
+  { COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new" },
+  { COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete" },
+  { COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user" },
+  { NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written" },
+  { NUMBER_KEYS_READ, "rocksdb.number.keys.read" },
+  { BYTES_WRITTEN, "rocksdb.bytes.written" },
+  { BYTES_READ, "rocksdb.bytes.read" },
+  { NO_FILE_CLOSES, "rocksdb.no.file.closes" },
+  { NO_FILE_OPENS, "rocksdb.no.file.opens" },
+  { NO_FILE_ERRORS, "rocksdb.no.file.errors" },
+  { STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros" },
+  { STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros" },
+  { STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros" },
+  { RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.dleay.millis" },
+  { NO_ITERATORS, "rocksdb.num.iterators" },
+  { NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get" },
+  { NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read" },
+  { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" }
 };
 
 /**
@@ -110,19 +110,18 @@ enum Histograms {
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
-  // Over 80 char by choice
-  std::make_pair(DB_GET, "rocksdb.db.get.micros"),
-  std::make_pair(DB_WRITE, "rocksdb.db.write.micros"),
-  std::make_pair(COMPACTION_TIME, "rocksdb.compaction.times.micros"),
-  std::make_pair(TABLE_SYNC_MICROS, "rocksdb.table.sync.micros"),
-  std::make_pair(COMPACTION_OUTFILE_SYNC_MICROS, "rocksdb.compaction.outfile.sync.micros"),
-  std::make_pair(WAL_FILE_SYNC_MICROS, "rocksdb.wal.file.sync.micros"),
-  std::make_pair(MANIFEST_FILE_SYNC_MICROS, "rocksdb.manifest.file.sync.micros"),
-  std::make_pair(TABLE_OPEN_IO_MICROS, "rocksdb.table.open.io.micros"),
-  std::make_pair(DB_MULTIGET, "rocksdb.db.multiget.micros"),
-  std::make_pair(READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros"),
-  std::make_pair(READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros"),
-  std::make_pair(WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros")
+  { DB_GET, "rocksdb.db.get.micros" },
+  { DB_WRITE, "rocksdb.db.write.micros" },
+  { COMPACTION_TIME, "rocksdb.compaction.times.micros" },
+  { TABLE_SYNC_MICROS, "rocksdb.table.sync.micros" },
+  { COMPACTION_OUTFILE_SYNC_MICROS, "rocksdb.compaction.outfile.sync.micros" },
+  { WAL_FILE_SYNC_MICROS, "rocksdb.wal.file.sync.micros" },
+  { MANIFEST_FILE_SYNC_MICROS, "rocksdb.manifest.file.sync.micros" },
+  { TABLE_OPEN_IO_MICROS, "rocksdb.table.open.io.micros" },
+  { DB_MULTIGET, "rocksdb.db.multiget.micros" },
+  { READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros" },
+  { READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros" },
+  { WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros" }
 };
 
 struct HistogramData {
