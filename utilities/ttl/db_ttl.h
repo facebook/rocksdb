@@ -97,11 +97,85 @@ class DBWithTTL : public DB, CompactionFilter {
 
   static const int32_t kTSLength = sizeof(int32_t); // size of timestamp
 
-  static const int32_t kMinTimestamp = 1368146402; // 05/09/2013:5:40PM
+  static const int32_t kMinTimestamp = 1368146402; // 05/09/2013:5:40PM GMT-8
+
+  static const int32_t kMaxTimestamp = 2147483647; // 01/18/2038:7:14PM GMT-8
 
  private:
   DB* db_;
   int32_t ttl_;
+};
+
+struct ValueAndTimestamp {
+  Slice value;
+  int32_t timestamp;
+};
+
+class TtlIterator : public Iterator {
+
+ public:
+  TtlIterator(Iterator* iter, int32_t ts_len)
+    : iter_(iter),
+      ts_len_(ts_len) {
+    assert(iter_);
+  }
+
+  ~TtlIterator() {
+    delete iter_;
+  }
+
+  bool Valid() const {
+    return iter_->Valid();
+  }
+
+  void SeekToFirst() {
+    iter_->SeekToFirst();
+  }
+
+  void SeekToLast() {
+    iter_->SeekToLast();
+  }
+
+  void Seek(const Slice& target) {
+    iter_->Seek(target);
+  }
+
+  void Next() {
+    iter_->Next();
+  }
+
+  void Prev() {
+    iter_->Prev();
+  }
+
+  Slice key() const {
+    return iter_->key();
+  }
+
+  struct ValueAndTimestamp ValueWithTimestamp() const {
+    assert(DBWithTTL::SanityCheckTimestamp(iter_->value().ToString()).ok());
+    struct ValueAndTimestamp val_ts;
+    val_ts.timestamp = DecodeFixed32(
+      iter_->value().data() + iter_->value().size() - DBWithTTL::kTSLength);
+    val_ts.value = iter_->value();
+    val_ts.value.size_ -= ts_len_;
+    return val_ts;
+  }
+
+  Slice value() const {
+    assert(DBWithTTL::SanityCheckTimestamp(iter_->value().ToString()).ok());
+    Slice trimmed_value = iter_->value();
+    trimmed_value.size_ -= ts_len_;
+    return trimmed_value;
+  }
+
+  Status status() const {
+    return iter_->status();
+  }
+
+ private:
+  Iterator* iter_;
+  int32_t ts_len_;
 };
 
 }

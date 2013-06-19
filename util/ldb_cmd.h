@@ -21,6 +21,7 @@
 #include "util/ldb_cmd_execute_result.h"
 #include "util/string_util.h"
 #include "utilities/utility_db.h"
+#include "utilities/ttl/db_ttl.h"
 
 using std::string;
 using std::map;
@@ -38,6 +39,9 @@ public:
   static const string ARG_KEY_HEX;
   static const string ARG_VALUE_HEX;
   static const string ARG_TTL;
+  static const string ARG_TTL_START;
+  static const string ARG_TTL_END;
+  static const string ARG_TIMESTAMP;
   static const string ARG_FROM;
   static const string ARG_TO;
   static const string ARG_MAX_KEYS;
@@ -162,6 +166,9 @@ protected:
   /** If true, the value is treated as timestamp suffixed */
   bool is_db_ttl_;
 
+  // If true, the kvs are output with their insert/modify timestamp in a ttl db
+  bool timestamp_;
+
   /**
    * Map of options passed on the command-line.
    */
@@ -185,6 +192,7 @@ protected:
       is_key_hex_(false),
       is_value_hex_(false),
       is_db_ttl_(false),
+      timestamp_(false),
       option_map_(options),
       flags_(flags),
       valid_cmd_line_options_(valid_cmd_line_options) {
@@ -197,6 +205,7 @@ protected:
     is_key_hex_ = IsKeyHex(options, flags);
     is_value_hex_ = IsValueHex(options, flags);
     is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
+    timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   }
 
   void OpenDB() {
@@ -385,6 +394,7 @@ private:
 
   static const string ARG_COUNT_ONLY;
   static const string ARG_STATS;
+  static const string ARG_TTL_BUCKET;
 };
 
 class DBLoaderCommand: public LDBCommand {

@@ -18,9 +18,6 @@ public:
     ret.append("\n");
     ret.append("The following optional parameters control if keys/values are "
         "input/output as hex or as plain strings:\n");
-    ret.append("  --" + LDBCommand::ARG_TTL +
-        " with 'put','get','scan','dump','query','batchput'"
-        " : DB supports ttl and value is internally timestamp-suffixed\n");
     ret.append("  --" + LDBCommand::ARG_KEY_HEX +
         " : Keys are input/output as hex\n");
     ret.append("  --" + LDBCommand::ARG_VALUE_HEX +
@@ -31,6 +28,9 @@ public:
 
     ret.append("The following optional parameters control the database "
         "internals:\n");
+    ret.append("  --" + LDBCommand::ARG_TTL +
+        " with 'put','get','scan','dump','query','batchput'"
+        " : DB supports ttl and value is internally timestamp-suffixed\n");
     ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
     ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
         "=<no|snappy|zlib|bzip2>\n");

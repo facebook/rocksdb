@@ -11,63 +11,6 @@
 
 namespace leveldb {
 
-class TtlIterator : public Iterator {
-
- public:
-  TtlIterator(Iterator* iter, int32_t ts_len)
-    : iter_(iter),
-      ts_len_(ts_len) {
-    assert(iter_);
-  }
-
-  ~TtlIterator() {
-    delete iter_;
-  }
-
-  bool Valid() const {
-    return iter_->Valid();
-  }
-
-  void SeekToFirst() {
-    iter_->SeekToFirst();
-  }
-
-  void SeekToLast() {
-    iter_->SeekToLast();
-  }
-
-  void Seek(const Slice& target) {
-    iter_->Seek(target);
-  }
-
-  void Next() {
-    iter_->Next();
-  }
-
-  void Prev() {
-    iter_->Prev();
-  }
-
-  Slice key() const {
-    return iter_->key();
-  }
-
-  Slice value() const {
-    assert(DBWithTTL::SanityCheckTimestamp(iter_->value().ToString()).ok());
-    Slice trimmed_value = iter_->value();
-    trimmed_value.size_ -= ts_len_;
-    return trimmed_value;
-  }
-
-  Status status() const {
-    return iter_->status();
-  }
-
- private:
-  Iterator* iter_;
-  int32_t ts_len_;
-};
-
 // Open the db inside DBWithTTL because options needs pointer to its ttl
 DBWithTTL::DBWithTTL(const int32_t ttl,
                      const Options& options,
