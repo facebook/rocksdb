@@ -186,7 +186,8 @@ class Statistics {
   virtual void measureTime(Histograms histogramType, uint64_t time) = 0;
 
   virtual void histogramData(Histograms type, HistogramData * const data) = 0;
-
+  // String representation of the statistic object.
+  std::string ToString();
 };
 
 // Create a concrete DBStatistics object

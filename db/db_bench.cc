@@ -15,6 +15,7 @@
 #include "leveldb/write_batch.h"
 #include "leveldb/statistics.h"
 #include "port/port.h"
+#include "util/bit_set.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
@@ -22,7 +23,6 @@
 #include "util/stack_trace.h"
 #include "util/string_util.h"
 #include "util/testutil.h"
-#include "util/bit_set.h"
 #include "hdfs/env_hdfs.h"
 
 // Comma-separated list of operations to run in the specified order
@@ -738,32 +738,6 @@ class Benchmark {
 #endif
   }
 
-  void PrintHistogram(const Histograms& histogram_type,
-                      const std::string& name) {
-    HistogramData histogramData;
-    dbstats->histogramData(histogram_type, &histogramData);
-    fprintf(stdout, "%s statistics Percentiles :", name.c_str());
-    fprintf(stdout, "50 : %f ", histogramData.median);
-    fprintf(stdout, "95 : %f ", histogramData.percentile95);
-    fprintf(stdout, "99 : %f\n", histogramData.percentile99);
-  }
-
-  void PrintTicker(const Tickers& ticker, const std::string& name) {
-    fprintf(stdout, "%s COUNT : %ld\n",
-            name.c_str(), dbstats->getTickerCount(ticker));
-  }
-
-  void PrintStatistics() {
-    if (FLAGS_statistics) {
-      for (auto& t : TickersNameMap) {
-        PrintTicker(t.first, t.second);
-      }
-      for (auto& h : HistogramsNameMap) {
-        PrintHistogram(h.first, h.second);
-      }
-    }
-  }
-
  public:
   Benchmark()
   : cache_(FLAGS_cache_size >= 0 ?
@@ -949,7 +923,9 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
         RunBenchmark(num_threads, name, method);
       }
     }
-    PrintStatistics();
+    if (FLAGS_statistics) {
+     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
+    }
   }
 
  private:

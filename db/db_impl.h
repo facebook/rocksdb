@@ -212,8 +212,6 @@ class DBImpl : public DB {
 
   Status ReadFirstLine(const std::string& fname, WriteBatch* const batch);
 
-  void PrintHistogram(Histograms histogram_type, std::string name);
-
   void PrintStatistics();
 
   // dump leveldb.stats to LOG
