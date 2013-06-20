@@ -55,13 +55,13 @@ public:
 
   static LDBCommand* InitFromCmdLineArgs(
     const vector<string>& args,
-    Options options = Options()
+    const Options& options = Options()
   );
 
   static LDBCommand* InitFromCmdLineArgs(
     int argc,
     char** argv,
-    Options options = Options()
+    const Options& options = Options()
   );
 
   bool ValidateCmdLineOptions();
@@ -230,6 +230,8 @@ protected:
       string msg = st.ToString();
       exec_state_ = LDBCommandExecuteResult::FAILED(msg);
     }
+
+    options_ = opt;
   }
 
   void CloseDB () {
@@ -281,12 +283,15 @@ protected:
     return ret;
   }
 
-  bool ParseIntOption(const map<string, string>& options, string option,
-      int& value, LDBCommandExecuteResult& exec_state);
+  bool ParseIntOption(const map<string, string>& options, const string& option,
+                      int& value, LDBCommandExecuteResult& exec_state);
 
-private:
+  bool ParseStringOption(const map<string, string>& options,
+                         const string& option, string* value);
 
   Options options_;
+
+private:
 
   /**
    * Interpret command line options and flags to determine if the key
@@ -347,9 +352,9 @@ private:
 
   static LDBCommand* SelectCommand(
     const string& cmd,
-    vector<string>& cmdParams,
-    map<string, string>& option_map,
-    vector<string>& flags
+    const vector<string>& cmdParams,
+    const map<string, string>& option_map,
+    const vector<string>& flags
   );
 
 };
@@ -395,6 +400,31 @@ private:
   static const string ARG_COUNT_ONLY;
   static const string ARG_STATS;
   static const string ARG_TTL_BUCKET;
+};
+
+class InternalDumpCommand: public LDBCommand {
+public:
+  static string Name() { return "idump"; }
+
+  InternalDumpCommand(const vector<string>& params,
+                      const map<string, string>& options,
+                      const vector<string>& flags);
+
+  static void Help(string& ret);
+
+  virtual void DoCommand();
+
+private:
+  bool has_from_;
+  string from_;
+  bool has_to_;
+  string to_;
+  int max_keys_;
+  bool count_only_;
+  bool print_stats_;
+
+  static const string ARG_COUNT_ONLY;
+  static const string ARG_STATS;
 };
 
 class DBLoaderCommand: public LDBCommand {
