@@ -538,20 +538,16 @@ string ReadableTime(int unixtime) {
 
 // This function only called when it's the sane case of >1 buckets in time-range
 // Also called only when timekv falls between ttl_start and ttl_end provided
-void IncBucketCounts(uint64_t* bucket_counts, int ttl_start, int time_range,
-      int bucket_size, int timekv, int num_buckets) {
-  if (time_range <= 0 || timekv < ttl_start || timekv > (ttl_start + time_range)
-      || bucket_size <= 0 || num_buckets < 2) {
-    fprintf(stderr, "Error: bucketizing\n");
-    return;
-  }
-  int bucket = (timekv - ttl_start);
-  bucket = (bucket == 0) ? 1 : ceil(bucket / (double)bucket_size);
-  bucket_counts[bucket - 1]++;
+void IncBucketCounts(vector<uint64_t>& bucket_counts, int ttl_start,
+      int time_range, int bucket_size, int timekv, int num_buckets) {
+  assert(time_range > 0 && timekv >= ttl_start && bucket_size > 0 &&
+    timekv < (ttl_start + time_range) && num_buckets > 1);
+  int bucket = (timekv - ttl_start) / bucket_size;
+  bucket_counts[bucket]++;
 }
 
-void PrintBucketCounts(uint64_t* bucket_counts, int ttl_start, int ttl_end,
-      int bucket_size, int num_buckets) {
+void PrintBucketCounts(const vector<uint64_t>& bucket_counts, int ttl_start,
+      int ttl_end, int bucket_size, int num_buckets) {
   int time_point = ttl_start;
   for(int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
     fprintf(stdout, "Keys in range %s to %s : %lu\n",
@@ -629,8 +625,8 @@ void DBDumperCommand::Help(string& ret) {
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
   ret.append(" [--" + ARG_STATS + "]");
   ret.append(" [--" + ARG_TTL_BUCKET + "=<N>]");
-  ret.append(" [--" + ARG_TTL_START + "=<N>]");
-  ret.append(" [--" + ARG_TTL_END + "=<N>]");
+  ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
+  ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append("\n");
 }
 
@@ -682,10 +678,9 @@ void DBDumperCommand::DoCommand() {
     bucket_size = time_range; // Will have just 1 bucket by default
   }
   // At this point, bucket_size=0 => time_range=0
-  uint64_t num_buckets =
-    bucket_size >= time_range ? 1 : ceil((double)time_range/bucket_size);
-  unique_ptr<uint64_t[]> bucket_counts(new uint64_t[num_buckets]);
-  fill(bucket_counts.get(), bucket_counts.get() + num_buckets, 0);
+  uint64_t num_buckets = (bucket_size >= time_range) ? 1 :
+    ((time_range + bucket_size - 1) / bucket_size);
+  vector<uint64_t> bucket_counts(num_buckets, 0);
   if (is_db_ttl_ && !count_only_ && timestamp_) {
     fprintf(stdout, "Dumping key-values from %s to %s\n",
             ReadableTime(ttl_start).c_str(), ReadableTime(ttl_end).c_str());
@@ -693,7 +688,6 @@ void DBDumperCommand::DoCommand() {
 
   for (; iter->Valid(); iter->Next()) {
     int rawtime = 0;
-    string value;
     // If end marker was specified, we stop before it
     if (!null_to_ && (iter->key().ToString() >= to_))
       break;
@@ -702,20 +696,16 @@ void DBDumperCommand::DoCommand() {
       break;
     if (is_db_ttl_) {
       TtlIterator* it_ttl = (TtlIterator*)iter;
-      struct ValueAndTimestamp val_ts = it_ttl->ValueWithTimestamp();
-      value = val_ts.value.ToString();
-      rawtime = val_ts.timestamp;
-      if (rawtime < ttl_start || rawtime > ttl_end) {
+      rawtime = it_ttl->timestamp();
+      if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
       }
-    } else {
-      value = iter->value().ToString();
     }
     if (max_keys > 0) {
       --max_keys;
     }
     if (is_db_ttl_ && num_buckets > 1) {
-      IncBucketCounts(bucket_counts.get(), ttl_start, time_range, bucket_size,
+      IncBucketCounts(bucket_counts, ttl_start, time_range, bucket_size,
                       rawtime, num_buckets);
     }
     ++count;
@@ -724,12 +714,13 @@ void DBDumperCommand::DoCommand() {
         fprintf(stdout, "%s ", ReadableTime(rawtime).c_str());
       }
       string str = PrintKeyValue(iter->key().ToString(),
-                                 value, is_key_hex_, is_value_hex_);
+                                 iter->value().ToString(), is_key_hex_,
+                                 is_value_hex_);
       fprintf(stdout, "%s\n", str.c_str());
     }
   }
   if (num_buckets > 1 && is_db_ttl_) {
-    PrintBucketCounts(bucket_counts.get(), ttl_start, ttl_end, bucket_size,
+    PrintBucketCounts(bucket_counts, ttl_start, ttl_end, bucket_size,
                       num_buckets);
   } else {
     fprintf(stdout, "Keys in range: %lld\n", (long long) count);
@@ -1189,8 +1180,8 @@ void ScanCommand::Help(string& ret) {
   ret.append(" [--" + ARG_TTL + "]");
   ret.append(" [--" + ARG_TIMESTAMP + "]");
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>q] ");
-  ret.append(" [--" + ARG_TTL_START + "=<N>]");
-  ret.append(" [--" + ARG_TTL_END + "=<N>]");
+  ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
+  ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
   ret.append("\n");
 }
 
@@ -1224,21 +1215,17 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     string key = it->key().ToString();
-    string value;
     if (is_db_ttl_) {
       TtlIterator* it_ttl = (TtlIterator*)it;
-      struct ValueAndTimestamp val_ts = it_ttl->ValueWithTimestamp();
-      int rawtime = val_ts.timestamp;
-      value = val_ts.value.ToString();
-      if (rawtime < ttl_start || rawtime > ttl_end) {
+      int rawtime = it_ttl->timestamp();
+      if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
       }
       if (timestamp_) {
         fprintf(stdout, "%s ", ReadableTime(rawtime).c_str());
       }
-    } else {
-      value = it->value().ToString();
     }
+    string value = it->value().ToString();
     fprintf(stdout, "%s : %s\n",
           (is_key_hex_ ? StringToHex(key) : key).c_str(),
           (is_value_hex_ ? StringToHex(value) : value).c_str()

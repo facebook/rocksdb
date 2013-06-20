@@ -89,7 +89,7 @@ class DBWithTTL : public DB, CompactionFilter {
 
   static Status AppendTS(const Slice& val, std::string& val_with_ts);
 
-  static Status SanityCheckTimestamp(const std::string& str);
+  static Status SanityCheckTimestamp(const Slice& str);
 
   static Status StripTS(std::string* str);
 
@@ -106,17 +106,11 @@ class DBWithTTL : public DB, CompactionFilter {
   int32_t ttl_;
 };
 
-struct ValueAndTimestamp {
-  Slice value;
-  int32_t timestamp;
-};
-
 class TtlIterator : public Iterator {
 
  public:
-  TtlIterator(Iterator* iter, int32_t ts_len)
-    : iter_(iter),
-      ts_len_(ts_len) {
+  explicit TtlIterator(Iterator* iter)
+    : iter_(iter) {
     assert(iter_);
   }
 
@@ -152,20 +146,16 @@ class TtlIterator : public Iterator {
     return iter_->key();
   }
 
-  struct ValueAndTimestamp ValueWithTimestamp() const {
-    assert(DBWithTTL::SanityCheckTimestamp(iter_->value().ToString()).ok());
-    struct ValueAndTimestamp val_ts;
-    val_ts.timestamp = DecodeFixed32(
+  int32_t timestamp() const {
+    return DecodeFixed32(
       iter_->value().data() + iter_->value().size() - DBWithTTL::kTSLength);
-    val_ts.value = iter_->value();
-    val_ts.value.size_ -= ts_len_;
-    return val_ts;
   }
 
   Slice value() const {
-    assert(DBWithTTL::SanityCheckTimestamp(iter_->value().ToString()).ok());
+    //TODO: handle timestamp corruption like in general iterator semantics
+    assert(DBWithTTL::SanityCheckTimestamp(iter_->value()).ok());
     Slice trimmed_value = iter_->value();
-    trimmed_value.size_ -= ts_len_;
+    trimmed_value.size_ -= DBWithTTL::kTSLength;
     return trimmed_value;
   }
 
@@ -175,7 +165,6 @@ class TtlIterator : public Iterator {
 
  private:
   Iterator* iter_;
-  int32_t ts_len_;
 };
 
 }

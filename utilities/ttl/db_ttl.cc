@@ -84,8 +84,8 @@ Status DBWithTTL::AppendTS(const Slice& val, std::string& val_with_ts) {
 
 // Returns corruption if the length of the string is lesser than timestamp, or
 // timestamp refers to a time lesser than ttl-feature release time
-Status DBWithTTL::SanityCheckTimestamp(const std::string& str) {
-  if (str.length() < (unsigned)kTSLength) {
+Status DBWithTTL::SanityCheckTimestamp(const Slice& str) {
+  if (str.size() < (unsigned)kTSLength) {
     return Status::Corruption("Error: value's length less than timestamp's\n");
   }
   // Checks that TS is not lesser than kMinTimestamp
@@ -200,7 +200,7 @@ Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
 }
 
 Iterator* DBWithTTL::NewIterator(const ReadOptions& opts) {
-  return new TtlIterator(db_->NewIterator(opts), kTSLength);
+  return new TtlIterator(db_->NewIterator(opts));
 }
 
 const Snapshot* DBWithTTL::GetSnapshot() {
