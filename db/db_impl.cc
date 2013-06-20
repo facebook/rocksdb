@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 #include <stdint.h>
+#include <stdexcept>
 #include <vector>
 #include <unordered_set>
 
@@ -2214,13 +2215,19 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       }
       if (status.ok()) {
         status = WriteBatchInternal::InsertInto(updates, mem_);
+        if (!status.ok()) {
+          // Panic for in-memory corruptions
+          // Note that existing logic was not sound. Any partial failure writing
+          // into the memtable would result in a state that some write ops might
+          // have succeeded in memtable but Status reports error for all writes.
+          throw std::runtime_error("In memory WriteBatch corruption!");
+        }
+        versions_->SetLastSequence(last_sequence);
+        last_flushed_sequence_ = current_sequence;
       }
       mutex_.Lock();
     }
-    last_flushed_sequence_ = current_sequence;
     if (updates == &tmp_batch_) tmp_batch_.Clear();
-
-    versions_->SetLastSequence(last_sequence);
   }
 
   while (true) {
