@@ -140,8 +140,9 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 	done
 
 clean:
-	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) */*.o */*/*.o ios-x86/*/*.o ios-arm/*/*.o build_config.mk */*.d */*/*.d
+	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) build_config.mk
 	-rm -rf ios-x86/* ios-arm/*
+	-for x in `find . -name "*.[od]"`; do rm $$x; done
 
 $(LIBRARY): $(LIBOBJECTS)
 	rm -f $@
