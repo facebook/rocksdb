@@ -67,6 +67,7 @@ TEST(WriteBatchTest, Empty) {
   WriteBatch batch;
   ASSERT_EQ("", PrintContents(&batch));
   ASSERT_EQ(0, WriteBatchInternal::Count(&batch));
+  ASSERT_EQ(0, batch.Count());
 }
 
 TEST(WriteBatchTest, Multiple) {
@@ -81,6 +82,7 @@ TEST(WriteBatchTest, Multiple) {
             "Delete(box)@101"
             "Put(foo, bar)@100",
             PrintContents(&batch));
+  ASSERT_EQ(3, batch.Count());
 }
 
 TEST(WriteBatchTest, Corruption) {
@@ -103,16 +105,19 @@ TEST(WriteBatchTest, Append) {
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("",
             PrintContents(&b1));
+  ASSERT_EQ(0, b1.Count());
   b2.Put("a", "va");
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("Put(a, va)@200",
             PrintContents(&b1));
+  ASSERT_EQ(1, b1.Count());
   b2.Clear();
   b2.Put("b", "vb");
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("Put(a, va)@200"
             "Put(b, vb)@201",
             PrintContents(&b1));
+  ASSERT_EQ(2, b1.Count());
   b2.Delete("foo");
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("Put(a, va)@200"
@@ -120,6 +125,7 @@ TEST(WriteBatchTest, Append) {
             "Put(b, vb)@201"
             "Delete(foo)@203",
             PrintContents(&b1));
+  ASSERT_EQ(4, b1.Count());
 }
 
 }  // namespace leveldb

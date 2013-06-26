@@ -59,8 +59,11 @@ class WriteBatch {
   };
   Status Iterate(Handler* handler) const;
 
-  // Retrive the serialized version of this batch.
+  // Retrieve the serialized version of this batch.
   std::string Data() { return rep_; }
+
+  // Returns the number of updates in the batch
+  int Count() const;
 
   // Constructor with a serialized string object
   WriteBatch(std::string rep): rep_(rep) {}
