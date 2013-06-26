@@ -329,6 +329,26 @@ TEST(StringAppendOperatorTest,PersistentVariousKeys) {
     slists.Append("b","l;");
     slists.Append("c","rogosh");
 
+    // The previous changes should be on disk (L0)
+    // The most recent changes should be in memory (MemTable)
+    // Hence, this will test both Get() paths.
+    std::string a,b,c;
+    slists.Get("a",&a);
+    slists.Get("b",&b);
+    slists.Get("c",&c);
+
+    ASSERT_EQ(a,"x\nt\nr\nsa\ngh\njk");
+    ASSERT_EQ(b,"y\n2\ndf\nl;");
+    ASSERT_EQ(c,"asdasd\nasdasd\nbbnagnagsx\nrogosh");
+  }
+
+  // Reopen the database (the previous changes should persist / be remembered)
+  {
+    StringAppendOperator append_op('\n');
+    auto db = OpenDb(&append_op);
+    StringLists slists(db);
+
+    // All changes should be on disk. This will test VersionSet Get()
     std::string a,b,c;
     slists.Get("a",&a);
     slists.Get("b",&b);

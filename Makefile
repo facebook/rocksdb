@@ -63,7 +63,8 @@ TESTS = \
 	filelock_test \
 	merge_test \
 	redis_test \
-	manual_compaction_test
+	manual_compaction_test \
+	stringappend_test
 
 TOOLS = \
         sst_dump \
