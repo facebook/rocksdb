@@ -19,8 +19,8 @@ namespace leveldb {
 using std::unique_ptr;
 
 // Update Makefile if you change these
-static const int kMajorVersion = 1;
-static const int kMinorVersion = 5;
+static const int kMajorVersion = 2;
+static const int kMinorVersion = 0;
 
 struct Options;
 struct ReadOptions;
