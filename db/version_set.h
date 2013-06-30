@@ -136,6 +136,7 @@ class Version {
  private:
   friend class Compaction;
   friend class VersionSet;
+  friend class DBImpl;
 
   class LevelFileNumIterator;
   Iterator* NewConcatenatingIterator(const ReadOptions&,

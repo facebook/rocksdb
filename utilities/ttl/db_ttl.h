@@ -54,7 +54,8 @@ class DBWithTTL : public DB, CompactionFilter {
 
   virtual void GetApproximateSizes(const Range* r, int n, uint64_t* sizes);
 
-  virtual void CompactRange(const Slice* begin, const Slice* end);
+  virtual void CompactRange(const Slice* begin, const Slice* end,
+                            bool reduce_level = false);
 
   virtual int NumberLevels();
 

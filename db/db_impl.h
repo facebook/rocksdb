@@ -57,7 +57,8 @@ class DBImpl : public DB {
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
   virtual bool GetProperty(const Slice& property, std::string* value);
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
-  virtual void CompactRange(const Slice* begin, const Slice* end);
+  virtual void CompactRange(const Slice* begin, const Slice* end,
+                            bool reduce_level = false);
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
@@ -221,6 +222,14 @@ class DBImpl : public DB {
   // dump leveldb.stats to LOG
   void MaybeDumpStats();
 
+  // Return the minimum empty level that could hold the total data in the
+  // input level. Return the input level, if such level could not be found.
+  int FindMinimumEmptyLevelFitting(int level);
+
+  // Move the files in the input level to the minimum level that could hold
+  // the data set.
+  void ReFitLevel(int level);
+
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
@@ -369,6 +378,12 @@ class DBImpl : public DB {
 
   // The options to access storage files
   const EnvOptions storage_options_;
+
+  // A value of true temporarily disables scheduling of background work
+  bool bg_work_gate_closed_;
+
+  // Guard against multiple concurrent refitting
+  bool refitting_level_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

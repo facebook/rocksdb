@@ -182,7 +182,9 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       stats_(options.num_levels),
       delayed_writes_(0),
       last_flushed_sequence_(0),
-      storage_options_(options) {
+      storage_options_(options),
+      bg_work_gate_closed_(false),
+      refitting_level_(false) {
 
   mem_->Ref();
 
@@ -900,7 +902,8 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   return s;
 }
 
-void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
+void DBImpl::CompactRange(const Slice* begin, const Slice* end,
+                          bool reduce_level) {
   int max_level_with_files = 1;
   {
     MutexLock l(&mutex_);
@@ -915,6 +918,78 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   for (int level = 0; level < max_level_with_files; level++) {
     TEST_CompactRange(level, begin, end);
   }
+
+  if (reduce_level) {
+    ReFitLevel(max_level_with_files);
+  }
+}
+
+// return the same level if it cannot be moved
+int DBImpl::FindMinimumEmptyLevelFitting(int level) {
+  mutex_.AssertHeld();
+  int minimum_level = level;
+  for (int i = level - 1; i > 0; ++i) {
+    // stop if level i is not empty
+    if (versions_->NumLevelFiles(i) > 0) break;
+
+    // stop if level i is too small (cannot fit the level files)
+    if (versions_->MaxBytesForLevel(i) < versions_->NumLevelBytes(level)) break;
+
+    minimum_level = i;
+  }
+  return minimum_level;
+}
+
+void DBImpl::ReFitLevel(int level) {
+  assert(level < NumberLevels());
+
+  MutexLock l(&mutex_);
+
+  // only allow one thread refitting
+  if (refitting_level_) {
+    Log(options_.info_log, "ReFitLevel: another thread is refitting");
+    return;
+  }
+  refitting_level_ = true;
+
+  // wait for all background threads to stop
+  bg_work_gate_closed_ = true;
+  while (bg_compaction_scheduled_ > 0) {
+    Log(options_.info_log,
+        "RefitLevel: waiting for background threads to stop: %d",
+        bg_compaction_scheduled_);
+    bg_cv_.Wait();
+  }
+
+  // move to a smaller level
+  int to_level = FindMinimumEmptyLevelFitting(level);
+
+  assert(to_level <= level);
+
+  if (to_level < level) {
+    Log(options_.info_log, "Before refitting:\n%s",
+        versions_->current()->DebugString().data());
+
+    VersionEdit edit(NumberLevels());
+    for (const auto& f : versions_->current()->files_[level]) {
+      edit.DeleteFile(level, f->number);
+      edit.AddFile(to_level, f->number, f->file_size, f->smallest, f->largest);
+    }
+    Log(options_.info_log, "Apply version edit:\n%s",
+        edit.DebugString().data());
+
+    auto status = versions_->LogAndApply(&edit, &mutex_);
+
+    Log(options_.info_log, "LogAndApply: %s\n", status.ToString().data());
+
+    if (status.ok()) {
+      Log(options_.info_log, "After refitting:\n%s",
+          versions_->current()->DebugString().data());
+    }
+  }
+
+  refitting_level_ = false;
+  bg_work_gate_closed_ = false;
 }
 
 int DBImpl::NumberLevels() {
@@ -1238,7 +1313,9 @@ Status DBImpl::TEST_WaitForCompact() {
 
 void DBImpl::MaybeScheduleCompaction() {
   mutex_.AssertHeld();
-  if (bg_compaction_scheduled_ >= options_.max_background_compactions) {
+  if (bg_work_gate_closed_) {
+    // gate closed for backgrond work
+  } else if (bg_compaction_scheduled_ >= options_.max_background_compactions) {
     // Already scheduled
   } else if (shutting_down_.Acquire_Load()) {
     // DB is being deleted; no more background compactions

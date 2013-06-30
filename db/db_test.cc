@@ -3058,7 +3058,8 @@ class ModelDB: public DB {
       sizes[i] = 0;
     }
   }
-  virtual void CompactRange(const Slice* start, const Slice* end) {
+  virtual void CompactRange(const Slice* start, const Slice* end,
+                            bool reduce_level ) {
   }
 
   virtual int NumberLevels()

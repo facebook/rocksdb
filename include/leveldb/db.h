@@ -180,7 +180,14 @@ class DB {
   // end==nullptr is treated as a key after all keys in the database.
   // Therefore the following call will compact the entire database:
   //    db->CompactRange(nullptr, nullptr);
-  virtual void CompactRange(const Slice* begin, const Slice* end) = 0;
+  // Note that after the entire database is compacted, all data are pushed
+  // down to the last level containing any data. If the total data size
+  // after compaction is reduced, that level might not be appropriate for
+  // hosting all the files. In this case, client could set reduce_level
+  // to true, to move the files back to the minimum level capable of holding
+  // the data set.
+  virtual void CompactRange(const Slice* begin, const Slice* end,
+                            bool reduce_level = false) = 0;
 
   // Number of levels used for this DB.
   virtual int NumberLevels() = 0;

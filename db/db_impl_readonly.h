@@ -47,7 +47,8 @@ public:
  virtual Status Write(const WriteOptions& options, WriteBatch* updates) {
    return Status::NotSupported("Not supported operation in read only mode.");
  }
- virtual void CompactRange(const Slice* begin, const Slice* end) {
+ virtual void CompactRange(const Slice* begin, const Slice* end,
+                           bool reduce_level = false) {
  }
  virtual Status DisableFileDeletions() {
    return Status::NotSupported("Not supported operation in read only mode.");

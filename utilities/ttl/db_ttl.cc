@@ -223,8 +223,9 @@ void DBWithTTL::GetApproximateSizes(const Range* r, int n, uint64_t* sizes) {
   db_->GetApproximateSizes(r, n, sizes);
 }
 
-void DBWithTTL::CompactRange(const Slice* begin, const Slice* end) {
-  db_->CompactRange(begin, end);
+void DBWithTTL::CompactRange(const Slice* begin, const Slice* end,
+                             bool reduce_level) {
+  db_->CompactRange(begin, end, reduce_level);
 }
 
 int DBWithTTL::NumberLevels() {
