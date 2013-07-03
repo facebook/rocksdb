@@ -384,7 +384,7 @@ void Version::Get(const ReadOptions& options,
       }
       if (tmp.empty()) continue;
 
-      if (vset_->options_->hybrid_mode) {
+      if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
         std::sort(tmp.begin(), tmp.end(), NewestFirstBySeqNo);
       } else {
         std::sort(tmp.begin(), tmp.end(), NewestFirst);
@@ -1581,7 +1581,7 @@ static bool compareSizeDescending(const VersionSet::Fsize& first,
   return (first.file->file_size > second.file->file_size);
 }
 // A static compator used to sort files based on their seqno
-// In hybrid mode: descending seqno
+// In universal style : descending seqno
 static bool compareSeqnoDescending(const VersionSet::Fsize& first,
   const VersionSet::Fsize& second) {
   if (first.file->smallest_seqno > second.file->smallest_seqno) {
@@ -1596,8 +1596,8 @@ static bool compareSeqnoDescending(const VersionSet::Fsize& first,
 void VersionSet::UpdateFilesBySize(Version* v) {
 
   // No need to sort the highest level because it is never compacted.
-  int max_level = options_->hybrid_mode? NumberLevels() :
-                  NumberLevels() - 1;
+  int max_level = (options_->compaction_style == kCompactionStyleUniversal) ?
+                  NumberLevels() : NumberLevels() - 1;
 
   for (int level = 0; level < max_level; level++) {
 
@@ -1613,7 +1613,7 @@ void VersionSet::UpdateFilesBySize(Version* v) {
     }
 
     // sort the top number_of_files_to_sort_ based on file size
-    if (options_->hybrid_mode) {
+    if (options_->compaction_style == kCompactionStyleUniversal) {
       int num = temp.size();
       std::partial_sort(temp.begin(),  temp.begin() + num,
                         temp.end(), compareSeqnoDescending);
@@ -2020,7 +2020,11 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
   assert (level == 0);
 
   // percentage flexibilty while comparing file sizes
-  uint64_t ratio = (uint64_t)options_->hybrid_size_ratio;
+  uint64_t ratio = options_->compaction_options_universal.size_ratio;
+  unsigned int min_merge_width =
+    options_->compaction_options_universal.min_merge_width;
+  unsigned int max_merge_width =
+    options_->compaction_options_universal.max_merge_width;
 
   if ((current_->files_[level].size() <=
       (unsigned int)options_->level0_file_num_compaction_trigger)) {
@@ -2043,7 +2047,7 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
   bool done = false;
   assert(file_by_time.size() == current_->files_[level].size());
 
-  unsigned int max_files_to_compact = UINT_MAX;
+  unsigned int max_files_to_compact = std::min(max_merge_width, UINT_MAX);
 
   // Make two pass. The first pass considers a candidate file
   // only if it is smaller than the total size accumulated so far.
@@ -2098,8 +2102,7 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
       }
 
       // Found a series of consecutive files that need compaction.
-      if (candidate_count >= (unsigned int)
-          options_->hybrid_min_numfiles_in_single_compaction) {
+      if (candidate_count >= (unsigned int)min_merge_width) {
         for (unsigned int i = loop; i < loop + candidate_count; i++) {
           int index = file_by_time[i];
           FileMetaData* f = current_->files_[level][index];
@@ -2141,8 +2144,8 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
           options_->level0_file_num_compaction_trigger + 1) {
         done = true;     // nothing more to do
       } else {
-        max_files_to_compact = expected_num_files -
-                               options_->level0_file_num_compaction_trigger;
+        max_files_to_compact = std::min((int)max_merge_width,
+          expected_num_files - options_->level0_file_num_compaction_trigger);
         Log(options_->info_log, "Hybrid: second loop with maxfiles %d",
             max_files_to_compact);
       }
@@ -2264,8 +2267,8 @@ Compaction* VersionSet::PickCompaction() {
   current_->vset_->SizeBeingCompacted(size_being_compacted);
   Finalize(current_, size_being_compacted);
 
-  // In hybrid mode compact L0 files back into L0.
-  if (options_->hybrid_mode) {
+  // In universal style of compaction, compact L0 files back into L0.
+  if (options_->compaction_style ==  kCompactionStyleUniversal) {
     int level = 0;
     c = PickCompactionHybrid(level, current_->compaction_score_[level]);
     return c;
@@ -2473,7 +2476,8 @@ Compaction* VersionSet::CompactRange(
       }
     }
   }
-  int out_level = options_->hybrid_mode ? level : level+1;
+  int out_level = (options_->compaction_style == kCompactionStyleUniversal) ?
+                  level : level+1;
 
   Compaction* c = new Compaction(level, out_level, MaxFileSizeForLevel(level),
     MaxGrandParentOverlapBytes(level), NumberLevels());

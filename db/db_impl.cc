@@ -836,7 +836,7 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
     // threads could be concurrently producing compacted files for
     // that key range.
     if (base != nullptr && options_.max_background_compactions <= 1 &&
-        !options_.hybrid_mode) {
+        options_.compaction_style == kCompactionStyleLevel) {
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
     edit->AddFile(level, meta.number, meta.file_size,
@@ -1578,7 +1578,8 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
     compact->compaction->edit()->AddFile(
-        options_.hybrid_mode? level : level + 1,
+        (options_.compaction_style == kCompactionStyleUniversal) ?
+          level : level + 1,
         out.number, out.file_size, out.smallest, out.largest,
         out.smallest_seqno, out.largest_seqno);
   }
@@ -1828,9 +1829,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       // If this is the bottommost level (no files in lower levels)
       // and the earliest snapshot is larger than this seqno
       // then we can squash the seqno to zero.
-      // Hybrid mode depends on the sequence number to determine
+      // Universal mode depends on the sequence number to determine
       // time-order of files that is needed for compactions.
-      if (!options_.hybrid_mode &&
+      if (options_.compaction_style == kCompactionStyleLevel &&
           bottommost_level && ikey.sequence < earliest_snapshot &&
          ikey.type != kTypeMerge) {
         assert(ikey.type != kTypeDeletion);

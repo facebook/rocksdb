@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "leveldb/slice.h"
 #include "leveldb/statistics.h"
+#include "leveldb/universal_compaction.h"
 
 namespace leveldb {
 
@@ -37,6 +38,11 @@ enum CompressionType {
   kSnappyCompression = 0x1,
   kZlibCompression = 0x2,
   kBZip2Compression = 0x3
+};
+
+enum CompactionStyle {
+  kCompactionStyleLevel       = 0x0, // level based compaction style
+  kCompactionStyleUniversal   = 0x1  // Universal compaction style
 };
 
 // Compression options for different compression algorithms like Zlib
@@ -132,7 +138,7 @@ struct Options {
   int max_write_buffer_number;
 
   // The minimum number of write buffers that will be merged together
-  // before writing to storage.  If set to 1, then 
+  // before writing to storage.  If set to 1, then
   // all write buffers are fushed to L0 as individual files and this increases
   // read amplification because a get request has to check in all of these
   // files. Also, an in-memory merge may result in writing lesser
@@ -476,17 +482,12 @@ struct Options {
   // Default: 0
   uint64_t bytes_per_sync;
 
-  // Hybrid Mode. There is only a single level and files in L0 are
+  // The compaction style
   // compacted back into L0. Default: false
-  bool hybrid_mode;
+  CompactionStyle compaction_style;
 
-  // Percentage flexibilty while comparing file size. If the candidate file(s)
-  // size is 1% smaller than the next file's size, then include next file into
-  // this candidate set. // Default: 1
-  int hybrid_size_ratio;
-
-  // The minimum number of files in a single compaction run. Default: 2
-  int hybrid_min_numfiles_in_single_compaction;
+  // The options needed to support Universal Style compactions
+  CompactionOptionsUniversal compaction_options_universal;
 };
 
 // Options that control read operations

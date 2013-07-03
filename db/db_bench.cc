@@ -9,6 +9,7 @@
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "db/db_statistics.h"
+#include "leveldb/options.h"
 #include "leveldb/cache.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
@@ -125,7 +126,7 @@ static int FLAGS_max_write_buffer_number = 0;
 // The minimum number of write buffers that will be merged together
 // before writing to storage. This is cheap because it is an
 // in-memory merge. If this feature is not enabled, then all these
-// write buffers are fushed to L0 as seperate files and this increases
+// write buffers are fushed to L0 as separate files and this increases
 // read amplification because a get request has to check in all of these
 // files. Also, an in-memory merge may result in writing lesser
 // data to storage if there are duplicate records in each of these
@@ -137,14 +138,14 @@ static int FLAGS_min_write_buffer_number_to_merge = 0;
 // This is initialized to default value of 1 in "main" function.
 static int FLAGS_max_background_compactions = 0;
 
-// Run database in hybrid mode where all data resides in L0.
-static bool FLAGS_hybrid_mode = false;
+// style of compaction: level-based vs universal
+static leveldb::CompactionStyle FLAGS_compaction_style = leveldb::kCompactionStyleLevel;
 
 // Percentage flexibilty while comparing file size.
-static int FLAGS_hybrid_size_ratio = 1;
+static int FLAGS_universal_size_ratio = 1;
 
 // The minimum number of files in a single compaction run.
-static int FLAGS_hybrid_min_numfiles_in_single_compaction = 2;
+static int FLAGS_compaction_universal_min_merge_width = 2;
 
 // Number of bytes to use as a cache of uncompressed data.
 // Negative means use default settings.
@@ -1113,10 +1114,10 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
     options.max_background_compactions = FLAGS_max_background_compactions;
-    options.hybrid_mode = FLAGS_hybrid_mode;
-    options.hybrid_size_ratio = FLAGS_hybrid_size_ratio;
-    options.hybrid_min_numfiles_in_single_compaction = 
-      FLAGS_hybrid_min_numfiles_in_single_compaction;
+    options.compaction_style = FLAGS_compaction_style;
+    options.compaction_options_universal.size_ratio = FLAGS_universal_size_ratio;
+    options.compaction_options_universal.min_merge_width =
+      FLAGS_compaction_universal_min_merge_width;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.max_open_files = FLAGS_open_files;
@@ -1999,12 +2000,11 @@ int main(int argc, char** argv) {
   FLAGS_open_files = leveldb::Options().max_open_files;
   FLAGS_max_background_compactions =
     leveldb::Options().max_background_compactions;
-  FLAGS_hybrid_mode =
-    leveldb::Options().hybrid_mode;
-  FLAGS_hybrid_size_ratio =
-    leveldb::Options().hybrid_size_ratio;
-  FLAGS_hybrid_min_numfiles_in_single_compaction =
-    leveldb::Options().hybrid_min_numfiles_in_single_compaction;
+  FLAGS_compaction_style = leveldb::Options().compaction_style;
+  FLAGS_universal_size_ratio =
+    leveldb::Options().compaction_options_universal.size_ratio;
+  FLAGS_compaction_universal_min_merge_width =
+    leveldb::Options().compaction_options_universal.min_merge_width;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
   FLAGS_use_os_buffer = leveldb::EnvOptions().use_os_buffer;
@@ -2063,13 +2063,13 @@ int main(int argc, char** argv) {
       FLAGS_min_write_buffer_number_to_merge = n;
     } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
       FLAGS_max_background_compactions = n;
-    } else if (sscanf(argv[i], "--hybrid_mode=%d%c", &n, &junk) == 1) {
-      FLAGS_hybrid_mode = n;
-    } else if (sscanf(argv[i], "--hybrid_size_ratio=%d%c", &n, &junk) == 1) {
-      FLAGS_hybrid_size_ratio = n;
-    } else if (sscanf(argv[i], "--hybrid_min_numfiles_in_single_compaction=%d%c",
+    } else if (sscanf(argv[i], "--compaction_style=%d%c", &n, &junk) == 1) {
+      FLAGS_compaction_style = (leveldb::CompactionStyle)n;
+    } else if (sscanf(argv[i], "--universal_size_ratio=%d%c", &n, &junk) == 1) {
+      FLAGS_universal_size_ratio = n;
+    } else if (sscanf(argv[i], "--universal_min_merge_width=%d%c",
                &n, &junk) == 1) {
-      FLAGS_hybrid_min_numfiles_in_single_compaction = n;
+      FLAGS_compaction_universal_min_merge_width = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
       FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
