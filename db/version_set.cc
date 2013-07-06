@@ -244,6 +244,16 @@ struct Saver {
   bool didIO;    // did we do any disk io?
 };
 }
+
+// Called from TableCache::Get when bloom-filters can't guarantee that key does
+// not exist and Get is not permitted to do IO to read the data-block and be
+// certain.
+// Set the key as Found and let the caller know that key-may-exist
+static void MarkKeyMayExist(void* arg) {
+  Saver* s = reinterpret_cast<Saver*>(arg);
+  s->state = kFound;
+}
+
 static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
   Saver* s = reinterpret_cast<Saver*>(arg);
   ParsedInternalKey parsed_key;
@@ -328,7 +338,8 @@ void Version::Get(const ReadOptions& options,
                   std::string* value,
                   Status *status,
                   GetStats* stats,
-                  const Options& db_options) {
+                  const Options& db_options,
+                  const bool no_IO) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -337,6 +348,9 @@ void Version::Get(const ReadOptions& options,
   auto logger = db_options.info_log;
 
   assert(status->ok() || status->IsMergeInProgress());
+  if (no_IO) {
+    assert(status->ok());
+  }
   Saver saver;
   saver.state = status->ok()? kNotFound : kMerge;
   saver.ucmp = ucmp;
@@ -404,7 +418,8 @@ void Version::Get(const ReadOptions& options,
       FileMetaData* f = files[i];
       bool tableIO = false;
       *status = vset_->table_cache_->Get(options, f->number, f->file_size,
-                                         ikey, &saver, SaveValue, &tableIO);
+                                         ikey, &saver, SaveValue, &tableIO,
+                                         MarkKeyMayExist, no_IO);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;

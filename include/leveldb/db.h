@@ -120,6 +120,11 @@ class DB {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
 
+  // If the key definitely does not exist in the database, then this method
+  // returns false. Otherwise return true. This check is potentially
+  // lighter-weight than invoking DB::Get(). No IO is performed
+  virtual bool KeyMayExist(const Slice& key) = 0;
+
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).

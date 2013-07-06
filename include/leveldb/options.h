@@ -465,6 +465,15 @@ struct Options {
   // Default: 0
   uint64_t bytes_per_sync;
 
+  // Use bloom-filter for deletes when this is true.
+  // db->Delete first calls KeyMayExist which checks memtable,immutable-memtable
+  // and bloom-filters to determine if the key does not exist in the database.
+  // If the key definitely does not exist, then the delete is a noop.KeyMayExist
+  // only incurs in-memory look up. This optimization avoids writing the delete
+  // to storage when appropriate.
+  // Default: false
+  bool deletes_check_filter_first;
+
 };
 
 // Options that control read operations

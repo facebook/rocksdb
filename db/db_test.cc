@@ -218,6 +218,7 @@ class DBTest {
     kManifestFileSize,
     kCompactOnFlush,
     kPerfOptions,
+    kDeletesFilterFirst,
     kEnd
   };
   int option_config_;
@@ -288,6 +289,9 @@ class DBTest {
         options.rate_limit = 2.0;
         options.rate_limit_delay_milliseconds = 2;
         // TODO -- test more options
+        break;
+      case kDeletesFilterFirst:
+        options.deletes_check_filter_first = true;
         break;
       default:
         break;
@@ -765,6 +769,37 @@ TEST(DBTest, GetEncountersEmptyLevel) {
     env_->SleepForMicroseconds(1000000);
 
     ASSERT_EQ(NumTableFilesAtLevel(0), 1); // XXX
+  } while (ChangeOptions());
+}
+
+// KeyMayExist-API returns false if memtable(s) and in-memory bloom-filters can
+// guarantee that the key doesn't exist in the db, else true. This can lead to
+// a few false positives, but not false negatives. To make test deterministic,
+// use a much larger number of bits per key-20 than bits in the key, so
+// that false positives are eliminated
+TEST(DBTest, KeyMayExist) {
+  do {
+    Options options = CurrentOptions();
+    options.filter_policy = NewBloomFilterPolicy(20);
+    Reopen(&options);
+
+    ASSERT_TRUE(!db_->KeyMayExist("a"));
+
+    ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+    ASSERT_TRUE(db_->KeyMayExist("a"));
+
+    dbfull()->Flush(FlushOptions());
+    ASSERT_TRUE(db_->KeyMayExist("a"));
+
+    ASSERT_OK(db_->Delete(WriteOptions(), "a"));
+    ASSERT_TRUE(!db_->KeyMayExist("a"));
+
+    dbfull()->Flush(FlushOptions());
+    dbfull()->CompactRange(nullptr, nullptr);
+    ASSERT_TRUE(!db_->KeyMayExist("a"));
+
+    ASSERT_OK(db_->Delete(WriteOptions(), "c"));
+    ASSERT_TRUE(!db_->KeyMayExist("c"));
   } while (ChangeOptions());
 }
 
@@ -1403,7 +1438,7 @@ class DeleteFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  ChangeFilter(int argv) : argv_(argv) {}
+  explicit ChangeFilter(int argv) : argv_(argv) {}
 
   virtual bool Filter(int level, const Slice& key,
                       const Slice& value, std::string* new_value,
@@ -2969,6 +3004,9 @@ class ModelDB: public DB {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
     return s;
+  }
+  virtual bool KeyMayExist(const Slice& key) {
+    return true; // Not Supported directly
   }
   virtual Iterator* NewIterator(const ReadOptions& options) {
     if (options.snapshot == nullptr) {

@@ -58,7 +58,9 @@ enum Tickers {
   NUMBER_MULTIGET_KEYS_READ = 19,
   NUMBER_MULTIGET_BYTES_READ = 20,
 
-  TICKER_ENUM_MAX = 21
+  NUMBER_FILTERED_DELETES = 21,
+
+  TICKER_ENUM_MAX = 22
 };
 
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
@@ -82,7 +84,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { NO_ITERATORS, "rocksdb.num.iterators" },
   { NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get" },
   { NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read" },
-  { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" }
+  { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" },
+  { NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered" }
 };
 
 /**

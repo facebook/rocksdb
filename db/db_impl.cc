@@ -1998,6 +1998,16 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 Status DBImpl::Get(const ReadOptions& options,
                    const Slice& key,
                    std::string* value) {
+  return GetImpl(options, key, value);
+}
+
+// If no_IO is true, then returns Status::NotFound if key is not in memtable,
+// immutable-memtable and bloom-filters can guarantee that key is not in db,
+// "value" is garbage string if no_IO is true
+Status DBImpl::GetImpl(const ReadOptions& options,
+                       const Slice& key,
+                       std::string* value,
+                       const bool no_IO) {
   Status s;
 
   StopWatch sw(env_, options_.statistics, DB_GET);
@@ -2026,12 +2036,12 @@ Status DBImpl::Get(const ReadOptions& options,
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // value will contain the current merge operand in the latter case.
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, options_)) {
+  if (mem->Get(lkey, value, &s, options_, no_IO)) {
     // Done
-  } else if (imm.Get(lkey, value, &s, options_)) {
+  } else if (imm.Get(lkey, value, &s, options_, no_IO)) {
     // Done
   } else {
-    current->Get(options, lkey, value, &s, &stats, options_);
+    current->Get(options, lkey, value, &s, &stats, options_, no_IO);
     have_stat_update = true;
   }
   mutex_.Lock();
@@ -2121,6 +2131,12 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   return statList;
 }
 
+bool DBImpl::KeyMayExist(const Slice& key) {
+  std::string value;
+  const Status s = GetImpl(ReadOptions(), key, &value, true);
+  return !s.IsNotFound();
+}
+
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
@@ -2156,6 +2172,10 @@ Status DBImpl::Merge(const WriteOptions& o, const Slice& key,
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
+  if (options_.deletes_check_filter_first && !KeyMayExist(key)) {
+    RecordTick(options_.statistics, NUMBER_FILTERED_DELETES);
+    return Status::OK();
+  }
   return DB::Delete(options, key);
 }
 

@@ -112,14 +112,16 @@ Status TableCache::Get(const ReadOptions& options,
                        const Slice& k,
                        void* arg,
                        bool (*saver)(void*, const Slice&, const Slice&, bool),
-                       bool* tableIO) {
+                       bool* tableIO,
+                       void (*mark_key_may_exist)(void*),
+                       const bool no_IO) {
   Cache::Handle* handle = nullptr;
   Status s = FindTable(storage_options_, file_number, file_size,
                        &handle, tableIO);
   if (s.ok()) {
     Table* t =
       reinterpret_cast<Table*>(cache_->Value(handle));
-    s = t->InternalGet(options, k, arg, saver);
+    s = t->InternalGet(options, k, arg, saver, mark_key_may_exist, no_IO);
     cache_->Release(handle);
   }
   return s;
