@@ -132,7 +132,7 @@ struct Options {
   int max_write_buffer_number;
 
   // The minimum number of write buffers that will be merged together
-  // before writing to storage.  If set to 1, then 
+  // before writing to storage.  If set to 1, then
   // all write buffers are fushed to L0 as individual files and this increases
   // read amplification because a get request has to check in all of these
   // files. Also, an in-memory merge may result in writing lesser
@@ -415,17 +415,6 @@ struct Options {
   // Data being read from file storage may be buffered in the OS
   // Default: true
   bool allow_os_buffer;
-
-  // Reading a single block from a file can cause the OS/FS to start
-  // readaheads of other blocks from the file. Default: true
-  // Note: Deprecated
-  bool allow_readahead;
-
-  // The reads triggered by compaction allows data to be readahead
-  // by the OS/FS. This overrides the setting of 'allow_readahead'
-  // for compaction-reads. Default: true
-  // Note: Deprecated
-  bool allow_readahead_compactions;
 
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;

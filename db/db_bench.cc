@@ -292,17 +292,11 @@ static uint64_t FLAGS_WAL_ttl_seconds = 0;
 // Allow buffered io using OS buffers
 static bool FLAGS_use_os_buffer;
 
-// Allow filesystem to do read-aheads
-static bool FLAGS_use_fsreadahead;
-
 // Allow reads to occur via mmap-ing files
 static bool FLAGS_use_mmap_reads;
 
 // Allow writes to occur via mmap-ing files
 static bool FLAGS_use_mmap_writes;
-
-// Allow readaheads to occur for compactions
-static bool FLAGS_use_readahead_compactions;
 
 // Advise random access on table file open
 static bool FLAGS_advise_random_on_open =
@@ -1158,7 +1152,6 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
 
     // fill storage options
     options.allow_os_buffer = FLAGS_use_os_buffer;
-    options.allow_readahead = FLAGS_use_fsreadahead;
     options.allow_mmap_reads = FLAGS_use_mmap_reads;
     options.allow_mmap_writes = FLAGS_use_mmap_writes;
     options.advise_random_on_open = FLAGS_advise_random_on_open;
@@ -2080,12 +2073,6 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--mmap_write=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_use_mmap_writes = n;
-    } else if (sscanf(argv[i], "--readahead=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_use_fsreadahead = n;
-    } else if (sscanf(argv[i], "--readahead_compactions=%d%c", &n, &junk) == 1&&
-               (n == 0 || n == 1)) {
-      FLAGS_use_readahead_compactions = n;
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
