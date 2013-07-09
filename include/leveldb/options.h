@@ -482,8 +482,7 @@ struct Options {
   // Default: 0
   uint64_t bytes_per_sync;
 
-  // The compaction style
-  // compacted back into L0. Default: false
+  // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style;
 
   // The options needed to support Universal Style compactions

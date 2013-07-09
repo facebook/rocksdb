@@ -366,8 +366,8 @@ class VersionSet {
   // function will return nullptr.
   Compaction* PickCompactionBySize(int level, double score);
 
-  // Pick files to compact in hybrid mode
-  Compaction* PickCompactionHybrid(int level, double score);
+  // Pick files to compact in Universal mode
+  Compaction* PickCompactionUniversal(int level, double score);
 
   // Free up the files that were participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);

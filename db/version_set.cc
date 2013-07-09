@@ -2016,7 +2016,7 @@ void VersionSet::SizeBeingCompacted(std::vector<uint64_t>& sizes) {
   }
 }
 
-Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
+Compaction* VersionSet::PickCompactionUniversal(int level, double score) {
   assert (level == 0);
 
   // percentage flexibilty while comparing file sizes
@@ -2028,11 +2028,11 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
 
   if ((current_->files_[level].size() <=
       (unsigned int)options_->level0_file_num_compaction_trigger)) {
-    Log(options_->info_log, "Hybrid: nothing to do\n");
+    Log(options_->info_log, "Universal: nothing to do\n");
     return nullptr;
   }
   VersionSet::FileSummaryStorage tmp;
-  Log(options_->info_log, "Hybrid: candidate files(%lu): %s\n",
+  Log(options_->info_log, "Universal: candidate files(%lu): %s\n",
       current_->files_[level].size(),
       LevelFileSummary(&tmp, 0));
 
@@ -2065,7 +2065,7 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
         if (!f->being_compacted) {
           break;
         }
-        Log(options_->info_log, "Hybrid: file %ld[%d] being compacted, skipping",
+        Log(options_->info_log, "Universal: file %ld[%d] being compacted, skipping",
             f->number, loop);
         f = nullptr;
       }
@@ -2075,7 +2075,7 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
       unsigned int candidate_count = 1;
       uint64_t candidate_size =  f != nullptr? f->file_size : 0;
       if (f != nullptr) {
-        Log(options_->info_log, "Hybrid: Possible candidate file %ld[%d] %s.",
+        Log(options_->info_log, "Universal: Possible candidate file %ld[%d] %s.",
             f->number, loop, iter == 0? "" : "forced ");
       }
 
@@ -2107,7 +2107,7 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
           int index = file_by_time[i];
           FileMetaData* f = current_->files_[level][index];
           c->inputs_[0].push_back(f);
-          Log(options_->info_log, "Hybrid: Picking file %ld[%d] with size %ld %s",
+          Log(options_->info_log, "Universal: Picking file %ld[%d] with size %ld %s",
               f->number, i, f->file_size,
               (iter == 0 ? "" : "forced"));
         }
@@ -2118,7 +2118,7 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
              i < loop + candidate_count && i < file_by_time.size(); i++) {
          int index = file_by_time[i];
          FileMetaData* f = current_->files_[level][index];
-         Log(options_->info_log, "Hybrid: Skipping file %ld[%d] with size %ld %d %s",
+         Log(options_->info_log, "Universal: Skipping file %ld[%d] with size %ld %d %s",
              f->number, i, f->file_size, f->being_compacted,
               (iter == 0 ? "" : "forced"));
         }
@@ -2146,13 +2146,13 @@ Compaction* VersionSet::PickCompactionHybrid(int level, double score) {
       } else {
         max_files_to_compact = std::min((int)max_merge_width,
           expected_num_files - options_->level0_file_num_compaction_trigger);
-        Log(options_->info_log, "Hybrid: second loop with maxfiles %d",
+        Log(options_->info_log, "Universal: second loop with maxfiles %d",
             max_files_to_compact);
       }
     }
   }
   if (c->inputs_[0].size() <= 1) {
-    Log(options_->info_log, "Hybrid: only %ld files, nothing to do.\n",
+    Log(options_->info_log, "Universal: only %ld files, nothing to do.\n",
         c->inputs_[0].size());
     delete c;
     return nullptr;
@@ -2270,7 +2270,7 @@ Compaction* VersionSet::PickCompaction() {
   // In universal style of compaction, compact L0 files back into L0.
   if (options_->compaction_style ==  kCompactionStyleUniversal) {
     int level = 0;
-    c = PickCompactionHybrid(level, current_->compaction_score_[level]);
+    c = PickCompactionUniversal(level, current_->compaction_score_[level]);
     return c;
   }
 
