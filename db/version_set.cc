@@ -2169,8 +2169,10 @@ Compaction* VersionSet::PickCompactionUniversal(int level, double score) {
   }
 
   // update statistics
-  options_->statistics->measureTime(NUM_FILES_IN_SINGLE_COMPACTION,
-                                     c->inputs_[0].size());
+  if (options_->statistics != nullptr) {
+    options_->statistics->measureTime(NUM_FILES_IN_SINGLE_COMPACTION,
+                                      c->inputs_[0].size());
+  }
 
   c->input_version_ = current_;
   c->input_version_->Ref();
