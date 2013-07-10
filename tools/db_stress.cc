@@ -994,10 +994,7 @@ class StressTest {
 
   void PrintStatistics() {
     if (dbstats) {
-      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n",
-              dbstats->getTickerCount(NO_FILE_OPENS),
-              dbstats->getTickerCount(NO_FILE_CLOSES),
-              dbstats->getTickerCount(NO_FILE_ERRORS));
+      fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
   }
 
