@@ -1974,7 +1974,7 @@ Compaction* VersionSet::PickCompactionBySize(int level, double score) {
 
   assert(level >= 0);
   assert(level+1 < NumberLevels());
-  c = new Compaction(level, MaxFileSizeForLevel(level),
+  c = new Compaction(level, MaxFileSizeForLevel(level+1),
       MaxGrandParentOverlapBytes(level), NumberLevels());
   c->score_ = score;
 
@@ -2072,7 +2072,7 @@ Compaction* VersionSet::PickCompaction() {
     if (level != 0 || compactions_in_progress_[0].empty()) {
       if(!ParentRangeInCompaction(&f->smallest, &f->largest, level,
                                   &parent_index)) {
-        c = new Compaction(level, MaxFileSizeForLevel(level),
+        c = new Compaction(level, MaxFileSizeForLevel(level+1),
                 MaxGrandParentOverlapBytes(level), NumberLevels(), true);
         c->inputs_[0].push_back(f);
         c->parent_index_ = parent_index;
@@ -2247,7 +2247,7 @@ Compaction* VersionSet::CompactRange(
     }
   }
 
-  Compaction* c = new Compaction(level, MaxFileSizeForLevel(level),
+  Compaction* c = new Compaction(level, MaxFileSizeForLevel(level+1),
     MaxGrandParentOverlapBytes(level), NumberLevels());
   c->input_version_ = current_;
   c->input_version_->Ref();
