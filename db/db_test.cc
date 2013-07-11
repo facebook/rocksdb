@@ -800,6 +800,8 @@ TEST(DBTest, KeyMayExist) {
 
     ASSERT_OK(db_->Delete(WriteOptions(), "c"));
     ASSERT_TRUE(!db_->KeyMayExist("c"));
+
+    delete options.filter_policy;
   } while (ChangeOptions());
 }
 
