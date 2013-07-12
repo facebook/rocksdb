@@ -16,8 +16,9 @@
 
 #include "leveldb/write_batch.h"
 
-#include "leveldb/db.h"
+#include "leveldb/statistics.h"
 #include "db/dbformat.h"
+#include "db/db_impl.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
@@ -139,6 +140,23 @@ class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
   MemTable* mem_;
+  const Options* options_;
+  DBImpl* db_;
+  const bool filter_deletes_;
+
+  MemTableInserter(SequenceNumber sequence, MemTable* mem, const Options* opts,
+                   DB* db, const bool filter_deletes)
+    : sequence_(sequence),
+      mem_(mem),
+      options_(opts),
+      db_(reinterpret_cast<DBImpl*>(db)),
+      filter_deletes_(filter_deletes) {
+    assert(mem_);
+    if (filter_deletes_) {
+      assert(options_);
+      assert(db_);
+    }
+  }
 
   virtual void Put(const Slice& key, const Slice& value) {
     mem_->Add(sequence_, kTypeValue, key, value);
@@ -149,17 +167,21 @@ class MemTableInserter : public WriteBatch::Handler {
     sequence_++;
   }
   virtual void Delete(const Slice& key) {
+    if (filter_deletes_ && !db_->KeyMayExistImpl(key, sequence_)) {
+      RecordTick(options_->statistics, NUMBER_FILTERED_DELETES);
+      return;
+    }
     mem_->Add(sequence_, kTypeDeletion, key, Slice());
     sequence_++;
   }
 };
 }  // namespace
 
-Status WriteBatchInternal::InsertInto(const WriteBatch* b,
-                                      MemTable* memtable) {
-  MemTableInserter inserter;
-  inserter.sequence_ = WriteBatchInternal::Sequence(b);
-  inserter.mem_ = memtable;
+Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* mem,
+                                      const Options* opts, DB* db,
+                                      const bool filter_deletes) {
+  MemTableInserter inserter(WriteBatchInternal::Sequence(b), mem, opts, db,
+                            filter_deletes);
   return b->Iterate(&inserter);
 }
 

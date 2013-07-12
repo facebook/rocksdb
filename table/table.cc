@@ -324,7 +324,7 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
                           bool (*saver)(void*, const Slice&, const Slice&,
                                         bool),
                           void (*mark_key_may_exist)(void*),
-                          const bool no_IO) {
+                          const bool no_io) {
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   bool done = false;
@@ -340,9 +340,9 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
       // cross one data block, we should be fine.
       RecordTick(rep_->options.statistics, BLOOM_FILTER_USEFUL);
       break;
-    } else if (no_IO) {
+    } else if (no_io) {
         // Update Saver.state to Found because we are only looking for whether
-        // bloom-filter can guarantee the key is not there when "no_IO"
+        // bloom-filter can guarantee the key is not there when "no_io"
         (*mark_key_may_exist)(arg);
         done = true;
     } else {

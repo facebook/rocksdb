@@ -339,7 +339,7 @@ void Version::Get(const ReadOptions& options,
                   Status *status,
                   GetStats* stats,
                   const Options& db_options,
-                  const bool no_IO) {
+                  const bool no_io) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -348,7 +348,7 @@ void Version::Get(const ReadOptions& options,
   auto logger = db_options.info_log;
 
   assert(status->ok() || status->IsMergeInProgress());
-  if (no_IO) {
+  if (no_io) {
     assert(status->ok());
   }
   Saver saver;
@@ -419,7 +419,7 @@ void Version::Get(const ReadOptions& options,
       bool tableIO = false;
       *status = vset_->table_cache_->Get(options, f->number, f->file_size,
                                          ikey, &saver, SaveValue, &tableIO,
-                                         MarkKeyMayExist, no_IO);
+                                         MarkKeyMayExist, no_io);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;

@@ -7,6 +7,8 @@
 
 #include "leveldb/types.h"
 #include "leveldb/write_batch.h"
+#include "leveldb/db.h"
+#include "leveldb/options.h"
 
 namespace leveldb {
 
@@ -39,7 +41,12 @@ class WriteBatchInternal {
 
   static void SetContents(WriteBatch* batch, const Slice& contents);
 
-  static Status InsertInto(const WriteBatch* batch, MemTable* memtable);
+  // Inserts batch entries into memtable
+  // Drops deletes in batch if filter_del is set to true and
+  // db->KeyMayExist returns false
+  static Status InsertInto(const WriteBatch* batch, MemTable* memtable,
+                           const Options* opts = nullptr, DB* db = nullptr,
+                           const bool filter_del = false);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);
 };

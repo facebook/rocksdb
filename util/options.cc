@@ -75,7 +75,7 @@ Options::Options()
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
-      deletes_check_filter_first(false) {
+      filter_deletes(false) {
 }
 
 static const char* const access_hints[] = {
@@ -209,8 +209,8 @@ Options::Dump(Logger* log) const
         use_adaptive_mutex);
     Log(log,"                          Options.bytes_per_sync: %ld",
         bytes_per_sync);
-    Log(log,"              Options.deletes_check_filter_first: %d",
-        deletes_check_filter_first);
+    Log(log,"                          Options.filter_deletes: %d",
+        filter_deletes);
 }   // Options::Dump
 
 //

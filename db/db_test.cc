@@ -291,7 +291,7 @@ class DBTest {
         // TODO -- test more options
         break;
       case kDeletesFilterFirst:
-        options.deletes_check_filter_first = true;
+        options.filter_deletes = true;
         break;
       default:
         break;
@@ -803,6 +803,44 @@ TEST(DBTest, KeyMayExist) {
 
     delete options.filter_policy;
   } while (ChangeOptions());
+}
+
+// A delete is skipped for key if KeyMayExist(key) returns False
+// Tests Writebatch consistency and proper delete behaviour
+TEST(DBTest, FilterDeletes) {
+  Options options = CurrentOptions();
+  options.filter_policy = NewBloomFilterPolicy(20);
+  options.filter_deletes = true;
+  Reopen(&options);
+  WriteBatch batch;
+
+  batch.Delete("a");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(AllEntriesFor("a"), "[ ]"); // Delete skipped
+  batch.Clear();
+
+  batch.Put("a", "b");
+  batch.Delete("a");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(AllEntriesFor("a"), "[ DEL, b ]"); // Delete issued
+  batch.Clear();
+
+  batch.Delete("c");
+  batch.Put("c", "d");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(Get("c"), "d");
+  ASSERT_EQ(AllEntriesFor("c"), "[ d ]"); // Delete skipped
+  batch.Clear();
+
+  dbfull()->Flush(FlushOptions()); // A stray Flush
+
+  batch.Delete("c");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(AllEntriesFor("c"), "[ DEL, d ]"); // Delete issued
+  batch.Clear();
+
+  delete options.filter_policy;
 }
 
 TEST(DBTest, IterEmpty) {
@@ -3192,6 +3230,9 @@ static bool CompareIterators(int step,
 TEST(DBTest, Randomized) {
   Random rnd(test::RandomSeed());
   do {
+    if (CurrentOptions().filter_deletes) {
+      ChangeOptions(); // DBTest.Randomized not suited for filter_deletes
+    }
     ModelDB model(CurrentOptions());
     const int N = 10000;
     const Snapshot* model_snap = nullptr;

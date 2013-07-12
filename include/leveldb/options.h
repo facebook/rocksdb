@@ -472,7 +472,7 @@ struct Options {
   // only incurs in-memory look up. This optimization avoids writing the delete
   // to storage when appropriate.
   // Default: false
-  bool deletes_check_filter_first;
+  bool filter_deletes;
 
 };
 

@@ -691,7 +691,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
       mem = new MemTable(internal_comparator_, NumberLevels());
       mem->Ref();
     }
-    status = WriteBatchInternal::InsertInto(&batch, mem);
+    status = WriteBatchInternal::InsertInto(&batch, mem, &options_);
     MaybeIgnoreError(&status);
     if (!status.ok()) {
       break;
@@ -2078,13 +2078,13 @@ Status DBImpl::Get(const ReadOptions& options,
   return GetImpl(options, key, value);
 }
 
-// If no_IO is true, then returns Status::NotFound if key is not in memtable,
+// If no_io is true, then returns Status::NotFound if key is not in memtable,
 // immutable-memtable and bloom-filters can guarantee that key is not in db,
-// "value" is garbage string if no_IO is true
+// "value" is garbage string if no_io is true
 Status DBImpl::GetImpl(const ReadOptions& options,
                        const Slice& key,
                        std::string* value,
-                       const bool no_IO) {
+                       const bool no_io) {
   Status s;
 
   StopWatch sw(env_, options_.statistics, DB_GET);
@@ -2113,12 +2113,12 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // value will contain the current merge operand in the latter case.
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, options_, no_IO)) {
+  if (mem->Get(lkey, value, &s, options_, no_io)) {
     // Done
-  } else if (imm.Get(lkey, value, &s, options_, no_IO)) {
+  } else if (imm.Get(lkey, value, &s, options_, no_io)) {
     // Done
   } else {
-    current->Get(options, lkey, value, &s, &stats, options_, no_IO);
+    current->Get(options, lkey, value, &s, &stats, options_, no_io);
     have_stat_update = true;
   }
   mutex_.Lock();
@@ -2209,8 +2209,17 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
 }
 
 bool DBImpl::KeyMayExist(const Slice& key) {
+  return KeyMayExistImpl(key, versions_->LastSequence());
+}
+
+bool DBImpl::KeyMayExistImpl(const Slice& key,
+                             const SequenceNumber read_from_seq) {
   std::string value;
-  const Status s = GetImpl(ReadOptions(), key, &value, true);
+  SnapshotImpl read_from_snapshot;
+  read_from_snapshot.number_ = read_from_seq;
+  ReadOptions ropts;
+  ropts.snapshot = &read_from_snapshot;
+  const Status s = GetImpl(ropts, key, &value, true);
   return !s.IsNotFound();
 }
 
@@ -2249,10 +2258,6 @@ Status DBImpl::Merge(const WriteOptions& o, const Slice& key,
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
-  if (options_.deletes_check_filter_first && !KeyMayExist(key)) {
-    RecordTick(options_.statistics, NUMBER_FILTERED_DELETES);
-    return Status::OK();
-  }
   return DB::Delete(options, key);
 }
 
@@ -2311,7 +2316,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         }
       }
       if (status.ok()) {
-        status = WriteBatchInternal::InsertInto(updates, mem_);
+        status = WriteBatchInternal::InsertInto(updates, mem_, &options_, this,
+                                                options_.filter_deletes);
         if (!status.ok()) {
           // Panic for in-memory corruptions
           // Note that existing logic was not sound. Any partial failure writing

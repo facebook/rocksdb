@@ -122,8 +122,12 @@ class DB {
 
   // If the key definitely does not exist in the database, then this method
   // returns false. Otherwise return true. This check is potentially
-  // lighter-weight than invoking DB::Get(). No IO is performed
-  virtual bool KeyMayExist(const Slice& key) = 0;
+  // lighter-weight than invoking DB::Get(). One way to make this lighter weight
+  // is to avoid doing any IOs
+  // Default implementation here returns true
+  virtual bool KeyMayExist(const Slice& key) {
+    return true;
+  }
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
