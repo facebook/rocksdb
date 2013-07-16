@@ -420,6 +420,26 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
   deletion_state.prevlognumber = versions_->PrevLogNumber();
 }
 
+Status DBImpl::DeleteLogFile(uint64_t number) {
+  Status s;
+  auto filename = LogFileName(dbname_, number);
+  if (options_.WAL_ttl_seconds > 0) {
+    s = env_->RenameFile(filename,
+                         ArchivedLogFileName(dbname_, number));
+
+    if (!s.ok()) {
+      Log(options_.info_log, "RenameFile logfile #%lu FAILED", number);
+    }
+  } else {
+    s = env_->DeleteFile(filename);
+    if(!s.ok()) {
+      Log(options_.info_log, "Delete logfile #%lu FAILED", number);
+    }
+  }
+
+  return s;
+}
+
 // Diffs the files listed in filenames and those that do not
 // belong to live files are posibly removed. If the removed file
 // is a sst file, then it returns the file number in files_to_evict.
@@ -474,19 +494,9 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           state.files_to_evict.push_back(number);
         }
         Log(options_.info_log, "Delete type=%d #%lu", int(type), number);
-        if (type == kLogFile && options_.WAL_ttl_seconds > 0) {
-          Status st = env_->RenameFile(
-            LogFileName(dbname_, number),
-            ArchivedLogFileName(dbname_, number)
-          );
 
-          if (!st.ok()) {
-            Log(
-              options_.info_log, "RenameFile type=%d #%lu FAILED",
-              int(type),
-              number
-            );
-          }
+        if (type == kLogFile) {
+          DeleteLogFile(number);
         } else {
           Status st = env_->DeleteFile(dbname_ + "/" + state.allfiles[i]);
           if (!st.ok()) {
@@ -499,7 +509,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
     }
   }
 
-  // Delete old log files.
+  // Delete old info log files.
   size_t old_log_file_count = old_log_files.size();
   // NOTE: Currently we only support log purge when options_.db_log_dir is
   // located in `dbname` directory.
@@ -904,7 +914,6 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   }
 
   // Save the contents of the earliest memtable as a new Table
-  // This will release and re-acquire the mutex.
   uint64_t file_number;
   std::vector<MemTable*> mems;
   imm_.PickMemtablesToFlush(&mems);
@@ -918,8 +927,10 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   MemTable* m = mems[0];
   VersionEdit* edit = m->GetEdits();
   edit->SetPrevLogNumber(0);
-  edit->SetLogNumber(m->GetLogNumber());  // Earlier logs no longer needed
+  edit->SetLogNumber(m->GetNextLogNumber());  // Earlier logs no longer needed
+  auto to_delete = m->GetLogNumber();
 
+  // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table(mems, edit, &file_number);
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
@@ -937,10 +948,17 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
     if (madeProgress) {
       *madeProgress = 1;
     }
+
     MaybeScheduleLogDBDeployStats();
-    // we could have deleted obsolete files here, but it is not
-    // absolutely necessary because it could be also done as part
-    // of other background compaction
+    // TODO: if log deletion failed for any reason, we probably
+    // should store the file number in the shared state, and retry
+    // However, for now, PurgeObsoleteFiles will take care of that
+    // anyways.
+    if (options_.purge_log_after_memtable_flush && to_delete > 0) {
+      mutex_.Unlock();
+      DeleteLogFile(to_delete);
+      mutex_.Lock();
+    }
   }
   return s;
 }
@@ -2743,7 +2761,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
       logfile_number_ = new_log_number;
       log_.reset(new log::Writer(std::move(lfile)));
-      mem_->SetLogNumber(logfile_number_);
+      mem_->SetNextLogNumber(logfile_number_);
       imm_.Add(mem_);
       if (force) {
         imm_.FlushRequested();
@@ -2751,6 +2769,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mem_ = new MemTable(internal_comparator_, mem_rep_factory_,
         NumberLevels(), options_);
       mem_->Ref();
+      mem_->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room
       MaybeScheduleCompaction();
     }
@@ -3113,6 +3132,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       s = impl->versions_->LogAndApply(&edit, &impl->mutex_);
     }
     if (s.ok()) {
+      impl->mem_->SetLogNumber(impl->logfile_number_);
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleCompaction();
       impl->MaybeScheduleLogDBDeployStats();

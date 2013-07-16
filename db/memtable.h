@@ -92,6 +92,14 @@ class MemTable {
   // into the memtable
   SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }
 
+  // Returns the next active logfile number when this memtable is about to
+  // be flushed to storage
+  uint64_t GetNextLogNumber() { return mem_next_logfile_number_; }
+
+  // Sets the next active logfile number when this memtable is about to
+  // be flushed to storage
+  void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
+
   // Returns the logfile number that can be safely deleted when this
   // memstore is flushed to storage
   uint64_t GetLogNumber() { return mem_logfile_number_; }
@@ -127,6 +135,10 @@ class MemTable {
   SequenceNumber first_seqno_;
 
   // The log files earlier than this number can be deleted.
+  uint64_t mem_next_logfile_number_;
+
+  // The log file that backs this memtable (to be deleted when
+  // memtable flush is done)
   uint64_t mem_logfile_number_;
 
   // No copying allowed

@@ -212,6 +212,8 @@ class DBImpl : public DB {
   // Removes the file listed in files_to_evict from the table_cache
   void EvictObsoleteFiles(DeletionState& deletion_state);
 
+  Status DeleteLogFile(uint64_t number);
+
   void PurgeObsoleteWALFiles();
 
   Status AppendSortedWalsOfType(const std::string& path,

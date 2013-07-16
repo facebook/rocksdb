@@ -378,6 +378,9 @@ static enum RepFactory FLAGS_rep_factory;
 // The possible merge operators are defined in utilities/merge_operators.h
 static std::string FLAGS_merge_operator = "";
 
+static auto FLAGS_purge_log_after_memtable_flush =
+  leveldb::Options().purge_log_after_memtable_flush;
+
 namespace leveldb {
 
 // Helper for quickly generating random data.
@@ -1226,6 +1229,7 @@ class Benchmark {
         );
         break;
     }
+    options.purge_log_after_memtable_flush = FLAGS_purge_log_after_memtable_flush;
     if (FLAGS_max_bytes_for_level_multiplier_additional.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional.size() !=
           (unsigned int)FLAGS_num_levels) {
@@ -2518,6 +2522,9 @@ int main(int argc, char** argv) {
       FLAGS_filter_deletes = n;
     } else if (sscanf(argv[i], "--merge_operator=%s", buf) == 1) {
       FLAGS_merge_operator = buf;
+    } else if (sscanf(argv[i], "--purge_log_after_memtable_flush=%d%c", &n, &junk)
+               == 1 && (n == 0 || n ==1 )) {
+      FLAGS_purge_log_after_memtable_flush = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

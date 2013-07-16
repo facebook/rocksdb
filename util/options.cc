@@ -85,7 +85,8 @@ Options::Options()
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
       compaction_filter_factory(
           std::shared_ptr<CompactionFilterFactory>(
-            new DefaultCompactionFilterFactory())) {
+            new DefaultCompactionFilterFactory())),
+      purge_log_after_memtable_flush(true) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -242,6 +243,8 @@ Options::Dump(Logger* log) const
         compaction_options_universal.min_merge_width);
     Log(log,"   Options.compaction_options_universal.max_merge_width: %u",
         compaction_options_universal.max_merge_width);
+    Log(log,"          Options.purge_log_after_memtable_flush: %d",
+        purge_log_after_memtable_flush);
 }   // Options::Dump
 
 //
