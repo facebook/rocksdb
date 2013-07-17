@@ -75,7 +75,7 @@ Options::Options()
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
-      compaction_style(kCompactionStyleLevel) {
+      compaction_style(kCompactionStyleLevel),
       deletes_check_filter_first(false) {
 }
 
