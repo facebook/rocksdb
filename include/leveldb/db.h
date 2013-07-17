@@ -19,8 +19,8 @@ namespace leveldb {
 using std::unique_ptr;
 
 // Update Makefile if you change these
-static const int kMajorVersion = 1;
-static const int kMinorVersion = 5;
+static const int kMajorVersion = 2;
+static const int kMinorVersion = 0;
 
 struct Options;
 struct ReadOptions;
@@ -119,6 +119,11 @@ class DB {
   virtual std::vector<Status> MultiGet(const ReadOptions& options,
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values) = 0;
+
+  // If the key definitely does not exist in the database, then this method
+  // returns false. Otherwise return true. This check is potentially
+  // lighter-weight than invoking DB::Get(). No IO is performed
+  virtual bool KeyMayExist(const Slice& key) = 0;
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must

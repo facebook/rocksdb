@@ -422,17 +422,6 @@ struct Options {
   // Default: true
   bool allow_os_buffer;
 
-  // Reading a single block from a file can cause the OS/FS to start
-  // readaheads of other blocks from the file. Default: true
-  // Note: Deprecated
-  bool allow_readahead;
-
-  // The reads triggered by compaction allows data to be readahead
-  // by the OS/FS. This overrides the setting of 'allow_readahead'
-  // for compaction-reads. Default: true
-  // Note: Deprecated
-  bool allow_readahead_compactions;
-
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
@@ -487,6 +476,15 @@ struct Options {
 
   // The options needed to support Universal Style compactions
   CompactionOptionsUniversal compaction_options_universal;
+
+  // Use bloom-filter for deletes when this is true.
+  // db->Delete first calls KeyMayExist which checks memtable,immutable-memtable
+  // and bloom-filters to determine if the key does not exist in the database.
+  // If the key definitely does not exist, then the delete is a noop.KeyMayExist
+  // only incurs in-memory look up. This optimization avoids writing the delete
+  // to storage when appropriate.
+  // Default: false
+  bool deletes_check_filter_first;
 };
 
 // Options that control read operations

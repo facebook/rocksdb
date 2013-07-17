@@ -302,17 +302,11 @@ static uint64_t FLAGS_WAL_ttl_seconds = 0;
 // Allow buffered io using OS buffers
 static bool FLAGS_use_os_buffer;
 
-// Allow filesystem to do read-aheads
-static bool FLAGS_use_fsreadahead;
-
 // Allow reads to occur via mmap-ing files
 static bool FLAGS_use_mmap_reads;
 
 // Allow writes to occur via mmap-ing files
 static bool FLAGS_use_mmap_writes;
-
-// Allow readaheads to occur for compactions
-static bool FLAGS_use_readahead_compactions;
 
 // Advise random access on table file open
 static bool FLAGS_advise_random_on_open =
@@ -342,6 +336,9 @@ static auto FLAGS_use_adaptive_mutex =
 // written. 0 turns it off.
 static auto FLAGS_bytes_per_sync =
   leveldb::Options().bytes_per_sync;
+
+// On true, deletes use bloom-filter and drop the delete if key not present
+static bool FLAGS_deletes_check_filter_first = false;
 
 namespace leveldb {
 
@@ -1131,6 +1128,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
+    options.deletes_check_filter_first = FLAGS_deletes_check_filter_first;
     if (FLAGS_max_bytes_for_level_multiplier_additional.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional.size() !=
           (unsigned int)FLAGS_num_levels) {
@@ -1172,7 +1170,6 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
 
     // fill storage options
     options.allow_os_buffer = FLAGS_use_os_buffer;
-    options.allow_readahead = FLAGS_use_fsreadahead;
     options.allow_mmap_reads = FLAGS_use_mmap_reads;
     options.allow_mmap_writes = FLAGS_use_mmap_writes;
     options.advise_random_on_open = FLAGS_advise_random_on_open;
@@ -2106,12 +2103,6 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--mmap_write=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_use_mmap_writes = n;
-    } else if (sscanf(argv[i], "--readahead=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_use_fsreadahead = n;
-    } else if (sscanf(argv[i], "--readahead_compactions=%d%c", &n, &junk) == 1&&
-               (n == 0 || n == 1)) {
-      FLAGS_use_readahead_compactions = n;
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
@@ -2255,6 +2246,9 @@ int main(int argc, char** argv) {
       FLAGS_keys_per_multiget = n;
     }  else if (sscanf(argv[i], "--bytes_per_sync=%ld%c", &l, &junk) == 1) {
       FLAGS_bytes_per_sync = l;
+    } else if (sscanf(argv[i], "--deletes_check_filter_first=%d%c", &n, &junk)
+               == 1 && (n == 0 || n ==1 )) {
+      FLAGS_deletes_check_filter_first = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

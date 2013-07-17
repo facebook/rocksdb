@@ -33,6 +33,8 @@ class DBWithTTL : public DB, CompactionFilter {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values);
 
+  virtual bool KeyMayExist(const Slice& key);
+
   virtual Status Delete(const WriteOptions& wopts, const Slice& key);
 
   virtual Status Merge(const WriteOptions& options,

@@ -48,6 +48,10 @@ class DBImpl : public DB {
   virtual std::vector<Status> MultiGet(const ReadOptions& options,
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values);
+
+  // Returns false if key can't exist- based on memtable, immutable-memtable and
+  // bloom-filters; true otherwise. No IO is performed
+  virtual bool KeyMayExist(const Slice& key);
   virtual Iterator* NewIterator(const ReadOptions&);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
@@ -379,6 +383,12 @@ class DBImpl : public DB {
     SequenceNumber in,
     std::vector<SequenceNumber>& snapshots,
     SequenceNumber* prev_snapshot);
+
+  // Function that Get and KeyMayExist call with no_IO true or false
+  Status GetImpl(const ReadOptions& options,
+                 const Slice& key,
+                 std::string* value,
+                 const bool no_IO = false);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

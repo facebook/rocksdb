@@ -245,6 +245,16 @@ struct Saver {
   bool didIO;    // did we do any disk io?
 };
 }
+
+// Called from TableCache::Get when bloom-filters can't guarantee that key does
+// not exist and Get is not permitted to do IO to read the data-block and be
+// certain.
+// Set the key as Found and let the caller know that key-may-exist
+static void MarkKeyMayExist(void* arg) {
+  Saver* s = reinterpret_cast<Saver*>(arg);
+  s->state = kFound;
+}
+
 static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
   Saver* s = reinterpret_cast<Saver*>(arg);
   ParsedInternalKey parsed_key;
@@ -337,7 +347,8 @@ void Version::Get(const ReadOptions& options,
                   std::string* value,
                   Status *status,
                   GetStats* stats,
-                  const Options& db_options) {
+                  const Options& db_options,
+                  const bool no_IO) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -346,6 +357,9 @@ void Version::Get(const ReadOptions& options,
   auto logger = db_options.info_log;
 
   assert(status->ok() || status->IsMergeInProgress());
+  if (no_IO) {
+    assert(status->ok());
+  }
   Saver saver;
   saver.state = status->ok()? kNotFound : kMerge;
   saver.ucmp = ucmp;
@@ -417,7 +431,8 @@ void Version::Get(const ReadOptions& options,
       FileMetaData* f = files[i];
       bool tableIO = false;
       *status = vset_->table_cache_->Get(options, f->number, f->file_size,
-                                         ikey, &saver, SaveValue, &tableIO);
+                                         ikey, &saver, SaveValue, &tableIO,
+                                         MarkKeyMayExist, no_IO);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;
@@ -2199,7 +2214,7 @@ Compaction* VersionSet::PickCompactionBySize(int level, double score) {
 
   assert(level >= 0);
   assert(level+1 < NumberLevels());
-  c = new Compaction(level, level+1, MaxFileSizeForLevel(level),
+  c = new Compaction(level, level+1, MaxFileSizeForLevel(level+1),
       MaxGrandParentOverlapBytes(level), NumberLevels());
   c->score_ = score;
 
@@ -2304,7 +2319,7 @@ Compaction* VersionSet::PickCompaction() {
     if (level != 0 || compactions_in_progress_[0].empty()) {
       if(!ParentRangeInCompaction(&f->smallest, &f->largest, level,
                                   &parent_index)) {
-        c = new Compaction(level, level, MaxFileSizeForLevel(level),
+        c = new Compaction(level, level, MaxFileSizeForLevel(level+1),
                 MaxGrandParentOverlapBytes(level), NumberLevels(), true);
         c->inputs_[0].push_back(f);
         c->parent_index_ = parent_index;
@@ -2481,7 +2496,7 @@ Compaction* VersionSet::CompactRange(
   int out_level = (options_->compaction_style == kCompactionStyleUniversal) ?
                   level : level+1;
 
-  Compaction* c = new Compaction(level, out_level, MaxFileSizeForLevel(level),
+  Compaction* c = new Compaction(level, out_level, MaxFileSizeForLevel(out_level),
     MaxGrandParentOverlapBytes(level), NumberLevels());
   c->input_version_ = current_;
   c->input_version_->Ref();

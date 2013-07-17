@@ -183,6 +183,9 @@ static uint32_t FLAGS_log2_keys_per_lock = 2; // implies 2^2 keys per lock
 // Percentage of times we want to purge redundant keys in memory before flushing
 static uint32_t FLAGS_purge_redundant_percent = 50;
 
+// On true, deletes use bloom-filter and drop the delete if key not present
+static bool FLAGS_deletes_check_filter_first = false;
+
 // Level0 compaction start trigger
 static int FLAGS_level0_file_num_compaction_trigger = 0;
 
@@ -901,8 +904,10 @@ class StressTest {
     fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
     fprintf(stdout, "Batches/snapshots   : %d\n",
             FLAGS_test_batches_snapshots);
-    fprintf(stdout, "Purge redundant %%   : %d\n",
+    fprintf(stdout, "Purge redundant %%  : %d\n",
             FLAGS_purge_redundant_percent);
+    fprintf(stdout, "Deletes use filter  : %d\n",
+            FLAGS_deletes_check_filter_first);
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
@@ -959,6 +964,7 @@ class StressTest {
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
     options.max_manifest_file_size = 1024;
+    options.deletes_check_filter_first = FLAGS_deletes_check_filter_first;
     static Random purge_percent(1000); // no benefit from non-determinism here
     if (purge_percent.Uniform(100) < FLAGS_purge_redundant_percent - 1) {
       options.purge_redundant_kvs_while_flush = false;
@@ -998,10 +1004,7 @@ class StressTest {
 
   void PrintStatistics() {
     if (dbstats) {
-      fprintf(stdout, "File opened:%ld closed:%ld errors:%ld\n",
-              dbstats->getTickerCount(NO_FILE_OPENS),
-              dbstats->getTickerCount(NO_FILE_CLOSES),
-              dbstats->getTickerCount(NO_FILE_ERRORS));
+      fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
   }
 
@@ -1165,6 +1168,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--purge_redundant_percent=%d%c", &n, &junk) == 1
         && (n >= 0 && n <= 100)) {
       FLAGS_purge_redundant_percent = n;
+    } else if (sscanf(argv[i], "--deletes_check_filter_first=%d%c", &n, &junk)
+        == 1 && (n == 0 || n == 1)) {
+      FLAGS_deletes_check_filter_first = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

@@ -65,8 +65,6 @@ Options::Options()
       manifest_preallocation_size(4 * 1024 * 1024),
       purge_redundant_kvs_while_flush(true),
       allow_os_buffer(true),
-      allow_readahead(true),
-      allow_readahead_compactions(true),
       allow_mmap_reads(false),
       allow_mmap_writes(true),
       is_fd_close_on_exec(true),
@@ -78,6 +76,7 @@ Options::Options()
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       compaction_style(kCompactionStyleLevel) {
+      deletes_check_filter_first(false) {
 }
 
 static const char* const access_hints[] = {
@@ -127,13 +126,10 @@ Options::Dump(Logger* log) const
     Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
     Log(log,"       Options.allow_os_buffer: %d", allow_os_buffer);
-    Log(log,"       Options.allow_readahead: %d", allow_readahead);
     Log(log,"      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Log(log,"     Options.allow_mmap_writes: %d", allow_mmap_writes);
     Log(log,"       Options.min_write_buffer_number_to_merge: %d",
         min_write_buffer_number_to_merge);
-    Log(log,"            Options.allow_readahead_compactions: %d",
-        allow_readahead_compactions);
     Log(log,"        Options.purge_redundant_kvs_while_flush: %d",
          purge_redundant_kvs_while_flush);
     Log(log,"           Options.compression_opts.window_bits: %d",
@@ -194,10 +190,6 @@ Options::Dump(Logger* log) const
         purge_redundant_kvs_while_flush);
     Log(log,"                         Options.allow_os_buffer: %d",
         allow_os_buffer);
-    Log(log,"                         Options.allow_readahead: %d",
-        allow_readahead);
-    Log(log,"             Options.allow_readahead_compactions: %d",
-        allow_readahead_compactions);
     Log(log,"                        Options.allow_mmap_reads: %d",
         allow_mmap_reads);
     Log(log,"                       Options.allow_mmap_writes: %d",
@@ -220,6 +212,8 @@ Options::Dump(Logger* log) const
         bytes_per_sync);
     Log(log,"                        Options.compaction_style: %d",
         compaction_style);
+    Log(log,"              Options.deletes_check_filter_first: %d",
+        deletes_check_filter_first);
     Log(log,"        Options.compaction_options_universal.size_ratio: %d",
         compaction_options_universal.size_ratio);
     Log(log,"   Options.compaction_options_universal.min_merge_width: %d",

@@ -5,6 +5,7 @@
 #include "util/ldb_cmd.h"
 
 #include "db/dbformat.h"
+#include "db/db_impl.h"
 #include "db/log_reader.h"
 #include "db/filename.h"
 #include "db/write_batch_internal.h"
@@ -45,7 +46,7 @@ const char* LDBCommand::DELIM = " ==> ";
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
   int argc,
   char** argv,
-  Options options
+  const Options& options
 ) {
   vector<string> args;
   for (int i = 1; i < argc; i++) {
@@ -66,7 +67,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
  */
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
   const vector<string>& args,
-  Options options
+  const Options& options
 ) {
   // --x=y command line arguments are added as x->y map entries.
   map<string, string> option_map;
@@ -80,9 +81,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
 
   const string OPTION_PREFIX = "--";
 
-  for (vector<string>::const_iterator itr = args.begin();
-      itr != args.end(); itr++) {
-    string arg = *itr;
+  for (const auto& arg : args) {
     if (arg[0] == '-' && arg[1] == '-'){
       vector<string> splits = stringSplit(arg, '=');
       if (splits.size() == 2) {
@@ -93,7 +92,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
         flags.push_back(optionKey);
       }
     } else {
-      cmdTokens.push_back(string(arg));
+      cmdTokens.push_back(arg);
     }
   }
 
@@ -119,9 +118,9 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
 
 LDBCommand* LDBCommand::SelectCommand(
     const std::string& cmd,
-    vector<string>& cmdParams,
-    map<string, string>& option_map,
-    vector<string>& flags
+    const vector<string>& cmdParams,
+    const map<string, string>& option_map,
+    const vector<string>& flags
   ) {
 
   if (cmd == GetCommand::Name()) {
@@ -150,6 +149,8 @@ LDBCommand* LDBCommand::SelectCommand(
     return new DBLoaderCommand(cmdParams, option_map, flags);
   } else if (cmd == ManifestDumpCommand::Name()) {
     return new ManifestDumpCommand(cmdParams, option_map, flags);
+  } else if (cmd == InternalDumpCommand::Name()) {
+    return new InternalDumpCommand(cmdParams, option_map, flags);
   }
   return nullptr;
 }
@@ -163,7 +164,8 @@ LDBCommand* LDBCommand::SelectCommand(
  * updated.
  */
 bool LDBCommand::ParseIntOption(const map<string, string>& options,
-    string option, int& value, LDBCommandExecuteResult& exec_state) {
+                                const string& option, int& value,
+                                LDBCommandExecuteResult& exec_state) {
 
   map<string, string>::const_iterator itr = option_map_.find(option);
   if (itr != option_map_.end()) {
@@ -177,6 +179,21 @@ bool LDBCommand::ParseIntOption(const map<string, string>& options,
       exec_state = LDBCommandExecuteResult::FAILED(option +
                       " has a value out-of-range.");
     }
+  }
+  return false;
+}
+
+/**
+ * Parses the specified option and fills in the value.
+ * Returns true if the option is found.
+ * Returns false otherwise.
+ */
+bool LDBCommand::ParseStringOption(const map<string, string>& options,
+                                   const string& option, string* value) {
+  auto itr = option_map_.find(option);
+  if (itr != option_map_.end()) {
+    *value = itr->second;
+    return true;
   }
   return false;
 }
@@ -453,7 +470,7 @@ void ManifestDumpCommand::Help(string& ret) {
 ManifestDumpCommand::ManifestDumpCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, false,
-               BuildCmdLineOptions({ARG_VERBOSE,ARG_PATH})),
+               BuildCmdLineOptions({ARG_VERBOSE, ARG_PATH, ARG_HEX})),
     verbose_(false),
     path_("")
 {
@@ -558,6 +575,115 @@ void PrintBucketCounts(const vector<uint64_t>& bucket_counts, int ttl_start,
           ReadableTime(time_point).c_str(),
           ReadableTime(ttl_end).c_str(), bucket_counts[num_buckets - 1]);
 }
+
+const string InternalDumpCommand::ARG_COUNT_ONLY = "count_only";
+const string InternalDumpCommand::ARG_STATS = "stats";
+
+InternalDumpCommand::InternalDumpCommand(const vector<string>& params,
+                                         const map<string, string>& options,
+                                         const vector<string>& flags) :
+    LDBCommand(options, flags, true,
+               BuildCmdLineOptions({ ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
+                                     ARG_FROM, ARG_TO, ARG_MAX_KEYS,
+                                     ARG_COUNT_ONLY, ARG_STATS})),
+    has_from_(false),
+    has_to_(false),
+    max_keys_(-1),
+    count_only_(false),
+    print_stats_(false) {
+
+  has_from_ = ParseStringOption(options, ARG_FROM, &from_);
+  has_to_ = ParseStringOption(options, ARG_TO, &to_);
+
+  ParseIntOption(options, ARG_MAX_KEYS, max_keys_, exec_state_);
+
+  print_stats_ = IsFlagPresent(flags, ARG_STATS);
+  count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
+
+  if (is_key_hex_) {
+    if (has_from_) {
+      from_ = HexToString(from_);
+    }
+    if (has_to_) {
+      to_ = HexToString(to_);
+    }
+  }
+}
+
+void InternalDumpCommand::Help(string& ret) {
+  ret.append("  ");
+  ret.append(InternalDumpCommand::Name());
+  ret.append(HelpRangeCmdArgs());
+  ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
+  ret.append(" [--" + ARG_COUNT_ONLY + "]");
+  ret.append(" [--" + ARG_STATS + "]");
+  ret.append("\n");
+}
+
+void InternalDumpCommand::DoCommand() {
+  if (!db_) {
+    return;
+  }
+
+  if (print_stats_) {
+    string stats;
+    if (db_->GetProperty("leveldb.stats", &stats)) {
+      fprintf(stdout, "%s\n", stats.c_str());
+    }
+  }
+
+  // Cast as DBImpl to get internal iterator
+  DBImpl* idb = dynamic_cast<DBImpl*>(db_);
+  if (!idb) {
+    exec_state_ = LDBCommandExecuteResult::FAILED("DB is not DBImpl");
+    return;
+  }
+
+  // Setup internal key iterator
+  auto iter = unique_ptr<Iterator>(idb->TEST_NewInternalIterator());
+  Status st = iter->status();
+  if (!st.ok()) {
+    exec_state_ = LDBCommandExecuteResult::FAILED("Iterator error:"
+                                                  + st.ToString());
+  }
+
+  if (has_from_) {
+    InternalKey ikey(from_, kMaxSequenceNumber, kValueTypeForSeek);
+    iter->Seek(ikey.Encode());
+  } else {
+    iter->SeekToFirst();
+  }
+
+  long long count = 0;
+  for (; iter->Valid(); iter->Next()) {
+    ParsedInternalKey ikey;
+    if (!ParseInternalKey(iter->key(), &ikey)) {
+      fprintf(stderr, "Internal Key [%s] parse error!\n",
+              iter->key().ToString(true /* in hex*/).data());
+      // TODO: add error counter
+      continue;
+    }
+
+    // If end marker was specified, we stop before it
+    if (has_to_ && options_.comparator->Compare(ikey.user_key, to_) >= 0) {
+      break;
+    }
+
+    ++count;
+
+    if (!count_only_) {
+      string key = ikey.DebugString(is_key_hex_);
+      string value = iter->value().ToString(is_value_hex_);
+      fprintf(stdout, "%s => %s\n", key.data(), value.data());
+    }
+
+    // Terminate if maximum number of keys have been dumped
+    if (max_keys_ > 0 && count >= max_keys_) break;
+  }
+
+  fprintf(stdout, "Internal keys in range: %lld\n", (long long) count);
+}
+
 
 const string DBDumperCommand::ARG_COUNT_ONLY = "count_only";
 const string DBDumperCommand::ARG_STATS = "stats";

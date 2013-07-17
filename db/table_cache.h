@@ -48,7 +48,9 @@ class TableCache {
              const Slice& k,
              void* arg,
              bool (*handle_result)(void*, const Slice&, const Slice&, bool),
-             bool* tableIO);
+             bool* tableIO,
+             void (*mark_key_may_exist)(void*) = nullptr,
+             const bool no_IO = false);
 
   // Evict any entry for the specified file number
   void Evict(uint64_t file_number);
