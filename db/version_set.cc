@@ -23,8 +23,8 @@
 
 namespace leveldb {
 
-static int64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
-  int64_t sum = 0;
+static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
+  uint64_t sum = 0;
   for (size_t i = 0; i < files.size() && files[i]; i++) {
     sum += files[i]->file_size;
   }
@@ -527,7 +527,7 @@ int Version::PickLevelForMemTableOutput(
         break;
       }
       GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
-      const int64_t sum = TotalFileSize(overlaps);
+      const uint64_t sum = TotalFileSize(overlaps);
       if (sum > vset_->MaxGrandParentOverlapBytes(level)) {
         break;
       }
@@ -1824,14 +1824,14 @@ int64_t VersionSet::NumLevelBytes(int level) const {
 }
 
 int64_t VersionSet::MaxNextLevelOverlappingBytes() {
-  int64_t result = 0;
+  uint64_t result = 0;
   std::vector<FileMetaData*> overlaps;
   for (int level = 1; level < NumberLevels() - 1; level++) {
     for (size_t i = 0; i < current_->files_[level].size(); i++) {
       const FileMetaData* f = current_->files_[level][i];
       current_->GetOverlappingInputs(level+1, &f->smallest, &f->largest,
                                      &overlaps);
-      const int64_t sum = TotalFileSize(overlaps);
+      const uint64_t sum = TotalFileSize(overlaps);
       if (sum > result) {
         result = sum;
       }
@@ -1927,13 +1927,13 @@ uint64_t VersionSet::MaxFileSizeForLevel(int level) {
   return max_file_size_[level];
 }
 
-int64_t VersionSet::ExpandedCompactionByteSizeLimit(int level) {
+uint64_t VersionSet::ExpandedCompactionByteSizeLimit(int level) {
   uint64_t result = MaxFileSizeForLevel(level);
   result *= options_->expanded_compaction_factor;
   return result;
 }
 
-int64_t VersionSet::MaxGrandParentOverlapBytes(int level) {
+uint64_t VersionSet::MaxGrandParentOverlapBytes(int level) {
   uint64_t result = MaxFileSizeForLevel(level);
   result *= options_->max_grandparent_overlap_factor;
   return result;
@@ -2394,10 +2394,10 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
     std::vector<FileMetaData*> expanded0;
     current_->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0,
                                    c->base_index_, nullptr);
-    const int64_t inputs0_size = TotalFileSize(c->inputs_[0]);
-    const int64_t inputs1_size = TotalFileSize(c->inputs_[1]);
-    const int64_t expanded0_size = TotalFileSize(expanded0);
-    int64_t limit = ExpandedCompactionByteSizeLimit(level);
+    const uint64_t inputs0_size = TotalFileSize(c->inputs_[0]);
+    const uint64_t inputs1_size = TotalFileSize(c->inputs_[1]);
+    const uint64_t expanded0_size = TotalFileSize(expanded0);
+    uint64_t limit = ExpandedCompactionByteSizeLimit(level);
     if (expanded0.size() > c->inputs_[0].size() &&
         inputs1_size + expanded0_size < limit &&
         !FilesInCompaction(expanded0)) {
