@@ -928,7 +928,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end,
 int DBImpl::FindMinimumEmptyLevelFitting(int level) {
   mutex_.AssertHeld();
   int minimum_level = level;
-  for (int i = level - 1; i > 0; ++i) {
+  for (int i = level - 1; i > 0; --i) {
     // stop if level i is not empty
     if (versions_->NumLevelFiles(i) > 0) break;
 
