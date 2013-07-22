@@ -21,6 +21,10 @@ DBWithTTL::DBWithTTL(const int32_t ttl,
   assert(options.compaction_filter == nullptr);
   Options options_to_open = options;
   options_to_open.compaction_filter = this;
+  if (options.merge_operator) {
+    ttl_merge_op_.reset(new TtlMergeOperator(options.merge_operator));
+    options_to_open.merge_operator = ttl_merge_op_.get();
+  }
   if (read_only) {
     st = DB::OpenForReadOnly(options_to_open, dbname, &db_);
   } else {
@@ -125,15 +129,12 @@ Status DBWithTTL::StripTS(std::string* str) {
 }
 
 Status DBWithTTL::Put(
-    const WriteOptions& o,
+    const WriteOptions& opt,
     const Slice& key,
     const Slice& val) {
-  std::string value_with_ts;
-  Status st = AppendTS(val, value_with_ts);
-  if (!st.ok()) {
-    return st;
-  }
-  return db_->Put(o, key, value_with_ts);
+  WriteBatch batch;
+  batch.Put(key, val);
+  return Write(opt, &batch);
 }
 
 Status DBWithTTL::Get(const ReadOptions& options,
@@ -169,10 +170,12 @@ Status DBWithTTL::Delete(const WriteOptions& wopts, const Slice& key) {
   return db_->Delete(wopts, key);
 }
 
-Status DBWithTTL::Merge(const WriteOptions& options,
+Status DBWithTTL::Merge(const WriteOptions& opt,
                         const Slice& key,
                         const Slice& value) {
-  return Status::NotSupported("Merge operation not supported.");
+  WriteBatch batch;
+  batch.Merge(key, value);
+  return Write(opt, &batch);
 }
 
 Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
@@ -190,8 +193,13 @@ Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
       }
     }
     virtual void Merge(const Slice& key, const Slice& value) {
-      // TTL doesn't support merge operation
-      batch_rewrite_status = Status::NotSupported("TTL doesn't support Merge");
+      std::string value_with_ts;
+      Status st = AppendTS(value, value_with_ts);
+      if (!st.ok()) {
+        batch_rewrite_status = st;
+      } else {
+        updates_ttl.Merge(key, value_with_ts);
+      }
     }
     virtual void Delete(const Slice& key) {
       updates_ttl.Delete(key);

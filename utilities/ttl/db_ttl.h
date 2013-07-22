@@ -5,8 +5,10 @@
 #ifndef LEVELDB_UTILITIES_TTL_DB_TTL_H_
 #define LEVELDB_UTILITIES_TTL_DB_TTL_H_
 
-#include "include/leveldb/db.h"
-#include "include/leveldb/compaction_filter.h"
+#include "leveldb/db.h"
+#include "leveldb/env.h"
+#include "leveldb/compaction_filter.h"
+#include "leveldb/merge_operator.h"
 #include "db/db_impl.h"
 
 namespace leveldb {
@@ -110,6 +112,7 @@ class DBWithTTL : public DB, CompactionFilter {
  private:
   DB* db_;
   int32_t ttl_;
+  unique_ptr<MergeOperator> ttl_merge_op_;
 };
 
 class TtlIterator : public Iterator {
@@ -171,6 +174,57 @@ class TtlIterator : public Iterator {
 
  private:
   Iterator* iter_;
+};
+
+class TtlMergeOperator : public MergeOperator {
+
+ public:
+  explicit TtlMergeOperator(const MergeOperator* merge_op)
+    : user_merge_op_(merge_op) {
+    assert(merge_op);
+  }
+
+  virtual void Merge(const Slice& key,
+                     const Slice* existing_value,
+                     const Slice& value,
+                     std::string* new_value,
+                     Logger* logger) const {
+    const uint32_t& ts_len = DBWithTTL::kTSLength;
+    if ((existing_value && existing_value->size() < ts_len) ||
+        value.size() < ts_len) {
+      Log(logger, "Error: Could not remove timestamp correctly from value.");
+      assert(false);
+      //TODO: Remove assert and make this function return false.
+      //TODO: Change Merge semantics and add a counter here
+    }
+    Slice value_without_ts(value.data(), value.size() - ts_len);
+    if (existing_value) {
+      Slice existing_value_without_ts(existing_value->data(),
+                                      existing_value->size() - ts_len);
+      user_merge_op_->Merge(key, &existing_value_without_ts, value_without_ts,
+                            new_value, logger);
+    } else {
+      user_merge_op_->Merge(key, nullptr, value_without_ts, new_value, logger);
+    }
+    int32_t curtime;
+    if (!DBWithTTL::GetCurrentTime(curtime).ok()) {
+      Log(logger, "Error: Could not get current time to be attached internally "
+                  "to the new value.");
+      assert(false);
+      //TODO: Remove assert and make this function return false.
+    } else {
+      char ts_string[ts_len];
+      EncodeFixed32(ts_string, curtime);
+      new_value->append(ts_string, ts_len);
+    }
+  }
+
+  virtual const char* Name() const {
+    return "Merge By TTL";
+  }
+
+ private:
+  const MergeOperator* user_merge_op_;
 };
 
 }
