@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "leveldb/slice.h"
 #include "leveldb/statistics.h"
+#include "leveldb/memtablerep.h"
 
 namespace leveldb {
 
@@ -473,6 +474,11 @@ struct Options {
   // to storage when appropriate.
   // Default: false
   bool filter_deletes;
+
+  // This is a factory that provides MemTableRep objects.
+  // Default: a factory that provides a skip-list-based implementation of
+  // MemTableRep.
+  std::shared_ptr<MemTableRepFactory> memtable_factory;
 
 };
 

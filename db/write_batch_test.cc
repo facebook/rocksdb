@@ -4,6 +4,8 @@
 
 #include "leveldb/db.h"
 
+#include <memory>
+#include "db/skiplistrep.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "leveldb/env.h"
@@ -14,7 +16,8 @@ namespace leveldb {
 
 static std::string PrintContents(WriteBatch* b) {
   InternalKeyComparator cmp(BytewiseComparator());
-  MemTable* mem = new MemTable(cmp);
+  auto factory = std::make_shared<SkipListFactory>();
+  MemTable* mem = new MemTable(cmp, factory);
   mem->Ref();
   std::string state;
   Status s = WriteBatchInternal::InsertInto(b, mem);

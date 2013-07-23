@@ -163,7 +163,9 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
-      mem_(new MemTable(internal_comparator_, NumberLevels())),
+      mem_rep_factory_(options_.memtable_factory),
+      mem_(new MemTable(internal_comparator_,
+        mem_rep_factory_, NumberLevels())),
       logfile_number_(0),
       tmp_batch_(),
       bg_compaction_scheduled_(0),
@@ -688,7 +690,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
     WriteBatchInternal::SetContents(&batch, record);
 
     if (mem == nullptr) {
-      mem = new MemTable(internal_comparator_, NumberLevels());
+      mem = new MemTable(internal_comparator_,
+        mem_rep_factory_, NumberLevels());
       mem->Ref();
     }
     status = WriteBatchInternal::InsertInto(&batch, mem, &options_);
@@ -2528,7 +2531,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       log_.reset(new log::Writer(std::move(lfile)));
       mem_->SetLogNumber(logfile_number_);
       imm_.Add(mem_);
-      mem_ = new MemTable(internal_comparator_, NumberLevels());
+      mem_ = new MemTable(internal_comparator_,
+        mem_rep_factory_, NumberLevels());
       mem_->Ref();
       force = false;   // Do not force another compaction if have room
       MaybeScheduleCompaction();
@@ -2782,8 +2786,7 @@ Status DB::Merge(const WriteOptions& opt, const Slice& key,
 
 DB::~DB() { }
 
-Status DB::Open(const Options& options, const std::string& dbname,
-                DB** dbptr) {
+Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
   EnvOptions soptions;
 

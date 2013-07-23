@@ -6,24 +6,31 @@
 #define STORAGE_LEVELDB_DB_MEMTABLE_H_
 
 #include <string>
+#include <memory>
 #include "leveldb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "db/version_set.h"
 #include "util/arena.h"
+#include "leveldb/memtablerep.h"
 
 namespace leveldb {
 
-class InternalKeyComparator;
 class Mutex;
 class MemTableIterator;
 
 class MemTable {
  public:
+  struct KeyComparator : public MemTableRep::KeyComparator {
+    const InternalKeyComparator comparator;
+    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
+    virtual int operator()(const char* a, const char* b) const;
+  };
+
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
   explicit MemTable(const InternalKeyComparator& comparator,
-                    int numlevel = 7);
+    std::shared_ptr<MemTableRepFactory> table_factory, int numlevel = 7);
 
   // Increase reference count.
   void Ref() { ++refs_; }
@@ -88,22 +95,14 @@ class MemTable {
 
  private:
   ~MemTable();  // Private since only Unref() should be used to delete it
-
-  struct KeyComparator {
-    const InternalKeyComparator comparator;
-    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
-    int operator()(const char* a, const char* b) const;
-  };
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
   friend class MemTableList;
 
-  typedef SkipList<const char*, KeyComparator> Table;
-
   KeyComparator comparator_;
   int refs_;
   Arena arena_;
-  Table table_;
+  shared_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush

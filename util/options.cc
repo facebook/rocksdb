@@ -12,6 +12,7 @@
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
 #include "leveldb/merge_operator.h"
+#include "db/skiplistrep.h"
 
 namespace leveldb {
 
@@ -75,7 +76,9 @@ Options::Options()
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
-      filter_deletes(false) {
+      filter_deletes(false),
+      memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)) {
+  assert(memtable_factory.get() != nullptr);
 }
 
 static const char* const access_hints[] = {

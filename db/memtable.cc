@@ -3,6 +3,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/memtable.h"
+
+#include <memory>
+
 #include "db/dbformat.h"
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
@@ -19,23 +22,28 @@ static Slice GetLengthPrefixedSlice(const char* data) {
   return Slice(p, len);
 }
 
-MemTable::MemTable(const InternalKeyComparator& cmp, int numlevel)
+MemTable::MemTable(const InternalKeyComparator& cmp,
+                   std::shared_ptr<MemTableRepFactory> table_factory,
+                   int numlevel)
     : comparator_(cmp),
       refs_(0),
-      table_(comparator_, &arena_),
+      table_(table_factory->CreateMemTableRep(comparator_)),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
       edit_(numlevel),
       first_seqno_(0),
-      mem_logfile_number_(0) {
-}
+      mem_logfile_number_(0) { }
 
 MemTable::~MemTable() {
   assert(refs_ == 0);
 }
 
-size_t MemTable::ApproximateMemoryUsage() { return arena_.MemoryUsage(); }
+size_t MemTable::ApproximateMemoryUsage() {
+  // The first term is the amount of memory used by the memtable and
+  // the second term is the amount of memory used by the backing store
+  return arena_.MemoryUsage() + table_->ApproximateMemoryUsage();
+}
 
 int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)
     const {
@@ -57,24 +65,27 @@ static const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator: public Iterator {
  public:
-  explicit MemTableIterator(MemTable::Table* table) : iter_(table) { }
+  explicit MemTableIterator(MemTableRep* table)
+    : iter_(table->GetIterator()) { }
 
-  virtual bool Valid() const { return iter_.Valid(); }
-  virtual void Seek(const Slice& k) { iter_.Seek(EncodeKey(&tmp_, k)); }
-  virtual void SeekToFirst() { iter_.SeekToFirst(); }
-  virtual void SeekToLast() { iter_.SeekToLast(); }
-  virtual void Next() { iter_.Next(); }
-  virtual void Prev() { iter_.Prev(); }
-  virtual Slice key() const { return GetLengthPrefixedSlice(iter_.key()); }
+  virtual bool Valid() const { return iter_->Valid(); }
+  virtual void Seek(const Slice& k) { iter_->Seek(EncodeKey(&tmp_, k)); }
+  virtual void SeekToFirst() { iter_->SeekToFirst(); }
+  virtual void SeekToLast() { iter_->SeekToLast(); }
+  virtual void Next() { iter_->Next(); }
+  virtual void Prev() { iter_->Prev(); }
+  virtual Slice key() const {
+    return GetLengthPrefixedSlice(iter_->key());
+  }
   virtual Slice value() const {
-    Slice key_slice = GetLengthPrefixedSlice(iter_.key());
+    Slice key_slice = GetLengthPrefixedSlice(iter_->key());
     return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
   }
 
   virtual Status status() const { return Status::OK(); }
 
  private:
-  MemTable::Table::Iterator iter_;
+  std::shared_ptr<MemTableRep::Iterator> iter_;
   std::string tmp_;       // For passing to EncodeKey
 
   // No copying allowed
@@ -83,7 +94,7 @@ class MemTableIterator: public Iterator {
 };
 
 Iterator* MemTable::NewIterator() {
-  return new MemTableIterator(&table_);
+  return new MemTableIterator(table_.get());
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,
@@ -109,7 +120,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((p + val_size) - buf == (unsigned)encoded_len);
-  table_.Insert(buf);
+  table_->Insert(buf);
 
   // The first sequence number inserted into the memtable
   assert(first_seqno_ == 0 || s > first_seqno_);
@@ -119,10 +130,10 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                  const Options& options, const bool check_presence_only) {
+              const Options& options, const bool check_presence_only) {
   Slice memkey = key.memtable_key();
-  Table::Iterator iter(&table_);
-  iter.Seek(memkey.data());
+  std::shared_ptr<MemTableRep::Iterator> iter(table_.get()->GetIterator());
+  iter->Seek(memkey.data());
 
   bool merge_in_progress = false;
   std::string operand;
@@ -131,10 +142,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     merge_in_progress = true;
   }
 
-
   auto merge_operator = options.merge_operator;
   auto logger = options.info_log;
-  for (; iter.Valid(); iter.Next()) {
+  for (; iter->Valid(); iter->Next()) {
     // entry format is:
     //    klength  varint32
     //    userkey  char[klength-8]
@@ -144,7 +154,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     // Check that it belongs to same user key.  We do not check the
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
-    const char* entry = iter.key();
+    const char* entry = iter->key();
     uint32_t key_length;
     const char* key_ptr = GetVarint32Ptr(entry, entry+5, &key_length);
     if (comparator_.comparator.user_comparator()->Compare(
