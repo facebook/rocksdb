@@ -1039,8 +1039,8 @@ void VersionSet::Init(int num_levels) {
   int target_file_size_multiplier = options_->target_file_size_multiplier;
   int max_bytes_multiplier = options_->max_bytes_for_level_multiplier;
   for (int i = 0; i < num_levels; i++) {
-    if (i == 0) {
-      max_file_size_[i] = LLONG_MAX;
+    if (i == 0 && options_->compaction_style == kCompactionStyleUniversal) {
+      max_file_size_[i] = ULLONG_MAX;
       level_max_bytes_[i] = options_->max_bytes_for_level_base;
     } else if (i > 1) {
       max_file_size_[i] = max_file_size_[i-1] * target_file_size_multiplier;
