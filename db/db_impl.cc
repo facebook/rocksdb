@@ -2093,13 +2093,11 @@ Status DBImpl::Get(const ReadOptions& options,
   return GetImpl(options, key, value);
 }
 
-// If no_io is true, then returns Status::NotFound if key is not in memtable,
-// immutable-memtable and bloom-filters can guarantee that key is not in db,
-// "value" is garbage string if no_io is true
 Status DBImpl::GetImpl(const ReadOptions& options,
                        const Slice& key,
                        std::string* value,
-                       const bool no_io) {
+                       const bool no_io,
+                       bool* value_found) {
   Status s;
 
   StopWatch sw(env_, options_.statistics, DB_GET);
@@ -2128,12 +2126,12 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // value will contain the current merge operand in the latter case.
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, options_, no_io)) {
+  if (mem->Get(lkey, value, &s, options_)) {
     // Done
-  } else if (imm.Get(lkey, value, &s, options_, no_io)) {
+  } else if (imm.Get(lkey, value, &s, options_)) {
     // Done
   } else {
-    current->Get(options, lkey, value, &s, &stats, options_, no_io);
+    current->Get(options, lkey, value, &s, &stats, options_, no_io,value_found);
     have_stat_update = true;
   }
   mutex_.Lock();
@@ -2223,19 +2221,14 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   return statList;
 }
 
-bool DBImpl::KeyMayExist(const Slice& key) {
-  return KeyMayExistImpl(key, versions_->LastSequence());
-}
-
-bool DBImpl::KeyMayExistImpl(const Slice& key,
-                             const SequenceNumber read_from_seq) {
-  std::string value;
-  SnapshotImpl read_from_snapshot;
-  read_from_snapshot.number_ = read_from_seq;
-  ReadOptions ropts;
-  ropts.snapshot = &read_from_snapshot;
-  const Status s = GetImpl(ropts, key, &value, true);
-  return !s.IsNotFound();
+bool DBImpl::KeyMayExist(const ReadOptions& options,
+                         const Slice& key,
+                         std::string* value,
+                         bool* value_found) {
+  if (value_found != nullptr) {
+    *value_found = true; // falsify later if key-may-exist but can't fetch value
+  }
+  return GetImpl(options, key, value, true, value_found).ok();
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {

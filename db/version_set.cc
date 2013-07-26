@@ -238,6 +238,7 @@ struct Saver {
   SaverState state;
   const Comparator* ucmp;
   Slice user_key;
+  bool* value_found; // Is value set correctly? Used by KeyMayExist
   std::string* value;
   const MergeOperator* merge_operator;
   Logger* logger;
@@ -245,13 +246,17 @@ struct Saver {
 };
 }
 
-// Called from TableCache::Get when bloom-filters can't guarantee that key does
-// not exist and Get is not permitted to do IO to read the data-block and be
-// certain.
-// Set the key as Found and let the caller know that key-may-exist
+// Called from TableCache::Get and InternalGet when file/block in which key may
+// exist are not there in TableCache/BlockCache respectively. In this case we
+// can't guarantee that key does not exist and are not permitted to do IO to be
+// certain.Set the status=kFound and value_found=false to let the caller know
+// that key may exist but is not there in memory
 static void MarkKeyMayExist(void* arg) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   s->state = kFound;
+  if (s->value_found != nullptr) {
+    *(s->value_found) = false;
+  }
 }
 
 static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
@@ -339,7 +344,8 @@ void Version::Get(const ReadOptions& options,
                   Status *status,
                   GetStats* stats,
                   const Options& db_options,
-                  const bool no_io) {
+                  const bool no_io,
+                  bool* value_found) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -355,6 +361,7 @@ void Version::Get(const ReadOptions& options,
   saver.state = status->ok()? kNotFound : kMerge;
   saver.ucmp = ucmp;
   saver.user_key = user_key;
+  saver.value_found = value_found;
   saver.value = value;
   saver.merge_operator = merge_operator;
   saver.logger = logger.get();

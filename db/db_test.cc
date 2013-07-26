@@ -772,34 +772,41 @@ TEST(DBTest, GetEncountersEmptyLevel) {
   } while (ChangeOptions());
 }
 
-// KeyMayExist-API returns false if memtable(s) and in-memory bloom-filters can
-// guarantee that the key doesn't exist in the db, else true. This can lead to
-// a few false positives, but not false negatives. To make test deterministic,
-// use a much larger number of bits per key-20 than bits in the key, so
-// that false positives are eliminated
+// KeyMayExist can lead to a few false positives, but not false negatives.
+// To make test deterministic, use a much larger number of bits per key-20 than
+// bits in the key, so that false positives are eliminated
 TEST(DBTest, KeyMayExist) {
   do {
+    ReadOptions ropts;
+    std::string value;
     Options options = CurrentOptions();
     options.filter_policy = NewBloomFilterPolicy(20);
     Reopen(&options);
 
-    ASSERT_TRUE(!db_->KeyMayExist("a"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
 
     ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
-    ASSERT_TRUE(db_->KeyMayExist("a"));
+    bool value_found = false;
+    ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
+    ASSERT_TRUE(value_found);
+    ASSERT_EQ("b", value);
 
     dbfull()->Flush(FlushOptions());
-    ASSERT_TRUE(db_->KeyMayExist("a"));
+    value.clear();
+    value_found = false;
+    ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
+    ASSERT_TRUE(value_found);
+    ASSERT_EQ("b", value);
 
     ASSERT_OK(db_->Delete(WriteOptions(), "a"));
-    ASSERT_TRUE(!db_->KeyMayExist("a"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
 
     dbfull()->Flush(FlushOptions());
     dbfull()->CompactRange(nullptr, nullptr);
-    ASSERT_TRUE(!db_->KeyMayExist("a"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "c"));
-    ASSERT_TRUE(!db_->KeyMayExist("c"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "c", &value));
 
     delete options.filter_policy;
   } while (ChangeOptions());
@@ -3045,7 +3052,13 @@ class ModelDB: public DB {
                           Status::NotSupported("Not implemented."));
     return s;
   }
-  virtual bool KeyMayExist(const Slice& key) {
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           const Slice& key,
+                           std::string* value,
+                           bool* value_found = nullptr) {
+    if (value_found != nullptr) {
+      *value_found = false;
+    }
     return true; // Not Supported directly
   }
   virtual Iterator* NewIterator(const ReadOptions& options) {

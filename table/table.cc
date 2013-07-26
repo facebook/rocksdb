@@ -235,7 +235,8 @@ Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
                              const Slice& index_value,
                              bool* didIO,
-                             bool for_compaction) {
+                             bool for_compaction,
+                             const bool no_io) {
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache.get();
   std::shared_ptr<Statistics> statistics = table->rep_->options.statistics;
@@ -264,6 +265,8 @@ Iterator* Table::BlockReader(void* arg,
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
 
         RecordTick(statistics, BLOCK_CACHE_HIT);
+      } else if (no_io) {
+        return nullptr; // Did not find in block_cache and can't do IO
       } else {
         Histograms histogram = for_compaction ?
           READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
@@ -286,7 +289,9 @@ Iterator* Table::BlockReader(void* arg,
 
         RecordTick(statistics, BLOCK_CACHE_MISS);
       }
-    } else {
+    } else if (no_io) {
+      return nullptr; // Could not read from block_cache and can't do IO
+    }else {
       s = ReadBlock(table->rep_->file.get(), options, handle, &block, didIO);
     }
   }
@@ -340,16 +345,17 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
       // cross one data block, we should be fine.
       RecordTick(rep_->options.statistics, BLOOM_FILTER_USEFUL);
       break;
-    } else if (no_io) {
-        // Update Saver.state to Found because we are only looking for whether
-        // bloom-filter can guarantee the key is not there when "no_io"
-        (*mark_key_may_exist)(arg);
-        done = true;
     } else {
       bool didIO = false;
       Iterator* block_iter = BlockReader(this, options, iiter->value(),
-                                         &didIO);
+                                         &didIO, no_io);
 
+      if (no_io && !block_iter) { // couldn't get block from block_cache
+        // Update Saver.state to Found because we are only looking for whether
+        // we can guarantee the key is not there when "no_io" is set
+        (*mark_key_may_exist)(arg);
+        break;
+      }
       for (block_iter->Seek(k); block_iter->Valid(); block_iter->Next()) {
         if (!(*saver)(arg, block_iter->key(), block_iter->value(), didIO)) {
           done = true;

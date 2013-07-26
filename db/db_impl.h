@@ -50,9 +50,14 @@ class DBImpl : public DB {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values);
 
-  // Returns false if key can't exist- based on memtable, immutable-memtable and
-  // bloom-filters; true otherwise. No IO is performed
-  virtual bool KeyMayExist(const Slice& key);
+  // Returns false if key doesn't exist in the database and true if it may.
+  // If value_found is not passed in as null, then return the value if found in
+  // memory. On return, if value was found, then value_found will be set to true
+  // , otherwise false.
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           const Slice& key,
+                           std::string* value,
+                           bool* value_found = nullptr);
   virtual Iterator* NewIterator(const ReadOptions&);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
@@ -103,15 +108,6 @@ class DBImpl : public DB {
 
   // Trigger's a background call for testing.
   void TEST_PurgeObsoleteteWAL();
-
-  // KeyMayExist's internal function, but can be called internally from rocksdb
-  // to check memtable from sequence_number=read_from_seq. This is useful to
-  // check presence of key in db when key's existence is to be also checked in
-  // an incompletely written WriteBatch in memtable. eg. Database doesn't have
-  // key A and WriteBatch=[PutA,B; DelA]. A KeyMayExist called from DelA also
-  // needs to check itself for any PutA to be sure to not drop the delete.
-  bool KeyMayExistImpl(const Slice& key,
-                       const SequenceNumber read_from_seq);
 
  protected:
   Env* const env_;
@@ -415,11 +411,13 @@ class DBImpl : public DB {
     std::vector<SequenceNumber>& snapshots,
     SequenceNumber* prev_snapshot);
 
-  // Function that Get and KeyMayExistImpl call with no_io true or false
+  // Function that Get and KeyMayExist call with no_io true or false
+  // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options,
                  const Slice& key,
                  std::string* value,
-                 const bool no_io = false);
+                 const bool no_io = false,
+                 bool* value_found = nullptr);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

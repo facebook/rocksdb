@@ -75,7 +75,7 @@ class Version {
   };
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
            Status* status, GetStats* stats,  const Options& db_option,
-           const bool no_io = false);
+           const bool no_io = false, bool* value_found = nullptr);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.

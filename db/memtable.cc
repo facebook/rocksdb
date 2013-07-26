@@ -130,7 +130,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-              const Options& options, const bool check_presence_only) {
+                  const Options& options) {
   Slice memkey = key.memtable_key();
   std::shared_ptr<MemTableRep::Iterator> iter(table_.get()->GetIterator());
   iter->Seek(memkey.data());
@@ -174,10 +174,6 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           return true;
         }
         case kTypeMerge: {
-          if (check_presence_only) {
-            *s = Status::OK();
-            return true;
-          }
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
           if (merge_in_progress) {
             merge_operator->Merge(key.user_key(), &v, operand,

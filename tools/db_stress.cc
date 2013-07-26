@@ -180,7 +180,7 @@ static uint32_t FLAGS_log2_keys_per_lock = 2; // implies 2^2 keys per lock
 // Percentage of times we want to purge redundant keys in memory before flushing
 static uint32_t FLAGS_purge_redundant_percent = 50;
 
-// On true, deletes use bloom-filter and drop the delete if key not present
+// On true, deletes use KeyMayExist to drop the delete if key not present
 static bool FLAGS_filter_deletes = false;
 
 // Level0 compaction start trigger
