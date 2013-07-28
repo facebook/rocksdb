@@ -65,6 +65,7 @@ class DBIter: public Iterator {
         current_entry_is_merged_(false),
         statistics_(options.statistics) {
     RecordTick(statistics_, NO_ITERATORS, 1);
+    max_skip_ = options.max_sequential_skip_in_iterations;
   }
   virtual ~DBIter() {
     RecordTick(statistics_, NO_ITERATORS, -1);
@@ -129,6 +130,7 @@ class DBIter: public Iterator {
   bool valid_;
   bool current_entry_is_merged_;
   std::shared_ptr<Statistics> statistics_;
+  uint64_t max_skip_;
 
   // No copying allowed
   DBIter(const DBIter&);
@@ -188,12 +190,13 @@ void DBIter::FindNextUserEntry(bool skipping) {
   assert(iter_->Valid());
   assert(direction_ == kForward);
   current_entry_is_merged_ = false;
+  uint64_t num_skipped = 0;
   do {
     ParsedInternalKey ikey;
     if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
       if (skipping &&
           user_comparator_->Compare(ikey.user_key, saved_key_) <= 0) {
-        // skip this entry
+        num_skipped++; // skip this entry
       } else {
         skipping = false;
         switch (ikey.type) {
@@ -202,6 +205,7 @@ void DBIter::FindNextUserEntry(bool skipping) {
             // they are hidden by this deletion.
             SaveKey(ikey.user_key, &saved_key_);
             skipping = true;
+            num_skipped = 0;
             break;
           case kTypeValue:
             valid_ = true;
@@ -220,7 +224,20 @@ void DBIter::FindNextUserEntry(bool skipping) {
         }
       }
     }
-    iter_->Next();
+    // If we have sequentially iterated via numerous keys and still not
+    // found the next user-key, then it is better to seek so that we can
+    // avoid too many key comparisons. We seek to the last occurence of
+    // our current key by looking for sequence number 0.
+    if (skipping && num_skipped > max_skip_) {
+      num_skipped = 0;
+      std::string last_key;
+      AppendInternalKey(&last_key,
+        ParsedInternalKey(Slice(saved_key_), 0, kValueTypeForSeek));
+      iter_->Seek(last_key);
+      RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
+    } else {
+      iter_->Next();
+    }
   } while (iter_->Valid());
   valid_ = false;
 }
@@ -342,6 +359,7 @@ void DBIter::Prev() {
 
 void DBIter::FindPrevUserEntry() {
   assert(direction_ == kReverse);
+  uint64_t num_skipped = 0;
 
   ValueType value_type = kTypeDeletion;
   if (iter_->Valid()) {
@@ -367,7 +385,22 @@ void DBIter::FindPrevUserEntry() {
           saved_value_.assign(raw_value.data(), raw_value.size());
         }
       }
-      iter_->Prev();
+      num_skipped++;
+      // If we have sequentially iterated via numerous keys and still not
+      // found the prev user-key, then it is better to seek so that we can
+      // avoid too many key comparisons. We seek to the first occurence of
+      // our current key by looking for max sequence number.
+      if (num_skipped > max_skip_) {
+        num_skipped = 0;
+        std::string last_key;
+        AppendInternalKey(&last_key,
+          ParsedInternalKey(Slice(saved_key_), kMaxSequenceNumber,
+                            kValueTypeForSeek));
+        iter_->Seek(last_key);
+        RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
+      } else {
+        iter_->Prev();
+      }
     } while (iter_->Valid());
   }
 

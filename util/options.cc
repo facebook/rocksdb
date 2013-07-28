@@ -81,11 +81,11 @@ Options::Options()
       bytes_per_sync(0),
       compaction_style(kCompactionStyleLevel),
       filter_deletes(false),
+      max_sequential_skip_in_iterations(8),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
       compaction_filter_factory(
           std::shared_ptr<CompactionFilterFactory>(
             new DefaultCompactionFilterFactory())) {
-
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -174,6 +174,8 @@ Options::Dump(Logger* log) const
       Log(log,"Options.max_bytes_for_level_multiplier_addtl[%d]: %d",
           i, max_bytes_for_level_multiplier_additional[i]);
     }
+    Log(log,"      Options.max_sequential_skip_in_iterations: %ld",
+        max_sequential_skip_in_iterations);
     Log(log,"             Options.expanded_compaction_factor: %d",
         expanded_compaction_factor);
     Log(log,"               Options.source_compaction_factor: %d",

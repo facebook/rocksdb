@@ -69,6 +69,7 @@ class AtomicCounter {
     count_ = 0;
   }
 };
+
 }
 
 // Special Env used to delay background operations
@@ -1131,6 +1132,95 @@ TEST(DBTest, IterMulti) {
 
     delete iter;
   } while (ChangeCompactOptions());
+}
+
+// Check that we can skip over a run of user keys
+// by using reseek rather than sequential scan
+TEST(DBTest, IterReseek) {
+  Options options = CurrentOptions();
+  options.max_sequential_skip_in_iterations = 3;
+  options.create_if_missing = true;
+  options.statistics = leveldb::CreateDBStatistics();
+  DestroyAndReopen(&options);
+
+  // insert two keys with same userkey and verify that
+  // reseek is not invoked. For each of these test cases,
+  // verify that we can find the next key "b".
+  ASSERT_OK(Put("a",  "one"));
+  ASSERT_OK(Put("a",  "two"));
+  ASSERT_OK(Put("b",  "bone"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  iter->SeekToFirst();
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(IterStatus(iter), "a->two");
+  iter->Next();
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(IterStatus(iter), "b->bone");
+  delete iter;
+
+  // insert a total of three keys with same userkey and verify
+  // that reseek is still not invoked.
+  ASSERT_OK(Put("a",  "three"));
+  iter = db_->NewIterator(ReadOptions());
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "a->three");
+  iter->Next();
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(IterStatus(iter), "b->bone");
+  delete iter;
+
+  // insert a total of four keys with same userkey and verify
+  // that reseek is invoked.
+  ASSERT_OK(Put("a",  "four"));
+  iter = db_->NewIterator(ReadOptions());
+  iter->SeekToFirst();
+  ASSERT_EQ(IterStatus(iter), "a->four");
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  iter->Next();
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), 1);
+  ASSERT_EQ(IterStatus(iter), "b->bone");
+  delete iter;
+
+  // Testing reverse iterator
+  // At this point, we have three versions of "a" and one version of "b".
+  // The reseek statistics is already at 1.
+  int num_reseeks = (int)options.statistics.get()->getTickerCount(
+                 NUMBER_OF_RESEEKS_IN_ITERATION);
+
+  // Insert another version of b and assert that reseek is not invoked
+  ASSERT_OK(Put("b",  "btwo"));
+  iter = db_->NewIterator(ReadOptions());
+  iter->SeekToLast();
+  ASSERT_EQ(IterStatus(iter), "b->btwo");
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks);
+  iter->Prev();
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks+1);
+  ASSERT_EQ(IterStatus(iter), "a->four");
+  delete iter;
+
+  // insert two more versions of b. This makes a total of 4 versions
+  // of b and 4 versions of a.
+  ASSERT_OK(Put("b",  "bthree"));
+  ASSERT_OK(Put("b",  "bfour"));
+  iter = db_->NewIterator(ReadOptions());
+  iter->SeekToLast();
+  ASSERT_EQ(IterStatus(iter), "b->bfour");
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks + 2);
+  iter->Prev();
+
+  // the previous Prev call should have invoked reseek
+  ASSERT_EQ(options.statistics.get()->getTickerCount(
+            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks + 3);
+  ASSERT_EQ(IterStatus(iter), "a->four");
+  delete iter;
 }
 
 TEST(DBTest, IterSmallAndLargeMix) {

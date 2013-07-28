@@ -532,6 +532,13 @@ struct Options {
   // Default: false
   bool filter_deletes;
 
+  // An iteration->Next() sequentially skips over keys with the same
+  // user-key unless this option is set. This number specifies the number
+  // of keys (with the same userkey) that will be sequentially
+  // skipped before a reseek is issued.
+  // Default: 8
+  uint64_t max_sequential_skip_in_iterations;
+
   // This is a factory that provides MemTableRep objects.
   // Default: a factory that provides a skip-list-based implementation of
   // MemTableRep.

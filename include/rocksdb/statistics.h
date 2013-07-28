@@ -58,6 +58,8 @@ enum Tickers {
   NUMBER_MULTIGET_KEYS_READ = 19,
   NUMBER_MULTIGET_BYTES_READ = 20,
 
+  // Number of deletes records that were not required to be
+  // written to storage because key does not exist
   NUMBER_FILTERED_DELETES = 21,
   NUMBER_MERGE_FAILURES = 22,
   SEQUENCE_NUMBER = 23,
@@ -68,9 +70,15 @@ enum Tickers {
   BLOOM_FILTER_PREFIX_CHECKED = 24,
   BLOOM_FILTER_PREFIX_USEFUL = 25,
 
-  TICKER_ENUM_MAX = 26
+  // Number of times we had to reseek inside an iteration to skip
+  // over large number of keys with same userkey.
+  NUMBER_OF_RESEEKS_IN_ITERATION = 26,
+
+  TICKER_ENUM_MAX = 27
 };
 
+// The order of items listed in  Tickers should be the same as
+// the order listed in TickersNameMap
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { BLOCK_CACHE_MISS, "rocksdb.block.cache.miss" },
   { BLOCK_CACHE_HIT, "rocksdb.block.cache.hit" },
@@ -97,7 +105,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures" },
   { SEQUENCE_NUMBER, "rocksdb.sequence.number" },
   { BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked" },
-  { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" }
+  { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" },
+  { NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration" }
 };
 
 /**
