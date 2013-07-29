@@ -313,6 +313,10 @@ class DBImpl : public DB {
   uint64_t stall_memtable_compaction_;
   uint64_t stall_level0_num_files_;
   std::vector<uint64_t> stall_leveln_slowdown_;
+  uint64_t stall_level0_slowdown_count_;
+  uint64_t stall_memtable_compaction_count_;
+  uint64_t stall_level0_num_files_count_;
+  std::vector<uint64_t> stall_leveln_slowdown_count_;
 
   // Time at which this instance was started.
   const uint64_t started_at_;
