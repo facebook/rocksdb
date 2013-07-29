@@ -2442,12 +2442,12 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
-      uint64_t t1 = env_->NowMicros();
+      uint64_t delayed;
       {
         StopWatch sw(env_, options_.statistics, STALL_L0_SLOWDOWN_COUNT);
         env_->SleepForMicroseconds(1000);
+        delayed = sw.ElapsedMicros();
       }
-      uint64_t delayed = env_->NowMicros() - t1;
       RecordTick(options_.statistics, STALL_L0_SLOWDOWN_MICROS, delayed);
       stall_level0_slowdown_ += delayed;
       stall_level0_slowdown_count_++;
@@ -2469,13 +2469,13 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // ones are still being compacted, so we wait.
       DelayLoggingAndReset();
       Log(options_.info_log, "wait for memtable compaction...\n");
-      uint64_t t1 = env_->NowMicros();
+      uint64_t stall;
       {
         StopWatch sw(env_, options_.statistics,
           STALL_MEMTABLE_COMPACTION_COUNT);
         bg_cv_.Wait();
+        stall = sw.ElapsedMicros();
       }
-      const uint64_t stall = env_->NowMicros() -t1;
       RecordTick(options_.statistics, STALL_MEMTABLE_COMPACTION_MICROS, stall);
       stall_memtable_compaction_ += stall;
       stall_memtable_compaction_count_++;
@@ -2483,13 +2483,13 @@ Status DBImpl::MakeRoomForWrite(bool force) {
                options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
       DelayLoggingAndReset();
-      uint64_t t1 = env_->NowMicros();
       Log(options_.info_log, "wait for fewer level0 files...\n");
+      uint64_t stall;
       {
         StopWatch sw(env_, options_.statistics, STALL_L0_NUM_FILES_COUNT);
         bg_cv_.Wait();
+        stall = sw.ElapsedMicros();
       }
-      const uint64_t stall = env_->NowMicros() - t1;
       RecordTick(options_.statistics, STALL_L0_NUM_FILES_MICROS, stall);
       stall_level0_num_files_ += stall;
       stall_level0_num_files_count_++;
@@ -2500,12 +2500,12 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // Delay a write when the compaction score for any level is too large.
       int max_level = versions_->MaxCompactionScoreLevel();
       mutex_.Unlock();
-      uint64_t t1 = env_->NowMicros();
+      uint64_t delayed;
       {
         StopWatch sw(env_, options_.statistics, RATE_LIMIT_DELAY_COUNT);
         env_->SleepForMicroseconds(1000);
+        delayed = sw.ElapsedMicros();
       }
-      uint64_t delayed = env_->NowMicros() - t1;
       stall_leveln_slowdown_[max_level] += delayed;
       stall_leveln_slowdown_count_[max_level]++;
       // Make sure the following value doesn't round to zero.
