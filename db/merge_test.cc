@@ -9,6 +9,7 @@
 #include "leveldb/merge_operator.h"
 #include "db/dbformat.h"
 #include "utilities/merge_operators.h"
+#include "util/testharness.h"
 
 using namespace std;
 using namespace leveldb;
@@ -20,7 +21,7 @@ std::shared_ptr<DB> OpenDb() {
   Options options;
   options.create_if_missing = true;
   options.merge_operator = mergeOperator.get();
-  Status s = DB::Open(options, "/tmp/testdb", &db);
+  Status s = DB::Open(options, test::TmpDir() + "/merge_testdb", &db);
   if (!s.ok()) {
     cerr << s.ToString() << endl;
     assert(false);
@@ -45,7 +46,7 @@ class Counters {
   uint64_t default_;
 
  public:
-  Counters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
+  explicit Counters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
       : db_(db),
         put_option_(),
         get_option_(),
@@ -143,7 +144,7 @@ class MergeBasedCounters : public Counters {
   WriteOptions merge_option_; // for merge
 
  public:
-  MergeBasedCounters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
+  explicit MergeBasedCounters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
       : Counters(db, defaultCount),
         merge_option_() {
   }
