@@ -1,5 +1,7 @@
 rocksdb: A persistent key-value store for flash storage
-Authors: The Facebook Database Engineering Team
+Authors: * The Facebook Database Engineering Team
+         * Build on earlier work on leveldb by Sanjay Ghemawat 
+           (sanjay@google.com) and Jeff Dean (jeff@google.com)
 
 This code is a library that forms the core building block for a fast
 key value server, especially suited for storing data on flash drives.
@@ -56,6 +58,25 @@ include/env.h
     Abstraction of the OS environment.  A posix implementation of
     this interface is in util/env_posix.cc
 
-include/table.h
 include/table_builder.h
     Lower-level modules that most clients probably won't use directly
+
+include/cache.h
+    An API for the block cache.
+
+include/compaction_filter.h
+    An API for a application filter invoked on every compaction.
+
+include/filter_policy.h
+    An API for configuring a bloom filter.
+
+include/memtablerep.h
+    An API for implementing a memtable.
+
+include/statistics.h
+    An API to retrieve various database statistics.
+
+include/transaction_log_iterator.h
+    An API to retrieve transaction logs from a database.
+
+
