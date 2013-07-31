@@ -11,8 +11,8 @@
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "db/version_set.h"
-#include "util/arena.h"
 #include "leveldb/memtablerep.h"
+#include "util/arena_impl.h"
 
 namespace leveldb {
 
@@ -29,8 +29,11 @@ class MemTable {
 
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
-  explicit MemTable(const InternalKeyComparator& comparator,
-    std::shared_ptr<MemTableRepFactory> table_factory, int numlevel = 7);
+  explicit MemTable(
+    const InternalKeyComparator& comparator,
+    std::shared_ptr<MemTableRepFactory> table_factory,
+    int numlevel = 7,
+    const Options& options = Options());
 
   // Increase reference count.
   void Ref() { ++refs_; }
@@ -101,7 +104,7 @@ class MemTable {
 
   KeyComparator comparator_;
   int refs_;
-  Arena arena_;
+  ArenaImpl arena_impl_;
   shared_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage

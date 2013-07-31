@@ -2,37 +2,52 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_UTIL_ARENA_H_
-#define STORAGE_LEVELDB_UTIL_ARENA_H_
+// ArenaImpl is an implementation of Arena class. For a request of small size,
+// it allocates a block with pre-defined block size. For a request of big
+// size, it uses malloc to directly get the requested size.
+
+#ifndef STORAGE_LEVELDB_UTIL_ARENA_IMPL_H_
+#define STORAGE_LEVELDB_UTIL_ARENA_IMPL_H_
 
 #include <cstddef>
 #include <vector>
 #include <assert.h>
 #include <stdint.h>
+#include "leveldb/arena.h"
 
 namespace leveldb {
 
-class Arena {
+class ArenaImpl : public Arena {
  public:
-  Arena();
-  ~Arena();
+  explicit ArenaImpl(size_t block_size = kMinBlockSize);
+  virtual ~ArenaImpl();
 
-  // Return a pointer to a newly allocated memory block of "bytes" bytes.
-  char* Allocate(size_t bytes);
+  virtual char* Allocate(size_t bytes);
 
-  // Allocate memory with the normal alignment guarantees provided by malloc
-  char* AllocateAligned(size_t bytes);
+  virtual char* AllocateAligned(size_t bytes);
 
   // Returns an estimate of the total memory usage of data allocated
   // by the arena (including space allocated but not yet used for user
   // allocations).
-  size_t MemoryUsage() const {
+  //
+  // TODO: Do we need to exclude space allocated but not used?
+  virtual const size_t ApproximateMemoryUsage() {
     return blocks_memory_ + blocks_.capacity() * sizeof(char*);
+  }
+
+  virtual const size_t MemoryAllocatedBytes() {
+    return blocks_memory_;
   }
 
  private:
   char* AllocateFallback(size_t bytes);
   char* AllocateNewBlock(size_t block_bytes);
+
+  static const size_t kMinBlockSize = 4096;
+  static const size_t kMaxBlockSize = 2 << 30;
+
+  // Number of bytes allocated in one block
+  size_t block_size_;
 
   // Allocation state
   char* alloc_ptr_;
@@ -45,11 +60,11 @@ class Arena {
   size_t blocks_memory_;
 
   // No copying allowed
-  Arena(const Arena&);
-  void operator=(const Arena&);
+  ArenaImpl(const ArenaImpl&);
+  void operator=(const ArenaImpl&);
 };
 
-inline char* Arena::Allocate(size_t bytes) {
+inline char* ArenaImpl::Allocate(size_t bytes) {
   // The semantics of what to return are a bit messy if we allow
   // 0-byte allocations, so we disallow them here (we don't need
   // them for our internal use).
@@ -65,4 +80,4 @@ inline char* Arena::Allocate(size_t bytes) {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_UTIL_ARENA_H_
+#endif  // STORAGE_LEVELDB_UTIL_ARENA_IMPL_H_

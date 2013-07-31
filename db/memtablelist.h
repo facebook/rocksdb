@@ -8,7 +8,6 @@
 #include "leveldb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
-#include "util/arena.h"
 #include "memtable.h"
 
 namespace leveldb {

@@ -10,11 +10,11 @@ namespace leveldb {
 class Arena;
 
 class SkipListRep : public MemTableRep {
-  Arena arena_;
   SkipList<const char*, MemTableRep::KeyComparator&> skip_list_;
 public:
-  explicit SkipListRep(MemTableRep::KeyComparator& compare)
-    : skip_list_(compare, &arena_) { }
+  explicit SkipListRep(MemTableRep::KeyComparator& compare, Arena* arena)
+    : skip_list_(compare, arena) {
+}
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
@@ -25,10 +25,6 @@ public:
   // Returns true iff an entry that compares equal to key is in the list.
   virtual bool Contains(const char* key) const {
     return skip_list_.Contains(key);
-  }
-
-  virtual size_t ApproximateMemoryUsage() {
-    return arena_.MemoryUsage();
   }
 
   virtual ~SkipListRep() { }
@@ -96,8 +92,8 @@ public:
 class SkipListFactory : public MemTableRepFactory {
 public:
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep (
-    MemTableRep::KeyComparator& compare) {
-    return std::shared_ptr<MemTableRep>(new SkipListRep(compare));
+    MemTableRep::KeyComparator& compare, Arena* arena) {
+      return std::shared_ptr<MemTableRep>(new SkipListRep(compare, arena));
   }
 };
 

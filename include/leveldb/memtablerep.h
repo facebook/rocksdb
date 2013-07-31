@@ -13,6 +13,7 @@
 #define STORAGE_LEVELDB_DB_TABLE_H_
 
 #include <memory>
+#include "leveldb/arena.h"
 
 namespace leveldb {
 
@@ -34,10 +35,6 @@ class MemTableRep {
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;
-
-  // Returns an estimate of the number of bytes of data in use by this
-  // data structure.
-  virtual size_t ApproximateMemoryUsage() = 0;
 
   virtual ~MemTableRep() { }
 
@@ -83,7 +80,7 @@ class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() { };
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&) = 0;
+    MemTableRep::KeyComparator&, Arena* arena) = 0;
 };
 
 }

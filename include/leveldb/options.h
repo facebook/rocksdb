@@ -375,6 +375,13 @@ struct Options {
   // Number of shards used for table cache.
   int table_cache_numshardbits;
 
+  // size of one block in arena memory allocation.
+  // If <= 0, a proper value is automatically calculated (usually 1/10 of
+  // writer_buffer_size).
+  //
+  // Default: 0
+  size_t arena_block_size;
+
   // Create an Options object with default values for all fields.
   Options();
 

@@ -128,6 +128,12 @@ Options SanitizeOptions(const std::string& dbname,
                                                  ((size_t)64)<<30);
   ClipToRange(&result.block_size,                1<<10,  4<<20);
 
+  // if user sets arena_block_size, we trust user to use this value. Otherwise,
+  // calculate a proper value from writer_buffer_size;
+  if (result.arena_block_size <= 0) {
+    result.arena_block_size = result.write_buffer_size / 10;
+  }
+
   result.min_write_buffer_number_to_merge = std::min(
     result.min_write_buffer_number_to_merge, result.max_write_buffer_number-1);
   if (result.info_log == nullptr) {
@@ -164,8 +170,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
       mem_rep_factory_(options_.memtable_factory),
-      mem_(new MemTable(internal_comparator_,
-        mem_rep_factory_, NumberLevels())),
+      mem_(new MemTable(internal_comparator_, mem_rep_factory_,
+        NumberLevels(), options_)),
       logfile_number_(0),
       tmp_batch_(),
       bg_compaction_scheduled_(0),
@@ -696,8 +702,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
     WriteBatchInternal::SetContents(&batch, record);
 
     if (mem == nullptr) {
-      mem = new MemTable(internal_comparator_,
-        mem_rep_factory_, NumberLevels());
+      mem = new MemTable(internal_comparator_, mem_rep_factory_,
+        NumberLevels(), options_);
       mem->Ref();
     }
     status = WriteBatchInternal::InsertInto(&batch, mem, &options_);
@@ -2545,8 +2551,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       log_.reset(new log::Writer(std::move(lfile)));
       mem_->SetLogNumber(logfile_number_);
       imm_.Add(mem_);
-      mem_ = new MemTable(internal_comparator_,
-        mem_rep_factory_, NumberLevels());
+      mem_ = new MemTable(internal_comparator_, mem_rep_factory_,
+        NumberLevels(), options_);
       mem_->Ref();
       force = false;   // Do not force another compaction if have room
       MaybeScheduleCompaction();

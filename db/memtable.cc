@@ -24,10 +24,12 @@ static Slice GetLengthPrefixedSlice(const char* data) {
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    std::shared_ptr<MemTableRepFactory> table_factory,
-                   int numlevel)
+                   int numlevel,
+                   const Options& options)
     : comparator_(cmp),
       refs_(0),
-      table_(table_factory->CreateMemTableRep(comparator_)),
+      arena_impl_(options.arena_block_size),
+      table_(table_factory->CreateMemTableRep(comparator_, &arena_impl_)),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
@@ -40,9 +42,7 @@ MemTable::~MemTable() {
 }
 
 size_t MemTable::ApproximateMemoryUsage() {
-  // The first term is the amount of memory used by the memtable and
-  // the second term is the amount of memory used by the backing store
-  return arena_.MemoryUsage() + table_->ApproximateMemoryUsage();
+  return arena_impl_.ApproximateMemoryUsage();
 }
 
 int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)
@@ -111,7 +111,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   const size_t encoded_len =
       VarintLength(internal_key_size) + internal_key_size +
       VarintLength(val_size) + val_size;
-  char* buf = arena_.Allocate(encoded_len);
+  char* buf = arena_impl_.Allocate(encoded_len);
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
   p += key_size;
