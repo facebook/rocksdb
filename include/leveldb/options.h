@@ -219,9 +219,9 @@ struct Options {
   // level-0 compaction will not be triggered by number of files at all.
   int level0_file_num_compaction_trigger;
 
-  // Soft limit on number of level-0 files. We slow down writes at this point.
-  // A value <0 means that no writing slow down will be triggered by number
-  // of files in level-0.
+  // Soft limit on number of level-0 files. We start slowing down writes at this
+  // point. A value <0 means that no writing slow down will be triggered by
+  // number of files in level-0.
   int level0_slowdown_writes_trigger;
 
   // Maximum number of level-0 files.  We stop writes at this point.

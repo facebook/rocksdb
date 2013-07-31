@@ -2421,6 +2421,40 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   return result;
 }
 
+// This function computes the amount of time in microseconds by which a write
+// should be delayed based on the number of level-0 files according to the
+// following formula:
+// if num_level_files < level0_slowdown_writes_trigger, return 0;
+// if num_level_files >= level0_stop_writes_trigger, return 1000;
+// otherwise, let r = (num_level_files - level0_slowdown) /
+//                    (level0_stop - level0_slowdown)
+//  and return r^2 * 1000.
+// The goal of this formula is to gradually increase the rate at which writes
+// are slowed. We also tried linear delay (r * 1000), but it seemed to do
+// slightly worse. There is no other particular reason for choosing quadratic.
+uint64_t DBImpl::SlowdownAmount(int num_level0_files) {
+  uint64_t delay;
+  int stop_trigger = options_.level0_stop_writes_trigger;
+  int slowdown_trigger = options_.level0_slowdown_writes_trigger;
+  if (num_level0_files >= stop_trigger) {
+    delay = 1000;
+  }
+  else if (num_level0_files < slowdown_trigger) {
+    delay = 0;
+  }
+  else {
+    // If we are here, we know that:
+    //   slowdown_trigger <= num_level0_files < stop_trigger
+    // since the previous two conditions are false.
+    float how_much =
+      (float) (num_level0_files - slowdown_trigger) /
+              (stop_trigger - slowdown_trigger);
+    delay = how_much * how_much * 1000;
+  }
+  assert(delay <= 1000);
+  return delay;
+}
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::MakeRoomForWrite(bool force) {
@@ -2444,14 +2478,14 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
-      // individual write by 1ms to reduce latency variance.  Also,
+      // individual write by 0-1ms to reduce latency variance.  Also,
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
       uint64_t delayed;
       {
         StopWatch sw(env_, options_.statistics, STALL_L0_SLOWDOWN_COUNT);
-        env_->SleepForMicroseconds(1000);
+        env_->SleepForMicroseconds(SlowdownAmount(versions_->NumLevelFiles(0)));
         delayed = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics, STALL_L0_SLOWDOWN_MICROS, delayed);

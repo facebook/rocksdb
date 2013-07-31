@@ -170,6 +170,7 @@ class DBImpl : public DB {
   Status WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
                                 uint64_t* filenumber);
 
+  uint64_t SlowdownAmount(int num_level0_files);
   Status MakeRoomForWrite(bool force /* compact even if there is room? */);
   WriteBatch* BuildBatchGroup(Writer** last_writer);
 
