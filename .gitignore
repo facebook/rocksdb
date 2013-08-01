@@ -1,13 +1,16 @@
 build_config.mk
 *.a
-*.o
+*.arc
+*.d
 *.dylib*
+*.gcda
+*.gcno
+*.o
 *.so
 *.so.*
 *_test
-*.arc
-*.d
 db_bench
+db_repl_stress
 db_stress
 ldb
 leveldb_server
@@ -15,4 +18,3 @@ leveldb_shell
 manifest_dump
 sst_dump
 util/build_version.cc
-db_repl_stress

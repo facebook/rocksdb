@@ -14,8 +14,8 @@ fi
 # On the production build servers, set data and stat
 # files/directories not in /tmp or else the tempdir cleaning
 # scripts will make you very unhappy.
-DATA_DIR=${DATA_DIR:-$(mktemp --tmpdir -d leveldb_XXXX)}
-STAT_FILE=${STAT_FILE:-$(mktemp --tmpdir -u leveldb_test_stats_XXXX)}
+DATA_DIR=${DATA_DIR:-$(mktemp --tmpdir -d rocksdb_XXXX)}
+STAT_FILE=${STAT_FILE:-$(mktemp --tmpdir -u rocksdb_test_stats_XXXX)}
 
 function cleanup {
   rm -rf $DATA_DIR
@@ -34,7 +34,8 @@ function send_to_ods {
     echo >&2 "ERROR: Key $key doesn't have a value."
     return
   fi
-  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=$key&value=$value"
+  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=$key&value=$value" \
+    --connect-timeout 60
 }
 
 make clean
