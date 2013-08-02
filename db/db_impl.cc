@@ -1498,6 +1498,18 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     if (!status.ok()) {
       m->done = true;
     }
+    // For universal compaction:
+    //   Because universal compaction always happens at level 0, so one
+    //   compaction will pick up all overlapped files. No files will be
+    //   filtered out due to size limit and left for a successive compaction.
+    //   So we can safely conclude the current compaction.
+    //
+    //   Also note that, if we don't stop here, then the current compaction
+    //   writes a new file back to level 0, which will be used in successive
+    //   compaction. Hence the manual compaction will never finish.
+    if (options_.compaction_style == kCompactionStyleUniversal) {
+      m->done = true;
+    }
     if (!m->done) {
       // We only compacted part of the requested range.  Update *m
       // to the range that is left to be compacted.
@@ -2088,7 +2100,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       versions_->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
           (double) stats.micros,
-      compact->compaction->level() + 1,
+      compact->compaction->output_level(),
       stats.files_in_leveln, stats.files_in_levelnp1, stats.files_out_levelnp1,
       stats.bytes_readn / 1048576.0,
       stats.bytes_readnp1 / 1048576.0,

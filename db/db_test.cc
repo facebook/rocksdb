@@ -219,6 +219,7 @@ class DBTest {
     kCompactOnFlush,
     kPerfOptions,
     kDeletesFilterFirst,
+    kUniversalCompaction,
     kEnd
   };
   int option_config_;
@@ -231,6 +232,14 @@ class DBTest {
   DB* db_;
 
   Options last_options_;
+
+  // Skip some options, as they may not be applicable to a specific test.
+  // To add more skip constants, use values 4, 8, 16, etc.
+  enum OptionSkip {
+    kNoSkip = 0,
+    kSkipDeletesFilterFirst = 1,
+    kSkipUniversalCompaction = 2
+  };
 
   DBTest() : option_config_(kDefault),
              merge_operator_(MergeOperators::CreatePutOperator()),
@@ -251,8 +260,19 @@ class DBTest {
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
-  bool ChangeOptions() {
+  bool ChangeOptions(int skip_mask = kNoSkip) {
     option_config_++;
+
+    // skip some options
+    if (skip_mask & kSkipDeletesFilterFirst &&
+        option_config_ == kDeletesFilterFirst) {
+      option_config_++;
+    }
+    if (skip_mask & kSkipUniversalCompaction &&
+        option_config_ == kUniversalCompaction) {
+      option_config_++;
+    }
+
     if (option_config_ >= kEnd) {
       return false;
     } else {
@@ -292,6 +312,9 @@ class DBTest {
         break;
       case kDeletesFilterFirst:
         options.filter_deletes = true;
+        break;
+      case kUniversalCompaction:
+        options.compaction_style = kCompactionStyleUniversal;
         break;
       default:
         break;
@@ -769,7 +792,7 @@ TEST(DBTest, GetEncountersEmptyLevel) {
     env_->SleepForMicroseconds(1000000);
 
     ASSERT_EQ(NumTableFilesAtLevel(0), 1); // XXX
-  } while (ChangeOptions());
+  } while (ChangeOptions(kSkipUniversalCompaction));
 }
 
 // KeyMayExist can lead to a few false positives, but not false negatives.
@@ -1791,7 +1814,7 @@ TEST(DBTest, ApproximateSizes) {
       ASSERT_EQ(NumTableFilesAtLevel(0), 0);
       ASSERT_GT(NumTableFilesAtLevel(1), 0);
     }
-  } while (ChangeOptions());
+  } while (ChangeOptions(kSkipUniversalCompaction));
 }
 
 TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
@@ -1911,7 +1934,7 @@ TEST(DBTest, HiddenValuesAreRemoved) {
     ASSERT_EQ(AllEntriesFor("foo"), "[ tiny ]");
 
     ASSERT_TRUE(Between(Size("", "pastfoo"), 0, 1000));
-  } while (ChangeOptions());
+  } while (ChangeOptions(kSkipUniversalCompaction));
 }
 
 TEST(DBTest, CompactBetweenSnapshots) {
@@ -2065,7 +2088,7 @@ TEST(DBTest, OverlapInLevel0) {
     dbfull()->TEST_CompactMemTable();
     ASSERT_EQ("3", FilesPerLevel());
     ASSERT_EQ("NOT_FOUND", Get("600"));
-  } while (ChangeOptions());
+  } while (ChangeOptions(kSkipUniversalCompaction));
 }
 
 TEST(DBTest, L0_CompactionBug_Issue44_a) {
@@ -3243,9 +3266,6 @@ static bool CompareIterators(int step,
 TEST(DBTest, Randomized) {
   Random rnd(test::RandomSeed());
   do {
-    if (CurrentOptions().filter_deletes) {
-      ChangeOptions(); // DBTest.Randomized not suited for filter_deletes
-    }
     ModelDB model(CurrentOptions());
     const int N = 10000;
     const Snapshot* model_snap = nullptr;
@@ -3308,7 +3328,9 @@ TEST(DBTest, Randomized) {
     }
     if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
     if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
-  } while (ChangeOptions());
+  // TODO (xjin): remove kSkipUniversalCompaction after bug in
+  //              IsBaseLevelForKey() is fixed.
+  } while (ChangeOptions(kSkipDeletesFilterFirst | kSkipUniversalCompaction));
 }
 
 TEST(DBTest, MultiGetSimple) {

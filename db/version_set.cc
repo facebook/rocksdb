@@ -2403,7 +2403,7 @@ Compaction* VersionSet::PickCompaction() {
     if (level != 0 || compactions_in_progress_[0].empty()) {
       if(!ParentRangeInCompaction(&f->smallest, &f->largest, level,
                                   &parent_index)) {
-        c = new Compaction(level, level, MaxFileSizeForLevel(level+1),
+        c = new Compaction(level, level+1, MaxFileSizeForLevel(level+1),
                 MaxGrandParentOverlapBytes(level), NumberLevels(), true);
         c->inputs_[0].push_back(f);
         c->parent_index_ = parent_index;
