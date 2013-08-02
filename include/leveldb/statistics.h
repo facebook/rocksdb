@@ -80,7 +80,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros" },
   { STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros" },
   { STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros" },
-  { RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.dleay.millis" },
+  { RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis" },
   { NO_ITERATORS, "rocksdb.num.iterators" },
   { NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get" },
   { NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read" },
@@ -109,8 +109,13 @@ enum Histograms {
   READ_BLOCK_COMPACTION_MICROS = 9,
   READ_BLOCK_GET_MICROS = 10,
   WRITE_RAW_BLOCK_MICROS = 11,
-  NUM_FILES_IN_SINGLE_COMPACTION = 12,
-  HISTOGRAM_ENUM_MAX = 13
+
+  STALL_L0_SLOWDOWN_COUNT = 12,
+  STALL_MEMTABLE_COMPACTION_COUNT = 13,
+  STALL_L0_NUM_FILES_COUNT = 14,
+  RATE_LIMIT_DELAY_COUNT = 15,
+  NUM_FILES_IN_SINGLE_COMPACTION = 16,
+  HISTOGRAM_ENUM_MAX = 17
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -126,6 +131,10 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
   { READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros" },
   { READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros" },
   { WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros" },
+  { STALL_L0_SLOWDOWN_COUNT, "rocksdb.l0.slowdown.count"},
+  { STALL_MEMTABLE_COMPACTION_COUNT, "rocksdb.memtable.compaction.count"},
+  { STALL_L0_NUM_FILES_COUNT, "rocksdb.num.files.stall.count"},
+  { RATE_LIMIT_DELAY_COUNT, "rocksdb.rate.limit.delay.count"},
   { NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction" }
 };
 

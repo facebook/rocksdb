@@ -6,24 +6,34 @@
 #define STORAGE_LEVELDB_DB_MEMTABLE_H_
 
 #include <string>
+#include <memory>
 #include "leveldb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "db/version_set.h"
-#include "util/arena.h"
+#include "leveldb/memtablerep.h"
+#include "util/arena_impl.h"
 
 namespace leveldb {
 
-class InternalKeyComparator;
 class Mutex;
 class MemTableIterator;
 
 class MemTable {
  public:
+  struct KeyComparator : public MemTableRep::KeyComparator {
+    const InternalKeyComparator comparator;
+    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
+    virtual int operator()(const char* a, const char* b) const;
+  };
+
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
-  explicit MemTable(const InternalKeyComparator& comparator,
-                    int numlevel = 7);
+  explicit MemTable(
+    const InternalKeyComparator& comparator,
+    std::shared_ptr<MemTableRepFactory> table_factory,
+    int numlevel = 7,
+    const Options& options = Options());
 
   // Increase reference count.
   void Ref() { ++refs_; }
@@ -63,13 +73,12 @@ class MemTable {
   // If memtable contains a deletion for key, store a NotFound() error
   // in *status and return true.
   // If memtable contains Merge operation as the most recent entry for a key,
-  //   and if check_presence_only is set, return true with Status::OK,
-  //   else if the merge process does not stop (not reaching a value or delete),
+  //   and the merge process does not stop (not reaching a value or delete),
   //   store the current merged result in value and MergeInProgress in s.
   //   return false
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-          const Options& options, const bool check_presence_only = false);
+          const Options& options);
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
@@ -88,22 +97,14 @@ class MemTable {
 
  private:
   ~MemTable();  // Private since only Unref() should be used to delete it
-
-  struct KeyComparator {
-    const InternalKeyComparator comparator;
-    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
-    int operator()(const char* a, const char* b) const;
-  };
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
   friend class MemTableList;
 
-  typedef SkipList<const char*, KeyComparator> Table;
-
   KeyComparator comparator_;
   int refs_;
-  Arena arena_;
-  Table table_;
+  ArenaImpl arena_impl_;
+  shared_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush

@@ -39,15 +39,19 @@ TableCache::~TableCache() {
 
 Status TableCache::FindTable(const EnvOptions& toptions,
                              uint64_t file_number, uint64_t file_size,
-                             Cache::Handle** handle, bool* tableIO) {
+                             Cache::Handle** handle, bool* table_io,
+                             const bool no_io) {
   Status s;
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
   Slice key(buf, sizeof(buf));
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
-    if (tableIO != nullptr) {
-      *tableIO = true;    // we had to do IO from storage
+    if (no_io) { // Dont do IO and return a not-found status
+      return Status::NotFound("Table not found in table_cache, no_io is set");
+    }
+    if (table_io != nullptr) {
+      *table_io = true;    // we had to do IO from storage
     }
     std::string fname = TableFileName(dbname_, file_number);
     unique_ptr<RandomAccessFile> file;
@@ -112,17 +116,21 @@ Status TableCache::Get(const ReadOptions& options,
                        const Slice& k,
                        void* arg,
                        bool (*saver)(void*, const Slice&, const Slice&, bool),
-                       bool* tableIO,
+                       bool* table_io,
                        void (*mark_key_may_exist)(void*),
-                       const bool no_IO) {
+                       const bool no_io) {
   Cache::Handle* handle = nullptr;
   Status s = FindTable(storage_options_, file_number, file_size,
-                       &handle, tableIO);
+                       &handle, table_io, no_io);
   if (s.ok()) {
     Table* t =
       reinterpret_cast<Table*>(cache_->Value(handle));
-    s = t->InternalGet(options, k, arg, saver, mark_key_may_exist, no_IO);
+    s = t->InternalGet(options, k, arg, saver, mark_key_may_exist, no_io);
     cache_->Release(handle);
+  } else if (no_io && s.IsNotFound()) {
+    // Couldnt find Table in cache but treat as kFound if no_io set
+    (*mark_key_may_exist)(arg);
+    return Status::OK();
   }
   return s;
 }

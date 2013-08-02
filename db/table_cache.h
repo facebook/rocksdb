@@ -48,9 +48,9 @@ class TableCache {
              const Slice& k,
              void* arg,
              bool (*handle_result)(void*, const Slice&, const Slice&, bool),
-             bool* tableIO,
+             bool* table_io,
              void (*mark_key_may_exist)(void*) = nullptr,
-             const bool no_IO = false);
+             const bool no_io = false);
 
   // Evict any entry for the specified file number
   void Evict(uint64_t file_number);
@@ -62,9 +62,9 @@ class TableCache {
   const EnvOptions& storage_options_;
   std::shared_ptr<Cache> cache_;
 
-  Status FindTable(const EnvOptions& toptions,
-                   uint64_t file_number, uint64_t file_size, Cache::Handle**,
-                   bool* tableIO = nullptr);
+  Status FindTable(const EnvOptions& toptions, uint64_t file_number,
+                   uint64_t file_size, Cache::Handle**, bool* table_io=nullptr,
+                   const bool no_io = false);
 };
 
 }  // namespace leveldb

@@ -2,27 +2,32 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/arena.h"
-#include <assert.h>
+#include "util/arena_impl.h"
 
 namespace leveldb {
 
-static const int kBlockSize = 4096;
+ArenaImpl::ArenaImpl(size_t block_size) {
+  if (block_size < kMinBlockSize) {
+    block_size_ = kMinBlockSize;
+  } else if (block_size > kMaxBlockSize) {
+    block_size_ = kMaxBlockSize;
+  } else {
+    block_size_ = block_size;
+  }
 
-Arena::Arena() {
   blocks_memory_ = 0;
   alloc_ptr_ = nullptr;  // First allocation will allocate a block
   alloc_bytes_remaining_ = 0;
 }
 
-Arena::~Arena() {
+ArenaImpl::~ArenaImpl() {
   for (size_t i = 0; i < blocks_.size(); i++) {
     delete[] blocks_[i];
   }
 }
 
-char* Arena::AllocateFallback(size_t bytes) {
-  if (bytes > kBlockSize / 4) {
+char* ArenaImpl::AllocateFallback(size_t bytes) {
+  if (bytes > block_size_ / 4) {
     // Object is more than a quarter of our block size.  Allocate it separately
     // to avoid wasting too much space in leftover bytes.
     char* result = AllocateNewBlock(bytes);
@@ -30,8 +35,8 @@ char* Arena::AllocateFallback(size_t bytes) {
   }
 
   // We waste the remaining space in the current block.
-  alloc_ptr_ = AllocateNewBlock(kBlockSize);
-  alloc_bytes_remaining_ = kBlockSize;
+  alloc_ptr_ = AllocateNewBlock(block_size_);
+  alloc_bytes_remaining_ = block_size_;
 
   char* result = alloc_ptr_;
   alloc_ptr_ += bytes;
@@ -39,7 +44,7 @@ char* Arena::AllocateFallback(size_t bytes) {
   return result;
 }
 
-char* Arena::AllocateAligned(size_t bytes) {
+char* ArenaImpl::AllocateAligned(size_t bytes) {
   const int align = sizeof(void*);    // We'll align to pointer size
   assert((align & (align-1)) == 0);   // Pointer size should be a power of 2
   size_t current_mod = reinterpret_cast<uintptr_t>(alloc_ptr_) & (align-1);
@@ -58,7 +63,7 @@ char* Arena::AllocateAligned(size_t bytes) {
   return result;
 }
 
-char* Arena::AllocateNewBlock(size_t block_bytes) {
+char* ArenaImpl::AllocateNewBlock(size_t block_bytes) {
   char* result = new char[block_bytes];
   blocks_memory_ += block_bytes;
   blocks_.push_back(result);

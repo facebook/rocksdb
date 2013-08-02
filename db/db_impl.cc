@@ -129,6 +129,12 @@ Options SanitizeOptions(const std::string& dbname,
                                                  ((size_t)64)<<30);
   ClipToRange(&result.block_size,                1<<10,  4<<20);
 
+  // if user sets arena_block_size, we trust user to use this value. Otherwise,
+  // calculate a proper value from writer_buffer_size;
+  if (result.arena_block_size <= 0) {
+    result.arena_block_size = result.write_buffer_size / 10;
+  }
+
   result.min_write_buffer_number_to_merge = std::min(
     result.min_write_buffer_number_to_merge, result.max_write_buffer_number-1);
   if (result.info_log == nullptr) {
@@ -164,7 +170,9 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
-      mem_(new MemTable(internal_comparator_, NumberLevels())),
+      mem_rep_factory_(options_.memtable_factory),
+      mem_(new MemTable(internal_comparator_, mem_rep_factory_,
+        NumberLevels(), options_)),
       logfile_number_(0),
       tmp_batch_(),
       bg_compaction_scheduled_(0),
@@ -178,20 +186,28 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       stall_level0_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
+      stall_level0_slowdown_count_(0),
+      stall_memtable_compaction_count_(0),
+      stall_level0_num_files_count_(0),
       started_at_(options.env->NowMicros()),
       flush_on_destroy_(false),
       stats_(options.num_levels),
       delayed_writes_(0),
       last_flushed_sequence_(0),
-      storage_options_(options) {
+      storage_options_(options),
+      bg_work_gate_closed_(false),
+      refitting_level_(false) {
 
   mem_->Ref();
 
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   stall_leveln_slowdown_.resize(options.num_levels);
-  for (int i = 0; i < options.num_levels; ++i)
+  stall_leveln_slowdown_count_.resize(options.num_levels);
+  for (int i = 0; i < options.num_levels; ++i) {
     stall_leveln_slowdown_[i] = 0;
+    stall_leveln_slowdown_count_[i] = 0;
+  }
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options_.max_open_files - 10;
@@ -687,10 +703,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
     WriteBatchInternal::SetContents(&batch, record);
 
     if (mem == nullptr) {
-      mem = new MemTable(internal_comparator_, NumberLevels());
+      mem = new MemTable(internal_comparator_, mem_rep_factory_,
+        NumberLevels(), options_);
       mem->Ref();
     }
-    status = WriteBatchInternal::InsertInto(&batch, mem);
+    status = WriteBatchInternal::InsertInto(&batch, mem, &options_);
     MaybeIgnoreError(&status);
     if (!status.ok()) {
       break;
@@ -904,7 +921,8 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
   return s;
 }
 
-void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
+void DBImpl::CompactRange(const Slice* begin, const Slice* end,
+                          bool reduce_level) {
   int max_level_with_files = 1;
   {
     MutexLock l(&mutex_);
@@ -919,6 +937,79 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   for (int level = 0; level < max_level_with_files; level++) {
     TEST_CompactRange(level, begin, end);
   }
+
+  if (reduce_level) {
+    ReFitLevel(max_level_with_files);
+  }
+}
+
+// return the same level if it cannot be moved
+int DBImpl::FindMinimumEmptyLevelFitting(int level) {
+  mutex_.AssertHeld();
+  int minimum_level = level;
+  for (int i = level - 1; i > 0; --i) {
+    // stop if level i is not empty
+    if (versions_->NumLevelFiles(i) > 0) break;
+
+    // stop if level i is too small (cannot fit the level files)
+    if (versions_->MaxBytesForLevel(i) < versions_->NumLevelBytes(level)) break;
+
+    minimum_level = i;
+  }
+  return minimum_level;
+}
+
+void DBImpl::ReFitLevel(int level) {
+  assert(level < NumberLevels());
+
+  MutexLock l(&mutex_);
+
+  // only allow one thread refitting
+  if (refitting_level_) {
+    Log(options_.info_log, "ReFitLevel: another thread is refitting");
+    return;
+  }
+  refitting_level_ = true;
+
+  // wait for all background threads to stop
+  bg_work_gate_closed_ = true;
+  while (bg_compaction_scheduled_ > 0) {
+    Log(options_.info_log,
+        "RefitLevel: waiting for background threads to stop: %d",
+        bg_compaction_scheduled_);
+    bg_cv_.Wait();
+  }
+
+  // move to a smaller level
+  int to_level = FindMinimumEmptyLevelFitting(level);
+
+  assert(to_level <= level);
+
+  if (to_level < level) {
+    Log(options_.info_log, "Before refitting:\n%s",
+        versions_->current()->DebugString().data());
+
+    VersionEdit edit(NumberLevels());
+    for (const auto& f : versions_->current()->files_[level]) {
+      edit.DeleteFile(level, f->number);
+      edit.AddFile(to_level, f->number, f->file_size, f->smallest, f->largest,
+                   f->smallest_seqno, f->largest_seqno);
+    }
+    Log(options_.info_log, "Apply version edit:\n%s",
+        edit.DebugString().data());
+
+    auto status = versions_->LogAndApply(&edit, &mutex_);
+
+    Log(options_.info_log, "LogAndApply: %s\n", status.ToString().data());
+
+    if (status.ok()) {
+      Log(options_.info_log, "After refitting:\n%s",
+          versions_->current()->DebugString().data());
+    }
+  }
+
+  refitting_level_ = false;
+  bg_work_gate_closed_ = false;
 }
 
 int DBImpl::NumberLevels() {
@@ -1242,7 +1333,9 @@ Status DBImpl::TEST_WaitForCompact() {
 
 void DBImpl::MaybeScheduleCompaction() {
   mutex_.AssertHeld();
-  if (bg_compaction_scheduled_ >= options_.max_background_compactions) {
+  if (bg_work_gate_closed_) {
+    // gate closed for backgrond work
+  } else if (bg_compaction_scheduled_ >= options_.max_background_compactions) {
     // Already scheduled
   } else if (shutting_down_.Acquire_Load()) {
     // DB is being deleted; no more background compactions
@@ -2019,13 +2112,11 @@ Status DBImpl::Get(const ReadOptions& options,
   return GetImpl(options, key, value);
 }
 
-// If no_IO is true, then returns Status::NotFound if key is not in memtable,
-// immutable-memtable and bloom-filters can guarantee that key is not in db,
-// "value" is garbage string if no_IO is true
 Status DBImpl::GetImpl(const ReadOptions& options,
                        const Slice& key,
                        std::string* value,
-                       const bool no_IO) {
+                       const bool no_io,
+                       bool* value_found) {
   Status s;
 
   StopWatch sw(env_, options_.statistics, DB_GET);
@@ -2054,12 +2145,12 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // value will contain the current merge operand in the latter case.
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, options_, no_IO)) {
+  if (mem->Get(lkey, value, &s, options_)) {
     // Done
-  } else if (imm.Get(lkey, value, &s, options_, no_IO)) {
+  } else if (imm.Get(lkey, value, &s, options_)) {
     // Done
   } else {
-    current->Get(options, lkey, value, &s, &stats, options_, no_IO);
+    current->Get(options, lkey, value, &s, &stats, options_, no_io,value_found);
     have_stat_update = true;
   }
   mutex_.Lock();
@@ -2149,10 +2240,14 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   return statList;
 }
 
-bool DBImpl::KeyMayExist(const Slice& key) {
-  std::string value;
-  const Status s = GetImpl(ReadOptions(), key, &value, true);
-  return !s.IsNotFound();
+bool DBImpl::KeyMayExist(const ReadOptions& options,
+                         const Slice& key,
+                         std::string* value,
+                         bool* value_found) {
+  if (value_found != nullptr) {
+    *value_found = true; // falsify later if key-may-exist but can't fetch value
+  }
+  return GetImpl(options, key, value, true, value_found).ok();
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
@@ -2190,10 +2285,6 @@ Status DBImpl::Merge(const WriteOptions& o, const Slice& key,
 }
 
 Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
-  if (options_.deletes_check_filter_first && !KeyMayExist(key)) {
-    RecordTick(options_.statistics, NUMBER_FILTERED_DELETES);
-    return Status::OK();
-  }
   return DB::Delete(options, key);
 }
 
@@ -2252,7 +2343,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         }
       }
       if (status.ok()) {
-        status = WriteBatchInternal::InsertInto(updates, mem_);
+        status = WriteBatchInternal::InsertInto(updates, mem_, &options_, this,
+                                                options_.filter_deletes);
         if (!status.ok()) {
           // Panic for in-memory corruptions
           // Note that existing logic was not sound. Any partial failure writing
@@ -2341,6 +2433,40 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   return result;
 }
 
+// This function computes the amount of time in microseconds by which a write
+// should be delayed based on the number of level-0 files according to the
+// following formula:
+// if num_level_files < level0_slowdown_writes_trigger, return 0;
+// if num_level_files >= level0_stop_writes_trigger, return 1000;
+// otherwise, let r = (num_level_files - level0_slowdown) /
+//                    (level0_stop - level0_slowdown)
+//  and return r^2 * 1000.
+// The goal of this formula is to gradually increase the rate at which writes
+// are slowed. We also tried linear delay (r * 1000), but it seemed to do
+// slightly worse. There is no other particular reason for choosing quadratic.
+uint64_t DBImpl::SlowdownAmount(int num_level0_files) {
+  uint64_t delay;
+  int stop_trigger = options_.level0_stop_writes_trigger;
+  int slowdown_trigger = options_.level0_slowdown_writes_trigger;
+  if (num_level0_files >= stop_trigger) {
+    delay = 1000;
+  }
+  else if (num_level0_files < slowdown_trigger) {
+    delay = 0;
+  }
+  else {
+    // If we are here, we know that:
+    //   slowdown_trigger <= num_level0_files < stop_trigger
+    // since the previous two conditions are false.
+    float how_much =
+      (float) (num_level0_files - slowdown_trigger) /
+              (stop_trigger - slowdown_trigger);
+    delay = how_much * how_much * 1000;
+  }
+  assert(delay <= 1000);
+  return delay;
+}
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::MakeRoomForWrite(bool force) {
@@ -2364,15 +2490,19 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
-      // individual write by 1ms to reduce latency variance.  Also,
+      // individual write by 0-1ms to reduce latency variance.  Also,
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
-      uint64_t t1 = env_->NowMicros();
-      env_->SleepForMicroseconds(1000);
-      uint64_t delayed = env_->NowMicros() - t1;
+      uint64_t delayed;
+      {
+        StopWatch sw(env_, options_.statistics, STALL_L0_SLOWDOWN_COUNT);
+        env_->SleepForMicroseconds(SlowdownAmount(versions_->NumLevelFiles(0)));
+        delayed = sw.ElapsedMicros();
+      }
       RecordTick(options_.statistics, STALL_L0_SLOWDOWN_MICROS, delayed);
       stall_level0_slowdown_ += delayed;
+      stall_level0_slowdown_count_++;
       allow_delay = false;  // Do not delay a single write more than once
       //Log(options_.info_log,
       //    "delaying write %llu usecs for level0_slowdown_writes_trigger\n",
@@ -2391,21 +2521,30 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // ones are still being compacted, so we wait.
       DelayLoggingAndReset();
       Log(options_.info_log, "wait for memtable compaction...\n");
-      uint64_t t1 = env_->NowMicros();
-      bg_cv_.Wait();
-      const uint64_t stall = env_->NowMicros() -t1;
+      uint64_t stall;
+      {
+        StopWatch sw(env_, options_.statistics,
+          STALL_MEMTABLE_COMPACTION_COUNT);
+        bg_cv_.Wait();
+        stall = sw.ElapsedMicros();
+      }
       RecordTick(options_.statistics, STALL_MEMTABLE_COMPACTION_MICROS, stall);
       stall_memtable_compaction_ += stall;
+      stall_memtable_compaction_count_++;
     } else if (versions_->NumLevelFiles(0) >=
                options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
       DelayLoggingAndReset();
-      uint64_t t1 = env_->NowMicros();
       Log(options_.info_log, "wait for fewer level0 files...\n");
-      bg_cv_.Wait();
-      const uint64_t stall = env_->NowMicros() - t1;
+      uint64_t stall;
+      {
+        StopWatch sw(env_, options_.statistics, STALL_L0_NUM_FILES_COUNT);
+        bg_cv_.Wait();
+        stall = sw.ElapsedMicros();
+      }
       RecordTick(options_.statistics, STALL_L0_NUM_FILES_MICROS, stall);
       stall_level0_num_files_ += stall;
+      stall_level0_num_files_count_++;
     } else if (
         allow_rate_limit_delay &&
         options_.rate_limit > 1.0 &&
@@ -2413,10 +2552,14 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // Delay a write when the compaction score for any level is too large.
       int max_level = versions_->MaxCompactionScoreLevel();
       mutex_.Unlock();
-      uint64_t t1 = env_->NowMicros();
-      env_->SleepForMicroseconds(1000);
-      uint64_t delayed = env_->NowMicros() - t1;
+      uint64_t delayed;
+      {
+        StopWatch sw(env_, options_.statistics, RATE_LIMIT_DELAY_COUNT);
+        env_->SleepForMicroseconds(1000);
+        delayed = sw.ElapsedMicros();
+      }
       stall_leveln_slowdown_[max_level] += delayed;
+      stall_leveln_slowdown_count_[max_level]++;
       // Make sure the following value doesn't round to zero.
       uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
       rate_limit_delay_millis += rate_limit;
@@ -2454,7 +2597,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       log_.reset(new log::Writer(std::move(lfile)));
       mem_->SetLogNumber(logfile_number_);
       imm_.Add(mem_);
-      mem_ = new MemTable(internal_comparator_, NumberLevels());
+      mem_ = new MemTable(internal_comparator_, mem_rep_factory_,
+        NumberLevels(), options_);
       mem_->Ref();
       force = false;   // Do not force another compaction if have room
       MaybeScheduleCompaction();
@@ -2510,6 +2654,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     // Add "+1" to make sure seconds_up is > 0 and avoid NaN later
     double seconds_up = (micros_up + 1) / 1000000.0;
     uint64_t total_slowdown = 0;
+    uint64_t total_slowdown_count = 0;
     uint64_t interval_bytes_written = 0;
     uint64_t interval_bytes_read = 0;
     uint64_t interval_bytes_new = 0;
@@ -2518,8 +2663,8 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     // Pardon the long line but I think it is easier to read this way.
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
-             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall\n"
-             "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
+             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall Stall-cnt\n"
+             "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
              );
     value->append(buf);
     for (int level = 0; level < NumberLevels(); level++) {
@@ -2539,7 +2684,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
 
         snprintf(
             buf, sizeof(buf),
-            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f\n",
+            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f %9lu\n",
             level,
             files,
             versions_->NumLevelBytes(level) / 1048576.0,
@@ -2561,8 +2706,10 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             stats_[level].files_out_levelnp1,
             stats_[level].files_out_levelnp1 - stats_[level].files_in_levelnp1,
             stats_[level].count,
-            stall_leveln_slowdown_[level] / 1000000.0);
+            stall_leveln_slowdown_[level] / 1000000.0,
+            (unsigned long) stall_leveln_slowdown_count_[level]);
         total_slowdown += stall_leveln_slowdown_[level];
+        total_slowdown_count += stall_leveln_slowdown_count_[level];
         value->append(buf);
       }
     }
@@ -2638,6 +2785,15 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             total_slowdown / 1000000.0);
     value->append(buf);
 
+    snprintf(buf, sizeof(buf),
+            "Stalls(count): %lu level0_slowdown, %lu level0_numfiles, "
+            "%lu memtable_compaction, %lu leveln_slowdown\n",
+            (unsigned long) stall_level0_slowdown_count_,
+            (unsigned long) stall_level0_num_files_count_,
+            (unsigned long) stall_memtable_compaction_count_,
+            (unsigned long) total_slowdown_count);
+    value->append(buf);
+
     last_stats_.bytes_read_ = total_bytes_read;
     last_stats_.bytes_written_ = total_bytes_written;
     last_stats_.bytes_new_ = stats_[0].bytes_written;
@@ -2708,8 +2864,7 @@ Status DB::Merge(const WriteOptions& opt, const Slice& key,
 
 DB::~DB() { }
 
-Status DB::Open(const Options& options, const std::string& dbname,
-                DB** dbptr) {
+Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
   EnvOptions soptions;
 

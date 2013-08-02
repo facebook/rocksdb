@@ -338,7 +338,7 @@ static auto FLAGS_bytes_per_sync =
   leveldb::Options().bytes_per_sync;
 
 // On true, deletes use bloom-filter and drop the delete if key not present
-static bool FLAGS_deletes_check_filter_first = false;
+static bool FLAGS_filter_deletes = false;
 
 namespace leveldb {
 
@@ -1128,7 +1128,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
-    options.deletes_check_filter_first = FLAGS_deletes_check_filter_first;
+    options.filter_deletes = FLAGS_filter_deletes;
     if (FLAGS_max_bytes_for_level_multiplier_additional.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional.size() !=
           (unsigned int)FLAGS_num_levels) {
@@ -2246,9 +2246,9 @@ int main(int argc, char** argv) {
       FLAGS_keys_per_multiget = n;
     }  else if (sscanf(argv[i], "--bytes_per_sync=%ld%c", &l, &junk) == 1) {
       FLAGS_bytes_per_sync = l;
-    } else if (sscanf(argv[i], "--deletes_check_filter_first=%d%c", &n, &junk)
+    } else if (sscanf(argv[i], "--filter_deletes=%d%c", &n, &junk)
                == 1 && (n == 0 || n ==1 )) {
-      FLAGS_deletes_check_filter_first = n;
+      FLAGS_filter_deletes = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

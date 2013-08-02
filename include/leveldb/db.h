@@ -104,7 +104,8 @@ class DB {
   //
   // May return some other Status on an error.
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key, std::string* value) = 0;
+                     const Slice& key,
+                     std::string* value) = 0;
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
@@ -121,9 +122,21 @@ class DB {
                                        std::vector<std::string>* values) = 0;
 
   // If the key definitely does not exist in the database, then this method
-  // returns false. Otherwise return true. This check is potentially
-  // lighter-weight than invoking DB::Get(). No IO is performed
-  virtual bool KeyMayExist(const Slice& key) = 0;
+  // returns false, else true. If the caller wants to obtain value when the key
+  // is found in memory, a bool for 'value_found' must be passed. 'value_found'
+  // will be true on return if value has been set properly.
+  // This check is potentially lighter-weight than invoking DB::Get(). One way
+  // to make this lighter weight is to avoid doing any IOs.
+  // Default implementation here returns true and sets 'value_found' to false
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           const Slice& key,
+                           std::string* value,
+                           bool* value_found = nullptr) {
+    if (value_found != nullptr) {
+      *value_found = false;
+    }
+    return true;
+  }
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
@@ -180,7 +193,14 @@ class DB {
   // end==nullptr is treated as a key after all keys in the database.
   // Therefore the following call will compact the entire database:
   //    db->CompactRange(nullptr, nullptr);
-  virtual void CompactRange(const Slice* begin, const Slice* end) = 0;
+  // Note that after the entire database is compacted, all data are pushed
+  // down to the last level containing any data. If the total data size
+  // after compaction is reduced, that level might not be appropriate for
+  // hosting all the files. In this case, client could set reduce_level
+  // to true, to move the files back to the minimum level capable of holding
+  // the data set.
+  virtual void CompactRange(const Slice* begin, const Slice* end,
+                            bool reduce_level = false) = 0;
 
   // Number of levels used for this DB.
   virtual int NumberLevels() = 0;

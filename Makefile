@@ -240,8 +240,8 @@ reduce_levels_test: tools/reduce_levels_test.o $(LIBOBJECTS) $(TESTHARNESS)
 write_batch_test: db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
-merge_test: db/merge_test.o $(LIBOBJECTS)
-	$(CXX) db/merge_test.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 	rm -f $@

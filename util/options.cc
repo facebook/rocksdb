@@ -12,6 +12,7 @@
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
 #include "leveldb/merge_operator.h"
+#include "db/skiplistrep.h"
 
 namespace leveldb {
 
@@ -60,6 +61,7 @@ Options::Options()
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
       table_cache_numshardbits(4),
+      arena_block_size(0),
       disable_auto_compactions(false),
       WAL_ttl_seconds(0),
       manifest_preallocation_size(4 * 1024 * 1024),
@@ -76,7 +78,9 @@ Options::Options()
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       compaction_style(kCompactionStyleLevel),
-      deletes_check_filter_first(false) {
+      filter_deletes(false),
+      memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)) {
+  assert(memtable_factory.get() != nullptr);
 }
 
 static const char* const access_hints[] = {
@@ -172,6 +176,8 @@ Options::Dump(Logger* log) const
         no_block_cache);
     Log(log,"               Options.table_cache_numshardbits: %d",
         table_cache_numshardbits);
+    Log(log,"                       Options.arena_block_size: %ld",
+        arena_block_size);
     Log(log,"    Options.delete_obsolete_files_period_micros: %ld",
         delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",
@@ -210,10 +216,10 @@ Options::Dump(Logger* log) const
         use_adaptive_mutex);
     Log(log,"                          Options.bytes_per_sync: %ld",
         bytes_per_sync);
+    Log(log,"                          Options.filter_deletes: %d",
+        filter_deletes);
     Log(log,"                        Options.compaction_style: %d",
         compaction_style);
-    Log(log,"              Options.deletes_check_filter_first: %d",
-        deletes_check_filter_first);
     Log(log,"        Options.compaction_options_universal.size_ratio: %d",
         compaction_options_universal.size_ratio);
     Log(log,"   Options.compaction_options_universal.min_merge_width: %d",

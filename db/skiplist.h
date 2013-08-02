@@ -31,12 +31,9 @@
 #include <assert.h>
 #include <stdlib.h>
 #include "port/port.h"
-#include "util/arena.h"
 #include "util/random.h"
 
 namespace leveldb {
-
-class Arena;
 
 template<typename Key, class Comparator>
 class SkipList {

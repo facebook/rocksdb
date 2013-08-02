@@ -8,19 +8,29 @@
 #include "leveldb/env.h"
 #include "leveldb/merge_operator.h"
 #include "db/dbformat.h"
+#include "db/db_impl.h"
 #include "utilities/merge_operators.h"
+#include "util/testharness.h"
+#include "utilities/utility_db.h"
 
 using namespace std;
 using namespace leveldb;
 
 auto mergeOperator = MergeOperators::CreateUInt64AddOperator();
 
-std::shared_ptr<DB> OpenDb() {
+std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false) {
   DB* db;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = mergeOperator.get();
-  Status s = DB::Open(options, "/tmp/testdb", &db);
+  Status s;
+  DestroyDB(dbname, Options());
+  if (ttl) {
+    cout << "Opening database with TTL\n";
+    s = UtilityDB::OpenTtlDB(options, test::TmpDir() + "/merge_testdbttl", &db);
+  } else {
+    s = DB::Open(options, test::TmpDir() + "/merge_testdb", &db);
+  }
   if (!s.ok()) {
     cerr << s.ToString() << endl;
     assert(false);
@@ -45,7 +55,7 @@ class Counters {
   uint64_t default_;
 
  public:
-  Counters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
+  explicit Counters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
       : db_(db),
         put_option_(),
         get_option_(),
@@ -143,7 +153,7 @@ class MergeBasedCounters : public Counters {
   WriteOptions merge_option_; // for merge
 
  public:
-  MergeBasedCounters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
+  explicit MergeBasedCounters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
       : Counters(db, defaultCount),
         merge_option_() {
   }
@@ -227,9 +237,8 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
   }
 }
 
-int main(int argc, char *argv[]) {
-
-  auto db = OpenDb();
+void runTest(int argc, const string& dbname, const bool use_ttl = false) {
+  auto db = OpenDb(dbname, use_ttl);
 
   {
     cout << "Test read-modify-write counters... \n";
@@ -249,5 +258,12 @@ int main(int argc, char *argv[]) {
     testCounters(counters, db.get(), compact);
   }
 
+  DestroyDB(dbname, Options());
+}
+
+int main(int argc, char *argv[]) {
+  //TODO: Make this test like a general rocksdb unit-test
+  runTest(argc, "/tmp/testdb");
+  runTest(argc, "/tmp/testdbttl", true); // Run test on TTL database
   return 0;
 }

@@ -3,8 +3,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <map>
 #include <string>
+#include <memory>
 #include "db/dbformat.h"
 #include "db/memtable.h"
+#include "db/skiplistrep.h"
 #include "db/write_batch_internal.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
@@ -342,8 +344,9 @@ class MemTableConstructor: public Constructor {
  public:
   explicit MemTableConstructor(const Comparator* cmp)
       : Constructor(cmp),
-        internal_comparator_(cmp) {
-    memtable_ = new MemTable(internal_comparator_);
+        internal_comparator_(cmp),
+        table_factory_(new SkipListFactory) {
+    memtable_ = new MemTable(internal_comparator_, table_factory_);
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -351,7 +354,7 @@ class MemTableConstructor: public Constructor {
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     memtable_->Unref();
-    memtable_ = new MemTable(internal_comparator_);
+    memtable_ = new MemTable(internal_comparator_, table_factory_);
     memtable_->Ref();
     int seq = 1;
     for (KVMap::const_iterator it = data.begin();
@@ -369,6 +372,7 @@ class MemTableConstructor: public Constructor {
  private:
   InternalKeyComparator internal_comparator_;
   MemTable* memtable_;
+  std::shared_ptr<SkipListFactory> table_factory_;
 };
 
 class DBConstructor: public Constructor {
@@ -805,7 +809,8 @@ class MemTableTest { };
 
 TEST(MemTableTest, Simple) {
   InternalKeyComparator cmp(BytewiseComparator());
-  MemTable* memtable = new MemTable(cmp);
+  auto table_factory = std::make_shared<SkipListFactory>();
+  MemTable* memtable = new MemTable(cmp, table_factory);
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

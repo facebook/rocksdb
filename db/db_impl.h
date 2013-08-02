@@ -18,6 +18,7 @@
 #include "port/port.h"
 #include "util/stats_logger.h"
 #include "memtablelist.h"
+#include "leveldb/memtablerep.h"
 
 #ifdef USE_SCRIBE
 #include "scribe/scribe_logger.h"
@@ -49,15 +50,21 @@ class DBImpl : public DB {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values);
 
-  // Returns false if key can't exist- based on memtable, immutable-memtable and
-  // bloom-filters; true otherwise. No IO is performed
-  virtual bool KeyMayExist(const Slice& key);
+  // Returns false if key doesn't exist in the database and true if it may.
+  // If value_found is not passed in as null, then return the value if found in
+  // memory. On return, if value was found, then value_found will be set to true
+  // , otherwise false.
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           const Slice& key,
+                           std::string* value,
+                           bool* value_found = nullptr);
   virtual Iterator* NewIterator(const ReadOptions&);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
   virtual bool GetProperty(const Slice& property, std::string* value);
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
-  virtual void CompactRange(const Slice* begin, const Slice* end);
+  virtual void CompactRange(const Slice* begin, const Slice* end,
+                            bool reduce_level = false);
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
@@ -159,6 +166,7 @@ class DBImpl : public DB {
   Status WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
                                 uint64_t* filenumber);
 
+  uint64_t SlowdownAmount(int num_level0_files);
   Status MakeRoomForWrite(bool force /* compact even if there is room? */);
   WriteBatch* BuildBatchGroup(Writer** last_writer);
 
@@ -221,6 +229,14 @@ class DBImpl : public DB {
   // dump leveldb.stats to LOG
   void MaybeDumpStats();
 
+  // Return the minimum empty level that could hold the total data in the
+  // input level. Return the input level, if such level could not be found.
+  int FindMinimumEmptyLevelFitting(int level);
+
+  // Move the files in the input level to the minimum level that could hold
+  // the data set.
+  void ReFitLevel(int level);
+
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
@@ -235,6 +251,7 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   port::AtomicPointer shutting_down_;
   port::CondVar bg_cv_;          // Signalled when background work finishes
+  std::shared_ptr<MemTableRepFactory> mem_rep_factory_;
   MemTable* mem_;
   MemTableList imm_;             // Memtable that are not changing
   uint64_t logfile_number_;
@@ -293,6 +310,10 @@ class DBImpl : public DB {
   uint64_t stall_memtable_compaction_;
   uint64_t stall_level0_num_files_;
   std::vector<uint64_t> stall_leveln_slowdown_;
+  uint64_t stall_level0_slowdown_count_;
+  uint64_t stall_memtable_compaction_count_;
+  uint64_t stall_level0_num_files_count_;
+  std::vector<uint64_t> stall_leveln_slowdown_count_;
 
   // Time at which this instance was started.
   const uint64_t started_at_;
@@ -370,6 +391,12 @@ class DBImpl : public DB {
   // The options to access storage files
   const EnvOptions storage_options_;
 
+  // A value of true temporarily disables scheduling of background work
+  bool bg_work_gate_closed_;
+
+  // Guard against multiple concurrent refitting
+  bool refitting_level_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
@@ -384,11 +411,13 @@ class DBImpl : public DB {
     std::vector<SequenceNumber>& snapshots,
     SequenceNumber* prev_snapshot);
 
-  // Function that Get and KeyMayExist call with no_IO true or false
+  // Function that Get and KeyMayExist call with no_io true or false
+  // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options,
                  const Slice& key,
                  std::string* value,
-                 const bool no_IO = false);
+                 const bool no_io = false,
+                 bool* value_found = nullptr);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

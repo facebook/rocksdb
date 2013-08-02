@@ -291,7 +291,7 @@ class DBTest {
         // TODO -- test more options
         break;
       case kDeletesFilterFirst:
-        options.deletes_check_filter_first = true;
+        options.filter_deletes = true;
         break;
       default:
         break;
@@ -772,37 +772,82 @@ TEST(DBTest, GetEncountersEmptyLevel) {
   } while (ChangeOptions());
 }
 
-// KeyMayExist-API returns false if memtable(s) and in-memory bloom-filters can
-// guarantee that the key doesn't exist in the db, else true. This can lead to
-// a few false positives, but not false negatives. To make test deterministic,
-// use a much larger number of bits per key-20 than bits in the key, so
-// that false positives are eliminated
+// KeyMayExist can lead to a few false positives, but not false negatives.
+// To make test deterministic, use a much larger number of bits per key-20 than
+// bits in the key, so that false positives are eliminated
 TEST(DBTest, KeyMayExist) {
   do {
+    ReadOptions ropts;
+    std::string value;
     Options options = CurrentOptions();
     options.filter_policy = NewBloomFilterPolicy(20);
     Reopen(&options);
 
-    ASSERT_TRUE(!db_->KeyMayExist("a"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
 
     ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
-    ASSERT_TRUE(db_->KeyMayExist("a"));
+    bool value_found = false;
+    ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
+    ASSERT_TRUE(value_found);
+    ASSERT_EQ("b", value);
 
     dbfull()->Flush(FlushOptions());
-    ASSERT_TRUE(db_->KeyMayExist("a"));
+    value.clear();
+    value_found = false;
+    ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
+    ASSERT_TRUE(value_found);
+    ASSERT_EQ("b", value);
 
     ASSERT_OK(db_->Delete(WriteOptions(), "a"));
-    ASSERT_TRUE(!db_->KeyMayExist("a"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
 
     dbfull()->Flush(FlushOptions());
     dbfull()->CompactRange(nullptr, nullptr);
-    ASSERT_TRUE(!db_->KeyMayExist("a"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "c"));
-    ASSERT_TRUE(!db_->KeyMayExist("c"));
+    ASSERT_TRUE(!db_->KeyMayExist(ropts, "c", &value));
 
     delete options.filter_policy;
   } while (ChangeOptions());
+}
+
+// A delete is skipped for key if KeyMayExist(key) returns False
+// Tests Writebatch consistency and proper delete behaviour
+TEST(DBTest, FilterDeletes) {
+  Options options = CurrentOptions();
+  options.filter_policy = NewBloomFilterPolicy(20);
+  options.filter_deletes = true;
+  Reopen(&options);
+  WriteBatch batch;
+
+  batch.Delete("a");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(AllEntriesFor("a"), "[ ]"); // Delete skipped
+  batch.Clear();
+
+  batch.Put("a", "b");
+  batch.Delete("a");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(Get("a"), "NOT_FOUND");
+  ASSERT_EQ(AllEntriesFor("a"), "[ DEL, b ]"); // Delete issued
+  batch.Clear();
+
+  batch.Delete("c");
+  batch.Put("c", "d");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(Get("c"), "d");
+  ASSERT_EQ(AllEntriesFor("c"), "[ d ]"); // Delete skipped
+  batch.Clear();
+
+  dbfull()->Flush(FlushOptions()); // A stray Flush
+
+  batch.Delete("c");
+  dbfull()->Write(WriteOptions(), &batch);
+  ASSERT_EQ(AllEntriesFor("c"), "[ DEL, d ]"); // Delete issued
+  batch.Clear();
+
+  delete options.filter_policy;
 }
 
 TEST(DBTest, IterEmpty) {
@@ -3007,7 +3052,13 @@ class ModelDB: public DB {
                           Status::NotSupported("Not implemented."));
     return s;
   }
-  virtual bool KeyMayExist(const Slice& key) {
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           const Slice& key,
+                           std::string* value,
+                           bool* value_found = nullptr) {
+    if (value_found != nullptr) {
+      *value_found = false;
+    }
     return true; // Not Supported directly
   }
   virtual Iterator* NewIterator(const ReadOptions& options) {
@@ -3058,7 +3109,8 @@ class ModelDB: public DB {
       sizes[i] = 0;
     }
   }
-  virtual void CompactRange(const Slice* start, const Slice* end) {
+  virtual void CompactRange(const Slice* start, const Slice* end,
+                            bool reduce_level ) {
   }
 
   virtual int NumberLevels()
@@ -3191,6 +3243,9 @@ static bool CompareIterators(int step,
 TEST(DBTest, Randomized) {
   Random rnd(test::RandomSeed());
   do {
+    if (CurrentOptions().filter_deletes) {
+      ChangeOptions(); // DBTest.Randomized not suited for filter_deletes
+    }
     ModelDB model(CurrentOptions());
     const int N = 10000;
     const Snapshot* model_snap = nullptr;

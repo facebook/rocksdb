@@ -57,6 +57,7 @@ class CorruptionTest {
     opt.env = &env_;
     opt.block_cache = tiny_cache_;
     opt.block_size_deviation = 0;
+    opt.arena_block_size = 4096;
     return DB::Open(opt, dbname_, &db_);
   }
 

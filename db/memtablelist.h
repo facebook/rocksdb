@@ -8,7 +8,6 @@
 #include "leveldb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
-#include "util/arena.h"
 #include "memtable.h"
 
 namespace leveldb {
@@ -71,7 +70,7 @@ class MemTableList {
   // Search all the memtables starting from the most recent one.
   // Return the most recent value found, if any.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           const Options& options, const bool check_presence_only = false);
+           const Options& options);
 
   // Returns the list of underlying memtables.
   void GetMemTables(std::vector<MemTable*>* list);

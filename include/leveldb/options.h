@@ -13,6 +13,7 @@
 #include "leveldb/slice.h"
 #include "leveldb/statistics.h"
 #include "leveldb/universal_compaction.h"
+#include "leveldb/memtablerep.h"
 
 namespace leveldb {
 
@@ -224,9 +225,9 @@ struct Options {
   // level-0 compaction will not be triggered by number of files at all.
   int level0_file_num_compaction_trigger;
 
-  // Soft limit on number of level-0 files. We slow down writes at this point.
-  // A value <0 means that no writing slow down will be triggered by number
-  // of files in level-0.
+  // Soft limit on number of level-0 files. We start slowing down writes at this
+  // point. A value <0 means that no writing slow down will be triggered by
+  // number of files in level-0.
   int level0_slowdown_writes_trigger;
 
   // Maximum number of level-0 files.  We stop writes at this point.
@@ -380,6 +381,13 @@ struct Options {
   // Number of shards used for table cache.
   int table_cache_numshardbits;
 
+  // size of one block in arena memory allocation.
+  // If <= 0, a proper value is automatically calculated (usually 1/10 of
+  // writer_buffer_size).
+  //
+  // Default: 0
+  size_t arena_block_size;
+
   // Create an Options object with default values for all fields.
   Options();
 
@@ -477,14 +485,17 @@ struct Options {
   // The options needed to support Universal Style compactions
   CompactionOptionsUniversal compaction_options_universal;
 
-  // Use bloom-filter for deletes when this is true.
-  // db->Delete first calls KeyMayExist which checks memtable,immutable-memtable
-  // and bloom-filters to determine if the key does not exist in the database.
-  // If the key definitely does not exist, then the delete is a noop.KeyMayExist
-  // only incurs in-memory look up. This optimization avoids writing the delete
-  // to storage when appropriate.
+  // Use KeyMayExist API to filter deletes when this is true.
+  // If KeyMayExist returns false, i.e. the key definitely does not exist, then
+  // the delete is a noop. KeyMayExist only incurs in-memory look up.
+  // This optimization avoids writing the delete to storage when appropriate.
   // Default: false
-  bool deletes_check_filter_first;
+  bool filter_deletes;
+
+  // This is a factory that provides MemTableRep objects.
+  // Default: a factory that provides a skip-list-based implementation of
+  // MemTableRep.
+  std::shared_ptr<MemTableRepFactory> memtable_factory;
 };
 
 // Options that control read operations

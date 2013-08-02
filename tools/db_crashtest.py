@@ -79,7 +79,8 @@ def main(argv):
                           ' --target_file_size_multiplier=2 ' + \
                           ' --max_write_buffer_number=3 ' + \
                           ' --max_background_compactions=20 ' + \
-                          ' --max_bytes_for_level_base=10485760'
+                          ' --max_bytes_for_level_base=10485760 ' + \
+                          ' --filter_deletes=' + str(random.randint(0, 1))
         killtime = time.time() + interval
         child = subprocess.Popen(['./db_stress \
                         --test_batches_snapshots=1 \

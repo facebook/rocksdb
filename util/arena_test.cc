@@ -2,22 +2,59 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/arena.h"
-
+#include "util/arena_impl.h"
 #include "util/random.h"
 #include "util/testharness.h"
 
 namespace leveldb {
 
-class ArenaTest { };
+class ArenaImplTest { };
 
-TEST(ArenaTest, Empty) {
-  Arena arena;
+TEST(ArenaImplTest, Empty) {
+  ArenaImpl arena0;
 }
 
-TEST(ArenaTest, Simple) {
+TEST(ArenaImplTest, MemoryAllocatedBytes) {
+  const int N = 17;
+  size_t req_sz;  //requested size
+  size_t bsz = 8192;  // block size
+  size_t expected_memory_allocated;
+
+  ArenaImpl arena_impl(bsz);
+
+  // requested size > quarter of a block:
+  //   allocate requested size separately
+  req_sz = 3001;
+  for (int i = 0; i < N; i++) {
+    arena_impl.Allocate(req_sz);
+  }
+  expected_memory_allocated = req_sz * N;
+  ASSERT_EQ(arena_impl.MemoryAllocatedBytes(), expected_memory_allocated);
+
+  // requested size < quarter of a block:
+  //   allocate a block with the default size, then try to use unused part
+  //   of the block. So one new block will be allocated for the first
+  //   Allocate(99) call. All the remaining calls won't lead to new allocation.
+  req_sz = 99;
+  for (int i = 0; i < N; i++) {
+    arena_impl.Allocate(req_sz);
+  }
+  expected_memory_allocated += bsz;
+  ASSERT_EQ(arena_impl.MemoryAllocatedBytes(), expected_memory_allocated);
+
+  // requested size > quarter of a block:
+  //   allocate requested size separately
+  req_sz = 99999999;
+  for (int i = 0; i < N; i++) {
+    arena_impl.Allocate(req_sz);
+  }
+  expected_memory_allocated += req_sz * N;
+  ASSERT_EQ(arena_impl.MemoryAllocatedBytes(), expected_memory_allocated);
+}
+
+TEST(ArenaImplTest, Simple) {
   std::vector<std::pair<size_t, char*> > allocated;
-  Arena arena;
+  ArenaImpl arena_impl;
   const int N = 100000;
   size_t bytes = 0;
   Random rnd(301);
@@ -35,9 +72,9 @@ TEST(ArenaTest, Simple) {
     }
     char* r;
     if (rnd.OneIn(10)) {
-      r = arena.AllocateAligned(s);
+      r = arena_impl.AllocateAligned(s);
     } else {
-      r = arena.Allocate(s);
+      r = arena_impl.Allocate(s);
     }
 
     for (unsigned int b = 0; b < s; b++) {
@@ -46,9 +83,9 @@ TEST(ArenaTest, Simple) {
     }
     bytes += s;
     allocated.push_back(std::make_pair(s, r));
-    ASSERT_GE(arena.MemoryUsage(), bytes);
+    ASSERT_GE(arena_impl.ApproximateMemoryUsage(), bytes);
     if (i > N/10) {
-      ASSERT_LE(arena.MemoryUsage(), bytes * 1.10);
+      ASSERT_LE(arena_impl.ApproximateMemoryUsage(), bytes * 1.10);
     }
   }
   for (unsigned int i = 0; i < allocated.size(); i++) {
