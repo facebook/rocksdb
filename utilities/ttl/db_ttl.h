@@ -13,7 +13,7 @@
 
 namespace leveldb {
 
-class DBWithTTL : public DB, CompactionFilter {
+class DBWithTTL : public DB {
  public:
   DBWithTTL(const int32_t ttl,
             const Options& options,
@@ -84,15 +84,6 @@ class DBWithTTL : public DB, CompactionFilter {
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBWithTtl();
 
-  // The following two methods are for CompactionFilter
-  virtual bool Filter(int level,
-                      const Slice& key,
-                      const Slice& old_val,
-                      std::string* new_val,
-                      bool* value_changed) const override;
-
-  virtual const char* Name() const override;
-
   static bool IsStale(const Slice& value, int32_t ttl);
 
   static Status AppendTS(const Slice& val, std::string& val_with_ts);
@@ -103,7 +94,7 @@ class DBWithTTL : public DB, CompactionFilter {
 
   static Status GetCurrentTime(int32_t& curtime);
 
-  static const int32_t kTSLength = sizeof(int32_t); // size of timestamp
+  static const uint32_t kTSLength = sizeof(int32_t); // size of timestamp
 
   static const int32_t kMinTimestamp = 1368146402; // 05/09/2013:5:40PM GMT-8
 
@@ -113,6 +104,7 @@ class DBWithTTL : public DB, CompactionFilter {
   DB* db_;
   int32_t ttl_;
   unique_ptr<MergeOperator> ttl_merge_op_;
+  unique_ptr<CompactionFilter> ttl_comp_filter_;
 };
 
 class TtlIterator : public Iterator {
@@ -176,6 +168,50 @@ class TtlIterator : public Iterator {
   Iterator* iter_;
 };
 
+class TtlCompactionFilter : public CompactionFilter {
+
+ public:
+  TtlCompactionFilter(int32_t ttl, const CompactionFilter* comp_filter)
+    : ttl_(ttl),
+      user_comp_filter_(comp_filter) {
+    // Unlike the merge operator, compaction filter is necessary for TTL, hence
+    // this would be called even if user doesn't specify any compaction-filter
+  }
+
+  virtual bool Filter(int level,
+                      const Slice& key,
+                      const Slice& old_val,
+                      std::string* new_val,
+                      bool* value_changed) const override {
+    if (DBWithTTL::IsStale(old_val, ttl_)) {
+      return true;
+    }
+    if (user_comp_filter_ == nullptr) {
+      return false;
+    }
+    assert(old_val.size() >= DBWithTTL::kTSLength);
+    Slice old_val_without_ts(old_val.data(),
+                             old_val.size() - DBWithTTL::kTSLength);
+    if (user_comp_filter_->Filter(level, key, old_val_without_ts, new_val,
+                                  value_changed)) {
+      return true;
+    }
+    if (*value_changed) {
+      new_val->append(old_val.data() + old_val.size() - DBWithTTL::kTSLength,
+                      DBWithTTL::kTSLength);
+    }
+    return false;
+  }
+
+  virtual const char* Name() const override {
+    return "Delete By TTL";
+  }
+
+ private:
+  int32_t ttl_;
+  const CompactionFilter* user_comp_filter_;
+};
+
 class TtlMergeOperator : public MergeOperator {
 
  public:
@@ -188,7 +224,7 @@ class TtlMergeOperator : public MergeOperator {
                      const Slice* existing_value,
                      const Slice& value,
                      std::string* new_value,
-                     Logger* logger) const {
+                     Logger* logger) const override {
     const uint32_t& ts_len = DBWithTTL::kTSLength;
     if ((existing_value && existing_value->size() < ts_len) ||
         value.size() < ts_len) {
@@ -219,7 +255,7 @@ class TtlMergeOperator : public MergeOperator {
     }
   }
 
-  virtual const char* Name() const {
+  virtual const char* Name() const override {
     return "Merge By TTL";
   }
 

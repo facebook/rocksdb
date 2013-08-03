@@ -34,7 +34,6 @@ class UtilityDB {
     //  triggered(neither manual nor automatic), so no expired entries removed
     //
     // CONSTRAINTS:
-    // The caller must not specify any compaction-filter in options
     // Not specifying/passing or non-positive TTL behaves like TTL = infinity
     //
     // !!!WARNING!!!:

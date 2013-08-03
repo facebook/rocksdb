@@ -18,13 +18,17 @@ DBWithTTL::DBWithTTL(const int32_t ttl,
                      Status& st,
                      bool read_only)
     : ttl_(ttl) {
-  assert(options.compaction_filter == nullptr);
   Options options_to_open = options;
-  options_to_open.compaction_filter = this;
+
+  ttl_comp_filter_.reset(new TtlCompactionFilter(ttl,
+                                                 options.compaction_filter));
+  options_to_open.compaction_filter = ttl_comp_filter_.get();
+
   if (options.merge_operator) {
     ttl_merge_op_.reset(new TtlMergeOperator(options.merge_operator));
     options_to_open.merge_operator = ttl_merge_op_.get();
   }
+
   if (read_only) {
     st = DB::OpenForReadOnly(options_to_open, dbname, &db_);
   } else {
@@ -50,21 +54,6 @@ Status UtilityDB::OpenTtlDB(
   return st;
 }
 
-// returns true(i.e. key-value to be deleted) if its TS has expired based on ttl
-bool DBWithTTL::Filter(
-    int level,
-    const Slice& key,
-    const Slice& old_val,
-    std::string* new_val,
-    bool* value_changed) const {
-  return IsStale(old_val, ttl_);
-}
-
-const char* DBWithTTL::Name() const {
-  return "Delete By TTL";
-}
-
-
 // Gives back the current time
 Status DBWithTTL::GetCurrentTime(int32_t& curtime) {
   return Env::Default()->GetCurrentTime((int64_t*)&curtime);
@@ -89,7 +78,7 @@ Status DBWithTTL::AppendTS(const Slice& val, std::string& val_with_ts) {
 // Returns corruption if the length of the string is lesser than timestamp, or
 // timestamp refers to a time lesser than ttl-feature release time
 Status DBWithTTL::SanityCheckTimestamp(const Slice& str) {
-  if (str.size() < (unsigned)kTSLength) {
+  if (str.size() < kTSLength) {
     return Status::Corruption("Error: value's length less than timestamp's\n");
   }
   // Checks that TS is not lesser than kMinTimestamp
@@ -110,19 +99,18 @@ bool DBWithTTL::IsStale(const Slice& value, int32_t ttl) {
   int32_t curtime;
   if (!GetCurrentTime(curtime).ok()) {
     return false; // Treat the data as fresh if could not get current time
-  } else {
-    int32_t timestamp_value =
-      DecodeFixed32(value.data() + value.size() - kTSLength);
-    if ((timestamp_value + ttl) < curtime) {
-      return true; // Data is stale
-    }
   }
-  return false;
+  int32_t timestamp_value =
+    DecodeFixed32(value.data() + value.size() - kTSLength);
+  return (timestamp_value + ttl) < curtime;
 }
 
 // Strips the TS from the end of the string
 Status DBWithTTL::StripTS(std::string* str) {
   Status st;
+  if (str->length() < kTSLength) {
+    return Status::Corruption("Bad timestamp in key-value");
+  }
   // Erasing characters which hold the TS
   str->erase(str->length() - kTSLength, kTSLength);
   return st;
