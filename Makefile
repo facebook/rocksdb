@@ -75,7 +75,7 @@ TOOLS = \
 PROGRAMS = db_bench signal_test $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
 
-LIBRARY = libleveldb.a
+LIBRARY = librocksdb.a
 MEMENVLIBRARY = libmemenv.a
 
 default: all
@@ -84,7 +84,7 @@ default: all
 ifneq ($(PLATFORM_SHARED_EXT),)
 
 ifneq ($(PLATFORM_SHARED_VERSIONED),true)
-SHARED1 = libleveldb.$(PLATFORM_SHARED_EXT)
+SHARED1 = librocksdb.$(PLATFORM_SHARED_EXT)
 SHARED2 = $(SHARED1)
 SHARED3 = $(SHARED1)
 SHARED = $(SHARED1)
@@ -92,7 +92,7 @@ else
 # Update db.h if you change these.
 SHARED_MAJOR = 2
 SHARED_MINOR = 0
-SHARED1 = libleveldb.$(PLATFORM_SHARED_EXT)
+SHARED1 = librocksdb.$(PLATFORM_SHARED_EXT)
 SHARED2 = $(SHARED1).$(SHARED_MAJOR)
 SHARED3 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR)
 SHARED = $(SHARED1) $(SHARED2) $(SHARED3)
@@ -253,7 +253,7 @@ memenv_test : helpers/memenv/memenv_test.o $(MEMENVLIBRARY) $(LIBRARY) $(TESTHAR
 manual_compaction_test: util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
-leveldb_shell: tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o tools/shell/ShellContext.h tools/shell/ShellState.h tools/shell/DBClientProxy.h $(LIBOBJECTS)
+rocksdb_shell: tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o tools/shell/ShellContext.h tools/shell/ShellState.h tools/shell/DBClientProxy.h $(LIBOBJECTS)
 	$(CXX) tools/shell/ShellContext.o tools/shell/ShellState.o tools/shell/LeveldbShell.o tools/shell/DBClientProxy.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 DBClientProxy_test: tools/shell/test/DBClientProxyTest.o tools/shell/DBClientProxy.o $(LIBRARY)
