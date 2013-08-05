@@ -286,8 +286,8 @@ class DBTest {
         options.purge_redundant_kvs_while_flush = !options.purge_redundant_kvs_while_flush;
         break;
       case kPerfOptions:
-        options.rate_limit = 2.0;
-        options.rate_limit_delay_milliseconds = 2;
+        options.hard_rate_limit = 2.0;
+        options.rate_limit_delay_max_milliseconds = 2;
         // TODO -- test more options
         break;
       case kDeletesFilterFirst:

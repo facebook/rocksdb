@@ -264,13 +264,16 @@ static int FLAGS_stats_interval = 0;
 // than 0.
 static int FLAGS_stats_per_interval = 0;
 
+static double FLAGS_soft_rate_limit = 0;
+
 // When not equal to 0 this make threads sleep at each stats
 // reporting interval until the compaction score for all levels is
 // less than or equal to this value.
-static double FLAGS_rate_limit = 0;
+static double FLAGS_hard_rate_limit = 0;
 
-// When FLAGS_rate_limit is set then this is the max time a put will be stalled.
-static int FLAGS_rate_limit_delay_milliseconds = 1000;
+// When FLAGS_hard_rate_limit is set then this is the max time a put will be
+// stalled.
+static int FLAGS_rate_limit_delay_max_milliseconds = 1000;
 
 // Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
 // stop building a single file in a level->level+1 compaction.
@@ -1146,8 +1149,10 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
-    options.rate_limit = FLAGS_rate_limit;
-    options.rate_limit_delay_milliseconds = FLAGS_rate_limit_delay_milliseconds;
+    options.soft_rate_limit = FLAGS_soft_rate_limit;
+    options.hard_rate_limit = FLAGS_hard_rate_limit;
+    options.rate_limit_delay_max_milliseconds =
+      FLAGS_rate_limit_delay_max_milliseconds;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
     options.max_grandparent_overlap_factor =
       FLAGS_max_grandparent_overlap_factor;
@@ -2039,7 +2044,8 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--min_write_buffer_number_to_merge=%d%c",
                &n, &junk) == 1) {
       FLAGS_min_write_buffer_number_to_merge = n;
-    } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
+    } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk)
+               == 1) {
       FLAGS_max_background_compactions = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
       FLAGS_cache_size = l;
@@ -2173,13 +2179,16 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--stats_per_interval=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
       FLAGS_stats_per_interval = n;
-    } else if (sscanf(argv[i], "--rate_limit=%lf%c", &d, &junk) == 1 &&
+    } else if (sscanf(argv[i], "--soft_rate_limit=%lf%c", &d, &junk) == 1 &&
+               d > 0.0) {
+      FLAGS_soft_rate_limit = d;
+    } else if (sscanf(argv[i], "--hard_rate_limit=%lf%c", &d, &junk) == 1 &&
                d > 1.0) {
-      FLAGS_rate_limit = d;
+      FLAGS_hard_rate_limit = d;
     } else if (sscanf(argv[i],
-               "--rate_limit_delay_milliseconds=%d%c", &n, &junk) == 1
-        && n > 0) {
-      FLAGS_rate_limit_delay_milliseconds = n;
+               "--rate_limit_delay_max_milliseconds=%d%c", &n, &junk) == 1
+        && n >= 0) {
+      FLAGS_rate_limit_delay_max_milliseconds = n;
     } else if (sscanf(argv[i], "--readonly=%d%c", &n, &junk) == 1 &&
         (n == 0 || n ==1 )) {
       FLAGS_read_only = n;

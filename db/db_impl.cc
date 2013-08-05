@@ -154,6 +154,9 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.max_mem_compaction_level >= result.num_levels) {
     result.max_mem_compaction_level = result.num_levels - 1;
   }
+  if (result.soft_rate_limit > result.hard_rate_limit) {
+    result.soft_rate_limit = result.hard_rate_limit;
+  }
   return result;
 }
 
@@ -2417,31 +2420,29 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
 // This function computes the amount of time in microseconds by which a write
 // should be delayed based on the number of level-0 files according to the
 // following formula:
-// if num_level_files < level0_slowdown_writes_trigger, return 0;
-// if num_level_files >= level0_stop_writes_trigger, return 1000;
-// otherwise, let r = (num_level_files - level0_slowdown) /
-//                    (level0_stop - level0_slowdown)
+// if n < bottom, return 0;
+// if n >= top, return 1000;
+// otherwise, let r = (n - bottom) /
+//                    (top - bottom)
 //  and return r^2 * 1000.
 // The goal of this formula is to gradually increase the rate at which writes
 // are slowed. We also tried linear delay (r * 1000), but it seemed to do
 // slightly worse. There is no other particular reason for choosing quadratic.
-uint64_t DBImpl::SlowdownAmount(int num_level0_files) {
+uint64_t DBImpl::SlowdownAmount(int n, int top, int bottom) {
   uint64_t delay;
-  int stop_trigger = options_.level0_stop_writes_trigger;
-  int slowdown_trigger = options_.level0_slowdown_writes_trigger;
-  if (num_level0_files >= stop_trigger) {
+  if (n >= top) {
     delay = 1000;
   }
-  else if (num_level0_files < slowdown_trigger) {
+  else if (n < bottom) {
     delay = 0;
   }
   else {
     // If we are here, we know that:
-    //   slowdown_trigger <= num_level0_files < stop_trigger
+    //   level0_start_slowdown <= n < level0_slowdown
     // since the previous two conditions are false.
     float how_much =
-      (float) (num_level0_files - slowdown_trigger) /
-              (stop_trigger - slowdown_trigger);
+      (float) (n - bottom) /
+              (top - bottom);
     delay = how_much * how_much * 1000;
   }
   assert(delay <= 1000);
@@ -2454,7 +2455,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
   bool allow_delay = !force;
-  bool allow_rate_limit_delay = !force;
+  bool allow_hard_rate_limit_delay = !force;
+  bool allow_soft_rate_limit_delay = !force;
   uint64_t rate_limit_delay_millis = 0;
   Status s;
   double score;
@@ -2478,7 +2480,11 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       uint64_t delayed;
       {
         StopWatch sw(env_, options_.statistics, STALL_L0_SLOWDOWN_COUNT);
-        env_->SleepForMicroseconds(SlowdownAmount(versions_->NumLevelFiles(0)));
+        env_->SleepForMicroseconds(
+          SlowdownAmount(versions_->NumLevelFiles(0),
+                         options_.level0_slowdown_writes_trigger,
+                         options_.level0_stop_writes_trigger)
+        );
         delayed = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics, STALL_L0_SLOWDOWN_MICROS, delayed);
@@ -2527,9 +2533,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       stall_level0_num_files_ += stall;
       stall_level0_num_files_count_++;
     } else if (
-        allow_rate_limit_delay &&
-        options_.rate_limit > 1.0 &&
-        (score = versions_->MaxCompactionScore()) > options_.rate_limit) {
+        allow_hard_rate_limit_delay &&
+        options_.hard_rate_limit > 1.0 &&
+        (score = versions_->MaxCompactionScore()) > options_.hard_rate_limit) {
       // Delay a write when the compaction score for any level is too large.
       int max_level = versions_->MaxCompactionScoreLevel();
       mutex_.Unlock();
@@ -2545,13 +2551,28 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
       rate_limit_delay_millis += rate_limit;
       RecordTick(options_.statistics, RATE_LIMIT_DELAY_MILLIS, rate_limit);
-      if (rate_limit_delay_millis >=
-          (unsigned)options_.rate_limit_delay_milliseconds) {
-        allow_rate_limit_delay = false;
+      if (options_.rate_limit_delay_max_milliseconds > 0 &&
+          rate_limit_delay_millis >=
+          (unsigned)options_.rate_limit_delay_max_milliseconds) {
+        allow_hard_rate_limit_delay = false;
       }
       // Log(options_.info_log,
       //    "delaying write %llu usecs for rate limits with max score %.2f\n",
       //    (long long unsigned int)delayed, score);
+      mutex_.Lock();
+    } else if (
+        allow_soft_rate_limit_delay &&
+        options_.soft_rate_limit > 0.0 &&
+        (score = versions_->MaxCompactionScore()) > options_.soft_rate_limit) {
+      // Delay a write when the compaction score for any level is too large.
+      // TODO: add statistics
+      mutex_.Unlock();
+      env_->SleepForMicroseconds(SlowdownAmount(
+        score,
+        options_.soft_rate_limit,
+        options_.hard_rate_limit)
+      );
+      allow_soft_rate_limit_delay = false;
       mutex_.Lock();
     } else {
       // Attempt to switch to a new memtable and trigger compaction of old

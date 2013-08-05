@@ -355,12 +355,22 @@ struct Options {
   // Default: 1000
   size_t keep_log_file_num;
 
-  // Puts are delayed when any level has a compaction score that
-  // exceeds rate_limit. This is ignored when <= 1.0.
-  double rate_limit;
+  // Puts are delayed 0-1 ms when any level has a compaction score that exceeds
+  // soft_rate_limit. This is ignored when == 0.0.
+  // CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
+  // hold, RocksDB will set soft_rate_limit = hard_rate_limit
+  // Default: 0 (disabled)
+  double soft_rate_limit;
 
-  // Max time a put will be stalled when rate_limit is enforced
-  unsigned int rate_limit_delay_milliseconds;
+  // Puts are delayed 1ms at a time when any level has a compaction score that
+  // exceeds hard_rate_limit. This is ignored when <= 1.0.
+  // Default: 0 (disabled)
+  double hard_rate_limit;
+
+  // Max time a put will be stalled when hard_rate_limit is enforced. If 0, then
+  // there is no limit.
+  // Default: 1000
+  unsigned int rate_limit_delay_max_milliseconds;
 
   // manifest file is rolled over on reaching this limit.
   // The older manifest file be deleted.
