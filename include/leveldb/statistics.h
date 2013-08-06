@@ -113,8 +113,9 @@ enum Histograms {
   STALL_L0_SLOWDOWN_COUNT = 12,
   STALL_MEMTABLE_COMPACTION_COUNT = 13,
   STALL_L0_NUM_FILES_COUNT = 14,
-  RATE_LIMIT_DELAY_COUNT = 15,
-  HISTOGRAM_ENUM_MAX = 16
+  HARD_RATE_LIMIT_DELAY_COUNT = 15,
+  SOFT_RATE_LIMIT_DELAY_COUNT = 16,
+  HISTOGRAM_ENUM_MAX = 17
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -133,7 +134,8 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
   { STALL_L0_SLOWDOWN_COUNT, "rocksdb.l0.slowdown.count"},
   { STALL_MEMTABLE_COMPACTION_COUNT, "rocksdb.memtable.compaction.count"},
   { STALL_L0_NUM_FILES_COUNT, "rocksdb.num.files.stall.count"},
-  { RATE_LIMIT_DELAY_COUNT, "rocksdb.rate.limit.delay.count"}
+  { HARD_RATE_LIMIT_DELAY_COUNT, "rocksdb.hard.rate.limit.delay.count"},
+  { SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"}
 };
 
 struct HistogramData {

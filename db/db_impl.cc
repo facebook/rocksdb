@@ -2541,7 +2541,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mutex_.Unlock();
       uint64_t delayed;
       {
-        StopWatch sw(env_, options_.statistics, RATE_LIMIT_DELAY_COUNT);
+        StopWatch sw(env_, options_.statistics, HARD_RATE_LIMIT_DELAY_COUNT);
         env_->SleepForMicroseconds(1000);
         delayed = sw.ElapsedMicros();
       }
@@ -2567,11 +2567,15 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
       mutex_.Unlock();
-      env_->SleepForMicroseconds(SlowdownAmount(
-        score,
-        options_.soft_rate_limit,
-        options_.hard_rate_limit)
-      );
+      {
+        StopWatch sw(env_, options_.statistics, SOFT_RATE_LIMIT_DELAY_COUNT);
+        env_->SleepForMicroseconds(SlowdownAmount(
+          score,
+          options_.soft_rate_limit,
+          options_.hard_rate_limit)
+        );
+        rate_limit_delay_millis += sw.ElapsedMicros();
+      }
       allow_soft_rate_limit_delay = false;
       mutex_.Lock();
     } else {
