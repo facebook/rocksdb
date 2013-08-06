@@ -266,6 +266,14 @@ SequenceNumber DBWithTTL::GetLatestSequenceNumber() {
   return db_->GetLatestSequenceNumber();
 }
 
+Status DBWithTTL::GetSortedWalFiles(VectorLogPtr& files) {
+  return db_->GetSortedWalFiles(files);
+}
+
+Status DBWithTTL::DeleteWalFiles(const VectorLogPtr& files){
+  return db_->DeleteWalFiles(files);
+}
+
 Status DBWithTTL::GetUpdatesSince(
     SequenceNumber seq_number,
     unique_ptr<TransactionLogIterator>* iter) {

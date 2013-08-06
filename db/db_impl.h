@@ -10,15 +10,15 @@
 #include <set>
 #include <vector>
 #include "db/dbformat.h"
-#include "db/log_file.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+#include "leveldb/memtablerep.h"
+#include "leveldb/transaction_log.h"
 #include "port/port.h"
 #include "util/stats_logger.h"
 #include "memtablelist.h"
-#include "leveldb/memtablerep.h"
 
 #ifdef USE_SCRIBE
 #include "scribe/scribe_logger.h"
@@ -73,6 +73,8 @@ class DBImpl : public DB {
   virtual Status EnableFileDeletions();
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size);
+  virtual Status GetSortedWalFiles(VectorLogPtr& files);
+  virtual Status DeleteWalFiles(const VectorLogPtr& files);
   virtual SequenceNumber GetLatestSequenceNumber();
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter);
@@ -183,7 +185,7 @@ class DBImpl : public DB {
   void MaybeScheduleCompaction();
   static void BGWork(void* db);
   void BackgroundCall();
-  Status BackgroundCompaction(bool* madeProgress, DeletionState& deletion_state);
+  Status BackgroundCompaction(bool* madeProgress,DeletionState& deletion_state);
   void CleanupCompaction(CompactionState* compact);
   Status DoCompactionWork(CompactionState* compact);
 
@@ -208,19 +210,21 @@ class DBImpl : public DB {
 
   void PurgeObsoleteWALFiles();
 
-  Status ListAllWALFiles(const std::string& path,
-                         std::vector<LogFile>* logFiles,
-                         WalFileType type);
+  Status AppendSortedWalsOfType(const std::string& path,
+                                VectorLogPtr& log_files,
+                                WalFileType type);
 
-  //  Find's all the log files which contain updates with seq no.
-  //  Greater Than or Equal to the requested SequenceNumber
-  Status FindProbableWALFiles(std::vector<LogFile>* const allLogs,
-                              std::vector<LogFile>* const result,
-                              const SequenceNumber target);
+  // Requires: all_logs should be sorted with earliest log file first
+  // Retains all log files in all_logs which contain updates with seq no.
+  // Greater Than or Equal to the requested SequenceNumber.
+  Status RetainProbableWalFiles(VectorLogPtr& all_logs,
+                                const SequenceNumber target);
   //  return true if
-  bool CheckFileExistsAndEmpty(const LogFile& file);
+  bool CheckWalFileExistsAndEmpty(const WalFileType type,
+                                  const uint64_t number);
 
-  Status ReadFirstRecord(const LogFile& file, WriteBatch* const result);
+  Status ReadFirstRecord(const WalFileType type, const uint64_t number,
+                         WriteBatch* const result);
 
   Status ReadFirstLine(const std::string& fname, WriteBatch* const batch);
 

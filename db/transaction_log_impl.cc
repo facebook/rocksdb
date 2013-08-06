@@ -1,6 +1,5 @@
-#include "db/transaction_log_iterator_impl.h"
+#include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
-#include "db/filename.h"
 
 namespace leveldb {
 
@@ -8,39 +7,39 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
                            const std::string& dbname,
                            const Options* options,
                            const EnvOptions& soptions,
-                           SequenceNumber& seq,
-                           std::unique_ptr<std::vector<LogFile>> files,
+                           const SequenceNumber seq,
+                           std::unique_ptr<VectorLogPtr> files,
                            SequenceNumber const * const lastFlushedSequence) :
-  dbname_(dbname),
-  options_(options),
-  soptions_(soptions),
-  startingSequenceNumber_(seq),
-  files_(std::move(files)),
-  started_(false),
-  isValid_(false),
-  currentFileIndex_(0),
-  lastFlushedSequence_(lastFlushedSequence) {
+    dbname_(dbname),
+    options_(options),
+    soptions_(soptions),
+    startingSequenceNumber_(seq),
+    files_(std::move(files)),
+    started_(false),
+    isValid_(false),
+    currentFileIndex_(0),
+    lastFlushedSequence_(lastFlushedSequence) {
+  assert(startingSequenceNumber_ <= *lastFlushedSequence_);
   assert(files_.get() != nullptr);
-  assert(lastFlushedSequence_);
 
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
 }
 
 Status TransactionLogIteratorImpl::OpenLogFile(
-  const LogFile& logFile,
+  const LogFile* logFile,
   unique_ptr<SequentialFile>* file) {
   Env* env = options_->env;
-  if (logFile.type == kArchivedLogFile) {
-    std::string fname = ArchivedLogFileName(dbname_, logFile.logNumber);
+  if (logFile->Type() == kArchivedLogFile) {
+    std::string fname = ArchivedLogFileName(dbname_, logFile->LogNumber());
     return env->NewSequentialFile(fname, file, soptions_);
   } else {
-    std::string fname = LogFileName(dbname_, logFile.logNumber);
+    std::string fname = LogFileName(dbname_, logFile->LogNumber());
     Status status = env->NewSequentialFile(fname, file, soptions_);
     if (!status.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
-      fname = ArchivedLogFileName(dbname_, logFile.logNumber);
+      fname = ArchivedLogFileName(dbname_, logFile->LogNumber());
       status = env->NewSequentialFile(fname, file, soptions_);
       if (!status.ok()) {
         return Status::IOError(" Requested file not present in the dir");
@@ -67,7 +66,7 @@ bool TransactionLogIteratorImpl::Valid() {
 }
 
 void TransactionLogIteratorImpl::Next() {
-  LogFile currentLogFile = files_.get()->at(currentFileIndex_);
+  LogFile* currentLogFile = files_.get()->at(currentFileIndex_).get();
 
 //  First seek to the given seqNo. in the current file.
   std::string scratch;
@@ -129,7 +128,7 @@ void TransactionLogIteratorImpl::Next() {
     if (openNextFile) {
       if (currentFileIndex_ < files_.get()->size() - 1) {
         ++currentFileIndex_;
-        Status status = OpenLogReader(files_.get()->at(currentFileIndex_));
+        Status status =OpenLogReader(files_.get()->at(currentFileIndex_).get());
         if (!status.ok()) {
           isValid_ = false;
           currentStatus_ = status;
@@ -157,7 +156,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   currentStatus_ = Status::OK();
 }
 
-Status TransactionLogIteratorImpl::OpenLogReader(const LogFile& logFile) {
+Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
   unique_ptr<SequentialFile> file;
   Status status = OpenLogFile(logFile, &file);
   if (!status.ok()) {

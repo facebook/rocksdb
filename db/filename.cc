@@ -46,10 +46,13 @@ extern Status WriteStringToFileSync(Env* env, const Slice& data,
 static std::string MakeFileName(const std::string& name, uint64_t number,
                                 const char* suffix) {
   char buf[100];
-  snprintf(buf, sizeof(buf), "/%06llu.%s",
+  snprintf(buf, sizeof(buf), "%06llu.%s",
            static_cast<unsigned long long>(number),
            suffix);
-  return name + buf;
+  if (name.empty()) {
+    return buf;
+  }
+  return name + "/" + buf;
 }
 
 std::string LogFileName(const std::string& name, uint64_t number) {

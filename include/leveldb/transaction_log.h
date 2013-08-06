@@ -3,10 +3,46 @@
 #define STORAGE_LEVELDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
 
 #include "leveldb/status.h"
+#include "leveldb/types.h"
 #include "leveldb/write_batch.h"
 
 namespace leveldb {
 
+class LogFile;
+typedef std::vector<std::unique_ptr<LogFile>> VectorLogPtr;
+
+enum  WalFileType {
+  /* Indicates that WAL file is in archive directory. WAL files are moved from
+   * the main db directory to archive directory once they are not live and stay
+   * there for a duration of WAL_ttl_seconds which can be set in Options
+   */
+  kArchivedLogFile = 0,
+
+  /* Indicates that WAL file is live and resides in the main db directory */
+  kAliveLogFile = 1
+} ;
+
+class LogFile {
+ public:
+  LogFile() {}
+  virtual ~LogFile() {}
+
+  // Returns log file's name excluding the db path
+  virtual std::string Filename() const = 0;
+
+  // Primary identifier for log file.
+  // This is directly proportional to creation time of the log file
+  virtual uint64_t LogNumber() const = 0;
+
+  // Log file can be either alive or archived
+  virtual WalFileType Type() const = 0;
+
+  // Starting sequence number of writebatch written in this log file
+  virtual SequenceNumber StartSequence() const = 0;
+
+  // Size of log file on disk in Bytes
+  virtual uint64_t SizeFileBytes() const = 0;
+};
 
 struct BatchResult {
   SequenceNumber sequence;

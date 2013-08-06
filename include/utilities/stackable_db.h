@@ -139,6 +139,15 @@ class StackableDB : public DB {
     return sdb_->GetLatestSequenceNumber();
   }
 
+  virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
+    return sdb_->GetSortedWalFiles(files);
+  }
+
+  virtual Status DeleteWalFiles(const VectorLogPtr& files)
+    override{
+      return sdb_->DeleteWalFiles(files);
+  }
+
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter)
     override {

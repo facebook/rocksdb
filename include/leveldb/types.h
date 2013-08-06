@@ -7,7 +7,7 @@ namespace leveldb {
 
 // Define all public custom types here.
 
-//  Represents a sequence number in a WAL file.
+// Represents a sequence number in a WAL file.
 typedef uint64_t SequenceNumber;
 
 }  //  namespace leveldb

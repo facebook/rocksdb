@@ -77,6 +77,10 @@ class DBWithTTL : public StackableDB {
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs);
 
+  virtual Status GetSortedWalFiles(VectorLogPtr& files);
+
+  virtual Status DeleteWalFiles(const VectorLogPtr& files);
+
   virtual SequenceNumber GetLatestSequenceNumber();
 
   virtual Status GetUpdatesSince(SequenceNumber seq_number,

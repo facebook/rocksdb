@@ -12,7 +12,7 @@
 #include "leveldb/iterator.h"
 #include "leveldb/options.h"
 #include "leveldb/types.h"
-#include "leveldb/transaction_log_iterator.h"
+#include "leveldb/transaction_log.h"
 
 namespace leveldb {
 
@@ -231,6 +231,14 @@ class DB {
   // by manifest_file_size is valid for this snapshot.
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size) = 0;
+
+  // Retrieve the sorted list of all wal files with earliest file first
+  virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
+
+  // Delete wal files in files. These can be either live or archived.
+  // Returns Status::OK if all files could be deleted, otherwise Status::IOError
+  // which contains information about files that could not be deleted.
+  virtual Status DeleteWalFiles(const VectorLogPtr& files) = 0;
 
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() = 0;

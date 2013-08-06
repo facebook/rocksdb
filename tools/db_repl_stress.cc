@@ -1,4 +1,3 @@
-
 #include <cstdio>
 
 #include "db/write_batch_internal.h"
@@ -19,7 +18,6 @@ using namespace leveldb;
 struct DataPumpThread {
   size_t no_records;
   DB* db; // Assumption DB is Open'ed already.
-  volatile bool is_running;
 };
 
 static std::string RandomString(Random* rnd, int len) {
@@ -33,59 +31,50 @@ static void DataPumpThreadBody(void* arg) {
   DB* db = t->db;
   Random rnd(301);
   size_t i = 0;
-  t->is_running = true;
-  while( i < t->no_records ) {
-    db->Put(WriteOptions(),
-            Slice(RandomString(&rnd, 50)),
-            Slice(RandomString(&rnd, 500)));
-    ++i;
+  while(i++ < t->no_records) {
+    if(!db->Put(WriteOptions(), Slice(RandomString(&rnd, 500)),
+                Slice(RandomString(&rnd, 500))).ok()) {
+      fprintf(stderr, "Error in put\n");
+      exit(1);
+    }
   }
-  t->is_running = false;
 }
 
 struct ReplicationThread {
   port::AtomicPointer stop;
   DB* db;
-  volatile SequenceNumber latest;
   volatile size_t no_read;
-  volatile bool has_more;
 };
 
 static void ReplicationThreadBody(void* arg) {
   ReplicationThread* t = reinterpret_cast<ReplicationThread*>(arg);
   DB* db = t->db;
   unique_ptr<TransactionLogIterator> iter;
-  SequenceNumber currentSeqNum = 0;
+  SequenceNumber currentSeqNum = 1;
   while (t->stop.Acquire_Load() != nullptr) {
-    if (!iter) {
-      db->GetUpdatesSince(currentSeqNum, &iter);
-      fprintf(stdout, "Refreshing iterator\n");
-      iter->Next();
-      while(iter->Valid()) {
-        BatchResult res = iter->GetBatch();
-        if (res.sequence != currentSeqNum +1
-            && res.sequence != currentSeqNum) {
-          fprintf(stderr,
-                  "Missed a seq no. b/w %ld and %ld\n",
-                  currentSeqNum,
-                  res.sequence);
-          exit(1);
-        }
-        currentSeqNum = res.sequence;
-        t->latest = res.sequence;
-        iter->Next();
-        t->no_read++;
+    iter.reset();
+    Status s;
+    while(!db->GetUpdatesSince(currentSeqNum, &iter).ok()) {
+      if (t->stop.Acquire_Load() == nullptr) {
+        return;
       }
     }
-    iter.reset();
+    fprintf(stderr, "Refreshing iterator\n");
+    for(;iter->Valid(); iter->Next(), t->no_read++, currentSeqNum++) {
+      BatchResult res = iter->GetBatch();
+      if (res.sequence != currentSeqNum) {
+        fprintf(stderr, "Missed a seq no. b/w %ld and %ld\n", currentSeqNum,
+                        res.sequence);
+        exit(1);
+      }
+    }
   }
 }
 
-
 int main(int argc, const char** argv) {
 
-  long FLAGS_num_inserts = 1000;
-  long FLAGS_WAL_ttl_seconds = 1000;
+  uint64_t FLAGS_num_inserts = 1000;
+  uint64_t FLAGS_WAL_ttl_seconds = 1000;
   char junk;
   long l;
 
@@ -108,36 +97,34 @@ int main(int argc, const char** argv) {
   options.create_if_missing = true;
   options.WAL_ttl_seconds = FLAGS_WAL_ttl_seconds;
   DB* db;
+  DestroyDB(default_db_path, options);
 
   Status s = DB::Open(options, default_db_path, &db);
 
   if (!s.ok()) {
     fprintf(stderr, "Could not open DB due to %s\n", s.ToString().c_str());
+    exit(1);
   }
 
   DataPumpThread dataPump;
   dataPump.no_records = FLAGS_num_inserts;
   dataPump.db = db;
-  dataPump.is_running = true;
   env->StartThread(DataPumpThreadBody, &dataPump);
 
   ReplicationThread replThread;
   replThread.db = db;
   replThread.no_read = 0;
-  replThread.has_more = true;
   replThread.stop.Release_Store(env); // store something to make it non-null.
 
   env->StartThread(ReplicationThreadBody, &replThread);
-  while(dataPump.is_running) {
-    continue;
-  }
+  while(replThread.no_read < FLAGS_num_inserts);
   replThread.stop.Release_Store(nullptr);
-  if ( replThread.no_read < dataPump.no_records ) {
+  if (replThread.no_read < dataPump.no_records) {
     // no. read should be => than inserted.
     fprintf(stderr, "No. of Record's written and read not same\nRead : %ld"
-            " Written : %ld", replThread.no_read, dataPump.no_records);
+            " Written : %ld\n", replThread.no_read, dataPump.no_records);
     exit(1);
   }
+  fprintf(stderr, "Successful!\n");
   exit(0);
-  fprintf(stdout, "ALL IS FINE");
 }

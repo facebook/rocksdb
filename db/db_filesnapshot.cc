@@ -2,10 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "db/db_impl.h"
-#include "db/filename.h"
+#include <algorithm>
 #include <string>
 #include <stdint.h>
+#include "db/db_impl.h"
+#include "db/filename.h"
 #include "db/version_set.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
@@ -63,6 +64,49 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   // find length of manifest file while holding the mutex lock
   *manifest_file_size = versions_->ManifestFileSize();
 
+  return Status::OK();
+}
+
+Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+  // First get sorted files in archive dir, then append sorted files from main
+  // dir to maintain sorted order
+
+  //  list wal files in archive dir.
+  Status s;
+  std::string archivedir = ArchivalDirectory(dbname_);
+  if (env_->FileExists(archivedir)) {
+    s = AppendSortedWalsOfType(archivedir, files, kArchivedLogFile);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  // list wal files in main db dir.
+  s = AppendSortedWalsOfType(dbname_, files, kAliveLogFile);
+  if (!s.ok()) {
+    return s;
+  }
+  return s;
+}
+
+Status DBImpl::DeleteWalFiles(const VectorLogPtr& files) {
+  Status s;
+  std::string archivedir = ArchivalDirectory(dbname_);
+  std::string files_not_deleted;
+  for (const auto& wal : files) {
+    /* Try deleting in archive dir. If fails, try deleting in main db dir.
+     * This is efficient because all except for very few wal files will be in
+     * archive. Checking for WalType is not much helpful because alive wal could
+       be archived now.
+     */
+    if (!env_->DeleteFile(archivedir + "/" + wal->Filename()).ok() &&
+        !env_->DeleteFile(dbname_ + "/" + wal->Filename()).ok()) {
+      files_not_deleted.append(wal->Filename());
+    }
+  }
+  if (!files_not_deleted.empty()) {
+    return Status::IOError("Deleted all requested files except: " +
+                           files_not_deleted);
+  }
   return Status::OK();
 }
 

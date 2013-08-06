@@ -3461,6 +3461,14 @@ class ModelDB: public DB {
     return Status::OK();
   }
 
+  virtual Status GetSortedWalFiles(VectorLogPtr& files) {
+    return Status::OK();
+  }
+
+  virtual Status DeleteWalFiles(const VectorLogPtr& files) {
+    return Status::OK();
+  }
+
   virtual SequenceNumber GetLatestSequenceNumber() {
     return 0;
   }

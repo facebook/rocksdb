@@ -27,7 +27,7 @@
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
-#include "db/transaction_log_iterator_impl.h"
+#include "db/transaction_log_impl.h"
 #include "leveldb/compaction_filter.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
@@ -1046,34 +1046,24 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() {
 Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                unique_ptr<TransactionLogIterator>* iter) {
 
-  //  Get All Log Files.
-  //  Sort Files
-  //  Get the first entry from each file.
+  if (seq > last_flushed_sequence_) {
+    return Status::IOError("Requested sequence not yet written in the db");
+  }
+  //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.
 
-  std::vector<LogFile> walFiles;
-  // list wal files in main db dir.
-  Status s = ListAllWALFiles(dbname_, &walFiles, kAliveLogFile);
+  std::unique_ptr<VectorLogPtr> wal_files(new VectorLogPtr);
+  Status s = GetSortedWalFiles(*wal_files);
   if (!s.ok()) {
     return s;
   }
-  //  list wal files in archive dir.
-  std::string archivedir = ArchivalDirectory(dbname_);
-  if (env_->FileExists(archivedir)) {
-    s = ListAllWALFiles(archivedir, &walFiles, kArchivedLogFile);
-    if (!s.ok()) {
-      return s;
-    }
-  }
 
-  if (walFiles.empty()) {
+  if (wal_files->empty()) {
     return Status::IOError(" NO WAL Files present in the db");
   }
   //  std::shared_ptr would have been useful here.
 
-  std::unique_ptr<std::vector<LogFile>> probableWALFiles(
-    new std::vector<LogFile>());
-  s = FindProbableWALFiles(&walFiles, probableWALFiles.get(), seq);
+  s = RetainProbableWalFiles(*wal_files, seq);
   if (!s.ok()) {
     return s;
   }
@@ -1082,90 +1072,61 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                    &options_,
                                    storage_options_,
                                    seq,
-                                   std::move(probableWALFiles),
+                                   std::move(wal_files),
                                    &last_flushed_sequence_));
   iter->get()->Next();
   return iter->get()->status();
 }
 
-Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
-                                    std::vector<LogFile>* const result,
-                                    const SequenceNumber target) {
-  assert(allLogs != nullptr);
-  assert(result != nullptr);
-
-  std::sort(allLogs->begin(), allLogs->end());
+Status DBImpl::RetainProbableWalFiles(VectorLogPtr& all_logs,
+                                      const SequenceNumber target) {
   long start = 0; // signed to avoid overflow when target is < first file.
-  long end = static_cast<long>(allLogs->size()) - 1;
+  long end = static_cast<long>(all_logs.size()) - 1;
   // Binary Search. avoid opening all files.
   while (end >= start) {
     long mid = start + (end - start) / 2;  // Avoid overflow.
-    WriteBatch batch;
-    Status s = ReadFirstRecord(allLogs->at(mid), &batch);
-    if (!s.ok()) {
-      if (CheckFileExistsAndEmpty(allLogs->at(mid))) {
-        allLogs->erase(allLogs->begin() + mid);
-        --end;
-        continue;
-      }
-      return s;
-    }
-    SequenceNumber currentSeqNum = WriteBatchInternal::Sequence(&batch);
-    if (currentSeqNum == target) {
-      start = mid;
+    SequenceNumber current_seq_num = all_logs.at(mid)->StartSequence();
+    if (current_seq_num == target) {
       end = mid;
       break;
-    } else if (currentSeqNum < target) {
+    } else if (current_seq_num < target) {
       start = mid + 1;
     } else {
       end = mid - 1;
     }
   }
-  size_t startIndex = std::max(0l, end); // end could be -ve.
-  for (size_t i = startIndex; i < allLogs->size(); ++i) {
-    result->push_back(allLogs->at(i));
-  }
-  if (result->empty()) {
-    return Status::IOError(
-        "No probable files. Check if the db contains log files");
-  }
+  size_t start_index = std::max(0l, end); // end could be -ve.
+  // The last wal file is always included
+  all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
   return Status::OK();
 }
 
-bool DBImpl::CheckFileExistsAndEmpty(const LogFile& file) {
-  if (file.type == kAliveLogFile) {
-    const std::string fname = LogFileName(dbname_, file.logNumber);
-    uint64_t file_size;
-    Status s = env_->GetFileSize(fname, &file_size);
-    if (s.ok() && file_size == 0) {
-      return true;
-    }
-  }
-  const std::string fname = ArchivedLogFileName(dbname_, file.logNumber);
+bool DBImpl::CheckWalFileExistsAndEmpty(const WalFileType type,
+                                        const uint64_t number) {
+  const std::string fname = (type == kAliveLogFile) ?
+    LogFileName(dbname_, number) : ArchivedLogFileName(dbname_, number);
   uint64_t file_size;
   Status s = env_->GetFileSize(fname, &file_size);
-  if (s.ok() && file_size == 0) {
-    return true;
-  }
-  return false;
+  return (s.ok() && (file_size == 0));
 }
 
-Status DBImpl::ReadFirstRecord(const LogFile& file, WriteBatch* const result) {
+Status DBImpl::ReadFirstRecord(const WalFileType type, const uint64_t number,
+                               WriteBatch* const result) {
 
-  if (file.type == kAliveLogFile) {
-    std::string fname = LogFileName(dbname_, file.logNumber);
+  if (type == kAliveLogFile) {
+    std::string fname = LogFileName(dbname_, number);
     Status status = ReadFirstLine(fname, result);
     if (!status.ok()) {
       //  check if the file got moved to archive.
-      std::string archivedFile = ArchivedLogFileName(dbname_, file.logNumber);
-      Status s = ReadFirstLine(archivedFile, result);
+      std::string archived_file = ArchivedLogFileName(dbname_, number);
+      Status s = ReadFirstLine(archived_file, result);
       if (!s.ok()) {
-        return Status::IOError("Log File Has been deleted");
+        return Status::IOError("Log File has been deleted");
       }
     }
     return Status::OK();
-  } else if (file.type == kArchivedLogFile) {
-    std::string fname = ArchivedLogFileName(dbname_, file.logNumber);
+  } else if (type == kArchivedLogFile) {
+    std::string fname = ArchivedLogFileName(dbname_, number);
     Status status = ReadFirstLine(fname, result);
     return status;
   }
@@ -1204,6 +1165,7 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
                      0/*initial_offset*/);
   std::string scratch;
   Slice record;
+
   if (reader.ReadRecord(&record, &scratch) && status.ok()) {
     if (record.size() < 12) {
       reporter.Corruption(
@@ -1217,22 +1179,49 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
   return Status::IOError("Error reading from file " + fname);
 }
 
-Status DBImpl::ListAllWALFiles(const std::string& path,
-                               std::vector<LogFile>* const logFiles,
-                               WalFileType logType) {
-  assert(logFiles != nullptr);
-  std::vector<std::string> allFiles;
-  const Status status = env_->GetChildren(path, &allFiles);
+struct CompareLogByPointer {
+  bool operator() (const unique_ptr<LogFile>& a,
+                   const unique_ptr<LogFile>& b) {
+    LogFileImpl* a_impl = dynamic_cast<LogFileImpl*>(a.get());
+    LogFileImpl* b_impl = dynamic_cast<LogFileImpl*>(b.get());
+    return *a_impl < *b_impl;
+  }
+};
+
+Status DBImpl::AppendSortedWalsOfType(const std::string& path,
+    VectorLogPtr& log_files, WalFileType log_type) {
+  std::vector<std::string> all_files;
+  const Status status = env_->GetChildren(path, &all_files);
   if (!status.ok()) {
     return status;
   }
-  for (const auto& f : allFiles) {
+  log_files.reserve(log_files.size() + all_files.size());
+  for (const auto& f : all_files) {
     uint64_t number;
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kLogFile){
-      logFiles->push_back(LogFile(number, logType));
+
+      WriteBatch batch;
+      Status s = ReadFirstRecord(log_type, number, &batch);
+      if (!s.ok()) {
+        if (CheckWalFileExistsAndEmpty(log_type, number)) {
+          continue;
+        }
+        return s;
+      }
+
+      uint64_t size_bytes;
+      s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
+      if (!s.ok()) {
+        return s;
+      }
+
+      log_files.push_back(std::move(unique_ptr<LogFile>(new LogFileImpl(
+        number, log_type, WriteBatchInternal::Sequence(&batch), size_bytes))));
     }
   }
+  CompareLogByPointer compare_log_files;
+  std::sort(log_files.begin(), log_files.end(), compare_log_files);
   return status;
 }
 
