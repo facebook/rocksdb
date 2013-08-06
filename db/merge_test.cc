@@ -28,10 +28,10 @@ std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false) {
   DestroyDB(dbname, Options());
   if (ttl) {
     cout << "Opening database with TTL\n";
-    s = UtilityDB::OpenTtlDB(options, test::TmpDir() + "/merge_testdbttl",&sdb);
+    s = UtilityDB::OpenTtlDB(options, dbname, &sdb);
     db = sdb;
   } else {
-    s = DB::Open(options, test::TmpDir() + "/merge_testdb", &db);
+    s = DB::Open(options, dbname, &db);
   }
   if (!s.ok()) {
     cerr << s.ToString() << endl;
@@ -265,7 +265,7 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
 
 int main(int argc, char *argv[]) {
   //TODO: Make this test like a general rocksdb unit-test
-  runTest(argc, "/tmp/testdb");
-  runTest(argc, "/tmp/testdbttl", true); // Run test on TTL database
+  runTest(argc, test::TmpDir() + "/merge_testdb");
+  runTest(argc, test::TmpDir() + "/merge_testdbttl", true); // Run test on TTL database
   return 0;
 }
