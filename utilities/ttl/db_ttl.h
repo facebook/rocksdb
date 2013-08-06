@@ -277,7 +277,7 @@ class TtlMergeOperator : public MergeOperator {
                             const Slice& right_operand,
                             std::string* new_value,
                             Logger* logger) const override {
-    const uint32_t& ts_len = DBWithTTL::kTSLength;
+    const uint32_t ts_len = DBWithTTL::kTSLength;
 
     if (left_operand.size() < ts_len || right_operand.size() < ts_len) {
       Log(logger, "Error: Could not remove timestamp from value.");
