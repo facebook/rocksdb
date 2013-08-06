@@ -9,11 +9,12 @@
 #include "leveldb/env.h"
 #include "leveldb/compaction_filter.h"
 #include "leveldb/merge_operator.h"
+#include "utilities/utility_db.h"
 #include "db/db_impl.h"
 
 namespace leveldb {
 
-class DBWithTTL : public DB {
+class DBWithTTL : public StackableDB {
  public:
   DBWithTTL(const int32_t ttl,
             const Options& options,
@@ -83,6 +84,10 @@ class DBWithTTL : public DB {
 
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBWithTtl();
+
+  virtual DB* GetRawDB() {
+    return db_;
+  }
 
   static bool IsStale(const Slice& value, int32_t ttl);
 

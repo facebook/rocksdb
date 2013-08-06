@@ -821,7 +821,8 @@ void DBDumperCommand::DoCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = (TtlIterator*)iter;
+      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(iter);
+      assert(it_ttl);
       rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -1342,7 +1343,8 @@ void ScanCommand::DoCommand() {
         it->Next()) {
     string key = it->key().ToString();
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = (TtlIterator*)it;
+      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(it);
+      assert(it_ttl);
       int rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;

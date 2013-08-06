@@ -150,6 +150,7 @@ protected:
   LDBCommandExecuteResult exec_state_;
   string db_path_;
   DB* db_;
+  StackableDB* sdb_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -217,10 +218,11 @@ protected:
     Status st;
     if (is_db_ttl_) {
       if (is_read_only_) {
-        st = UtilityDB::OpenTtlDB(opt, db_path_, &db_, 0, true);
+        st = UtilityDB::OpenTtlDB(opt, db_path_, &sdb_, 0, true);
       } else {
-        st = UtilityDB::OpenTtlDB(opt, db_path_, &db_);
+        st = UtilityDB::OpenTtlDB(opt, db_path_, &sdb_);
       }
+      db_ = sdb_;
     } else if (is_read_only_) {
       st = DB::OpenForReadOnly(opt, db_path_, &db_);
     } else {

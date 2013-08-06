@@ -20,6 +20,7 @@ auto mergeOperator = MergeOperators::CreateUInt64AddOperator();
 
 std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false) {
   DB* db;
+  StackableDB* sdb;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = mergeOperator.get();
@@ -27,7 +28,8 @@ std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false) {
   DestroyDB(dbname, Options());
   if (ttl) {
     cout << "Opening database with TTL\n";
-    s = UtilityDB::OpenTtlDB(options, test::TmpDir() + "/merge_testdbttl", &db);
+    s = UtilityDB::OpenTtlDB(options, test::TmpDir() + "/merge_testdbttl",&sdb);
+    db = sdb;
   } else {
     s = DB::Open(options, test::TmpDir() + "/merge_testdb", &db);
   }

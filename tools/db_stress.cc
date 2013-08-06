@@ -972,7 +972,8 @@ class StressTest {
     if (FLAGS_ttl == -1) {
       s = DB::Open(options, FLAGS_db, &db_);
     } else {
-      s = UtilityDB::OpenTtlDB(options, FLAGS_db, &db_, FLAGS_ttl);
+      s = UtilityDB::OpenTtlDB(options, FLAGS_db, &sdb_, FLAGS_ttl);
+      db_ = sdb_;
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1008,6 +1009,7 @@ class StressTest {
   shared_ptr<Cache> cache_;
   const FilterPolicy* filter_policy_;
   DB* db_;
+  StackableDB* sdb_;
   int num_times_reopened_;
 };
 

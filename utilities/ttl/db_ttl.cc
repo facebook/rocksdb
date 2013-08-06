@@ -3,7 +3,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "utilities/ttl/db_ttl.h"
-#include "include/utilities/utility_db.h"
 #include "db/filename.h"
 #include "util/coding.h"
 #include "include/leveldb/env.h"
@@ -17,7 +16,8 @@ DBWithTTL::DBWithTTL(const int32_t ttl,
                      const std::string& dbname,
                      Status& st,
                      bool read_only)
-    : ttl_(ttl) {
+    : StackableDB(nullptr),
+      ttl_(ttl) {
   Options options_to_open = options;
 
   ttl_comp_filter_.reset(new TtlCompactionFilter(ttl,
@@ -43,7 +43,7 @@ DBWithTTL::~DBWithTTL() {
 Status UtilityDB::OpenTtlDB(
     const Options& options,
     const std::string& dbname,
-    DB** dbptr,
+    StackableDB** dbptr,
     int32_t ttl,
     bool read_only) {
   Status st;

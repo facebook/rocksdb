@@ -257,7 +257,7 @@ class TtlTest {
 
  private:
   std::string dbname_;
-  DB* db_ttl_;
+  StackableDB* db_ttl_;
   Options options_;
   KVMap kvmap_;
   KVMap::iterator kv_it_;

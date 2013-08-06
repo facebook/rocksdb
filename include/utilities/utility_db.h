@@ -5,7 +5,7 @@
 #ifndef LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_
 #define LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_
 
-#include "leveldb/db.h"
+#include "stackable_db.h"
 
 namespace leveldb {
 
@@ -44,7 +44,7 @@ class UtilityDB {
     //  whole database may be deleted in a small amount of time
     static Status OpenTtlDB(const Options& options,
                             const std::string& name,
-                            DB** dbptr,
+                            StackableDB** dbptr,
                             int32_t ttl = 0,
                             bool read_only = false);
 };
