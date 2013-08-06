@@ -9,12 +9,12 @@
 
 namespace leveldb {
 
-class StringAppendOperator : public MergeOperator {
+class StringAppendOperator : public AssociativeMergeOperator {
  public:
 
   StringAppendOperator(char delim_char);    /// Constructor: specify delimiter
 
-  virtual void Merge(const Slice& key,
+  virtual bool Merge(const Slice& key,
                      const Slice* existing_value,
                      const Slice& value,
                      std::string* new_value,
@@ -23,7 +23,7 @@ class StringAppendOperator : public MergeOperator {
   virtual const char* Name() const override;
 
  private:
- char delim_;         // The delimiter is inserted between elements
+  char delim_;         // The delimiter is inserted between elements
 
 };
 

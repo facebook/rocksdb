@@ -32,6 +32,9 @@ public:
  virtual Status Get(const ReadOptions& options,
                     const Slice& key,
                     std::string* value);
+
+ // TODO: Implement ReadOnly MultiGet?
+
  virtual Iterator* NewIterator(const ReadOptions&);
 
  virtual Status Put(const WriteOptions&, const Slice& key, const Slice& value) {

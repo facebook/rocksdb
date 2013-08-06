@@ -4,6 +4,7 @@
 
 #include "db/db_iter.h"
 #include <stdexcept>
+#include <deque>
 
 #include "db/filename.h"
 #include "db/dbformat.h"
@@ -231,10 +232,13 @@ void DBIter::FindNextUserEntry(bool skipping) {
 // POST: saved_value_ has the merged value for the user key
 //       iter_ points to the next entry (or invalid)
 void DBIter::MergeValuesNewToOld() {
+  // TODO: Is there a way to unite with MergeHelper or other similar code?
 
-  const Slice value = iter_->value();
-  std::string operand(value.data(), value.size());
+  // Start the merge process by pushing the first operand
+  std::deque<std::string> operands;
+  operands.push_front(iter_->value().ToString());
 
+  std::string merge_result;   // Temporary string to hold merge result later
   ParsedInternalKey ikey;
   for (iter_->Next(); iter_->Valid(); iter_->Next()) {
     if (!ParseKey(&ikey)) {
@@ -255,10 +259,11 @@ void DBIter::MergeValuesNewToOld() {
     }
 
     if (kTypeValue == ikey.type) {
-      // hit a put, merge the put value with operand and store it in the
-      // final result saved_value_. We are done!
+      // hit a put, merge the put value with operands and store the
+      // final result in saved_value_. We are done!
+      // ignore corruption if there is any.
       const Slice value = iter_->value();
-      user_merge_operator_->Merge(ikey.user_key, &value, Slice(operand),
+      user_merge_operator_->Merge(ikey.user_key, &value, operands,
                                   &saved_value_, logger_.get());
       // iter_ is positioned after put
       iter_->Next();
@@ -266,29 +271,41 @@ void DBIter::MergeValuesNewToOld() {
     }
 
     if (kTypeMerge == ikey.type) {
-      // hit a merge, merge the value with operand and continue.
-      // saved_value_ is used as a scratch area. The result is put
-      // back in operand
-      const Slice value = iter_->value();
-      user_merge_operator_->Merge(ikey.user_key, &value, operand,
-                                  &saved_value_, logger_.get());
-      swap(saved_value_, operand);
+      // hit a merge, add the value as an operand and run associative merge.
+      // when complete, add result to operands and continue.
+      const Slice& value = iter_->value();
+      operands.push_front(value.ToString());
+      while(operands.size() >= 2) {
+        // Call user associative-merge until it returns false
+        if (user_merge_operator_->PartialMerge(ikey.user_key,
+                                               Slice(operands[0]),
+                                               Slice(operands[1]),
+                                               &merge_result,
+                                               logger_.get())) {
+          operands.pop_front();
+          swap(operands.front(), merge_result);
+        } else {
+          // Associative merge returns false ==> stack the operands
+          break;
+        }
+      }
+
     }
   }
 
   // we either exhausted all internal keys under this user key, or hit
   // a deletion marker.
-  // feed null as the existing value to the merge opexrator, such that
+  // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  user_merge_operator_->Merge(ikey.user_key, nullptr, operand,
+  user_merge_operator_->Merge(ikey.user_key, nullptr, operands,
                               &saved_value_, logger_.get());
 }
 
 void DBIter::Prev() {
   assert(valid_);
 
-  // TODO: support backward iteration
   // Throw an exception now if merge_operator is provided
+  // TODO: support backward iteration
   if (user_merge_operator_) {
     Log(logger_, "Prev not supported yet if merge_operator is provided");
     throw std::logic_error("DBIter::Prev backward iteration not supported"
@@ -387,8 +404,8 @@ void DBIter::SeekToFirst() {
 }
 
 void DBIter::SeekToLast() {
+  // Throw an exception for now if merge_operator is provided
   // TODO: support backward iteration
-  // throw an exception for now if merge_operator is provided
   if (user_merge_operator_) {
     Log(logger_, "SeekToLast not supported yet if merge_operator is provided");
     throw std::logic_error("DBIter::SeekToLast: backward iteration not"

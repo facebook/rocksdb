@@ -20,7 +20,8 @@ using namespace leveldb;
 
 namespace leveldb {
 
-const std::string kDbName = "/tmp/mergetestdb";  // Path to the database on file system
+// Path to the database on file system
+const std::string kDbName = "/tmp/mergetestdb";
 
 // OpenDb opens a (possibly new) rocksdb database with a StringAppendOperator
 std::shared_ptr<DB> OpenDb(StringAppendOperator* append_op) {
@@ -251,7 +252,7 @@ TEST(StringAppendOperatorTest,BIGRandomMixGetAppend) {
 
   // Generate a bunch of random queries (Append and Get)!
   enum query_t  { APPEND_OP, GET_OP, NUM_OPS };
-  Random randomGen(9138204);       //deterministic seed; always get same results!
+  Random randomGen(9138204);       // deterministic seed
 
   const int kNumQueries = 1000;
   for (int q=0; q<kNumQueries; ++q) {

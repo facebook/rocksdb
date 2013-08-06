@@ -130,20 +130,19 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                  const Options& options) {
+                   std::deque<std::string>* operands, const Options& options) {
   Slice memkey = key.memtable_key();
   std::shared_ptr<MemTableRep::Iterator> iter(table_.get()->GetIterator());
   iter->Seek(memkey.data());
 
-  bool merge_in_progress = false;
-  std::string operand;
-  if (s->IsMergeInProgress()) {
-    swap(*value, operand);
-    merge_in_progress = true;
-  }
+  // It is the caller's responsibility to allocate/delete operands list
+  assert(operands != nullptr);
 
+  bool merge_in_progress = s->IsMergeInProgress();
   auto merge_operator = options.merge_operator;
   auto logger = options.info_log;
+  std::string merge_result;
+
   for (; iter->Valid(); iter->Next()) {
     // entry format is:
     //    klength  varint32
@@ -165,35 +164,50 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          *s = Status::OK();
           if (merge_in_progress) {
-            merge_operator->Merge(key.user_key(), &v, operand,
-                                   value, logger.get());
+            assert(merge_operator);
+            if (!merge_operator->Merge(key.user_key(), &v, *operands,
+                                       value, logger.get())) {
+              *s = Status::Corruption("Error: Could not perform merge.");
+            }
           } else {
             value->assign(v.data(), v.size());
           }
           return true;
         }
-        case kTypeMerge: {
-          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-          if (merge_in_progress) {
-            merge_operator->Merge(key.user_key(), &v, operand,
-                                  value, logger.get());
-            swap(*value, operand);
-          } else {
-            assert(merge_operator);
-            merge_in_progress = true;
-            operand.assign(v.data(), v.size());
-          }
-          break;
-        }
         case kTypeDeletion: {
           if (merge_in_progress) {
-            merge_operator->Merge(key.user_key(), nullptr, operand,
-                                   value, logger.get());
+            assert(merge_operator);
+            *s = Status::OK();
+            if (!merge_operator->Merge(key.user_key(), nullptr, *operands,
+                                       value, logger.get())) {
+              *s = Status::Corruption("Error: Could not perform merge.");
+            }
           } else {
             *s = Status::NotFound(Slice());
           }
           return true;
+        }
+        case kTypeMerge: {
+          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+          merge_in_progress = true;
+          operands->push_front(v.ToString());
+          while(operands->size() >= 2) {
+            // Attempt to associative merge. (Returns true if successful)
+            if (merge_operator->PartialMerge(key.user_key(),
+                                             Slice((*operands)[0]),
+                                             Slice((*operands)[1]),
+                                             &merge_result,
+                                             logger.get())) {
+              operands->pop_front();
+              swap(operands->front(), merge_result);
+            } else {
+              // Stack them because user can't associative merge
+              break;
+            }
+          }
+          break;
         }
       }
     } else {
@@ -202,8 +216,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     }
   }
 
+  // No change to value, since we have not yet found a Put/Delete
+
   if (merge_in_progress) {
-    swap(*value, operand);
     *s = Status::MergeInProgress("");
   }
   return false;

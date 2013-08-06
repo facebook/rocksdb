@@ -228,7 +228,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
   char name[100];
   Status st = env_->GetHostName(name, 100L);
-  if(st.ok()) {
+  if (st.ok()) {
     host_name_ = name;
   } else {
     Log(options_.info_log, "Can't get hostname, use localhost as host name.");
@@ -469,7 +469,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           }
         } else {
           Status st = env_->DeleteFile(dbname_ + "/" + state.allfiles[i]);
-          if(!st.ok()) {
+          if (!st.ok()) {
             Log(options_.info_log, "Delete type=%d #%lld FAILED\n",
                 int(type),
                 static_cast<unsigned long long>(number));
@@ -1110,7 +1110,7 @@ Status DBImpl::FindProbableWALFiles(std::vector<LogFile>* const allLogs,
     }
   }
   size_t startIndex = std::max(0l, end); // end could be -ve.
-  for( size_t i = startIndex; i < allLogs->size(); ++i) {
+  for (size_t i = startIndex; i < allLogs->size(); ++i) {
     result->push_back(allLogs->at(i));
   }
   if (result->empty()) {
@@ -1703,7 +1703,6 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
 
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
-
   Log(options_.info_log,
       "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
       compact->compaction->num_input_files(0),
@@ -1793,7 +1792,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 
     // Handle key/value, add to state, etc.
     bool drop = false;
-    bool current_entry_is_merged = false;
+    bool current_entry_is_merging = false;
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
       // TODO: error key stays in db forever? Figure out the intention/rationale
@@ -1887,11 +1886,24 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // logic could also be nicely re-used for memtable flush purge
         // optimization in BuildTable.
         merge.MergeUntil(input.get(), prev_snapshot, bottommost_level);
-        current_entry_is_merged = true;
-        // get the merge result
-        key = merge.key();
-        ParseInternalKey(key, &ikey);
-        value = merge.value();
+        current_entry_is_merging = true;
+        if (merge.IsSuccess()) {
+          // Successfully found Put/Delete/(end-of-key-range) while merging
+          // Get the merge result
+          key = merge.key();
+          ParseInternalKey(key, &ikey);
+          value = merge.value();
+        } else {
+          // Did not find a Put/Delete/(end-of-key-range) while merging
+          // We now have some stack of merge operands to write out.
+          // NOTE: key,value, and ikey are now referring to old entries.
+          //       These will be correctly set below.
+          assert(!merge.keys().empty());
+          assert(merge.keys().size() == merge.values().size());
+
+          // Hack to make sure last_sequence_for_key is correct
+          ParseInternalKey(merge.keys().front(), &ikey);
+        }
       }
 
       last_sequence_for_key = ikey.sequence;
@@ -1909,52 +1921,97 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
 #endif
 
     if (!drop) {
+      // We may write a single key (e.g.: for Put/Delete or successful merge).
+      // Or we may instead have to write a sequence/list of keys.
+      // We have to write a sequence iff we have an unsuccessful merge
+      bool has_merge_list = current_entry_is_merging && !merge.IsSuccess();
+      const std::deque<std::string>* keys = nullptr;
+      const std::deque<std::string>* values = nullptr;
+      std::deque<std::string>::const_reverse_iterator key_iter;
+      std::deque<std::string>::const_reverse_iterator value_iter;
+      if (has_merge_list) {
+        keys = &merge.keys();
+        values = &merge.values();
+        key_iter = keys->rbegin();    // The back (*rbegin()) is the first key
+        value_iter = values->rbegin();
 
-      char* kptr = (char*)key.data();
-      std::string kstr;
-
-      // Zeroing out the sequence number leads to better compression.
-      // If this is the bottommost level (no files in lower levels)
-      // and the earliest snapshot is larger than this seqno
-      // then we can squash the seqno to zero.
-      if (bottommost_level && ikey.sequence < earliest_snapshot &&
-         ikey.type != kTypeMerge) {
-        assert(ikey.type != kTypeDeletion);
-        // make a copy because updating in place would cause problems
-        // with the priority queue that is managing the input key iterator
-        kstr.assign(key.data(), key.size());
-        kptr = (char *)kstr.c_str();
-        UpdateInternalKey(kptr, key.size(), (uint64_t)0, ikey.type);
+        key = Slice(*key_iter);
+        value = Slice(*value_iter);
       }
 
-      Slice newkey(kptr, key.size());
-      assert((key.clear(), 1)); // we do not need 'key' anymore
+      // If we have a list of keys to write, traverse the list.
+      // If we have a single key to write, simply write that key.
+      while (true) {
+        // Invariant: key,value,ikey will always be the next entry to write
+        char* kptr = (char*)key.data();
+        std::string kstr;
 
-      // Open output file if necessary
-      if (compact->builder == nullptr) {
-        status = OpenCompactionOutputFile(compact);
-        if (!status.ok()) {
-          break;
+        // Zeroing out the sequence number leads to better compression.
+        // If this is the bottommost level (no files in lower levels)
+        // and the earliest snapshot is larger than this seqno
+        // then we can squash the seqno to zero.
+        if (bottommost_level && ikey.sequence < earliest_snapshot &&
+            ikey.type != kTypeMerge) {
+          assert(ikey.type != kTypeDeletion);
+          // make a copy because updating in place would cause problems
+          // with the priority queue that is managing the input key iterator
+          kstr.assign(key.data(), key.size());
+          kptr = (char *)kstr.c_str();
+          UpdateInternalKey(kptr, key.size(), (uint64_t)0, ikey.type);
         }
-      }
-      if (compact->builder->NumEntries() == 0) {
-        compact->current_output()->smallest.DecodeFrom(newkey);
-      }
-      compact->current_output()->largest.DecodeFrom(newkey);
-      compact->builder->Add(newkey, value);
 
-      // Close output file if it is big enough
-      if (compact->builder->FileSize() >=
-          compact->compaction->MaxOutputFileSize()) {
-        status = FinishCompactionOutputFile(compact, input.get());
-        if (!status.ok()) {
+        Slice newkey(kptr, key.size());
+        assert((key.clear(), 1)); // we do not need 'key' anymore
+
+        // Open output file if necessary
+        if (compact->builder == nullptr) {
+          status = OpenCompactionOutputFile(compact);
+          if (!status.ok()) {
+            break;
+          }
+        }
+        if (compact->builder->NumEntries() == 0) {
+          compact->current_output()->smallest.DecodeFrom(newkey);
+        }
+        compact->current_output()->largest.DecodeFrom(newkey);
+        compact->builder->Add(newkey, value);
+
+        // Close output file if it is big enough
+        if (compact->builder->FileSize() >=
+            compact->compaction->MaxOutputFileSize()) {
+          status = FinishCompactionOutputFile(compact, input.get());
+          if (!status.ok()) {
+            break;
+          }
+        }
+
+        // If we have a list of entries, move to next element
+        // If we only had one entry, then break the loop.
+        if (has_merge_list) {
+          ++key_iter;
+          ++value_iter;
+
+          // If at end of list
+          if (key_iter == keys->rend() || value_iter == values->rend()) {
+            // Sanity Check: if one ends, then both end
+            assert(key_iter == keys->rend() && value_iter == values->rend());
+            break;
+          }
+
+          // Otherwise not at end of list. Update key, value, and ikey.
+          key = Slice(*key_iter);
+          value = Slice(*value_iter);
+          ParseInternalKey(key, &ikey);
+
+        } else{
+          // Only had one item to begin with (Put/Delete)
           break;
         }
       }
     }
 
     // MergeUntil has moved input to the next entry
-    if (!current_entry_is_merged) {
+    if (!current_entry_is_merging) {
       input->Next();
     }
   }
@@ -2120,21 +2177,25 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   current->Ref();
 
   // Unlock while reading from files and memtables
-
   mutex_.Unlock();
   bool have_stat_update = false;
   Version::GetStats stats;
 
+
+  // Prepare to store a list of merge operations if merge occurs.
+  std::deque<std::string> merge_operands;
+
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
-  // value will contain the current merge operand in the latter case.
+  // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, options_)) {
+  if (mem->Get(lkey, value, &s, &merge_operands, options_)) {
     // Done
-  } else if (imm.Get(lkey, value, &s, options_)) {
+  } else if (imm.Get(lkey, value, &s, &merge_operands, options_)) {
     // Done
   } else {
-    current->Get(options, lkey, value, &s, &stats, options_, no_io,value_found);
+    current->Get(options, lkey, value, &s, &merge_operands, &stats,
+                 options_, value_found);
     have_stat_update = true;
   }
   mutex_.Lock();
@@ -2177,6 +2238,9 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   bool have_stat_update = false;
   Version::GetStats stats;
 
+  // Prepare to store a list of merge operations if merge occurs.
+  std::deque<std::string> merge_operands;
+
   // Note: this always resizes the values array
   int numKeys = keys.size();
   std::vector<Status> statList(numKeys);
@@ -2188,18 +2252,19 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
-  // value will contain the current merge operand in the latter case.
-  for(int i=0; i<numKeys; ++i) {
+  // merge_operands will contain the sequence of merges in the latter case.
+  for (int i=0; i<numKeys; ++i) {
+    merge_operands.clear();
     Status& s = statList[i];
     std::string* value = &(*values)[i];
 
     LookupKey lkey(keys[i], snapshot);
-    if (mem->Get(lkey, value, &s, options_)) {
+    if (mem->Get(lkey, value, &s, &merge_operands, options_)) {
       // Done
-    } else if (imm.Get(lkey, value, &s, options_)) {
+    } else if (imm.Get(lkey, value, &s, &merge_operands, options_)) {
       // Done
     } else {
-      current->Get(options, lkey, value, &s, &stats, options_);
+      current->Get(options, lkey, value, &s, &merge_operands, &stats, options_);
       have_stat_update = true;
     }
 

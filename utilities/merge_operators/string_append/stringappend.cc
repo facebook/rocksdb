@@ -15,14 +15,13 @@
 
 namespace leveldb {
 
-
 // Constructor: also specify the delimiter character.
 StringAppendOperator::StringAppendOperator(char delim_char)
     : delim_(delim_char) {
 }
 
 // Implementation for the merge operation (concatenates two strings)
-void StringAppendOperator::Merge(const Slice& key,
+bool StringAppendOperator::Merge(const Slice& key,
                                  const Slice* existing_value,
                                  const Slice& value,
                                  std::string* new_value,
@@ -43,6 +42,8 @@ void StringAppendOperator::Merge(const Slice& key,
     new_value->append(1,delim_);
     new_value->append(value.data(), value.size());
   }
+
+  return true;
 }
 
 const char* StringAppendOperator::Name() const  {

@@ -68,14 +68,16 @@ class Version {
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
+  // Uses *operands to store merge_operator operations to apply later
   // REQUIRES: lock is not held
   struct GetStats {
     FileMetaData* seek_file;
     int seek_file_level;
   };
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
-           Status* status, GetStats* stats,  const Options& db_option,
-           const bool no_io = false, bool* value_found = nullptr);
+           Status* status, std::deque<std::string>* operands, GetStats* stats,
+           const Options& db_option, const bool no_io = false,
+           bool* value_found = nullptr);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
@@ -117,6 +119,14 @@ class Version {
   bool OverlapInLevel(int level,
                       const Slice* smallest_user_key,
                       const Slice* largest_user_key);
+
+  // Returns true iff the first or last file in inputs contains
+  // an overlapping user key to the file "just outside" of it (i.e.
+  // just after the last file, or just before the first file)
+  // REQUIRES: "*inputs" is a sorted list of non-overlapping files
+  bool HasOverlappingUserKey(const std::vector<FileMetaData*>* inputs,
+                             int level);
+
 
   // Return the level at which we should place a new memtable compaction
   // result that covers the range [smallest_user_key,largest_user_key].
@@ -404,6 +414,8 @@ class VersionSet {
                  const std::vector<FileMetaData*>& inputs2,
                  InternalKey* smallest,
                  InternalKey* largest);
+
+  void ExpandWhileOverlapping(Compaction* c);
 
   void SetupOtherInputs(Compaction* c);
 

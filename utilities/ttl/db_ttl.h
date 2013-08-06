@@ -225,39 +225,86 @@ class TtlMergeOperator : public MergeOperator {
     assert(merge_op);
   }
 
-  virtual void Merge(const Slice& key,
+  virtual bool Merge(const Slice& key,
                      const Slice* existing_value,
-                     const Slice& value,
+                     const std::deque<std::string>& operands,
                      std::string* new_value,
                      Logger* logger) const override {
     const uint32_t ts_len = DBWithTTL::kTSLength;
-    if ((existing_value && existing_value->size() < ts_len) ||
-        value.size() < ts_len) {
-      Log(logger, "Error: Could not remove timestamp correctly from value.");
-      assert(false);
-      //TODO: Remove assert and make this function return false.
-      //TODO: Change Merge semantics and add a counter here
+    if (existing_value && existing_value->size() < ts_len) {
+      Log(logger, "Error: Could not remove timestamp from existing value.");
+      return false;
+      // TODO: Change Merge semantics and add a counter here
     }
-    Slice value_without_ts(value.data(), value.size() - ts_len);
+
+    // Extract time-stamp from each operand to be passed to user_merge_op_
+    std::deque<std::string> operands_without_ts;
+    for (auto it = operands.begin(); it != operands.end(); ++it) {
+      if (it->size() < ts_len) {
+        Log(logger, "Error: Could not remove timestamp from operand value.");
+        return false;
+      }
+      operands_without_ts.push_back(it->substr(0, it->size() - ts_len));
+    }
+
+    // Apply the user merge operator (store result in *new_value)
     if (existing_value) {
       Slice existing_value_without_ts(existing_value->data(),
                                       existing_value->size() - ts_len);
-      user_merge_op_->Merge(key, &existing_value_without_ts, value_without_ts,
-                            new_value, logger);
+      user_merge_op_->Merge(key, &existing_value_without_ts,
+                            operands_without_ts, new_value, logger);
     } else {
-      user_merge_op_->Merge(key, nullptr, value_without_ts, new_value, logger);
+      user_merge_op_->Merge(key, nullptr, operands_without_ts, new_value,
+                            logger);
     }
+
+    // Augment the *new_value with the ttl time-stamp
     int32_t curtime;
     if (!DBWithTTL::GetCurrentTime(curtime).ok()) {
       Log(logger, "Error: Could not get current time to be attached internally "
                   "to the new value.");
-      assert(false);
-      //TODO: Remove assert and make this function return false.
+      return false;
     } else {
       char ts_string[ts_len];
       EncodeFixed32(ts_string, curtime);
       new_value->append(ts_string, ts_len);
+      return true;
     }
+  }
+
+  virtual bool PartialMerge(const Slice& key,
+                            const Slice& left_operand,
+                            const Slice& right_operand,
+                            std::string* new_value,
+                            Logger* logger) const override {
+    const uint32_t& ts_len = DBWithTTL::kTSLength;
+
+    if (left_operand.size() < ts_len || right_operand.size() < ts_len) {
+      Log(logger, "Error: Could not remove timestamp from value.");
+      return false;
+      //TODO: Change Merge semantics and add a counter here
+    }
+
+    // Apply the user partial-merge operator (store result in *new_value)
+    assert(new_value);
+    Slice left_without_ts(left_operand.data(), left_operand.size() - ts_len);
+    Slice right_without_ts(right_operand.data(), right_operand.size() - ts_len);
+    user_merge_op_->PartialMerge(key, left_without_ts, right_without_ts,
+                                 new_value, logger);
+
+    // Augment the *new_value with the ttl time-stamp
+    int32_t curtime;
+    if (!DBWithTTL::GetCurrentTime(curtime).ok()) {
+      Log(logger, "Error: Could not get current time to be attached internally "
+                  "to the new value.");
+      return false;
+    } else {
+      char ts_string[ts_len];
+      EncodeFixed32(ts_string, curtime);
+      new_value->append(ts_string, ts_len);
+      return true;
+    }
+
   }
 
   virtual const char* Name() const override {

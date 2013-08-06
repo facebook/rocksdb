@@ -5,6 +5,7 @@
 
 #include <string>
 #include <list>
+#include <deque>
 #include "leveldb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
@@ -70,7 +71,7 @@ class MemTableList {
   // Search all the memtables starting from the most recent one.
   // Return the most recent value found, if any.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           const Options& options);
+           std::deque<std::string>* operands, const Options& options);
 
   // Returns the list of underlying memtables.
   void GetMemTables(std::vector<MemTable*>* list);

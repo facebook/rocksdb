@@ -53,11 +53,12 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   MemTable* mem = GetMemTable();
   Version* current = versions_->current();
   SequenceNumber snapshot = versions_->LastSequence();
+  std::deque<std::string> merge_operands;
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, options_)) {
+  if (mem->Get(lkey, value, &s, &merge_operands, options_)) {
   } else {
     Version::GetStats stats;
-    current->Get(options, lkey, value, &s, &stats, options_);
+    current->Get(options, lkey, value, &s, &merge_operands, &stats, options_);
   }
   return s;
 }

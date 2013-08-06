@@ -6,26 +6,38 @@
 #define STORAGE_LEVELDB_INCLUDE_MERGE_OPERATOR_H_
 
 #include <string>
+#include <deque>
+#include "leveldb/slice.h"  // TODO: Remove this when migration is done;
 
 namespace leveldb {
 
 class Slice;
 class Logger;
 
-// The Merge Operator interface.
-// Client needs to provide an object implementing this interface if Merge
-// operation is accessed.
-// Essentially, MergeOperator specifies the SEMANTICS of a merge, which only
+// The Merge Operator
+//
+// Essentially, a MergeOperator specifies the SEMANTICS of a merge, which only
 // client knows. It could be numeric addition, list append, string
-// concatenation, ... , anything.
+// concatenation, edit data structure, ... , anything.
 // The library, on the other hand, is concerned with the exercise of this
 // interface, at the right time (during get, iteration, compaction...)
-// Note that, even though in principle we don't require any special property
-// of the merge operator, the current rocksdb compaction order does imply that
-// an associative operator could be exercised more naturally (and more
-// efficiently).
 //
-// Refer to my_test.cc for an example of implementation
+// To use merge, the client needs to provide an object implementing one of
+// the following interfaces:
+//  a) AssociativeMergeOperator - for most simple semantics (always take
+//    two values, and merge them into one value, which is then put back
+//    into rocksdb); numeric addition and string concatenation are examples;
+//
+//  b) MergeOperator - the generic class for all the more abstract / complex
+//    operations; one method to merge a Put/Delete value with a merge operand;
+//    and another method (PartialMerge) that merges two operands together.
+//    this is especially useful if your key values have a complex structure,
+//    but you would still like to support client-specific incremental updates.
+//
+// AssociativeMergeOperator is simpler to implement. MergeOperator is simply
+// more powerful.
+//
+// Refer to rocksdb-merge wiki for more details and example implementations.
 //
 class MergeOperator {
  public:
@@ -38,35 +50,95 @@ class MergeOperator {
   //                   refer to different types of data which have different
   //                   merge operation semantics
   // existing: (IN)    null indicates that the key does not exist before this op
-  // value:    (IN)    The passed-in merge operand value (when Merge is issued)
+  // operand_list:(IN) the sequence of merge operations to apply, front() first.
   // new_value:(OUT)   Client is responsible for filling the merge result here
   // logger:   (IN)    Client could use this to log errors during merge.
   //
-  // Note: Merge does not return anything to indicate if a merge is successful
-  //       or not.
-  // Rationale: If a merge failed due to, say de-serialization error, we still
-  //            need to define a consistent merge result. Should we throw away
-  //            the existing value? the merge operand? Or reset the merged value
-  //            to sth? The rocksdb library is not in a position to make the
-  //            right choice. On the other hand, client knows exactly what
-  //            happened during Merge, thus is able to make the best decision.
-  //            Just save the final decision in new_value. logger is passed in,
-  //            in case client wants to leave a trace of what went wrong.
-  virtual void Merge(const Slice& key,
+  // Return true on success.
+  // All values passed in will be client-specific values. So if this method
+  // returns false, it is because client specified bad data or there was
+  // internal corruption. This will be treated as an error by the library.
+  //
+  // Also make use of the *logger for error messages.
+  virtual bool Merge(const Slice& key,
                      const Slice* existing_value,
-                     const Slice& value,
+                     const std::deque<std::string>& operand_list,
                      std::string* new_value,
                      Logger* logger) const = 0;
 
+  // This function performs merge(left_op, right_op)
+  // when both the operands are themselves merge operation types
+  // that you would have passed to a DB::Merge() call in the same order
+  // (i.e.: DB::Merge(key,left_op), followed by DB::Merge(key,right_op)).
+  //
+  // PartialMerge should combine them into a single merge operation that is
+  // saved into *new_value, and then it should return true.
+  // *new_value should be constructed such that a call to
+  // DB::Merge(key, *new_value) would yield the same result as a call
+  // to DB::Merge(key, left_op) followed by DB::Merge(key, right_op).
+  //
+  // If it is impossible or infeasible to combine the two operations,
+  // leave new_value unchanged and return false. The library will
+  // internally keep track of the operations, and apply them in the
+  // correct order once a base-value (a Put/Delete/End-of-Database) is seen.
+  //
+  // TODO: Presently there is no way to differentiate between error/corruption
+  // and simply "return false". For now, the client should simply return
+  // false in any case it cannot perform partial-merge, regardless of reason.
+  // If there is corruption in the data, handle it in the above Merge() function,
+  // and return false there.
+  virtual bool PartialMerge(const Slice& key,
+                            const Slice& left_operand,
+                            const Slice& right_operand,
+                            std::string* new_value,
+                            Logger* logger) const = 0;
 
-  // The name of the MergeOperator.  Used to check for MergeOperator
+  // The name of the MergeOperator. Used to check for MergeOperator
   // mismatches (i.e., a DB created with one MergeOperator is
   // accessed using a different MergeOperator)
   // TODO: the name is currently not stored persistently and thus
   //       no checking is enforced. Client is responsible for providing
   //       consistent MergeOperator between DB opens.
   virtual const char* Name() const = 0;
+};
 
+// The simpler, associative merge operator.
+class AssociativeMergeOperator : public MergeOperator {
+ public:
+  virtual ~AssociativeMergeOperator() {}
+
+  // Gives the client a way to express the read -> modify -> write semantics
+  // key:           (IN) The key that's associated with this merge operation.
+  // existing_value:(IN) null indicates the key does not exist before this op
+  // value:         (IN) the value to update/merge the existing_value with
+  // new_value:    (OUT) Client is responsible for filling the merge result here
+  // logger:        (IN) Client could use this to log errors during merge.
+  //
+  // Return true on success.
+  // All values passed in will be client-specific values. So if this method
+  // returns false, it is because client specified bad data or there was
+  // internal corruption. The client should assume that this will be treated
+  // as an error by the library.
+  virtual bool Merge(const Slice& key,
+                     const Slice* existing_value,
+                     const Slice& value,
+                     std::string* new_value,
+                     Logger* logger) const = 0;
+
+
+ private:
+  // Default implementations of the MergeOperator functions
+  virtual bool Merge(const Slice& key,
+                     const Slice* existing_value,
+                     const std::deque<std::string>& operand_list,
+                     std::string* new_value,
+                     Logger* logger) const override;
+
+  virtual bool PartialMerge(const Slice& key,
+                            const Slice& left_operand,
+                            const Slice& right_operand,
+                            std::string* new_value,
+                            Logger* logger) const override;
 };
 
 }  // namespace leveldb

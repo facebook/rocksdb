@@ -5,51 +5,53 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-
 using namespace leveldb;
 
 namespace { // anonymous namespace
 
 // A 'model' merge operator with uint64 addition semantics
-class UInt64AddOperator : public MergeOperator {
+// Implemented as an AssociativeMergeOperator for simplicty and example.
+class UInt64AddOperator : public AssociativeMergeOperator {
  public:
-  virtual void Merge(const Slice& key,
+  virtual bool Merge(const Slice& key,
                      const Slice* existing_value,
                      const Slice& value,
                      std::string* new_value,
                      Logger* logger) const override {
-    // assuming 0 if no existing value
-    uint64_t existing = 0;
-    if (existing_value) {
-      if (existing_value->size() == sizeof(uint64_t)) {
-        existing = DecodeFixed64(existing_value->data());
-      } else {
-        // if existing_value is corrupted, treat it as 0
-        Log(logger, "existing value corruption, size: %zu > %zu",
-            existing_value->size(), sizeof(uint64_t));
-        existing = 0;
-      }
+    uint64_t orig_value = 0;
+    if (existing_value){
+      orig_value = DecodeInteger(*existing_value, logger);
     }
+    uint64_t operand = DecodeInteger(value, logger);
 
-    uint64_t operand;
-    if (value.size()  == sizeof(uint64_t)) {
-      operand = DecodeFixed64(value.data());
-    } else {
-      // if operand is corrupted, treat it as 0
-      Log(logger, "operand value corruption, size: %zu > %zu",
-          value.size(), sizeof(uint64_t));
-      operand = 0;
-    }
+    assert(new_value);
+    new_value->clear();
+    PutFixed64(new_value, orig_value + operand);
 
-    new_value->resize(sizeof(uint64_t));
-    EncodeFixed64(&(*new_value)[0], existing + operand);
-
-    return;
+    return true;  // Return true always since corruption will be treated as 0
   }
 
   virtual const char* Name() const override {
     return "UInt64AddOperator";
   }
+
+ private:
+  // Takes the string and decodes it into a uint64_t
+  // On error, prints a message and returns 0
+  uint64_t DecodeInteger(const Slice& value, Logger* logger) const {
+    uint64_t result = 0;
+
+    if (value.size() == sizeof(uint64_t)) {
+      result = DecodeFixed64(value.data());
+    } else if (logger != nullptr) {
+      // If value is corrupted, treat it as 0
+      Log(logger, "uint64 value corruption, size: %zu > %zu",
+          value.size(), sizeof(uint64_t));
+    }
+
+    return result;
+  }
+
 };
 
 }

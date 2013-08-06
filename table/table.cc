@@ -356,6 +356,8 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
         (*mark_key_may_exist)(arg);
         break;
       }
+
+      // Call the *saver function on each entry/block until it returns false
       for (block_iter->Seek(k); block_iter->Valid(); block_iter->Next()) {
         if (!(*saver)(arg, block_iter->key(), block_iter->value(), didIO)) {
           done = true;

@@ -48,81 +48,92 @@ Status BuildTable(const std::string& dbname,
     TableBuilder* builder = new TableBuilder(options, file.get(), 0);
 
     // the first key is the smallest key
-    Slice key = iter->key();
-    meta->smallest.DecodeFrom(key);
+    meta->smallest.DecodeFrom(iter->key());
 
     MergeHelper merge(user_comparator, options.merge_operator,
                       options.info_log.get(),
                       true /* internal key corruption is not ok */);
 
     if (purge) {
-      ParsedInternalKey ikey;
       // Ugly walkaround to avoid compiler error for release build
-      // TODO: find a clean way to treat in memory key corruption
-      ikey.type = kTypeValue;
+      bool ok __attribute__((unused)) = true;
+
+      // Will write to builder if current key != prev key
       ParsedInternalKey prev_ikey;
-      std::string prev_value;
       std::string prev_key;
-
-      // Ugly walkaround to avoid compiler error for release build
-      // TODO: find a clean way to treat in memory key corruption
-      auto ok __attribute__((unused)) = ParseInternalKey(key, &ikey);
-      // in-memory key corruption is not ok;
-      assert(ok);
-
-      if (ikey.type == kTypeMerge) {
-        // merge values if the first entry is of merge type
-        merge.MergeUntil(iter,  0 /* don't worry about snapshot */);
-        prev_key.assign(merge.key().data(), merge.key().size());
-        ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
-        assert(ok);
-        prev_value.assign(merge.value().data(), merge.value().size());
-      } else {
-        // store first key-value
-        prev_key.assign(key.data(), key.size());
-        prev_value.assign(iter->value().data(), iter->value().size());
-        ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
-        assert(ok);
-        assert(prev_ikey.sequence >= earliest_seqno_in_memtable);
-        iter->Next();
-      }
+      bool is_first_key = true;    // Also write if this is the very first key
 
       while (iter->Valid()) {
         bool iterator_at_next = false;
+
+        // Get current key
         ParsedInternalKey this_ikey;
         Slice key = iter->key();
+        Slice value = iter->value();
+
+        // In-memory key corruption is not ok;
+        // TODO: find a clean way to treat in memory key corruption
         ok = ParseInternalKey(key, &this_ikey);
         assert(ok);
         assert(this_ikey.sequence >= earliest_seqno_in_memtable);
 
-        if (user_comparator->Compare(prev_ikey.user_key, this_ikey.user_key)) {
-          // This key is different from previous key.
-          // Output prev key and remember current key
-          builder->Add(Slice(prev_key), Slice(prev_value));
+        // If the key is the same as the previous key (and it is not the
+        // first key), then we skip it, since it is an older version.
+        // Otherwise we output the key and mark it as the "new" previous key.
+        if (!is_first_key && !user_comparator->Compare(prev_ikey.user_key,
+                                                       this_ikey.user_key)) {
+          // seqno within the same key are in decreasing order
+          assert(this_ikey.sequence < prev_ikey.sequence);
+        } else {
+          is_first_key = false;
+
           if (this_ikey.type == kTypeMerge) {
+            // Handle merge-type keys using the MergeHelper
             merge.MergeUntil(iter, 0 /* don't worry about snapshot */);
             iterator_at_next = true;
-            prev_key.assign(merge.key().data(), merge.key().size());
-            ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
-            assert(ok);
-            prev_value.assign(merge.value().data(), merge.value().size());
+            if (merge.IsSuccess()) {
+              // Merge completed correctly.
+              // Add the resulting merge key/value and continue to next
+              builder->Add(merge.key(), merge.value());
+              prev_key.assign(merge.key().data(), merge.key().size());
+              ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
+              assert(ok);
+            } else {
+              // Merge did not find a Put/Delete.
+              // Can not compact these merges into a kValueType.
+              // Write them out one-by-one. (Proceed back() to front())
+              const std::deque<std::string>& keys = merge.keys();
+              const std::deque<std::string>& values = merge.values();
+              assert(keys.size() == values.size() && keys.size() >= 1);
+              std::deque<std::string>::const_reverse_iterator key_iter;
+              std::deque<std::string>::const_reverse_iterator value_iter;
+              for (key_iter=keys.rbegin(), value_iter = values.rbegin();
+                   key_iter != keys.rend() && value_iter != values.rend();
+                   ++key_iter, ++value_iter) {
+
+                builder->Add(Slice(*key_iter), Slice(*value_iter));
+              }
+
+              // Sanity check. Both iterators should end at the same time
+              assert(key_iter == keys.rend() && value_iter == values.rend());
+
+              prev_key.assign(keys.front());
+              ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
+              assert(ok);
+            }
           } else {
+            // Handle Put/Delete-type keys by simply writing them
+            builder->Add(key, value);
             prev_key.assign(key.data(), key.size());
-            prev_value.assign(iter->value().data(), iter->value().size());
             ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
             assert(ok);
           }
-        } else {
-          // seqno within the same key are in decreasing order
-          assert(this_ikey.sequence < prev_ikey.sequence);
-          // This key is an earlier version of the same key in prev_key.
-          // Skip current key.
         }
 
         if (!iterator_at_next) iter->Next();
       }
-      // output last key
-      builder->Add(Slice(prev_key), Slice(prev_value));
+
+      // The last key is the largest key
       meta->largest.DecodeFrom(Slice(prev_key));
 
     } else {
