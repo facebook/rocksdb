@@ -88,6 +88,7 @@ class Repairer {
  private:
   struct TableInfo {
     FileMetaData meta;
+    SequenceNumber min_sequence;
     SequenceNumber max_sequence;
   };
 
@@ -264,6 +265,7 @@ class Repairer {
           ReadOptions(), storage_options_, t->meta.number, t->meta.file_size);
       bool empty = true;
       ParsedInternalKey parsed;
+      t->min_sequence = 0;
       t->max_sequence = 0;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
@@ -280,6 +282,9 @@ class Repairer {
           t->meta.smallest.DecodeFrom(key);
         }
         t->meta.largest.DecodeFrom(key);
+        if (parsed.sequence < t->min_sequence) {
+          t->min_sequence = parsed.sequence;
+        }
         if (parsed.sequence > t->max_sequence) {
           t->max_sequence = parsed.sequence;
         }
@@ -320,7 +325,8 @@ class Repairer {
       // TODO(opt): separate out into multiple levels
       const TableInfo& t = tables_[i];
       edit_->AddFile(0, t.meta.number, t.meta.file_size,
-                    t.meta.smallest, t.meta.largest);
+                    t.meta.smallest, t.meta.largest,
+                    t.min_sequence, t.max_sequence);
     }
 
     //fprintf(stderr, "NewDescriptor:\n%s\n", edit_.DebugString().c_str());

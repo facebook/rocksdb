@@ -1197,7 +1197,7 @@ void ApproxSizeCommand::DoCommand() {
   uint64_t sizes[1];
   db_->GetApproximateSizes(ranges, 1, sizes);
   fprintf(stdout, "%ld\n", sizes[0]);
-  /* Wierd that GetApproximateSizes() returns void, although documentation
+  /* Weird that GetApproximateSizes() returns void, although documentation
    * says that it returns a Status object.
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());

@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "leveldb/slice.h"
 #include "leveldb/statistics.h"
+#include "leveldb/universal_compaction.h"
 #include "leveldb/memtablerep.h"
 
 namespace leveldb {
@@ -38,6 +39,11 @@ enum CompressionType {
   kSnappyCompression = 0x1,
   kZlibCompression = 0x2,
   kBZip2Compression = 0x3
+};
+
+enum CompactionStyle {
+  kCompactionStyleLevel       = 0x0, // level based compaction style
+  kCompactionStyleUniversal   = 0x1  // Universal compaction style
 };
 
 // Compression options for different compression algorithms like Zlib
@@ -483,6 +489,12 @@ struct Options {
   // Default: 0
   uint64_t bytes_per_sync;
 
+  // The compaction style. Default: kCompactionStyleLevel
+  CompactionStyle compaction_style;
+
+  // The options needed to support Universal Style compactions
+  CompactionOptionsUniversal compaction_options_universal;
+
   // Use KeyMayExist API to filter deletes when this is true.
   // If KeyMayExist returns false, i.e. the key definitely does not exist, then
   // the delete is a noop. KeyMayExist only incurs in-memory look up.
@@ -494,7 +506,6 @@ struct Options {
   // Default: a factory that provides a skip-list-based implementation of
   // MemTableRep.
   std::shared_ptr<MemTableRepFactory> memtable_factory;
-
 };
 
 // Options that control read operations

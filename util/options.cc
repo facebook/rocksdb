@@ -78,6 +78,7 @@ Options::Options()
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
+      compaction_style(kCompactionStyleLevel),
       filter_deletes(false),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)) {
   assert(memtable_factory.get() != nullptr);
@@ -218,6 +219,14 @@ Options::Dump(Logger* log) const
         bytes_per_sync);
     Log(log,"                          Options.filter_deletes: %d",
         filter_deletes);
+    Log(log,"                        Options.compaction_style: %d",
+        compaction_style);
+    Log(log,"        Options.compaction_options_universal.size_ratio: %d",
+        compaction_options_universal.size_ratio);
+    Log(log,"   Options.compaction_options_universal.min_merge_width: %d",
+        compaction_options_universal.min_merge_width);
+    Log(log,"   Options.compaction_options_universal.max_merge_width: %d",
+        compaction_options_universal.max_merge_width);
 }   // Options::Dump
 
 //

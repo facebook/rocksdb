@@ -28,6 +28,7 @@ Status BuildTable(const std::string& dbname,
                   const SequenceNumber earliest_seqno_in_memtable) {
   Status s;
   meta->file_size = 0;
+  meta->smallest_seqno = meta->largest_seqno = 0;
   iter->SeekToFirst();
 
   // If the sequence number of the smallest entry in the memtable is
@@ -48,7 +49,10 @@ Status BuildTable(const std::string& dbname,
     TableBuilder* builder = new TableBuilder(options, file.get(), 0);
 
     // the first key is the smallest key
-    meta->smallest.DecodeFrom(iter->key());
+    Slice key = iter->key();
+    meta->smallest.DecodeFrom(key);
+    meta->smallest_seqno = GetInternalKeySeqno(key);
+    meta->largest_seqno = meta->smallest_seqno;
 
     MergeHelper merge(user_comparator, options.merge_operator,
                       options.info_log.get(),
@@ -135,12 +139,18 @@ Status BuildTable(const std::string& dbname,
 
       // The last key is the largest key
       meta->largest.DecodeFrom(Slice(prev_key));
+      SequenceNumber seqno = GetInternalKeySeqno(Slice(prev_key));
+      meta->smallest_seqno = std::min(meta->smallest_seqno, seqno);
+      meta->largest_seqno = std::max(meta->largest_seqno, seqno);
 
     } else {
       for (; iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         meta->largest.DecodeFrom(key);
         builder->Add(key, iter->value());
+        SequenceNumber seqno = GetInternalKeySeqno(key);
+        meta->smallest_seqno = std::min(meta->smallest_seqno, seqno);
+        meta->largest_seqno = std::max(meta->largest_seqno, seqno);
       }
     }
 
