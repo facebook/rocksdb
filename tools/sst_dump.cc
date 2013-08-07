@@ -14,6 +14,7 @@
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"
+#include "util/ldb_cmd.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -21,11 +22,17 @@
 namespace leveldb {
 
 class SstFileReader {
-public:
-  explicit SstFileReader(std::string file_name,
-                bool verify_checksum = false,
-                bool output_hex = false);
-  Status ReadSequential(bool print_kv, uint64_t read_num = -1);
+ public:
+  explicit SstFileReader(const std::string& file_name,
+                         bool verify_checksum,
+                         bool output_hex);
+
+  Status ReadSequential(bool print_kv,
+                        uint64_t read_num,
+                        bool has_from,
+                        const std::string& from_key,
+                        bool has_to,
+                        const std::string& to_key);
 
   uint64_t GetReadNumber() { return read_num_; }
 
@@ -37,17 +44,25 @@ private:
   EnvOptions soptions_;
 };
 
-SstFileReader::SstFileReader(std::string file_path,
+SstFileReader::SstFileReader(const std::string& file_path,
                              bool verify_checksum,
                              bool output_hex)
  :file_name_(file_path), read_num_(0), verify_checksum_(verify_checksum),
   output_hex_(output_hex) {
+  std::cout << "Process " << file_path << "\n";
 }
 
-Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
+Status SstFileReader::ReadSequential(bool print_kv,
+                                     uint64_t read_num,
+                                     bool has_from,
+                                     const std::string& from_key,
+                                     bool has_to,
+                                     const std::string& to_key)
 {
   unique_ptr<Table> table;
+  InternalKeyComparator internal_comparator_(BytewiseComparator());
   Options table_options;
+  table_options.comparator = &internal_comparator_;
   unique_ptr<RandomAccessFile> file;
   Status s = table_options.env->NewRandomAccessFile(file_name_, &file,
                                                     soptions_);
@@ -63,17 +78,38 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num)
 
   Iterator* iter = table->NewIterator(ReadOptions(verify_checksum_, false));
   uint64_t i = 0;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+  if (has_from) {
+    InternalKey ikey(from_key, kMaxSequenceNumber, kValueTypeForSeek);
+    iter->Seek(ikey.Encode());
+  } else {
+    iter->SeekToFirst();
+  }
+  for (; iter->Valid(); iter->Next()) {
     Slice key = iter->key();
     Slice value = iter->value();
     ++i;
     if (read_num > 0 && i > read_num)
       break;
-    if (print_kv) {
-      fprintf(stdout, "%s ==> %s\n",
-              key.ToString(output_hex_).c_str(),
-              value.ToString(output_hex_).c_str());
+
+    ParsedInternalKey ikey;
+    if (!ParseInternalKey(key, &ikey)) {
+      std::cerr << "Internal Key ["
+                << key.ToString(true /* in hex*/)
+                << "] parse error!\n";
+      continue;
     }
+
+    // If end marker was specified, we stop before it
+    if (has_to && BytewiseComparator()->Compare(ikey.user_key, to_key) >= 0) {
+      break;
+    }
+
+    if (print_kv) {
+      std::cout << ikey.DebugString(output_hex_)
+                << " => "
+                << value.ToString(output_hex_) << "\n";
+    }
+
    }
 
    read_num_ += i;
@@ -90,7 +126,27 @@ static void print_help() {
       "sst_dump [--command=check|scan] [--verify_checksum] "
       "--file=data_dir_OR_sst_file"
       " [--output_hex]"
+      " [--input_key_hex]"
+      " [--from=<user_key>]"
+      " [--to=<user_key>]"
       " [--read_num=NUM]\n");
+}
+
+string HexToString(const string& str) {
+  string parsed;
+  if (str[0] != '0' || str[1] != 'x') {
+    fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
+            str.c_str());
+    throw "Invalid hex input";
+  }
+
+  for (unsigned int i = 2; i < str.length();) {
+    int c;
+    sscanf(str.c_str() + i, "%2X", &c);
+    parsed.push_back(c);
+    i += 2;
+  }
+  return parsed;
 }
 
 int main(int argc, char** argv) {
@@ -103,21 +159,44 @@ int main(int argc, char** argv) {
   uint64_t n;
   bool verify_checksum = false;
   bool output_hex = false;
+  bool input_key_hex = false;
+  bool has_from = false;
+  bool has_to = false;
+  std::string from_key;
+  std::string to_key;
   for (int i = 1; i < argc; i++)
   {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
     } else if (strcmp(argv[i], "--output_hex") == 0) {
       output_hex = true;
+    } else if (strcmp(argv[i], "--input_key_hex") == 0) {
+      input_key_hex = true;
     } else if (sscanf(argv[i], "--read_num=%ld%c", &n, &junk) == 1) {
       read_num = n;
     } else if (strcmp(argv[i], "--verify_checksum") == 0) {
       verify_checksum = true;
     } else if (strncmp(argv[i], "--command=", 10) == 0) {
       command = argv[i] + 10;
-    } else {
+    } else if (strncmp(argv[i], "--from=", 7) == 0) {
+      from_key = argv[i] + 7;
+      has_from = true;
+    } else if (strncmp(argv[i], "--to=", 5) == 0) {
+      to_key = argv[i] + 5;
+      has_to = true;
+    }else {
       print_help();
       exit(1);
+    }
+  }
+
+
+  if (input_key_hex) {
+    if (has_from) {
+      from_key = HexToString(from_key);
+    }
+    if (has_to) {
+      to_key = HexToString(to_key);
     }
   }
 
@@ -136,6 +215,9 @@ int main(int argc, char** argv) {
     dir = false;
   }
 
+  std::cout << "from [" << leveldb::Slice(from_key).ToString(true)
+            << "] to [" << leveldb::Slice(to_key).ToString(true) << "]\n";
+
   uint64_t total_read = 0;
   for (size_t i = 0; i < filenames.size(); i++) {
     std::string filename = filenames.at(i);
@@ -145,7 +227,7 @@ int main(int argc, char** argv) {
       continue;
     }
     if(dir) {
-      filename = std::string(dir_or_file) + "//" + filename;
+      filename = std::string(dir_or_file) + "/" + filename;
     }
     leveldb::SstFileReader reader(filename, verify_checksum,
                                   output_hex);
@@ -153,7 +235,9 @@ int main(int argc, char** argv) {
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
       st = reader.ReadSequential(command != "check",
-          read_num > 0 ? (read_num - total_read) : read_num);
+                                 read_num > 0 ? (read_num - total_read) :
+                                                read_num,
+                                 has_from, from_key, has_to, to_key);
       if (!st.ok()) {
         fprintf(stderr, "%s: %s\n", filename.c_str(),
             st.ToString().c_str());
