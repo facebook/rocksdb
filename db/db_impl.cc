@@ -1238,13 +1238,17 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   manual.level = level;
   manual.done = false;
   manual.in_progress = false;
-  if (begin == nullptr) {
+  // For universal compaction, we enforce every manual compaction to compact
+  // all files.
+  if (begin == nullptr ||
+      options_.compaction_style == kCompactionStyleUniversal) {
     manual.begin = nullptr;
   } else {
     begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
     manual.begin = &begin_storage;
   }
-  if (end == nullptr) {
+  if (end == nullptr ||
+      options_.compaction_style == kCompactionStyleUniversal) {
     manual.end = nullptr;
   } else {
     end_storage = InternalKey(*end, 0, static_cast<ValueType>(0));
