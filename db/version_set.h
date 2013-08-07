@@ -557,6 +557,9 @@ class Compaction {
   // Return the score that was used to pick this compaction run.
   double score() const { return score_; }
 
+  // Is this compaction creating a file in the bottom most level?
+  bool BottomMostLevel() { return bottommost_level_; }
+
  private:
   friend class Version;
   friend class VersionSet;
@@ -589,7 +592,8 @@ class Compaction {
   int parent_index_; // index of some file with same range in files_[level_+1]
   double score_;     // score that was used to pick this compaction.
 
-  // State for implementing IsBaseLevelForKey
+  // Is this compaction creating a file in the bottom most level?
+  bool bottommost_level_;
 
   // level_ptrs_ holds indices into input_version_->levels_: our state
   // is that we are positioned at one of the file ranges for each
@@ -599,6 +603,9 @@ class Compaction {
 
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool);
+
+  // Initialize whether compaction producing files at the bottommost level
+  void SetupBottomMostLevel(bool isManual);
 
   // In case of compaction error, reset the nextIndex that is used
   // to pick up the next file to be compacted from files_by_size_

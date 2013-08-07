@@ -3539,9 +3539,7 @@ TEST(DBTest, Randomized) {
     }
     if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
     if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
-  // TODO (xjin): remove kSkipUniversalCompaction after bug in
-  //              IsBaseLevelForKey() is fixed.
-  } while (ChangeOptions(kSkipDeletesFilterFirst | kSkipUniversalCompaction));
+  } while (ChangeOptions(kSkipDeletesFilterFirst));
 }
 
 TEST(DBTest, MultiGetSimple) {

@@ -1761,14 +1761,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   }
 
   // Is this compaction producing files at the bottommost level?
-  bool bottommost_level = true;
-  for (int i = compact->compaction->level() + 2;
-       i < versions_->NumberLevels(); i++) {
-    if (versions_->NumLevelFiles(i) > 0) {
-      bottommost_level = false;
-      break;
-    }
-  }
+  bool bottommost_level = compact->compaction->BottomMostLevel();
 
   // Allocate the output file numbers before we release the lock
   AllocateCompactionOutputFileNumbers(compact);
