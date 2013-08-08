@@ -424,9 +424,11 @@ private:
   int max_keys_;
   bool count_only_;
   bool print_stats_;
+  bool is_input_key_hex_;
 
   static const string ARG_COUNT_ONLY;
   static const string ARG_STATS;
+  static const string ARG_INPUT_KEY_HEX;
 };
 
 class DBLoaderCommand: public LDBCommand {

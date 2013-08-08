@@ -578,6 +578,7 @@ void PrintBucketCounts(const vector<uint64_t>& bucket_counts, int ttl_start,
 
 const string InternalDumpCommand::ARG_COUNT_ONLY = "count_only";
 const string InternalDumpCommand::ARG_STATS = "stats";
+const string InternalDumpCommand::ARG_INPUT_KEY_HEX = "input_key_hex";
 
 InternalDumpCommand::InternalDumpCommand(const vector<string>& params,
                                          const map<string, string>& options,
@@ -585,12 +586,14 @@ InternalDumpCommand::InternalDumpCommand(const vector<string>& params,
     LDBCommand(options, flags, true,
                BuildCmdLineOptions({ ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
                                      ARG_FROM, ARG_TO, ARG_MAX_KEYS,
-                                     ARG_COUNT_ONLY, ARG_STATS})),
+                                     ARG_COUNT_ONLY, ARG_STATS,
+                                     ARG_INPUT_KEY_HEX})),
     has_from_(false),
     has_to_(false),
     max_keys_(-1),
     count_only_(false),
-    print_stats_(false) {
+    print_stats_(false),
+    is_input_key_hex_(false) {
 
   has_from_ = ParseStringOption(options, ARG_FROM, &from_);
   has_to_ = ParseStringOption(options, ARG_TO, &to_);
@@ -599,8 +602,9 @@ InternalDumpCommand::InternalDumpCommand(const vector<string>& params,
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
+  is_input_key_hex_ = IsFlagPresent(flags, ARG_INPUT_KEY_HEX);
 
-  if (is_key_hex_) {
+  if (is_input_key_hex_) {
     if (has_from_) {
       from_ = HexToString(from_);
     }
@@ -614,6 +618,7 @@ void InternalDumpCommand::Help(string& ret) {
   ret.append("  ");
   ret.append(InternalDumpCommand::Name());
   ret.append(HelpRangeCmdArgs());
+  ret.append(" [--" + ARG_INPUT_KEY_HEX + "]");
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
   ret.append(" [--" + ARG_STATS + "]");
@@ -674,7 +679,7 @@ void InternalDumpCommand::DoCommand() {
     if (!count_only_) {
       string key = ikey.DebugString(is_key_hex_);
       string value = iter->value().ToString(is_value_hex_);
-      fprintf(stdout, "%s => %s\n", key.data(), value.data());
+      std::cout << key << " => " << value << "\n";
     }
 
     // Terminate if maximum number of keys have been dumped
