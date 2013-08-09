@@ -8,10 +8,10 @@
 #include <string>
 #include <memory>
 #include <deque>
-#include "leveldb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "db/version_set.h"
+#include "leveldb/db.h"
 #include "leveldb/memtablerep.h"
 #include "util/arena_impl.h"
 

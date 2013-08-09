@@ -3,6 +3,7 @@
 
 #include "db/dbformat.h"
 #include "leveldb/slice.h"
+#include "leveldb/statistics.h"
 #include <string>
 #include <deque>
 
@@ -40,7 +41,7 @@ class MergeHelper {
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
   void MergeUntil(Iterator* iter, SequenceNumber stop_before = 0,
-                  bool at_bottom = false);
+                  bool at_bottom = false, shared_ptr<Statistics> stats=nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call

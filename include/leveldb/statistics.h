@@ -60,7 +60,9 @@ enum Tickers {
 
   NUMBER_FILTERED_DELETES = 21,
 
-  TICKER_ENUM_MAX = 22
+  NUMBER_MERGE_FAILURES = 22,
+
+  TICKER_ENUM_MAX = 23
 };
 
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
@@ -85,7 +87,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get" },
   { NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read" },
   { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" },
-  { NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered" }
+  { NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered" },
+  { NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures" }
 };
 
 /**

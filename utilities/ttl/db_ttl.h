@@ -268,17 +268,16 @@ class TtlMergeOperator : public MergeOperator {
     if (existing_value && existing_value->size() < ts_len) {
       Log(logger, "Error: Could not remove timestamp from existing value.");
       return false;
-      // TODO: Change Merge semantics and add a counter here
     }
 
     // Extract time-stamp from each operand to be passed to user_merge_op_
     std::deque<std::string> operands_without_ts;
-    for (auto it = operands.begin(); it != operands.end(); ++it) {
-      if (it->size() < ts_len) {
+    for (const auto &operand : operands) {
+      if (operand.size() < ts_len) {
         Log(logger, "Error: Could not remove timestamp from operand value.");
         return false;
       }
-      operands_without_ts.push_back(it->substr(0, it->size() - ts_len));
+      operands_without_ts.push_back(operand.substr(0, operand.size() - ts_len));
     }
 
     // Apply the user merge operator (store result in *new_value)
@@ -316,7 +315,6 @@ class TtlMergeOperator : public MergeOperator {
     if (left_operand.size() < ts_len || right_operand.size() < ts_len) {
       Log(logger, "Error: Could not remove timestamp from value.");
       return false;
-      //TODO: Change Merge semantics and add a counter here
     }
 
     // Apply the user partial-merge operator (store result in *new_value)

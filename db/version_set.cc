@@ -245,6 +245,7 @@ struct Saver {
   std::deque<std::string>* merge_operands;  // the merge operations encountered
   Logger* logger;
   bool didIO;    // did we do any disk io?
+  shared_ptr<Statistics> statistics;
 };
 }
 
@@ -287,6 +288,7 @@ static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
             s->state = kFound;
             if (!s->merge_operator->Merge(s->user_key, &v, *ops,
                                           s->value, s->logger)) {
+              RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
               s->state = kCorrupt;
             }
           } else {
@@ -301,6 +303,7 @@ static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
             s->state = kFound;
             if (!s->merge_operator->Merge(s->user_key, nullptr, *ops,
                                           s->value, s->logger)) {
+              RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
               s->state = kCorrupt;
             }
           } else {
@@ -391,6 +394,7 @@ void Version::Get(const ReadOptions& options,
   saver.merge_operands = operands;
   saver.logger = logger.get();
   saver.didIO = false;
+  saver.statistics = db_options.statistics;
 
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
@@ -517,6 +521,7 @@ void Version::Get(const ReadOptions& options,
                               value, logger.get())) {
       *status = Status::OK();
     } else {
+      RecordTick(db_options.statistics, NUMBER_MERGE_FAILURES);
       *status = Status::Corruption("could not perform end-of-key merge for ",
                                    user_key);
     }

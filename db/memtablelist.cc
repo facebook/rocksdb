@@ -21,17 +21,15 @@ using std::list;
 
 // Increase reference count on all underling memtables
 void MemTableList::RefAll() {
-  for (list<MemTable*>::iterator it = memlist_.begin();
-       it != memlist_.end() ; ++it) {
-    (*it)->Ref();
+  for (auto &memtable : memlist_) {
+    memtable->Ref();
   }
 }
 
 // Drop reference count on all underling memtables
 void MemTableList::UnrefAll() {
-  for (list<MemTable*>::iterator it = memlist_.begin();
-       it != memlist_.end() ; ++it) {
-    (*it)->Unref();
+  for (auto &memtable : memlist_) {
+    memtable->Unref();
   }
 }
 
@@ -53,8 +51,7 @@ bool MemTableList::IsFlushPending(int min_write_buffer_number_to_merge) {
 
 // Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
-  for (list<MemTable*>::reverse_iterator it = memlist_.rbegin();
-       it != memlist_.rend(); it++) {
+  for (auto it = memlist_.rbegin(); it != memlist_.rend(); it++) {
     MemTable* m = *it;
     if (!m->flush_in_progress_) {
       assert(!m->flush_completed_);
@@ -184,9 +181,8 @@ void MemTableList::Add(MemTable* m) {
 // Returns an estimate of the number of bytes of data in use.
 size_t MemTableList::ApproximateMemoryUsage() {
   size_t size = 0;
-  for (list<MemTable*>::iterator it = memlist_.begin();
-       it != memlist_.end(); ++it) {
-    size += (*it)->ApproximateMemoryUsage();
+  for (auto &memtable : memlist_) {
+    size += memtable->ApproximateMemoryUsage();
   }
   return size;
 }
@@ -197,9 +193,8 @@ size_t MemTableList::ApproximateMemoryUsage() {
 bool MemTableList::Get(const LookupKey& key, std::string* value, Status* s,
                        std::deque<std::string>* operands,
                        const Options& options) {
-  for (list<MemTable*>::iterator it = memlist_.begin();
-       it != memlist_.end(); ++it) {
-    if ((*it)->Get(key, value, s, operands, options)) {
+  for (auto &memtable : memlist_) {
+    if (memtable->Get(key, value, s, operands, options)) {
       return true;
     }
   }
@@ -207,9 +202,8 @@ bool MemTableList::Get(const LookupKey& key, std::string* value, Status* s,
 }
 
 void MemTableList::GetMemTables(std::vector<MemTable*>* output) {
-  for (list<MemTable*>::iterator it = memlist_.begin();
-       it != memlist_.end(); ++it) {
-    output->push_back(*it);
+  for (auto &memtable : memlist_) {
+    output->push_back(memtable);
   }
 }
 

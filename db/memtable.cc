@@ -169,6 +169,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
             assert(merge_operator);
             if (!merge_operator->Merge(key.user_key(), &v, *operands,
                                        value, logger.get())) {
+              RecordTick(options.statistics, NUMBER_MERGE_FAILURES);
               *s = Status::Corruption("Error: Could not perform merge.");
             }
           } else {
@@ -182,6 +183,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
             *s = Status::OK();
             if (!merge_operator->Merge(key.user_key(), nullptr, *operands,
                                        value, logger.get())) {
+              RecordTick(options.statistics, NUMBER_MERGE_FAILURES);
               *s = Status::Corruption("Error: Could not perform merge.");
             }
           } else {

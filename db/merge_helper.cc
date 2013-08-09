@@ -15,7 +15,7 @@ namespace leveldb {
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
 void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
-                             bool at_bottom) {
+                             bool at_bottom, shared_ptr<Statistics> stats) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   keys_.clear();
@@ -79,6 +79,8 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
         UpdateInternalKey(&key[0], key.size(),
                           orig_ikey.sequence, orig_ikey.type);
         swap(operands_.back(), merge_result);
+      } else {
+        RecordTick(stats, NUMBER_MERGE_FAILURES);
       }
 
       // move iter to the next entry (before doing anything else)
@@ -105,6 +107,8 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
         UpdateInternalKey(&key[0], key.size(),
                           orig_ikey.sequence, orig_ikey.type);
         swap(operands_.back(), merge_result);
+      } else {
+        RecordTick(stats, NUMBER_MERGE_FAILURES);
       }
 
       // move iter to the next entry
@@ -179,6 +183,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       // The final value() is always stored in operands_.back()
       swap(operands_.back(),merge_result);
     } else {
+      RecordTick(stats, NUMBER_MERGE_FAILURES);
       // Do nothing if not success_. Leave keys() and operands() as they are.
     }
   }

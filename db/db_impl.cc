@@ -1915,7 +1915,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         // object to minimize change to the existing flow. Turn out this
         // logic could also be nicely re-used for memtable flush purge
         // optimization in BuildTable.
-        merge.MergeUntil(input.get(), prev_snapshot, bottommost_level);
+        merge.MergeUntil(input.get(), prev_snapshot, bottommost_level,
+                         options_.statistics);
         current_entry_is_merging = true;
         if (merge.IsSuccess()) {
           // Successfully found Put/Delete/(end-of-key-range) while merging
