@@ -2266,6 +2266,13 @@ Compaction* VersionSet::PickCompactionUniversal(int level, double score) {
     newerfile = f;
   }
 
+  // Is the earliest file part of this compaction?
+  int last_index = file_by_time[file_by_time.size()-1];
+  FileMetaData* last_file = current_->files_[level][last_index];
+  if (c->inputs_[0][c->inputs_[0].size()-1] == last_file) {
+    c->bottommost_level_ = true;
+  }
+
   // update statistics
   if (options_->statistics != nullptr) {
     options_->statistics->measureTime(NUM_FILES_IN_SINGLE_COMPACTION,
@@ -2403,7 +2410,7 @@ Compaction* VersionSet::PickCompaction() {
     if (level != 0 || compactions_in_progress_[0].empty()) {
       if(!ParentRangeInCompaction(&f->smallest, &f->largest, level,
                                   &parent_index)) {
-        c = new Compaction(level, level, MaxFileSizeForLevel(level+1),
+        c = new Compaction(level, level+1, MaxFileSizeForLevel(level+1),
                 MaxGrandParentOverlapBytes(level), NumberLevels(), true);
         c->inputs_[0].push_back(f);
         c->parent_index_ = parent_index;
@@ -2444,12 +2451,14 @@ Compaction* VersionSet::PickCompaction() {
     assert(!c->inputs_[0].empty());
   }
 
-
   // Setup "level+1" files (inputs_[1])
   SetupOtherInputs(c);
 
   // mark all the files that are being compacted
   c->MarkFilesBeingCompacted(true);
+
+  // Is this compaction creating a file at the bottommost level
+  c->SetupBottomMostLevel(false);
 
   // remember this currently undergoing compaction
   compactions_in_progress_[level].insert(c);
@@ -2624,6 +2633,13 @@ Compaction* VersionSet::CompactRange(
     const InternalKey* begin,
     const InternalKey* end) {
   std::vector<FileMetaData*> inputs;
+
+  // All files are 'overlapping' in universal style compaction.
+  // We have to compact the entire range in one shot.
+  if (options_->compaction_style == kCompactionStyleUniversal) {
+    begin = nullptr;
+    end = nullptr;
+  }
   current_->GetOverlappingInputs(level, begin, end, &inputs);
   if (inputs.empty()) {
     return nullptr;
@@ -2667,6 +2683,9 @@ Compaction* VersionSet::CompactRange(
   // upon other files because manual compactions are processed when
   // the system has a max of 1 background compaction thread.
   c->MarkFilesBeingCompacted(true);
+
+  // Is this compaction creating a file at the bottommost level
+  c->SetupBottomMostLevel(true);
   return c;
 }
 
@@ -2686,6 +2705,7 @@ Compaction::Compaction(int level, int out_level, uint64_t target_file_size,
       base_index_(-1),
       parent_index_(-1),
       score_(0),
+      bottommost_level_(false),
       level_ptrs_(std::vector<size_t>(number_levels)) {
   edit_ = new VersionEdit(number_levels_);
   for (int i = 0; i < number_levels_; i++) {
@@ -2718,6 +2738,10 @@ void Compaction::AddInputDeletions(VersionEdit* edit) {
 }
 
 bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
+  if (input_version_->vset_->options_->compaction_style ==
+      kCompactionStyleUniversal) {
+    return bottommost_level_;
+  }
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = input_version_->vset_->icmp_.user_comparator();
   for (int lvl = level_ + 2; lvl < number_levels_; lvl++) {
@@ -2772,6 +2796,31 @@ void Compaction::MarkFilesBeingCompacted(bool value) {
       assert(value ? !inputs_[i][j]->being_compacted :
                       inputs_[i][j]->being_compacted);
       inputs_[i][j]->being_compacted = value;
+    }
+  }
+}
+
+// Is this compaction producing files at the bottommost level?
+void Compaction::SetupBottomMostLevel(bool isManual) {
+  if (input_version_->vset_->options_->compaction_style  ==
+         kCompactionStyleUniversal) {
+    // If universal compaction style is used and manual
+    // compaction is occuring, then we are guaranteed that
+    // all files will be picked in a single compaction
+    // run. We can safely set bottommost_level_ = true.
+    // If it is not manual compaction, then bottommost_level_
+    // is already set when the Compaction was created.
+    if (isManual) {
+      bottommost_level_ = true;
+    }
+    return;
+  }
+  bottommost_level_ = true;
+  int num_levels = input_version_->vset_->NumberLevels();
+  for (int i = level() + 2; i < num_levels; i++) {
+    if (input_version_->vset_->NumLevelFiles(i) > 0) {
+      bottommost_level_ = false;
+      break;
     }
   }
 }

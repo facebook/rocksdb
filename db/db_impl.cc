@@ -1238,13 +1238,17 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   manual.level = level;
   manual.done = false;
   manual.in_progress = false;
-  if (begin == nullptr) {
+  // For universal compaction, we enforce every manual compaction to compact
+  // all files.
+  if (begin == nullptr ||
+      options_.compaction_style == kCompactionStyleUniversal) {
     manual.begin = nullptr;
   } else {
     begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
     manual.begin = &begin_storage;
   }
-  if (end == nullptr) {
+  if (end == nullptr ||
+      options_.compaction_style == kCompactionStyleUniversal) {
     manual.end = nullptr;
   } else {
     end_storage = InternalKey(*end, 0, static_cast<ValueType>(0));
@@ -1498,6 +1502,18 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     if (!status.ok()) {
       m->done = true;
     }
+    // For universal compaction:
+    //   Because universal compaction always happens at level 0, so one
+    //   compaction will pick up all overlapped files. No files will be
+    //   filtered out due to size limit and left for a successive compaction.
+    //   So we can safely conclude the current compaction.
+    //
+    //   Also note that, if we don't stop here, then the current compaction
+    //   writes a new file back to level 0, which will be used in successive
+    //   compaction. Hence the manual compaction will never finish.
+    if (options_.compaction_style == kCompactionStyleUniversal) {
+      m->done = true;
+    }
     if (!m->done) {
       // We only compacted part of the requested range.  Update *m
       // to the range that is left to be compacted.
@@ -1745,14 +1761,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   }
 
   // Is this compaction producing files at the bottommost level?
-  bool bottommost_level = true;
-  for (int i = compact->compaction->level() + 2;
-       i < versions_->NumberLevels(); i++) {
-    if (versions_->NumLevelFiles(i) > 0) {
-      bottommost_level = false;
-      break;
-    }
-  }
+  bool bottommost_level = compact->compaction->BottomMostLevel();
 
   // Allocate the output file numbers before we release the lock
   AllocateCompactionOutputFileNumbers(compact);
@@ -2088,7 +2097,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       versions_->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
           (double) stats.micros,
-      compact->compaction->level() + 1,
+      compact->compaction->output_level(),
       stats.files_in_leveln, stats.files_in_levelnp1, stats.files_out_levelnp1,
       stats.bytes_readn / 1048576.0,
       stats.bytes_readnp1 / 1048576.0,

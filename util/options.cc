@@ -185,7 +185,7 @@ Options::Dump(Logger* log) const
         max_background_compactions);
     Log(log,"                      Options.hard_rate_limit: %.2f",
         hard_rate_limit);
-    Log(log,"      Options.rate_limit_delay_max_milliseconds: %d",
+    Log(log,"      Options.rate_limit_delay_max_milliseconds: %u",
         rate_limit_delay_max_milliseconds);
     Log(log,"               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
@@ -205,7 +205,7 @@ Options::Dump(Logger* log) const
         is_fd_close_on_exec);
     Log(log,"              Options.skip_log_error_on_recovery: %d",
         skip_log_error_on_recovery);
-    Log(log,"                   Options.stats_dump_period_sec: %d",
+    Log(log,"                   Options.stats_dump_period_sec: %u",
         stats_dump_period_sec);
     Log(log,"                    Options.block_size_deviation: %d",
         block_size_deviation);
@@ -221,11 +221,11 @@ Options::Dump(Logger* log) const
         filter_deletes);
     Log(log,"                        Options.compaction_style: %d",
         compaction_style);
-    Log(log,"        Options.compaction_options_universal.size_ratio: %d",
+    Log(log,"        Options.compaction_options_universal.size_ratio: %u",
         compaction_options_universal.size_ratio);
-    Log(log,"   Options.compaction_options_universal.min_merge_width: %d",
+    Log(log,"   Options.compaction_options_universal.min_merge_width: %u",
         compaction_options_universal.min_merge_width);
-    Log(log,"   Options.compaction_options_universal.max_merge_width: %d",
+    Log(log,"   Options.compaction_options_universal.max_merge_width: %u",
         compaction_options_universal.max_merge_width);
 }   // Options::Dump
 
