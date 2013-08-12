@@ -1512,7 +1512,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       // Write out each individual edit
       if (verbose) {
         printf("*************************Edit[%d] = %s\n",
-                count, edit.DebugString().c_str());
+                count, edit.DebugString(hex).c_str());
       }
       count++;
 

@@ -96,7 +96,7 @@ class VersionEdit {
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
 
-  std::string DebugString() const;
+  std::string DebugString(bool hex_key = false) const;
 
  private:
   friend class VersionSet;

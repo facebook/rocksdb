@@ -239,7 +239,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   return result;
 }
 
-std::string VersionEdit::DebugString() const {
+std::string VersionEdit::DebugString(bool hex_key) const {
   std::string r;
   r.append("VersionEdit {");
   if (has_comparator_) {
@@ -266,7 +266,7 @@ std::string VersionEdit::DebugString() const {
     r.append("\n  CompactPointer: ");
     AppendNumberTo(&r, compact_pointers_[i].first);
     r.append(" ");
-    r.append(compact_pointers_[i].second.DebugString());
+    r.append(compact_pointers_[i].second.DebugString(hex_key));
   }
   for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
        iter != deleted_files_.end();
@@ -285,9 +285,9 @@ std::string VersionEdit::DebugString() const {
     r.append(" ");
     AppendNumberTo(&r, f.file_size);
     r.append(" ");
-    r.append(f.smallest.DebugString());
+    r.append(f.smallest.DebugString(hex_key));
     r.append(" .. ");
-    r.append(f.largest.DebugString());
+    r.append(f.largest.DebugString(hex_key));
   }
   r.append("\n}\n");
   return r;
