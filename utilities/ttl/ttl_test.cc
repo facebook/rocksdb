@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <memory>
 #include "leveldb/compaction_filter.h"
 #include "utilities/utility_db.h"
 #include "util/testharness.h"
@@ -54,8 +55,9 @@ class TtlTest {
 
   // Open with TestFilter compaction filter
   void OpenTtlWithTestCompaction(int32_t ttl) {
-    test_comp_filter_.reset(new TestFilter(kSampleSize_, kNewValue_));
-    options_.compaction_filter = test_comp_filter_.get();
+    options_.compaction_filter_factory =
+      std::shared_ptr<CompactionFilterFactory>(
+          new TestFilterFactory(kSampleSize_, kNewValue_));
     OpenTtl(ttl);
   }
 
@@ -251,6 +253,29 @@ class TtlTest {
     const int64_t kSampleSize_;
     const std::string kNewValue_;
   };
+
+  class TestFilterFactory : public CompactionFilterFactory {
+    public:
+      TestFilterFactory(const int64_t kSampleSize, const std::string kNewValue)
+        : kSampleSize_(kSampleSize),
+          kNewValue_(kNewValue) {
+      }
+
+      virtual std::unique_ptr<CompactionFilter>
+      CreateCompactionFilter() override {
+        return std::unique_ptr<CompactionFilter>(
+            new TestFilter(kSampleSize_, kNewValue_));
+      }
+
+      virtual const char* Name() const override {
+        return "TestFilterFactory";
+      }
+
+    private:
+      const int64_t kSampleSize_;
+      const std::string kNewValue_;
+  };
+
 
   // Choose carefully so that Put, Gets & Compaction complete in 1 second buffer
   const int64_t kSampleSize_ = 100;

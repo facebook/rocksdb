@@ -80,7 +80,11 @@ Options::Options()
       bytes_per_sync(0),
       compaction_style(kCompactionStyleLevel),
       filter_deletes(false),
-      memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)) {
+      memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
+      compaction_filter_factory(
+          std::shared_ptr<CompactionFilterFactory>(
+            new DefaultCompactionFilterFactory())) {
+
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -96,6 +100,8 @@ Options::Dump(Logger* log) const
         merge_operator? merge_operator->Name() : "None");
     Log(log,"       Options.compaction_filter: %s",
         compaction_filter? compaction_filter->Name() : "None");
+    Log(log,"       Options.compaction_filter_factory: %s",
+        compaction_filter_factory->Name());
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
     Log(log,"                     Options.env: %p", env);

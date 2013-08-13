@@ -25,6 +25,7 @@ class Logger;
 class MergeOperator;
 class Snapshot;
 class CompactionFilter;
+class CompactionFilterFactory;
 
 using std::shared_ptr;
 
@@ -84,8 +85,13 @@ struct Options {
   // Default: nullptr
   const MergeOperator* merge_operator;
 
+  // The client must provide compaction_filter_factory if it requires a new
+  // compaction filter to be used for different compaction processes
   // Allows an application to modify/delete a key-value during background
   // compaction.
+  // Ideally, client should specify only one of filter or factory.
+  // compaction_filter takes precedence over compaction_filter_factory if
+  // client specifies both.
   // Default: nullptr
   const CompactionFilter* compaction_filter;
 
@@ -506,6 +512,11 @@ struct Options {
   // Default: a factory that provides a skip-list-based implementation of
   // MemTableRep.
   std::shared_ptr<MemTableRepFactory> memtable_factory;
+
+  // This is a factory that provides compaction filter objects which allow
+  // an application to modify/delete a key-value during background compaction.
+  // Default: a factory that doesn't provide any object
+  std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 };
 
 // Options that control read operations

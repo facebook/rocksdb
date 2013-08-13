@@ -176,11 +176,19 @@ class TtlIterator : public Iterator {
 class TtlCompactionFilter : public CompactionFilter {
 
  public:
-  TtlCompactionFilter(int32_t ttl, const CompactionFilter* comp_filter)
+  TtlCompactionFilter(
+      int32_t ttl,
+      const CompactionFilter* user_comp_filter,
+      std::unique_ptr<const CompactionFilter>
+      user_comp_filter_from_factory = nullptr)
     : ttl_(ttl),
-      user_comp_filter_(comp_filter) {
+      user_comp_filter_(user_comp_filter),
+      user_comp_filter_from_factory_(std::move(user_comp_filter_from_factory)) {
     // Unlike the merge operator, compaction filter is necessary for TTL, hence
     // this would be called even if user doesn't specify any compaction-filter
+    if (!user_comp_filter_) {
+      user_comp_filter_ = user_comp_filter_from_factory_.get();
+    }
   }
 
   virtual bool Filter(int level,
@@ -215,6 +223,32 @@ class TtlCompactionFilter : public CompactionFilter {
  private:
   int32_t ttl_;
   const CompactionFilter* user_comp_filter_;
+  std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
+};
+
+class TtlCompactionFilterFactory : public CompactionFilterFactory {
+  public:
+    TtlCompactionFilterFactory(
+        int32_t ttl,
+        std::shared_ptr<CompactionFilterFactory> comp_filter_factory)
+    : ttl_(ttl),
+      user_comp_filter_factory_(comp_filter_factory) { }
+
+    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter() {
+      return std::unique_ptr<TtlCompactionFilter>(
+          new TtlCompactionFilter(
+            ttl_,
+            nullptr,
+            std::move(user_comp_filter_factory_->CreateCompactionFilter())));
+    }
+
+    virtual const char* Name() const override {
+      return "TtlCompactionFilterFactory";
+    }
+
+  private:
+    int32_t ttl_;
+    std::shared_ptr<CompactionFilterFactory> user_comp_filter_factory_;
 };
 
 class TtlMergeOperator : public MergeOperator {

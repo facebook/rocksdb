@@ -41,6 +41,31 @@ class CompactionFilter {
   virtual const char* Name() const = 0;
 };
 
+// Each compaction will create a new CompactionFilter allowing the
+// application to know about different campactions
+class CompactionFilterFactory {
+  public:
+    virtual ~CompactionFilterFactory() { };
+    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter() = 0;
+
+    // Returns a name that identifies this compaction filter factory.
+    virtual const char* Name() const = 0;
+};
+
+// Default implementaion of CompactionFilterFactory which does not
+// return any filter
+class DefaultCompactionFilterFactory : public CompactionFilterFactory {
+  public:
+    virtual std::unique_ptr<CompactionFilter>
+    CreateCompactionFilter() override {
+      return std::unique_ptr<CompactionFilter>(nullptr);
+    }
+
+    virtual const char* Name() const override {
+      return "DefaultCompactionFilterFactory";
+    }
+};
+
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_INCLUDE_COMPACTION_FILTER_H_

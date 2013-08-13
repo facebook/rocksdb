@@ -158,6 +158,10 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.soft_rate_limit > result.hard_rate_limit) {
     result.soft_rate_limit = result.hard_rate_limit;
   }
+  if (result.compaction_filter &&
+      result.compaction_filter_factory->CreateCompactionFilter().get()) {
+    Log(result.info_log, "Both filter and factory specified. Using filter");
+  }
   return result;
 }
 
@@ -1784,6 +1788,13 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   MergeHelper merge(user_comparator(), options_.merge_operator,
                     options_.info_log.get(),
                     false /* internal key corruption is expected */);
+  auto compaction_filter = options_.compaction_filter;
+  std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
+  if (!compaction_filter) {
+    compaction_filter_from_factory = std::move(
+        options_.compaction_filter_factory->CreateCompactionFilter());
+    compaction_filter = compaction_filter_from_factory.get();
+  }
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     if (imm_.imm_flush_needed.NoBarrier_Load() != nullptr) {
@@ -1830,7 +1841,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         visible_in_snapshot = kMaxSequenceNumber;
 
         // apply the compaction filter to the first occurrence of the user key
-        if (options_.compaction_filter &&
+        if (compaction_filter &&
             ikey.type == kTypeValue &&
             (visible_at_tip || ikey.sequence > latest_snapshot)) {
           // If the user has specified a compaction filter and the sequence
@@ -1841,7 +1852,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           bool value_changed = false;
           compaction_filter_value.clear();
           bool to_delete =
-            options_.compaction_filter->Filter(compact->compaction->level(),
+            compaction_filter->Filter(compact->compaction->level(),
                                                ikey.user_key, value,
                                                &compaction_filter_value,
                                                &value_changed);

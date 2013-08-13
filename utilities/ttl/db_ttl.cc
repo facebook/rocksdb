@@ -20,9 +20,16 @@ DBWithTTL::DBWithTTL(const int32_t ttl,
       ttl_(ttl) {
   Options options_to_open = options;
 
-  ttl_comp_filter_.reset(new TtlCompactionFilter(ttl,
-                                                 options.compaction_filter));
-  options_to_open.compaction_filter = ttl_comp_filter_.get();
+  if (options.compaction_filter) {
+    ttl_comp_filter_.reset(
+        new TtlCompactionFilter(ttl, options.compaction_filter));
+    options_to_open.compaction_filter = ttl_comp_filter_.get();
+  } else {
+    options_to_open.compaction_filter_factory =
+      std::shared_ptr<CompactionFilterFactory>(
+          new TtlCompactionFilterFactory(
+            ttl, options.compaction_filter_factory));
+  }
 
   if (options.merge_operator) {
     ttl_merge_op_.reset(new TtlMergeOperator(options.merge_operator));

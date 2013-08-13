@@ -1698,12 +1698,52 @@ class ChangeFilter : public CompactionFilter {
   const int argv_;
 };
 
+class KeepFilterFactory : public CompactionFilterFactory {
+  public:
+    virtual std::unique_ptr<CompactionFilter>
+    CreateCompactionFilter() override {
+      return std::unique_ptr<CompactionFilter>(new KeepFilter());
+    }
+
+    virtual const char* Name() const override {
+      return "KeepFilterFactory";
+    }
+};
+
+class DeleteFilterFactory : public CompactionFilterFactory {
+  public:
+    virtual std::unique_ptr<CompactionFilter>
+    CreateCompactionFilter() override {
+      return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+    }
+
+    virtual const char* Name() const override {
+      return "DeleteFilterFactory";
+    }
+};
+
+class ChangeFilterFactory : public CompactionFilterFactory {
+  public:
+    explicit ChangeFilterFactory(int argv) : argv_(argv) {}
+
+    virtual std::unique_ptr<CompactionFilter>
+    CreateCompactionFilter() override {
+      return std::unique_ptr<CompactionFilter>(new ChangeFilter(argv_));
+    }
+
+    virtual const char* Name() const override {
+      return "ChangeFilterFactory";
+    }
+
+  private:
+    const int argv_;
+};
+
 TEST(DBTest, CompactionFilter) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
-  auto keep_filter = std::make_shared<KeepFilter>();
-  options.compaction_filter = keep_filter.get();
+  options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   Reopen(&options);
 
   // Write 100K keys, these are written to a few files in L0.
@@ -1778,8 +1818,7 @@ TEST(DBTest, CompactionFilter) {
 
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
-  auto delete_filter = std::make_shared<DeleteFilter>();
-  options.compaction_filter = delete_filter.get();
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.create_if_missing = true;
   DestroyAndReopen(&options);
 
@@ -1843,8 +1882,8 @@ TEST(DBTest, CompactionFilterWithValueChange) {
     Options options = CurrentOptions();
     options.num_levels = 3;
     options.max_mem_compaction_level = 0;
-    auto change_filter = std::make_shared<ChangeFilter>(100);
-    options.compaction_filter = change_filter.get();
+    options.compaction_filter_factory =
+      std::make_shared<ChangeFilterFactory>(100);
     Reopen(&options);
 
     // Write 100K+1 keys, these are written to a few files
