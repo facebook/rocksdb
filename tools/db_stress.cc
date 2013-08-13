@@ -2,17 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-//The test uses an array to compare against values written to the database.
-//Keys written to the array are in 1:1 correspondence to the actual values in
-//the database according to the formula in the function GenerateValue
+// The test uses an array to compare against values written to the database.
+// Keys written to the array are in 1:1 correspondence to the actual values in
+// the database according to the formula in the function GenerateValue.
 
-//Space is reserved in the array from 0 to FLAGS_max_key and values are randomly
-//written/deleted/read from those positions. During verification we compare all
-//the positions in the array. Therefore to shorten/elongate the amount of time
-//that this test runs for, you should change the settings:
-//FLAGS_max_key, FLAGS_ops_per_thread, (sometimes also FLAGS_threads)
-//NOTE that if FLAGS_test_batches_snapshots is set, the test behaves a little
-//differently. See comment header for the flag.
+// Space is reserved in the array from 0 to FLAGS_max_key and values are
+// randomly written/deleted/read from those positions. During verification we
+// compare all the positions in the array. To shorten/elongate the running
+// time, you could change the settings: FLAGS_max_key, FLAGS_ops_per_thread,
+// (sometimes also FLAGS_threads).
+//
+// NOTE that if FLAGS_test_batches_snapshots is set, the test will have
+// different behavior. See comment of the flag for details.
 
 #include <sys/types.h>
 #include <stdio.h>
@@ -42,17 +43,17 @@ static const long KB = 1024;
 static uint32_t FLAGS_seed = 2341234;
 
 // Max number of key/values to place in database
-static long FLAGS_max_key = 2 * KB * KB * KB;
+static long FLAGS_max_key = 1 * KB * KB * KB;
 
-// If set, the test uses MultiGet, MultiPrefixScan, MultiPut and
-// MultiDelete that do a different kind of validation during the test
-// itself, rather than at the end. This is meant to solve the
-// following problems at the expense of doing less degree of
-// validation.
-// (a) No need to acquire mutexes during writes (less cache flushes in
-// multi-core leading to speed up)
+// If set, the test uses MultiGet(), MultiPut() and MultiDelete() which
+// read/write/delete multiple keys in a batch. In this mode, we do not verify
+// db content by comparing the content with the pre-allocated array. Instead,
+// we do partial verification inside MultiGet() by checking various values in
+// a batch. Benefit of this mode:
+// (a) No need to acquire mutexes during writes (less cache flushes
+//     in multi-core leading to speed up)
 // (b) No long validation at the end (more speed up)
-// (c) Also test snapshot and atomicity of batch writes
+// (c) Test snapshot and atomicity of batch writes
 static bool FLAGS_test_batches_snapshots = false;
 
 // Number of concurrent threads to run.
@@ -60,7 +61,7 @@ static int FLAGS_threads = 32;
 
 // Opens the db with this ttl value if this is not -1
 // Carefully specify a large value such that verifications on deleted
-//  values don't fail
+// values don't fail
 static int FLAGS_ttl = -1;
 
 // Size of each value will be this number times rand_int(1,3) bytes
@@ -137,16 +138,16 @@ extern int leveldb_kill_odds;
 // If true, do not write WAL for write.
 static bool FLAGS_disable_wal = false;
 
-// Target level-0 file size for compaction
+// Target level-1 file size for compaction
 static int FLAGS_target_file_size_base = 64 * KB;
 
-// A multiplier to compute targe level-N file size
+// A multiplier to compute targe level-N file size (N >= 2)
 static int FLAGS_target_file_size_multiplier = 1;
 
-// Max bytes for level-0
+// Max bytes for level-1
 static uint64_t FLAGS_max_bytes_for_level_base = 256 * KB;
 
-// A multiplier to compute max bytes for level-N
+// A multiplier to compute max bytes for level-N (N >= 2)
 static int FLAGS_max_bytes_for_level_multiplier = 2;
 
 // Number of files in level-0 that will trigger put stop.
@@ -341,7 +342,8 @@ class Stats {
             "", bytes_mb, rate, (100*writes_)/done_, done_);
     fprintf(stdout, "%-12s: Wrote %ld times\n", "", writes_);
     fprintf(stdout, "%-12s: Deleted %ld times\n", "", deletes_);
-    fprintf(stdout, "%-12s: %ld/%ld gets found the key\n", "", founds_, gets_);
+    fprintf(stdout, "%-12s: %ld read and %ld found the key\n", "",
+            gets_, founds_);
     fprintf(stdout, "%-12s: Prefix scanned %ld times\n", "", prefixes_);
     fprintf(stdout, "%-12s: Iterator size sum is %ld\n", "",
             iterator_size_sums_);
@@ -689,7 +691,6 @@ class StressTest {
 
     return s;
   }
-
 
   // Given a key K, this deletes ("0"+K), ("1"+K),... ("9"+K)
   // in DB atomically i.e in a single batch. Also refer MultiGet.
@@ -1052,12 +1053,12 @@ class StressTest {
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
     fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
     fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);
-    fprintf(stdout, "Ratio #ops/#keys    : %ld\n",
-            (FLAGS_ops_per_thread * FLAGS_threads)/FLAGS_max_key);
+    fprintf(stdout, "Ratio #ops/#keys    : %f\n",
+            (1.0 * FLAGS_ops_per_thread * FLAGS_threads)/FLAGS_max_key);
     fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
     fprintf(stdout, "Batches/snapshots   : %d\n",
             FLAGS_test_batches_snapshots);
-    fprintf(stdout, "Purge redundant %%  : %d\n",
+    fprintf(stdout, "Purge redundant %%   : %d\n",
             FLAGS_purge_redundant_percent);
     fprintf(stdout, "Deletes use filter  : %d\n",
             FLAGS_filter_deletes);

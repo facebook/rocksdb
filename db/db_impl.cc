@@ -520,11 +520,11 @@ void DBImpl::DeleteObsoleteFiles() {
 void DBImpl::PurgeObsoleteWALFiles() {
   int64_t current_time;
   Status s = env_->GetCurrentTime(&current_time);
-  uint64_t now_micros = static_cast<uint64_t>(current_time);
+  uint64_t now_seconds = static_cast<uint64_t>(current_time);
   assert(s.ok());
 
   if (options_.WAL_ttl_seconds != ULONG_MAX && options_.WAL_ttl_seconds > 0) {
-    if (purge_wal_files_last_run_ + options_.WAL_ttl_seconds > now_micros) {
+    if (purge_wal_files_last_run_ + options_.WAL_ttl_seconds > now_seconds) {
       return;
     }
     std::vector<std::string> wal_files;
@@ -534,7 +534,7 @@ void DBImpl::PurgeObsoleteWALFiles() {
       uint64_t file_m_time;
       const std::string file_path = archival_dir + "/" + f;
       const Status s = env_->GetFileModificationTime(file_path, &file_m_time);
-      if (s.ok() && (now_micros - file_m_time > options_.WAL_ttl_seconds)) {
+      if (s.ok() && (now_seconds - file_m_time > options_.WAL_ttl_seconds)) {
         Status status = env_->DeleteFile(file_path);
         if (!status.ok()) {
           Log(options_.info_log,
@@ -544,7 +544,7 @@ void DBImpl::PurgeObsoleteWALFiles() {
       } // Ignore errors.
     }
   }
-  purge_wal_files_last_run_ = now_micros;
+  purge_wal_files_last_run_ = now_seconds;
 }
 
 // If externalTable is set, then apply recovered transactions

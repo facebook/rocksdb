@@ -126,9 +126,9 @@ static int FLAGS_max_write_buffer_number = 0;
 // The minimum number of write buffers that will be merged together
 // before writing to storage. This is cheap because it is an
 // in-memory merge. If this feature is not enabled, then all these
-// write buffers are fushed to L0 as separate files and this increases
+// write buffers are flushed to L0 as separate files and this increases
 // read amplification because a get request has to check in all of these
-// files. Also, an in-memory merge may result in writing lesser
+// files. Also, an in-memory merge may result in writing less
 // data to storage if there are duplicate records in each of these
 // individual write buffers.
 static int FLAGS_min_write_buffer_number_to_merge = 0;
@@ -141,10 +141,12 @@ static int FLAGS_max_background_compactions = 0;
 // style of compaction: level-based vs universal
 static leveldb::CompactionStyle FLAGS_compaction_style = leveldb::kCompactionStyleLevel;
 
-// Percentage flexibilty while comparing file size.
+// Percentage flexibility while comparing file size
+// (for universal compaction only).
 static int FLAGS_universal_size_ratio = 1;
 
-// The minimum number of files in a single compaction run.
+// The minimum number of files in a single compaction run
+// (for universal compaction only).
 static int FLAGS_compaction_universal_min_merge_width = 2;
 
 // Number of bytes to use as a cache of uncompressed data.
@@ -212,16 +214,16 @@ static bool FLAGS_get_approx = false;
 // The total number of levels
 static int FLAGS_num_levels = 7;
 
-// Target level-0 file size for compaction
+// Target file size at level-1
 static int FLAGS_target_file_size_base = 2 * 1048576;
 
-// A multiplier to compute targe level-N file size
+// A multiplier to compute target level-N file size (N >= 2)
 static int FLAGS_target_file_size_multiplier = 1;
 
 // Max bytes for level-1
 static uint64_t FLAGS_max_bytes_for_level_base = 10 * 1048576;
 
-// A multiplier to compute max bytes for level-N
+// A multiplier to compute max bytes for level-N (N >= 2)
 static int FLAGS_max_bytes_for_level_multiplier = 10;
 
 // A vector that specifies additional fanout per level
@@ -236,16 +238,19 @@ static int FLAGS_level0_slowdown_writes_trigger = 8;
 // Number of files in level-0 when compactions start
 static int FLAGS_level0_file_num_compaction_trigger = 4;
 
-// Ratio of reads to writes (expressed as a percentage)
-// for the ReadRandomWriteRandom workload. The default
-// setting is 9 gets for every 1 put.
+// Ratio of reads to reads/writes (expressed as percentage) for the
+// ReadRandomWriteRandom workload. The default value 90 means 90% operations
+// out of all reads and writes operations are reads. In other words, 9 gets
+// for every 1 put.
 static int FLAGS_readwritepercent = 90;
 
-// This percent of deletes are done (used in RandomWithVerify only)
-// Must be smaller than total writepercent (i.e 100 - FLAGS_readwritepercent)
+// Percentage of deletes out of reads/writes/deletes (used in RandomWithVerify
+// only). RandomWithVerify calculates writepercent as
+// (100 - FLAGS_readwritepercent - FLAGS_deletepercent), so FLAGS_deletepercent
+// must be smaller than (100 - FLAGS_readwritepercent)
 static int FLAGS_deletepercent = 2;
 
-// Option to disable compation triggered by read.
+// Option to disable compaction triggered by read.
 static int FLAGS_disable_seek_compaction = false;
 
 // Option to delete obsolete files periodically
@@ -253,12 +258,13 @@ static int FLAGS_disable_seek_compaction = false;
 // deleted after every compaction run.
 static uint64_t FLAGS_delete_obsolete_files_period_micros = 0;
 
-// Algorithm to use to compress the database
+// Algorithm used to compress the database
 static enum leveldb::CompressionType FLAGS_compression_type =
     leveldb::kSnappyCompression;
 
-// Allows compression for levels 0 and 1 to be disabled when
-// other levels are compressed
+// If non-negative, compression starts from this level. Levels with number
+// < FLAGS_min_level_to_compress are not compressed.
+// Otherwise, apply FLAGS_compression_type to all levels.
 static int FLAGS_min_level_to_compress = -1;
 
 static int FLAGS_table_cache_numshardbits = 4;
@@ -295,8 +301,8 @@ static bool FLAGS_read_only = false;
 // Do not auto trigger compactions
 static bool FLAGS_disable_auto_compactions = false;
 
-// Cap the size of data in levelK for a compaction run
-// that compacts Levelk with LevelK+1
+// Cap the size of data in level-K for a compaction run
+// that compacts Level-K with Level-(K+1) (for K >= 1)
 static int FLAGS_source_compaction_factor = 1;
 
 // Set the TTL for the WAL Files.
@@ -376,6 +382,7 @@ class RandomGenerator {
     return Slice(data_.data() + pos_ - len, len);
   }
 };
+
 static Slice TrimSpace(Slice s) {
   unsigned int start = 0;
   while (start < s.size() && isspace(s[start])) {
@@ -784,20 +791,20 @@ class Benchmark {
     delete db_;
     delete filter_policy_;
   }
-//this function will construct string format for key. e.g "%016d"
-void ConstructStrFormatForKey(char* str, int keySize)
-{
-  str[0] = '%';
-  str[1] = '0';
-  sprintf(str+2, "%dd%s", keySize, "%s");
-}
 
-unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
-{
-  unique_ptr<char []> keyInStr(new char[MAX_KEY_SIZE]);
-  snprintf(keyInStr.get(), MAX_KEY_SIZE, keyFormat_, v, suffix);
-  return keyInStr;
-}
+  //this function will construct string format for key. e.g "%016d"
+  void ConstructStrFormatForKey(char* str, int keySize) {
+    str[0] = '%';
+    str[1] = '0';
+    sprintf(str+2, "%dd%s", keySize, "%s");
+  }
+
+  unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "") {
+    unique_ptr<char []> keyInStr(new char[MAX_KEY_SIZE]);
+    snprintf(keyInStr.get(), MAX_KEY_SIZE, keyFormat_, v, suffix);
+    return keyInStr;
+  }
+
   void Run() {
     PrintHeader();
     Open();
@@ -814,7 +821,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
         benchmarks = sep + 1;
       }
 
-      // Reset parameters that may be overriddden bwlow
+      // Sanitize parameters
       num_ = FLAGS_num;
       reads_ = (FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads);
       writes_ = (FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes);
@@ -1378,7 +1385,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
       // Recalculate number of keys per group, and call MultiGet until done
       long num_keys;
       while(num_keys = std::min(keys_left, kpg), !duration.Done(num_keys)) {
-        found += MultiGetRandom(options, num_keys, thread->rand, FLAGS_num,"");
+        found += MultiGetRandom(options, num_keys, thread->rand, FLAGS_num, "");
         thread->stats.FinishedSingleOp(db_);
         keys_left -= num_keys;
       }
@@ -1432,7 +1439,7 @@ unique_ptr<char []> GenerateKeyFromInt(int v, const char* suffix = "")
     thread->stats.AddMessage(msg);
   }
 
-void ReadMissing(ThreadState* thread) {
+  void ReadMissing(ThreadState* thread) {
     FLAGS_warn_missing_keys = false;    // Never warn about missing keys
 
     Duration duration(FLAGS_duration, reads_);
@@ -1446,10 +1453,12 @@ void ReadMissing(ThreadState* thread) {
       long num_keys;
       long found;
       while(num_keys = std::min(keys_left, kpg), !duration.Done(num_keys)) {
-        found = MultiGetRandom(options, num_keys, thread->rand, FLAGS_num,".");
-        if (!found) {
-          assert(false);
-        }
+        found = MultiGetRandom(options, num_keys, thread->rand, FLAGS_num, ".");
+
+        // We should not find any key since the key we try to get has a
+        // different suffix
+        assert(!found);
+
         thread->stats.FinishedSingleOp(db_);
         keys_left -= num_keys;
       }
@@ -1749,10 +1758,8 @@ void ReadMissing(ThreadState* thread) {
     thread->stats.AddMessage(msg);
   }
 
-  //
-  // This is diffferent from ReadWhileWriting because it does not use
+  // This is different from ReadWhileWriting because it does not use
   // an extra thread.
-  //
   void ReadRandomWriteRandom(ThreadState* thread) {
     if (FLAGS_use_multiget){
       // Separate function for multiget (for ease of reading)
@@ -1775,7 +1782,7 @@ void ReadMissing(ThreadState* thread) {
       const int k = thread->rand.Next() % FLAGS_num;
       unique_ptr<char []> key = GenerateKeyFromInt(k);
       if (get_weight == 0 && put_weight == 0) {
-        // one batch complated, reinitialize for next batch
+        // one batch completed, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
         put_weight = 100 - get_weight;
       }
@@ -1876,7 +1883,7 @@ void ReadMissing(ThreadState* thread) {
       assert(num_keys + num_put_keys <= keys_left);
 
       // Apply the MultiGet operations
-      found += MultiGetRandom(options, num_keys, thread->rand, FLAGS_num,"");
+      found += MultiGetRandom(options, num_keys, thread->rand, FLAGS_num, "");
       ++multigets_done;
       reads_done+=num_keys;
       thread->stats.FinishedSingleOp(db_);
