@@ -3640,6 +3640,135 @@ TEST(DBTest, MultiGetEmpty) {
   } while (ChangeCompactOptions());
 }
 
+void PrefixScanInit(DBTest *dbtest) {
+  char buf[100];
+  std::string keystr;
+  const int small_range_sstfiles = 5;
+  const int big_range_sstfiles = 5;
+
+  // Generate 11 sst files with the following prefix ranges.
+  // GROUP 0: [0,10]                              (level 1)
+  // GROUP 1: [1,2], [2,3], [3,4], [4,5], [5, 6]  (level 0)
+  // GROUP 2: [0,6], [0,7], [0,8], [0,9], [0,10]  (level 0)
+  //
+  // A seek with the previous API would do 11 random I/Os (to all the
+  // files).  With the new API and a prefix filter enabled, we should
+  // only do 2 random I/O, to the 2 files containing the key.
+
+  // GROUP 0
+  snprintf(buf, sizeof(buf), "%02d______:start", 0);
+  keystr = std::string(buf);
+  ASSERT_OK(dbtest->Put(keystr, keystr));
+  snprintf(buf, sizeof(buf), "%02d______:end", 10);
+  keystr = std::string(buf);
+  ASSERT_OK(dbtest->Put(keystr, keystr));
+  dbtest->dbfull()->TEST_CompactMemTable();
+  dbtest->dbfull()->CompactRange(nullptr, nullptr); // move to level 1
+
+  // GROUP 1
+  for (int i = 1; i <= small_range_sstfiles; i++) {
+    snprintf(buf, sizeof(buf), "%02d______:start", i);
+    keystr = std::string(buf);
+    ASSERT_OK(dbtest->Put(keystr, keystr));
+    snprintf(buf, sizeof(buf), "%02d______:end", i+1);
+    keystr = std::string(buf);
+    ASSERT_OK(dbtest->Put(keystr, keystr));
+    dbtest->dbfull()->TEST_CompactMemTable();
+  }
+
+  // GROUP 2
+  for (int i = 1; i <= big_range_sstfiles; i++) {
+    std::string keystr;
+    snprintf(buf, sizeof(buf), "%02d______:start", 0);
+    keystr = std::string(buf);
+    ASSERT_OK(dbtest->Put(keystr, keystr));
+    snprintf(buf, sizeof(buf), "%02d______:end",
+             small_range_sstfiles+i+1);
+    keystr = std::string(buf);
+    ASSERT_OK(dbtest->Put(keystr, keystr));
+    dbtest->dbfull()->TEST_CompactMemTable();
+  }
+}
+
+TEST(DBTest, PrefixScan) {
+  ReadOptions ro = ReadOptions();
+  int count;
+  Slice prefix;
+  Slice key;
+  char buf[100];
+  Iterator* iter;
+  snprintf(buf, sizeof(buf), "03______:");
+  prefix = Slice(buf, 8);
+  key = Slice(buf, 9);
+
+  // db configs
+  env_->count_random_reads_ = true;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.block_cache = NewLRUCache(0);  // Prevent cache hits
+  options.filter_policy =  NewBloomFilterPolicy(10);
+  options.prefix_extractor = NewFixedPrefixTransform(8);
+  options.whole_key_filtering = false;
+  options.disable_auto_compactions = true;
+  options.max_background_compactions = 2;
+  options.create_if_missing = true;
+  options.disable_seek_compaction = true;
+
+  // prefix specified, with blooms: 2 RAND I/Os
+  // SeekToFirst
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  ro.prefix = &prefix;
+  iter = db_->NewIterator(ro);
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    assert(iter->key().starts_with(prefix));
+    count++;
+  }
+  ASSERT_TRUE(iter->status().ok());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
+
+  // prefix specified, with blooms: 2 RAND I/Os
+  // Seek
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  ro.prefix = &prefix;
+  iter = db_->NewIterator(ro);
+  for (iter->Seek(key); iter->Valid(); iter->Next()) {
+    assert(iter->key().starts_with(prefix));
+    count++;
+  }
+  ASSERT_TRUE(iter->status().ok());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
+
+  // no prefix specified: 11 RAND I/Os
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  iter = db_->NewIterator(ReadOptions());
+  for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+    if (! iter->key().starts_with(prefix)) {
+      break;
+    }
+    count++;
+  }
+  ASSERT_TRUE(iter->status().ok());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 11);
+  Close();
+  delete options.filter_policy;
+  delete options.prefix_extractor;
+}
+
 std::string MakeKey(unsigned int num) {
   char buf[30];
   snprintf(buf, sizeof(buf), "%016u", num);

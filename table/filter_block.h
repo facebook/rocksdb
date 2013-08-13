@@ -13,7 +13,9 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "leveldb/options.h"
 #include "leveldb/slice.h"
+#include "leveldb/slice_transform.h"
 #include "util/hash.h"
 
 namespace leveldb {
@@ -28,20 +30,25 @@ class FilterPolicy;
 //      (StartBlock AddKey*)* Finish
 class FilterBlockBuilder {
  public:
-  explicit FilterBlockBuilder(const FilterPolicy*);
+  explicit FilterBlockBuilder(const Options& opt);
 
   void StartBlock(uint64_t block_offset);
   void AddKey(const Slice& key);
   Slice Finish();
 
  private:
+  bool SamePrefix(const Slice &key1, const Slice &key2) const;
   void GenerateFilter();
 
   const FilterPolicy* policy_;
-  std::string keys_;              // Flattened key contents
-  std::vector<size_t> start_;     // Starting index in keys_ of each key
-  std::string result_;            // Filter data computed so far
-  std::vector<Slice> tmp_keys_;   // policy_->CreateFilter() argument
+  const SliceTransform* prefix_extractor_;
+  bool whole_key_filtering_;
+  const Comparator* comparator_;
+
+  std::string entries_;         // Flattened entry contents
+  std::vector<size_t> start_;   // Starting index in entries_ of each entry
+  std::string result_;          // Filter data computed so far
+  std::vector<Slice> tmp_entries_; // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;
 
   // No copying allowed
@@ -52,15 +59,20 @@ class FilterBlockBuilder {
 class FilterBlockReader {
  public:
  // REQUIRES: "contents" and *policy must stay live while *this is live.
-  FilterBlockReader(const FilterPolicy* policy, const Slice& contents);
+  FilterBlockReader(const Options& opt, const Slice& contents);
   bool KeyMayMatch(uint64_t block_offset, const Slice& key);
+  bool PrefixMayMatch(uint64_t block_offset, const Slice& prefix);
 
  private:
   const FilterPolicy* policy_;
+  const SliceTransform* prefix_extractor_;
+  bool whole_key_filtering_;
   const char* data_;    // Pointer to filter data (at block-start)
   const char* offset_;  // Pointer to beginning of offset array (at block-end)
   size_t num_;          // Number of entries in offset array
   size_t base_lg_;      // Encoding parameter (see kFilterBaseLg in .cc file)
+
+  bool MayMatch(uint64_t block_offset, const Slice& entry);
 };
 
 }

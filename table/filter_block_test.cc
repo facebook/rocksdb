@@ -41,19 +41,25 @@ class TestHashFilter : public FilterPolicy {
 class FilterBlockTest {
  public:
   TestHashFilter policy_;
+  Options options_;
+
+  FilterBlockTest() {
+    options_ = Options();
+    options_.filter_policy = &policy_;
+  }
 };
 
 TEST(FilterBlockTest, EmptyBuilder) {
-  FilterBlockBuilder builder(&policy_);
+  FilterBlockBuilder builder(options_);
   Slice block = builder.Finish();
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block));
-  FilterBlockReader reader(&policy_, block);
+  FilterBlockReader reader(options_, block);
   ASSERT_TRUE(reader.KeyMayMatch(0, "foo"));
   ASSERT_TRUE(reader.KeyMayMatch(100000, "foo"));
 }
 
 TEST(FilterBlockTest, SingleChunk) {
-  FilterBlockBuilder builder(&policy_);
+  FilterBlockBuilder builder(options_);
   builder.StartBlock(100);
   builder.AddKey("foo");
   builder.AddKey("bar");
@@ -63,7 +69,7 @@ TEST(FilterBlockTest, SingleChunk) {
   builder.StartBlock(300);
   builder.AddKey("hello");
   Slice block = builder.Finish();
-  FilterBlockReader reader(&policy_, block);
+  FilterBlockReader reader(options_, block);
   ASSERT_TRUE(reader.KeyMayMatch(100, "foo"));
   ASSERT_TRUE(reader.KeyMayMatch(100, "bar"));
   ASSERT_TRUE(reader.KeyMayMatch(100, "box"));
@@ -74,7 +80,7 @@ TEST(FilterBlockTest, SingleChunk) {
 }
 
 TEST(FilterBlockTest, MultiChunk) {
-  FilterBlockBuilder builder(&policy_);
+  FilterBlockBuilder builder(options_);
 
   // First filter
   builder.StartBlock(0);
@@ -94,7 +100,7 @@ TEST(FilterBlockTest, MultiChunk) {
   builder.AddKey("hello");
 
   Slice block = builder.Finish();
-  FilterBlockReader reader(&policy_, block);
+  FilterBlockReader reader(options_, block);
 
   // Check first filter
   ASSERT_TRUE(reader.KeyMayMatch(0, "foo"));

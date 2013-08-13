@@ -23,6 +23,7 @@
 #include "db/memtable.h"
 #include "db/memtablelist.h"
 #include "db/merge_helper.h"
+#include "db/prefix_filter_iterator.h"
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -2339,12 +2340,19 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
-  Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
-  return NewDBIterator(
-      &dbname_, env_, options_, user_comparator(), internal_iter,
-      (options.snapshot != nullptr
-       ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-       : latest_snapshot));
+  Iterator* iter = NewInternalIterator(options, &latest_snapshot);
+  iter = NewDBIterator(
+             &dbname_, env_, options_, user_comparator(), iter,
+             (options.snapshot != nullptr
+              ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+              : latest_snapshot));
+  if (options.prefix) {
+    // use extra wrapper to exclude any keys from the results which
+    // don't begin with the prefix
+    iter = new PrefixFilterIterator(iter, *options.prefix,
+                                    options_.prefix_extractor);
+  }
+  return iter;
 }
 
 const Snapshot* DBImpl::GetSnapshot() {

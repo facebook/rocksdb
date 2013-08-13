@@ -4,6 +4,7 @@
 
 #include "table/filter_block.h"
 
+#include "db/dbformat.h"
 #include "leveldb/filter_policy.h"
 #include "util/coding.h"
 
@@ -15,9 +16,11 @@ namespace leveldb {
 static const size_t kFilterBaseLg = 11;
 static const size_t kFilterBase = 1 << kFilterBaseLg;
 
-FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy)
-    : policy_(policy) {
-}
+FilterBlockBuilder::FilterBlockBuilder(const Options& opt)
+                 : policy_(opt.filter_policy),
+                   prefix_extractor_(opt.prefix_extractor),
+                   whole_key_filtering_(opt.whole_key_filtering),
+                   comparator_(opt.comparator){}
 
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
@@ -27,10 +30,47 @@ void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   }
 }
 
+bool FilterBlockBuilder::SamePrefix(const Slice &key1,
+                                    const Slice &key2) const {
+  if (!prefix_extractor_->InDomain(key1) &&
+      !prefix_extractor_->InDomain(key2)) {
+    return true;
+  } else if (!prefix_extractor_->InDomain(key1) ||
+             !prefix_extractor_->InDomain(key2)) {
+    return false;
+  } else {
+    return (prefix_extractor_->Transform(key1) ==
+            prefix_extractor_->Transform(key2));
+  }
+}
+
 void FilterBlockBuilder::AddKey(const Slice& key) {
-  Slice k = key;
-  start_.push_back(keys_.size());
-  keys_.append(k.data(), k.size());
+  Slice prev;
+  if (start_.size() > 0) {
+    size_t prev_start = start_[start_.size() - 1];
+    const char* base = entries_.data() + prev_start;
+    size_t length = entries_.size() - prev_start;
+    prev = Slice(base, length);
+  }
+
+  if (whole_key_filtering_) {
+    start_.push_back(entries_.size());
+    entries_.append(key.data(), key.size());
+  }
+
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
+    // this assumes prefix(prefix(key)) == prefix(key), as the last
+    // entry in entries_ may be either a key or prefix, and we use
+    // prefix(last entry) to get the prefix of the last key.
+    if (prev.size() == 0 || ! SamePrefix(key, prev)) {
+      Slice prefix = prefix_extractor_->Transform(key);
+      assert(comparator_->Compare(prefix, key) <= 0);
+      InternalKey internal_prefix_tmp(prefix, 0, kTypeValue);
+      Slice internal_prefix = internal_prefix_tmp.Encode();
+      start_.push_back(entries_.size());
+      entries_.append(internal_prefix.data(), internal_prefix.size());
+    }
+  }
 }
 
 Slice FilterBlockBuilder::Finish() {
@@ -50,34 +90,35 @@ Slice FilterBlockBuilder::Finish() {
 }
 
 void FilterBlockBuilder::GenerateFilter() {
-  const size_t num_keys = start_.size();
-  if (num_keys == 0) {
+  const size_t num_entries = start_.size();
+  if (num_entries == 0) {
     // Fast path if there are no keys for this filter
     filter_offsets_.push_back(result_.size());
     return;
   }
 
   // Make list of keys from flattened key structure
-  start_.push_back(keys_.size());  // Simplify length computation
-  tmp_keys_.resize(num_keys);
-  for (size_t i = 0; i < num_keys; i++) {
-    const char* base = keys_.data() + start_[i];
+  start_.push_back(entries_.size());  // Simplify length computation
+  tmp_entries_.resize(num_entries);
+  for (size_t i = 0; i < num_entries; i++) {
+    const char* base = entries_.data() + start_[i];
     size_t length = start_[i+1] - start_[i];
-    tmp_keys_[i] = Slice(base, length);
+    tmp_entries_[i] = Slice(base, length);
   }
 
   // Generate filter for current set of keys and append to result_.
   filter_offsets_.push_back(result_.size());
-  policy_->CreateFilter(&tmp_keys_[0], num_keys, &result_);
+  policy_->CreateFilter(&tmp_entries_[0], num_entries, &result_);
 
-  tmp_keys_.clear();
-  keys_.clear();
+  tmp_entries_.clear();
+  entries_.clear();
   start_.clear();
 }
 
-FilterBlockReader::FilterBlockReader(const FilterPolicy* policy,
-                                     const Slice& contents)
-    : policy_(policy),
+FilterBlockReader::FilterBlockReader(const Options& opt, const Slice& contents)
+    : policy_(opt.filter_policy),
+      prefix_extractor_(opt.prefix_extractor),
+      whole_key_filtering_(opt.whole_key_filtering),
       data_(nullptr),
       offset_(nullptr),
       num_(0),
@@ -92,16 +133,32 @@ FilterBlockReader::FilterBlockReader(const FilterPolicy* policy,
   num_ = (n - 5 - last_word) / 4;
 }
 
-bool FilterBlockReader::KeyMayMatch(uint64_t block_offset, const Slice& key) {
+bool FilterBlockReader::KeyMayMatch(uint64_t block_offset,
+                                    const Slice& key) {
+  if (!whole_key_filtering_) {
+    return true;
+  }
+  return MayMatch(block_offset, key);
+}
+
+bool FilterBlockReader::PrefixMayMatch(uint64_t block_offset,
+                                       const Slice& prefix) {
+  if (!prefix_extractor_) {
+    return true;
+  }
+  return MayMatch(block_offset, prefix);
+}
+
+bool FilterBlockReader::MayMatch(uint64_t block_offset, const Slice& entry) {
   uint64_t index = block_offset >> base_lg_;
   if (index < num_) {
     uint32_t start = DecodeFixed32(offset_ + index*4);
     uint32_t limit = DecodeFixed32(offset_ + index*4 + 4);
     if (start <= limit && limit <= (offset_ - data_)) {
       Slice filter = Slice(data_ + start, limit - start);
-      return policy_->KeyMayMatch(key, filter);
+      return policy_->KeyMayMatch(entry, filter);
     } else if (start == limit) {
-      // Empty filters do not match any keys
+      // Empty filters do not match any entries
       return false;
     }
   }

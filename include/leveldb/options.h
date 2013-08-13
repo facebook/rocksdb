@@ -15,6 +15,8 @@
 #include "leveldb/universal_compaction.h"
 #include "leveldb/memtablerep.h"
 
+#include "leveldb/slice_transform.h"
+
 namespace leveldb {
 
 class Cache;
@@ -223,6 +225,28 @@ struct Options {
   //
   // Default: nullptr
   const FilterPolicy* filter_policy;
+
+  // If non-nullptr, use the specified function to determine the
+  // prefixes for keys.  These prefixes will be placed in the filter.
+  // Depending on the workload, this can reduce the number of read-IOP
+  // cost for scans when a prefix is passed via ReadOptions to
+  // db.NewIterator().  For prefix filtering to work properly,
+  // "prefix_extractor" and "comparator" must be such that the following
+  // properties hold:
+  //
+  // 1) key.starts_with(prefix(key))
+  // 2) Compare(prefix(key), key) <= 0.
+  // 3) If Compare(k1, k2) <= 0, then Compare(prefix(k1), prefix(k2)) <= 0
+  // 4) prefix(prefix(key)) == prefix(key)
+  //
+  // Default: nullptr
+  const SliceTransform* prefix_extractor;
+
+  // If true, place whole keys in the filter (not just prefixes).
+  // This must generally be true for gets to be efficient.
+  //
+  // Default: true
+  bool whole_key_filtering;
 
   // Number of levels for this database
   int num_levels;
@@ -538,14 +562,28 @@ struct ReadOptions {
   // Default: nullptr
   const Snapshot* snapshot;
 
+  // If "prefix" is non-nullptr, and ReadOptions is being passed to
+  // db.NewIterator, only return results when the key begins with this
+  // prefix.  This field is ignored by other calls (e.g., Get).
+  // Options.prefix_extractor must also be set, and
+  // prefix_extractor.InRange(prefix) must be true.  The iterator
+  // returned by NewIterator when this option is set will behave just
+  // as if the underlying store did not contain any non-matching keys,
+  // with two exceptions.  Seek() only accepts keys starting with the
+  // prefix, and SeekToLast() is not supported.  prefix filter with this
+  // option will sometimes reduce the number of read IOPs.
+  // Default: nullptr
+  const Slice* prefix;
+
   ReadOptions()
       : verify_checksums(false),
         fill_cache(true),
-        snapshot(nullptr) {
+        snapshot(nullptr),
+        prefix(nullptr) {
   }
   ReadOptions(bool cksum, bool cache) :
               verify_checksums(cksum), fill_cache(cache),
-              snapshot(nullptr) {
+              snapshot(nullptr), prefix(nullptr) {
   }
 };
 

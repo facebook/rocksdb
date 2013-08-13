@@ -4,6 +4,8 @@
 
 #include "table/table.h"
 
+#include "db/dbformat.h"
+
 #include "leveldb/cache.h"
 #include "leveldb/comparator.h"
 #include "leveldb/env.h"
@@ -207,7 +209,7 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   if (block.heap_allocated) {
     rep_->filter_data = block.data.data();     // Will need to delete later
   }
-  rep_->filter = new FilterBlockReader(rep_->options.filter_policy, block.data);
+  rep_->filter = new FilterBlockReader(rep_->options, block.data);
 }
 
 Table::~Table() {
@@ -318,7 +320,66 @@ Iterator* Table::BlockReader(void* arg,
   return BlockReader(arg, options, index_value, nullptr, for_compaction);
 }
 
+// This will be broken if the user specifies an unusual implementation
+// of Options.comparator, or if the user specifies an unusual
+// definition of prefixes in Options.filter_policy.  In particular, we
+// require the following three properties:
+//
+// 1) key.starts_with(prefix(key))
+// 2) Compare(prefix(key), key) <= 0.
+// 3) If Compare(key1, key2) <= 0, then Compare(prefix(key1), prefix(key2)) <= 0
+bool Table::PrefixMayMatch(const Slice& internal_prefix) const {
+  FilterBlockReader* filter = rep_->filter;
+  bool may_match = true;
+  Status s;
+
+  if (filter == nullptr) {
+    return true;
+  }
+
+  Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
+  iiter->Seek(internal_prefix);
+  if (! iiter->Valid()) {
+    // we're past end of file
+    may_match = false;
+  } else if (iiter->key().starts_with(internal_prefix)) {
+    // we need to check for this subtle case because our only
+    // guarantee is that "the key is a string >= last key in that data
+    // block" according to the doc/table_format.txt spec.
+    //
+    // Suppose iiter->key() starts with the desired prefix; it is not
+    // necessarily the case that the corresponding data block will
+    // contain the prefix, since iiter->key() need not be in the
+    // block.  However, the next data block may contain the prefix, so
+    // we return true to play it safe.
+    may_match = true;
+  } else {
+    // iiter->key() does NOT start with the desired prefix.  Because
+    // Seek() finds the first key that is >= the seek target, this
+    // means that iiter->key() > prefix.  Thus, any data blocks coming
+    // after the data block corresponding to iiter->key() cannot
+    // possibly contain the key.  Thus, the corresponding data block
+    // is the only one which could potentially contain the prefix.
+    Slice handle_value = iiter->value();
+    BlockHandle handle;
+    s = handle.DecodeFrom(&handle_value);
+    assert(s.ok());
+    may_match = filter->PrefixMayMatch(handle.offset(), internal_prefix);
+  }
+  delete iiter;
+  return may_match;
+}
+
 Iterator* Table::NewIterator(const ReadOptions& options) const {
+  if (options.prefix) {
+    InternalKey internal_prefix(*options.prefix, 0, kTypeValue);
+    if (!PrefixMayMatch(internal_prefix.Encode())) {
+      // nothing in this file can match the prefix, so we should not
+      // bother doing I/O to this file when iterating.
+      return NewEmptyIterator();
+    }
+  }
+
   return NewTwoLevelIterator(
       rep_->index_block->NewIterator(rep_->options.comparator),
       &Table::BlockReader, const_cast<Table*>(this), options, rep_->soptions);

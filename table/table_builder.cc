@@ -55,7 +55,7 @@ struct TableBuilder::Rep {
         num_entries(0),
         closed(false),
         filter_block(opt.filter_policy == nullptr ? nullptr
-                     : new FilterBlockBuilder(opt.filter_policy)),
+                     : new FilterBlockBuilder(opt)),
         pending_index_entry(false) {
     index_block_options.block_restart_interval = 1;
   }

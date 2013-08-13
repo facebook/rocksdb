@@ -33,6 +33,8 @@ Options::Options()
       block_restart_interval(16),
       compression(kSnappyCompression),
       filter_policy(nullptr),
+      prefix_extractor(nullptr),
+      whole_key_filtering(true),
       num_levels(7),
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(8),
