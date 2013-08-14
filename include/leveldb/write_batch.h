@@ -43,6 +43,17 @@ class WriteBatch {
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   void Delete(const Slice& key);
 
+  // Append a blob of arbitrary to the records in this batch. The blob will be
+  // stored in the transaction log but not in any other file. In particular, it
+  // will not be persisted to the SST files. When iterating over this
+  // WriteBatch, WriteBatch::Handler::LogData will be called with the contents
+  // of the blob as it is encountered. Blobs, puts, deletes, and merges will be
+  // encountered in the same order in thich they were inserted.
+  //
+  // Example application: add timestamps to the transaction log for use in
+  // replication.
+  void PutLogData(const Slice& blob);
+
   // Clear all updates buffered in this batch.
   void Clear();
 
@@ -51,10 +62,12 @@ class WriteBatch {
    public:
     virtual ~Handler();
     virtual void Put(const Slice& key, const Slice& value) = 0;
-    // Merge is not pure virtual. Otherwise, we would break existing
-    // clients of Handler on a source code level.
-    // The default implementation simply throws a runtime exception.
+    // Merge and LogData are not pure virtual. Otherwise, we would break
+    // existing clients of Handler on a source code level. The default
+    // implementation of Merge simply throws a runtime exception.
     virtual void Merge(const Slice& key, const Slice& value);
+    // The default implementation of LogData does nothing.
+    virtual void LogData(const Slice& blob);
     virtual void Delete(const Slice& key) = 0;
   };
   Status Iterate(Handler* handler) const;
@@ -66,7 +79,7 @@ class WriteBatch {
   int Count() const;
 
   // Constructor with a serialized string object
-  WriteBatch(std::string rep): rep_(rep) {}
+  explicit WriteBatch(std::string rep): rep_(rep) {}
 
  private:
   friend class WriteBatchInternal;

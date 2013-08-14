@@ -217,6 +217,9 @@ void DBIter::FindNextUserEntry(bool skipping) {
             // TODO: what if !iter_->Valid()
             return;
             break;
+          case kTypeLogData:
+            assert(false);
+            break;
         }
       }
     }

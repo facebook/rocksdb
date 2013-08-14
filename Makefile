@@ -37,34 +37,34 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
 	arena_test \
+	auto_roll_logger_test \
+	block_test \
 	bloom_test \
 	c_test \
 	cache_test \
 	coding_test \
-	histogram_test \
 	corruption_test \
 	crc32c_test \
 	db_test \
 	dbformat_test \
 	env_test \
+	filelock_test \
 	filename_test \
 	filter_block_test \
+	histogram_test \
 	log_test \
+	manual_compaction_test \
 	memenv_test \
-	skiplist_test \
-	table_test \
-	ttl_test \
-	block_test \
-	version_edit_test \
-	version_set_test \
-	reduce_levels_test \
-	write_batch_test \
-	auto_roll_logger_test \
-	filelock_test \
 	merge_test \
 	redis_test \
-	manual_compaction_test \
-	stringappend_test
+	reduce_levels_test \
+	skiplist_test \
+	stringappend_test \
+	table_test \
+	ttl_test \
+	version_edit_test \
+	version_set_test \
+	write_batch_test
 
 TOOLS = \
         sst_dump \

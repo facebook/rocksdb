@@ -50,13 +50,16 @@ static std::string PrintContents(WriteBatch* b) {
         state.append(")");
         count++;
         break;
+      case kTypeLogData:
+        assert(false);
+        break;
     }
     state.append("@");
     state.append(NumberToString(ikey.sequence));
   }
   delete iter;
   if (!s.ok()) {
-    state.append("ParseError()");
+    state.append(s.ToString());
   } else if (count != WriteBatchInternal::Count(b)) {
     state.append("CountMismatch()");
   }
@@ -97,7 +100,7 @@ TEST(WriteBatchTest, Corruption) {
   WriteBatchInternal::SetContents(&batch,
                                   Slice(contents.data(),contents.size()-1));
   ASSERT_EQ("Put(foo, bar)@200"
-            "ParseError()",
+            "Corruption: bad WriteBatch Delete",
             PrintContents(&batch));
 }
 
@@ -129,6 +132,50 @@ TEST(WriteBatchTest, Append) {
             "Delete(foo)@203",
             PrintContents(&b1));
   ASSERT_EQ(4, b1.Count());
+}
+
+TEST(WriteBatchTest, Blob) {
+  WriteBatch batch;
+  batch.Put(Slice("k1"), Slice("v1"));
+  batch.Put(Slice("k2"), Slice("v2"));
+  batch.Put(Slice("k3"), Slice("v3"));
+  batch.PutLogData(Slice("blob1"));
+  batch.Delete(Slice("k2"));
+  batch.PutLogData(Slice("blob2"));
+  batch.Merge(Slice("foo"), Slice("bar"));
+  ASSERT_EQ(5, batch.Count());
+  ASSERT_EQ("Merge(foo, bar)@4"
+            "Put(k1, v1)@0"
+            "Delete(k2)@3"
+            "Put(k2, v2)@1"
+            "Put(k3, v3)@2",
+            PrintContents(&batch));
+
+  struct Handler : public WriteBatch::Handler {
+    std::string seen;
+    virtual void Put(const Slice& key, const Slice& value) {
+      seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+    }
+    virtual void Merge(const Slice& key, const Slice& value) {
+      seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
+    }
+    virtual void LogData(const Slice& blob) {
+      seen += "LogData(" + blob.ToString() + ")";
+    }
+    virtual void Delete(const Slice& key) {
+      seen += "Delete(" + key.ToString() + ")";
+    }
+  } handler;
+  batch.Iterate(&handler);
+  ASSERT_EQ(
+            "Put(k1, v1)"
+            "Put(k2, v2)"
+            "Put(k3, v3)"
+            "LogData(blob1)"
+            "Delete(k2)"
+            "LogData(blob2)"
+            "Merge(foo, bar)",
+            handler.seen);
 }
 
 }  // namespace leveldb

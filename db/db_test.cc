@@ -457,6 +457,9 @@ class DBTest {
             case kTypeDeletion:
               result += "DEL";
               break;
+            case kTypeLogData:
+              assert(false);
+              break;
           }
         }
         iter->Next();
@@ -3130,6 +3133,48 @@ TEST(DBTest, TransactionLogIteratorBatchOperations) {
     auto iter = OpenTransactionLogIter(3);
     ExpectRecords(1, iter);
   } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, TransactionLogIteratorBlobs) {
+  Options options = OptionsForLogIterTest();
+  DestroyAndReopen(&options);
+  {
+    WriteBatch batch;
+    batch.Put("key1", DummyString(1024));
+    batch.Put("key2", DummyString(1024));
+    batch.PutLogData(Slice("blob1"));
+    batch.Put("key3", DummyString(1024));
+    batch.PutLogData(Slice("blob2"));
+    batch.Delete("key2");
+    dbfull()->Write(WriteOptions(), &batch);
+    Reopen(&options);
+  }
+
+  auto res = OpenTransactionLogIter(0)->GetBatch();
+  struct Handler : public WriteBatch::Handler {
+    std::string seen;
+    virtual void Put(const Slice& key, const Slice& value) {
+      seen += "Put(" + key.ToString() + ", " + std::to_string(value.size()) +
+        ")";
+    }
+    virtual void Merge(const Slice& key, const Slice& value) {
+      seen += "Merge(" + key.ToString() + ", " + std::to_string(value.size()) +
+        ")";
+    }
+    virtual void LogData(const Slice& blob) {
+      seen += "LogData(" + blob.ToString() + ")";
+    }
+    virtual void Delete(const Slice& key) {
+      seen += "Delete(" + key.ToString() + ")";
+    }
+  } handler;
+  res.writeBatchPtr->Iterate(&handler);
+  ASSERT_EQ("Put(key1, 1024)"
+            "Put(key2, 1024)"
+            "LogData(blob1)"
+            "Put(key3, 1024)"
+            "LogData(blob2)"
+            "Delete(key2)", handler.seen);
 }
 
 TEST(DBTest, ReadCompaction) {

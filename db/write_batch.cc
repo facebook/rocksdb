@@ -43,6 +43,11 @@ void WriteBatch::Handler::Merge(const Slice& key, const Slice& value) {
   throw std::runtime_error("Handler::Merge not implemented!");
 }
 
+void WriteBatch::Handler::LogData(const Slice& blob) {
+  // If the user has not specified something to do with blobs, then we ignore
+  // them.
+}
+
 void WriteBatch::Clear() {
   rep_.clear();
   rep_.resize(kHeader);
@@ -59,10 +64,9 @@ Status WriteBatch::Iterate(Handler* handler) const {
   }
 
   input.remove_prefix(kHeader);
-  Slice key, value;
+  Slice key, value, blob;
   int found = 0;
   while (!input.empty()) {
-    found++;
     char tag = input[0];
     input.remove_prefix(1);
     switch (tag) {
@@ -70,6 +74,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
           handler->Put(key, value);
+          found++;
         } else {
           return Status::Corruption("bad WriteBatch Put");
         }
@@ -77,6 +82,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
       case kTypeDeletion:
         if (GetLengthPrefixedSlice(&input, &key)) {
           handler->Delete(key);
+          found++;
         } else {
           return Status::Corruption("bad WriteBatch Delete");
         }
@@ -85,8 +91,16 @@ Status WriteBatch::Iterate(Handler* handler) const {
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
           handler->Merge(key, value);
+          found++;
         } else {
           return Status::Corruption("bad WriteBatch Merge");
+        }
+        break;
+      case kTypeLogData:
+        if (GetLengthPrefixedSlice(&input, &blob)) {
+          handler->LogData(blob);
+        } else {
+          return Status::Corruption("bad WriteBatch Blob");
         }
         break;
       default:
@@ -136,6 +150,10 @@ void WriteBatch::Merge(const Slice& key, const Slice& value) {
   PutLengthPrefixedSlice(&rep_, value);
 }
 
+void WriteBatch::PutLogData(const Slice& blob) {
+  rep_.push_back(static_cast<char>(kTypeLogData));
+  PutLengthPrefixedSlice(&rep_, blob);
+}
 
 namespace {
 class MemTableInserter : public WriteBatch::Handler {

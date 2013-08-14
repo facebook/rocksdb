@@ -330,6 +330,10 @@ static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
             }
           }
           return true;
+
+        case kTypeLogData:
+          assert(false);
+          break;
       }
     }
   }

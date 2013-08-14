@@ -211,6 +211,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           }
           break;
         }
+        case kTypeLogData:
+          assert(false);
+          break;
       }
     } else {
       // exit loop if user key does not match
