@@ -11,13 +11,13 @@ fi
 ROOT=".."
 # Fetch right version of gcov
 if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
-  source $ROOT/fbcode.gcc471.sh
+  source $ROOT/build_tools/fbcode.gcc471.sh
   GCOV=$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.7.1/cc6c9dc/bin/gcov
 else
   GCOV=$(which gcov)
 fi
 
-COVERAGE_DIR=$(mktemp -t -d rocksdb_coverage_XXXX)
+COVERAGE_DIR="$PWD/COVERAGE_REPORT"
 mkdir -p $COVERAGE_DIR
 
 # Find all gcno files to generate the coverage report
@@ -47,15 +47,13 @@ echo -e "Generated coverage report for recently updated files: $RECENT_REPORT\n"
 # Generate the html report. If we cannot find lcov in this machine, we'll simply
 # skip this step.
 echo "Generating the html coverage report..."
-set +e
-LCOV=$(which lcov 2>/dev/null)
+
+LCOV=$(which lcov || true 2>/dev/null)
 if [ -z $LCOV ]
 then
   echo "Skip: Cannot find lcov to generate the html report."
   exit 0
 fi
-
-set -e
 
 (cd $ROOT; lcov --no-external \
      --capture  \

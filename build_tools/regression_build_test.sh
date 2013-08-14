@@ -14,8 +14,8 @@ fi
 # On the production build servers, set data and stat
 # files/directories not in /tmp or else the tempdir cleaning
 # scripts will make you very unhappy.
-DATA_DIR=${DATA_DIR:-$(mktemp --tmpdir -d rocksdb_XXXX)}
-STAT_FILE=${STAT_FILE:-$(mktemp --tmpdir -u rocksdb_test_stats_XXXX)}
+DATA_DIR=${DATA_DIR:-$(mktemp -t -d rocksdb_XXXX)}
+STAT_FILE=${STAT_FILE:-$(mktemp -t -u rocksdb_test_stats_XXXX)}
 
 function cleanup {
   rm -rf $DATA_DIR

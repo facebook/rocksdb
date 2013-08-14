@@ -1,4 +1,0 @@
-This directory stores the tests that failed valgrind and the times associated
-with the failed runs.
-"make valgrind_check" can be invoked to call valgrind on the rocksdb tests and
-generate files in this directory

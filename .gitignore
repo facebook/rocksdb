@@ -18,3 +18,6 @@ leveldb_shell
 manifest_dump
 sst_dump
 util/build_version.cc
+build_tools/VALGRIND_LOGS/
+coverage/COVERAGE_REPORT
+util/build_version.cc.tmp

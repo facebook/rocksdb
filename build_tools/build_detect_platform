@@ -31,9 +31,9 @@ fi
 # Default to fbcode gcc on internal fb machines
 if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
     if [ -z "$USE_CLANG" ]; then
-        source ./fbcode.gcc471.sh
+        source fbcode.gcc471.sh
     else
-        source ./fbcode.clang31.sh
+        source fbcode.clang31.sh
     fi
 fi
 
@@ -65,7 +65,7 @@ PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=true
 
 # generic port files (working on all platform by #ifdef) go directly in /port
-GENERIC_PORT_FILES=`find port -name '*.cc' | tr "\n" " "`
+GENERIC_PORT_FILES=`cd $ROCKSDB_ROOT; find port -name '*.cc' | tr "\n" " "`
 
 # On GCC, we pick libc's memcmp over GCC's memcmp via -fno-builtin-memcmp
 case "$TARGET_OS" in
@@ -146,8 +146,8 @@ fi
 set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *_bench.cc -prune"
-PORTABLE_FILES=`find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
-PORTABLE_CPP=`find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
+PORTABLE_FILES=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
+PORTABLE_CPP=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
 set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port
