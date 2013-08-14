@@ -105,6 +105,7 @@ Options::Dump(Logger* log) const
     Log(log,"       Options.compaction_filter_factory: %s",
         compaction_filter_factory->Name());
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
+    Log(log,"       Options.create_if_missing: %d", create_if_missing);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
     Log(log,"                     Options.env: %p", env);
     Log(log,"                Options.info_log: %p", info_log.get());
@@ -128,6 +129,9 @@ Options::Dump(Logger* log) const
     }
     Log(log,"         Options.filter_policy: %s",
         filter_policy == nullptr ? "nullptr" : filter_policy->Name());
+    Log(log,"      Options.prefix_extractor: %s",
+        prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
+    Log(log,"   Options.whole_key_filtering: %d", whole_key_filtering);
     Log(log,"            Options.num_levels: %d", num_levels);
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);
@@ -191,6 +195,8 @@ Options::Dump(Logger* log) const
         delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",
         max_background_compactions);
+    Log(log,"                      Options.soft_rate_limit: %.2f",
+        soft_rate_limit);
     Log(log,"                      Options.hard_rate_limit: %.2f",
         hard_rate_limit);
     Log(log,"      Options.rate_limit_delay_max_milliseconds: %u",
