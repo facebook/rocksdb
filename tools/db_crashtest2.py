@@ -107,6 +107,9 @@ def main(argv):
                 --destroy_db_initially=0 ' + killoption + ' \
                 --reopen=0 \
                 --readpercent=50 \
+                --prefixpercent=5 \
+                --writepercent=40 \
+                --delpercent=5 \
                 --db=' + dirpath + ' \
                 --max_key=100000000 ' + additional_opts]
 

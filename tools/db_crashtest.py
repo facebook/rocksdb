@@ -90,6 +90,9 @@ def main(argv):
                         --destroy_db_initially=0 \
                         --reopen=0 \
                         --readpercent=50 \
+                        --prefixpercent=5 \
+                        --writepercent=40 \
+                        --delpercent=5 \
                         --db=' + dirpath + '\
                         --max_key=100000000 ' + additional_opts],
                                  stderr=subprocess.PIPE, shell=True)
