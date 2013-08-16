@@ -75,7 +75,10 @@ TOOLS = \
 PROGRAMS = db_bench signal_test $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
 
-LIBRARY = librocksdb.a
+# The library name is configurable since we are maintaining libraries of both
+# debug/release mode.
+LIBNAME = librocksdb
+LIBRARY = ${LIBNAME}.a
 MEMENVLIBRARY = libmemenv.a
 
 default: all
@@ -84,7 +87,7 @@ default: all
 ifneq ($(PLATFORM_SHARED_EXT),)
 
 ifneq ($(PLATFORM_SHARED_VERSIONED),true)
-SHARED1 = librocksdb.$(PLATFORM_SHARED_EXT)
+SHARED1 = ${LIBNAME}.$(PLATFORM_SHARED_EXT)
 SHARED2 = $(SHARED1)
 SHARED3 = $(SHARED1)
 SHARED = $(SHARED1)
@@ -92,7 +95,7 @@ else
 # Update db.h if you change these.
 SHARED_MAJOR = 2
 SHARED_MINOR = 0
-SHARED1 = librocksdb.$(PLATFORM_SHARED_EXT)
+SHARED1 = ${LIBNAME}.$(PLATFORM_SHARED_EXT)
 SHARED2 = $(SHARED1).$(SHARED_MAJOR)
 SHARED3 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR)
 SHARED = $(SHARED1) $(SHARED2) $(SHARED3)

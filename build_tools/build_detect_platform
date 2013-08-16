@@ -78,7 +78,7 @@ case "$TARGET_OS" in
         ;;
     Linux)
         PLATFORM=OS_LINUX
-        COMMON_FLAGS="$COMMON_FLAGS -DOS_LINUX -fPIC"
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_LINUX"
         if [ -z "$USE_CLANG" ]; then
             COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
         fi
