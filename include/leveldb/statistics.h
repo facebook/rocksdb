@@ -59,10 +59,10 @@ enum Tickers {
   NUMBER_MULTIGET_BYTES_READ = 20,
 
   NUMBER_FILTERED_DELETES = 21,
-
   NUMBER_MERGE_FAILURES = 22,
+  SEQUENCE_NUMBER = 23,
 
-  TICKER_ENUM_MAX = 23
+  TICKER_ENUM_MAX = 24
 };
 
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
@@ -88,7 +88,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read" },
   { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" },
   { NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered" },
-  { NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures" }
+  { NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures" },
+  { SEQUENCE_NUMBER, "rocksdb.sequence.number" }
 };
 
 /**
@@ -179,11 +180,11 @@ class Ticker {
  public:
   Ticker() : count_(0) { }
 
- inline void recordTick() {
-    count_++;
+  inline void setTickerCount(uint64_t count) {
+    count_ = count;
   }
 
-  inline void recordTick(int count) {
+  inline void recordTick(int count = 1) {
     count_ += count;
   }
 
@@ -201,6 +202,7 @@ class Statistics {
 
   virtual long getTickerCount(Tickers tickerType) = 0;
   virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;
+  virtual void setTickerCount(Tickers tickerType, uint64_t count) = 0;
   virtual void measureTime(Histograms histogramType, uint64_t time) = 0;
 
   virtual void histogramData(Histograms type, HistogramData * const data) = 0;
@@ -221,6 +223,17 @@ inline void RecordTick(std::shared_ptr<Statistics> statistics,
     statistics->recordTick(ticker, count);
   }
 }
+
+inline void SetTickerCount(std::shared_ptr<Statistics> statistics,
+                           Tickers ticker,
+                           uint64_t count) {
+  assert(HistogramsNameMap.size() == HISTOGRAM_ENUM_MAX);
+  assert(TickersNameMap.size() == TICKER_ENUM_MAX);
+  if (statistics) {
+    statistics->setTickerCount(ticker, count);
+  }
+}
+
 }  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_INCLUDE_STATISTICS_H_

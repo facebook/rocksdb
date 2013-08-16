@@ -30,6 +30,11 @@ class DBStatistics: public Statistics {
     return allTickers_[tickerType].getCount();
   }
 
+  virtual void setTickerCount(Tickers tickerType, uint64_t count) {
+    assert(tickerType < TICKER_ENUM_MAX);
+    allTickers_[tickerType].setTickerCount(count);
+  }
+
   virtual void recordTick(Tickers tickerType, uint64_t count) {
     assert(tickerType < TICKER_ENUM_MAX);
     allTickers_[tickerType].recordTick(count);
