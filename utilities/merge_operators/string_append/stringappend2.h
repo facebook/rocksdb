@@ -35,6 +35,14 @@ class StringAppendTESTOperator : public MergeOperator {
   virtual const char* Name() const override;
 
  private:
+  // A version of PartialMerge that actually performs "partial merging".
+  // Use this to simulate the exact behaviour of the StringAppendOperator.
+  bool _AssocPartialMerge(const Slice& key,
+                          const Slice& left_operand,
+                          const Slice& right_operand,
+                          std::string* new_value,
+                          Logger* logger) const;
+
   char delim_;         // The delimiter is inserted between elements
 
 };

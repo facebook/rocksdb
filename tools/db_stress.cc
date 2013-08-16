@@ -36,6 +36,7 @@
 #include "util/logging.h"
 #include "utilities/ttl/db_ttl.h"
 #include "hdfs/env_hdfs.h"
+#include "utilities/merge_operators.h"
 
 static const long KB = 1024;
 
@@ -197,6 +198,9 @@ static bool FLAGS_filter_deletes = false;
 
 // Level0 compaction start trigger
 static int FLAGS_level0_file_num_compaction_trigger = 0;
+
+// On true, replaces all writes with a Merge that behaves like a Put
+static bool FLAGS_use_merge_put = false;
 
 namespace leveldb {
 
@@ -533,6 +537,7 @@ class StressTest {
                           FLAGS_test_batches_snapshots ?
                           sizeof(long) : sizeof(long)-1)),
         db_(nullptr),
+        merge_operator_(MergeOperators::CreatePutOperator()),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
       std::vector<std::string> files;
@@ -548,6 +553,7 @@ class StressTest {
 
   ~StressTest() {
     delete db_;
+    merge_operator_ = nullptr;
     delete filter_policy_;
     delete prefix_extractor_;
   }
@@ -677,7 +683,11 @@ class StressTest {
       keys[i] += key.ToString();
       values[i] += value.ToString();
       value_slices[i] = values[i];
-      batch.Put(keys[i], value_slices[i]);
+      if (FLAGS_use_merge_put) {
+        batch.Merge(keys[i], value_slices[i]);
+      } else {
+        batch.Put(keys[i], value_slices[i]);
+      }
     }
 
     s = db_->Write(writeoptions, &batch);
@@ -942,7 +952,11 @@ class StressTest {
             VerifyValue(rand_key, read_opts, *(thread->shared), &from_db, true);
           }
           thread->shared->Put(rand_key, value_base);
-          db_->Put(write_opts, key, v);
+          if (FLAGS_use_merge_put) {
+            db_->Merge(write_opts, key, v);
+          } else {
+            db_->Put(write_opts, key, v);
+          }
           thread->stats.AddBytesForWrites(1, sz);
         } else {
           MultiPut(thread, write_opts, key, v, sz);
@@ -1125,6 +1139,10 @@ class StressTest {
       options.purge_redundant_kvs_while_flush = false;
     }
 
+    if (FLAGS_use_merge_put) {
+      options.merge_operator = merge_operator_.get();
+    }
+
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db);
 
     Status s;
@@ -1170,6 +1188,7 @@ class StressTest {
   const SliceTransform* prefix_extractor_;
   DB* db_;
   StackableDB* sdb_;
+  std::shared_ptr<MergeOperator> merge_operator_;
   int num_times_reopened_;
 };
 
@@ -1335,6 +1354,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--filter_deletes=%d%c", &n, &junk)
         == 1 && (n == 0 || n == 1)) {
       FLAGS_filter_deletes = n;
+    } else if (sscanf(argv[i], "--use_merge=%d%c", &n, &junk)
+        == 1 && (n == 0 || n == 1)) {
+      FLAGS_use_merge_put = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

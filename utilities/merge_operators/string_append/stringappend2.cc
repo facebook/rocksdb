@@ -66,24 +66,37 @@ bool StringAppendTESTOperator::PartialMerge(const Slice& key,
                                             std::string* new_value,
                                             Logger* logger) const {
   return false;
+}
 
-//  // Clear the *new_value for writing.
-//  assert(new_value);
-//  new_value->clear();
-//
-//  // Generic append
-//  // Reserve correct size for *new_value, and apply concatenation.
-//  new_value->reserve(left_operand.size() + 1 + right_operand.size());
-//  new_value->assign(left_operand.data(), left_operand.size());
-//  new_value->append(1,delim_);
-//  new_value->append(right_operand.data(), right_operand.size());
-//
-//  return true;
+// A version of PartialMerge that actually performs "partial merging".
+// Use this to simulate the exact behaviour of the StringAppendOperator.
+bool StringAppendTESTOperator::_AssocPartialMerge(const Slice& key,
+                                            const Slice& left_operand,
+                                            const Slice& right_operand,
+                                            std::string* new_value,
+                                            Logger* logger) const {
+  // Clear the *new_value for writing.
+  assert(new_value);
+  new_value->clear();
 
+  // Generic append
+  // Reserve correct size for *new_value, and apply concatenation.
+  new_value->reserve(left_operand.size() + 1 + right_operand.size());
+  new_value->assign(left_operand.data(), left_operand.size());
+  new_value->append(1,delim_);
+  new_value->append(right_operand.data(), right_operand.size());
+
+  return true;
 }
 
 const char* StringAppendTESTOperator::Name() const  {
   return "StringAppendTESTOperator";
+}
+
+
+std::shared_ptr<MergeOperator>
+MergeOperators::CreateStringAppendTESTOperator() {
+  return std::make_shared<StringAppendTESTOperator>(',');
 }
 
 } // namespace leveldb

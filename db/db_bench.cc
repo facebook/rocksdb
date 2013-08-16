@@ -25,6 +25,7 @@
 #include "util/string_util.h"
 #include "util/testutil.h"
 #include "hdfs/env_hdfs.h"
+#include "utilities/merge_operators.h"
 
 // Comma-separated list of operations to run in the specified order
 //   Actual benchmarks:
@@ -43,6 +44,9 @@
 //      readwhilewriting -- 1 writer, N threads doing random reads
 //      readrandomwriterandom - N threads doing random-read, random-write
 //      updaterandom  -- N threads doing read-modify-write for random keys
+//      appendrandom  -- N threads doing read-modify-write with growing values
+//      mergerandom   -- same as updaterandom/appendrandom using merge operator
+//                    -- must be used with FLAGS_merge_operator (see below)
 //      seekrandom    -- N random seeks
 //      crc32c        -- repeated crc32c of 4K of data
 //      acquireload   -- load N*1000 times
@@ -349,6 +353,11 @@ static auto FLAGS_bytes_per_sync =
 // On true, deletes use bloom-filter and drop the delete if key not present
 static bool FLAGS_filter_deletes = false;
 
+// The merge operator to use with the database.
+// If a new merge operator is specified, be sure to use fresh database
+// The possible merge operators are defined in utilities/merge_operators.h
+static std::string FLAGS_merge_operator = "";
+
 namespace leveldb {
 
 // Helper for quickly generating random data.
@@ -628,6 +637,7 @@ class Benchmark {
   int key_size_;
   int entries_per_batch_;
   WriteOptions write_options_;
+  std::shared_ptr<MergeOperator> merge_operator_;
   long reads_;
   long writes_;
   long readwrites_;
@@ -769,6 +779,7 @@ class Benchmark {
     value_size_(FLAGS_value_size),
     key_size_(FLAGS_key_size),
     entries_per_batch_(1),
+    merge_operator_(nullptr),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
     writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
     readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num :
@@ -896,6 +907,16 @@ class Benchmark {
         method = &Benchmark::ReadRandomWriteRandom;
       } else if (name == Slice("updaterandom")) {
         method = &Benchmark::UpdateRandom;
+      } else if (name == Slice("appendrandom")) {
+        method = &Benchmark::AppendRandom;
+      } else if (name == Slice("mergerandom")) {
+        if (FLAGS_merge_operator.empty()) {
+          fprintf(stdout, "%-12s : skipped (--merge_operator is unknown)\n",
+                  name.ToString().c_str());
+          method = nullptr;
+        } else {
+          method = &Benchmark::MergeRandom;
+        }
       } else if (name == Slice("randomwithverify")) {
         method = &Benchmark::RandomWithVerify;
       } else if (name == Slice("compact")) {
@@ -1189,6 +1210,15 @@ class Benchmark {
 
     options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;
     options.bytes_per_sync = FLAGS_bytes_per_sync;
+
+    // merge operator options
+    merge_operator_ = MergeOperators::CreateFromStringId(FLAGS_merge_operator);
+    if (merge_operator_ == nullptr && !FLAGS_merge_operator.empty()) {
+      fprintf(stderr, "invalid merge operator: %s\n",
+              FLAGS_merge_operator.c_str());
+      exit(1);
+    }
+    options.merge_operator = merge_operator_.get();
 
     Status s;
     if(FLAGS_read_only) {
@@ -1915,8 +1945,6 @@ class Benchmark {
 
   //
   // Read-modify-write for random keys
-  //
-  // TODO: Implement MergeOperator tests here (Read-modify-write)
   void UpdateRandom(ThreadState* thread) {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
@@ -1960,6 +1988,100 @@ class Benchmark {
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "( updates:%ld found:%ld)", readwrites_, found);
+    thread->stats.AddMessage(msg);
+  }
+
+  // Read-modify-write for random keys.
+  // Each operation causes the key grow by value_size (simulating an append).
+  // Generally used for benchmarking against merges of similar type
+  void AppendRandom(ThreadState* thread) {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    RandomGenerator gen;
+    std::string value;
+    long found = 0;
+
+    // The number of iterations is the larger of read_ or write_
+    Duration duration(FLAGS_duration, readwrites_);
+    while (!duration.Done(1)) {
+      const int k = thread->rand.Next() % FLAGS_num;
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
+
+      if (FLAGS_use_snapshot) {
+        options.snapshot = db_->GetSnapshot();
+      }
+
+      if (FLAGS_get_approx) {
+        char key2[100];
+        snprintf(key2, sizeof(key2), "%016d", k + 1);
+        Slice skey2(key2);
+        Slice skey(key2);
+        Range range(skey, skey2);
+        uint64_t sizes;
+        db_->GetApproximateSizes(&range, 1, &sizes);
+      }
+
+      // Get the existing value
+      if (db_->Get(options, key.get(), &value).ok()) {
+        found++;
+      } else {
+        // If not existing, then just assume an empty string of data
+        value.clear();
+      }
+
+      if (FLAGS_use_snapshot) {
+        db_->ReleaseSnapshot(options.snapshot);
+      }
+
+      // Update the value (by appending data)
+      Slice operand = gen.Generate(value_size_);
+      if (value.size() > 0) {
+        // Use a delimeter to match the semantics for StringAppendOperator
+        value.append(1,',');
+      }
+      value.append(operand.data(), operand.size());
+
+      // Write back to the database
+      Status s = db_->Put(write_options_, key.get(), value);
+      if (!s.ok()) {
+        fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+      thread->stats.FinishedSingleOp(db_);
+    }
+    char msg[100];
+    snprintf(msg, sizeof(msg), "( updates:%ld found:%ld)", readwrites_, found);
+    thread->stats.AddMessage(msg);
+  }
+
+  // Read-modify-write for random keys (using MergeOperator)
+  // The merge operator to use should be defined by FLAGS_merge_operator
+  // Adjust FLAGS_value_size so that the keys are reasonable for this operator
+  // Assumes that the merge operator is non-null (i.e.: is well-defined)
+  //
+  // For example, use FLAGS_merge_operator="uint64add" and FLAGS_value_size=8
+  // to simulate random additions over 64-bit integers using merge.
+  void MergeRandom(ThreadState* thread) {
+    RandomGenerator gen;
+
+    // The number of iterations is the larger of read_ or write_
+    Duration duration(FLAGS_duration, readwrites_);
+    while (!duration.Done(1)) {
+      const int k = thread->rand.Next() % FLAGS_num;
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
+
+      Status s = db_->Merge(write_options_, key.get(),
+                            gen.Generate(value_size_));
+
+      if (!s.ok()) {
+        fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+      thread->stats.FinishedSingleOp(db_);
+    }
+
+    // Print some statistics
+    char msg[100];
+    snprintf(msg, sizeof(msg), "( updates:%ld)", readwrites_);
     thread->stats.AddMessage(msg);
   }
 
@@ -2260,11 +2382,13 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--keys_per_multiget=%d%c",
                &n, &junk) == 1) {
       FLAGS_keys_per_multiget = n;
-    }  else if (sscanf(argv[i], "--bytes_per_sync=%ld%c", &l, &junk) == 1) {
+    } else if (sscanf(argv[i], "--bytes_per_sync=%ld%c", &l, &junk) == 1) {
       FLAGS_bytes_per_sync = l;
     } else if (sscanf(argv[i], "--filter_deletes=%d%c", &n, &junk)
                == 1 && (n == 0 || n ==1 )) {
       FLAGS_filter_deletes = n;
+    } else if (sscanf(argv[i], "--merge_operator=%s", buf) == 1) {
+      FLAGS_merge_operator = buf;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

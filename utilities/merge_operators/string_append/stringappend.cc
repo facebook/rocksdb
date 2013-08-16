@@ -50,6 +50,10 @@ const char* StringAppendOperator::Name() const  {
   return "StringAppendOperator";
 }
 
+std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator() {
+  return std::make_shared<StringAppendOperator>(',');
+}
+
 } // namespace leveldb
 
 
