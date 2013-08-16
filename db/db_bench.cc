@@ -1487,7 +1487,9 @@ class Benchmark {
 
         // We should not find any key since the key we try to get has a
         // different suffix
-        assert(!found);
+        if (found) {
+          assert(false);
+        }
 
         thread->stats.FinishedSingleOp(db_);
         keys_left -= num_keys;
