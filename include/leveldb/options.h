@@ -416,6 +416,7 @@ struct Options {
   // Disable block cache. If this is set to true,
   // then no block cache should be used, and the block_cache should
   // point to a nullptr object.
+  // Default: false
   bool no_block_cache;
 
   // Number of shards used for table cache.
