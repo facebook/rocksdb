@@ -413,7 +413,7 @@ struct Options {
   // The default value is MAX_INT so that roll-over does not take place.
   uint64_t max_manifest_file_size;
 
-  // Disable block cache. If this is set to false,
+  // Disable block cache. If this is set to true,
   // then no block cache should be used, and the block_cache should
   // point to a nullptr object.
   bool no_block_cache;
