@@ -438,11 +438,11 @@ class DBTest {
     return DB::Open(opts, dbname_, &db_);
   }
 
-  Status Put(const Slice& k, const Slice& v) {
+  Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions()) {
     if (kMergePut == option_config_ ) {
-      return db_->Merge(WriteOptions(), k, v);
+      return db_->Merge(wo, k, v);
     } else {
-      return db_->Put(WriteOptions(), k, v);
+      return db_->Put(wo, k, v);
     }
   }
 
@@ -2303,6 +2303,71 @@ TEST(DBTest, RepeatedWritesToSameKey) {
       Put("key", value);
       ASSERT_LE(TotalTableFiles(), kMaxFiles);
     }
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdate) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.write_buffer_size = 100000;
+
+    // Update key with values of smaller size
+    Reopen(&options);
+    int numValues = 10;
+    for (int i = numValues; i > 0; i--) {
+      std::string value = DummyString(i, 'a');
+      ASSERT_OK(Put("key", value));
+      ASSERT_EQ(value, Get("key"));
+    }
+
+    int count = 0;
+    Iterator* iter = dbfull()->TEST_NewInternalIterator();
+    iter->SeekToFirst();
+    ASSERT_EQ(iter->status().ok(), true);
+    while (iter->Valid()) {
+      ParsedInternalKey ikey;
+      ikey.sequence = -1;
+      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      count++;
+      // All updates with the same sequence number.
+      ASSERT_EQ(ikey.sequence, (unsigned)1);
+      iter->Next();
+    }
+    // Only 1 instance for that key.
+    ASSERT_EQ(count, 1);
+    delete iter;
+
+    // Update key with values of larger size
+    DestroyAndReopen(&options);
+    numValues = 10;
+    for (int i = 0; i < numValues; i++) {
+      std::string value = DummyString(i, 'a');
+      ASSERT_OK(Put("key", value));
+      ASSERT_EQ(value, Get("key"));
+    }
+
+    count = 0;
+    iter = dbfull()->TEST_NewInternalIterator();
+    iter->SeekToFirst();
+    ASSERT_EQ(iter->status().ok(), true);
+    int seq = numValues;
+    while (iter->Valid()) {
+      ParsedInternalKey ikey;
+      ikey.sequence = -1;
+      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      count++;
+      // No inplace updates. All updates are puts with new seq number
+      ASSERT_EQ(ikey.sequence, (unsigned)seq--);
+      iter->Next();
+    }
+    // All 10 updates exist in the internal iterator
+    ASSERT_EQ(count, numValues);
+    delete iter;
+
+
   } while (ChangeCompactOptions());
 }
 

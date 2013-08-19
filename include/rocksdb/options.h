@@ -594,6 +594,17 @@ struct Options {
   // Default: emtpy vector -- no user-defined statistics collection will be
   // performed.
   std::vector<std::shared_ptr<TableStatsCollector>> table_stats_collectors;
+
+  // Allows thread-safe inplace updates. Requires Updates iff
+  // * key exists in current memtable
+  // * new sizeof(new_value) <= sizeof(old_value)
+  // * old_value for that key is a put i.e. kTypeValue
+  // Default: false.
+  bool inplace_update_support;
+
+  // Number of locks used for inplace update
+  // Default: 10000, if inplace_update_support = true, else 0.
+  size_t inplace_update_num_locks;
 };
 
 //

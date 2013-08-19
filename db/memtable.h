@@ -88,6 +88,16 @@ class MemTable {
   bool Get(const LookupKey& key, std::string* value, Status* s,
            std::deque<std::string>* operands, const Options& options);
 
+  // Update the value and return status ok,
+  //   if key exists in current memtable
+  //     if new sizeof(new_value) <= sizeof(old_value) &&
+  //       old_value for that key is a put i.e. kTypeValue
+  //     else return false, and status - NotUpdatable()
+  //   else return false, and status - NotFound()
+  bool Update(SequenceNumber seq, ValueType type,
+              const Slice& key,
+              const Slice& value);
+
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
@@ -144,9 +154,15 @@ class MemTable {
   // memtable flush is done)
   uint64_t mem_logfile_number_;
 
+  // rw locks for inplace updates
+  std::vector<port::RWMutex> locks_;
+
   // No copying allowed
   MemTable(const MemTable&);
   void operator=(const MemTable&);
+
+  // Get the lock associated for the key
+  port::RWMutex* GetLock(const Slice& key);
 };
 
 }  // namespace rocksdb

@@ -48,7 +48,7 @@ class WriteBatchInternal {
   // Drops deletes in batch if filter_del is set to true and
   // db->KeyMayExist returns false
   static Status InsertInto(const WriteBatch* batch, MemTable* memtable,
-                           const Options* opts = nullptr, DB* db = nullptr,
+                           const Options* opts, DB* db = nullptr,
                            const bool filter_del = false);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);

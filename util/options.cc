@@ -94,7 +94,9 @@ Options::Options()
       compaction_filter_factory(
           std::shared_ptr<CompactionFilterFactory>(
             new DefaultCompactionFilterFactory())),
-      purge_log_after_memtable_flush(true) {
+      purge_log_after_memtable_flush(true),
+      inplace_update_support(false),
+      inplace_update_num_locks(10000) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -253,11 +255,11 @@ Options::Dump(Logger* log) const
         filter_deletes);
     Log(log,"                        Options.compaction_style: %d",
         compaction_style);
-    Log(log,"        Options.compaction_options_universal.size_ratio: %u",
+    Log(log," Options.compaction_options_universal.size_ratio: %u",
         compaction_options_universal.size_ratio);
-    Log(log,"   Options.compaction_options_universal.min_merge_width: %u",
+    Log(log,"Options.compaction_options_universal.min_merge_width: %u",
         compaction_options_universal.min_merge_width);
-    Log(log,"   Options.compaction_options_universal.max_merge_width: %u",
+    Log(log,"Options.compaction_options_universal.max_merge_width: %u",
         compaction_options_universal.max_merge_width);
     Log(log,"Options.compaction_options_universal."
             "max_size_amplification_percent: %u",
@@ -269,8 +271,12 @@ Options::Dump(Logger* log) const
       collector_names.append(collector->Name());
       collector_names.append("; ");
     }
-    Log(log,"          Options.table_stats_collectors: %s",
+    Log(log,"                  Options.table_stats_collectors: %s",
         collector_names.c_str());
+    Log(log,"                    Options.inplace_update_support: %d",
+        inplace_update_support);
+    Log(log,"                Options.inplace_update_num_locks: %zd",
+        inplace_update_num_locks);
 }   // Options::Dump
 
 //

@@ -17,7 +17,17 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "util/coding.h"
+#include "util/mutexlock.h"
 #include "util/murmurhash.h"
+
+namespace std {
+template <>
+struct hash<rocksdb::Slice> {
+  size_t operator()(const rocksdb::Slice& slice) const {
+    return MurmurHash(slice.data(), slice.size(), 0);
+  }
+};
+}
 
 namespace rocksdb {
 
@@ -35,7 +45,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       edit_(numlevel),
       first_seqno_(0),
       mem_next_logfile_number_(0),
-      mem_logfile_number_(0) { }
+      mem_logfile_number_(0),
+      locks_(options.inplace_update_support
+             ? options.inplace_update_num_locks
+             : 0) { }
 
 MemTable::~MemTable() {
   assert(refs_ == 0);
@@ -110,6 +123,10 @@ Iterator* MemTable::NewIterator(const Slice* prefix) {
   }
 }
 
+port::RWMutex* MemTable::GetLock(const Slice& key) {
+  return &locks_[std::hash<Slice>()(key) % locks_.size()];
+}
+
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key,
                    const Slice& value) {
@@ -169,14 +186,16 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     // all entries with overly large sequence numbers.
     const char* entry = iter->key();
     uint32_t key_length;
-    const char* key_ptr = GetVarint32Ptr(entry, entry+5, &key_length);
+    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Compare(
-            Slice(key_ptr, key_length - 8),
-            key.user_key()) == 0) {
+        Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
+          if (options.inplace_update_support) {
+            GetLock(key.user_key())->ReadLock();
+          }
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
           *s = Status::OK();
           if (merge_in_progress) {
@@ -188,6 +207,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
             }
           } else {
             value->assign(v.data(), v.size());
+          }
+          if (options.inplace_update_support) {
+            GetLock(key.user_key())->Unlock();
           }
           return true;
         }
@@ -243,4 +265,65 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   return false;
 }
 
+bool MemTable::Update(SequenceNumber seq, ValueType type,
+                      const Slice& key,
+                      const Slice& value) {
+  LookupKey lkey(key, seq);
+  Slice memkey = lkey.memtable_key();
+
+  std::shared_ptr<MemTableRep::Iterator> iter(
+    table_.get()->GetIterator(lkey.user_key()));
+  iter->Seek(memkey.data());
+
+  if (iter->Valid()) {
+    // entry format is:
+    //    klength  varint32
+    //    userkey  char[klength-8]
+    //    tag      uint64
+    //    vlength  varint32
+    //    value    char[vlength]
+    // Check that it belongs to same user key.  We do not check the
+    // sequence number since the Seek() call above should have skipped
+    // all entries with overly large sequence numbers.
+    const char* entry = iter->key();
+    uint32_t key_length;
+    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    if (comparator_.comparator.user_comparator()->Compare(
+        Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
+      // Correct user key
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      switch (static_cast<ValueType>(tag & 0xff)) {
+        case kTypeValue: {
+          uint32_t vlength;
+          GetVarint32Ptr(key_ptr + key_length,
+                         key_ptr + key_length+5, &vlength);
+          // Update value, if newValue size  <= curValue size
+          if (value.size() <= vlength) {
+            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                     value.size());
+            WriteLock wl(GetLock(lkey.user_key()));
+            memcpy(p, value.data(), value.size());
+            assert(
+              (p + value.size()) - entry ==
+              (unsigned) (VarintLength(key_length) +
+                          key_length +
+                          VarintLength(value.size()) +
+                          value.size())
+            );
+            return true;
+          }
+        }
+        default:
+          // If the latest value is kTypeDeletion, kTypeMerge or kTypeLogData
+          // then we probably don't have enough space to update in-place
+          // Maybe do something later
+          // Return false, and do normal Add()
+          return false;
+      }
+    }
+  }
+
+  // Key doesn't exist
+  return false;
+}
 }  // namespace rocksdb

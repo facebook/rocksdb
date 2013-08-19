@@ -821,12 +821,13 @@ TEST(MemTableTest, Simple) {
   MemTable* memtable = new MemTable(cmp, table_factory);
   memtable->Ref();
   WriteBatch batch;
+  Options options;
   WriteBatchInternal::SetSequence(&batch, 100);
   batch.Put(std::string("k1"), std::string("v1"));
   batch.Put(std::string("k2"), std::string("v2"));
   batch.Put(std::string("k3"), std::string("v3"));
   batch.Put(std::string("largekey"), std::string("vlarge"));
-  ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, memtable).ok());
+  ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, memtable, &options).ok());
 
   Iterator* iter = memtable->NewIterator();
   iter->SeekToFirst();

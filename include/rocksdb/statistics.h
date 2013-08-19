@@ -39,6 +39,8 @@ enum Tickers {
   NUMBER_KEYS_WRITTEN,
   // Number of Keys read,
   NUMBER_KEYS_READ,
+  // Number keys updated, if inplace update is enabled
+  NUMBER_KEYS_UPDATED,
   // Bytes written / read
   BYTES_WRITTEN,
   BYTES_READ,
@@ -94,6 +96,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user" },
   { NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written" },
   { NUMBER_KEYS_READ, "rocksdb.number.keys.read" },
+  { NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated" },
   { BYTES_WRITTEN, "rocksdb.bytes.written" },
   { BYTES_READ, "rocksdb.bytes.read" },
   { NO_FILE_CLOSES, "rocksdb.no.file.closes" },
@@ -144,7 +147,7 @@ enum Histograms {
   HARD_RATE_LIMIT_DELAY_COUNT,
   SOFT_RATE_LIMIT_DELAY_COUNT,
   NUM_FILES_IN_SINGLE_COMPACTION,
-  HISTOGRAM_ENUM_MAX
+  HISTOGRAM_ENUM_MAX,
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -165,7 +168,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
   { STALL_L0_NUM_FILES_COUNT, "rocksdb.num.files.stall.count"},
   { HARD_RATE_LIMIT_DELAY_COUNT, "rocksdb.hard.rate.limit.delay.count"},
   { SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"},
-  { NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction" }
+  { NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction" },
 };
 
 struct HistogramData {

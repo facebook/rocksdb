@@ -188,7 +188,12 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   virtual void Put(const Slice& key, const Slice& value) {
-    mem_->Add(sequence_, kTypeValue, key, value);
+    if (options_->inplace_update_support
+        && mem_->Update(sequence_, kTypeValue, key, value)) {
+      RecordTick(options_->statistics, NUMBER_KEYS_UPDATED);
+    } else {
+      mem_->Add(sequence_, kTypeValue, key, value);
+    }
     sequence_++;
   }
   virtual void Merge(const Slice& key, const Slice& value) {
