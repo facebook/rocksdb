@@ -67,9 +67,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => store result in operands_.back() (and update keys_.back())
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Return a success if the merge passes.
-      success_ = user_merge_operator_->Merge(ikey.user_key, nullptr,
-                                             operands_, &merge_result,
-                                             logger_);
+      success_ = user_merge_operator_->FullMerge(ikey.user_key, nullptr,
+                                                 operands_, &merge_result,
+                                                 logger_);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -95,9 +95,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Success!
       const Slice value = iter->value();
-      success_ = user_merge_operator_->Merge(ikey.user_key, &value,
-                                             operands_, &merge_result,
-                                             logger_);
+      success_ = user_merge_operator_->FullMerge(ikey.user_key, &value,
+                                                 operands_, &merge_result,
+                                                 logger_);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -170,9 +170,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     assert(kTypeMerge == orig_ikey.type);
     assert(operands_.size() >= 1);
     assert(operands_.size() == keys_.size());
-    success_ = user_merge_operator_->Merge(ikey.user_key, nullptr,
-                                           operands_, &merge_result,
-                                           logger_);
+    success_ = user_merge_operator_->FullMerge(ikey.user_key, nullptr,
+                                               operands_, &merge_result,
+                                               logger_);
 
     if (success_) {
       std::string& key = keys_.back();  // The original key encountered

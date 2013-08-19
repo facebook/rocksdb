@@ -36,10 +36,10 @@ class DBWithTTL : public StackableDB {
                                        const std::vector<Slice>& keys,
                                        std::vector<std::string>* values);
 
-  virtual bool KeyMayExist(ReadOptions& options,
+  virtual bool KeyMayExist(const ReadOptions& options,
                            const Slice& key,
                            std::string* value,
-                           bool* value_found = nullptr);
+                           bool* value_found = nullptr) override;
 
   virtual Status Delete(const WriteOptions& wopts, const Slice& key);
 
@@ -259,11 +259,11 @@ class TtlMergeOperator : public MergeOperator {
     assert(merge_op);
   }
 
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const std::deque<std::string>& operands,
-                     std::string* new_value,
-                     Logger* logger) const override {
+  virtual bool FullMerge(const Slice& key,
+                         const Slice* existing_value,
+                         const std::deque<std::string>& operands,
+                         std::string* new_value,
+                         Logger* logger) const override {
     const uint32_t ts_len = DBWithTTL::kTSLength;
     if (existing_value && existing_value->size() < ts_len) {
       Log(logger, "Error: Could not remove timestamp from existing value.");
@@ -281,14 +281,20 @@ class TtlMergeOperator : public MergeOperator {
     }
 
     // Apply the user merge operator (store result in *new_value)
+    bool good = true;
     if (existing_value) {
       Slice existing_value_without_ts(existing_value->data(),
                                       existing_value->size() - ts_len);
-      user_merge_op_->Merge(key, &existing_value_without_ts,
-                            operands_without_ts, new_value, logger);
+      good = user_merge_op_->FullMerge(key, &existing_value_without_ts,
+                                       operands_without_ts, new_value, logger);
     } else {
-      user_merge_op_->Merge(key, nullptr, operands_without_ts, new_value,
-                            logger);
+      good = user_merge_op_->FullMerge(key, nullptr, operands_without_ts,
+                                       new_value, logger);
+    }
+
+    // Return false if the user merge operator returned false
+    if (!good) {
+      return false;
     }
 
     // Augment the *new_value with the ttl time-stamp
@@ -321,8 +327,10 @@ class TtlMergeOperator : public MergeOperator {
     assert(new_value);
     Slice left_without_ts(left_operand.data(), left_operand.size() - ts_len);
     Slice right_without_ts(right_operand.data(), right_operand.size() - ts_len);
-    user_merge_op_->PartialMerge(key, left_without_ts, right_without_ts,
-                                 new_value, logger);
+    if (!user_merge_op_->PartialMerge(key, left_without_ts, right_without_ts,
+                                      new_value, logger)) {
+      return false;
+    }
 
     // Augment the *new_value with the ttl time-stamp
     int32_t curtime;

@@ -154,7 +154,7 @@ std::vector<Status> DBWithTTL::MultiGet(const ReadOptions& options,
                                supported with TTL"));
 }
 
-bool DBWithTTL::KeyMayExist(ReadOptions& options,
+bool DBWithTTL::KeyMayExist(const ReadOptions& options,
                             const Slice& key,
                             std::string* value,
                             bool* value_found) {

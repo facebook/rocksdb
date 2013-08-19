@@ -17,11 +17,11 @@ namespace { // anonymous namespace
 // From the client-perspective, semantics are the same.
 class PutOperator : public MergeOperator {
  public:
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const std::deque<std::string>& operand_sequence,
-                     std::string* new_value,
-                     Logger* logger) const override {
+  virtual bool FullMerge(const Slice& key,
+                         const Slice* existing_value,
+                         const std::deque<std::string>& operand_sequence,
+                         std::string* new_value,
+                         Logger* logger) const override {
     // Put basically only looks at the current/latest value
     assert(!operand_sequence.empty());
     assert(new_value != nullptr);

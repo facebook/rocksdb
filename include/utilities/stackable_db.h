@@ -60,7 +60,7 @@ class StackableDB : public DB {
                            const Slice& key,
                            std::string* value,
                            bool* value_found = nullptr) override {
-    return KeyMayExist(options, key, value, value_found);
+    return sdb_->KeyMayExist(options, key, value, value_found);
   }
 
   virtual Status Delete(const WriteOptions& wopts, const Slice& key) override {

@@ -20,11 +20,12 @@ StringAppendTESTOperator::StringAppendTESTOperator(char delim_char)
 }
 
 // Implementation for the merge operation (concatenates two strings)
-bool StringAppendTESTOperator::Merge(const Slice& key,
-                                     const Slice* existing_value,
-                                     const std::deque<std::string>& operands,
-                                     std::string* new_value,
-                                     Logger* logger) const {
+bool StringAppendTESTOperator::FullMerge(
+    const Slice& key,
+    const Slice* existing_value,
+    const std::deque<std::string>& operands,
+    std::string* new_value,
+    Logger* logger) const {
 
   // Clear the *new_value for writing.
   assert(new_value);

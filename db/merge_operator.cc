@@ -12,7 +12,7 @@ namespace leveldb {
 // Given a "real" merge from the library, call the user's
 // associative merge function one-by-one on each of the operands.
 // NOTE: It is assumed that the client's merge-operator will handle any errors.
-bool AssociativeMergeOperator::Merge(
+bool AssociativeMergeOperator::FullMerge(
     const Slice& key,
     const Slice* existing_value,
     const std::deque<std::string>& operand_list,

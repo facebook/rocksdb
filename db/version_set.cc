@@ -286,8 +286,8 @@ static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
           } else if (kMerge == s->state) {
             assert(s->merge_operator != nullptr);
             s->state = kFound;
-            if (!s->merge_operator->Merge(s->user_key, &v, *ops,
-                                          s->value, s->logger)) {
+            if (!s->merge_operator->FullMerge(s->user_key, &v, *ops,
+                                              s->value, s->logger)) {
               RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
               s->state = kCorrupt;
             }
@@ -301,8 +301,8 @@ static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
             s->state = kDeleted;
           } else if (kMerge == s->state) {
             s->state = kFound;
-            if (!s->merge_operator->Merge(s->user_key, nullptr, *ops,
-                                          s->value, s->logger)) {
+            if (!s->merge_operator->FullMerge(s->user_key, nullptr, *ops,
+                                              s->value, s->logger)) {
               RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
               s->state = kCorrupt;
             }
@@ -521,8 +521,8 @@ void Version::Get(const ReadOptions& options,
   if (kMerge == saver.state) {
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    if (merge_operator->Merge(user_key, nullptr, *saver.merge_operands,
-                              value, logger.get())) {
+    if (merge_operator->FullMerge(user_key, nullptr, *saver.merge_operands,
+                                  value, logger.get())) {
       *status = Status::OK();
     } else {
       RecordTick(db_options.statistics, NUMBER_MERGE_FAILURES);

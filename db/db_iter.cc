@@ -212,11 +212,8 @@ void DBIter::FindNextUserEntry(bool skipping) {
             SaveKey(ikey.user_key, &saved_key_);
             current_entry_is_merged_ = true;
             valid_ = true;
-            // Go to a different state machine
-            MergeValuesNewToOld();
-            // TODO: what if !iter_->Valid()
+            MergeValuesNewToOld();  // Go to a different state machine
             return;
-            break;
           case kTypeLogData:
             assert(false);
             break;
@@ -235,7 +232,11 @@ void DBIter::FindNextUserEntry(bool skipping) {
 // POST: saved_value_ has the merged value for the user key
 //       iter_ points to the next entry (or invalid)
 void DBIter::MergeValuesNewToOld() {
-  // TODO: Is there a way to unite with MergeHelper or other similar code?
+  if (!user_merge_operator_) {
+    Log(logger_, "Options::merge_operator is null.");
+    throw std::logic_error("DBIter::MergeValuesNewToOld() with"
+                           " Options::merge_operator null");
+  }
 
   // Start the merge process by pushing the first operand
   std::deque<std::string> operands;
@@ -266,8 +267,8 @@ void DBIter::MergeValuesNewToOld() {
       // final result in saved_value_. We are done!
       // ignore corruption if there is any.
       const Slice value = iter_->value();
-      user_merge_operator_->Merge(ikey.user_key, &value, operands,
-                                  &saved_value_, logger_.get());
+      user_merge_operator_->FullMerge(ikey.user_key, &value, operands,
+                                      &saved_value_, logger_.get());
       // iter_ is positioned after put
       iter_->Next();
       return;
@@ -300,8 +301,8 @@ void DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  user_merge_operator_->Merge(ikey.user_key, nullptr, operands,
-                              &saved_value_, logger_.get());
+  user_merge_operator_->FullMerge(saved_key_, nullptr, operands,
+                                  &saved_value_, logger_.get());
 }
 
 void DBIter::Prev() {

@@ -11,7 +11,6 @@ namespace leveldb {
 
 class StringAppendOperator : public AssociativeMergeOperator {
  public:
-
   StringAppendOperator(char delim_char);    /// Constructor: specify delimiter
 
   virtual bool Merge(const Slice& key,

@@ -29,10 +29,11 @@ class Logger;
 //    into rocksdb); numeric addition and string concatenation are examples;
 //
 //  b) MergeOperator - the generic class for all the more abstract / complex
-//    operations; one method to merge a Put/Delete value with a merge operand;
-//    and another method (PartialMerge) that merges two operands together.
-//    this is especially useful if your key values have a complex structure,
-//    but you would still like to support client-specific incremental updates.
+//    operations; one method (FullMerge) to merge a Put/Delete value with a
+//    merge operand; and another method (PartialMerge) that merges two
+//    operands together. this is especially useful if your key values have a
+//    complex structure but you would still like to support client-specific
+//    incremental updates.
 //
 // AssociativeMergeOperator is simpler to implement. MergeOperator is simply
 // more powerful.
@@ -60,11 +61,11 @@ class MergeOperator {
   // internal corruption. This will be treated as an error by the library.
   //
   // Also make use of the *logger for error messages.
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const std::deque<std::string>& operand_list,
-                     std::string* new_value,
-                     Logger* logger) const = 0;
+  virtual bool FullMerge(const Slice& key,
+                         const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const = 0;
 
   // This function performs merge(left_op, right_op)
   // when both the operands are themselves merge operation types
@@ -85,7 +86,7 @@ class MergeOperator {
   // TODO: Presently there is no way to differentiate between error/corruption
   // and simply "return false". For now, the client should simply return
   // false in any case it cannot perform partial-merge, regardless of reason.
-  // If there is corruption in the data, handle it in the above Merge() function,
+  // If there is corruption in the data, handle it in the FullMerge() function,
   // and return false there.
   virtual bool PartialMerge(const Slice& key,
                             const Slice& left_operand,
@@ -128,11 +129,11 @@ class AssociativeMergeOperator : public MergeOperator {
 
  private:
   // Default implementations of the MergeOperator functions
-  virtual bool Merge(const Slice& key,
-                     const Slice* existing_value,
-                     const std::deque<std::string>& operand_list,
-                     std::string* new_value,
-                     Logger* logger) const override;
+  virtual bool FullMerge(const Slice& key,
+                         const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const override;
 
   virtual bool PartialMerge(const Slice& key,
                             const Slice& left_operand,
