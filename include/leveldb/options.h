@@ -85,7 +85,7 @@ struct Options {
   // for the first time. It's necessary to specify a merge operator when
   // openning the DB in this case.
   // Default: nullptr
-  const MergeOperator* merge_operator;
+  shared_ptr<MergeOperator> merge_operator;
 
   // The client must provide compaction_filter_factory if it requires a new
   // compaction filter to be used for different compaction processes

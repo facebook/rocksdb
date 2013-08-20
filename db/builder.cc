@@ -54,7 +54,7 @@ Status BuildTable(const std::string& dbname,
     meta->smallest_seqno = GetInternalKeySeqno(key);
     meta->largest_seqno = meta->smallest_seqno;
 
-    MergeHelper merge(user_comparator, options.merge_operator,
+    MergeHelper merge(user_comparator, options.merge_operator.get(),
                       options.info_log.get(),
                       true /* internal key corruption is not ok */);
 

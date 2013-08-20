@@ -32,8 +32,8 @@ DBWithTTL::DBWithTTL(const int32_t ttl,
   }
 
   if (options.merge_operator) {
-    ttl_merge_op_.reset(new TtlMergeOperator(options.merge_operator));
-    options_to_open.merge_operator = ttl_merge_op_.get();
+    options_to_open.merge_operator.reset(
+      new TtlMergeOperator(options.merge_operator));
   }
 
   if (read_only) {

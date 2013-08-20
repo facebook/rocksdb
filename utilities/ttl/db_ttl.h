@@ -112,7 +112,6 @@ class DBWithTTL : public StackableDB {
  private:
   DB* db_;
   int32_t ttl_;
-  unique_ptr<MergeOperator> ttl_merge_op_;
   unique_ptr<CompactionFilter> ttl_comp_filter_;
 };
 
@@ -258,7 +257,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
 class TtlMergeOperator : public MergeOperator {
 
  public:
-  explicit TtlMergeOperator(const MergeOperator* merge_op)
+  explicit TtlMergeOperator(const std::shared_ptr<MergeOperator> merge_op)
     : user_merge_op_(merge_op) {
     assert(merge_op);
   }
@@ -356,7 +355,7 @@ class TtlMergeOperator : public MergeOperator {
   }
 
  private:
-  const MergeOperator* user_merge_op_;
+  std::shared_ptr<MergeOperator> user_merge_op_;
 };
 
 }

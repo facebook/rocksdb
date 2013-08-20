@@ -637,7 +637,6 @@ class Benchmark {
   int key_size_;
   int entries_per_batch_;
   WriteOptions write_options_;
-  std::shared_ptr<MergeOperator> merge_operator_;
   long reads_;
   long writes_;
   long readwrites_;
@@ -779,7 +778,6 @@ class Benchmark {
     value_size_(FLAGS_value_size),
     key_size_(FLAGS_key_size),
     entries_per_batch_(1),
-    merge_operator_(nullptr),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
     writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
     readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num :
@@ -1212,13 +1210,13 @@ class Benchmark {
     options.bytes_per_sync = FLAGS_bytes_per_sync;
 
     // merge operator options
-    merge_operator_ = MergeOperators::CreateFromStringId(FLAGS_merge_operator);
-    if (merge_operator_ == nullptr && !FLAGS_merge_operator.empty()) {
+    options.merge_operator = MergeOperators::CreateFromStringId(
+        FLAGS_merge_operator);
+    if (options.merge_operator == nullptr && !FLAGS_merge_operator.empty()) {
       fprintf(stderr, "invalid merge operator: %s\n",
               FLAGS_merge_operator.c_str());
       exit(1);
     }
-    options.merge_operator = merge_operator_.get();
 
     Status s;
     if(FLAGS_read_only) {

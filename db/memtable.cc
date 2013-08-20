@@ -139,7 +139,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   assert(operands != nullptr);
 
   bool merge_in_progress = s->IsMergeInProgress();
-  auto merge_operator = options.merge_operator;
+  auto merge_operator = options.merge_operator.get();
   auto logger = options.info_log;
   std::string merge_result;
 

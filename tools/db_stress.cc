@@ -537,7 +537,6 @@ class StressTest {
                           FLAGS_test_batches_snapshots ?
                           sizeof(long) : sizeof(long)-1)),
         db_(nullptr),
-        merge_operator_(MergeOperators::CreatePutOperator()),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
       std::vector<std::string> files;
@@ -553,7 +552,6 @@ class StressTest {
 
   ~StressTest() {
     delete db_;
-    merge_operator_ = nullptr;
     delete filter_policy_;
     delete prefix_extractor_;
   }
@@ -1140,7 +1138,7 @@ class StressTest {
     }
 
     if (FLAGS_use_merge_put) {
-      options.merge_operator = merge_operator_.get();
+      options.merge_operator = MergeOperators::CreatePutOperator();
     }
 
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db);
@@ -1188,7 +1186,6 @@ class StressTest {
   const SliceTransform* prefix_extractor_;
   DB* db_;
   StackableDB* sdb_;
-  std::shared_ptr<MergeOperator> merge_operator_;
   int num_times_reopened_;
 };
 

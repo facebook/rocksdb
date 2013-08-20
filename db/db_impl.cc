@@ -1777,7 +1777,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
   std::string compaction_filter_value;
   std::vector<char> delete_key; // for compaction filter
-  MergeHelper merge(user_comparator(), options_.merge_operator,
+  MergeHelper merge(user_comparator(), options_.merge_operator.get(),
                     options_.info_log.get(),
                     false /* internal key corruption is expected */);
   auto compaction_filter = options_.compaction_filter;

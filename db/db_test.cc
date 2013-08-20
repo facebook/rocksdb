@@ -224,8 +224,6 @@ class DBTest {
   };
   int option_config_;
 
-  std::shared_ptr<MergeOperator> merge_operator_;
-
  public:
   std::string dbname_;
   SpecialEnv* env_;
@@ -242,7 +240,6 @@ class DBTest {
   };
 
   DBTest() : option_config_(kDefault),
-             merge_operator_(MergeOperators::CreatePutOperator()),
              env_(new SpecialEnv(Env::Default())) {
     filter_policy_ = NewBloomFilterPolicy(10);
     dbname_ = test::TmpDir() + "/db_test";
@@ -297,7 +294,7 @@ class DBTest {
     Options options;
     switch (option_config_) {
       case kMergePut:
-        options.merge_operator = merge_operator_.get();
+        options.merge_operator = MergeOperators::CreatePutOperator();
         break;
       case kFilter:
         options.filter_policy = filter_policy_;

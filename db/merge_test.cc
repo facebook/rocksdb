@@ -16,14 +16,13 @@
 using namespace std;
 using namespace leveldb;
 
-auto mergeOperator = MergeOperators::CreateUInt64AddOperator();
 
 std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false) {
   DB* db;
   StackableDB* sdb;
   Options options;
   options.create_if_missing = true;
-  options.merge_operator = mergeOperator.get();
+  options.merge_operator = MergeOperators::CreateUInt64AddOperator();
   Status s;
   DestroyDB(dbname, Options());
   if (ttl) {

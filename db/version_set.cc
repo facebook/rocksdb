@@ -381,7 +381,7 @@ void Version::Get(const ReadOptions& options,
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
 
-  auto merge_operator = db_options.merge_operator;
+  auto merge_operator = db_options.merge_operator.get();
   auto logger = db_options.info_log;
 
   assert(status->ok() || status->IsMergeInProgress());

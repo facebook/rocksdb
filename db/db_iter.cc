@@ -57,7 +57,7 @@ class DBIter: public Iterator {
         env_(env),
         logger_(options.info_log),
         user_comparator_(cmp),
-        user_merge_operator_(options.merge_operator),
+        user_merge_operator_(options.merge_operator.get()),
         iter_(iter),
         sequence_(s),
         direction_(kForward),
