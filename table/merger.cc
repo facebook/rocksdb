@@ -9,6 +9,8 @@
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
 
+#include <vector>
+
 namespace leveldb {
 
 namespace {
@@ -17,8 +19,7 @@ class MergingIterator : public Iterator {
  public:
   MergingIterator(const Comparator* comparator, Iterator** children, int n)
       : comparator_(comparator),
-        children_(new IteratorWrapper[n]),
-        n_(n),
+        children_(n),
         current_(nullptr),
         direction_(kForward),
         maxHeap_(NewMaxIterHeap(comparator_)),
@@ -26,16 +27,14 @@ class MergingIterator : public Iterator {
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
     }
-    for (int i = 0; i < n; ++i) {
-      if (children_[i].Valid()) {
-        minHeap_.push(&children_[i]);
+    for (auto& child : children_) {
+      if (child.Valid()) {
+        minHeap_.push(&child);
       }
     }
   }
 
-  virtual ~MergingIterator() {
-    delete[] children_;
-  }
+  virtual ~MergingIterator() { }
 
   virtual bool Valid() const {
     return (current_ != nullptr);
@@ -43,10 +42,10 @@ class MergingIterator : public Iterator {
 
   virtual void SeekToFirst() {
     ClearHeaps();
-    for (int i = 0; i < n_; i++) {
-      children_[i].SeekToFirst();
-      if (children_[i].Valid()) {
-        minHeap_.push(&children_[i]);
+    for (auto& child : children_) {
+      child.SeekToFirst();
+      if (child.Valid()) {
+        minHeap_.push(&child);
       }
     }
     FindSmallest();
@@ -55,10 +54,10 @@ class MergingIterator : public Iterator {
 
   virtual void SeekToLast() {
     ClearHeaps();
-    for (int i = 0; i < n_; i++) {
-      children_[i].SeekToLast();
-      if (children_[i].Valid()) {
-        maxHeap_.push(&children_[i]);
+    for (auto& child : children_) {
+      child.SeekToLast();
+      if (child.Valid()) {
+        maxHeap_.push(&child);
       }
     }
     FindLargest();
@@ -67,10 +66,10 @@ class MergingIterator : public Iterator {
 
   virtual void Seek(const Slice& target) {
     ClearHeaps();
-    for (int i = 0; i < n_; i++) {
-      children_[i].Seek(target);
-      if (children_[i].Valid()) {
-        minHeap_.push(&children_[i]);
+    for (auto& child : children_) {
+      child.Seek(target);
+      if (child.Valid()) {
+        minHeap_.push(&child);
       }
     }
     FindSmallest();
@@ -87,16 +86,15 @@ class MergingIterator : public Iterator {
     // we explicitly position the non-current_ children.
     if (direction_ != kForward) {
       ClearHeaps();
-      for (int i = 0; i < n_; i++) {
-        IteratorWrapper* child = &children_[i];
-        if (child != current_) {
-          child->Seek(key());
-          if (child->Valid() &&
-              comparator_->Compare(key(), child->key()) == 0) {
-            child->Next();
+      for (auto& child : children_) {
+        if (&child != current_) {
+          child.Seek(key());
+          if (child.Valid() &&
+              comparator_->Compare(key(), child.key()) == 0) {
+            child.Next();
           }
-          if (child->Valid()) {
-            minHeap_.push(child);
+          if (child.Valid()) {
+            minHeap_.push(&child);
           }
         }
       }
@@ -121,19 +119,18 @@ class MergingIterator : public Iterator {
     // we explicitly position the non-current_ children.
     if (direction_ != kReverse) {
       ClearHeaps();
-      for (int i = 0; i < n_; i++) {
-        IteratorWrapper* child = &children_[i];
-        if (child != current_) {
-          child->Seek(key());
-          if (child->Valid()) {
+      for (auto& child : children_) {
+        if (&child != current_) {
+          child.Seek(key());
+          if (child.Valid()) {
             // Child is at first entry >= key().  Step back one to be < key()
-            child->Prev();
+            child.Prev();
           } else {
             // Child has no entries >= key().  Position at last entry.
-            child->SeekToLast();
+            child.SeekToLast();
           }
-          if (child->Valid()) {
-            maxHeap_.push(child);
+          if (child.Valid()) {
+            maxHeap_.push(&child);
           }
         }
       }
@@ -159,8 +156,8 @@ class MergingIterator : public Iterator {
 
   virtual Status status() const {
     Status status;
-    for (int i = 0; i < n_; i++) {
-      status = children_[i].status();
+    for (auto& child : children_) {
+      status = child.status();
       if (!status.ok()) {
         break;
       }
@@ -174,8 +171,7 @@ class MergingIterator : public Iterator {
   void ClearHeaps();
 
   const Comparator* comparator_;
-  IteratorWrapper* children_;
-  int n_;
+  std::vector<IteratorWrapper> children_;
   IteratorWrapper* current_;
   // Which direction is the iterator moving?
   enum Direction {
