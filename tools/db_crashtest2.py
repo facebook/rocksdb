@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 import os
+import re
 import sys
 import time
 import random
@@ -8,24 +9,22 @@ import logging
 import tempfile
 import subprocess
 
-# This python script runs db_stress multiple times with kill_random_test
-# that causes leveldb to crash at various points in code.
-# It also has test-batches-snapshot ON so that basic atomic/consistency
-# checks can be performed.
-#
+# This python script runs db_stress multiple times. Some runs with
+# kill_random_test that causes leveldb to crash at various points in code.
+
 def main(argv):
     try:
         opts, args = getopt.getopt(argv, "hd:t:k:o:b:")
     except getopt.GetoptError:
         print str(getopt.GetoptError)
         print "db_crashtest2.py -d <duration_test> -t <#threads> " \
-            "-k <kills with prob 1/k> -o <ops_per_thread> "\
-            "-b <write_buffer_size>\n"
+              "-k <kills with prob 1/k> -o <ops_per_thread> "\
+              "-b <write_buffer_size>\n"
         sys.exit(2)
 
     # default values, will be overridden by cmdline args
     kill_random_test = 97  # kill with probability 1/97 by default
-    duration = 6000  # total time for this script to test db_stress
+    duration = 10000  # total time for this script to test db_stress
     threads = 32
     ops_per_thread = 200000
     write_buf_size = 4 * 1024 * 1024
@@ -33,93 +32,101 @@ def main(argv):
     for opt, arg in opts:
         if opt == '-h':
             print "db_crashtest2.py -d <duration_test> -t <#threads> " \
-                "-k <kills with prob 1/k> -o <ops_per_thread> "\
-                "-b <write_buffer_size>\n"
+                  "-k <kills with prob 1/k> -o <ops_per_thread> " \
+                  "-b <write_buffer_size>\n"
             sys.exit()
-        elif opt == ("-d"):
+        elif opt == "-d":
             duration = int(arg)
-        elif opt == ("-t"):
+        elif opt == "-t":
             threads = int(arg)
-        elif opt == ("-k"):
+        elif opt == "-k":
             kill_random_test = int(arg)
-        elif opt == ("-i"):
-            interval = int(arg)
-        elif opt == ("-o"):
+        elif opt == "-o":
             ops_per_thread = int(arg)
-        elif opt == ("-b"):
+        elif opt == "-b":
             write_buf_size = int(arg)
         else:
             print "unrecognized option " + str(opt) + "\n"
             print "db_crashtest2.py -d <duration_test> -t <#threads> " \
-                "-k <kills with prob 1/k> -o <ops_per_thread> " \
-                "-b <write_buffer_size>\n"
+                  "-k <kills with prob 1/k> -o <ops_per_thread> " \
+                  "-b <write_buffer_size>\n"
             sys.exit(2)
 
     exit_time = time.time() + duration
 
-    dirpath = tempfile.mkdtemp()
+    print "Running whitebox-crash-test with \ntotal-duration=" + str(duration) \
+          + "\nthreads=" + str(threads) + "\nops_per_thread=" \
+          + str(ops_per_thread) + "\nwrite_buffer_size=" \
+          + str(write_buf_size) + "\n"
 
-    print("Running whitebox-crash-test with \ntotal-duration=" + str(duration)
-          + "\nthreads=" + str(threads) + "\nops_per_thread="
-          + str(ops_per_thread) + "\nwrite_buffer_size="
-          + str(write_buf_size) + "\n")
-
-    # kill in every alternate run. toggle tracks which run we are doing.
-    toggle = True
+    total_check_mode = 3
+    check_mode = 0
 
     while time.time() < exit_time:
-        run_had_errors = False
-        additional_opts = ' --disable_seek_compaction=' + \
-                          str(random.randint(0, 1)) + \
-                          ' --mmap_read=' + str(random.randint(0, 1)) + \
-                          ' --block_size=16384 ' + \
-                          ' --cache_size=1048576 ' + \
-                          ' --open_files=500000 ' + \
-                          ' --verify_checksum=1 ' + \
-                          ' --sync=' + str(random.randint(0, 1)) + \
-                          ' --disable_wal=0 ' + \
-                          ' --disable_data_sync=' + \
-                          str(random.randint(0, 1)) + \
-                          ' --target_file_size_base=2097152 ' + \
-                          ' --target_file_size_multiplier=2 ' + \
-                          ' --max_write_buffer_number=3 ' + \
-                          ' --max_background_compactions=20 ' + \
-                          ' --max_bytes_for_level_base=10485760 ' + \
-                          ' --filter_deletes=' + str(random.randint(0, 1))
-        print ("Running db_stress with additional options=\n"
-               + additional_opts + "\n")
-
-        if toggle:
-            # since we are going to kill anyway, use more ops per thread
-            new_ops_per_thread = 100 * ops_per_thread
-            killoption = '--kill_random_test=' + str(kill_random_test)
+        killoption = ""
+        if check_mode == 0:
+            # run with kill_random_test
+            killoption = " --kill_random_test=" + str(kill_random_test)
+            # use large ops per thread since we will kill it anyway
+            additional_opts = "--ops_per_thread=" + \
+                              str(100 * ops_per_thread) + killoption
+        elif check_mode == 1:
+            # normal run with universal compaction mode
+            additional_opts = "--ops_per_thread=" + str(ops_per_thread) + \
+                              " --compaction_style=1"
         else:
-            new_ops_per_thread = ops_per_thread
-            killoption = ''
+            # nomral run
+            additional_opts = "--ops_per_thread=" + str(ops_per_thread)
 
-        toggle = not toggle
+        cmd = re.sub('\s+', ' ', """
+            ./db_stress
+            --test_batches_snapshots=%s
+            --threads=%s
+            --write_buffer_size=%s
+            --destroy_db_initially=0
+            --reopen=0
+            --readpercent=50
+            --prefixpercent=5
+            --writepercent=40
+            --delpercent=5
+            --db=%s
+            --max_key=100000000
+            --disable_seek_compaction=%s
+            --mmap_read=%s
+            --block_size=16384
+            --cache_size=1048576
+            --open_files=500000
+            --verify_checksum=1
+            --sync=%s
+            --disable_wal=0
+            --disable_data_sync=%s
+            --target_file_size_base=2097152
+            --target_file_size_multiplier=2
+            --max_write_buffer_number=3
+            --max_background_compactions=20
+            --max_bytes_for_level_base=10485760
+            --filter_deletes=%s
+            %s
+            """ % (random.randint(0, 1),
+                   threads,
+                   write_buf_size,
+                   tempfile.mkdtemp(),
+                   random.randint(0, 1),
+                   random.randint(0, 1),
+                   random.randint(0, 1),
+                   random.randint(0, 1),
+                   random.randint(0, 1),
+                   additional_opts))
 
-        cmd = ['./db_stress \
-                --test_batches_snapshots=1 \
-                --ops_per_thread=0' + str(new_ops_per_thread) + ' \
-                --threads=0' + str(threads) + ' \
-                --write_buffer_size=' + str(write_buf_size) + ' \
-                --destroy_db_initially=0 ' + killoption + ' \
-                --reopen=0 \
-                --readpercent=50 \
-                --prefixpercent=5 \
-                --writepercent=40 \
-                --delpercent=5 \
-                --db=' + dirpath + ' \
-                --max_key=100000000 ' + additional_opts]
+        print "Running:" + cmd + "\n"
 
-        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+        popen = subprocess.Popen([cmd], stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT,
                                  shell=True)
         stdoutdata, stderrdata = popen.communicate()
         retncode = popen.returncode
-        msg = ("kill option = {0}, exitcode = {1}".format(
-               killoption, retncode))
+        msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
+               check_mode, killoption, retncode))
         print msg
         print stdoutdata
 
@@ -146,6 +153,9 @@ def main(argv):
         if (stdoutdata.find('fail') >= 0):
             print "TEST FAILED. Output has 'fail'!!!\n"
             sys.exit(2)
+
+        check_mode = (check_mode + 1) % total_check_mode
+
         time.sleep(1)  # time to stabilize after a kill
 
 if __name__ == "__main__":
