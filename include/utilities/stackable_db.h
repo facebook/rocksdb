@@ -20,6 +20,8 @@ class StackableDB : public DB {
   }
 
   // convert a DB to StackableDB
+  // TODO: This function does not work yet. Passing nullptr to StackableDB in
+  //       NewStackableDB's constructor will cause segfault on object's usage
   static StackableDB* DBToStackableDB(DB* db) {
     class NewStackableDB : public StackableDB {
      public:
