@@ -134,6 +134,24 @@ TEST(WriteBatchTest, Append) {
   ASSERT_EQ(4, b1.Count());
 }
 
+namespace {
+  struct TestHandler : public WriteBatch::Handler {
+    std::string seen;
+    virtual void Put(const Slice& key, const Slice& value) {
+      seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+    }
+    virtual void Merge(const Slice& key, const Slice& value) {
+      seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
+    }
+    virtual void LogData(const Slice& blob) {
+      seen += "LogData(" + blob.ToString() + ")";
+    }
+    virtual void Delete(const Slice& key) {
+      seen += "Delete(" + key.ToString() + ")";
+    }
+  };
+}
+
 TEST(WriteBatchTest, Blob) {
   WriteBatch batch;
   batch.Put(Slice("k1"), Slice("v1"));
@@ -151,21 +169,7 @@ TEST(WriteBatchTest, Blob) {
             "Put(k3, v3)@2",
             PrintContents(&batch));
 
-  struct Handler : public WriteBatch::Handler {
-    std::string seen;
-    virtual void Put(const Slice& key, const Slice& value) {
-      seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
-    }
-    virtual void Merge(const Slice& key, const Slice& value) {
-      seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
-    }
-    virtual void LogData(const Slice& blob) {
-      seen += "LogData(" + blob.ToString() + ")";
-    }
-    virtual void Delete(const Slice& key) {
-      seen += "Delete(" + key.ToString() + ")";
-    }
-  } handler;
+  TestHandler handler;
   batch.Iterate(&handler);
   ASSERT_EQ(
             "Put(k1, v1)"
@@ -175,6 +179,45 @@ TEST(WriteBatchTest, Blob) {
             "Delete(k2)"
             "LogData(blob2)"
             "Merge(foo, bar)",
+            handler.seen);
+}
+
+TEST(WriteBatchTest, Continue) {
+  WriteBatch batch;
+
+  struct Handler : public TestHandler {
+    int num_seen = 0;
+    virtual void Put(const Slice& key, const Slice& value) {
+      ++num_seen;
+      TestHandler::Put(key, value);
+    }
+    virtual void Merge(const Slice& key, const Slice& value) {
+      ++num_seen;
+      TestHandler::Merge(key, value);
+    }
+    virtual void LogData(const Slice& blob) {
+      ++num_seen;
+      TestHandler::LogData(blob);
+    }
+    virtual void Delete(const Slice& key) {
+      ++num_seen;
+      TestHandler::Delete(key);
+    }
+    virtual bool Continue() override {
+      return num_seen < 3;
+    }
+  } handler;
+
+  batch.Put(Slice("k1"), Slice("v1"));
+  batch.PutLogData(Slice("blob1"));
+  batch.Delete(Slice("k1"));
+  batch.PutLogData(Slice("blob2"));
+  batch.Merge(Slice("foo"), Slice("bar"));
+  batch.Iterate(&handler);
+  ASSERT_EQ(
+            "Put(k1, v1)"
+            "LogData(blob1)"
+            "Delete(k1)",
             handler.seen);
 }
 

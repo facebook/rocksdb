@@ -48,6 +48,10 @@ void WriteBatch::Handler::LogData(const Slice& blob) {
   // them.
 }
 
+bool WriteBatch::Handler::Continue() {
+  return true;
+}
+
 void WriteBatch::Clear() {
   rep_.clear();
   rep_.resize(kHeader);
@@ -66,7 +70,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
   input.remove_prefix(kHeader);
   Slice key, value, blob;
   int found = 0;
-  while (!input.empty()) {
+  while (!input.empty() && handler->Continue()) {
     char tag = input[0];
     input.remove_prefix(1);
     switch (tag) {

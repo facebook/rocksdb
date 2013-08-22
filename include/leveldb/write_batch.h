@@ -69,6 +69,10 @@ class WriteBatch {
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
     virtual void Delete(const Slice& key) = 0;
+    // Continue is called by WriteBatch::Iterate. If it returns false,
+    // iteration is halted. Otherwise, it continues iterating. The default
+    // implementation always returns true.
+    virtual bool Continue();
   };
   Status Iterate(Handler* handler) const;
 
