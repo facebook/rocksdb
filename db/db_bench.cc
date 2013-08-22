@@ -41,8 +41,9 @@
 //      readrandom    -- read N times in random order
 //      readmissing   -- read N missing keys in random order
 //      readhot       -- read N times in random order from 1% section of DB
-//      readwhilewriting -- 1 writer, N threads doing random reads
-//      readrandomwriterandom - N threads doing random-read, random-write
+//      readwhilewriting      -- 1 writer, N threads doing random reads
+//      readrandomwriterandom -- N threads doing random-read, random-write
+//      prefixscanrandom      -- prefix scan N times in random order
 //      updaterandom  -- N threads doing read-modify-write for random keys
 //      appendrandom  -- N threads doing read-modify-write with growing values
 //      mergerandom   -- same as updaterandom/appendrandom using merge operator
@@ -94,6 +95,13 @@ static long FLAGS_reads = -1;
 
 // When ==1 reads use ::Get, when >1 reads use an iterator
 static long FLAGS_read_range = 1;
+
+// Whether to place prefixes in blooms
+static bool FLAGS_use_prefix_blooms = false;
+
+// Whether to set ReadOptions.prefix for prefixscanrandom.  If this
+// true, use_prefix_blooms must also be true.
+static bool FLAGS_use_prefix_api = false;
 
 // Seed base for random number generators. When 0 it is deterministic.
 static long FLAGS_seed = 0;
@@ -631,6 +639,7 @@ class Benchmark {
  private:
   shared_ptr<Cache> cache_;
   const FilterPolicy* filter_policy_;
+  const SliceTransform* prefix_extractor_;
   DB* db_;
   long num_;
   int value_size_;
@@ -773,6 +782,7 @@ class Benchmark {
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                    : nullptr),
+    prefix_extractor_(NewFixedPrefixTransform(FLAGS_key_size-1)),
     db_(nullptr),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
@@ -799,6 +809,7 @@ class Benchmark {
   ~Benchmark() {
     delete db_;
     delete filter_policy_;
+    delete prefix_extractor_;
   }
 
   //this function will construct string format for key. e.g "%016d"
@@ -894,6 +905,8 @@ class Benchmark {
       } else if (name == Slice("readrandomsmall")) {
         reads_ /= 1000;
         method = &Benchmark::ReadRandom;
+      } else if (name == Slice("prefixscanrandom")) {
+        method = &Benchmark::PrefixScanRandom;
       } else if (name == Slice("deleteseq")) {
         method = &Benchmark::DeleteSeq;
       } else if (name == Slice("deleterandom")) {
@@ -1146,6 +1159,8 @@ class Benchmark {
       FLAGS_compaction_universal_min_merge_width;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
+    options.prefix_extractor = FLAGS_use_prefix_blooms ? prefix_extractor_
+                                                       : nullptr;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
     options.env = FLAGS_env;
@@ -1460,6 +1475,41 @@ class Benchmark {
       }
 
       delete iter;
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%ld of %ld found)", found, reads_);
+    thread->stats.AddMessage(msg);
+  }
+
+  void PrefixScanRandom(ThreadState* thread) {
+    if (FLAGS_use_prefix_api) {
+      assert(FLAGS_use_prefix_blooms);
+      assert(FLAGS_bloom_bits >= 1);
+    }
+
+    ReadOptions options(FLAGS_verify_checksum, true);
+    Duration duration(FLAGS_duration, reads_);
+
+    long found = 0;
+
+    while (!duration.Done(1)) {
+      std::string value;
+      const int k = thread->rand.Next() % FLAGS_num;
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      Slice skey(key.get());
+      Slice prefix = prefix_extractor_->Transform(skey);
+      options.prefix = FLAGS_use_prefix_api ? &prefix : nullptr;
+
+      Iterator* iter = db_->NewIterator(options);
+      for (iter->Seek(skey);
+           iter->Valid() && iter->key().starts_with(prefix);
+           iter->Next()) {
+        found++;
+      }
+      delete iter;
+
+      thread->stats.FinishedSingleOp(db_);
     }
 
     char msg[100];
@@ -2170,6 +2220,13 @@ int main(int argc, char** argv) {
       FLAGS_reads = n;
     } else if (sscanf(argv[i], "--read_range=%d%c", &n, &junk) == 1) {
       FLAGS_read_range = n;
+
+    } else if (sscanf(argv[i], "--use_prefix_blooms=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_use_prefix_blooms = n;
+    } else if (sscanf(argv[i], "--use_prefix_api=%d%c", &n, &junk) == 1 &&
+               (n == 0 || n == 1)) {
+      FLAGS_use_prefix_api = n;
     } else if (sscanf(argv[i], "--duration=%d%c", &n, &junk) == 1) {
       FLAGS_duration = n;
     } else if (sscanf(argv[i], "--seed=%ld%c", &l, &junk) == 1) {

@@ -135,6 +135,24 @@ Status TableCache::Get(const ReadOptions& options,
   return s;
 }
 
+bool TableCache::PrefixMayMatch(const ReadOptions& options,
+                                uint64_t file_number,
+                                uint64_t file_size,
+                                const Slice& internal_prefix,
+                                bool* table_io) {
+  Cache::Handle* handle = nullptr;
+  Status s = FindTable(storage_options_, file_number,
+                       file_size, &handle, table_io);
+  bool may_match = true;
+  if (s.ok()) {
+    Table* t =
+      reinterpret_cast<Table*>(cache_->Value(handle));
+    may_match = t->PrefixMayMatch(internal_prefix);
+    cache_->Release(handle);
+  }
+  return may_match;
+}
+
 void TableCache::Evict(uint64_t file_number) {
   char buf[sizeof(file_number)];
   EncodeFixed64(buf, file_number);
