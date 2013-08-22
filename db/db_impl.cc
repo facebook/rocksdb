@@ -2951,6 +2951,64 @@ inline void DBImpl::DelayLoggingAndReset() {
   }
 }
 
+Status DBImpl::DeleteFile(std::string name) {
+  uint64_t number;
+  FileType type;
+  if (!ParseFileName(name, &number, &type) ||
+      (type != kTableFile)) {
+    Log(options_.info_log, "DeleteFile #%lld FAILED. Invalid file name\n",
+        static_cast<unsigned long long>(number));
+    return Status::InvalidArgument("Invalid file name");
+  }
+
+  int level;
+  FileMetaData metadata;
+  int maxlevel = NumberLevels();
+  VersionEdit edit(maxlevel);
+  MutexLock l(&mutex_);
+  Status status =
+    versions_->GetMetadataForFile(number, &level, &metadata);
+  if (!status.ok()) {
+    Log(options_.info_log, "DeleteFile #%lld FAILED. File not found\n",
+        static_cast<unsigned long long>(number));
+    return Status::InvalidArgument("File not found");
+  }
+  assert((level > 0) && (level < maxlevel));
+
+  // If the file is being compacted no need to delete.
+  if (metadata.being_compacted) {
+    Log(options_.info_log,
+        "DeleteFile #%lld Skipped. File about to be compacted\n",
+        static_cast<unsigned long long>(number));
+    return Status::OK();
+  }
+
+  // Only the files in the last level can be deleted externally.
+  // This is to make sure that any deletion tombstones are not
+  // lost. Check that the level passed is the last level.
+  for (int i = level + 1; i < maxlevel; i++) {
+    if (versions_->NumLevelFiles(i) != 0) {
+      Log(options_.info_log,
+          "DeleteFile #%lld FAILED. File not in last level\n",
+          static_cast<unsigned long long>(number));
+      return Status::InvalidArgument("File not in last level");
+    }
+  }
+
+  edit.DeleteFile(level, number);
+  status = versions_->LogAndApply(&edit, &mutex_);
+  if (status.ok()) {
+    DeleteObsoleteFiles();
+  }
+  return status;
+}
+
+void DBImpl::GetLiveFilesMetaData(
+  std::vector<LiveFileMetaData> *metadata) {
+  MutexLock l(&mutex_);
+  return versions_->GetLiveFilesMetaData(metadata);
+}
+
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {

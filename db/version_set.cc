@@ -2637,6 +2637,39 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   c->edit_->SetCompactPointer(level, largest);
 }
 
+Status VersionSet::GetMetadataForFile(
+  uint64_t number,
+  int *filelevel,
+  FileMetaData *meta) {
+  for (int level = 0; level < NumberLevels(); level++) {
+    const std::vector<FileMetaData*>& files = current_->files_[level];
+    for (size_t i = 0; i < files.size(); i++) {
+      if (files[i]->number == number) {
+        *meta = *files[i];
+        *filelevel = level;
+        return Status::OK();
+      }
+    }
+  }
+  return Status::NotFound("File not present in any level");
+}
+
+void VersionSet::GetLiveFilesMetaData(
+  std::vector<LiveFileMetaData> * metadata) {
+  for (int level = 0; level < NumberLevels(); level++) {
+    const std::vector<FileMetaData*>& files = current_->files_[level];
+    for (size_t i = 0; i < files.size(); i++) {
+      LiveFileMetaData filemetadata;
+      filemetadata.name = TableFileName("", files[i]->number);
+      filemetadata.level = level;
+      filemetadata.size = files[i]->file_size;
+      filemetadata.smallestkey = files[i]->smallest.user_key().ToString();
+      filemetadata.largestkey = files[i]->largest.user_key().ToString();
+      metadata->push_back(filemetadata);
+    }
+  }
+}
+
 Compaction* VersionSet::CompactRange(
     int level,
     const InternalKey* begin,

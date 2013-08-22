@@ -28,6 +28,20 @@ struct WriteOptions;
 struct FlushOptions;
 class WriteBatch;
 
+// Metadata associated with each SST file.
+struct LiveFileMetaData {
+  // Name of the file
+  std::string name;
+  // Level at which this file resides.
+  int level;
+  // File size in bytes.
+  size_t size;
+  // Smallest user defined key in the file.
+  std::string smallestkey;
+  // Largest user defined key in the file.
+  std::string largestkey;
+};
+
 // Abstract handle to particular state of a DB.
 // A Snapshot is an immutable object and can therefore be safely
 // accessed from multiple threads without any external synchronization.
@@ -223,6 +237,8 @@ class DB {
   // Allow compactions to delete obselete files.
   virtual Status EnableFileDeletions() = 0;
 
+  // THIS METHOD IS DEPRECATED. Use the GetTableMetaData to get more
+  // detailed information on the live files.
   // Retrieve the list of all files in the database. The files are
   // relative to the dbname and are not absolute paths. This list
   // can be used to generate a backup. The valid size of the manifest
@@ -256,6 +272,19 @@ class DB {
   // an update is read.
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter) = 0;
+
+  // Delete the file name from the db directory and update the internal
+  // state to reflect that.
+  virtual Status DeleteFile(std::string name) {
+    return Status::OK();
+  }
+
+  // Returns a list of all table files with their level, start key
+  // and end key
+  virtual void GetLiveFilesMetaData(
+    std::vector<LiveFileMetaData> *metadata) {
+  }
+
  private:
   // No copying allowed
   DB(const DB&);

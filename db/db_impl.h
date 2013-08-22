@@ -78,6 +78,10 @@ class DBImpl : public DB {
   virtual SequenceNumber GetLatestSequenceNumber();
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter);
+  virtual Status DeleteFile(std::string name);
+
+  virtual void GetLiveFilesMetaData(
+    std::vector<LiveFileMetaData> *metadata);
 
   // Extra methods (for testing) that are not in the public DB interface
 

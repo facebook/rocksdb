@@ -64,7 +64,8 @@ TESTS = \
 	ttl_test \
 	version_edit_test \
 	version_set_test \
-	write_batch_test
+	write_batch_test\
+	deletefile_test
 
 TOOLS = \
         sst_dump \
@@ -265,6 +266,9 @@ write_batch_test: db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 	rm -f $@
