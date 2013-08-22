@@ -55,12 +55,19 @@ then
   exit 0
 fi
 
+LCOV_VERSION=$(lcov -v | grep 1.1 || true)
+if [ $LCOV_VERSION ]
+then
+  echo "Not supported lcov version. Expect lcov 1.1."
+  exit 0
+fi
+
 (cd $ROOT; lcov --no-external \
      --capture  \
      --directory $PWD \
      --gcov-tool $GCOV \
-     --output-file $COVERAGE_DIR/coverage.info &>/dev/null)
+     --output-file $COVERAGE_DIR/coverage.info)
 
-genhtml $COVERAGE_DIR/coverage.info -o $COVERAGE_DIR &>/dev/null
+genhtml $COVERAGE_DIR/coverage.info -o $COVERAGE_DIR
 
 echo "HTML Coverage report is generated in $COVERAGE_DIR"
