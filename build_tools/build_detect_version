@@ -19,15 +19,15 @@ if [ "$?" = 0 ]; then
   awk '
   BEGIN {
     print "#include \"build_version.h\"\n"
-  } 
+  }
   { print "const char* leveldb_build_git_sha = \"leveldb_build_git_sha:" $0"\";" }
   ' >  ${VFILE}
 else
   echo "git not found" |
   awk '
     BEGIN {
-      print "#include \"build_version.h\"" 
-    } 
+      print "#include \"build_version.h\""
+    }
     { print "const char* leveldb_build_git_sha = \"leveldb_build_git_sha:git not found\";" }
     ' > ${VFILE}
 fi
