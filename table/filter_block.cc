@@ -45,7 +45,6 @@ bool FilterBlockBuilder::SamePrefix(const Slice &key1,
 }
 
 void FilterBlockBuilder::AddKey(const Slice& key) {
-  // get slice for most recently added entry
   Slice prev;
   if (start_.size() > 0) {
     size_t prev_start = start_[start_.size() - 1];
@@ -54,21 +53,17 @@ void FilterBlockBuilder::AddKey(const Slice& key) {
     prev = Slice(base, length);
   }
 
-  // add key to filter if needed
   if (whole_key_filtering_) {
     start_.push_back(entries_.size());
     entries_.append(key.data(), key.size());
   }
 
-  // add prefix to filter if needed
-  Slice user_key = ExtractUserKey(key);
-  if (prefix_extractor_ && prefix_extractor_->InDomain(user_key)) {
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
     // this assumes prefix(prefix(key)) == prefix(key), as the last
     // entry in entries_ may be either a key or prefix, and we use
     // prefix(last entry) to get the prefix of the last key.
-    if (prev.size() == 0 ||
-        !SamePrefix(user_key, ExtractUserKey(prev))) {
-      Slice prefix = prefix_extractor_->Transform(user_key);
+    if (prev.size() == 0 || ! SamePrefix(key, prev)) {
+      Slice prefix = prefix_extractor_->Transform(key);
       InternalKey internal_prefix_tmp(prefix, 0, kTypeValue);
       Slice internal_prefix = internal_prefix_tmp.Encode();
       assert(comparator_->Compare(internal_prefix, key) <= 0);

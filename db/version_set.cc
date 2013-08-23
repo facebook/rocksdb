@@ -189,14 +189,7 @@ static Iterator* GetFileIterator(void* arg,
     return NewErrorIterator(
         Status::Corruption("FileReader invoked with unexpected value"));
   } else {
-    ReadOptions options_copy;
-    if (options.prefix) {
-      // suppress prefix filtering since we have already checked the
-      // filters once at this point
-      options_copy = options;
-      options_copy.prefix = nullptr;
-    }
-    return cache->NewIterator(options.prefix ? options_copy : options,
+    return cache->NewIterator(options,
                               soptions,
                               DecodeFixed64(file_value.data()),
                               DecodeFixed64(file_value.data() + 8),
@@ -205,45 +198,12 @@ static Iterator* GetFileIterator(void* arg,
   }
 }
 
-bool Version::PrefixMayMatch(const ReadOptions& options,
-                             const EnvOptions& soptions,
-                             const Slice& internal_prefix,
-                             Iterator* level_iter) const {
-  bool may_match = true;
-  level_iter->Seek(internal_prefix);
-  if (!level_iter->Valid()) {
-    // we're past end of level
-    may_match = false;
-  } else if (ExtractUserKey(level_iter->key()).starts_with(
-                                             ExtractUserKey(internal_prefix))) {
-    // TODO(tylerharter): do we need this case?  Or are we guaranteed
-    // key() will always be the biggest value for this SST?
-    may_match = true;
-  } else {
-    may_match = vset_->table_cache_->PrefixMayMatch(
-                           options,
-                           DecodeFixed64(level_iter->value().data()),
-                           DecodeFixed64(level_iter->value().data() + 8),
-                           internal_prefix, nullptr);
-  }
-  return may_match;
-}
-
 Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
                                             const EnvOptions& soptions,
                                             int level) const {
-  Iterator* level_iter = new LevelFileNumIterator(vset_->icmp_, &files_[level]);
-  if (options.prefix) {
-    InternalKey internal_prefix(*options.prefix, 0, kTypeValue);
-    if (!PrefixMayMatch(options, soptions,
-                        internal_prefix.Encode(), level_iter)) {
-      delete level_iter;
-      // nothing in this level can match the prefix
-      return NewEmptyIterator();
-    }
-  }
-  return NewTwoLevelIterator(level_iter, &GetFileIterator,
-                             vset_->table_cache_, options, soptions);
+  return NewTwoLevelIterator(
+      new LevelFileNumIterator(vset_->icmp_, &files_[level]),
+      &GetFileIterator, vset_->table_cache_, options, soptions);
 }
 
 void Version::AddIterators(const ReadOptions& options,

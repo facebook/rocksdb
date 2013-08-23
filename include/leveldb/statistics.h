@@ -62,21 +62,13 @@ enum Tickers {
   NUMBER_MERGE_FAILURES = 22,
   SEQUENCE_NUMBER = 23,
 
-  // number of times bloom was checked before creating iterator on a
-  // file, and the number of times the check was useful in avoiding
-  // iterator creation (and thus likely IOPs).
-  BLOOM_FILTER_PREFIX_CHECKED = 24,
-  BLOOM_FILTER_PREFIX_USEFUL = 25,
-
-  TICKER_ENUM_MAX = 26
+  TICKER_ENUM_MAX = 24
 };
 
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { BLOCK_CACHE_MISS, "rocksdb.block.cache.miss" },
   { BLOCK_CACHE_HIT, "rocksdb.block.cache.hit" },
   { BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful" },
-  { BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked" },
-  { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" },
   { COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new" },
   { COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete" },
   { COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user" },

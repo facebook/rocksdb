@@ -91,7 +91,7 @@ class Status {
     kNotSupported = 3,
     kInvalidArgument = 4,
     kIOError = 5,
-    kMergeInProgress = 6,
+    kMergeInProgress = 6
   };
 
   Code code() const {
