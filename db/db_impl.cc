@@ -2242,7 +2242,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // Done
   } else {
     current->Get(options, lkey, value, &s, &merge_operands, &stats,
-                 options_, value_found);
+                 options_, no_io, value_found);
     have_stat_update = true;
   }
   mutex_.Lock();
