@@ -1,14 +1,9 @@
-#ifndef STORAGE_LEVELDB_DB_SKIPLISTREP_H_
-#define STORAGE_LEVELDB_DB_SKIPLISTREP_H_
-
 #include "leveldb/memtablerep.h"
 #include "db/memtable.h"
 #include "db/skiplist.h"
 
 namespace leveldb {
-
-class Arena;
-
+namespace {
 class SkipListRep : public MemTableRep {
   SkipList<const char*, MemTableRep::KeyComparator&> skip_list_;
 public:
@@ -18,16 +13,21 @@ public:
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual void Insert(const char* key) {
+  virtual void Insert(const char* key) override {
     skip_list_.Insert(key);
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
-  virtual bool Contains(const char* key) const {
+  virtual bool Contains(const char* key) const override {
     return skip_list_.Contains(key);
   }
 
-  virtual ~SkipListRep() { }
+  virtual size_t ApproximateMemoryUsage() override {
+    // All memory is allocated through arena; nothing to report here
+    return 0;
+  }
+
+  virtual ~SkipListRep() override { }
 
   // Iteration over the contents of a skip list
   class Iterator : public MemTableRep::Iterator {
@@ -39,64 +39,61 @@ public:
       const SkipList<const char*, MemTableRep::KeyComparator&>* list
     ) : iter_(list) { }
 
-    virtual ~Iterator() { }
+    virtual ~Iterator() override { }
 
     // Returns true iff the iterator is positioned at a valid node.
-    virtual bool Valid() const {
+    virtual bool Valid() const override {
       return iter_.Valid();
     }
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
-    virtual const char* key() const {
+    virtual const char* key() const override {
       return iter_.key();
     }
 
     // Advances to the next position.
     // REQUIRES: Valid()
-    virtual void Next() {
+    virtual void Next() override {
       iter_.Next();
     }
 
     // Advances to the previous position.
     // REQUIRES: Valid()
-    virtual void Prev() {
+    virtual void Prev() override {
       iter_.Prev();
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) {
+    virtual void Seek(const char* target) override {
       iter_.Seek(target);
     }
 
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
-    virtual void SeekToFirst() {
+    virtual void SeekToFirst() override {
       iter_.SeekToFirst();
     }
 
     // Position at the last entry in list.
     // Final state of iterator is Valid() iff list is not empty.
-    virtual void SeekToLast() {
+    virtual void SeekToLast() override {
       iter_.SeekToLast();
     }
   };
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() {
-    return std::shared_ptr<MemTableRep::Iterator>(
-      new SkipListRep::Iterator(&skip_list_)
-    );
+  // Unhide default implementations of GetIterator
+  using MemTableRep::GetIterator;
+
+  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() override {
+    return std::make_shared<SkipListRep::Iterator>(&skip_list_);
   }
 };
-
-class SkipListFactory : public MemTableRepFactory {
-public:
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep (
-    MemTableRep::KeyComparator& compare, Arena* arena) {
-      return std::shared_ptr<MemTableRep>(new SkipListRep(compare, arena));
-  }
-};
-
 }
 
-#endif // STORAGE_LEVELDB_DB_SKIPLISTREP_H_
+std::shared_ptr<MemTableRep> SkipListFactory::CreateMemTableRep (
+  MemTableRep::KeyComparator& compare, Arena* arena) {
+    return std::shared_ptr<MemTableRep>(new SkipListRep(compare, arena));
+}
+
+} // namespace leveldb

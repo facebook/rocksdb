@@ -61,7 +61,11 @@ class MemTable {
   // while the returned iterator is live.  The keys returned by this
   // iterator are internal keys encoded by AppendInternalKey in the
   // db/dbformat.{h,cc} module.
-  Iterator* NewIterator();
+  //
+  // If a prefix is supplied, it is passed to the underlying MemTableRep as a
+  // hint that the iterator only need to support access to keys with that
+  // prefix.
+  Iterator* NewIterator(const Slice* prefix = nullptr);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
@@ -95,6 +99,9 @@ class MemTable {
   // Sets the logfile number that can be safely deleted when this
   // memstore is flushed to storage
   void SetLogNumber(uint64_t num) { mem_logfile_number_ = num; }
+
+  // Notify the underlying storage that no more items will be added
+  void MarkImmutable() { table_->MarkReadOnly(); }
 
  private:
   ~MemTable();  // Private since only Unref() should be used to delete it

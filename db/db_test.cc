@@ -207,9 +207,12 @@ class DBTest {
  private:
   const FilterPolicy* filter_policy_;
 
+ protected:
   // Sequence of option configurations to try
   enum OptionConfig {
     kDefault,
+    kVectorRep,
+    kUnsortedRep,
     kMergePut,
     kFilter,
     kUncompressed,
@@ -219,6 +222,7 @@ class DBTest {
     kCompactOnFlush,
     kPerfOptions,
     kDeletesFilterFirst,
+    kPrefixHashRep,
     kUniversalCompaction,
     kEnd
   };
@@ -293,6 +297,10 @@ class DBTest {
   Options CurrentOptions() {
     Options options;
     switch (option_config_) {
+      case kPrefixHashRep:
+        options.memtable_factory.reset(new
+          PrefixHashRepFactory(NewFixedPrefixTransform(1)));
+        break;
       case kMergePut:
         options.merge_operator = MergeOperators::CreatePutOperator();
         break;
@@ -320,6 +328,12 @@ class DBTest {
         break;
       case kDeletesFilterFirst:
         options.filter_deletes = true;
+        break;
+      case kUnsortedRep:
+        options.memtable_factory.reset(new UnsortedRepFactory);
+        break;
+      case kVectorRep:
+        options.memtable_factory.reset(new VectorRepFactory);
         break;
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;
@@ -3509,10 +3523,13 @@ class ModelDB: public DB {
   KVMap map_;
 };
 
-static std::string RandomKey(Random* rnd) {
-  int len = (rnd->OneIn(3)
-             ? 1                // Short sometimes to encourage collisions
-             : (rnd->OneIn(100) ? rnd->Skewed(10) : rnd->Uniform(10)));
+static std::string RandomKey(Random* rnd, int minimum = 0) {
+  int len;
+  do {
+    len = (rnd->OneIn(3)
+           ? 1                // Short sometimes to encourage collisions
+           : (rnd->OneIn(100) ? rnd->Skewed(10) : rnd->Uniform(10)));
+  } while (len < minimum);
   return test::RandomKey(rnd, len);
 }
 
@@ -3574,8 +3591,12 @@ TEST(DBTest, Randomized) {
     for (int step = 0; step < N; step++) {
       // TODO(sanjay): Test Get() works
       int p = rnd.Uniform(100);
+      int minimum = 0;
+      if (option_config_ == kPrefixHashRep) {
+        minimum = 1;
+      }
       if (p < 45) {                               // Put
-        k = RandomKey(&rnd);
+        k = RandomKey(&rnd, minimum);
         v = RandomString(&rnd,
                          rnd.OneIn(20)
                          ? 100 + rnd.Uniform(100)
@@ -3584,7 +3605,7 @@ TEST(DBTest, Randomized) {
         ASSERT_OK(db_->Put(WriteOptions(), k, v));
 
       } else if (p < 90) {                        // Delete
-        k = RandomKey(&rnd);
+        k = RandomKey(&rnd, minimum);
         ASSERT_OK(model.Delete(WriteOptions(), k));
         ASSERT_OK(db_->Delete(WriteOptions(), k));
 
@@ -3594,7 +3615,7 @@ TEST(DBTest, Randomized) {
         const int num = rnd.Uniform(8);
         for (int i = 0; i < num; i++) {
           if (i == 0 || !rnd.OneIn(10)) {
-            k = RandomKey(&rnd);
+            k = RandomKey(&rnd, minimum);
           } else {
             // Periodically re-use the same key from the previous iter, so
             // we have multiple entries in the write batch for the same key
@@ -3750,6 +3771,9 @@ TEST(DBTest, PrefixScan) {
   snprintf(buf, sizeof(buf), "03______:");
   prefix = Slice(buf, 8);
   key = Slice(buf, 9);
+  auto prefix_extractor = NewFixedPrefixTransform(8);
+  auto memtable_factory =
+    std::make_shared<PrefixHashRepFactory>(prefix_extractor);
 
   // db configs
   env_->count_random_reads_ = true;
@@ -3757,12 +3781,13 @@ TEST(DBTest, PrefixScan) {
   options.env = env_;
   options.block_cache = NewLRUCache(0);  // Prevent cache hits
   options.filter_policy =  NewBloomFilterPolicy(10);
-  options.prefix_extractor = NewFixedPrefixTransform(8);
+  options.prefix_extractor = prefix_extractor;
   options.whole_key_filtering = false;
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
   options.create_if_missing = true;
   options.disable_seek_compaction = true;
+  options.memtable_factory = memtable_factory;
 
   // prefix specified, with blooms: 2 RAND I/Os
   // SeekToFirst

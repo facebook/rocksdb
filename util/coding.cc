@@ -193,6 +193,13 @@ bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   }
 }
 
+Slice GetLengthPrefixedSlice(const char* data) {
+  uint32_t len;
+  const char* p = data;
+  p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
+  return Slice(p, len);
+}
+
 void BitStreamPutInt(char* dst, size_t dstlen, size_t offset,
                      uint32_t bits, uint64_t value) {
   assert((offset + bits + 7)/8 <= dstlen);

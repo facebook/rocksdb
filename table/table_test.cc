@@ -6,12 +6,12 @@
 #include <memory>
 #include "db/dbformat.h"
 #include "db/memtable.h"
-#include "db/skiplistrep.h"
 #include "db/write_batch_internal.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
 #include "leveldb/table_builder.h"
+#include "leveldb/memtablerep.h"
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"

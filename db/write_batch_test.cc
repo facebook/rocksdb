@@ -5,10 +5,10 @@
 #include "leveldb/db.h"
 
 #include <memory>
-#include "db/skiplistrep.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "leveldb/env.h"
+#include "leveldb/memtablerep.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 

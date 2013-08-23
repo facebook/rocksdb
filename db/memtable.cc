@@ -12,15 +12,9 @@
 #include "leveldb/iterator.h"
 #include "leveldb/merge_operator.h"
 #include "util/coding.h"
+#include "util/murmurhash.h"
 
 namespace leveldb {
-
-static Slice GetLengthPrefixedSlice(const char* data) {
-  uint32_t len;
-  const char* p = data;
-  p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
-  return Slice(p, len);
-}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    std::shared_ptr<MemTableRepFactory> table_factory,
@@ -42,7 +36,8 @@ MemTable::~MemTable() {
 }
 
 size_t MemTable::ApproximateMemoryUsage() {
-  return arena_impl_.ApproximateMemoryUsage();
+  return arena_impl_.ApproximateMemoryUsage() +
+    table_->ApproximateMemoryUsage();
 }
 
 int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)
@@ -51,6 +46,11 @@ int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)
   Slice a = GetLengthPrefixedSlice(aptr);
   Slice b = GetLengthPrefixedSlice(bptr);
   return comparator.Compare(a, b);
+}
+
+Slice MemTableRep::UserKey(const char* key) const {
+  Slice slice = GetLengthPrefixedSlice(key);
+  return Slice(slice.data(), slice.size() - 8);
 }
 
 // Encode a suitable internal key target for "target" and return it.
@@ -67,6 +67,9 @@ class MemTableIterator: public Iterator {
  public:
   explicit MemTableIterator(MemTableRep* table)
     : iter_(table->GetIterator()) { }
+
+  MemTableIterator(MemTableRep* table, const Slice* prefix)
+    : iter_(table->GetPrefixIterator(*prefix)) { }
 
   virtual bool Valid() const { return iter_->Valid(); }
   virtual void Seek(const Slice& k) { iter_->Seek(EncodeKey(&tmp_, k)); }
@@ -93,8 +96,12 @@ class MemTableIterator: public Iterator {
   void operator=(const MemTableIterator&);
 };
 
-Iterator* MemTable::NewIterator() {
-  return new MemTableIterator(table_.get());
+Iterator* MemTable::NewIterator(const Slice* prefix) {
+  if (prefix) {
+    return new MemTableIterator(table_.get(), prefix);
+  } else {
+    return new MemTableIterator(table_.get());
+  }
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,
@@ -132,7 +139,8 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    std::deque<std::string>* operands, const Options& options) {
   Slice memkey = key.memtable_key();
-  std::shared_ptr<MemTableRep::Iterator> iter(table_.get()->GetIterator());
+  std::shared_ptr<MemTableRep::Iterator> iter(
+    table_->GetIterator(key.user_key()));
   iter->Seek(memkey.data());
 
   // It is the caller's responsibility to allocate/delete operands list

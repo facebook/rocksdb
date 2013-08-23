@@ -36,6 +36,8 @@ class SliceTransform {
 
 extern const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
 
+extern const SliceTransform* NewNoopTransform();
+
 }
 
 #endif  // STORAGE_LEVELDB_INCLUDE_SLICE_TRANSFORM_H_

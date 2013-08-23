@@ -62,5 +62,3 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
 } // namespace leveldb
 
 #endif // LEVELDB_STORAGE_DB_DB_STATISTICS_H_
-
-

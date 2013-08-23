@@ -199,6 +199,18 @@ static bool FLAGS_filter_deletes = false;
 // Level0 compaction start trigger
 static int FLAGS_level0_file_num_compaction_trigger = 0;
 
+enum RepFactory {
+  kSkipList,
+  kPrefixHash,
+  kUnsorted,
+  kVectorRep
+};
+
+static enum RepFactory FLAGS_rep_factory;
+
+// Control the prefix size for PrefixHashRep
+static bool FLAGS_prefix_size = 0;
+
 // On true, replaces all writes with a Merge that behaves like a Put
 static bool FLAGS_use_merge_put = false;
 
@@ -1094,6 +1106,25 @@ class StressTest {
     }
 
     fprintf(stdout, "Compression         : %s\n", compression);
+
+    const char* memtablerep = "";
+    switch (FLAGS_rep_factory) {
+      case kSkipList:
+        memtablerep = "skip_list";
+        break;
+      case kPrefixHash:
+        memtablerep = "prefix_hash";
+        break;
+      case kUnsorted:
+        memtablerep = "unsorted";
+        break;
+      case kVectorRep:
+        memtablerep = "vector";
+        break;
+    }
+
+    fprintf(stdout, "Memtablerep         : %s\n", memtablerep);
+
     fprintf(stdout, "------------------------------------------------\n");
   }
 
@@ -1132,6 +1163,31 @@ class StressTest {
       FLAGS_delete_obsolete_files_period_micros;
     options.max_manifest_file_size = 1024;
     options.filter_deletes = FLAGS_filter_deletes;
+    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kPrefixHash)) {
+      fprintf(stderr,
+            "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
+      exit(1);
+    }
+    switch (FLAGS_rep_factory) {
+      case kPrefixHash:
+        options.memtable_factory.reset(
+          new PrefixHashRepFactory(NewFixedPrefixTransform(FLAGS_prefix_size))
+        );
+        break;
+      case kUnsorted:
+        options.memtable_factory.reset(
+          new UnsortedRepFactory()
+        );
+        break;
+      case kSkipList:
+        // no need to do anything
+        break;
+      case kVectorRep:
+        options.memtable_factory.reset(
+          new VectorRepFactory()
+        );
+        break;
+    }
     static Random purge_percent(1000); // no benefit from non-determinism here
     if (purge_percent.Uniform(100) < FLAGS_purge_redundant_percent - 1) {
       options.purge_redundant_kvs_while_flush = false;
@@ -1339,6 +1395,19 @@ int main(int argc, char** argv) {
       else {
         fprintf(stdout, "Cannot parse %s\n", argv[i]);
       }
+    } else if (strncmp(argv[i], "--memtablerep=", 14) == 0) {
+      const char* ctype = argv[i] + 14;
+      if (!strcasecmp(ctype, "skip_list"))
+        FLAGS_rep_factory = kSkipList;
+      else if (!strcasecmp(ctype, "prefix_hash"))
+        FLAGS_rep_factory = kPrefixHash;
+      else if (!strcasecmp(ctype, "unsorted"))
+        FLAGS_rep_factory = kUnsorted;
+      else if (!strcasecmp(ctype, "vector"))
+        FLAGS_rep_factory = kVectorRep;
+      else {
+        fprintf(stdout, "Cannot parse %s\n", argv[i]);
+      }
     } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
       FLAGS_disable_seek_compaction = n;
@@ -1351,6 +1420,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--filter_deletes=%d%c", &n, &junk)
         == 1 && (n == 0 || n == 1)) {
       FLAGS_filter_deletes = n;
+    } else if (sscanf(argv[i], "--prefix_size=%d%c", &n, &junk) == 1 &&
+               n >= 0 && n < 2000000000) {
+      FLAGS_prefix_size = n;
     } else if (sscanf(argv[i], "--use_merge=%d%c", &n, &junk)
         == 1 && (n == 0 || n == 1)) {
       FLAGS_use_merge_put = n;

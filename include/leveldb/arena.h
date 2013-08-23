@@ -8,6 +8,9 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_ARENA_H_
 #define STORAGE_LEVELDB_INCLUDE_ARENA_H_
 
+#include <limits>
+#include <memory>
+
 namespace leveldb {
 
 class Arena {

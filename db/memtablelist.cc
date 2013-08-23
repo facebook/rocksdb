@@ -172,6 +172,7 @@ void MemTableList::Add(MemTable* m) {
   assert(size_ >= num_flush_not_started_);
   size_++;
   memlist_.push_front(m);
+  m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
     imm_flush_needed.Release_Store((void *)1);

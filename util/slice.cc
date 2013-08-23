@@ -3,7 +3,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "leveldb/slice_transform.h"
-
 #include "leveldb/slice.h"
 
 namespace leveldb {
@@ -34,10 +33,36 @@ class FixedPrefixTransform : public SliceTransform {
     return (dst.size() == prefix_len_);
   }
 };
+
+class NoopTransform : public SliceTransform {
+ public:
+  explicit NoopTransform() { }
+
+  virtual const char* Name() const {
+    return "rocksdb.Noop";
+  }
+
+  virtual Slice Transform(const Slice& src) const {
+    return src;
+  }
+
+  virtual bool InDomain(const Slice& src) const {
+    return true;
+  }
+
+  virtual bool InRange(const Slice& dst) const {
+    return true;
+  }
+};
+
 }
 
 const SliceTransform* NewFixedPrefixTransform(size_t prefix_len) {
   return new FixedPrefixTransform(prefix_len);
+}
+
+const SliceTransform* NewNoopTransform() {
+  return new NoopTransform;
 }
 
 }  // namespace leveldb

@@ -163,6 +163,19 @@ Options SanitizeOptions(const std::string& dbname,
       result.compaction_filter_factory->CreateCompactionFilter().get()) {
     Log(result.info_log, "Both filter and factory specified. Using filter");
   }
+  if (result.prefix_extractor) {
+    // If a prefix extractor has been supplied and a PrefixHashRepFactory is
+    // being used, make sure that the latter uses the former as its transform
+    // function.
+    auto factory = dynamic_cast<PrefixHashRepFactory*>(
+      result.memtable_factory.get());
+    if (factory != nullptr && factory->transform_ != result.prefix_extractor) {
+      Log(result.info_log, "A prefix hash representation factory was supplied "
+          "whose prefix extractor does not match options.prefix_extractor. "
+          "Falling back to skip list representation factory");
+      result.memtable_factory = std::make_shared<SkipListFactory>();
+    }
+  }
   return result;
 }
 
@@ -2143,7 +2156,8 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   // Collect together all needed child iterators for mem
   std::vector<Iterator*> list;
   mem_->Ref();
-  list.push_back(mem_->NewIterator());
+  list.push_back(mem_->NewIterator(options.prefix));
+
   cleanup->mem.push_back(mem_);
 
   // Collect together all needed child iterators for imm_
@@ -2152,7 +2166,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   for (unsigned int i = 0; i < immutables.size(); i++) {
     MemTable* m = immutables[i];
     m->Ref();
-    list.push_back(m->NewIterator());
+    list.push_back(m->NewIterator(options.prefix));
     cleanup->mem.push_back(m);
   }
 

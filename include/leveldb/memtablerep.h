@@ -4,26 +4,58 @@
 //  (1) It does not store duplicate items.
 //  (2) It uses MemTableRep::KeyComparator to compare items for iteration and
 //     equality.
-//  (3) It can be accessed concurrently by multiple readers but need not support
-//      concurrent writes.
+//  (3) It can be accessed concurrently by multiple readers and can support
+//     during reads. However, it needn't support multiple concurrent writes.
 //  (4) Items are never deleted.
 // The liberal use of assertions is encouraged to enforce (1).
+//
+// The factory will be passed an Arena object when a new MemTableRep is
+// requested. The API for this object is in leveldb/arena.h.
+//
+// Users can implement their own memtable representations. We include four
+// types built in:
+//  - SkipListRep: This is the default; it is backed by a skip list.
+//  - TransformRep: This is backed by an std::unordered_map<Slice,
+// std::set>. On construction, they are given a SliceTransform object. This
+// object is applied to the user key of stored items which indexes into the
+// unordered map to yield a set containing all records that share the same user
+// key under the transform function.
+//  - UnsortedRep: A subclass of TransformRep where the transform function is
+// the identity function. Optimized for point lookups.
+//  - PrefixHashRep: A subclass of TransformRep where the transform function is
+// a fixed-size prefix extractor. If you use PrefixHashRepFactory, the transform
+// must be identical to options.prefix_extractor, otherwise it will be discarded
+// and the default will be used. It is optimized for ranged scans over a
+// prefix.
+//  - VectorRep: This is backed by an unordered std::vector. On iteration, the
+// vector is sorted. It is intelligent about sorting; once the MarkReadOnly()
+// has been called, the vector will only be sorted once. It is optimized for
+// random-write-heavy workloads.
+//
+// The last four implementations are designed for situations in which
+// iteration over the entire collection is rare since doing so requires all the
+// keys to be copied into a sorted data structure.
 
-#ifndef STORAGE_LEVELDB_DB_TABLE_H_
-#define STORAGE_LEVELDB_DB_TABLE_H_
+#ifndef STORAGE_LEVELDB_DB_MEMTABLEREP_H_
+#define STORAGE_LEVELDB_DB_MEMTABLEREP_H_
 
 #include <memory>
 #include "leveldb/arena.h"
+#include "leveldb/slice.h"
+#include "leveldb/slice_transform.h"
 
 namespace leveldb {
 
 class MemTableRep {
  public:
-  // KeyComparator(a, b) returns a negative value if a is less than b, 0 if they
-  // are equal, and a positive value if b is greater than a
+  // KeyComparator provides a means to compare keys, which are internal keys
+  // concatenated with values.
   class KeyComparator {
-  public:
+   public:
+    // Compare a and b. Return a negative value if a is less than b, 0 if they
+    // are equal, and a positive value if a is greater than b
     virtual int operator()(const char* a, const char* b) const = 0;
+
     virtual ~KeyComparator() { }
   };
 
@@ -35,6 +67,14 @@ class MemTableRep {
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;
+
+  // Notify this table rep that it will no longer be added to. By default, does
+  // nothing.
+  virtual void MarkReadOnly() { }
+
+  // Report an approximation of how much memory has been used other than memory
+  // that was allocated through the arena.
+  virtual size_t ApproximateMemoryUsage() = 0;
 
   virtual ~MemTableRep() { }
 
@@ -73,16 +113,118 @@ class MemTableRep {
     virtual void SeekToLast() = 0;
   };
 
+  // Return an iterator over the keys in this representation.
   virtual std::shared_ptr<Iterator> GetIterator() = 0;
+
+  // Return an iterator over at least the keys with the specified user key. The
+  // iterator may also allow access to other keys, but doesn't have to. Default:
+  // GetIterator().
+  virtual std::shared_ptr<Iterator> GetIterator(const Slice& user_key) {
+    return GetIterator();
+  }
+
+  // Return an iterator over at least the keys with the specified prefix. The
+  // iterator may also allow access to other keys, but doesn't have to. Default:
+  // GetIterator().
+  virtual std::shared_ptr<Iterator> GetPrefixIterator(const Slice& prefix) {
+    return GetIterator();
+  }
+
+ protected:
+  // When *key is an internal key concatenated with the value, returns the
+  // user key.
+  virtual Slice UserKey(const char* key) const;
 };
 
+// This is the base class for all factories that are used by RocksDB to create
+// new MemTableRep objects
 class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() { };
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena* arena) = 0;
+    MemTableRep::KeyComparator&, Arena*) = 0;
+};
+
+// This creates MemTableReps that are backed by an std::vector. On iteration,
+// the vector is sorted. This is useful for workloads where iteration is very
+// rare and writes are generally not issued after reads begin.
+//
+// Parameters:
+//   count: Passed to the constructor of the underlying std::vector of each
+//     VectorRep. On initialization, the underlying array will be at least count
+//     size.
+class VectorRepFactory : public MemTableRepFactory {
+  const size_t count_;
+public:
+  explicit VectorRepFactory(size_t count = 0) : count_(count) { }
+  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
+    MemTableRep::KeyComparator&, Arena*) override;
+};
+
+// This uses a skip list to store keys. It is the default.
+class SkipListFactory : public MemTableRepFactory {
+public:
+  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
+    MemTableRep::KeyComparator&, Arena*) override;
+};
+
+// TransformReps are backed by an unordered map of buffers to buckets. When
+// looking up a key, the user key is extracted and a user-supplied transform
+// function (see leveldb/slice_transform.h) is applied to get the key into the
+// unordered map. This allows the user to bin user keys based on arbitrary
+// criteria. Two example implementations are UnsortedRepFactory and
+// PrefixHashRepFactory.
+//
+// Iteration over the entire collection is implemented by dumping all the keys
+// into an std::set. Thus, these data structures are best used when iteration
+// over the entire collection is rare.
+//
+// Parameters:
+//   transform: The SliceTransform to bucket user keys on.
+//   bucket_count: Passed to the constructor of the underlying
+//     std::unordered_map of each TransformRep. On initialization, the
+//     underlying array will be at least bucket_count size.
+//   num_locks: Number of read-write locks to have for the rep. Each bucket is
+//     hashed onto a read-write lock which controls access to that lock. More
+//     locks means finer-grained concurrency but more memory overhead.
+class TransformRepFactory : public MemTableRepFactory {
+public:
+  const SliceTransform* transform_;
+  const size_t bucket_count_;
+  const size_t num_locks_;
+  explicit TransformRepFactory(const SliceTransform* transform,
+    size_t bucket_count, size_t num_locks = 1000)
+    : transform_(transform),
+      bucket_count_(bucket_count),
+      num_locks_(num_locks) { }
+  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
+    MemTableRep::KeyComparator&, Arena*) override;
+};
+
+// UnsortedReps bin user keys based on an identity function transform -- that
+// is, transform(key) = key. This optimizes for point look-ups.
+//
+// Parameters: See TransformRepFactory.
+class UnsortedRepFactory : public TransformRepFactory {
+public:
+  explicit UnsortedRepFactory(size_t bucket_count = 0, size_t num_locks = 1000)
+    : TransformRepFactory(NewNoopTransform(), bucket_count, num_locks) { }
+};
+
+// PrefixHashReps bin user keys based on a fixed-size prefix. This optimizes for
+// short ranged scans over a given prefix.
+//
+// Parameters: See TransformRepFactory.
+class PrefixHashRepFactory : public TransformRepFactory {
+public:
+  explicit PrefixHashRepFactory(const SliceTransform* prefix_extractor,
+    size_t bucket_count = 0, size_t num_locks = 1000)
+    : TransformRepFactory(prefix_extractor, bucket_count, num_locks)
+    { }
+  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
+    MemTableRep::KeyComparator&, Arena*) override;
 };
 
 }
 
-#endif // STORAGE_LEVELDB_DB_TABLE_H_
+#endif // STORAGE_LEVELDB_DB_MEMTABLEREP_H_

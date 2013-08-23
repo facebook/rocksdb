@@ -353,6 +353,18 @@ static auto FLAGS_bytes_per_sync =
 // On true, deletes use bloom-filter and drop the delete if key not present
 static bool FLAGS_filter_deletes = false;
 
+// Control the prefix size for PrefixHashRep
+static bool FLAGS_prefix_size = 0;
+
+enum RepFactory {
+  kSkipList,
+  kPrefixHash,
+  kUnsorted,
+  kVectorRep
+};
+
+static enum RepFactory FLAGS_rep_factory;
+
 // The merge operator to use with the database.
 // If a new merge operator is specified, be sure to use fresh database
 // The possible merge operators are defined in utilities/merge_operators.h
@@ -670,6 +682,21 @@ class Benchmark {
         break;
       case leveldb::kBZip2Compression:
         fprintf(stdout, "Compression: bzip2\n");
+        break;
+    }
+
+    switch (FLAGS_rep_factory) {
+      case kPrefixHash:
+        fprintf(stdout, "Memtablerep: prefix_hash\n");
+        break;
+      case kSkipList:
+        fprintf(stdout, "Memtablerep: skip_list\n");
+        break;
+      case kUnsorted:
+        fprintf(stdout, "Memtablerep: unsorted\n");
+        break;
+      case kVectorRep:
+        fprintf(stdout, "Memtablerep: vector\n");
         break;
     }
 
@@ -1159,6 +1186,31 @@ class Benchmark {
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
     options.filter_deletes = FLAGS_filter_deletes;
+    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kPrefixHash)) {
+      fprintf(stderr,
+            "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
+      exit(1);
+    }
+    switch (FLAGS_rep_factory) {
+      case kPrefixHash:
+        options.memtable_factory.reset(
+          new PrefixHashRepFactory(NewFixedPrefixTransform(FLAGS_prefix_size))
+        );
+        break;
+      case kUnsorted:
+        options.memtable_factory.reset(
+          new UnsortedRepFactory
+        );
+        break;
+      case kSkipList:
+        // no need to do anything
+        break;
+      case kVectorRep:
+        options.memtable_factory.reset(
+          new VectorRepFactory
+        );
+        break;
+    }
     if (FLAGS_max_bytes_for_level_multiplier_additional.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional.size() !=
           (unsigned int)FLAGS_num_levels) {
@@ -2324,6 +2376,19 @@ int main(int argc, char** argv) {
       else {
         fprintf(stdout, "Cannot parse %s\n", argv[i]);
       }
+    } else if (strncmp(argv[i], "--memtablerep=", 14) == 0) {
+      const char* ctype = argv[i] + 14;
+      if (!strcasecmp(ctype, "skip_list"))
+        FLAGS_rep_factory = kSkipList;
+      else if (!strcasecmp(ctype, "prefix_hash"))
+        FLAGS_rep_factory = kPrefixHash;
+      else if (!strcasecmp(ctype, "unsorted"))
+        FLAGS_rep_factory = kUnsorted;
+      else if (!strcasecmp(ctype, "vector"))
+        FLAGS_rep_factory = kVectorRep;
+      else {
+        fprintf(stdout, "Cannot parse %s\n", argv[i]);
+      }
     } else if (sscanf(argv[i], "--min_level_to_compress=%d%c", &n, &junk) == 1
         && n >= 0) {
       FLAGS_min_level_to_compress = n;
@@ -2338,6 +2403,9 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--stats_per_interval=%d%c", &n, &junk) == 1
         && (n == 0 || n == 1)) {
       FLAGS_stats_per_interval = n;
+    } else if (sscanf(argv[i], "--prefix_size=%d%c", &n, &junk) == 1 &&
+               n >= 0 && n < 2000000000) {
+      FLAGS_prefix_size = n;
     } else if (sscanf(argv[i], "--soft_rate_limit=%lf%c", &d, &junk) == 1 &&
                d > 0.0) {
       FLAGS_soft_rate_limit = d;
