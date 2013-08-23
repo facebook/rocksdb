@@ -180,7 +180,8 @@ public:
 // over the entire collection is rare.
 //
 // Parameters:
-//   transform: The SliceTransform to bucket user keys on.
+//   transform: The SliceTransform to bucket user keys on. TransformRepFactory
+//     assumes it does not own the pointer.
 //   bucket_count: Passed to the constructor of the underlying
 //     std::unordered_map of each TransformRep. On initialization, the
 //     underlying array will be at least bucket_count size.
@@ -206,9 +207,13 @@ public:
 //
 // Parameters: See TransformRepFactory.
 class UnsortedRepFactory : public TransformRepFactory {
+  const SliceTransform* transform_;
 public:
   explicit UnsortedRepFactory(size_t bucket_count = 0, size_t num_locks = 1000)
-    : TransformRepFactory(NewNoopTransform(), bucket_count, num_locks) { }
+    : TransformRepFactory(transform_ = NewNoopTransform(),
+                          bucket_count,
+                          num_locks) { }
+  virtual ~UnsortedRepFactory() { delete transform_; }
 };
 
 // PrefixHashReps bin user keys based on a fixed-size prefix. This optimizes for

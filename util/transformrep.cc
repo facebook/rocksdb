@@ -149,7 +149,8 @@ class PrefixHashRep : public TransformRep {
  public:
   PrefixHashRep(const KeyComparator& compare, Arena* arena,
     const SliceTransform* transform, size_t bucket_size,
-    size_t num_locks) : TransformRep(compare, arena, transform,
+    size_t num_locks)
+  : TransformRep(compare, arena, transform,
     bucket_size, num_locks) { }
 
   virtual std::shared_ptr<MemTableRep::Iterator> GetPrefixIterator(
