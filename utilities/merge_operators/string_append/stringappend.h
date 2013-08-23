@@ -4,6 +4,8 @@
  * Copyright 2013 Facebook
  */
 
+#pragma once
+
 #include "leveldb/merge_operator.h"
 #include "leveldb/slice.h"
 

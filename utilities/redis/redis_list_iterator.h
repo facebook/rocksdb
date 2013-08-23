@@ -37,6 +37,8 @@
  * Copyright 2013 Facebook
  */
 
+#pragma once
+
 #include <string>
 
 #include "redis_list_exception.h"

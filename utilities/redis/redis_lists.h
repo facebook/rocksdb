@@ -8,6 +8,8 @@
  * Copyright 2013 Facebook
  */
 
+#pragma once
+
 #include <string>
 #include "leveldb/db.h"
 #include "redis_list_iterator.h"
