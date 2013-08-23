@@ -328,6 +328,11 @@ Iterator* Table::BlockReader(void* arg,
 // 1) key.starts_with(prefix(key))
 // 2) Compare(prefix(key), key) <= 0.
 // 3) If Compare(key1, key2) <= 0, then Compare(prefix(key1), prefix(key2)) <= 0
+//
+// TODO(tylerharter): right now, this won't cause I/O since blooms are
+// in memory.  When blooms may need to be paged in, we should refactor so that
+// this is only ever called lazily.  In particular, this shouldn't be called
+// while the DB lock is held like it is now.
 bool Table::PrefixMayMatch(const Slice& internal_prefix) const {
   FilterBlockReader* filter = rep_->filter;
   bool may_match = true;
@@ -337,12 +342,14 @@ bool Table::PrefixMayMatch(const Slice& internal_prefix) const {
     return true;
   }
 
-  Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
+  std::unique_ptr<Iterator> iiter(rep_->index_block->NewIterator(
+                                           rep_->options.comparator));
   iiter->Seek(internal_prefix);
-  if (! iiter->Valid()) {
+  if (!iiter->Valid()) {
     // we're past end of file
     may_match = false;
-  } else if (iiter->key().starts_with(internal_prefix)) {
+  } else if (ExtractUserKey(iiter->key()).starts_with(
+                                             ExtractUserKey(internal_prefix))) {
     // we need to check for this subtle case because our only
     // guarantee is that "the key is a string >= last key in that data
     // block" according to the doc/table_format.txt spec.
@@ -366,7 +373,12 @@ bool Table::PrefixMayMatch(const Slice& internal_prefix) const {
     assert(s.ok());
     may_match = filter->PrefixMayMatch(handle.offset(), internal_prefix);
   }
-  delete iiter;
+
+  RecordTick(rep_->options.statistics, BLOOM_FILTER_PREFIX_CHECKED);
+  if (!may_match) {
+    RecordTick(rep_->options.statistics, BLOOM_FILTER_PREFIX_USEFUL);
+  }
+
   return may_match;
 }
 

@@ -47,7 +47,7 @@ class Table {
 
   ~Table();
 
-  bool PrefixMayMatch(const Slice& prefix) const;
+  bool PrefixMayMatch(const Slice& internal_prefix) const;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must

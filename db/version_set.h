@@ -152,6 +152,8 @@ class Version {
   Iterator* NewConcatenatingIterator(const ReadOptions&,
                                      const EnvOptions& soptions,
                                      int level) const;
+  bool PrefixMayMatch(const ReadOptions& options, const EnvOptions& soptions,
+                      const Slice& internal_prefix, Iterator* level_iter) const;
 
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
