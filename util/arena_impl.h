@@ -13,7 +13,7 @@
 #include <vector>
 #include <assert.h>
 #include <stdint.h>
-#include "leveldb/arena.h"
+#include "rocksdb/arena.h"
 
 namespace leveldb {
 

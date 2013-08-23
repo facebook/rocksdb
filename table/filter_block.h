@@ -13,9 +13,9 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#include "leveldb/options.h"
-#include "leveldb/slice.h"
-#include "leveldb/slice_transform.h"
+#include "rocksdb/options.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 #include "util/hash.h"
 
 namespace leveldb {

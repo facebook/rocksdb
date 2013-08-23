@@ -11,8 +11,8 @@
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "db/version_set.h"
-#include "leveldb/db.h"
-#include "leveldb/memtablerep.h"
+#include "rocksdb/db.h"
+#include "rocksdb/memtablerep.h"
 #include "util/arena_impl.h"
 
 namespace leveldb {

@@ -1,8 +1,8 @@
 #include "merge_helper.h"
 #include "db/dbformat.h"
-#include "leveldb/comparator.h"
-#include "leveldb/db.h"
-#include "leveldb/merge_operator.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
 #include <string>
 #include <stdio.h>
 

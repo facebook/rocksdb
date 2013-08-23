@@ -2,8 +2,8 @@
 #define MERGE_HELPER_H
 
 #include "db/dbformat.h"
-#include "leveldb/slice.h"
-#include "leveldb/statistics.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include <string>
 #include <deque>
 

@@ -18,11 +18,11 @@
 // non-const method, all threads accessing the same WriteBatch must use
 // external synchronization.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_WRITE_BATCH_H_
-#define STORAGE_LEVELDB_INCLUDE_WRITE_BATCH_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
+#define STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
 
 #include <string>
-#include "leveldb/status.h"
+#include "rocksdb/status.h"
 
 namespace leveldb {
 
@@ -95,4 +95,4 @@ class WriteBatch {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_WRITE_BATCH_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_

@@ -9,8 +9,8 @@
 #include <iostream>
 #include <map>
 
-#include "leveldb/db.h"
-#include "leveldb/merge_operator.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"

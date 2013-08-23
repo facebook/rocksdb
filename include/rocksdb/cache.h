@@ -15,12 +15,12 @@
 // they want something more sophisticated (like scan-resistance, a
 // custom eviction policy, variable cache sizing, etc.)
 
-#ifndef STORAGE_LEVELDB_INCLUDE_CACHE_H_
-#define STORAGE_LEVELDB_INCLUDE_CACHE_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_CACHE_H_
+#define STORAGE_ROCKSDB_INCLUDE_CACHE_H_
 
 #include <memory>
 #include <stdint.h>
-#include "leveldb/slice.h"
+#include "rocksdb/slice.h"
 
 namespace leveldb {
 
@@ -103,4 +103,4 @@ class Cache {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_UTIL_CACHE_H_
+#endif  // STORAGE_ROCKSDB_UTIL_CACHE_H_

@@ -8,8 +8,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sstream>
-#include "leveldb/env.h"
-#include "leveldb/slice.h"
+#include "rocksdb/env.h"
+#include "rocksdb/slice.h"
 #include "util/random.h"
 
 namespace leveldb {

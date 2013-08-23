@@ -7,7 +7,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include "db/dbformat.h"
-#include "leveldb/env.h"
+#include "rocksdb/env.h"
 #include "util/logging.h"
 
 namespace leveldb {

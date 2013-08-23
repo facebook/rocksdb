@@ -1,7 +1,7 @@
 // Copyright 2008-present Facebook. All Rights Reserved.
-#ifndef STORAGE_LEVELDB_INCLUDE_LDB_TOOL_H
-#define STORAGE_LEVELDB_INCLUDE_LDB_TOOL_H
-#include "leveldb/options.h"
+#ifndef STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
+#define STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
+#include "rocksdb/options.h"
 
 namespace leveldb {
 
@@ -11,4 +11,4 @@ class LDBTool {
 };
 
 } // namespace leveldb
-#endif // STORAGE_LEVELDB_INCLUDE_LDB_TOOL_H
+#endif // STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H

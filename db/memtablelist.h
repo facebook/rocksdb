@@ -6,7 +6,7 @@
 #include <string>
 #include <list>
 #include <deque>
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "memtable.h"

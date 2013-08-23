@@ -5,7 +5,7 @@
 #ifndef STORAGE_LEVELDB_DB_SNAPSHOT_H_
 #define STORAGE_LEVELDB_DB_SNAPSHOT_H_
 
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 
 namespace leveldb {
 

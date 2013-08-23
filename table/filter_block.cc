@@ -5,7 +5,7 @@
 #include "table/filter_block.h"
 
 #include "db/dbformat.h"
-#include "leveldb/filter_policy.h"
+#include "rocksdb/filter_policy.h"
 #include "util/coding.h"
 
 namespace leveldb {

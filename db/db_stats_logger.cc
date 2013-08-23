@@ -7,8 +7,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "db/version_set.h"
-#include "leveldb/db.h"
-#include "leveldb/env.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
 

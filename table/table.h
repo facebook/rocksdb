@@ -7,8 +7,8 @@
 
 #include <memory>
 #include <stdint.h>
-#include "leveldb/iterator.h"
-#include "leveldb/env.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/env.h"
 
 namespace leveldb {
 

@@ -8,8 +8,8 @@
 #include <memory>
 #include <assert.h>
 
-#include "leveldb/slice.h"
-#include "leveldb/merge_operator.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 
 namespace leveldb {

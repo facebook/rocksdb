@@ -7,10 +7,10 @@
 #include <memory>
 
 #include "db/dbformat.h"
-#include "leveldb/comparator.h"
-#include "leveldb/env.h"
-#include "leveldb/iterator.h"
-#include "leveldb/merge_operator.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/merge_operator.h"
 #include "util/coding.h"
 #include "util/murmurhash.h"
 

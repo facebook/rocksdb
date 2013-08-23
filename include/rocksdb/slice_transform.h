@@ -8,8 +8,8 @@
 // define InDomain and InRange to determine which slices are in either
 // of these sets respectively.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_SLICE_TRANSFORM_H_
-#define STORAGE_LEVELDB_INCLUDE_SLICE_TRANSFORM_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_SLICE_TRANSFORM_H_
+#define STORAGE_ROCKSDB_INCLUDE_SLICE_TRANSFORM_H_
 
 #include <string>
 
@@ -40,4 +40,4 @@ extern const SliceTransform* NewNoopTransform();
 
 }
 
-#endif  // STORAGE_LEVELDB_INCLUDE_SLICE_TRANSFORM_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_SLICE_TRANSFORM_H_

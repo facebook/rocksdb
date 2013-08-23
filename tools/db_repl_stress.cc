@@ -1,8 +1,8 @@
 #include <cstdio>
 
 #include "db/write_batch_internal.h"
-#include "leveldb/db.h"
-#include "leveldb/types.h"
+#include "rocksdb/db.h"
+#include "rocksdb/types.h"
 #include "port/atomic_pointer.h"
 #include "util/testutil.h"
 

@@ -42,7 +42,7 @@
 #include <string>
 
 #include "redis_list_exception.h"
-#include "leveldb/slice.h"
+#include "rocksdb/slice.h"
 #include "util/coding.h"
 
 namespace leveldb {

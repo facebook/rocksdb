@@ -12,7 +12,7 @@
 #ifndef STORAGE_LEVELDB_DB_PREFIX_FILTER_ITERATOR_H_
 #define STORAGE_LEVELDB_DB_PREFIX_FILTER_ITERATOR_H_
 
-#include "leveldb/iterator.h"
+#include "rocksdb/iterator.h"
 
 namespace leveldb {
 

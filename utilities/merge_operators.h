@@ -4,7 +4,7 @@
 #include <memory>
 #include <stdio.h>
 
-#include "leveldb/merge_operator.h"
+#include "rocksdb/merge_operator.h"
 
 namespace leveldb {
 

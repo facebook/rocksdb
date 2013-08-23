@@ -9,8 +9,8 @@
 
 #include <stdint.h>
 #include <string>
-#include "leveldb/slice.h"
-#include "leveldb/status.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 #include "port/port.h"
 
 namespace leveldb {

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_MERGE_OPERATOR_H_
-#define STORAGE_LEVELDB_INCLUDE_MERGE_OPERATOR_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
+#define STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
 
 #include <string>
 #include <deque>
-#include "leveldb/slice.h"  // TODO: Remove this when migration is done;
+#include "rocksdb/slice.h"  // TODO: Remove this when migration is done;
 
 namespace leveldb {
 
@@ -144,4 +144,4 @@ class AssociativeMergeOperator : public MergeOperator {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_MERGE_OPERATOR_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_

@@ -11,8 +11,8 @@
 #include <vector>
 #include <stdint.h>
 #include <climits>
-#include "leveldb/slice.h"
-#include "leveldb/statistics.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 
 namespace leveldb {
 

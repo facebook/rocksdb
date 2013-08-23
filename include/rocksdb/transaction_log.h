@@ -1,10 +1,10 @@
 // Copyright 2008-present Facebook. All Rights Reserved.
-#ifndef STORAGE_LEVELDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
-#define STORAGE_LEVELDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
+#define STORAGE_ROCKSDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
 
-#include "leveldb/status.h"
-#include "leveldb/types.h"
-#include "leveldb/write_batch.h"
+#include "rocksdb/status.h"
+#include "rocksdb/types.h"
+#include "rocksdb/write_batch.h"
 
 namespace leveldb {
 
@@ -75,4 +75,4 @@ class TransactionLogIterator {
 };
 } //  namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_

@@ -1,8 +1,8 @@
 #ifndef STORAGE_LEVELDB_UTIL_STOP_WATCH_H_
 #define STORAGE_LEVELDB_UTIL_STOP_WATCH_H_
 
-#include "leveldb/env.h"
-#include "leveldb/statistics.h"
+#include "rocksdb/env.h"
+#include "rocksdb/statistics.h"
 
 namespace leveldb {
 // Auto-scoped.

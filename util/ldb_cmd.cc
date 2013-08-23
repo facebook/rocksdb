@@ -9,7 +9,7 @@
 #include "db/log_reader.h"
 #include "db/filename.h"
 #include "db/write_batch_internal.h"
-#include "leveldb/write_batch.h"
+#include "rocksdb/write_batch.h"
 #include "util/coding.h"
 
 #include <ctime>

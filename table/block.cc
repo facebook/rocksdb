@@ -8,7 +8,7 @@
 
 #include <vector>
 #include <algorithm>
-#include "leveldb/comparator.h"
+#include "rocksdb/comparator.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"

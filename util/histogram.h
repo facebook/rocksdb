@@ -5,7 +5,7 @@
 #ifndef STORAGE_LEVELDB_UTIL_HISTOGRAM_H_
 #define STORAGE_LEVELDB_UTIL_HISTOGRAM_H_
 
-#include "leveldb/statistics.h"
+#include "rocksdb/statistics.h"
 
 #include <cassert>
 #include <string>

@@ -27,8 +27,8 @@
 #if defined(LEVELDB_PLATFORM_ANDROID)
 #include <sys/stat.h>
 #endif
-#include "leveldb/env.h"
-#include "leveldb/slice.h"
+#include "rocksdb/env.h"
+#include "rocksdb/slice.h"
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/logging.h"

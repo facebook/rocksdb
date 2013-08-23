@@ -5,10 +5,10 @@
 #ifndef STORAGE_LEVELDB_DB_WRITE_BATCH_INTERNAL_H_
 #define STORAGE_LEVELDB_DB_WRITE_BATCH_INTERNAL_H_
 
-#include "leveldb/types.h"
-#include "leveldb/write_batch.h"
-#include "leveldb/db.h"
-#include "leveldb/options.h"
+#include "rocksdb/types.h"
+#include "rocksdb/write_batch.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
 
 namespace leveldb {
 

@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 
 #include <memory>
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "leveldb/env.h"
-#include "leveldb/memtablerep.h"
+#include "rocksdb/env.h"
+#include "rocksdb/memtablerep.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 

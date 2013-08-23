@@ -8,7 +8,7 @@
 #include <vector>
 
 #include <stdint.h>
-#include "leveldb/slice.h"
+#include "rocksdb/slice.h"
 
 namespace leveldb {
 

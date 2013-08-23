@@ -4,7 +4,7 @@
 
 #include "db/skiplist.h"
 #include <set>
-#include "leveldb/env.h"
+#include "rocksdb/env.h"
 #include "util/arena_impl.h"
 #include "util/hash.h"
 #include "util/random.h"

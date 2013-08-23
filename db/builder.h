@@ -5,9 +5,9 @@
 #ifndef STORAGE_LEVELDB_DB_BUILDER_H_
 #define STORAGE_LEVELDB_DB_BUILDER_H_
 
-#include "leveldb/comparator.h"
-#include "leveldb/status.h"
-#include "leveldb/types.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace leveldb {
 

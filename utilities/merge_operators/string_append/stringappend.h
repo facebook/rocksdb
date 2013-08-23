@@ -5,9 +5,8 @@
  */
 
 #pragma once
-
-#include "leveldb/merge_operator.h"
-#include "leveldb/slice.h"
+#include "rocksdb/merge_operator.h"
+#include "rocksdb/slice.h"
 
 namespace leveldb {
 

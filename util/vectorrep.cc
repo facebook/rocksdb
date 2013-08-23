@@ -1,4 +1,4 @@
-#include "leveldb/memtablerep.h"
+#include "rocksdb/memtablerep.h"
 
 #include <unordered_set>
 #include <set>
@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <type_traits>
 
-#include "leveldb/arena.h"
+#include "rocksdb/arena.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
 #include "util/stl_wrappers.h"

@@ -10,11 +10,11 @@
 // non-const method, all threads accessing the same Status must use
 // external synchronization.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_STATUS_H_
-#define STORAGE_LEVELDB_INCLUDE_STATUS_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_STATUS_H_
+#define STORAGE_ROCKSDB_INCLUDE_STATUS_H_
 
 #include <string>
-#include "leveldb/slice.h"
+#include "rocksdb/slice.h"
 
 namespace leveldb {
 
@@ -116,4 +116,4 @@ inline void Status::operator=(const Status& s) {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_STATUS_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_STATUS_H_

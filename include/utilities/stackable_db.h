@@ -5,7 +5,7 @@
 #ifndef LEVELDB_INCLUDE_UTILITIES_STACKABLE_DB_H_
 #define LEVELDB_INCLUDE_UTILITIES_STACKABLE_DB_H_
 
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 
 namespace leveldb {
 

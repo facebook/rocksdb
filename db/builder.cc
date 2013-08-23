@@ -9,9 +9,9 @@
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
-#include "leveldb/db.h"
-#include "leveldb/env.h"
-#include "leveldb/iterator.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
 #include "util/stop_watch.h"
 
 namespace leveldb {

@@ -2,9 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_HELPERS_MEMENV_MEMENV_H_
-#define STORAGE_LEVELDB_HELPERS_MEMENV_MEMENV_H_
-
+#ifndef STORAGE_ROCKSDB_HELPERS_MEMENV_MEMENV_H_
+#define STORAGE_ROCKSDB_HELPERS_MEMENV_MEMENV_H_
 namespace leveldb {
 
 class Env;
@@ -17,4 +16,4 @@ Env* NewMemEnv(Env* base_env);
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_HELPERS_MEMENV_MEMENV_H_
+#endif  // STORAGE_ROCKSDB_HELPERS_MEMENV_MEMENV_H_

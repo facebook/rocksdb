@@ -5,8 +5,8 @@
 #include "utilities/ttl/db_ttl.h"
 #include "db/filename.h"
 #include "util/coding.h"
-#include "include/leveldb/env.h"
-#include "include/leveldb/iterator.h"
+#include "include/rocksdb/env.h"
+#include "include/rocksdb/iterator.h"
 
 namespace leveldb {
 

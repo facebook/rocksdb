@@ -4,7 +4,7 @@
 
 #include "table/filter_block.h"
 
-#include "leveldb/filter_policy.h"
+#include "rocksdb/filter_policy.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/logging.h"

@@ -3,7 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <memory>
-#include "leveldb/compaction_filter.h"
+#include "rocksdb/compaction_filter.h"
 #include "utilities/utility_db.h"
 #include "util/testharness.h"
 #include "util/logging.h"

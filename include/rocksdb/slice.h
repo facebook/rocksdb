@@ -12,8 +12,8 @@
 // non-const method, all threads accessing the same Slice must use
 // external synchronization.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_SLICE_H_
-#define STORAGE_LEVELDB_INCLUDE_SLICE_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_SLICE_H_
+#define STORAGE_ROCKSDB_INCLUDE_SLICE_H_
 
 #include <assert.h>
 #include <stddef.h>
@@ -119,4 +119,4 @@ inline int Slice::compare(const Slice& b) const {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_SLICE_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_SLICE_H_

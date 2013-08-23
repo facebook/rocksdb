@@ -5,8 +5,8 @@
 #ifndef STORAGE_LEVELDB_TABLE_TWO_LEVEL_ITERATOR_H_
 #define STORAGE_LEVELDB_TABLE_TWO_LEVEL_ITERATOR_H_
 
-#include "leveldb/iterator.h"
-#include "leveldb/env.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/env.h"
 
 namespace leveldb {
 

@@ -5,8 +5,8 @@
 // Arena class defines memory allocation methods. It's used by memtable and
 // skiplist.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_ARENA_H_
-#define STORAGE_LEVELDB_INCLUDE_ARENA_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_ARENA_H_
+#define STORAGE_ROCKSDB_INCLUDE_ARENA_H_
 
 #include <limits>
 #include <memory>
@@ -38,4 +38,4 @@ class Arena {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_ARENA_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_ARENA_H_

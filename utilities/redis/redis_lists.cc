@@ -27,7 +27,7 @@
 #include <memory>
 #include <cmath>
 
-#include "leveldb/slice.h"
+#include "rocksdb/slice.h"
 #include "util/coding.h"
 
 namespace leveldb

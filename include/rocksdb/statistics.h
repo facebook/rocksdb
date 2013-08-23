@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
-#define STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
+#define STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
 
 #include <atomic>
 #include <cassert>
@@ -236,4 +236,4 @@ inline void SetTickerCount(std::shared_ptr<Statistics> statistics,
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_STATISTICS_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_

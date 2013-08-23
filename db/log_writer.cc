@@ -5,7 +5,7 @@
 #include "db/log_writer.h"
 
 #include <stdint.h>
-#include "leveldb/env.h"
+#include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 

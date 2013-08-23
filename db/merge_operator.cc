@@ -5,7 +5,7 @@
  * Copyright 2013 Facebook
  */
 
-#include "leveldb/merge_operator.h"
+#include "rocksdb/merge_operator.h"
 
 namespace leveldb {
 

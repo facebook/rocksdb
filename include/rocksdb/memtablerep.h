@@ -36,13 +36,13 @@
 // iteration over the entire collection is rare since doing so requires all the
 // keys to be copied into a sorted data structure.
 
-#ifndef STORAGE_LEVELDB_DB_MEMTABLEREP_H_
-#define STORAGE_LEVELDB_DB_MEMTABLEREP_H_
+#ifndef STORAGE_ROCKSDB_DB_MEMTABLEREP_H_
+#define STORAGE_ROCKSDB_DB_MEMTABLEREP_H_
 
 #include <memory>
-#include "leveldb/arena.h"
-#include "leveldb/slice.h"
-#include "leveldb/slice_transform.h"
+#include "rocksdb/arena.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 
 namespace leveldb {
 
@@ -227,4 +227,4 @@ public:
 
 }
 
-#endif // STORAGE_LEVELDB_DB_MEMTABLEREP_H_
+#endif // STORAGE_ROCKSDB_DB_MEMTABLEREP_H_

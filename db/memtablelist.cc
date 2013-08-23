@@ -4,10 +4,10 @@
 #include "db/memtablelist.h"
 
 #include <string>
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 #include "db/memtable.h"
-#include "leveldb/env.h"
-#include "leveldb/iterator.h"
+#include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
 #include "util/coding.h"
 
 namespace leveldb {

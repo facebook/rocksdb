@@ -37,8 +37,8 @@
   (5) All of the pointer arguments must be non-NULL.
 */
 
-#ifndef STORAGE_LEVELDB_INCLUDE_C_H_
-#define STORAGE_LEVELDB_INCLUDE_C_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_C_H_
+#define STORAGE_ROCKSDB_INCLUDE_C_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -278,4 +278,4 @@ extern void leveldb_env_destroy(leveldb_env_t*);
 }  /* end extern "C" */
 #endif
 
-#endif  /* STORAGE_LEVELDB_INCLUDE_C_H_ */
+#endif  /* STORAGE_ROCKSDB_INCLUDE_C_H_ */

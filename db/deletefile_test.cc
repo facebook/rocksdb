@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
@@ -10,7 +10,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "boost/lexical_cast.hpp"
-#include "leveldb/env.h"
+#include "rocksdb/env.h"
 #include <vector>
 #include <boost/algorithm/string.hpp>
 #include <stdlib.h>

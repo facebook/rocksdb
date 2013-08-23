@@ -44,7 +44,7 @@
 #include <stdint.h>
 #include <string>
 #include <string.h>
-#include "leveldb/options.h"
+#include "rocksdb/options.h"
 #include "port/atomic_pointer.h"
 
 #ifndef PLATFORM_IS_LITTLE_ENDIAN

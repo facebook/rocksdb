@@ -2,17 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_DB_H_
-#define STORAGE_LEVELDB_INCLUDE_DB_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_DB_H_
+#define STORAGE_ROCKSDB_INCLUDE_DB_H_
 
 #include <stdint.h>
 #include <stdio.h>
 #include <memory>
 #include <vector>
-#include "leveldb/iterator.h"
-#include "leveldb/options.h"
-#include "leveldb/types.h"
-#include "leveldb/transaction_log.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
+#include "rocksdb/types.h"
+#include "rocksdb/transaction_log.h"
 
 namespace leveldb {
 
@@ -303,4 +303,4 @@ Status RepairDB(const std::string& dbname, const Options& options);
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_DB_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_DB_H_

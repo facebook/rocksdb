@@ -4,8 +4,8 @@
 
 #include "table/merger.h"
 
-#include "leveldb/comparator.h"
-#include "leveldb/iterator.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/iterator.h"
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
 

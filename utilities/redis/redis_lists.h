@@ -11,7 +11,7 @@
 #pragma once
 
 #include <string>
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 #include "redis_list_iterator.h"
 #include "redis_list_exception.h"
 

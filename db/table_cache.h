@@ -10,8 +10,8 @@
 #include <string>
 #include <stdint.h>
 #include "db/dbformat.h"
-#include "leveldb/env.h"
-#include "leveldb/cache.h"
+#include "rocksdb/env.h"
+#include "rocksdb/cache.h"
 #include "port/port.h"
 #include "table/table.h"
 

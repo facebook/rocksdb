@@ -12,8 +12,8 @@
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
-#include "leveldb/db.h"
-#include "leveldb/env.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/stats_logger.h"
 

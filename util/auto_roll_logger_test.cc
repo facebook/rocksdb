@@ -6,7 +6,7 @@
 #include <cmath>
 #include "util/testharness.h"
 #include "util/auto_roll_logger.h"
-#include "leveldb/db.h"
+#include "rocksdb/db.h"
 #include <sys/stat.h>
 #include <errno.h>
 #include <iostream>

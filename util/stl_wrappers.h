@@ -4,8 +4,8 @@
 #include "util/murmurhash.h"
 #include "util/coding.h"
 
-#include "leveldb/memtablerep.h"
-#include "leveldb/slice.h"
+#include "rocksdb/memtablerep.h"
+#include "rocksdb/slice.h"
 
 namespace leveldb {
 namespace stl_wrappers {

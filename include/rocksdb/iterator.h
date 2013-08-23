@@ -12,11 +12,11 @@
 // non-const method, all threads accessing the same Iterator must use
 // external synchronization.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_ITERATOR_H_
-#define STORAGE_LEVELDB_INCLUDE_ITERATOR_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
+#define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
 
-#include "leveldb/slice.h"
-#include "leveldb/status.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 
 namespace leveldb {
 
@@ -97,4 +97,4 @@ extern Iterator* NewErrorIterator(const Status& status);
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_ITERATOR_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_

@@ -5,10 +5,10 @@
 #ifndef LEVELDB_UTILITIES_TTL_DB_TTL_H_
 #define LEVELDB_UTILITIES_TTL_DB_TTL_H_
 
-#include "leveldb/db.h"
-#include "leveldb/env.h"
-#include "leveldb/compaction_filter.h"
-#include "leveldb/merge_operator.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/merge_operator.h"
 #include "utilities/utility_db.h"
 #include "db/db_impl.h"
 

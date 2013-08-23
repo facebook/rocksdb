@@ -6,7 +6,7 @@
 
 #include "db/filename.h"
 
-#include "leveldb/statistics.h"
+#include "rocksdb/statistics.h"
 #include "table/table.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"

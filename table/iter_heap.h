@@ -4,7 +4,7 @@
 
 #include <queue>
 
-#include "leveldb/comparator.h"
+#include "rocksdb/comparator.h"
 #include "table/iterator_wrapper.h"
 
 namespace leveldb {

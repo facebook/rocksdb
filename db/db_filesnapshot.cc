@@ -8,8 +8,8 @@
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
-#include "leveldb/db.h"
-#include "leveldb/env.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
 

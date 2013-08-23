@@ -25,8 +25,8 @@
 #include <sys/time.h>
 #include <time.h>
 #include <iostream>
-#include "leveldb/env.h"
-#include "leveldb/status.h"
+#include "rocksdb/env.h"
+#include "rocksdb/status.h"
 
 #ifdef USE_HDFS
 #include "hdfs/hdfs.h"

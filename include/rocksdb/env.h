@@ -10,15 +10,15 @@
 // All Env implementations are safe for concurrent access from
 // multiple threads without any external synchronization.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_ENV_H_
-#define STORAGE_LEVELDB_INCLUDE_ENV_H_
+#ifndef STORAGE_ROCKSDB_INCLUDE_ENV_H_
+#define STORAGE_ROCKSDB_INCLUDE_ENV_H_
 
 #include <cstdarg>
 #include <string>
 #include <memory>
 #include <vector>
 #include <stdint.h>
-#include "leveldb/status.h"
+#include "rocksdb/status.h"
 
 namespace leveldb {
 
@@ -531,4 +531,4 @@ class EnvWrapper : public Env {
 
 }  // namespace leveldb
 
-#endif  // STORAGE_LEVELDB_INCLUDE_ENV_H_
+#endif  // STORAGE_ROCKSDB_INCLUDE_ENV_H_
