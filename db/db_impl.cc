@@ -2097,7 +2097,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   VersionSet::LevelSummaryStorage tmp;
   Log(options_.info_log,
       "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
-      "MB in(%.1f, %.1f) out(%.1f), amplify(%.1f) %s\n",
+      "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
+      "write-amplify(%.1f) %s\n",
       versions_->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
           (double) stats.micros,
@@ -2106,8 +2107,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       stats.bytes_readn / 1048576.0,
       stats.bytes_readnp1 / 1048576.0,
       stats.bytes_written / 1048576.0,
-      (stats.bytes_written + stats.bytes_readnp1) /
+      (stats.bytes_written + stats.bytes_readnp1 + stats.bytes_readn) /
           (double) stats.bytes_readn,
+      stats.bytes_written / (double) stats.bytes_readn,
       status.ToString().c_str());
 
   return status;
@@ -2773,7 +2775,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     // Pardon the long line but I think it is easier to read this way.
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
-             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall Stall-cnt\n"
+             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) RW-Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall Stall-cnt\n"
              "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
              );
     value->append(buf);
@@ -2786,7 +2788,9 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
                             stats_[level].bytes_readnp1;
         double amplify = (stats_[level].bytes_readn == 0)
             ? 0.0
-            : (stats_[level].bytes_written + stats_[level].bytes_readnp1) /
+            : (stats_[level].bytes_written +
+               stats_[level].bytes_readnp1 +
+               stats_[level].bytes_readn) /
                 (double) stats_[level].bytes_readn;
 
         total_bytes_read += bytes_read;
@@ -2794,12 +2798,12 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
 
         snprintf(
             buf, sizeof(buf),
-            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %7.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f %9lu\n",
+            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %10.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f %9lu\n",
             level,
             files,
             versions_->NumLevelBytes(level) / 1048576.0,
             versions_->NumLevelBytes(level) /
-            versions_->MaxBytesForLevel(level),
+                versions_->MaxBytesForLevel(level),
             stats_[level].micros / 1e6,
             bytes_read / 1048576.0,
             stats_[level].bytes_written / 1048576.0,
