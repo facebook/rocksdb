@@ -139,6 +139,26 @@ class TtlTest {
     db_ttl_->CompactRange(nullptr, nullptr);
   }
 
+  // checks the whole kvmap_ to return correct values using KeyMayExist
+  void SimpleKeyMayExistCheck() {
+    static ReadOptions ropts;
+    bool value_found;
+    std::string val;
+    for(auto &kv : kvmap_) {
+      bool ret = db_ttl_->KeyMayExist(ropts, kv.first, &val, &value_found);
+      if (ret == false || value_found == false) {
+        fprintf(stderr, "KeyMayExist could not find key=%s in the database but"
+                        " should have\n", kv.first.c_str());
+        assert(false);
+      } else if (val.compare(kv.second) != 0) {
+        fprintf(stderr, " value for key=%s present in database is %s but"
+                        " should be %s\n", kv.first.c_str(), val.c_str(),
+                        kv.second.c_str());
+        assert(false);
+      }
+    }
+  }
+
   // Sleeps for slp_tim then runs a manual compaction
   // Checks span starting from st_pos from kvmap_ in the db and
   // Gets should return true if check is true and false otherwise
@@ -458,6 +478,19 @@ TEST(TtlTest, CompactionFilter) {
   SleepCompactCheck(1, 0, partition, false);   // Part dropped
   SleepCompactCheck(0, partition, partition);  // Part kept
   SleepCompactCheck(0, 2 * partition, partition, true, true); // Part changed
+  CloseTtl();
+}
+
+// Insert some key-values which KeyMayExist should be able to get and check that
+// values returned are fine
+TEST(TtlTest, KeyMayExist) {
+  MakeKVMap(kSampleSize_);
+
+  OpenTtl();
+  PutValues(0, kSampleSize_);
+
+  SimpleKeyMayExistCheck();
+
   CloseTtl();
 }
 
