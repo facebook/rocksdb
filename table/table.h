@@ -79,8 +79,7 @@ class Table {
                                const EnvOptions& soptions, const Slice&,
                                bool for_compaction);
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
-                               bool* didIO, bool for_compaction = false,
-                               const bool no_io = false);
+                               bool* didIO, bool for_compaction = false);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -90,8 +89,7 @@ class Table {
       const ReadOptions&, const Slice& key,
       void* arg,
       bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
-      void (*mark_key_may_exist)(void*) = nullptr,
-      const bool no_io = false);
+      void (*mark_key_may_exist)(void*) = nullptr);
 
 
   void ReadMeta(const Footer& footer);

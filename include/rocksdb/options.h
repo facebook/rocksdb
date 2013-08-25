@@ -543,6 +543,18 @@ struct Options {
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 };
 
+//
+// An application can issue a read request (via Get/Iterators) and specify
+// if that read should process data that ALREADY resides on a specified cache
+// level. For example, if an application specifies kBlockCacheTier then the
+// Get call will process data that is already processed in the memtable or
+// the block cache. It will not page in data from the OS cache or data that
+// resides in storage.
+enum ReadTier {
+  kReadAllTier    = 0x0, // data in memtable, block cache, OS cache or storage
+  kBlockCacheTier = 0x1  // data in memtable or block cache
+};
+
 // Options that control read operations
 struct ReadOptions {
   // If true, all data read from underlying storage will be
@@ -575,15 +587,23 @@ struct ReadOptions {
   // Default: nullptr
   const Slice* prefix;
 
+  // Specify if this read request should process data that ALREADY
+  // resides on a particular cache. If the required data is not
+  // found at the specified cache, then Status::WouldBlock is returned.
+  // Default: kReadAllTier
+  ReadTier read_tier;
+
   ReadOptions()
       : verify_checksums(false),
         fill_cache(true),
         snapshot(nullptr),
-        prefix(nullptr) {
+        prefix(nullptr),
+        read_tier(kReadAllTier) {
   }
   ReadOptions(bool cksum, bool cache) :
               verify_checksums(cksum), fill_cache(cache),
-              snapshot(nullptr), prefix(nullptr) {
+              snapshot(nullptr), prefix(nullptr),
+              read_tier(kReadAllTier) {
   }
 };
 

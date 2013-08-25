@@ -424,7 +424,6 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& options,
                  const Slice& key,
                  std::string* value,
-                 const bool no_io = false,
                  bool* value_found = nullptr);
 };
 

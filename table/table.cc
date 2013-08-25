@@ -237,8 +237,8 @@ Iterator* Table::BlockReader(void* arg,
                              const ReadOptions& options,
                              const Slice& index_value,
                              bool* didIO,
-                             bool for_compaction,
-                             const bool no_io) {
+                             bool for_compaction) {
+  const bool no_io = (options.read_tier == kBlockCacheTier);
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache.get();
   std::shared_ptr<Statistics> statistics = table->rep_->options.statistics;
@@ -268,7 +268,8 @@ Iterator* Table::BlockReader(void* arg,
 
         RecordTick(statistics, BLOCK_CACHE_HIT);
       } else if (no_io) {
-        return nullptr; // Did not find in block_cache and can't do IO
+        // Did not find in block_cache and can't do IO
+        return NewErrorIterator(Status::Incomplete("no blocking io"));
       } else {
         Histograms histogram = for_compaction ?
           READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
@@ -292,7 +293,8 @@ Iterator* Table::BlockReader(void* arg,
         RecordTick(statistics, BLOCK_CACHE_MISS);
       }
     } else if (no_io) {
-      return nullptr; // Could not read from block_cache and can't do IO
+      // Could not read from block_cache and can't do IO
+      return NewErrorIterator(Status::Incomplete("no blocking io"));
     }else {
       s = ReadBlock(table->rep_->file.get(), options, handle, &block, didIO);
     }
@@ -401,8 +403,7 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
                           void* arg,
                           bool (*saver)(void*, const Slice&, const Slice&,
                                         bool),
-                          void (*mark_key_may_exist)(void*),
-                          const bool no_io) {
+                          void (*mark_key_may_exist)(void*)) {
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   bool done = false;
@@ -421,9 +422,10 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
     } else {
       bool didIO = false;
       Iterator* block_iter = BlockReader(this, options, iiter->value(),
-                                         &didIO, false, no_io);
+                                         &didIO);
 
-      if (no_io && !block_iter) { // couldn't get block from block_cache
+      if (options.read_tier && block_iter->status().IsIncomplete()) {
+        // couldn't get block from block_cache
         // Update Saver.state to Found because we are only looking for whether
         // we can guarantee the key is not there when "no_io" is set
         (*mark_key_may_exist)(arg);

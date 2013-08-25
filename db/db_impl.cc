@@ -2203,7 +2203,6 @@ Status DBImpl::Get(const ReadOptions& options,
 Status DBImpl::GetImpl(const ReadOptions& options,
                        const Slice& key,
                        std::string* value,
-                       const bool no_io,
                        bool* value_found) {
   Status s;
 
@@ -2242,7 +2241,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // Done
   } else {
     current->Get(options, lkey, value, &s, &merge_operands, &stats,
-                 options_, no_io, value_found);
+                 options_, value_found);
     have_stat_update = true;
   }
   mutex_.Lock();
@@ -2348,7 +2347,9 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
   if (value_found != nullptr) {
     *value_found = true; // falsify later if key-may-exist but can't fetch value
   }
-  return GetImpl(options, key, value, true, value_found).ok();
+  ReadOptions roptions = options;
+  roptions.read_tier = kBlockCacheTier; // read from block cache only
+  return GetImpl(roptions, key, value, value_found).ok();
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {

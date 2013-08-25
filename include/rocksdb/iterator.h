@@ -65,6 +65,8 @@ class Iterator {
   virtual Slice value() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
+  // If non-blocking IO is requested and this operation cannot be
+  // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
   // Clients are allowed to register function/arg1/arg2 triples that

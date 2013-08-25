@@ -49,8 +49,7 @@ class TableCache {
              void* arg,
              bool (*handle_result)(void*, const Slice&, const Slice&, bool),
              bool* table_io,
-             void (*mark_key_may_exist)(void*) = nullptr,
-             const bool no_io = false);
+             void (*mark_key_may_exist)(void*) = nullptr);
 
   // Determine whether the table may contain the specified prefix.  If
   // the table index of blooms are not in memory, this may cause an I/O

@@ -48,7 +48,7 @@ Status TableCache::FindTable(const EnvOptions& toptions,
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
     if (no_io) { // Dont do IO and return a not-found status
-      return Status::NotFound("Table not found in table_cache, no_io is set");
+      return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
     if (table_io != nullptr) {
       *table_io = true;    // we had to do IO from storage
@@ -90,7 +90,8 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   }
 
   Cache::Handle* handle = nullptr;
-  Status s = FindTable(toptions, file_number, file_size, &handle);
+  Status s = FindTable(toptions, file_number, file_size, &handle,
+                       nullptr, options.read_tier == kBlockCacheTier);
   if (!s.ok()) {
     return NewErrorIterator(s);
   }
@@ -117,17 +118,17 @@ Status TableCache::Get(const ReadOptions& options,
                        void* arg,
                        bool (*saver)(void*, const Slice&, const Slice&, bool),
                        bool* table_io,
-                       void (*mark_key_may_exist)(void*),
-                       const bool no_io) {
+                       void (*mark_key_may_exist)(void*)) {
   Cache::Handle* handle = nullptr;
   Status s = FindTable(storage_options_, file_number, file_size,
-                       &handle, table_io, no_io);
+                       &handle, table_io,
+                       options.read_tier == kBlockCacheTier);
   if (s.ok()) {
     Table* t =
       reinterpret_cast<Table*>(cache_->Value(handle));
-    s = t->InternalGet(options, k, arg, saver, mark_key_may_exist, no_io);
+    s = t->InternalGet(options, k, arg, saver, mark_key_may_exist);
     cache_->Release(handle);
-  } else if (no_io && s.IsNotFound()) {
+  } else if (options.read_tier && s.IsIncomplete()) {
     // Couldnt find Table in cache but treat as kFound if no_io set
     (*mark_key_may_exist)(arg);
     return Status::OK();

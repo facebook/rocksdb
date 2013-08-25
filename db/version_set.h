@@ -76,7 +76,7 @@ class Version {
   };
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
            Status* status, std::deque<std::string>* operands, GetStats* stats,
-           const Options& db_option, const bool no_io = false,
+           const Options& db_option,
            bool* value_found = nullptr);
 
   // Adds "stats" into the current state.  Returns true if a new

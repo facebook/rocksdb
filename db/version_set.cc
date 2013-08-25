@@ -415,7 +415,6 @@ void Version::Get(const ReadOptions& options,
                   std::deque<std::string>* operands,
                   GetStats* stats,
                   const Options& db_options,
-                  const bool no_io,
                   bool* value_found) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
@@ -425,9 +424,6 @@ void Version::Get(const ReadOptions& options,
   auto logger = db_options.info_log;
 
   assert(status->ok() || status->IsMergeInProgress());
-  if (no_io) {
-    assert(status->ok());
-  }
   Saver saver;
   saver.state = status->ok()? kNotFound : kMerge;
   saver.ucmp = ucmp;
@@ -516,7 +512,7 @@ void Version::Get(const ReadOptions& options,
       bool tableIO = false;
       *status = vset_->table_cache_->Get(options, f->number, f->file_size,
                                          ikey, &saver, SaveValue, &tableIO,
-                                         MarkKeyMayExist, no_io);
+                                         MarkKeyMayExist);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;

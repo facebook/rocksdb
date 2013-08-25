@@ -50,6 +50,9 @@ class Status {
   static Status MergeInProgress(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kMergeInProgress, msg, msg2);
   }
+  static Status Incomplete(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kIncomplete, msg, msg2);
+  }
 
   // Returns true iff the status indicates success.
   bool ok() const { return (state_ == nullptr); }
@@ -72,6 +75,9 @@ class Status {
   // Returns true iff the status indicates an MergeInProgress.
   bool IsMergeInProgress() const { return code() == kMergeInProgress; }
 
+  // Returns true iff the status indicates Incomplete
+  bool IsIncomplete() const { return code() == kIncomplete; }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
@@ -92,6 +98,7 @@ class Status {
     kInvalidArgument = 4,
     kIOError = 5,
     kMergeInProgress = 6,
+    kIncomplete = 7
   };
 
   Code code() const {

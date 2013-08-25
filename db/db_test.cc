@@ -11,6 +11,7 @@
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "db/db_statistics.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
@@ -829,6 +830,7 @@ TEST(DBTest, KeyMayExist) {
     std::string value;
     Options options = CurrentOptions();
     options.filter_policy = NewBloomFilterPolicy(20);
+    options.statistics = leveldb::CreateDBStatistics();
     Reopen(&options);
 
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
@@ -841,21 +843,111 @@ TEST(DBTest, KeyMayExist) {
 
     dbfull()->Flush(FlushOptions());
     value.clear();
-    value_found = false;
+
+    long numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
+    long cache_miss =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
     ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
     ASSERT_TRUE(!value_found);
+    // assert that no new files were opened and no new blocks were
+    // read into block cache.
+    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
+    ASSERT_EQ(cache_miss,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "a"));
+
+    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
+    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
+    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
+    ASSERT_EQ(cache_miss,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
 
     dbfull()->Flush(FlushOptions());
     dbfull()->CompactRange(nullptr, nullptr);
+
+    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
+    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
+    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
+    ASSERT_EQ(cache_miss,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "c"));
+
+    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
+    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "c", &value));
+    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
+    ASSERT_EQ(cache_miss,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
 
     delete options.filter_policy;
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, NonBlockingIteration) {
+  do {
+    ReadOptions non_blocking_opts, regular_opts;
+    Options options = CurrentOptions();
+    options.statistics = leveldb::CreateDBStatistics();
+    non_blocking_opts.read_tier = kBlockCacheTier;
+    Reopen(&options);
+
+    // write one kv to the database.
+    ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
+
+    // scan using non-blocking iterator. We should find it because
+    // it is in memtable.
+    Iterator* iter = db_->NewIterator(non_blocking_opts);
+    int count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_TRUE(iter->status().ok());
+      count++;
+    }
+    ASSERT_EQ(count, 1);
+    delete iter;
+
+    // flush memtable to storage. Now, the key should not be in the
+    // memtable neither in the block cache.
+    dbfull()->Flush(FlushOptions());
+
+    // verify that a non-blocking iterator does not find any
+    // kvs. Neither does it do any IOs to storage.
+    long numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
+    long cache_miss =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    iter = db_->NewIterator(non_blocking_opts);
+    count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      count++;
+    }
+    ASSERT_EQ(count, 0);
+    ASSERT_TRUE(iter->status().IsIncomplete());
+    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
+    ASSERT_EQ(cache_miss,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    delete iter;
+
+    // read in the specified block via a regular get
+    ASSERT_EQ(Get("a"), "b");
+
+    // verify that we can find it via a non-blocking scan
+    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
+    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    iter = db_->NewIterator(non_blocking_opts);
+    count = 0;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_TRUE(iter->status().ok());
+      count++;
+    }
+    ASSERT_EQ(count, 1);
+    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
+    ASSERT_EQ(cache_miss,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    delete iter;
+
   } while (ChangeOptions());
 }
 
