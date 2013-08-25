@@ -843,8 +843,7 @@ TEST(DBTest, KeyMayExist) {
     value.clear();
     value_found = false;
     ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
-    ASSERT_TRUE(value_found);
-    ASSERT_EQ("b", value);
+    ASSERT_TRUE(!value_found);
 
     ASSERT_OK(db_->Delete(WriteOptions(), "a"));
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));

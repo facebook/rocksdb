@@ -421,7 +421,7 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
     } else {
       bool didIO = false;
       Iterator* block_iter = BlockReader(this, options, iiter->value(),
-                                         &didIO, no_io);
+                                         &didIO, false, no_io);
 
       if (no_io && !block_iter) { // couldn't get block from block_cache
         // Update Saver.state to Found because we are only looking for whether
