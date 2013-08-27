@@ -2996,40 +2996,48 @@ Status DBImpl::DeleteFile(std::string name) {
   FileMetaData metadata;
   int maxlevel = NumberLevels();
   VersionEdit edit(maxlevel);
-  MutexLock l(&mutex_);
-  Status status =
-    versions_->GetMetadataForFile(number, &level, &metadata);
-  if (!status.ok()) {
-    Log(options_.info_log, "DeleteFile #%lld FAILED. File not found\n",
-        static_cast<unsigned long long>(number));
-    return Status::InvalidArgument("File not found");
-  }
-  assert((level > 0) && (level < maxlevel));
-
-  // If the file is being compacted no need to delete.
-  if (metadata.being_compacted) {
-    Log(options_.info_log,
-        "DeleteFile #%lld Skipped. File about to be compacted\n",
-        static_cast<unsigned long long>(number));
-    return Status::OK();
-  }
-
-  // Only the files in the last level can be deleted externally.
-  // This is to make sure that any deletion tombstones are not
-  // lost. Check that the level passed is the last level.
-  for (int i = level + 1; i < maxlevel; i++) {
-    if (versions_->NumLevelFiles(i) != 0) {
-      Log(options_.info_log,
-          "DeleteFile #%lld FAILED. File not in last level\n",
+  DeletionState deletion_state;
+  Status status;
+  {
+    MutexLock l(&mutex_);
+    status = versions_->GetMetadataForFile(number, &level, &metadata);
+    if (!status.ok()) {
+      Log(options_.info_log, "DeleteFile #%lld FAILED. File not found\n",
           static_cast<unsigned long long>(number));
-      return Status::InvalidArgument("File not in last level");
+      return Status::InvalidArgument("File not found");
     }
-  }
+    assert((level > 0) && (level < maxlevel));
 
-  edit.DeleteFile(level, number);
-  status = versions_->LogAndApply(&edit, &mutex_);
+    // If the file is being compacted no need to delete.
+    if (metadata.being_compacted) {
+      Log(options_.info_log,
+          "DeleteFile #%lld Skipped. File about to be compacted\n",
+          static_cast<unsigned long long>(number));
+      return Status::OK();
+    }
+
+    // Only the files in the last level can be deleted externally.
+    // This is to make sure that any deletion tombstones are not
+    // lost. Check that the level passed is the last level.
+    for (int i = level + 1; i < maxlevel; i++) {
+      if (versions_->NumLevelFiles(i) != 0) {
+        Log(options_.info_log,
+            "DeleteFile #%lld FAILED. File not in last level\n",
+            static_cast<unsigned long long>(number));
+        return Status::InvalidArgument("File not in last level");
+      }
+    }
+    edit.DeleteFile(level, number);
+    status = versions_->LogAndApply(&edit, &mutex_);
+    if (status.ok()) {
+      FindObsoleteFiles(deletion_state);
+    }
+  } // lock released here
+
   if (status.ok()) {
-    DeleteObsoleteFiles();
+    // remove files outside the db-lock
+    PurgeObsoleteFiles(deletion_state);
+    EvictObsoleteFiles(deletion_state);
   }
   return status;
 }

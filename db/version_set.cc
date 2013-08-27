@@ -2701,6 +2701,8 @@ void VersionSet::GetLiveFilesMetaData(
       filemetadata.size = files[i]->file_size;
       filemetadata.smallestkey = files[i]->smallest.user_key().ToString();
       filemetadata.largestkey = files[i]->largest.user_key().ToString();
+      filemetadata.smallest_seqno = files[i]->smallest_seqno;
+      filemetadata.largest_seqno = files[i]->largest_seqno;
       metadata->push_back(filemetadata);
     }
   }

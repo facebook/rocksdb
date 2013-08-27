@@ -30,16 +30,13 @@ class WriteBatch;
 
 // Metadata associated with each SST file.
 struct LiveFileMetaData {
-  // Name of the file
-  std::string name;
-  // Level at which this file resides.
-  int level;
-  // File size in bytes.
-  size_t size;
-  // Smallest user defined key in the file.
-  std::string smallestkey;
-  // Largest user defined key in the file.
-  std::string largestkey;
+  std::string name;        // Name of the file
+  int level;               // Level at which this file resides.
+  size_t size;             // File size in bytes.
+  std::string smallestkey; // Smallest user defined key in the file.
+  std::string largestkey;  // Largest user defined key in the file.
+  SequenceNumber smallest_seqno; // smallest seqno in file
+  SequenceNumber largest_seqno;  // largest seqno in file
 };
 
 // Abstract handle to particular state of a DB.
