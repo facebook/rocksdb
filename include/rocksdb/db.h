@@ -251,7 +251,6 @@ class DB {
 
   // Delete wal files in files. These can be either live or archived.
   // Returns Status::OK if all files could be deleted, otherwise Status::IOError
-  // which contains information about files that could not be deleted.
   virtual Status DeleteWalFiles(const VectorLogPtr& files) = 0;
 
   // The sequence number of the most recent transaction.

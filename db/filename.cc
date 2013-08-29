@@ -62,7 +62,7 @@ std::string ArchivalDirectory(const std::string& dbname) {
 }
 std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
-  return MakeFileName(name + "/archive", number, "log");
+  return MakeFileName(name + "/" + ARCHIVAL_DIR, number, "log");
 }
 
 std::string TableFileName(const std::string& name, uint64_t number) {

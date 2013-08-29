@@ -1213,6 +1213,12 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
     return status;
   }
   log_files.reserve(log_files.size() + all_files.size());
+  VectorLogPtr::iterator pos_start;
+  if (!log_files.empty()) {
+    pos_start = log_files.end() - 1;
+  } else {
+    pos_start = log_files.begin();
+  }
   for (const auto& f : all_files) {
     uint64_t number;
     FileType type;
@@ -1238,7 +1244,7 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
     }
   }
   CompareLogByPointer compare_log_files;
-  std::sort(log_files.begin(), log_files.end(), compare_log_files);
+  std::sort(pos_start, log_files.end(), compare_log_files);
   return status;
 }
 

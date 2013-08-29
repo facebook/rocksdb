@@ -48,18 +48,17 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   std::set<uint64_t> live;
   versions_->AddLiveFilesCurrentVersion(&live);
 
-  ret.resize(live.size() + 2); //*.sst + CURRENT + MANIFEST
+  ret.clear();
+  ret.reserve(live.size() + 2); //*.sst + CURRENT + MANIFEST
 
   // create names of the live files. The names are not absolute
   // paths, instead they are relative to dbname_;
-  std::set<uint64_t>::iterator it = live.begin();
-  for (unsigned int i = 0; i < live.size(); i++, it++) {
-    ret[i] = TableFileName("", *it);
+  for (auto live_file : live) {
+    ret.push_back(TableFileName("", live_file));
   }
 
-  ret[live.size()] = CurrentFileName("");
-  ret[live.size()+1] = DescriptorFileName("",
-                                          versions_->ManifestFileNumber());
+  ret.push_back(CurrentFileName(""));
+  ret.push_back(DescriptorFileName("", versions_->ManifestFileNumber()));
 
   // find length of manifest file while holding the mutex lock
   *manifest_file_size = versions_->ManifestFileSize();
@@ -71,7 +70,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   // First get sorted files in archive dir, then append sorted files from main
   // dir to maintain sorted order
 
-  //  list wal files in archive dir.
+  // list wal files in archive dir.
   Status s;
   std::string archivedir = ArchivalDirectory(dbname_);
   if (env_->FileExists(archivedir)) {
@@ -81,11 +80,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     }
   }
   // list wal files in main db dir.
-  s = AppendSortedWalsOfType(dbname_, files, kAliveLogFile);
-  if (!s.ok()) {
-    return s;
-  }
-  return s;
+  return AppendSortedWalsOfType(dbname_, files, kAliveLogFile);
 }
 
 Status DBImpl::DeleteWalFiles(const VectorLogPtr& files) {
@@ -93,14 +88,17 @@ Status DBImpl::DeleteWalFiles(const VectorLogPtr& files) {
   std::string archivedir = ArchivalDirectory(dbname_);
   std::string files_not_deleted;
   for (const auto& wal : files) {
-    /* Try deleting in archive dir. If fails, try deleting in main db dir.
-     * This is efficient because all except for very few wal files will be in
-     * archive. Checking for WalType is not much helpful because alive wal could
-       be archived now.
+    /* Try deleting in the dir that pathname points to for the logfile.
+       This may fail if we try to delete a log file which was live when captured
+       but is archived now. Try deleting it from archive also
      */
-    if (!env_->DeleteFile(archivedir + "/" + wal->Filename()).ok() &&
-        !env_->DeleteFile(dbname_ + "/" + wal->Filename()).ok()) {
-      files_not_deleted.append(wal->Filename());
+    Status st = env_->DeleteFile(dbname_ + "/" + wal->PathName());
+    if (!st.ok()) {
+      if (wal->Type() == kAliveLogFile &&
+          env_->DeleteFile(LogFileName(archivedir, wal->LogNumber())).ok()) {
+        continue;
+      }
+      files_not_deleted.append(wal->PathName());
     }
   }
   if (!files_not_deleted.empty()) {

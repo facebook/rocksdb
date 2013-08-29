@@ -31,7 +31,12 @@ class LogFileImpl : public LogFile {
     sizeFileBytes_(sizeBytes) {
   }
 
-  std::string Filename() const { return LogFileName("", logNumber_); }
+  std::string PathName() const {
+    if (type_ == kArchivedLogFile) {
+      return ArchivedLogFileName("", logNumber_);
+    }
+    return LogFileName("", logNumber_);
+  }
 
   uint64_t LogNumber() const { return logNumber_; }
 

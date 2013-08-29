@@ -27,8 +27,11 @@ class LogFile {
   LogFile() {}
   virtual ~LogFile() {}
 
-  // Returns log file's name excluding the db path
-  virtual std::string Filename() const = 0;
+  // Returns log file's pathname relative to the main db dir
+  // Eg. For a live-log-file = /000003.log
+  //     For an archived-log-file = /archive/000003.log
+  virtual std::string PathName() const = 0;
+
 
   // Primary identifier for log file.
   // This is directly proportional to creation time of the log file
