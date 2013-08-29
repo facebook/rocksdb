@@ -169,7 +169,8 @@ Options SanitizeOptions(const std::string& dbname,
     // function.
     auto factory = dynamic_cast<PrefixHashRepFactory*>(
       result.memtable_factory.get());
-    if (factory != nullptr && factory->transform_ != result.prefix_extractor) {
+    if (factory != nullptr &&
+        factory->GetTransform() != result.prefix_extractor) {
       Log(result.info_log, "A prefix hash representation factory was supplied "
           "whose prefix extractor does not match options.prefix_extractor. "
           "Falling back to skip list representation factory");

@@ -181,7 +181,7 @@ public:
 //
 // Parameters:
 //   transform: The SliceTransform to bucket user keys on. TransformRepFactory
-//     assumes it does not own the pointer.
+//     owns the pointer.
 //   bucket_count: Passed to the constructor of the underlying
 //     std::unordered_map of each TransformRep. On initialization, the
 //     underlying array will be at least bucket_count size.
@@ -189,17 +189,24 @@ public:
 //     hashed onto a read-write lock which controls access to that lock. More
 //     locks means finer-grained concurrency but more memory overhead.
 class TransformRepFactory : public MemTableRepFactory {
-public:
-  const SliceTransform* transform_;
-  const size_t bucket_count_;
-  const size_t num_locks_;
+ public:
   explicit TransformRepFactory(const SliceTransform* transform,
     size_t bucket_count, size_t num_locks = 1000)
     : transform_(transform),
       bucket_count_(bucket_count),
       num_locks_(num_locks) { }
+
+  virtual ~TransformRepFactory() { delete transform_; }
+
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
     MemTableRep::KeyComparator&, Arena*) override;
+
+  const SliceTransform* GetTransform() { return transform_; }
+
+ protected:
+  const SliceTransform* transform_;
+  const size_t bucket_count_;
+  const size_t num_locks_;
 };
 
 // UnsortedReps bin user keys based on an identity function transform -- that
@@ -207,13 +214,11 @@ public:
 //
 // Parameters: See TransformRepFactory.
 class UnsortedRepFactory : public TransformRepFactory {
-  const SliceTransform* transform_;
 public:
   explicit UnsortedRepFactory(size_t bucket_count = 0, size_t num_locks = 1000)
-    : TransformRepFactory(transform_ = NewNoopTransform(),
+    : TransformRepFactory(NewNoopTransform(),
                           bucket_count,
                           num_locks) { }
-  virtual ~UnsortedRepFactory() { delete transform_; }
 };
 
 // PrefixHashReps bin user keys based on a fixed-size prefix. This optimizes for
@@ -226,6 +231,7 @@ public:
     size_t bucket_count = 0, size_t num_locks = 1000)
     : TransformRepFactory(prefix_extractor, bucket_count, num_locks)
     { }
+
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
     MemTableRep::KeyComparator&, Arena*) override;
 };

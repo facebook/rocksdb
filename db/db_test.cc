@@ -3932,7 +3932,6 @@ TEST(DBTest, PrefixScan) {
   ASSERT_EQ(env_->random_read_counter_.Read(), 11);
   Close();
   delete options.filter_policy;
-  delete options.prefix_extractor;
 }
 
 std::string MakeKey(unsigned int num) {
