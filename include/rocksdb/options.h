@@ -589,7 +589,7 @@ struct ReadOptions {
 
   // Specify if this read request should process data that ALREADY
   // resides on a particular cache. If the required data is not
-  // found at the specified cache, then Status::WouldBlock is returned.
+  // found at the specified cache, then Status::Incomplete is returned.
   // Default: kReadAllTier
   ReadTier read_tier;
 
