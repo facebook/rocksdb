@@ -2674,9 +2674,9 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 }
 
 Status VersionSet::GetMetadataForFile(
-  uint64_t number,
-  int *filelevel,
-  FileMetaData *meta) {
+    uint64_t number,
+    int *filelevel,
+    FileMetaData *meta) {
   for (int level = 0; level < NumberLevels(); level++) {
     const std::vector<FileMetaData*>& files = current_->files_[level];
     for (size_t i = 0; i < files.size(); i++) {
@@ -2691,7 +2691,7 @@ Status VersionSet::GetMetadataForFile(
 }
 
 void VersionSet::GetLiveFilesMetaData(
-  std::vector<LiveFileMetaData> * metadata) {
+    std::vector<LiveFileMetaData> * metadata) {
   for (int level = 0; level < NumberLevels(); level++) {
     const std::vector<FileMetaData*>& files = current_->files_[level];
     for (size_t i = 0; i < files.size(); i++) {

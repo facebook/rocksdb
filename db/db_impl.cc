@@ -3042,8 +3042,7 @@ Status DBImpl::DeleteFile(std::string name) {
   return status;
 }
 
-void DBImpl::GetLiveFilesMetaData(
-  std::vector<LiveFileMetaData> *metadata) {
+void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata) {
   MutexLock l(&mutex_);
   return versions_->GetLiveFilesMetaData(metadata);
 }

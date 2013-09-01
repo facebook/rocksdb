@@ -167,7 +167,7 @@ TEST(DeleteFileTest, DeleteFileWithIterator) {
   }
 
   Status status = db_->DeleteFile(level2file);
-  fprintf(stderr, "Deletion status %s: %s\n",
+  fprintf(stdout, "Deletion status %s: %s\n",
           level2file.c_str(), status.ToString().c_str());
   ASSERT_TRUE(status.ok());
   it->SeekToFirst();

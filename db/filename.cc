@@ -130,10 +130,14 @@ std::string MetaDatabaseName(const std::string& dbname, uint64_t number) {
 //    dbname/MANIFEST-[0-9]+
 //    dbname/[0-9]+.(log|sst)
 //    dbname/METADB-[0-9]+
+//    Disregards / at the beginning
 bool ParseFileName(const std::string& fname,
                    uint64_t* number,
                    FileType* type) {
   Slice rest(fname);
+  if (fname.length() > 1 && fname[0] == '/') {
+    rest.remove_prefix(1);
+  }
   if (rest == "CURRENT") {
     *number = 0;
     *type = kCurrentFile;
