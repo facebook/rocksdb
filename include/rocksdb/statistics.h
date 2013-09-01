@@ -75,8 +75,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { BLOCK_CACHE_MISS, "rocksdb.block.cache.miss" },
   { BLOCK_CACHE_HIT, "rocksdb.block.cache.hit" },
   { BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful" },
-  { BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked" },
-  { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" },
   { COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new" },
   { COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete" },
   { COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user" },
@@ -97,7 +95,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" },
   { NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered" },
   { NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures" },
-  { SEQUENCE_NUMBER, "rocksdb.sequence.number" }
+  { SEQUENCE_NUMBER, "rocksdb.sequence.number" },
+  { BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked" },
+  { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" }
 };
 
 /**

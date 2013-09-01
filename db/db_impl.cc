@@ -2468,7 +2468,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
           // have succeeded in memtable but Status reports error for all writes.
           throw std::runtime_error("In memory WriteBatch corruption!");
         }
-        RecordTick(options_.statistics, SEQUENCE_NUMBER, my_batch_count);
+        SetTickerCount(options_.statistics, SEQUENCE_NUMBER, last_sequence);
         versions_->SetLastSequence(last_sequence);
         last_flushed_sequence_ = current_sequence;
       }
