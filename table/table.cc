@@ -421,8 +421,8 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
       break;
     } else {
       bool didIO = false;
-      Iterator* block_iter = BlockReader(this, options, iiter->value(),
-                                         &didIO);
+      std::unique_ptr<Iterator> block_iter(
+        BlockReader(this, options, iiter->value(), &didIO));
 
       if (options.read_tier && block_iter->status().IsIncomplete()) {
         // couldn't get block from block_cache
@@ -440,7 +440,6 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
         }
       }
       s = block_iter->status();
-      delete block_iter;
     }
   }
   if (s.ok()) {
