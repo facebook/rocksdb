@@ -119,7 +119,7 @@ class TtlTest {
   }
 
   // Puts num_entries starting from start_pos_map from kvmap_ into the database
-  void PutValues(int start_pos_map, int num_entries) {
+  void PutValues(int start_pos_map, int num_entries, bool flush = true) {
     assert(db_ttl_);
     ASSERT_LE(start_pos_map + num_entries, (int)kvmap_.size());
     static WriteOptions wopts;
@@ -131,7 +131,9 @@ class TtlTest {
     }
     // Put a mock kv at the end because CompactionFilter doesn't delete last key
     ASSERT_OK(db_ttl_->Put(wopts, "keymock", "valuemock"));
-    db_ttl_->Flush(flush_opts);
+    if (flush) {
+      db_ttl_->Flush(flush_opts);
+    }
   }
 
   // Runs a manual compaction
@@ -487,7 +489,7 @@ TEST(TtlTest, KeyMayExist) {
   MakeKVMap(kSampleSize_);
 
   OpenTtl();
-  PutValues(0, kSampleSize_);
+  PutValues(0, kSampleSize_, false);
 
   SimpleKeyMayExistCheck();
 
