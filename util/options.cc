@@ -34,6 +34,8 @@ Options::Options()
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
       max_open_files(1000),
+      block_cache(nullptr),
+      block_cache_compressed(nullptr),
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
@@ -129,9 +131,15 @@ Options::Dump(Logger* log) const
     Log(log," Options.max_write_buffer_number: %d", max_write_buffer_number);
     Log(log,"          Options.max_open_files: %d", max_open_files);
     Log(log,"             Options.block_cache: %p", block_cache.get());
+    Log(log,"  Options.block_cache_compressed: %p",
+        block_cache_compressed.get());
     if (block_cache) {
-      Log(log,"      Options.block_cache_size: %zd",
+      Log(log,"        Options.block_cache_size: %zd",
           block_cache->GetCapacity());
+    }
+    if (block_cache_compressed) {
+      Log(log,"Options.block_cache_compressed_size: %zd",
+          block_cache_compressed->GetCapacity());
     }
     Log(log,"              Options.block_size: %zd", block_size);
     Log(log,"  Options.block_restart_interval: %d", block_restart_interval);

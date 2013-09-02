@@ -1679,7 +1679,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     MaybeScheduleFlushOrCompaction(); // do more compaction work in parallel.
     CompactionState* compact = new CompactionState(c.get());
     status = DoCompactionWork(compact);
-    CleanupCompaction(compact);
+    CleanupCompaction(compact, status);
     versions_->ReleaseCompactionFiles(c.get(), status);
     c->ReleaseInputs();
     FindObsoleteFiles(deletion_state);
@@ -1728,7 +1728,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   return status;
 }
 
-void DBImpl::CleanupCompaction(CompactionState* compact) {
+void DBImpl::CleanupCompaction(CompactionState* compact, Status status) {
   mutex_.AssertHeld();
   if (compact->builder != nullptr) {
     // May happen if we get a shutdown call in the middle of compaction
@@ -1740,6 +1740,12 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
     pending_outputs_.erase(out.number);
+
+    // If this file was inserted into the table cache then remove
+    // them here because this compaction was not committed.
+    if (!status.ok()) {
+      table_cache_->Evict(out.number);
+    }
   }
   delete compact;
 }

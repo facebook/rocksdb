@@ -101,6 +101,36 @@ static void TestKillRandom(int odds, const std::string& srcfile,
 
 #endif
 
+#if defined(OS_LINUX)
+namespace {
+  static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
+    if (max_size < kMaxVarint64Length*3) {
+      return 0;
+    }
+
+    struct stat buf;
+    int result = fstat(fd, &buf);
+    if (result == -1) {
+      return 0;
+    }
+
+    long version = 0;
+    result = ioctl(fd, FS_IOC_GETVERSION, &version);
+    if (result == -1) {
+      return 0;
+    }
+    uint64_t uversion = (uint64_t)version;
+
+    char* rid = id;
+    rid = EncodeVarint64(rid, buf.st_dev);
+    rid = EncodeVarint64(rid, buf.st_ino);
+    rid = EncodeVarint64(rid, uversion);
+    assert(rid >= id);
+    return static_cast<size_t>(rid-id);
+  }
+}
+#endif
+
 class PosixSequentialFile: public SequentialFile {
  private:
   std::string filename_;
@@ -187,30 +217,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
 
 #if defined(OS_LINUX)
   virtual size_t GetUniqueId(char* id, size_t max_size) const {
-    // TODO: possibly allow this function to handle tighter bounds.
-    if (max_size < kMaxVarint64Length*3) {
-      return 0;
-    }
-
-    struct stat buf;
-    int result = fstat(fd_, &buf);
-    if (result == -1) {
-      return 0;
-    }
-
-    long version = 0;
-    result = ioctl(fd_, FS_IOC_GETVERSION, &version);
-    if (result == -1) {
-      return 0;
-    }
-    uint64_t uversion = (uint64_t)version;
-
-    char* rid = id;
-    rid = EncodeVarint64(rid, buf.st_dev);
-    rid = EncodeVarint64(rid, buf.st_ino);
-    rid = EncodeVarint64(rid, uversion);
-    assert(rid >= id);
-    return static_cast<size_t>(rid-id);
+    return GetUniqueIdFromFile(fd_, id, max_size);
   }
 #endif
 
@@ -710,6 +717,9 @@ class PosixWritableFile : public WritableFile {
     } else {
       return IOError(filename_, errno);
     }
+  }
+  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+    return GetUniqueIdFromFile(fd_, id, max_size);
   }
 #endif
 };

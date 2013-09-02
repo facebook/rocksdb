@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -26,7 +27,9 @@ class Block {
 
   size_t size() const { return size_; }
   bool   isCachable() const { return cachable_; }
+  CompressionType compressionType() const { return compression_type_; }
   Iterator* NewIterator(const Comparator* comparator);
+  const char* data() { return data_; }
 
  private:
   uint32_t NumRestarts() const;
@@ -36,6 +39,7 @@ class Block {
   uint32_t restart_offset_;     // Offset in data_ of restart array
   bool owned_;                  // Block owns data_[]
   bool cachable_;
+  CompressionType compression_type_;
 
   // No copying allowed
   Block(const Block&);

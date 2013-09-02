@@ -39,7 +39,7 @@ using std::shared_ptr;
 // sequence of key,value pairs.  Each block may be compressed before
 // being stored in a file.  The following enum describes which
 // compression method (if any) is used to compress a block.
-enum CompressionType {
+enum CompressionType : char {
   // NOTE: do not change the values of existing entries, as these are
   // part of the persistent format on disk.
   kNoCompression     = 0x0,
@@ -48,7 +48,7 @@ enum CompressionType {
   kBZip2Compression = 0x3
 };
 
-enum CompactionStyle {
+enum CompactionStyle : char {
   kCompactionStyleLevel       = 0x0, // level based compaction style
   kCompactionStyleUniversal   = 0x1  // Universal compaction style
 };
@@ -176,6 +176,11 @@ struct Options {
   // If NULL, rocksdb will automatically create and use an 8MB internal cache.
   // Default: nullptr
   shared_ptr<Cache> block_cache;
+
+  // If non-NULL use the specified cache for compressed blocks.
+  // If NULL, rocksdb will not use a compressed block cache.
+  // Default: nullptr
+  shared_ptr<Cache> block_cache_compressed;
 
   // Approximate size of user data packed per block.  Note that the
   // block size specified here corresponds to uncompressed data.  The

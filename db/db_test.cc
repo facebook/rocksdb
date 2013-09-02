@@ -262,6 +262,7 @@ class DBTest {
     kDeletesFilterFirst,
     kPrefixHashRep,
     kUniversalCompaction,
+    kCompressedBlockCache,
     kEnd
   };
   int option_config_;
@@ -388,6 +389,9 @@ class DBTest {
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;
         break;
+      case kCompressedBlockCache:
+        options.block_cache_compressed = NewLRUCache(8*1024*1024);
+        break;
       default:
         break;
     }
@@ -452,6 +456,7 @@ class DBTest {
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr) {
     ReadOptions options;
+    options.verify_checksums = true;
     options.snapshot = snapshot;
     std::string result;
     Status s = db_->Get(options, k, &result);
@@ -1750,6 +1755,90 @@ TEST(DBTest, CompactionsGenerateMultipleFiles) {
   ASSERT_GT(NumTableFilesAtLevel(1), 1);
   for (int i = 0; i < 80; i++) {
     ASSERT_EQ(Get(Key(i)), values[i]);
+  }
+}
+
+TEST(DBTest, CompressedCache) {
+  int num_iter = 80;
+
+  // Run this test three iterations.
+  // Iteration 1: only a uncompressed block cache
+  // Iteration 2: only a compressed block cache
+  // Iteration 3: both block cache and compressed cache
+  for (int iter = 0; iter < 3; iter++) {
+    Options options = CurrentOptions();
+    options.write_buffer_size = 64*1024;        // small write buffer
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        options.block_cache = NewLRUCache(8*1024);
+        options.block_cache_compressed = nullptr;
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        options.no_block_cache = true;
+        options.block_cache = nullptr;
+        options.block_cache_compressed = NewLRUCache(8*1024);
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        options.block_cache = NewLRUCache(1024);
+        options.block_cache_compressed = NewLRUCache(8*1024);
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
+    Reopen(&options);
+
+    Random rnd(301);
+
+    // Write 8MB (80 values, each 100K)
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+    std::vector<std::string> values;
+    Slice str;
+    for (int i = 0; i < num_iter; i++) {
+      if (i % 4 == 0) {        // high compression ratio
+        str = RandomString(&rnd, 100000);
+      }
+      values.push_back(str.ToString(true));
+      ASSERT_OK(Put(Key(i), values[i]));
+    }
+
+    // flush all data from memtable so that reads are from block cache
+    dbfull()->Flush(FlushOptions());
+
+    for (int i = 0; i < num_iter; i++) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    }
+
+    // check that we triggered the appropriate code paths in the cache
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_EQ(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        ASSERT_EQ(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_GT(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_GT(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
   }
 }
 

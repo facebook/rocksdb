@@ -194,7 +194,7 @@ class DBImpl : public DB {
   void BackgroundCallFlush();
   Status BackgroundCompaction(bool* madeProgress,DeletionState& deletion_state);
   Status BackgroundFlush(bool* madeProgress);
-  void CleanupCompaction(CompactionState* compact);
+  void CleanupCompaction(CompactionState* compact, Status status);
   Status DoCompactionWork(CompactionState* compact);
 
   Status OpenCompactionOutputFile(CompactionState* compact);

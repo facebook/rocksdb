@@ -76,7 +76,8 @@ Status ReadBlockContents(RandomAccessFile* file,
                          const ReadOptions& options,
                          const BlockHandle& handle,
                          BlockContents* result,
-                         Env* env) {
+                         Env* env,
+                         bool do_uncompress) {
   result->data = Slice();
   result->cachable = false;
   result->heap_allocated = false;
@@ -116,41 +117,55 @@ Status ReadBlockContents(RandomAccessFile* file,
     BumpPerfTime(&perf_context.block_checksum_time, &timer);
   }
 
+  // If the caller has requested that the block not be uncompressed
+  if (!do_uncompress || data[n] == kNoCompression) {
+    if (data != buf) {
+      // File implementation gave us pointer to some other data.
+      // Use it directly under the assumption that it will be live
+      // while the file is open.
+      delete[] buf;
+      result->data = Slice(data, n);
+      result->heap_allocated = false;
+      result->cachable = false;  // Do not double-cache
+    } else {
+      result->data = Slice(buf, n);
+      result->heap_allocated = true;
+      result->cachable = true;
+    }
+    result->compression_type = (rocksdb::CompressionType)data[n];
+    s =  Status::OK();
+  } else {
+    s = UncompressBlockContents(buf, n, result);
+    delete[] buf;
+  }
+  BumpPerfTime(&perf_context.block_decompress_time, &timer);
+  return s;
+}
+
+//
+// The 'data' points to the raw block contents that was read in from file.
+// This method allocates a new heap buffer and the raw block
+// contents are uncompresed into this buffer. This
+// buffer is returned via 'result' and it is upto the caller to
+// free this buffer.
+Status UncompressBlockContents(const char* data, size_t n,
+                               BlockContents* result) {
   char* ubuf = nullptr;
   int decompress_size = 0;
+  assert(data[n] != kNoCompression);
   switch (data[n]) {
-    case kNoCompression:
-      if (data != buf) {
-        // File implementation gave us pointer to some other data.
-        // Use it directly under the assumption that it will be live
-        // while the file is open.
-        delete[] buf;
-        result->data = Slice(data, n);
-        result->heap_allocated = false;
-        result->cachable = false;  // Do not double-cache
-      } else {
-        result->data = Slice(buf, n);
-        result->heap_allocated = true;
-        result->cachable = true;
-      }
-
-      // Ok
-      break;
     case kSnappyCompression: {
       size_t ulength = 0;
       static char snappy_corrupt_msg[] =
         "Snappy not supported or corrupted Snappy compressed block contents";
       if (!port::Snappy_GetUncompressedLength(data, n, &ulength)) {
-        delete[] buf;
         return Status::Corruption(snappy_corrupt_msg);
       }
       ubuf = new char[ulength];
       if (!port::Snappy_Uncompress(data, n, ubuf)) {
-        delete[] buf;
         delete[] ubuf;
         return Status::Corruption(snappy_corrupt_msg);
       }
-      delete[] buf;
       result->data = Slice(ubuf, ulength);
       result->heap_allocated = true;
       result->cachable = true;
@@ -161,10 +176,8 @@ Status ReadBlockContents(RandomAccessFile* file,
       static char zlib_corrupt_msg[] =
         "Zlib not supported or corrupted Zlib compressed block contents";
       if (!ubuf) {
-        delete[] buf;
         return Status::Corruption(zlib_corrupt_msg);
       }
-      delete[] buf;
       result->data = Slice(ubuf, decompress_size);
       result->heap_allocated = true;
       result->cachable = true;
@@ -174,21 +187,16 @@ Status ReadBlockContents(RandomAccessFile* file,
       static char bzip2_corrupt_msg[] =
         "Bzip2 not supported or corrupted Bzip2 compressed block contents";
       if (!ubuf) {
-        delete[] buf;
         return Status::Corruption(bzip2_corrupt_msg);
       }
-      delete[] buf;
       result->data = Slice(ubuf, decompress_size);
       result->heap_allocated = true;
       result->cachable = true;
       break;
     default:
-      delete[] buf;
       return Status::Corruption("bad block type");
   }
-
-  BumpPerfTime(&perf_context.block_decompress_time, &timer);
-
+  result->compression_type = kNoCompression; // not compressed any more
   return Status::OK();
 }
 

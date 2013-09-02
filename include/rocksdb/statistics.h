@@ -82,6 +82,9 @@ enum Tickers {
   // transaction log iterator refreshes
   GET_UPDATES_SINCE_CALLS,
 
+  BLOCK_CACHE_COMPRESSED_MISS, // miss in the compressed block cache
+  BLOCK_CACHE_COMPRESSED_HIT,  // hit in the compressed block cache
+
   TICKER_ENUM_MAX
 };
 
@@ -116,7 +119,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked" },
   { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" },
   { NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration" },
-  { GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls" }
+  { GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls" },
+  { BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss" },
+  { BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit" }
 };
 
 /**

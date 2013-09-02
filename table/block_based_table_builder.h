@@ -62,7 +62,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   bool ok() const { return status().ok(); }
   void WriteBlock(BlockBuilder* block, BlockHandle* handle);
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
-
+  Status InsertBlockInCache(const Slice& block_contents,
+                         const CompressionType type, const BlockHandle* handle);
   struct Rep;
   Rep* rep_;
 

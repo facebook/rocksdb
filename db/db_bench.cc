@@ -198,6 +198,9 @@ DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
 DEFINE_int32(block_size, rocksdb::Options().block_size,
              "Number of bytes in a block.");
 
+DEFINE_int64(compressed_cache_size, -1,
+             "Number of bytes to use as a cache of compressed data.");
+
 DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time"
              " (use default if == 0)");
@@ -752,6 +755,7 @@ class Duration {
 class Benchmark {
  private:
   shared_ptr<Cache> cache_;
+  shared_ptr<Cache> compressed_cache_;
   const FilterPolicy* filter_policy_;
   const SliceTransform* prefix_extractor_;
   DB* db_;
@@ -907,6 +911,10 @@ class Benchmark {
             NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits,
                         FLAGS_cache_remove_scan_count_limit) :
             NewLRUCache(FLAGS_cache_size)) : nullptr),
+    compressed_cache_(FLAGS_compressed_cache_size >= 0 ?
+           (FLAGS_cache_numshardbits >= 1 ?
+            NewLRUCache(FLAGS_compressed_cache_size, FLAGS_cache_numshardbits) :
+            NewLRUCache(FLAGS_compressed_cache_size)) : nullptr),
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                    : nullptr),
@@ -1275,6 +1283,7 @@ class Benchmark {
     Options options;
     options.create_if_missing = !FLAGS_use_existing_db;
     options.block_cache = cache_;
+    options.block_cache_compressed = compressed_cache_;
     if (cache_ == nullptr) {
       options.no_block_cache = true;
     }

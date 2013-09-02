@@ -12,12 +12,14 @@
 #include <assert.h>
 #include <map>
 
+#include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "table/block_based_table_reader.h"
+#include "table/block.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"
@@ -91,6 +93,8 @@ struct BlockBasedTableBuilder::Rep {
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
   FilterBlockBuilder* filter_block;
+  char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
+  size_t compressed_cache_key_prefix_size;
 
   // We do not emit the index entry for a block until we have seen the
   // first key for the next data block.  This allows us to use shorter
@@ -125,6 +129,11 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(const Options& options,
     : rep_(new Rep(options, file, compression_type)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
+  }
+  if (options.block_cache_compressed.get() != nullptr) {
+    BlockBasedTable::GenerateCachePrefix(options.block_cache_compressed, file,
+                               &rep_->compressed_cache_key_prefix[0],
+                               &rep_->compressed_cache_key_prefix_size);
   }
 }
 
@@ -285,6 +294,9 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     EncodeFixed32(trailer+1, crc32c::Mask(crc));
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
+      r->status = InsertBlockInCache(block_contents, type, handle);
+    }
+    if (r->status.ok()) {
       r->offset += block_contents.size() + kBlockTrailerSize;
     }
   }
@@ -292,6 +304,56 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
 
 Status BlockBasedTableBuilder::status() const {
   return rep_->status;
+}
+
+static void DeleteCachedBlock(const Slice& key, void* value) {
+  Block* block = reinterpret_cast<Block*>(value);
+  delete block;
+}
+
+//
+// Make a copy of the block contents and insert into compressed block cache
+//
+Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
+                                 const CompressionType type,
+                                 const BlockHandle* handle) {
+  Rep* r = rep_;
+  Cache* block_cache_compressed = r->options.block_cache_compressed.get();
+
+  if (type != kNoCompression && block_cache_compressed != nullptr) {
+
+    Cache::Handle* cache_handle = nullptr;
+    size_t size = block_contents.size();
+
+    char* ubuf = new char[size];             // make a new copy
+    memcpy(ubuf, block_contents.data(), size);
+
+    BlockContents results;
+    Slice sl(ubuf, size);
+    results.data = sl;
+    results.cachable = true; // XXX
+    results.heap_allocated = true;
+    results.compression_type = type;
+
+    Block* block = new Block(results);
+
+    // make cache key by appending the file offset to the cache prefix id
+    char* end = EncodeVarint64(
+                  r->compressed_cache_key_prefix +
+                  r->compressed_cache_key_prefix_size,
+                  handle->offset());
+    Slice key(r->compressed_cache_key_prefix, static_cast<size_t>
+              (end - r->compressed_cache_key_prefix));
+
+    // Insert into compressed block cache.
+    cache_handle = block_cache_compressed->Insert(key, block, block->size(),
+                                                  &DeleteCachedBlock);
+    block_cache_compressed->Release(cache_handle);
+
+    // Invalidate OS cache.
+    r->file->InvalidateCache(r->offset, size);
+  }
+  return Status::OK();
 }
 
 Status BlockBasedTableBuilder::Finish() {

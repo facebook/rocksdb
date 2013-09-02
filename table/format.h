@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
 namespace rocksdb {
@@ -90,6 +91,7 @@ struct BlockContents {
   Slice data;           // Actual contents of data
   bool cachable;        // True iff data can be cached
   bool heap_allocated;  // True iff caller should delete[] data.data()
+  CompressionType compression_type;
 };
 
 // Read the block identified by "handle" from "file".  On failure
@@ -98,7 +100,17 @@ extern Status ReadBlockContents(RandomAccessFile* file,
                                 const ReadOptions& options,
                                 const BlockHandle& handle,
                                 BlockContents* result,
-                                Env* env);
+                                Env* env,
+                                bool do_uncompress);
+
+// The 'data' points to the raw block contents read in from file.
+// This method allocates a new heap buffer and the raw block
+// contents are uncompresed into this buffer. This buffer is
+// returned via 'result' and it is upto the caller to
+// free this buffer.
+extern Status UncompressBlockContents(const char* data,
+                                      size_t n,
+                                      BlockContents* result);
 
 // Implementation details follow.  Clients should ignore,
 

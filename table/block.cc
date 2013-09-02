@@ -29,7 +29,8 @@ Block::Block(const BlockContents& contents)
     : data_(contents.data.data()),
       size_(contents.data.size()),
       owned_(contents.heap_allocated),
-      cachable_(contents.cachable) {
+      cachable_(contents.cachable),
+      compression_type_(contents.compression_type) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {

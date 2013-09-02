@@ -10,10 +10,12 @@
 #pragma once
 #include <memory>
 #include <stdint.h>
+#include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table_stats.h"
 #include "rocksdb/table.h"
+#include "util/coding.h"
 
 namespace rocksdb {
 
@@ -103,6 +105,7 @@ class BlockBasedTable : public TableReader {
   // after a call to Seek(key), until handle_result returns false.
   // May not make such a call if filter policy says that key is not present.
   friend class TableCache;
+  friend class BlockBasedTableBuilder;
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
@@ -114,6 +117,15 @@ class BlockBasedTable : public TableReader {
       compaction_optimized_(false) {
     rep_ = rep;
   }
+  // Generate a cache key prefix from the file
+  static void GenerateCachePrefix(shared_ptr<Cache> cc,
+    RandomAccessFile* file, char* buffer, size_t* size);
+  static void GenerateCachePrefix(shared_ptr<Cache> cc,
+    WritableFile* file, char* buffer, size_t* size);
+
+  // The longest prefix of the cache key used to identify blocks.
+  // For Posix files the unique ID is three varints.
+  static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
 
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;

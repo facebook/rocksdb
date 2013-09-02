@@ -373,6 +373,11 @@ class WritableFile {
     *block_size = preallocation_block_size_;
   }
 
+  // For documentation, refer to RandomAccessFile::GetUniqueId()
+  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+    return 0; // Default implementation to prevent issues with backwards
+  }
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.

@@ -115,6 +115,10 @@ DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
 
+DEFINE_int64(compressed_cache_size, -1,
+             "Number of bytes to use as a cache of compressed data."
+             " Negative means use default settings.");
+
 DEFINE_int32(compaction_style, rocksdb::Options().compaction_style, "");
 
 DEFINE_int32(level0_file_num_compaction_trigger,
@@ -672,6 +676,9 @@ class StressTest {
  public:
   StressTest()
       : cache_(NewLRUCache(FLAGS_cache_size)),
+        compressed_cache_(FLAGS_compressed_cache_size >= 0 ?
+                          NewLRUCache(FLAGS_compressed_cache_size) :
+                          nullptr),
         filter_policy_(FLAGS_bloom_bits >= 0
                        ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                        : nullptr),
@@ -1341,6 +1348,7 @@ class StressTest {
     assert(db_ == nullptr);
     Options options;
     options.block_cache = cache_;
+    options.block_cache_compressed = compressed_cache_;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =
@@ -1469,6 +1477,7 @@ class StressTest {
 
  private:
   shared_ptr<Cache> cache_;
+  shared_ptr<Cache> compressed_cache_;
   const FilterPolicy* filter_policy_;
   const SliceTransform* prefix_extractor_;
   DB* db_;

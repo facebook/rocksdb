@@ -11,7 +11,6 @@
 
 #include "db/dbformat.h"
 
-#include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -51,6 +50,8 @@ struct BlockBasedTable::Rep {
   unique_ptr<RandomAccessFile> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t cache_key_prefix_size;
+  char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
+  size_t compressed_cache_key_prefix_size;
   FilterBlockReader* filter;
   const char* filter_data;
 
@@ -67,18 +68,44 @@ BlockBasedTable::~BlockBasedTable() {
 void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   assert(kMaxCacheKeyPrefixSize >= 10);
   rep->cache_key_prefix_size = 0;
-  if (rep->options.block_cache) {
-    rep->cache_key_prefix_size = rep->file->GetUniqueId(rep->cache_key_prefix,
-                                                        kMaxCacheKeyPrefixSize);
+  rep->compressed_cache_key_prefix_size = 0;
+  if (rep->options.block_cache != nullptr) {
+    GenerateCachePrefix(rep->options.block_cache, rep->file.get(),
+                        &rep->cache_key_prefix[0],
+                        &rep->cache_key_prefix_size);
+  }
+  if (rep->options.block_cache_compressed != nullptr) {
+    GenerateCachePrefix(rep->options.block_cache_compressed, rep->file.get(),
+                        &rep->compressed_cache_key_prefix[0],
+                        &rep->compressed_cache_key_prefix_size);
+  }
+}
 
-    if (rep->cache_key_prefix_size == 0) {
-      // If the prefix wasn't generated or was too long, we create one from the
-      // cache.
-      char* end = EncodeVarint64(rep->cache_key_prefix,
-                                 rep->options.block_cache->NewId());
-      rep->cache_key_prefix_size =
-            static_cast<size_t>(end - rep->cache_key_prefix);
-    }
+void BlockBasedTable::GenerateCachePrefix(shared_ptr<Cache> cc,
+    RandomAccessFile* file, char* buffer, size_t* size) {
+
+  // generate an id from the file
+  *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+
+  // If the prefix wasn't generated or was too long,
+  // create one from the cache.
+  if (*size == 0) {
+    char* end = EncodeVarint64(buffer, cc->NewId());
+    *size = static_cast<size_t>(end - buffer);
+  }
+}
+
+void BlockBasedTable::GenerateCachePrefix(shared_ptr<Cache> cc,
+    WritableFile* file, char* buffer, size_t* size) {
+
+  // generate an id from the file
+  *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+
+  // If the prefix wasn't generated or was too long,
+  // create one from the cache.
+  if (*size == 0) {
+    char* end = EncodeVarint64(buffer, cc->NewId());
+    *size = static_cast<size_t>(end - buffer);
   }
 }
 
@@ -94,9 +121,11 @@ Status ReadBlock(RandomAccessFile* file,
                  const BlockHandle& handle,
                  Block** result,
                  Env* env,
-                 bool* didIO = nullptr) {
+                 bool* didIO = nullptr,
+                 bool do_uncompress = true) {
   BlockContents contents;
-  Status s = ReadBlockContents(file, options, handle, &contents, env);
+  Status s = ReadBlockContents(file, options, handle, &contents,
+                               env, do_uncompress);
   if (s.ok()) {
     *result = new Block(contents);
   }
@@ -143,6 +172,7 @@ Status BlockBasedTable::Open(const Options& options,
   if (s.ok()) {
     // We've successfully read the footer and the index block: we're
     // ready to serve requests.
+    assert(index_block->compressionType() == kNoCompression);
     BlockBasedTable::Rep* rep = new BlockBasedTable::Rep(soptions);
     rep->options = options;
     rep->file = std::move(file);
@@ -193,6 +223,7 @@ void BlockBasedTable::ReadMeta(const Footer& footer) {
     // Do not propagate errors since meta info is not needed for operation
     return;
   }
+  assert(meta->compressionType() == kNoCompression);
 
   Iterator* iter = meta->NewIterator(BytewiseComparator());
   // read filter
@@ -238,7 +269,7 @@ void BlockBasedTable::ReadFilter(const Slice& filter_handle_value) {
   ReadOptions opt;
   BlockContents block;
   if (!ReadBlockContents(rep_->file.get(), opt, filter_handle, &block,
-                        rep_->options.env).ok()) {
+                        rep_->options.env, false).ok()) {
     return;
   }
   if (block.heap_allocated) {
@@ -260,7 +291,8 @@ Status BlockBasedTable::ReadStats(const Slice& handle_value, Rep* rep) {
       ReadOptions(),
       handle,
       &block_contents,
-      rep->options.env
+      rep->options.env,
+      false
   );
 
   if (!s.ok()) {
@@ -351,9 +383,13 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
   const bool no_io = (options.read_tier == kBlockCacheTier);
   BlockBasedTable* table = reinterpret_cast<BlockBasedTable*>(arg);
   Cache* block_cache = table->rep_->options.block_cache.get();
+  Cache* block_cache_compressed = table->rep_->options.
+                                    block_cache_compressed.get();
   std::shared_ptr<Statistics> statistics = table->rep_->options.statistics;
   Block* block = nullptr;
+  Block* cblock = nullptr;
   Cache::Handle* cache_handle = nullptr;
+  Cache::Handle* compressed_cache_handle = nullptr;
 
   BlockHandle handle;
   Slice input = index_value;
@@ -362,26 +398,88 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
   // can add more features in the future.
 
   if (s.ok()) {
-    if (block_cache != nullptr) {
+    if (block_cache != nullptr || block_cache_compressed != nullptr) {
       char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-      const size_t cache_key_prefix_size = table->rep_->cache_key_prefix_size;
-      assert(cache_key_prefix_size != 0);
-      assert(cache_key_prefix_size <= kMaxCacheKeyPrefixSize);
-      memcpy(cache_key, table->rep_->cache_key_prefix,
-             cache_key_prefix_size);
-      char* end = EncodeVarint64(cache_key + cache_key_prefix_size,
-                                 handle.offset());
-      Slice key(cache_key, static_cast<size_t>(end-cache_key));
-      cache_handle = block_cache->Lookup(key);
-      if (cache_handle != nullptr) {
-        block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
+      char compressed_cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+      char* end = cache_key;
 
+      // create key for block cache
+      if (block_cache != nullptr) {
+        assert(table->rep_->cache_key_prefix_size != 0);
+        assert(table->rep_->cache_key_prefix_size <= kMaxCacheKeyPrefixSize);
+        memcpy(cache_key, table->rep_->cache_key_prefix,
+               table->rep_->cache_key_prefix_size);
+        end = EncodeVarint64(cache_key + table->rep_->cache_key_prefix_size,
+                             handle.offset());
+      }
+      Slice key(cache_key, static_cast<size_t>(end - cache_key));
+
+      // create key for compressed block cache
+      end = compressed_cache_key;
+      if (block_cache_compressed != nullptr) {
+        assert(table->rep_->compressed_cache_key_prefix_size != 0);
+        assert(table->rep_->compressed_cache_key_prefix_size <=
+               kMaxCacheKeyPrefixSize);
+        memcpy(compressed_cache_key, table->rep_->compressed_cache_key_prefix,
+               table->rep_->compressed_cache_key_prefix_size);
+        end = EncodeVarint64(compressed_cache_key +
+                             table->rep_->compressed_cache_key_prefix_size,
+                             handle.offset());
+      }
+      Slice ckey(compressed_cache_key, static_cast<size_t>
+                                      (end - compressed_cache_key));
+
+      // Lookup uncompressed cache first
+      if (block_cache != nullptr) {
+        cache_handle = block_cache->Lookup(key);
+        if (cache_handle != nullptr) {
+          block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
+          RecordTick(statistics, BLOCK_CACHE_HIT);
+        }
+      }
+
+      // If not found in uncompressed cache, lookup compressed cache
+      if (block == nullptr && block_cache_compressed != nullptr) {
+        compressed_cache_handle = block_cache_compressed->Lookup(ckey);
+
+        // if we found in the compressed cache, then uncompress and
+        // insert into uncompressed cache
+        if (compressed_cache_handle != nullptr) {
+          // found compressed block
+          cblock = reinterpret_cast<Block*>(block_cache_compressed->
+                          Value(compressed_cache_handle));
+          assert(cblock->compressionType() != kNoCompression);
+
+          // Retrieve the uncompressed contents into a new buffer
+          BlockContents contents;
+          s = UncompressBlockContents(cblock->data(), cblock->size(),
+                                      &contents);
+
+          // Insert uncompressed block into block cache
+          if (s.ok()) {
+            block = new Block(contents); // uncompressed block
+            assert(block->compressionType() == kNoCompression);
+            if (block_cache != nullptr && block->isCachable() &&
+                options.fill_cache) {
+              cache_handle = block_cache->Insert(key, block, block->size(),
+                                                 &DeleteCachedBlock);
+              assert(reinterpret_cast<Block*>(block_cache->Value(cache_handle))
+                     == block);
+            }
+          }
+          // Release hold on compressed cache entry
+          block_cache_compressed->Release(compressed_cache_handle);
+          RecordTick(statistics, BLOCK_CACHE_COMPRESSED_HIT);
+        }
+      }
+
+      if (block != nullptr) {
         BumpPerfCount(&perf_context.block_cache_hit_count);
-        RecordTick(statistics, BLOCK_CACHE_HIT);
       } else if (no_io) {
         // Did not find in block_cache and can't do IO
         return NewErrorIterator(Status::Incomplete("no blocking io"));
       } else {
+
         Histograms histogram = for_compaction ?
           READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
         {  // block for stop watch
@@ -390,19 +488,54 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
                 table->rep_->file.get(),
                 options,
                 handle,
-                &block,
+                &cblock,
                 table->rep_->options.env,
-                didIO
+                didIO,
+                block_cache_compressed == nullptr
               );
         }
         if (s.ok()) {
-          if (block->isCachable() && options.fill_cache) {
-            cache_handle = block_cache->Insert(
-              key, block, block->size(), &DeleteCachedBlock);
+          assert(cblock->compressionType() == kNoCompression ||
+                 block_cache_compressed != nullptr);
+
+          // Retrieve the uncompressed contents into a new buffer
+          BlockContents contents;
+          if (cblock->compressionType() != kNoCompression) {
+            s = UncompressBlockContents(cblock->data(), cblock->size(),
+                                        &contents);
+          }
+          if (s.ok()) {
+            if (cblock->compressionType() != kNoCompression) {
+              block = new Block(contents); // uncompressed block
+            } else {
+              block = cblock;
+              cblock = nullptr;
+            }
+            if (block->isCachable() && options.fill_cache) {
+              // Insert compressed block into compressed block cache.
+              // Release the hold on the compressed cache entry immediately.
+              if (block_cache_compressed != nullptr && cblock != nullptr) {
+                compressed_cache_handle = block_cache_compressed->Insert(
+                            ckey, cblock, cblock->size(), &DeleteCachedBlock);
+                block_cache_compressed->Release(compressed_cache_handle);
+                RecordTick(statistics, BLOCK_CACHE_COMPRESSED_MISS);
+                cblock = nullptr;
+              }
+              // insert into uncompressed block cache
+              assert((block->compressionType() == kNoCompression));
+              if (block_cache != nullptr) {
+                cache_handle = block_cache->Insert(
+                  key, block, block->size(), &DeleteCachedBlock);
+                RecordTick(statistics, BLOCK_CACHE_MISS);
+                assert(reinterpret_cast<Block*>(block_cache->Value(
+                       cache_handle))== block);
+              }
+            }
           }
         }
-
-        RecordTick(statistics, BLOCK_CACHE_MISS);
+        if (cblock != nullptr) {
+          delete cblock;
+        }
       }
     } else if (no_io) {
       // Could not read from block_cache and can't do IO
@@ -416,10 +549,10 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
   Iterator* iter;
   if (block != nullptr) {
     iter = block->NewIterator(table->rep_->options.comparator);
-    if (cache_handle == nullptr) {
-      iter->RegisterCleanup(&DeleteBlock, block, nullptr);
-    } else {
+    if (cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
+    } else {
+      iter->RegisterCleanup(&DeleteBlock, block, nullptr);
     }
   } else {
     iter = NewErrorIterator(s);
