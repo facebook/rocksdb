@@ -64,7 +64,7 @@ class DBImpl : public DB {
   virtual bool GetProperty(const Slice& property, std::string* value);
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
   virtual void CompactRange(const Slice* begin, const Slice* end,
-                            bool reduce_level = false);
+                            bool reduce_level = false, int target_level = -1);
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
@@ -241,9 +241,10 @@ class DBImpl : public DB {
   // input level. Return the input level, if such level could not be found.
   int FindMinimumEmptyLevelFitting(int level);
 
-  // Move the files in the input level to the minimum level that could hold
-  // the data set.
-  void ReFitLevel(int level);
+  // Move the files in the input level to the target level.
+  // If target_level < 0, automatically calculate the minimum level that could
+  // hold the data set.
+  void ReFitLevel(int level, int target_level = -1);
 
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;

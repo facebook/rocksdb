@@ -1620,6 +1620,100 @@ TEST(DBTest, UniversalCompactionTrigger) {
   }
 }
 
+TEST(DBTest, ConvertCompactionStyle) {
+  Random rnd(301);
+  int max_key_level_insert = 200;
+  int max_key_universal_insert = 600;
+
+  // Stage 1: generate a db with level compaction
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100<<10; //100KB
+  options.num_levels = 4;
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_bytes_for_level_base = 500<<10; // 500KB
+  options.max_bytes_for_level_multiplier = 1;
+  options.target_file_size_base = 200<<10; // 200KB
+  options.target_file_size_multiplier = 1;
+  Reopen(&options);
+
+  for (int i = 0; i <= max_key_level_insert; i++) {
+    // each value is 10K
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 10000)));
+  }
+  dbfull()->Flush(FlushOptions());
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_GT(TotalTableFiles(), 1);
+  int non_level0_num_files = 0;
+  for (int i = 1; i < dbfull()->NumberLevels(); i++) {
+    non_level0_num_files += NumTableFilesAtLevel(i);
+  }
+  ASSERT_GT(non_level0_num_files, 0);
+
+  // Stage 2: reopen with universal compaction - should fail
+  options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  Status s = TryReopen(&options);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  // Stage 3: compact into a single file and move the file to level 0
+  options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.target_file_size_base = INT_MAX;
+  options.target_file_size_multiplier = 1;
+  options.max_bytes_for_level_base = INT_MAX;
+  options.max_bytes_for_level_multiplier = 1;
+  Reopen(&options);
+
+  dbfull()->CompactRange(nullptr, nullptr,
+                         true /* reduce level */,
+                         0    /* reduce to level 0 */);
+
+  for (int i = 0; i < dbfull()->NumberLevels(); i++) {
+    int num = NumTableFilesAtLevel(i);
+    if (i == 0) {
+      ASSERT_EQ(num, 1);
+    } else {
+      ASSERT_EQ(num, 0);
+    }
+  }
+
+  // Stage 4: re-open in universal compaction style and do some db operations
+  options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100<<10; //100KB
+  options.level0_file_num_compaction_trigger = 3;
+  Reopen(&options);
+
+  for (int i = max_key_level_insert / 2; i <= max_key_universal_insert; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 10000)));
+  }
+  dbfull()->Flush(FlushOptions());
+  dbfull()->TEST_WaitForCompact();
+
+  for (int i = 1; i < dbfull()->NumberLevels(); i++) {
+    ASSERT_EQ(NumTableFilesAtLevel(i), 0);
+  }
+
+  // verify keys inserted in both level compaction style and universal
+  // compaction style
+  std::string keys_in_db;
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    keys_in_db.append(iter->key().ToString());
+    keys_in_db.push_back(',');
+  }
+  delete iter;
+
+  std::string expected_keys;
+  for (int i = 0; i <= max_key_universal_insert; i++) {
+    expected_keys.append(Key(i));
+    expected_keys.push_back(',');
+  }
+
+  ASSERT_EQ(keys_in_db, expected_keys);
+}
+
 void MinLevelHelper(DBTest* self, Options& options) {
   Random rnd(301);
 
@@ -3530,7 +3624,7 @@ class ModelDB: public DB {
     }
   }
   virtual void CompactRange(const Slice* start, const Slice* end,
-                            bool reduce_level ) {
+                            bool reduce_level, int target_level) {
   }
 
   virtual int NumberLevels()

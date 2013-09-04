@@ -104,8 +104,9 @@ class StackableDB : public DB {
   }
 
   virtual void CompactRange(const Slice* begin, const Slice* end,
-                            bool reduce_level = false) override {
-    return sdb_->CompactRange(begin, end, reduce_level);
+                            bool reduce_level = false,
+                            int target_level = -1) override {
+    return sdb_->CompactRange(begin, end, reduce_level, target_level);
   }
 
   virtual int NumberLevels() override {

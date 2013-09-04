@@ -143,6 +143,8 @@ LDBCommand* LDBCommand::SelectCommand(
     return new WALDumperCommand(cmdParams, option_map, flags);
   } else if (cmd == ReduceDBLevelsCommand::Name()) {
     return new ReduceDBLevelsCommand(cmdParams, option_map, flags);
+  } else if (cmd == ChangeCompactionStyleCommand::Name()) {
+    return new ChangeCompactionStyleCommand(cmdParams, option_map, flags);
   } else if (cmd == DBDumperCommand::Name()) {
     return new DBDumperCommand(cmdParams, option_map, flags);
   } else if (cmd == DBLoaderCommand::Name()) {
@@ -996,6 +998,138 @@ void ReduceDBLevelsCommand::DoCommand() {
   }
 }
 
+const string ChangeCompactionStyleCommand::ARG_OLD_COMPACTION_STYLE =
+  "old_compaction_style";
+const string ChangeCompactionStyleCommand::ARG_NEW_COMPACTION_STYLE =
+  "new_compaction_style";
+
+ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
+      const vector<string>& params, const map<string, string>& options,
+      const vector<string>& flags) :
+    LDBCommand(options, flags, false,
+               BuildCmdLineOptions({ARG_OLD_COMPACTION_STYLE,
+                                    ARG_NEW_COMPACTION_STYLE})),
+    old_compaction_style_(-1),
+    new_compaction_style_(-1) {
+
+  ParseIntOption(option_map_, ARG_OLD_COMPACTION_STYLE, old_compaction_style_,
+    exec_state_);
+  if (old_compaction_style_ != kCompactionStyleLevel &&
+     old_compaction_style_ != kCompactionStyleUniversal) {
+    exec_state_ = LDBCommandExecuteResult::FAILED(
+      "Use --" + ARG_OLD_COMPACTION_STYLE + " to specify old compaction " +
+      "style. Check ldb help for proper compaction style value.\n");
+    return;
+  }
+
+  ParseIntOption(option_map_, ARG_NEW_COMPACTION_STYLE, new_compaction_style_,
+    exec_state_);
+  if (new_compaction_style_ != kCompactionStyleLevel &&
+     new_compaction_style_ != kCompactionStyleUniversal) {
+    exec_state_ = LDBCommandExecuteResult::FAILED(
+      "Use --" + ARG_NEW_COMPACTION_STYLE + " to specify new compaction " +
+      "style. Check ldb help for proper compaction style value.\n");
+    return;
+  }
+
+  if (new_compaction_style_ == old_compaction_style_) {
+    exec_state_ = LDBCommandExecuteResult::FAILED(
+      "Old compaction style is the same as new compaction style. "
+      "Nothing to do.\n");
+    return;
+  }
+
+  if (old_compaction_style_ == kCompactionStyleUniversal &&
+      new_compaction_style_ == kCompactionStyleLevel) {
+    exec_state_ = LDBCommandExecuteResult::FAILED(
+      "Convert from universal compaction to level compaction. "
+      "Nothing to do.\n");
+    return;
+  }
+}
+
+void ChangeCompactionStyleCommand::Help(string& ret) {
+  ret.append("  ");
+  ret.append(ChangeCompactionStyleCommand::Name());
+  ret.append(" --" + ARG_OLD_COMPACTION_STYLE + "=<Old compaction style: 0 " +
+             "for level compaction, 1 for universal compaction>");
+  ret.append(" --" + ARG_NEW_COMPACTION_STYLE + "=<New compaction style: 0 " +
+             "for level compaction, 1 for universal compaction>");
+  ret.append("\n");
+}
+
+Options ChangeCompactionStyleCommand::PrepareOptionsForOpenDB() {
+  Options opt = LDBCommand::PrepareOptionsForOpenDB();
+
+  if (old_compaction_style_ == kCompactionStyleLevel &&
+      new_compaction_style_ == kCompactionStyleUniversal) {
+    // In order to convert from level compaction to universal compaction, we
+    // need to compact all data into a single file and move it to level 0.
+    opt.disable_auto_compactions = true;
+    opt.target_file_size_base = INT_MAX;
+    opt.target_file_size_multiplier = 1;
+    opt.max_bytes_for_level_base = INT_MAX;
+    opt.max_bytes_for_level_multiplier = 1;
+  }
+
+  return opt;
+}
+
+void ChangeCompactionStyleCommand::DoCommand() {
+  // print db stats before we have made any change
+  std::string property;
+  std::string files_per_level;
+  for (int i = 0; i < db_->NumberLevels(); i++) {
+    db_->GetProperty("leveldb.num-files-at-level" + NumberToString(i),
+                     &property);
+
+    // format print string
+    char buf[100];
+    snprintf(buf, sizeof(buf), "%s%s", (i ? "," : ""), property.c_str());
+    files_per_level += buf;
+  }
+  fprintf(stdout, "files per level before compaction: %s\n",
+          files_per_level.c_str());
+
+  // manual compact into a single file and move the file to level 0
+  db_->CompactRange(nullptr, nullptr,
+                    true /* reduce level */,
+                    0    /* reduce to level 0 */);
+
+  // verify compaction result
+  files_per_level = "";
+  int num_files = 0;
+  for (int i = 0; i < db_->NumberLevels(); i++) {
+    db_->GetProperty("leveldb.num-files-at-level" + NumberToString(i),
+                     &property);
+
+    // format print string
+    char buf[100];
+    snprintf(buf, sizeof(buf), "%s%s", (i ? "," : ""), property.c_str());
+    files_per_level += buf;
+
+    num_files = atoi(property.c_str());
+
+    // level 0 should have only 1 file
+    if (i == 0 && num_files != 1) {
+      exec_state_ = LDBCommandExecuteResult::FAILED("Number of db files at "
+        "level 0 after compaction is " + std::to_string(num_files) +
+        ", not 1.\n");
+      return;
+    }
+    // other levels should have no file
+    if (i > 0 && num_files != 0) {
+      exec_state_ = LDBCommandExecuteResult::FAILED("Number of db files at "
+        "level " + std::to_string(i) + " after compaction is " +
+        std::to_string(num_files) + ", not 0.\n");
+      return;
+    }
+  }
+
+  fprintf(stdout, "files per level after compaction: %s\n",
+          files_per_level.c_str());
+}
+
 class InMemoryHandler : public WriteBatch::Handler {
  public:
 
@@ -1050,8 +1184,8 @@ void WALDumperCommand::Help(string& ret) {
   ret.append("  ");
   ret.append(WALDumperCommand::Name());
   ret.append(" --" + ARG_WAL_FILE + "=<write_ahead_log_file_path>");
-  ret.append(" --[" + ARG_PRINT_HEADER + "] ");
-  ret.append(" --[ " + ARG_PRINT_VALUE + "] ");
+  ret.append(" [--" + ARG_PRINT_HEADER + "] ");
+  ret.append(" [--" + ARG_PRINT_VALUE + "] ");
   ret.append("\n");
 }
 

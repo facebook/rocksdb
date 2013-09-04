@@ -946,7 +946,7 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
 }
 
 void DBImpl::CompactRange(const Slice* begin, const Slice* end,
-                          bool reduce_level) {
+                          bool reduce_level, int target_level) {
   int max_level_with_files = 1;
   {
     MutexLock l(&mutex_);
@@ -963,7 +963,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end,
   }
 
   if (reduce_level) {
-    ReFitLevel(max_level_with_files);
+    ReFitLevel(max_level_with_files, target_level);
   }
 }
 
@@ -983,7 +983,7 @@ int DBImpl::FindMinimumEmptyLevelFitting(int level) {
   return minimum_level;
 }
 
-void DBImpl::ReFitLevel(int level) {
+void DBImpl::ReFitLevel(int level, int target_level) {
   assert(level < NumberLevels());
 
   MutexLock l(&mutex_);
@@ -1005,7 +1005,10 @@ void DBImpl::ReFitLevel(int level) {
   }
 
   // move to a smaller level
-  int to_level = FindMinimumEmptyLevelFitting(level);
+  int to_level = target_level;
+  if (target_level < 0) {
+    to_level = FindMinimumEmptyLevelFitting(level);
+  }
 
   assert(to_level <= level);
 
@@ -3107,6 +3110,20 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     }
   }
   impl->mutex_.Unlock();
+
+  if (options.compaction_style == kCompactionStyleUniversal) {
+    std::string property;
+    int num_files;
+    for (int i = 1; i < impl->NumberLevels(); i++) {
+      num_files = impl->versions_->NumLevelFiles(i);
+      if (num_files > 0) {
+        s = Status::InvalidArgument("Not all files are at level 0. Cannot "
+          "open with universal compaction style.");
+        break;
+      }
+    }
+  }
+
   if (s.ok()) {
     *dbptr = impl;
   } else {

@@ -51,7 +51,7 @@ public:
    return Status::NotSupported("Not supported operation in read only mode.");
  }
  virtual void CompactRange(const Slice* begin, const Slice* end,
-                           bool reduce_level = false) {
+                           bool reduce_level = false, int target_level = -1) {
  }
  virtual Status DisableFileDeletions() {
    return Status::NotSupported("Not supported operation in read only mode.");

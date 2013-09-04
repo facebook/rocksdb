@@ -56,6 +56,7 @@ public:
     WALDumperCommand::Help(ret);
     CompactorCommand::Help(ret);
     ReduceDBLevelsCommand::Help(ret);
+    ChangeCompactionStyleCommand::Help(ret);
     DBDumperCommand::Help(ret);
     DBLoaderCommand::Help(ret);
     ManifestDumpCommand::Help(ret);

@@ -509,6 +509,27 @@ private:
   Status GetOldNumOfLevels(Options& opt, int* levels);
 };
 
+class ChangeCompactionStyleCommand : public LDBCommand {
+public:
+  static string Name() { return "change_compaction_style"; }
+
+  ChangeCompactionStyleCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  virtual Options PrepareOptionsForOpenDB();
+
+  virtual void DoCommand();
+
+  static void Help(string& msg);
+
+private:
+  int old_compaction_style_;
+  int new_compaction_style_;
+
+  static const string ARG_OLD_COMPACTION_STYLE;
+  static const string ARG_NEW_COMPACTION_STYLE;
+};
+
 class WALDumperCommand : public LDBCommand {
 public:
   static string Name() { return "dump_wal"; }
