@@ -2745,6 +2745,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       log_.reset(new log::Writer(std::move(lfile)));
       mem_->SetLogNumber(logfile_number_);
       imm_.Add(mem_);
+      if (force) {
+        imm_.FlushRequested();
+      }
       mem_ = new MemTable(internal_comparator_, mem_rep_factory_,
         NumberLevels(), options_);
       mem_->Ref();

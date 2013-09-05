@@ -1366,6 +1366,24 @@ TEST(DBTest, CheckLock) {
   } while (ChangeCompactOptions());
 }
 
+TEST(DBTest, FlushMultipleMemtable) {
+  do {
+    Options options = CurrentOptions();
+    WriteOptions writeOpt = WriteOptions();
+    writeOpt.disableWAL = true;
+    options.max_write_buffer_number = 4;
+    options.min_write_buffer_number_to_merge = 3;
+    Reopen(&options);
+    ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
+    dbfull()->Flush(FlushOptions());
+    ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
+
+    ASSERT_EQ("v1", Get("foo"));
+    ASSERT_EQ("v1", Get("bar"));
+    dbfull()->Flush(FlushOptions());
+  } while (ChangeCompactOptions());
+}
+
 TEST(DBTest, FLUSH) {
   do {
     Options options = CurrentOptions();

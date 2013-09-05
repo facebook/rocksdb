@@ -42,7 +42,8 @@ int MemTableList::size() {
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
 bool MemTableList::IsFlushPending(int min_write_buffer_number_to_merge) {
-  if (num_flush_not_started_ >= min_write_buffer_number_to_merge) {
+  if ((flush_requested_ && num_flush_not_started_ >= 1) ||
+      (num_flush_not_started_ >= min_write_buffer_number_to_merge)) {
     assert(imm_flush_needed.NoBarrier_Load() != nullptr);
     return true;
   }
@@ -63,6 +64,7 @@ void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
       ret->push_back(m);
     }
   }
+  flush_requested_ = false; // start-flush request is complete
 }
 
 // Record a successful flush in the manifest file

@@ -29,7 +29,8 @@ class MemTableList {
  public:
   // A list of memtables.
   MemTableList() : size_(0), num_flush_not_started_(0),
-    commit_in_progress_(false) {
+    commit_in_progress_(false),
+    flush_requested_(false) {
     imm_flush_needed.Release_Store(nullptr);
   }
   ~MemTableList() {};
@@ -76,6 +77,9 @@ class MemTableList {
   // Returns the list of underlying memtables.
   void GetMemTables(std::vector<MemTable*>* list);
 
+  // Request a flush of all existing memtables to storage
+  void FlushRequested() { flush_requested_ = true; }
+
   // Copying allowed
   // MemTableList(const MemTableList&);
   // void operator=(const MemTableList&);
@@ -89,6 +93,9 @@ class MemTableList {
 
   // committing in progress
   bool commit_in_progress_;
+
+  // Requested a flush of all memtables to storage
+  bool flush_requested_;
 
 };
 
