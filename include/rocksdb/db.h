@@ -235,14 +235,15 @@ class DB {
   // Allow compactions to delete obselete files.
   virtual Status EnableFileDeletions() = 0;
 
+  // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
+
   // THIS METHOD IS DEPRECATED. Use the GetTableMetaData to get more
   // detailed information on the live files.
   // Retrieve the list of all files in the database. The files are
-  // relative to the dbname and are not absolute paths. This list
-  // can be used to generate a backup. The valid size of the manifest
-  // file is returned in manifest_file_size. The manifest file is
-  // an ever growing file, but only the portion specified
-  // by manifest_file_size is valid for this snapshot.
+  // relative to the dbname and are not absolute paths. The valid size of the
+  // manifest file is returned in manifest_file_size. The manifest file is an
+  // ever growing file, but only the portion specified by manifest_file_size is
+  // valid for this snapshot.
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size) = 0;
 

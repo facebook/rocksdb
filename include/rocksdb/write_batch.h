@@ -43,12 +43,13 @@ class WriteBatch {
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   void Delete(const Slice& key);
 
-  // Append a blob of arbitrary to the records in this batch. The blob will be
-  // stored in the transaction log but not in any other file. In particular, it
-  // will not be persisted to the SST files. When iterating over this
+  // Append a blob of arbitrary size to the records in this batch. The blob will
+  // be stored in the transaction log but not in any other file. In particular,
+  // it will not be persisted to the SST files. When iterating over this
   // WriteBatch, WriteBatch::Handler::LogData will be called with the contents
   // of the blob as it is encountered. Blobs, puts, deletes, and merges will be
-  // encountered in the same order in thich they were inserted.
+  // encountered in the same order in thich they were inserted. The blob will
+  // NOT consume sequence number(s) and will NOT increase the count of the batch
   //
   // Example application: add timestamps to the transaction log for use in
   // replication.
