@@ -205,6 +205,9 @@ Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
     virtual void Delete(const Slice& key) {
       updates_ttl.Delete(key);
     }
+    virtual void LogData(const Slice& blob) {
+      updates_ttl.PutLogData(blob);
+    }
   };
   Handler handler;
   updates->Iterate(&handler);
