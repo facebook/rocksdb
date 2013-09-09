@@ -383,6 +383,13 @@ class VersionSet {
   // Pick files to compact in Universal mode
   Compaction* PickCompactionUniversal(int level, double score);
 
+  // Pick Universal compaction to limit read amplification
+  Compaction* PickCompactionUniversalReadAmp(int level, double score,
+                unsigned int ratio, unsigned int num_files);
+
+  // Pick Universal compaction to limit space amplification.
+  Compaction* PickCompactionUniversalSizeAmp(int level, double score);
+
   // Free up the files that were participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
 

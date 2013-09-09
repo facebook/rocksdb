@@ -1728,6 +1728,43 @@ TEST(DBTest, UniversalCompactionTrigger) {
   }
 }
 
+TEST(DBTest, UniversalCompactionSizeAmplification) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100<<10; //100KB
+  options.level0_file_num_compaction_trigger = 2;
+
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.
+    max_size_amplification_percent = 110;
+  Reopen(&options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  //   Generate two files in Level 0. Both files are approx the same size.
+  for (int num = 0;
+       num < options.level0_file_num_compaction_trigger;
+       num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForCompactMemTable();
+    ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  // Flush whatever is remaining in memtable. This is typically
+  // small, which should not trigger size ratio based compaction
+  // but will instead trigger size amplification.
+  dbfull()->Flush(FlushOptions());
+
+  // Verify that size amplification did occur
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+}
+
 TEST(DBTest, ConvertCompactionStyle) {
   Random rnd(301);
   int max_key_level_insert = 200;

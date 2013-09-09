@@ -243,6 +243,9 @@ Options::Dump(Logger* log) const
         compaction_options_universal.min_merge_width);
     Log(log,"   Options.compaction_options_universal.max_merge_width: %u",
         compaction_options_universal.max_merge_width);
+    Log(log,"Options.compaction_options_universal."
+            "max_size_amplification_percent: %u",
+        compaction_options_universal.max_size_amplification_percent);
     Log(log,"          Options.purge_log_after_memtable_flush: %d",
         purge_log_after_memtable_flush);
 }   // Options::Dump

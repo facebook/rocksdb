@@ -87,6 +87,16 @@ static int FLAGS_write_buffer_size = 0;
 // This is initialized to default value of 2 in "main" function.
 static int FLAGS_max_write_buffer_number = 0;
 
+// The minimum number of write buffers that will be merged together
+// before writing to storage. This is cheap because it is an
+// in-memory merge. If this feature is not enabled, then all these
+// write buffers are flushed to L0 as separate files and this increases
+// read amplification because a get request has to check in all of these
+// files. Also, an in-memory merge may result in writing less
+// data to storage if there are duplicate records in each of these
+// individual write buffers.
+static int FLAGS_min_write_buffer_number_to_merge = 0;
+
 // The maximum number of concurrent background compactions
 // that can occur in parallel.
 // This is initialized to default value of 1 in "main" function.
@@ -94,6 +104,18 @@ static int FLAGS_max_background_compactions = 0;
 
 // This is initialized to default value of false
 static leveldb::CompactionStyle FLAGS_compaction_style = leveldb::kCompactionStyleLevel;
+
+// The ratio of file sizes that trigger compaction in universal style
+static unsigned int FLAGS_universal_size_ratio = 0;
+
+// The minimum number of files to compact in universal style compaction
+static unsigned int FLAGS_universal_min_merge_width = 0;
+
+// The max number of files to compact in universal style compaction
+static unsigned int FLAGS_universal_max_merge_width = 0;
+
+// The max size amplification for universal style compaction
+static unsigned int FLAGS_universal_max_size_amplification_percent = 0;
 
 // Number of bytes to use as a cache of uncompressed data.
 static long FLAGS_cache_size = 2 * KB * KB * KB;
@@ -1134,6 +1156,8 @@ class StressTest {
     options.block_cache = cache_;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    options.min_write_buffer_number_to_merge =
+      FLAGS_min_write_buffer_number_to_merge;
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.compaction_style = FLAGS_compaction_style;
     options.block_size = FLAGS_block_size;
@@ -1197,6 +1221,24 @@ class StressTest {
       options.merge_operator = MergeOperators::CreatePutOperator();
     }
 
+    // set universal style compaction configurations, if applicable
+    if (FLAGS_universal_size_ratio != 0) {
+      options.compaction_options_universal.size_ratio =
+        FLAGS_universal_size_ratio;
+    }
+    if (FLAGS_universal_min_merge_width != 0) {
+      options.compaction_options_universal.min_merge_width =
+        FLAGS_universal_min_merge_width;
+    }
+    if (FLAGS_universal_max_merge_width != 0) {
+      options.compaction_options_universal.max_merge_width =
+        FLAGS_universal_max_merge_width;
+    }
+    if (FLAGS_universal_max_size_amplification_percent != 0) {
+      options.compaction_options_universal.max_size_amplification_percent =
+        FLAGS_universal_max_size_amplification_percent;
+    }
+
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db);
 
     Status s;
@@ -1250,6 +1292,8 @@ class StressTest {
 int main(int argc, char** argv) {
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
   FLAGS_max_write_buffer_number = leveldb::Options().max_write_buffer_number;
+  FLAGS_min_write_buffer_number_to_merge =
+    leveldb::Options().min_write_buffer_number_to_merge;
   FLAGS_open_files = leveldb::Options().max_open_files;
   FLAGS_max_background_compactions =
     leveldb::Options().max_background_compactions;
@@ -1305,6 +1349,9 @@ int main(int argc, char** argv) {
       FLAGS_write_buffer_size = n;
     } else if (sscanf(argv[i], "--max_write_buffer_number=%d%c", &n, &junk) == 1) {
       FLAGS_max_write_buffer_number = n;
+    } else if (sscanf(argv[i], "--min_write_buffer_number_to_merge=%d%c",
+               &n, &junk) == 1) {
+      FLAGS_min_write_buffer_number_to_merge = n;
     } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
       FLAGS_max_background_compactions = n;
     } else if (sscanf(argv[i], "--compaction_style=%d%c", &n, &junk) == 1) {
@@ -1426,6 +1473,19 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--use_merge=%d%c", &n, &junk)
         == 1 && (n == 0 || n == 1)) {
       FLAGS_use_merge_put = n;
+    } else if (sscanf(argv[i], "--universal_size_ratio=%d%c",
+                      &n, &junk) == 1) {
+      FLAGS_universal_size_ratio = n;
+    } else if (sscanf(argv[i], "--universal_min_merge_width=%d%c",
+                      &n, &junk) == 1) {
+      FLAGS_universal_min_merge_width = n;
+    } else if (sscanf(argv[i], "--universal_max_merge_width=%d%c",
+                      &n, &junk) == 1) {
+      FLAGS_universal_max_merge_width = n;
+    } else if (sscanf(argv[i],
+                      "--universal_max_size_amplification_percent=%d%c",
+                      &n, &junk) == 1) {
+      FLAGS_universal_max_size_amplification_percent = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);

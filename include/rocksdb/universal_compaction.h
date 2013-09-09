@@ -36,8 +36,20 @@ class CompactionOptionsUniversal {
   // The minimum number of files in a single compaction run. Default: 2
   unsigned int min_merge_width;
 
-  // The maximum number of files in a single compaction run. Default: INT_MAX
+  // The maximum number of files in a single compaction run. Default: UINT_MAX
   unsigned int max_merge_width;
+
+  // The size amplification is defined as the amount (in percentage) of
+  // additional storage needed to store a single byte of data in the database.
+  // For example, a size amplification of 2% means that a database that
+  // contains 100 bytes of user-data may occupy upto 102 bytes of
+  // physical storage. By this definition, a fully compacted database has
+  // a size amplification of 0%. Rocksdb uses the following heuristic
+  // to calculate size amplification: it assumes that all files excluding
+  // the earliest file contribute to the size amplification.
+  // Default: 200, which means that a 100 byte database could require upto
+  // 300 bytes of storage.
+  unsigned int max_size_amplification_percent;
 
   // The algorithm used to stop picking files into a single compaction run
   // Default: kCompactionStopStyleTotalSize
@@ -48,6 +60,7 @@ class CompactionOptionsUniversal {
     size_ratio(1),
     min_merge_width(2),
     max_merge_width(UINT_MAX),
+    max_size_amplification_percent(200),
     stop_style(kCompactionStopStyleTotalSize) {
   }
 };

@@ -155,11 +155,17 @@ static leveldb::CompactionStyle FLAGS_compaction_style = leveldb::kCompactionSty
 
 // Percentage flexibility while comparing file size
 // (for universal compaction only).
-static int FLAGS_universal_size_ratio = 1;
+static int FLAGS_universal_size_ratio = 0;
 
 // The minimum number of files in a single compaction run
 // (for universal compaction only).
-static int FLAGS_compaction_universal_min_merge_width = 2;
+static int FLAGS_universal_min_merge_width = 0;
+
+// The max number of files to compact in universal style compaction
+static unsigned int FLAGS_universal_max_merge_width = 0;
+
+// The max size amplification for universal style compaction
+static unsigned int FLAGS_universal_max_size_amplification_percent = 0;
 
 // Number of bytes to use as a cache of uncompressed data.
 // Negative means use default settings.
@@ -1185,9 +1191,6 @@ class Benchmark {
       FLAGS_min_write_buffer_number_to_merge;
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.compaction_style = FLAGS_compaction_style;
-    options.compaction_options_universal.size_ratio = FLAGS_universal_size_ratio;
-    options.compaction_options_universal.min_merge_width =
-      FLAGS_compaction_universal_min_merge_width;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.prefix_extractor = FLAGS_use_prefix_blooms ? prefix_extractor_
@@ -1288,6 +1291,24 @@ class Benchmark {
       fprintf(stderr, "invalid merge operator: %s\n",
               FLAGS_merge_operator.c_str());
       exit(1);
+    }
+
+    // set universal style compaction configurations, if applicable
+    if (FLAGS_universal_size_ratio != 0) {
+      options.compaction_options_universal.size_ratio =
+        FLAGS_universal_size_ratio;
+    }
+    if (FLAGS_universal_min_merge_width != 0) {
+      options.compaction_options_universal.min_merge_width =
+        FLAGS_universal_min_merge_width;
+    }
+    if (FLAGS_universal_max_merge_width != 0) {
+      options.compaction_options_universal.max_merge_width =
+        FLAGS_universal_max_merge_width;
+    }
+    if (FLAGS_universal_max_size_amplification_percent != 0) {
+      options.compaction_options_universal.max_size_amplification_percent =
+        FLAGS_universal_max_size_amplification_percent;
     }
 
     Status s;
@@ -2242,10 +2263,6 @@ int main(int argc, char** argv) {
   FLAGS_max_background_compactions =
     leveldb::Options().max_background_compactions;
   FLAGS_compaction_style = leveldb::Options().compaction_style;
-  FLAGS_universal_size_ratio =
-    leveldb::Options().compaction_options_universal.size_ratio;
-  FLAGS_compaction_universal_min_merge_width =
-    leveldb::Options().compaction_options_universal.min_merge_width;
   // Compression test code above refers to FLAGS_block_size
   FLAGS_block_size = leveldb::Options().block_size;
   FLAGS_use_os_buffer = leveldb::EnvOptions().use_os_buffer;
@@ -2315,11 +2332,6 @@ int main(int argc, char** argv) {
       FLAGS_max_background_compactions = n;
     } else if (sscanf(argv[i], "--compaction_style=%d%c", &n, &junk) == 1) {
       FLAGS_compaction_style = (leveldb::CompactionStyle)n;
-    } else if (sscanf(argv[i], "--universal_size_ratio=%d%c", &n, &junk) == 1) {
-      FLAGS_universal_size_ratio = n;
-    } else if (sscanf(argv[i], "--universal_min_merge_width=%d%c",
-               &n, &junk) == 1) {
-      FLAGS_compaction_universal_min_merge_width = n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
       FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
@@ -2525,6 +2537,19 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--purge_log_after_memtable_flush=%d%c", &n, &junk)
                == 1 && (n == 0 || n ==1 )) {
       FLAGS_purge_log_after_memtable_flush = n;
+    } else if (sscanf(argv[i], "--universal_size_ratio=%d%c",
+                      &n, &junk) == 1) {
+      FLAGS_universal_size_ratio = n;
+    } else if (sscanf(argv[i], "--universal_min_merge_width=%d%c",
+                      &n, &junk) == 1) {
+      FLAGS_universal_min_merge_width = n;
+    } else if (sscanf(argv[i], "--universal_max_merge_width=%d%c",
+                      &n, &junk) == 1) {
+      FLAGS_universal_max_merge_width = n;
+    } else if (sscanf(argv[i],
+               "--universal_max_size_amplification_percent=%d%c",
+               &n, &junk) == 1) {
+      FLAGS_universal_max_size_amplification_percent = n;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
