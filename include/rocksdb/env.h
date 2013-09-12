@@ -162,15 +162,20 @@ class Env {
   // REQUIRES: lock has not already been unlocked.
   virtual Status UnlockFile(FileLock* lock) = 0;
 
-  // Arrange to run "(*function)(arg)" once in a background thread.
-  //
+  enum Priority { LOW, HIGH, TOTAL };
+
+  // Arrange to run "(*function)(arg)" once in a background thread, in
+  // the thread pool specified by pri. By default, jobs go to the 'LOW'
+  // priority thread pool.
+
   // "function" may run in an unspecified thread.  Multiple functions
   // added to the same Env may run concurrently in different threads.
   // I.e., the caller may not assume that background work items are
   // serialized.
   virtual void Schedule(
       void (*function)(void* arg),
-      void* arg) = 0;
+      void* arg,
+      Priority pri = LOW) = 0;
 
   // Start a new thread, invoking "function(arg)" within the new thread.
   // When "function(arg)" returns, the thread will be destroyed.
@@ -210,9 +215,10 @@ class Env {
   virtual Status GetAbsolutePath(const std::string& db_path,
       std::string* output_path) = 0;
 
-  // The number of background worker threads for this environment.
-  // default: 1
-  virtual void SetBackgroundThreads(int number) = 0;
+  // The number of background worker threads of a specific thread pool
+  // for this environment. 'LOW' is the default pool.
+  // default number: 1
+  virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
 
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
@@ -496,8 +502,8 @@ class EnvWrapper : public Env {
     return target_->LockFile(f, l);
   }
   Status UnlockFile(FileLock* l) { return target_->UnlockFile(l); }
-  void Schedule(void (*f)(void*), void* a) {
-    return target_->Schedule(f, a);
+  void Schedule(void (*f)(void*), void* a, Priority pri) {
+    return target_->Schedule(f, a, pri);
   }
   void StartThread(void (*f)(void*), void* a) {
     return target_->StartThread(f, a);
@@ -525,8 +531,8 @@ class EnvWrapper : public Env {
       std::string* output_path) {
     return target_->GetAbsolutePath(db_path, output_path);
   }
-  void SetBackgroundThreads(int num) {
-    return target_->SetBackgroundThreads(num);
+  void SetBackgroundThreads(int num, Priority pri) {
+    return target_->SetBackgroundThreads(num, pri);
   }
   std::string TimeToString(uint64_t time) {
     return target_->TimeToString(time);

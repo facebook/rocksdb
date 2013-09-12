@@ -708,12 +708,24 @@ class PosixFileLock : public FileLock {
   std::string filename;
 };
 
+
+namespace {
+void PthreadCall(const char* label, int result) {
+  if (result != 0) {
+    fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
+    exit(1);
+  }
+}
+}
+
 class PosixEnv : public Env {
  public:
   PosixEnv();
 
   virtual ~PosixEnv(){
-    WaitForBGThreads();
+    for (const auto tid : threads_to_join_) {
+      pthread_join(tid, nullptr);
+    }
   }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
@@ -913,9 +925,7 @@ class PosixEnv : public Env {
     return result;
   }
 
-  virtual void Schedule(void (*function)(void*), void* arg);
-
-  virtual void WaitForBGThreads();
+  virtual void Schedule(void (*function)(void*), void* arg, Priority pri = LOW);
 
   virtual void StartThread(void (*function)(void* arg), void* arg);
 
@@ -1008,13 +1018,9 @@ class PosixEnv : public Env {
   }
 
   // Allow increasing the number of worker threads.
-  virtual void SetBackgroundThreads(int num) {
-    PthreadCall("lock", pthread_mutex_lock(&mu_));
-    if (num > num_threads_) {
-      num_threads_ = num;
-      bgthread_.resize(num_threads_);
-    }
-    PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  virtual void SetBackgroundThreads(int num, Priority pri) {
+    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    thread_pools_[pri].SetBackgroundThreads(num);
   }
 
   virtual std::string TimeToString(uint64_t secondsSince1970) {
@@ -1041,12 +1047,6 @@ class PosixEnv : public Env {
   bool checkedDiskForMmap_;
   bool forceMmapOff; // do we override Env options?
 
-  void PthreadCall(const char* label, int result) {
-    if (result != 0) {
-      fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
-      exit(1);
-    }
-  }
 
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname) {
@@ -1055,14 +1055,6 @@ class PosixEnv : public Env {
       return S_ISDIR(statbuf.st_mode);
     }
     return false; // stat() failed return false
-  }
-
-
-  // BGThread() is the body of the background thread
-  void BGThread();
-  static void* BGThreadWrapper(void* arg) {
-    reinterpret_cast<PosixEnv*>(arg)->BGThread();
-    return nullptr;
   }
 
   bool SupportsFastAllocate(const std::string& path) {
@@ -1083,93 +1075,126 @@ class PosixEnv : public Env {
   }
 
   size_t page_size_;
-  pthread_mutex_t mu_;
-  pthread_cond_t bgsignal_;
-  std::vector<pthread_t> bgthread_;
-  int started_bgthread_;
-  int num_threads_;
 
-  // Entry per Schedule() call
-  struct BGItem { void* arg; void (*function)(void*); };
-  typedef std::deque<BGItem> BGQueue;
-  int queue_size_; // number of items in BGQueue
-  bool exit_all_threads_;
-  BGQueue queue_;
+
+  class ThreadPool {
+   public:
+
+    ThreadPool() :
+        total_threads_limit_(1),
+        bgthreads_(0),
+        queue_(),
+        exit_all_threads_(false) {
+      PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
+      PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
+    }
+
+    ~ThreadPool() {
+      PthreadCall("lock", pthread_mutex_lock(&mu_));
+      assert(!exit_all_threads_);
+      exit_all_threads_ = true;
+      PthreadCall("signalall", pthread_cond_broadcast(&bgsignal_));
+      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+      for (const auto tid : bgthreads_) {
+        pthread_join(tid, nullptr);
+      }
+    }
+
+    void BGThread() {
+      while (true) {
+        // Wait until there is an item that is ready to run
+        PthreadCall("lock", pthread_mutex_lock(&mu_));
+        while (queue_.empty() && !exit_all_threads_) {
+          PthreadCall("wait", pthread_cond_wait(&bgsignal_, &mu_));
+        }
+        if (exit_all_threads_) { // mechanism to let BG threads exit safely
+          PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+          break;
+        }
+        void (*function)(void*) = queue_.front().function;
+        void* arg = queue_.front().arg;
+        queue_.pop_front();
+
+        PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+        (*function)(arg);
+      }
+    }
+
+    static void* BGThreadWrapper(void* arg) {
+      reinterpret_cast<ThreadPool*>(arg)->BGThread();
+      return nullptr;
+    }
+
+    void SetBackgroundThreads(int num) {
+      PthreadCall("lock", pthread_mutex_lock(&mu_));
+      if (num > total_threads_limit_) {
+        total_threads_limit_ = num;
+      }
+      assert(total_threads_limit_ > 0);
+      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    }
+
+    void Schedule(void (*function)(void*), void* arg) {
+      PthreadCall("lock", pthread_mutex_lock(&mu_));
+
+      if (exit_all_threads_) {
+        PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+        return;
+      }
+      // Start background thread if necessary
+      while ((int)bgthreads_.size() < total_threads_limit_) {
+        pthread_t t;
+        PthreadCall(
+          "create thread",
+          pthread_create(&t,
+                         nullptr,
+                         &ThreadPool::BGThreadWrapper,
+                         this));
+        fprintf(stdout, "Created bg thread 0x%lx\n", t);
+        bgthreads_.push_back(t);
+      }
+
+      // Add to priority queue
+      queue_.push_back(BGItem());
+      queue_.back().function = function;
+      queue_.back().arg = arg;
+
+      // always wake up at least one waiting thread.
+      PthreadCall("signal", pthread_cond_signal(&bgsignal_));
+
+      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    }
+
+   private:
+    // Entry per Schedule() call
+    struct BGItem { void* arg; void (*function)(void*); };
+    typedef std::deque<BGItem> BGQueue;
+
+    pthread_mutex_t mu_;
+    pthread_cond_t bgsignal_;
+    int total_threads_limit_;
+    std::vector<pthread_t> bgthreads_;
+    BGQueue queue_;
+    bool exit_all_threads_;
+  };
+
+  std::vector<ThreadPool> thread_pools_;
+
+  pthread_mutex_t mu_;
   std::vector<pthread_t> threads_to_join_;
+
 };
 
 PosixEnv::PosixEnv() : checkedDiskForMmap_(false),
                        forceMmapOff(false),
                        page_size_(getpagesize()),
-                       started_bgthread_(0),
-                       num_threads_(1),
-                       queue_size_(0),
-                       exit_all_threads_(false) {
+                       thread_pools_(Priority::TOTAL) {
   PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
-  PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
-  bgthread_.resize(num_threads_);
 }
 
-// Signal and Join all background threads started by calls to Schedule
-void PosixEnv::WaitForBGThreads() {
-  PthreadCall("lock", pthread_mutex_lock(&mu_));
-  assert(! exit_all_threads_);
-  exit_all_threads_ = true;
-  PthreadCall("signalall", pthread_cond_broadcast(&bgsignal_));
-  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-  for (unsigned int i = 0; i < threads_to_join_.size(); i++) {
-    pthread_join(threads_to_join_[i], nullptr);
-  }
-}
-
-void PosixEnv::Schedule(void (*function)(void*), void* arg) {
-  PthreadCall("lock", pthread_mutex_lock(&mu_));
-
-  if (exit_all_threads_) {
-    PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-    return;
-  }
-  // Start background thread if necessary
-  for (; started_bgthread_ < num_threads_; started_bgthread_++) {
-    PthreadCall(
-        "create thread",
-        pthread_create(&bgthread_[started_bgthread_],
-                       nullptr,
-                       &PosixEnv::BGThreadWrapper,
-                       this));
-    threads_to_join_.push_back(bgthread_[started_bgthread_]);
-    fprintf(stdout, "Created bg thread 0x%lx\n", bgthread_[started_bgthread_]);
-  }
-
-  // Add to priority queue
-  queue_.push_back(BGItem());
-  queue_.back().function = function;
-  queue_.back().arg = arg;
-
-  // always wake up at least one waiting thread.
-  PthreadCall("signal", pthread_cond_signal(&bgsignal_));
-
-  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-}
-
-void PosixEnv::BGThread() {
-  while (true) {
-    // Wait until there is an item that is ready to run
-    PthreadCall("lock", pthread_mutex_lock(&mu_));
-    while (queue_.empty() && !exit_all_threads_) {
-      PthreadCall("wait", pthread_cond_wait(&bgsignal_, &mu_));
-    }
-    if (exit_all_threads_) { // mechanism to let BG threads exit safely
-      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-      break;
-    }
-    void (*function)(void*) = queue_.front().function;
-    void* arg = queue_.front().arg;
-    queue_.pop_front();
-
-    PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-    (*function)(arg);
-  }
+void PosixEnv::Schedule(void (*function)(void*), void* arg, Priority pri) {
+  assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+  thread_pools_[pri].Schedule(function, arg);
 }
 
 namespace {
@@ -1192,7 +1217,9 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
   state->arg = arg;
   PthreadCall("start thread",
               pthread_create(&t, nullptr,  &StartThreadWrapper, state));
+  PthreadCall("lock", pthread_mutex_lock(&mu_));
   threads_to_join_.push_back(t);
+  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
 }
 
 }  // namespace

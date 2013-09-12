@@ -107,8 +107,9 @@ class HdfsEnv : public Env {
 
   virtual Status NewLogger(const std::string& fname, Logger** result);
 
-  virtual void Schedule( void (*function)(void* arg), void* arg) {
-    posixEnv->Schedule(function, arg);
+  virtual void Schedule(void (*function)(void* arg), void* arg,
+                        Priority pri = LOW) {
+    posixEnv->Schedule(function, arg, pri);
   }
 
   virtual void StartThread(void (*function)(void* arg), void* arg) {
@@ -140,8 +141,8 @@ class HdfsEnv : public Env {
     return posixEnv->GetAbsolutePath(db_path, output_path);
   }
 
-  virtual void SetBackgroundThreads(int number) {
-    posixEnv->SetBackgroundThreads(number);
+  virtual void SetBackgroundThreads(int number, Priority pri = LOW) {
+    posixEnv->SetBackgroundThreads(number, pri);
   }
 
   virtual std::string TimeToString(uint64_t number) {
@@ -279,7 +280,8 @@ class HdfsEnv : public Env {
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result){return notsup;}
 
-  virtual void Schedule( void (*function)(void* arg), void* arg) {}
+  virtual void Schedule(void (*function)(void* arg), void* arg,
+                        Priority pri = LOW) {}
 
   virtual void StartThread(void (*function)(void* arg), void* arg) {}
 
@@ -296,7 +298,7 @@ class HdfsEnv : public Env {
   virtual Status GetAbsolutePath(const std::string& db_path,
       std::string* outputpath) {return notsup;}
 
-  virtual void SetBackgroundThreads(int number) {}
+  virtual void SetBackgroundThreads(int number, Priority pri = LOW) {}
 
   virtual std::string TimeToString(uint64_t number) { return "";}
 };
