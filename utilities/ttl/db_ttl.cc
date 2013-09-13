@@ -56,7 +56,7 @@ Status UtilityDB::OpenTtlDB(
   Status st;
   *dbptr = new DBWithTTL(ttl, options, dbname, st, read_only);
   if (!st.ok()) {
-    delete dbptr;
+    delete *dbptr;
   }
   return st;
 }
