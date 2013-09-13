@@ -187,9 +187,12 @@ class DBImpl : public DB {
   void LogDBDeployStats();
 
   void MaybeScheduleCompaction();
-  static void BGWork(void* db);
-  void BackgroundCall();
+  static void BGWorkCompaction(void* db);
+  static void BGWorkFlush(void* db);
+  void BackgroundCallCompaction();
+  void BackgroundCallFlush();
   Status BackgroundCompaction(bool* madeProgress,DeletionState& deletion_state);
+  Status BackgroundFlush();
   void CleanupCompaction(CompactionState* compact);
   Status DoCompactionWork(CompactionState* compact);
 
@@ -282,6 +285,9 @@ class DBImpl : public DB {
 
   // count how many background compaction been scheduled or is running?
   int bg_compaction_scheduled_;
+
+  // number of background memtable flush jobs, submitted to the HIGH pool
+  int bg_flush_scheduled_;
 
   // Has a background stats log thread scheduled?
   bool bg_logstats_scheduled_;

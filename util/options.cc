@@ -54,6 +54,7 @@ Options::Options()
       disable_seek_compaction(false),
       delete_obsolete_files_period_micros(0),
       max_background_compactions(1),
+      max_background_flushes(0),
       max_log_file_size(0),
       log_file_time_to_roll(0),
       keep_log_file_num(1000),
@@ -199,6 +200,8 @@ Options::Dump(Logger* log) const
         delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",
         max_background_compactions);
+    Log(log,"                 Options.max_background_flushes: %d",
+        max_background_flushes);
     Log(log,"                      Options.soft_rate_limit: %.2f",
         soft_rate_limit);
     Log(log,"                      Options.hard_rate_limit: %.2f",
