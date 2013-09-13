@@ -1,6 +1,6 @@
 rocksdb: A persistent key-value store for flash storage
 Authors: * The Facebook Database Engineering Team
-         * Build on earlier work on leveldb by Sanjay Ghemawat 
+         * Build on earlier work on leveldb by Sanjay Ghemawat
            (sanjay@google.com) and Jeff Dean (jeff@google.com)
 
 This code is a library that forms the core building block for a fast
@@ -19,64 +19,64 @@ persistent key/value store.
 See doc/index.html for more explanation.
 See doc/impl.html for a brief overview of the implementation.
 
-The public interface is in include/*.h.  Callers should not include or
+The public interface is in include/rocksdb/*.h.  Callers should not include or
 rely on the details of any other header files in this package.  Those
 internal APIs may be changed without warning.
 
 Guide to header files:
 
-include/db.h
+include/rocksdb/db.h
     Main interface to the DB: Start here
 
-include/options.h
+include/rocksdb/options.h
     Control over the behavior of an entire database, and also
     control over the behavior of individual reads and writes.
 
-include/comparator.h
+include/rocksdb/comparator.h
     Abstraction for user-specified comparison function.  If you want
     just bytewise comparison of keys, you can use the default comparator,
     but clients can write their own comparator implementations if they
     want custom ordering (e.g. to handle different character
     encodings, etc.)
 
-include/iterator.h
+include/rocksdb/iterator.h
     Interface for iterating over data. You can get an iterator
     from a DB object.
 
-include/write_batch.h
+include/rocksdb/write_batch.h
     Interface for atomically applying multiple updates to a database.
 
-include/slice.h
+include/rocksdb/slice.h
     A simple module for maintaining a pointer and a length into some
     other byte array.
 
-include/status.h
+include/rocksdb/status.h
     Status is returned from many of the public interfaces and is used
     to report success and various kinds of errors.
 
-include/env.h
+include/rocksdb/env.h
     Abstraction of the OS environment.  A posix implementation of
     this interface is in util/env_posix.cc
 
-include/table_builder.h
+include/rocksdb/table_builder.h
     Lower-level modules that most clients probably won't use directly
 
-include/cache.h
+include/rocksdb/cache.h
     An API for the block cache.
 
-include/compaction_filter.h
+include/rocksdb/compaction_filter.h
     An API for a application filter invoked on every compaction.
 
-include/filter_policy.h
+include/rocksdb/filter_policy.h
     An API for configuring a bloom filter.
 
-include/memtablerep.h
+include/rocksdb/memtablerep.h
     An API for implementing a memtable.
 
-include/statistics.h
+include/rocksdb/statistics.h
     An API to retrieve various database statistics.
 
-include/transaction_log_iterator.h
+include/rocksdb/transaction_log.h
     An API to retrieve transaction logs from a database.
 
 
