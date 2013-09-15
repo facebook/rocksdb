@@ -2367,7 +2367,7 @@ Compaction* VersionSet::PickCompactionUniversalReadAmp(
 Compaction* VersionSet::PickCompactionUniversal(int level, double score) {
   assert (level == 0);
 
-  if ((current_->files_[level].size() <=
+  if ((current_->files_[level].size() <
       (unsigned int)options_->level0_file_num_compaction_trigger)) {
     Log(options_->info_log, "Universal: nothing to do\n");
     return nullptr;
