@@ -421,18 +421,6 @@ class RandomGenerator {
   }
 };
 
-static Slice TrimSpace(Slice s) {
-  unsigned int start = 0;
-  while (start < s.size() && isspace(s[start])) {
-    start++;
-  }
-  unsigned int limit = s.size();
-  while (limit > start && isspace(s[limit-1])) {
-    limit--;
-  }
-  return Slice(s.data() + start, limit - start);
-}
-
 static void AppendWithSpace(std::string* str, Slice msg) {
   if (msg.empty()) return;
   if (!str->empty()) {

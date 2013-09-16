@@ -83,7 +83,6 @@ class MergeHelper {
   const Comparator* user_comparator_;
   const MergeOperator* user_merge_operator_;
   Logger* logger_;
-  Iterator* iter_; // in: the internal iterator, positioned at the first merge entry
   bool assert_valid_internal_key_; // enforce no internal key corruption?
 
   // the scratch area that holds the result of MergeUntil
