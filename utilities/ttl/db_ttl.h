@@ -111,6 +111,7 @@ class DBWithTTL : public StackableDB {
 
  private:
   DB* db_;
+  int32_t ttl_;
   unique_ptr<CompactionFilter> ttl_comp_filter_;
 };
 

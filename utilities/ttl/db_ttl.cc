@@ -16,7 +16,8 @@ DBWithTTL::DBWithTTL(const int32_t ttl,
                      const std::string& dbname,
                      Status& st,
                      bool read_only)
-    : StackableDB(nullptr) {
+    : StackableDB(nullptr),
+      ttl_(ttl) {
   Options options_to_open = options;
 
   if (options.compaction_filter) {

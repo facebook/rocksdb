@@ -14,15 +14,10 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#ifdef __APPLE__
-#include <sys/param.h>
-#include <sys/mount.h>
-#else
 #include <sys/statfs.h>
-#include <sys/vfs.h>
-#endif
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/vfs.h>
 #include <time.h>
 #include <unistd.h>
 #if defined(OS_LINUX)
@@ -131,9 +126,7 @@ class PosixSequentialFile: public SequentialFile {
     if (!use_os_buffer_) {
       // we need to fadvise away the entire range of pages because
       // we do not want readahead pages to be cached.
-#ifndef __APPLE__
       posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
-#endif
     }
     return s;
   }
@@ -173,9 +166,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
     if (!use_os_buffer_) {
       // we need to fadvise away the entire range of pages because
       // we do not want readahead pages to be cached.
-#ifndef __APPLE__
       posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
-#endif
     }
     return s;
   }
@@ -210,7 +201,6 @@ class PosixRandomAccessFile: public RandomAccessFile {
 #endif
 
   virtual void Hint(AccessPattern pattern) {
-#ifndef __APPLE__
     switch(pattern) {
       case NORMAL:
         posix_fadvise(fd_, 0, 0, POSIX_FADV_NORMAL);
@@ -231,7 +221,6 @@ class PosixRandomAccessFile: public RandomAccessFile {
         assert(false);
         break;
     }
-#endif
   }
 
 };

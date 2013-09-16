@@ -18,12 +18,7 @@
 #include <memory>
 #include <vector>
 #include <stdint.h>
-#include <sys/types.h>
 #include "rocksdb/status.h"
-
-#ifdef __APPLE__
-typedef off_t off64_t;
-#endif
 
 namespace leveldb {
 
@@ -33,7 +28,7 @@ class RandomAccessFile;
 class SequentialFile;
 class Slice;
 class WritableFile;
-struct Options;
+class Options;
 
 using std::unique_ptr;
 using std::shared_ptr;
