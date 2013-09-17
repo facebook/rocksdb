@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/statistics.h"
 #include "port/port.h"
@@ -79,6 +80,7 @@ static const char* FLAGS_benchmarks =
     "snappycomp,"
     "snappyuncomp,"
     "acquireload,"
+    "fillfromstdin,"
     ;
 // the maximum size of key in bytes
 static const int MAX_KEY_SIZE = 128;
@@ -906,6 +908,9 @@ class Benchmark {
       } else if (name == Slice("fillrandom")) {
         fresh_db = true;
         method = &Benchmark::WriteRandom;
+      } else if (name == Slice("fillfromstdin")) {
+        fresh_db = true;
+        method = &Benchmark::WriteFromStdin;
       } else if (name == Slice("filluniquerandom")) {
         fresh_db = true;
         if (num_threads > 1) {
@@ -1340,6 +1345,54 @@ class Benchmark {
 
   void WriteUniqueRandom(ThreadState* thread) {
     DoWrite(thread, UNIQUE_RANDOM);
+  }
+
+  void writeOrFail(WriteBatch& batch) {
+    Status s = db_->Write(write_options_, &batch);
+    if (!s.ok()) {
+      fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+  }
+
+  void WriteFromStdin(ThreadState* thread) {
+    size_t count = 0;
+    WriteBatch batch;
+    const size_t bufferLen = 32 << 20;
+    unique_ptr<char[]> line = unique_ptr<char[]>(new char[bufferLen]);
+    char* linep = line.get();
+    const int batchSize = 100 << 10;
+    const char columnSeparator = '\t';
+    const char lineSeparator = '\n';
+
+    while (fgets(linep, bufferLen, stdin) != nullptr) {
+      ++count;
+      char* tab = std::find(linep, linep + bufferLen, columnSeparator);
+      if (tab == linep + bufferLen) {
+        fprintf(stderr, "[Error] No Key delimiter TAB at line %ld\n", count);
+        continue;
+      }
+      Slice key(linep, tab - linep);
+      tab++;
+      char* endLine = std::find(tab, linep + bufferLen, lineSeparator);
+      if (endLine  == linep + bufferLen) {
+        fprintf(stderr, "[Error] No ENTER at end of line # %ld\n", count);
+        continue;
+      }
+      Slice value(tab, endLine - tab);
+      thread->stats.FinishedSingleOp(db_);
+      thread->stats.AddBytes(endLine - linep - 1);
+
+      if (batch.Count() < batchSize) {
+        batch.Put(key, value);
+        continue;
+      }
+      writeOrFail(batch);
+      batch.Clear();
+    }
+    if (batch.Count() > 0) {
+      writeOrFail(batch);
+    }
   }
 
   void DoWrite(ThreadState* thread, WriteMode write_mode) {
@@ -2320,8 +2373,8 @@ int main(int argc, char** argv) {
       } else {
         FLAGS_key_size = n;
       }
-    } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
-      FLAGS_write_buffer_size = n;
+    } else if (sscanf(argv[i], "--write_buffer_size=%lld%c", &ll, &junk) == 1) {
+      FLAGS_write_buffer_size = ll;
     } else if (sscanf(argv[i], "--max_write_buffer_number=%d%c", &n, &junk) == 1) {
       FLAGS_max_write_buffer_number = n;
     } else if (sscanf(argv[i], "--min_write_buffer_number_to_merge=%d%c",
