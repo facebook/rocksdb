@@ -1599,8 +1599,8 @@ TEST(DBTest, UniversalCompactionTrigger) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
-  // trigger compaction if there are > 3 files
-  options.level0_file_num_compaction_trigger = 3;
+  // trigger compaction if there are >= 4 files
+  options.level0_file_num_compaction_trigger = 4;
   Reopen(&options);
 
   Random rnd(301);
@@ -1610,7 +1610,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   //   Generate a set of files at level 0, but don't trigger level-0
   //   compaction.
   for (int num = 0;
-       num < options.level0_file_num_compaction_trigger;
+       num < options.level0_file_num_compaction_trigger-1;
        num++) {
     // Write 120KB (12 values, each 10K)
     for (int i = 0; i < 12; i++) {
@@ -1645,7 +1645,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   //   data amount).
   dbfull()->Flush(FlushOptions());
   for (int num = 0;
-       num < options.level0_file_num_compaction_trigger-2;
+       num < options.level0_file_num_compaction_trigger-3;
        num++) {
     // Write 120KB (12 values, each 10K)
     for (int i = 0; i < 12; i++) {
@@ -1674,7 +1674,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   //   Now we have 2 files at level 0, with size 4 and 2.4. Continue
   //   generating new files at level 0.
   for (int num = 0;
-       num < options.level0_file_num_compaction_trigger-2;
+       num < options.level0_file_num_compaction_trigger-3;
        num++) {
     // Write 120KB (12 values, each 10K)
     for (int i = 0; i < 12; i++) {
