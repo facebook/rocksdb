@@ -1732,7 +1732,7 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
-  options.level0_file_num_compaction_trigger = 2;
+  options.level0_file_num_compaction_trigger = 3;
 
   // Trigger compaction if size amplification exceeds 110%
   options.compaction_options_universal.
@@ -1744,7 +1744,7 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
 
   //   Generate two files in Level 0. Both files are approx the same size.
   for (int num = 0;
-       num < options.level0_file_num_compaction_trigger;
+       num < options.level0_file_num_compaction_trigger-1;
        num++) {
     // Write 120KB (12 values, each 10K)
     for (int i = 0; i < 12; i++) {
