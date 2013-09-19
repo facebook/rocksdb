@@ -183,13 +183,19 @@ static int FLAGS_level0_slowdown_writes_trigger = 8;
 static unsigned int FLAGS_readpercent = 10;
 
 // Ratio of prefix iterators to total workload (expressed as a percentage)
-static unsigned int FLAGS_prefixpercent = 25;
+static unsigned int FLAGS_prefixpercent = 20;
 
 // Ratio of deletes to total workload (expressed as a percentage)
-static unsigned int FLAGS_writepercent = 50;
+static unsigned int FLAGS_writepercent = 45;
 
 // Ratio of deletes to total workload (expressed as a percentage)
 static unsigned int FLAGS_delpercent = 15;
+
+// Ratio of iterations to total workload (expressed as a percentage)
+static unsigned int FLAGS_iterpercent = 10;
+
+// Number of iterations per MultiIterate run
+static uint32_t FLAGS_num_iterations = 10;
 
 // Option to disable compation triggered by read.
 static int FLAGS_disable_seek_compaction = false;
@@ -266,6 +272,7 @@ class Stats {
   long deletes_;
   long iterator_size_sums_;
   long founds_;
+  long iterations_;
   long errors_;
   int next_report_;
   size_t bytes_;
@@ -285,6 +292,7 @@ class Stats {
     deletes_ = 0;
     iterator_size_sums_ = 0;
     founds_ = 0;
+    iterations_ = 0;
     errors_ = 0;
     bytes_ = 0;
     seconds_ = 0;
@@ -302,6 +310,7 @@ class Stats {
     deletes_ += other.deletes_;
     iterator_size_sums_ += other.iterator_size_sums_;
     founds_ += other.founds_;
+    iterations_ += other.iterations_;
     errors_ += other.errors_;
     bytes_ += other.bytes_;
     seconds_ += other.seconds_;
@@ -353,6 +362,10 @@ class Stats {
     iterator_size_sums_ += count;
   }
 
+  void AddIterations(int n) {
+    iterations_ += n;
+  }
+
   void AddDeletes(int n) {
     deletes_ += n;
   }
@@ -385,6 +398,7 @@ class Stats {
     fprintf(stdout, "%-12s: Prefix scanned %ld times\n", "", prefixes_);
     fprintf(stdout, "%-12s: Iterator size sum is %ld\n", "",
             iterator_size_sums_);
+    fprintf(stdout, "%-12s: Iterated %ld times\n", "", iterations_);
     fprintf(stdout, "%-12s: Got errors %ld times\n", "", errors_);
 
     if (FLAGS_histogram) {
@@ -891,6 +905,37 @@ class StressTest {
     return s;
   }
 
+  // Given a key K, this creates an iterator which scans to K and then
+  // does a random sequence of Next/Prev operations.
+  Status MultiIterate(ThreadState* thread,
+                      const ReadOptions& readoptions,
+                      const Slice& key) {
+    Status s;
+    const Snapshot* snapshot = db_->GetSnapshot();
+    ReadOptions readoptionscopy = readoptions;
+    readoptionscopy.snapshot = snapshot;
+    unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy));
+
+    iter->Seek(key);
+    for (long i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
+      if (thread->rand.OneIn(2)) {
+        iter->Next();
+      } else {
+        iter->Prev();
+      }
+    }
+
+    if (s.ok()) {
+      thread->stats.AddIterations(1);
+    } else {
+      thread->stats.AddErrors(1);
+    }
+
+    db_->ReleaseSnapshot(snapshot);
+
+    return s;
+  }
+
   void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
@@ -901,6 +946,9 @@ class StressTest {
       write_opts.sync = true;
     }
     write_opts.disableWAL = FLAGS_disable_wal;
+    const int prefixBound = (int)FLAGS_readpercent + (int)FLAGS_prefixpercent;
+    const int writeBound = prefixBound + (int)FLAGS_writepercent;
+    const int delBound = writeBound + (int)FLAGS_delpercent;
 
     thread->stats.Start();
     for (long i = 0; i < FLAGS_ops_per_thread; i++) {
@@ -926,8 +974,8 @@ class StressTest {
       Slice key = keystr;
       int prob_op = thread->rand.Uniform(100);
 
-      // OPERATION read?
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
+        // OPERATION read
         if (!FLAGS_test_batches_snapshots) {
           Status s = db_->Get(read_opts, key, &from_db);
           if (s.ok()) {
@@ -943,11 +991,8 @@ class StressTest {
         } else {
           MultiGet(thread, read_opts, key, &from_db);
         }
-      }
-      prob_op -= FLAGS_readpercent;
-
-      // OPERATION prefix scan?
-      if (prob_op >= 0 && prob_op < (int)FLAGS_prefixpercent) {
+      } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
+        // OPERATION prefix scan
         // keys are longs (e.g., 8 bytes), so we let prefixes be
         // everything except the last byte.  So there will be 2^8=256
         // keys per prefix.
@@ -970,11 +1015,8 @@ class StressTest {
         } else {
           MultiPrefixScan(thread, read_opts, prefix);
         }
-      }
-      prob_op -= FLAGS_prefixpercent;
-
-      // OPERATION write?
-      if (prob_op >= 0 && prob_op < (int)FLAGS_writepercent) {
+      } else if (prefixBound <= prob_op && prob_op < writeBound) {
+        // OPERATION write
         uint32_t value_base = thread->rand.Next();
         size_t sz = GenerateValue(value_base, value, sizeof(value));
         Slice v(value, sz);
@@ -994,11 +1036,8 @@ class StressTest {
           MultiPut(thread, write_opts, key, v, sz);
         }
         PrintKeyValue(rand_key, value, sz);
-      }
-      prob_op -= FLAGS_writepercent;
-
-      // OPERATION delete?
-      if (prob_op >= 0 && prob_op < (int)FLAGS_delpercent) {
+      } else if (writeBound <= prob_op && prob_op < delBound) {
+        // OPERATION delete
         if (!FLAGS_test_batches_snapshots) {
           MutexLock l(thread->shared->GetMutexForKey(rand_key));
           thread->shared->Delete(rand_key);
@@ -1007,11 +1046,13 @@ class StressTest {
         } else {
           MultiDelete(thread, write_opts, key);
         }
+      } else {
+        // OPERATION iterate
+        MultiIterate(thread, read_opts, key);
       }
-      prob_op -= FLAGS_delpercent;
-
       thread->stats.FinishedSingleOp();
     }
+
     thread->stats.Stop();
   }
 
@@ -1096,8 +1137,9 @@ class StressTest {
     fprintf(stdout, "Prefix percentage   : %d\n", FLAGS_prefixpercent);
     fprintf(stdout, "Write percentage    : %d\n", FLAGS_writepercent);
     fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
+    fprintf(stdout, "Iterate percentage  : %d\n", FLAGS_iterpercent);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
-    fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
+    fprintf(stdout, "Iterations          : %d\n", FLAGS_num_iterations);
     fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);
     fprintf(stdout, "Ratio #ops/#keys    : %f\n",
             (1.0 * FLAGS_ops_per_thread * FLAGS_threads)/FLAGS_max_key);
@@ -1391,9 +1433,14 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--writepercent=%d%c", &n, &junk) == 1 &&
                (n >= 0 && n <= 100)) {
       FLAGS_writepercent = n;
+    } else if (sscanf(argv[i], "--iterpercent=%d%c", &n, &junk) == 1 &&
+               (n >= 0 && n <= 100)) {
+      FLAGS_iterpercent = n;
     } else if (sscanf(argv[i], "--delpercent=%d%c", &n, &junk) == 1 &&
                (n >= 0 && n <= 100)) {
       FLAGS_delpercent = n;
+    } else if (sscanf(argv[i], "--numiterations=%u%c", &u, &junk) == 1) {
+      FLAGS_num_iterations = u;
     } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_disable_data_sync = n;
@@ -1497,8 +1544,9 @@ int main(int argc, char** argv) {
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
 
   if ((FLAGS_readpercent + FLAGS_prefixpercent +
-       FLAGS_writepercent + FLAGS_delpercent) != 100) {
-      fprintf(stderr, "Error: Read+Prefix+Write+Delete percents != 100!\n");
+       FLAGS_writepercent + FLAGS_delpercent + FLAGS_iterpercent) != 100) {
+      fprintf(stderr,
+              "Error: Read+Prefix+Write+Delete+Iterate percents != 100!\n");
       exit(1);
   }
   if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {
