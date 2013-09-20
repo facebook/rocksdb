@@ -71,10 +71,11 @@ def main(argv):
             --write_buffer_size=%s
             --destroy_db_initially=0
             --reopen=0
-            --readpercent=50
+            --readpercent=45
             --prefixpercent=5
-            --writepercent=40
+            --writepercent=35
             --delpercent=5
+            --iterpercent=10
             --db=%s
             --max_key=100000000
             --disable_seek_compaction=%s
