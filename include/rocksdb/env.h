@@ -41,7 +41,7 @@ struct EnvOptions {
   EnvOptions();
 
   // construct from Options
-  EnvOptions(const Options& options);
+  explicit EnvOptions(const Options& options);
 
   // If true, then allow caching of data in environment buffers
   bool use_os_buffer;
@@ -253,6 +253,13 @@ class SequentialFile {
   //
   // REQUIRES: External synchronization
   virtual Status Skip(uint64_t n) = 0;
+
+  // Remove any kind of caching of data from the offset to offset+length
+  // of this file. If the length is 0, then it refers to the end of file.
+  // If the system is not caching the file contents, then this is a noop.
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    return Status::NotSupported("InvalidateCache not supported.");
+  }
 };
 
 // A file abstraction for randomly reading the contents of a file.
@@ -298,6 +305,12 @@ class RandomAccessFile {
 
   virtual void Hint(AccessPattern pattern) {}
 
+  // Remove any kind of caching of data from the offset to offset+length
+  // of this file. If the length is 0, then it refers to the end of file.
+  // If the system is not caching the file contents, then this is a noop.
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    return Status::NotSupported("InvalidateCache not supported.");
+  }
 };
 
 // A file abstraction for sequential writing.  The implementation
@@ -345,6 +358,14 @@ class WritableFile {
                                       size_t* last_allocated_block) {
     *last_allocated_block = last_preallocated_block_;
     *block_size = preallocation_block_size_;
+  }
+
+  // Remove any kind of caching of data from the offset to offset+length
+  // of this file. If the length is 0, then it refers to the end of file.
+  // If the system is not caching the file contents, then this is a noop.
+  // This call has no effect on dirty pages in the cache.
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    return Status::NotSupported("InvalidateCache not supported.");
   }
 
  protected:

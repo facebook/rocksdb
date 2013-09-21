@@ -317,6 +317,46 @@ TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
   ASSERT_TRUE(!HasPrefix(ids));
 }
 
+TEST(EnvPosixTest, InvalidateCache) {
+  const EnvOptions soptions;
+  std::string fname = test::TmpDir() + "/" + "testfile";
+
+  // Create file.
+  {
+    unique_ptr<WritableFile> wfile;
+    ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+    ASSERT_OK(wfile.get()->Append(Slice("Hello world")));
+    ASSERT_OK(wfile.get()->InvalidateCache(0, 0));
+    ASSERT_OK(wfile.get()->Close());
+  }
+
+  // Random Read
+  {
+    unique_ptr<RandomAccessFile> file;
+    char scratch[100];
+    Slice result;
+    ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
+    ASSERT_OK(file.get()->Read(0, 11, &result, scratch));
+    ASSERT_EQ(memcmp(scratch, "Hello world", 11), 0);
+    ASSERT_OK(file.get()->InvalidateCache(0, 11));
+    ASSERT_OK(file.get()->InvalidateCache(0, 0));
+  }
+
+  // Sequential Read
+  {
+    unique_ptr<SequentialFile> file;
+    char scratch[100];
+    Slice result;
+    ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
+    ASSERT_OK(file.get()->Read(11, &result, scratch));
+    ASSERT_EQ(memcmp(scratch, "Hello world", 11), 0);
+    ASSERT_OK(file.get()->InvalidateCache(0, 11));
+    ASSERT_OK(file.get()->InvalidateCache(0, 0));
+  }
+  // Delete the file
+  ASSERT_OK(env_->DeleteFile(fname));
+}
+
 }  // namespace leveldb
 
 int main(int argc, char** argv) {

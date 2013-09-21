@@ -137,6 +137,15 @@ class PosixSequentialFile: public SequentialFile {
     }
     return Status::OK();
   }
+
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    // free OS pages
+    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    if (ret == 0) {
+      return Status::OK();
+    }
+    return IOError(filename_, errno);
+  }
 };
 
 // pread() based random-access
@@ -223,20 +232,30 @@ class PosixRandomAccessFile: public RandomAccessFile {
     }
   }
 
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    // free OS pages
+    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    if (ret == 0) {
+      return Status::OK();
+    }
+    return IOError(filename_, errno);
+  }
 };
 
 // mmap() based random-access
 class PosixMmapReadableFile: public RandomAccessFile {
  private:
+  int fd_;
   std::string filename_;
   void* mmapped_region_;
   size_t length_;
 
  public:
   // base[0,length-1] contains the mmapped contents of the file.
-  PosixMmapReadableFile(const std::string& fname, void* base, size_t length,
+  PosixMmapReadableFile(const int fd, const std::string& fname,
+                        void* base, size_t length,
                         const EnvOptions& options)
-      : filename_(fname), mmapped_region_(base), length_(length) {
+      : fd_(fd), filename_(fname), mmapped_region_(base), length_(length) {
     assert(options.use_mmap_reads);
     assert(options.use_os_buffer);
   }
@@ -252,6 +271,14 @@ class PosixMmapReadableFile: public RandomAccessFile {
       *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
     }
     return s;
+  }
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    // free OS pages
+    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    if (ret == 0) {
+      return Status::OK();
+    }
+    return IOError(filename_, errno);
   }
 };
 
@@ -480,6 +507,15 @@ class PosixMmapFile : public WritableFile {
     return file_offset_ + used;
   }
 
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    // free OS pages
+    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    if (ret == 0) {
+      return Status::OK();
+    }
+    return IOError(filename_, errno);
+  }
+
 #ifdef OS_LINUX
   virtual Status Allocate(off_t offset, off_t len) {
     TEST_KILL_RANDOM(leveldb_kill_odds);
@@ -644,6 +680,15 @@ class PosixWritableFile : public WritableFile {
     return filesize_;
   }
 
+  virtual Status InvalidateCache(size_t offset, size_t length) {
+    // free OS pages
+    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    if (ret == 0) {
+      return Status::OK();
+    }
+    return IOError(filename_, errno);
+  }
+
 #ifdef OS_LINUX
   virtual Status Allocate(off_t offset, off_t len) {
     TEST_KILL_RANDOM(leveldb_kill_odds);
@@ -768,7 +813,8 @@ class PosixEnv : public Env {
       if (s.ok()) {
         void* base = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
         if (base != MAP_FAILED) {
-          result->reset(new PosixMmapReadableFile(fname, base, size, options));
+          result->reset(new PosixMmapReadableFile(fd, fname, base,
+                                                  size, options));
         } else {
           s = IOError(fname, errno);
         }
