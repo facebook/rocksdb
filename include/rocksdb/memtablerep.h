@@ -152,7 +152,7 @@ class MemTableRepFactory {
 // Parameters:
 //   count: Passed to the constructor of the underlying std::vector of each
 //     VectorRep. On initialization, the underlying array will be at least count
-//     size.
+//     bytes reserved for usage.
 class VectorRepFactory : public MemTableRepFactory {
   const size_t count_;
 public:

@@ -335,7 +335,7 @@ class DBTest {
         options.memtable_factory.reset(new UnsortedRepFactory);
         break;
       case kVectorRep:
-        options.memtable_factory.reset(new VectorRepFactory);
+        options.memtable_factory.reset(new VectorRepFactory(100));
         break;
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;

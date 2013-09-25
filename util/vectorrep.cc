@@ -123,10 +123,10 @@ size_t VectorRep::ApproximateMemoryUsage() {
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Arena* arena, size_t count)
-  : bucket_(new Bucket(count)),
+  : bucket_(new Bucket()),
     immutable_(false),
     sorted_(false),
-    compare_(compare) { }
+    compare_(compare) { bucket_.get()->reserve(count); }
 
 VectorRep::Iterator::Iterator(class VectorRep* vrep,
                    std::shared_ptr<std::vector<const char*>> bucket,
