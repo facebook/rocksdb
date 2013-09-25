@@ -9,6 +9,7 @@
 #include "util/testharness.h"
 
 bool FLAGS_random_key = false;
+bool FLAGS_use_set_based_memetable = false;
 int FLAGS_total_keys = 100;
 int FLAGS_write_buffer_size = 1000000000;
 int FLAGS_max_write_buffer_number = 8;
@@ -27,6 +28,13 @@ std::shared_ptr<DB> OpenDb() {
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
+
+    if (FLAGS_use_set_based_memetable) {
+      auto prefix_extractor = leveldb::NewFixedPrefixTransform(0);
+      options.memtable_factory =
+        std::make_shared<leveldb::PrefixHashRepFactory>(prefix_extractor);
+    }
+
     Status s = DB::Open(options, kDbName,  &db);
     ASSERT_OK(s);
     return std::shared_ptr<DB>(db);
@@ -80,36 +88,35 @@ void ProfileKeyComparison() {
   WriteOptions write_options;
   ReadOptions read_options;
 
-  uint64_t total_user_key_comparison_get = 0;
-  uint64_t total_user_key_comparison_put = 0;
-  uint64_t max_user_key_comparison_get = 0;
+  HistogramImpl hist_put;
+  HistogramImpl hist_get;
 
   std::cout << "Inserting " << FLAGS_total_keys << " key/value pairs\n...\n";
 
+  std::vector<int> keys;
   for (int i = 0; i < FLAGS_total_keys; ++i) {
+    keys.push_back(i);
+  }
+
+  if (FLAGS_random_key) {
+    std::random_shuffle(keys.begin(), keys.end());
+  }
+
+  for (const int i : keys) {
     std::string key = "k" + std::to_string(i);
     std::string value = "v" + std::to_string(i);
 
     perf_context.Reset();
     db->Put(write_options, key, value);
-    total_user_key_comparison_put += perf_context.user_key_comparison_count;
+    hist_put.Add(perf_context.user_key_comparison_count);
 
     perf_context.Reset();
     db->Get(read_options, key, &value);
-    total_user_key_comparison_get += perf_context.user_key_comparison_count;
-    max_user_key_comparison_get =
-      std::max(max_user_key_comparison_get,
-               perf_context.user_key_comparison_count);
+    hist_get.Add(perf_context.user_key_comparison_count);
   }
 
-  std::cout << "total user key comparison get: "
-            << total_user_key_comparison_get << "\n"
-            << "total user key comparison put: "
-            << total_user_key_comparison_put << "\n"
-            << "max user key comparison get: "
-            << max_user_key_comparison_get << "\n"
-            << "avg user key comparison get:"
-            << total_user_key_comparison_get/FLAGS_total_keys << "\n";
+  std::cout << "Put uesr key comparison: \n" << hist_put.ToString()
+            << "Get uesr key comparison: \n" << hist_get.ToString();
 
 }
 
@@ -160,7 +167,9 @@ TEST(PerfContextTest, SeekKeyComparison) {
     db->Put(write_options, key, value);
   }
 
-  HistogramImpl histogram;
+  HistogramImpl hist_seek;
+  HistogramImpl hist_next;
+
   for (int i = 0; i < FLAGS_total_keys; ++i) {
     std::string key = "k" + std::to_string(i);
     std::string value = "v" + std::to_string(i);
@@ -170,9 +179,18 @@ TEST(PerfContextTest, SeekKeyComparison) {
     iter->Seek(key);
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->value().ToString(), value);
-    histogram.Add(perf_context.user_key_comparison_count);
+    hist_seek.Add(perf_context.user_key_comparison_count);
   }
-  std::cout << histogram.ToString();
+
+  std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+  for (iter->SeekToFirst(); iter->Valid();) {
+    perf_context.Reset();
+    iter->Next();
+    hist_next.Add(perf_context.user_key_comparison_count);
+  }
+
+  std::cout << "Seek:\n" << hist_seek.ToString()
+            << "Next:\n" << hist_next.ToString();
 }
 
 }
@@ -194,6 +212,11 @@ int main(int argc, char** argv) {
     if (sscanf(argv[i], "--random_key=%d%c", &n, &junk) == 1 &&
         (n == 0 || n == 1)) {
       FLAGS_random_key = n;
+    }
+
+    if (sscanf(argv[i], "--use_set_based_memetable=%d%c", &n, &junk) == 1 &&
+        (n == 0 || n == 1)) {
+      FLAGS_use_set_based_memetable = n;
     }
 
   }
