@@ -2496,10 +2496,12 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
           throw std::runtime_error("In memory WriteBatch corruption!");
         }
         SetTickerCount(options_.statistics, SEQUENCE_NUMBER, last_sequence);
+      }
+      mutex_.Lock();
+      if (status.ok()) {
         versions_->SetLastSequence(last_sequence);
         last_flushed_sequence_ = current_sequence;
       }
-      mutex_.Lock();
     }
     if (updates == &tmp_batch_) tmp_batch_.Clear();
   }
