@@ -107,6 +107,7 @@ class SkipList {
 
   // Used for optimizing sequential insert patterns
   Node* prev_[kMaxHeight];
+  int   prev_height_;
 
   inline int GetMaxHeight() const {
     return static_cast<int>(
@@ -267,6 +268,10 @@ typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOr
     Node* x = prev[0];
     Node* next = x->Next(0);
     if ((x == head_) || KeyIsAfterNode(key, x)) {
+      // Adjust all relevant insertion points to the previous entry
+      for (int i = 1; i < prev_height_; i++) {
+        prev[i] = x;
+      }
       return next;
     }
   }
@@ -275,6 +280,9 @@ typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOr
   int level = GetMaxHeight() - 1;
   while (true) {
     Node* next = x->Next(level);
+    // Make sure the lists are sorted.
+    // If x points to head_ or next points nullptr, it is trivially satisfied.
+    assert((x == head_) || (next == nullptr) || KeyIsAfterNode(next->key, x));
     if (KeyIsAfterNode(key, next)) {
       // Keep searching in this list
       x = next;
@@ -337,6 +345,7 @@ SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena)
       arena_(arena),
       head_(NewNode(0 /* any key will do */, kMaxHeight)),
       max_height_(reinterpret_cast<void*>(1)),
+      prev_height_(1),
       rnd_(0xdeadbeef) {
   for (int i = 0; i < kMaxHeight; i++) {
     head_->SetNext(i, nullptr);
@@ -378,6 +387,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
     prev_[i]->SetNext(i, x);
   }
   prev_[0] = x;
+  prev_height_ = height;
 }
 
 template<typename Key, class Comparator>
