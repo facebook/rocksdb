@@ -104,6 +104,8 @@ Options::Dump(Logger* log) const
         compaction_filter? compaction_filter->Name() : "None");
     Log(log,"       Options.compaction_filter_factory: %s",
         compaction_filter_factory->Name());
+    Log(log,"        Options.memtable_factory: %s",
+        memtable_factory->Name());
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"       Options.create_if_missing: %d", create_if_missing);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);

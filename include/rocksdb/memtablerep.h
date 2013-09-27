@@ -143,6 +143,7 @@ class MemTableRepFactory {
   virtual ~MemTableRepFactory() { };
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
     MemTableRep::KeyComparator&, Arena*) = 0;
+  virtual const char* Name() const = 0;
 };
 
 // This creates MemTableReps that are backed by an std::vector. On iteration,
@@ -159,6 +160,9 @@ public:
   explicit VectorRepFactory(size_t count = 0) : count_(count) { }
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
     MemTableRep::KeyComparator&, Arena*) override;
+  virtual const char* Name() const override {
+    return "VectorRepFactory";
+  }
 };
 
 // This uses a skip list to store keys. It is the default.
@@ -166,6 +170,9 @@ class SkipListFactory : public MemTableRepFactory {
 public:
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
     MemTableRep::KeyComparator&, Arena*) override;
+  virtual const char* Name() const override {
+    return "SkipListFactory";
+  }
 };
 
 // TransformReps are backed by an unordered map of buffers to buckets. When
@@ -201,6 +208,10 @@ class TransformRepFactory : public MemTableRepFactory {
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
     MemTableRep::KeyComparator&, Arena*) override;
 
+  virtual const char* Name() const override {
+    return "TransformRepFactory";
+  }
+
   const SliceTransform* GetTransform() { return transform_; }
 
  protected:
@@ -219,6 +230,9 @@ public:
     : TransformRepFactory(NewNoopTransform(),
                           bucket_count,
                           num_locks) { }
+  virtual const char* Name() const override {
+    return "UnsortedRepFactory";
+  }
 };
 
 // PrefixHashReps bin user keys based on a fixed-size prefix. This optimizes for
@@ -234,6 +248,10 @@ public:
 
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
     MemTableRep::KeyComparator&, Arena*) override;
+
+  virtual const char* Name() const override {
+    return "PrefixHashRepFactory";
+  }
 };
 
 }
