@@ -3143,7 +3143,6 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   impl->mutex_.Unlock();
 
   if (options.compaction_style == kCompactionStyleUniversal) {
-    std::string property;
     int num_files;
     for (int i = 1; i < impl->NumberLevels(); i++) {
       num_files = impl->versions_->NumLevelFiles(i);

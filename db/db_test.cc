@@ -1283,6 +1283,44 @@ TEST(DBTest, IterMultiWithDelete) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, IterWithSnapshot) {
+  do {
+    ASSERT_OK(Put("key1", "val1"));
+    ASSERT_OK(Put("key2", "val2"));
+    ASSERT_OK(Put("key3", "val3"));
+    ASSERT_OK(Put("key4", "val4"));
+    ASSERT_OK(Put("key5", "val5"));
+
+    const Snapshot *snapshot = db_->GetSnapshot();
+    ReadOptions options;
+    options.snapshot = snapshot;
+    Iterator* iter = db_->NewIterator(options);
+
+    // Put more values after the snapshot
+    ASSERT_OK(Put("key100", "val100"));
+    ASSERT_OK(Put("key101", "val101"));
+
+    iter->Seek("key5");
+    ASSERT_EQ(IterStatus(iter), "key5->val5");
+    if (!CurrentOptions().merge_operator) {
+      // TODO: merge operator does not support backward iteration yet
+      iter->Prev();
+      ASSERT_EQ(IterStatus(iter), "key4->val4");
+      iter->Prev();
+      ASSERT_EQ(IterStatus(iter), "key3->val3");
+
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter), "key4->val4");
+      iter->Next();
+      ASSERT_EQ(IterStatus(iter), "key5->val5");
+      iter->Next();
+      ASSERT_TRUE(!iter->Valid());
+    }
+    db_->ReleaseSnapshot(snapshot);
+    delete iter;
+  } while (ChangeOptions());
+}
+
 TEST(DBTest, Recover) {
   do {
     ASSERT_OK(Put("foo", "v1"));
