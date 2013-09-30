@@ -1023,7 +1023,15 @@ class StressTest {
         if (!FLAGS_test_batches_snapshots) {
           MutexLock l(thread->shared->GetMutexForKey(rand_key));
           if (FLAGS_verify_before_write) {
-            VerifyValue(rand_key, read_opts, *(thread->shared), &from_db, true);
+            std::string keystr = Key(rand_key);
+            Slice k = keystr;
+            Status s = db_->Get(read_opts, k, &from_db);
+            VerifyValue(rand_key,
+                        read_opts,
+                        *(thread->shared),
+                        from_db,
+                        s,
+                        true);
           }
           thread->shared->Put(rand_key, value_base);
           if (FLAGS_use_merge_put) {
@@ -1056,13 +1064,37 @@ class StressTest {
     thread->stats.Stop();
   }
 
-  void VerifyDb(const SharedState &shared, long start) const {
+  void VerifyDb(const SharedState &shared, long tid) const {
     ReadOptions options(FLAGS_verify_checksum, true);
     long max_key = shared.GetMaxKey();
-    long step = shared.GetNumThreads();
-    for (long i = start; i < max_key; i+= step) {
+    static const long keys_per_thread = max_key / shared.GetNumThreads();
+    long start = keys_per_thread * tid;
+    long end = start + keys_per_thread;
+    if (tid == shared.GetNumThreads() - 1) {
+      end = max_key;
+    }
+    unique_ptr<Iterator> iter(db_->NewIterator(options));
+    iter->Seek(Key(start));
+    for (long i = start; i < end; i++) {
       std::string from_db;
-      VerifyValue(i, options, shared, &from_db, true);
+      std::string keystr = Key(i);
+      Slice k = keystr;
+      Status s = iter->status();
+      if (iter->Valid()) {
+        if (iter->key().compare(k) > 0) {
+          s = Status::NotFound(Slice());
+        } else if (iter->key().compare(k) == 0) {
+          from_db = iter->value().ToString();
+          iter->Next();
+        } else if (iter->key().compare(k) < 0) {
+          VerificationAbort("An out of range key was found", i);
+        }
+      } else {
+        // The iterator found no value for the key in question, so do not
+        // move to the next item in the iterator
+        s = Status::NotFound(Slice());
+      }
+      VerifyValue(i, options, shared, from_db, s, true);
       if (from_db.length()) {
         PrintKeyValue(i, from_db.data(), from_db.length());
       }
@@ -1075,25 +1107,28 @@ class StressTest {
     exit(1);
   }
 
-  void VerifyValue(long key, const ReadOptions &opts, const SharedState &shared,
-                   std::string *value_from_db, bool strict=false) const {
-    std::string keystr = Key(key);
-    Slice k = keystr;
+  void VerifyValue(long key,
+                   const ReadOptions &opts,
+                   const SharedState &shared,
+                   const std::string &value_from_db,
+                   Status s,
+                   bool strict=false) const {
+    // compare value_from_db with the value in the shared state
     char value[100];
     uint32_t value_base = shared.Get(key);
     if (value_base == SharedState::SENTINEL && !strict) {
       return;
     }
 
-    if (db_->Get(opts, k, value_from_db).ok()) {
+    if (s.ok()) {
       if (value_base == SharedState::SENTINEL) {
         VerificationAbort("Unexpected value found", key);
       }
       size_t sz = GenerateValue(value_base, value, sizeof(value));
-      if (value_from_db->length() != sz) {
+      if (value_from_db.length() != sz) {
         VerificationAbort("Length of value read is not equal", key);
       }
-      if (memcmp(value_from_db->data(), value, sz) != 0) {
+      if (memcmp(value_from_db.data(), value, sz) != 0) {
         VerificationAbort("Contents of value read don't match", key);
       }
     } else {
