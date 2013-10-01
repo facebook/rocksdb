@@ -23,58 +23,60 @@ namespace leveldb {
  * And incrementing TICKER_ENUM_MAX.
  */
 enum Tickers {
-  BLOCK_CACHE_MISS = 0,
-  BLOCK_CACHE_HIT = 1,
-  BLOOM_FILTER_USEFUL = 2, // no. of times bloom filter has avoided file reads.
+  BLOCK_CACHE_MISS,
+  BLOCK_CACHE_HIT,
+  BLOOM_FILTER_USEFUL, // no. of times bloom filter has avoided file reads.
+
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
    * There are 3 reasons currently.
    */
-  COMPACTION_KEY_DROP_NEWER_ENTRY = 3, // key was written with a newer value.
-  COMPACTION_KEY_DROP_OBSOLETE = 4, // The key is obsolete.
-  COMPACTION_KEY_DROP_USER = 5, // user compaction function has dropped the key.
-  // Number of keys written to the database via the Put and Write call's
-  NUMBER_KEYS_WRITTEN = 6,
-  // Number of Keys read,
-  NUMBER_KEYS_READ = 7,
-  // Bytes written / read
-  BYTES_WRITTEN = 8,
-  BYTES_READ = 9,
-  NO_FILE_CLOSES = 10,
-  NO_FILE_OPENS = 11,
-  NO_FILE_ERRORS = 12,
-  // Time system had to wait to do LO-L1 compactions
-  STALL_L0_SLOWDOWN_MICROS = 13,
-  // Time system had to wait to move memtable to L1.
-  STALL_MEMTABLE_COMPACTION_MICROS = 14,
-  // write throttle because of too many files in L0
-  STALL_L0_NUM_FILES_MICROS = 15,
-  RATE_LIMIT_DELAY_MILLIS = 16,
+  COMPACTION_KEY_DROP_NEWER_ENTRY, // key was written with a newer value.
+  COMPACTION_KEY_DROP_OBSOLETE, // The key is obsolete.
+  COMPACTION_KEY_DROP_USER, // user compaction function has dropped the key.
 
-  NO_ITERATORS = 17, // number of iterators currently open
+  // Number of keys written to the database via the Put and Write call's
+  NUMBER_KEYS_WRITTEN,
+  // Number of Keys read,
+  NUMBER_KEYS_READ,
+  // Bytes written / read
+  BYTES_WRITTEN,
+  BYTES_READ,
+  NO_FILE_CLOSES,
+  NO_FILE_OPENS,
+  NO_FILE_ERRORS,
+  // Time system had to wait to do LO-L1 compactions
+  STALL_L0_SLOWDOWN_MICROS,
+  // Time system had to wait to move memtable to L1.
+  STALL_MEMTABLE_COMPACTION_MICROS,
+  // write throttle because of too many files in L0
+  STALL_L0_NUM_FILES_MICROS,
+  RATE_LIMIT_DELAY_MILLIS,
+
+  NO_ITERATORS, // number of iterators currently open
 
   // Number of MultiGet calls, keys read, and bytes read
-  NUMBER_MULTIGET_CALLS = 18,
-  NUMBER_MULTIGET_KEYS_READ = 19,
-  NUMBER_MULTIGET_BYTES_READ = 20,
+  NUMBER_MULTIGET_CALLS,
+  NUMBER_MULTIGET_KEYS_READ,
+  NUMBER_MULTIGET_BYTES_READ,
 
   // Number of deletes records that were not required to be
   // written to storage because key does not exist
-  NUMBER_FILTERED_DELETES = 21,
-  NUMBER_MERGE_FAILURES = 22,
-  SEQUENCE_NUMBER = 23,
+  NUMBER_FILTERED_DELETES,
+  NUMBER_MERGE_FAILURES,
+  SEQUENCE_NUMBER,
 
   // number of times bloom was checked before creating iterator on a
   // file, and the number of times the check was useful in avoiding
   // iterator creation (and thus likely IOPs).
-  BLOOM_FILTER_PREFIX_CHECKED = 24,
-  BLOOM_FILTER_PREFIX_USEFUL = 25,
+  BLOOM_FILTER_PREFIX_CHECKED,
+  BLOOM_FILTER_PREFIX_USEFUL,
 
   // Number of times we had to reseek inside an iteration to skip
   // over large number of keys with same userkey.
-  NUMBER_OF_RESEEKS_IN_ITERATION = 26,
+  NUMBER_OF_RESEEKS_IN_ITERATION,
 
-  TICKER_ENUM_MAX = 27
+  TICKER_ENUM_MAX
 };
 
 // The order of items listed in  Tickers should be the same as
@@ -117,27 +119,27 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
  * And increment HISTOGRAM_ENUM_MAX
  */
 enum Histograms {
-  DB_GET = 0,
-  DB_WRITE = 1,
-  COMPACTION_TIME = 2,
-  TABLE_SYNC_MICROS = 3,
-  COMPACTION_OUTFILE_SYNC_MICROS = 4,
-  WAL_FILE_SYNC_MICROS = 5,
-  MANIFEST_FILE_SYNC_MICROS = 6,
+  DB_GET,
+  DB_WRITE,
+  COMPACTION_TIME,
+  TABLE_SYNC_MICROS,
+  COMPACTION_OUTFILE_SYNC_MICROS,
+  WAL_FILE_SYNC_MICROS,
+  MANIFEST_FILE_SYNC_MICROS,
   // TIME SPENT IN IO DURING TABLE OPEN
-  TABLE_OPEN_IO_MICROS = 7,
-  DB_MULTIGET = 8,
-  READ_BLOCK_COMPACTION_MICROS = 9,
-  READ_BLOCK_GET_MICROS = 10,
-  WRITE_RAW_BLOCK_MICROS = 11,
+  TABLE_OPEN_IO_MICROS,
+  DB_MULTIGET,
+  READ_BLOCK_COMPACTION_MICROS,
+  READ_BLOCK_GET_MICROS,
+  WRITE_RAW_BLOCK_MICROS,
 
-  STALL_L0_SLOWDOWN_COUNT = 12,
-  STALL_MEMTABLE_COMPACTION_COUNT = 13,
-  STALL_L0_NUM_FILES_COUNT = 14,
-  HARD_RATE_LIMIT_DELAY_COUNT = 15,
-  SOFT_RATE_LIMIT_DELAY_COUNT = 16,
-  NUM_FILES_IN_SINGLE_COMPACTION = 17,
-  HISTOGRAM_ENUM_MAX = 18
+  STALL_L0_SLOWDOWN_COUNT,
+  STALL_MEMTABLE_COMPACTION_COUNT,
+  STALL_L0_NUM_FILES_COUNT,
+  HARD_RATE_LIMIT_DELAY_COUNT,
+  SOFT_RATE_LIMIT_DELAY_COUNT,
+  NUM_FILES_IN_SINGLE_COMPACTION,
+  HISTOGRAM_ENUM_MAX
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
