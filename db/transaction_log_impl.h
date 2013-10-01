@@ -58,7 +58,7 @@ class LogFileImpl : public LogFile {
 
 class TransactionLogIteratorImpl : public TransactionLogIterator {
  public:
-  TransactionLogIteratorImpl(const std::string& dbname,
+  TransactionLogIteratorImpl(const std::string& dir,
                              const Options* options,
                              const EnvOptions& soptions,
                              const SequenceNumber seqNum,
@@ -74,7 +74,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   virtual BatchResult GetBatch();
 
  private:
-  const std::string& dbname_;
+  const std::string& dir_;
   const Options* options_;
   const EnvOptions& soptions_;
   const SequenceNumber startingSequenceNumber_;

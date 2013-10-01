@@ -51,6 +51,7 @@ Options::Options()
       use_fsync(false),
       db_stats_log_interval(1800),
       db_log_dir(""),
+      wal_dir(""),
       disable_seek_compaction(false),
       delete_obsolete_files_period_micros(0),
       max_background_compactions(1),
@@ -188,6 +189,8 @@ Options::Dump(Logger* log) const
         max_grandparent_overlap_factor);
     Log(log,"                             Options.db_log_dir: %s",
         db_log_dir.c_str());
+    Log(log,"                             Options.wal_dir: %s",
+        wal_dir.c_str());
     Log(log,"                Options.disable_seek_compaction: %d",
         disable_seek_compaction);
     Log(log,"                         Options.no_block_cache: %d",

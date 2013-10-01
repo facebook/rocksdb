@@ -351,12 +351,20 @@ struct Options {
   // Default value is 1800 (half an hour).
   int db_stats_log_interval;
 
-  // This specifies the log dir.
+  // This specifies the info LOG dir.
   // If it is empty, the log files will be in the same dir as data.
   // If it is non empty, the log files will be in the specified dir,
   // and the db data dir's absolute path will be used as the log file
   // name's prefix.
   std::string db_log_dir;
+
+  // This specifies the absolute dir path for write-ahead logs (WAL).
+  // If it is empty, the log files will be in the same dir as data,
+  //   dbname is used as the data dir by default
+  // If it is non empty, the log files will be in kept the specified dir.
+  // When destroying the db,
+  //   all log files in wal_dir and the dir itself is deleted
+  std::string wal_dir;
 
   // Disable compaction triggered by seek.
   // With bloomfilter and fast storage, a miss on one level
@@ -461,7 +469,7 @@ struct Options {
 
   // The number of seconds a WAL(write ahead log) should be kept after it has
   // been marked as Not Live. If the value is set. The WAL files are moved to
-  // the archive direcotory and deleted after the given TTL.
+  // the archive directory and deleted after the given TTL.
   // If set to 0, WAL files are deleted as soon as they are not required by
   // the database.
   // If set to std::numeric_limits<uint64_t>::max() the WAL files will never be

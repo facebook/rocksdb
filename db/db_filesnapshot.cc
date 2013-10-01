@@ -75,7 +75,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
 
   // list wal files in archive dir.
   Status s;
-  std::string archivedir = ArchivalDirectory(dbname_);
+  std::string archivedir = ArchivalDirectory(options_.wal_dir);
   if (env_->FileExists(archivedir)) {
     s = AppendSortedWalsOfType(archivedir, files, kArchivedLogFile);
     if (!s.ok()) {
@@ -83,19 +83,19 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     }
   }
   // list wal files in main db dir.
-  return AppendSortedWalsOfType(dbname_, files, kAliveLogFile);
+  return AppendSortedWalsOfType(options_.wal_dir, files, kAliveLogFile);
 }
 
 Status DBImpl::DeleteWalFiles(const VectorLogPtr& files) {
   Status s;
-  std::string archivedir = ArchivalDirectory(dbname_);
+  std::string archivedir = ArchivalDirectory(options_.wal_dir);
   std::string files_not_deleted;
   for (const auto& wal : files) {
     /* Try deleting in the dir that pathname points to for the logfile.
        This may fail if we try to delete a log file which was live when captured
        but is archived now. Try deleting it from archive also
      */
-    Status st = env_->DeleteFile(dbname_ + "/" + wal->PathName());
+    Status st = env_->DeleteFile(options_.wal_dir + "/" + wal->PathName());
     if (!st.ok()) {
       if (wal->Type() == kAliveLogFile &&
           env_->DeleteFile(LogFileName(archivedir, wal->LogNumber())).ok()) {

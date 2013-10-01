@@ -4,13 +4,13 @@
 namespace rocksdb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
-                           const std::string& dbname,
+                           const std::string& dir,
                            const Options* options,
                            const EnvOptions& soptions,
                            const SequenceNumber seq,
                            std::unique_ptr<VectorLogPtr> files,
                            SequenceNumber const * const lastFlushedSequence) :
-    dbname_(dbname),
+    dir_(dir),
     options_(options),
     soptions_(soptions),
     startingSequenceNumber_(seq),
@@ -31,15 +31,15 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   unique_ptr<SequentialFile>* file) {
   Env* env = options_->env;
   if (logFile->Type() == kArchivedLogFile) {
-    std::string fname = ArchivedLogFileName(dbname_, logFile->LogNumber());
+    std::string fname = ArchivedLogFileName(dir_, logFile->LogNumber());
     return env->NewSequentialFile(fname, file, soptions_);
   } else {
-    std::string fname = LogFileName(dbname_, logFile->LogNumber());
+    std::string fname = LogFileName(dir_, logFile->LogNumber());
     Status status = env->NewSequentialFile(fname, file, soptions_);
     if (!status.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
-      fname = ArchivedLogFileName(dbname_, logFile->LogNumber());
+      fname = ArchivedLogFileName(dir_, logFile->LogNumber());
       status = env->NewSequentialFile(fname, file, soptions_);
       if (!status.ok()) {
         return Status::IOError(" Requested file not present in the dir");

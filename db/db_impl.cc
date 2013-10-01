@@ -179,6 +179,11 @@ Options SanitizeOptions(const std::string& dbname,
       Log(result.info_log, "Prefix hash memtable rep is in use.");
     }
   }
+
+  if (result.wal_dir.empty()) {
+    // Use dbname as default
+    result.wal_dir = dbname;
+  }
   return result;
 }
 
@@ -353,7 +358,7 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 
 const Status DBImpl::CreateArchivalDirectory() {
   if (options_.WAL_ttl_seconds > 0) {
-    std::string archivalPath = ArchivalDirectory(dbname_);
+    std::string archivalPath = ArchivalDirectory(options_.wal_dir);
     return env_->CreateDirIfMissing(archivalPath);
   }
   return Status::OK();
@@ -419,6 +424,17 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
   // set of all files in the directory
   env_->GetChildren(dbname_, &deletion_state.allfiles); // Ignore errors
 
+  //Add log files in wal_dir
+  if (options_.wal_dir != dbname_) {
+    std::vector<std::string> log_files;
+    env_->GetChildren(options_.wal_dir, &log_files); // Ignore errors
+    deletion_state.allfiles.insert(
+      deletion_state.allfiles.end(),
+      log_files.begin(),
+      log_files.end()
+    );
+  }
+
   // store the current filenum, lognum, etc
   deletion_state.filenumber = versions_->ManifestFileNumber();
   deletion_state.lognumber = versions_->LogNumber();
@@ -427,10 +443,10 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
 
 Status DBImpl::DeleteLogFile(uint64_t number) {
   Status s;
-  auto filename = LogFileName(dbname_, number);
+  auto filename = LogFileName(options_.wal_dir, number);
   if (options_.WAL_ttl_seconds > 0) {
     s = env_->RenameFile(filename,
-                         ArchivedLogFileName(dbname_, number));
+                         ArchivedLogFileName(options_.wal_dir, number));
 
     if (!s.ok()) {
       Log(options_.info_log, "RenameFile logfile #%lu FAILED", number);
@@ -448,7 +464,7 @@ Status DBImpl::DeleteLogFile(uint64_t number) {
 // Diffs the files listed in filenames and those that do not
 // belong to live files are posibly removed. If the removed file
 // is a sst file, then it returns the file number in files_to_evict.
-// It is not necesary to hold the mutex when invoking this method.
+// It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   uint64_t number;
   FileType type;
@@ -557,7 +573,7 @@ void DBImpl::PurgeObsoleteWALFiles() {
       return;
     }
     std::vector<std::string> wal_files;
-    std::string archival_dir = ArchivalDirectory(dbname_);
+    std::string archival_dir = ArchivalDirectory(options_.wal_dir);
     env_->GetChildren(archival_dir, &wal_files);
     for (const auto& f : wal_files) {
       uint64_t file_m_time;
@@ -634,7 +650,7 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
     const uint64_t min_log = versions_->LogNumber();
     const uint64_t prev_log = versions_->PrevLogNumber();
     std::vector<std::string> filenames;
-    s = env_->GetChildren(dbname_, &filenames);
+    s = env_->GetChildren(options_.wal_dir, &filenames);
     if (!s.ok()) {
       return s;
     }
@@ -701,7 +717,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   mutex_.AssertHeld();
 
   // Open the log file
-  std::string fname = LogFileName(dbname_, log_number);
+  std::string fname = LogFileName(options_.wal_dir, log_number);
   unique_ptr<SequentialFile> file;
   Status status = env_->NewSequentialFile(fname, &file, storage_options_);
   if (!status.ok()) {
@@ -1111,7 +1127,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
     return s;
   }
   iter->reset(
-    new TransactionLogIteratorImpl(dbname_,
+    new TransactionLogIteratorImpl(options_.wal_dir,
                                    &options_,
                                    storage_options_,
                                    seq,
@@ -1147,7 +1163,8 @@ Status DBImpl::RetainProbableWalFiles(VectorLogPtr& all_logs,
 bool DBImpl::CheckWalFileExistsAndEmpty(const WalFileType type,
                                         const uint64_t number) {
   const std::string fname = (type == kAliveLogFile) ?
-    LogFileName(dbname_, number) : ArchivedLogFileName(dbname_, number);
+    LogFileName(options_.wal_dir, number) :
+    ArchivedLogFileName(options_.wal_dir, number);
   uint64_t file_size;
   Status s = env_->GetFileSize(fname, &file_size);
   return (s.ok() && (file_size == 0));
@@ -1157,23 +1174,24 @@ Status DBImpl::ReadFirstRecord(const WalFileType type, const uint64_t number,
                                WriteBatch* const result) {
 
   if (type == kAliveLogFile) {
-    std::string fname = LogFileName(dbname_, number);
+    std::string fname = LogFileName(options_.wal_dir, number);
     Status status = ReadFirstLine(fname, result);
     if (!status.ok()) {
       //  check if the file got moved to archive.
-      std::string archived_file = ArchivedLogFileName(dbname_, number);
+      std::string archived_file =
+        ArchivedLogFileName(options_.wal_dir, number);
       Status s = ReadFirstLine(archived_file, result);
       if (!s.ok()) {
-        return Status::IOError("Log File has been deleted");
+        return Status::IOError("Log File has been deleted: " + archived_file);
       }
     }
     return Status::OK();
   } else if (type == kArchivedLogFile) {
-    std::string fname = ArchivedLogFileName(dbname_, number);
+    std::string fname = ArchivedLogFileName(options_.wal_dir, number);
     Status status = ReadFirstLine(fname, result);
     return status;
   }
-  return Status::NotSupported("File Type Not Known");
+  return Status::NotSupported("File Type Not Known: " + type);
 }
 
 Status DBImpl::ReadFirstLine(const std::string& fname,
@@ -2811,7 +2829,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       EnvOptions soptions(storage_options_);
       soptions.use_mmap_writes = false;
       s = env_->NewWritableFile(
-            LogFileName(dbname_, new_log_number),
+            LogFileName(options_.wal_dir, new_log_number),
             &lfile,
             soptions
           );
@@ -3176,8 +3194,15 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     return Status::InvalidArgument(
         "no_block_cache is true while block_cache is not nullptr");
   }
+
   DBImpl* impl = new DBImpl(options, dbname);
-  Status s = impl->CreateArchivalDirectory();
+  Status s = impl->env_->CreateDirIfMissing(impl->options_.wal_dir);
+  if (!s.ok()) {
+    delete impl;
+    return s;
+  }
+
+  s = impl->CreateArchivalDirectory();
   if (!s.ok()) {
     delete impl;
     return s;
@@ -3189,8 +3214,11 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
     soptions.use_mmap_writes = false;
-    s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
-                                     &lfile, soptions);
+    s = options.env->NewWritableFile(
+      LogFileName(impl->options_.wal_dir, new_log_number),
+      &lfile,
+      soptions
+    );
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * options.write_buffer_size);
       edit.SetLogNumber(new_log_number);
@@ -3231,13 +3259,24 @@ Snapshot::~Snapshot() {
 }
 
 Status DestroyDB(const std::string& dbname, const Options& options) {
-  Env* env = options.env;
+  const InternalKeyComparator comparator(options.comparator);
+  const InternalFilterPolicy filter_policy(options.filter_policy);
+  const Options& soptions(SanitizeOptions(
+    dbname, &comparator, &filter_policy, options));
+  Env* env = soptions.env;
   std::vector<std::string> filenames;
   std::vector<std::string> archiveFiles;
 
+  std::string archivedir = ArchivalDirectory(dbname);
   // Ignore error in case directory does not exist
   env->GetChildren(dbname, &filenames);
-  env->GetChildren(ArchivalDirectory(dbname), &archiveFiles);
+
+  if (dbname != soptions.wal_dir) {
+    std::vector<std::string> logfilenames;
+    env->GetChildren(soptions.wal_dir, &logfilenames);
+    filenames.insert(filenames.end(), logfilenames.begin(), logfilenames.end());
+    archivedir = ArchivalDirectory(soptions.wal_dir);
+  }
 
   if (filenames.empty()) {
     return Status::OK();
@@ -3255,6 +3294,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         Status del;
         if (type == kMetaDatabase) {
           del = DestroyDB(dbname + "/" + filenames[i], options);
+        } else if (type == kLogFile) {
+          del = env->DeleteFile(soptions.wal_dir + "/" + filenames[i]);
         } else {
           del = env->DeleteFile(dbname + "/" + filenames[i]);
         }
@@ -3264,23 +3305,24 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
+    env->GetChildren(archivedir, &archiveFiles);
     // Delete archival files.
     for (size_t i = 0; i < archiveFiles.size(); ++i) {
       ParseFileName(archiveFiles[i], &number, &type);
       if (type == kLogFile) {
-        Status del = env->DeleteFile(ArchivalDirectory(dbname) + "/" +
-                                     archiveFiles[i]);
+        Status del = env->DeleteFile(archivedir + "/" + archiveFiles[i]);
         if (result.ok() && !del.ok()) {
           result = del;
         }
       }
     }
     // ignore case where no archival directory is present.
-    env->DeleteDir(ArchivalDirectory(dbname));
+    env->DeleteDir(archivedir);
 
     env->UnlockFile(lock);  // Ignore error since state is already gone
     env->DeleteFile(lockname);
     env->DeleteDir(dbname);  // Ignore error in case dir contains other files
+    env->DeleteDir(soptions.wal_dir);
   }
   return result;
 }

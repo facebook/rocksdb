@@ -220,6 +220,7 @@ class DBTest {
     kUncompressed,
     kNumLevel_3,
     kDBLogDir,
+    kWalDir,
     kManifestFileSize,
     kCompactOnFlush,
     kPerfOptions,
@@ -286,10 +287,14 @@ class DBTest {
   }
 
   // Switch between different compaction styles (we have only 2 now).
-  bool ChangeCompactOptions(Options* options = nullptr) {
+  bool ChangeCompactOptions(Options* prev_options = nullptr) {
     if (option_config_ == kDefault) {
       option_config_ = kUniversalCompaction;
-      DestroyAndReopen(options);
+      if (prev_options == nullptr) {
+        prev_options = &last_options_;
+      }
+      Destroy(prev_options);
+      TryReopen();
       return true;
     } else {
       return false;
@@ -318,6 +323,9 @@ class DBTest {
         break;
       case kDBLogDir:
         options.db_log_dir = test::TmpDir();
+        break;
+      case kWalDir:
+        options.wal_dir = "/tmp/wal";
         break;
       case kManifestFileSize:
         options.max_manifest_file_size = 50; // 50 bytes
@@ -377,7 +385,7 @@ class DBTest {
     return DB::Open(*options, dbname_, db);
   }
 
-  Status TryReopen(Options* options) {
+  Status TryReopen(Options* options = nullptr) {
     delete db_;
     db_ = nullptr;
     Options opts;
@@ -529,7 +537,13 @@ class DBTest {
   int CountFiles() {
     std::vector<std::string> files;
     env_->GetChildren(dbname_, &files);
-    return static_cast<int>(files.size());
+
+    std::vector<std::string> logfiles;
+    if (dbname_ != last_options_.wal_dir) {
+      env_->GetChildren(last_options_.wal_dir, &logfiles);
+    }
+
+    return static_cast<int>(files.size() + logfiles.size());
   }
 
   int CountLiveFiles() {
@@ -902,7 +916,6 @@ TEST(DBTest, NonBlockingIteration) {
     options.statistics = rocksdb::CreateDBStatistics();
     non_blocking_opts.read_tier = kBlockCacheTier;
     Reopen(&options);
-
     // write one kv to the database.
     ASSERT_OK(db_->Put(WriteOptions(), "a", "b"));
 
@@ -2820,16 +2833,16 @@ TEST(DBTest, ComparatorCheck) {
       BytewiseComparator()->FindShortSuccessor(key);
     }
   };
-
+  Options new_options;
+  NewComparator cmp;
   do {
-    NewComparator cmp;
-    Options new_options = CurrentOptions();
+    new_options = CurrentOptions();
     new_options.comparator = &cmp;
     Status s = TryReopen(&new_options);
     ASSERT_TRUE(!s.ok());
     ASSERT_TRUE(s.ToString().find("comparator") != std::string::npos)
         << s.ToString();
-  } while (ChangeCompactOptions());
+  } while (ChangeCompactOptions(&new_options));
 }
 
 TEST(DBTest, CustomComparator) {
@@ -2858,10 +2871,10 @@ TEST(DBTest, CustomComparator) {
       return val;
     }
   };
-
+  Options new_options;
+  NumberComparator cmp;
   do {
-    NumberComparator cmp;
-    Options new_options = CurrentOptions();
+    new_options = CurrentOptions();
     new_options.create_if_missing = true;
     new_options.comparator = &cmp;
     new_options.filter_policy = nullptr;     // Cannot use bloom filters
@@ -2887,7 +2900,7 @@ TEST(DBTest, CustomComparator) {
       }
       Compact("[0]", "[1000000]");
     }
-  } while (ChangeCompactOptions());
+  } while (ChangeCompactOptions(&new_options));
 }
 
 TEST(DBTest, ManualCompaction) {
