@@ -1803,6 +1803,39 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
 }
 
+TEST(DBTest, UniversalCompactionOptions) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100<<10; //100KB
+  options.level0_file_num_compaction_trigger = 4;
+  options.num_levels = 1;
+  Reopen(&options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  for (int num = 0;
+       num < options.level0_file_num_compaction_trigger;
+       num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForCompactMemTable();
+
+    if (num < options.level0_file_num_compaction_trigger - 1) {
+      ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
+    }
+  }
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  for (int i = 1; i < options.num_levels ; i++) {
+    ASSERT_EQ(NumTableFilesAtLevel(i), 0);
+  }
+}
+
 TEST(DBTest, ConvertCompactionStyle) {
   Random rnd(301);
   int max_key_level_insert = 200;

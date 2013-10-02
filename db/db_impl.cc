@@ -2126,7 +2126,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   }
 
   mutex_.Lock();
-  stats_[compact->compaction->level() + 1].Add(stats);
+  stats_[compact->compaction->output_level()].Add(stats);
 
   // if there were any unused file number (mostly in case of
   // compaction error), free up the entry from pending_putputs
