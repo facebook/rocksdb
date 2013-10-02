@@ -698,8 +698,7 @@ class StressTest {
     }
 
     if (!FLAGS_test_batches_snapshots) {
-      thread->shared->GetStressTest()->VerifyDb(*(thread->shared),
-                                                 thread->tid);
+      thread->shared->GetStressTest()->VerifyDb(thread);
     }
 
     {
@@ -1064,39 +1063,56 @@ class StressTest {
     thread->stats.Stop();
   }
 
-  void VerifyDb(const SharedState &shared, long tid) const {
+  void VerifyDb(ThreadState* thread) const {
     ReadOptions options(FLAGS_verify_checksum, true);
-    long max_key = shared.GetMaxKey();
+    const SharedState& shared = *(thread->shared);
+    static const long max_key = shared.GetMaxKey();
     static const long keys_per_thread = max_key / shared.GetNumThreads();
-    long start = keys_per_thread * tid;
+    long start = keys_per_thread * thread->tid;
     long end = start + keys_per_thread;
-    if (tid == shared.GetNumThreads() - 1) {
+    if (thread->tid == shared.GetNumThreads() - 1) {
       end = max_key;
     }
-    unique_ptr<Iterator> iter(db_->NewIterator(options));
-    iter->Seek(Key(start));
-    for (long i = start; i < end; i++) {
-      std::string from_db;
-      std::string keystr = Key(i);
-      Slice k = keystr;
-      Status s = iter->status();
-      if (iter->Valid()) {
-        if (iter->key().compare(k) > 0) {
+    if (!thread->rand.OneIn(2)) {
+      // Use iterator to verify this range
+      unique_ptr<Iterator> iter(db_->NewIterator(options));
+      iter->Seek(Key(start));
+      for (long i = start; i < end; i++) {
+        std::string from_db;
+        std::string keystr = Key(i);
+        Slice k = keystr;
+        Status s = iter->status();
+        if (iter->Valid()) {
+          if (iter->key().compare(k) > 0) {
+            s = Status::NotFound(Slice());
+          } else if (iter->key().compare(k) == 0) {
+            from_db = iter->value().ToString();
+            iter->Next();
+          } else if (iter->key().compare(k) < 0) {
+            VerificationAbort("An out of range key was found", i);
+          }
+        } else {
+          // The iterator found no value for the key in question, so do not
+          // move to the next item in the iterator
           s = Status::NotFound(Slice());
-        } else if (iter->key().compare(k) == 0) {
-          from_db = iter->value().ToString();
-          iter->Next();
-        } else if (iter->key().compare(k) < 0) {
-          VerificationAbort("An out of range key was found", i);
         }
-      } else {
-        // The iterator found no value for the key in question, so do not
-        // move to the next item in the iterator
-        s = Status::NotFound(Slice());
+        VerifyValue(i, options, shared, from_db, s, true);
+        if (from_db.length()) {
+          PrintKeyValue(i, from_db.data(), from_db.length());
+        }
       }
-      VerifyValue(i, options, shared, from_db, s, true);
-      if (from_db.length()) {
-        PrintKeyValue(i, from_db.data(), from_db.length());
+    }
+    else {
+      // Use Get to verify this range
+      for (long i = start; i < end; i++) {
+        std::string from_db;
+        std::string keystr = Key(i);
+        Slice k = keystr;
+        Status s = db_->Get(options, k, &from_db);
+        VerifyValue(i, options, shared, from_db, s, true);
+        if (from_db.length()) {
+          PrintKeyValue(i, from_db.data(), from_db.length());
+        }
       }
     }
   }
