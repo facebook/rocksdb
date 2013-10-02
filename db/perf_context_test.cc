@@ -1,12 +1,14 @@
 #include <algorithm>
 #include <iostream>
 #include <vector>
+#include "/usr/include/valgrind/callgrind.h"
 
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
+
 
 bool FLAGS_random_key = false;
 bool FLAGS_use_set_based_memetable = false;
@@ -17,6 +19,16 @@ int FLAGS_min_write_buffer_number_to_merge = 7;
 
 // Path to the database on file system
 const std::string kDbName = leveldb::test::TmpDir() + "/perf_context_test";
+
+void SeekToFirst(leveldb::Iterator* iter) {
+//  std::cout << "Press a key to continue:";
+//  std::string s;
+//  std::cin >> s;
+  iter->SeekToFirst();
+//  std::cout << "Press a key to continue:";
+//  std::string s2;
+//  std::cin >> s2;
+}
 
 namespace leveldb {
 
@@ -41,6 +53,86 @@ std::shared_ptr<DB> OpenDb() {
 }
 
 class PerfContextTest { };
+
+TEST(PerfContextTest, SeekIntoDeletion) {
+  DestroyDB(kDbName, Options());
+  auto db = OpenDb();
+  WriteOptions write_options;
+  ReadOptions read_options;
+
+  for (int i = 0; i < FLAGS_total_keys; ++i) {
+    std::string key = "k" + std::to_string(i);
+    std::string value = "v" + std::to_string(i);
+
+    db->Put(write_options, key, value);
+  }
+
+  for (int i = 0; i < FLAGS_total_keys -1 ; ++i) {
+    std::string key = "k" + std::to_string(i);
+    db->Delete(write_options, key);
+  }
+
+  HistogramImpl hist_get;
+  HistogramImpl hist_get_time;
+  for (int i = 0; i < FLAGS_total_keys - 1; ++i) {
+    std::string key = "k" + std::to_string(i);
+    std::string value;
+
+    perf_context.Reset();
+    StopWatchNano timer(Env::Default(), true);
+    auto status = db->Get(read_options, key, &value);
+    auto elapsed_nanos = timer.ElapsedNanos();
+    ASSERT_TRUE(status.IsNotFound());
+    hist_get.Add(perf_context.user_key_comparison_count);
+    hist_get_time.Add(elapsed_nanos);
+  }
+
+  std::cout << "Get uesr key comparison: \n" << hist_get.ToString()
+            << "Get time: \n" << hist_get_time.ToString();
+
+  HistogramImpl hist_seek_to_first;
+  std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+
+  perf_context.Reset();
+  StopWatchNano timer(Env::Default(), true);
+  //CALLGRIND_ZERO_STATS;
+  SeekToFirst(iter.get());
+  //iter->SeekToFirst();
+  //CALLGRIND_DUMP_STATS;
+  hist_seek_to_first.Add(perf_context.user_key_comparison_count);
+  auto elapsed_nanos = timer.ElapsedNanos();
+
+  std::cout << "SeekToFirst uesr key comparison: \n" << hist_seek_to_first.ToString()
+            << "ikey skipped: " << perf_context.internal_key_skipped_count << "\n"
+            << "idelete skipped: " << perf_context.internal_delete_skipped_count << "\n"
+            << "elapsed: " << elapsed_nanos << "\n";
+
+  HistogramImpl hist_seek;
+  for (int i = 0; i < FLAGS_total_keys; ++i) {
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+    std::string key = "k" + std::to_string(i);
+
+    perf_context.Reset();
+    StopWatchNano timer(Env::Default(), true);
+    iter->Seek(key);
+    auto elapsed_nanos = timer.ElapsedNanos();
+    hist_seek.Add(perf_context.user_key_comparison_count);
+    std::cout << "seek cmp: " << perf_context.user_key_comparison_count
+              << " ikey skipped " << perf_context.internal_key_skipped_count
+              << " idelete skipped " << perf_context.internal_delete_skipped_count
+              << " elapsed: " << elapsed_nanos << "ns\n";
+
+    perf_context.Reset();
+    ASSERT_TRUE(iter->Valid());
+    StopWatchNano timer2(Env::Default(), true);
+    iter->Next();
+    auto elapsed_nanos2 = timer2.ElapsedNanos();
+    std::cout << "next cmp: " << perf_context.user_key_comparison_count
+              << "elapsed: " << elapsed_nanos2 << "ns\n";
+  }
+
+  std::cout << "Seek uesr key comparison: \n" << hist_seek.ToString();
+}
 
 TEST(PerfContextTest, StopWatchNanoOverhead) {
   // profile the timer cost by itself!

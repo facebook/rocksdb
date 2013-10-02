@@ -15,6 +15,7 @@
 #include "port/port.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/perf_context_imp.h"
 
 namespace leveldb {
 
@@ -197,6 +198,7 @@ void DBIter::FindNextUserEntry(bool skipping) {
       if (skipping &&
           user_comparator_->Compare(ikey.user_key, saved_key_) <= 0) {
         num_skipped++; // skip this entry
+        BumpPerfCount(&perf_context.internal_key_skipped_count);
       } else {
         skipping = false;
         switch (ikey.type) {
@@ -206,6 +208,7 @@ void DBIter::FindNextUserEntry(bool skipping) {
             SaveKey(ikey.user_key, &saved_key_);
             skipping = true;
             num_skipped = 0;
+            BumpPerfCount(&perf_context.internal_delete_skipped_count);
             break;
           case kTypeValue:
             valid_ = true;

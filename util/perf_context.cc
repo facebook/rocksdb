@@ -15,6 +15,8 @@ void PerfContext::Reset() {
   block_read_time = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
+  internal_key_skipped_count = 0;
+  internal_delete_skipped_count = 0;
 }
 
 __thread PerfContext perf_context;

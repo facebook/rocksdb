@@ -28,6 +28,8 @@ struct PerfContext {
   uint64_t block_read_time;
   uint64_t block_checksum_time;
   uint64_t block_decompress_time;
+  uint64_t internal_key_skipped_count;
+  uint64_t internal_delete_skipped_count;
 };
 
 extern __thread PerfContext perf_context;
