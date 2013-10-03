@@ -963,7 +963,9 @@ Status DBImpl::CompactMemTable(bool* madeProgress) {
     // should store the file number in the shared state, and retry
     // However, for now, PurgeObsoleteFiles will take care of that
     // anyways.
-    if (options_.purge_log_after_memtable_flush && to_delete > 0) {
+    if (options_.purge_log_after_memtable_flush &&
+        !disable_delete_obsolete_files_ &&
+        to_delete > 0) {
       mutex_.Unlock();
       DeleteLogFile(to_delete);
       mutex_.Lock();
