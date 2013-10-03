@@ -3869,7 +3869,8 @@ class ModelDB: public DB {
   virtual Status EnableFileDeletions() {
     return Status::OK();
   }
-  virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size) {
+  virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size,
+                              bool flush_memtable = true) {
     return Status::OK();
   }
 

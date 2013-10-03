@@ -244,8 +244,15 @@ class DB {
   // manifest file is returned in manifest_file_size. The manifest file is an
   // ever growing file, but only the portion specified by manifest_file_size is
   // valid for this snapshot.
+  // Setting flush_memtable to true does Flush before recording the live files.
+  // Setting flush_memtable to false is useful when we don't want to wait for
+  // flush which may have to wait for compaction to complete taking an
+  // indeterminate time. But this will have to use GetSortedWalFiles after
+  // GetLiveFiles to compensate for memtables missed in this snapshot due to the
+  // absence of Flush, by WAL files to recover the database consistently later
   virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size) = 0;
+                              uint64_t* manifest_file_size,
+                              bool flush_memtable = true) = 0;
 
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;

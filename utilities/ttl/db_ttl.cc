@@ -267,8 +267,9 @@ Status DBWithTTL::EnableFileDeletions() {
   return db_->EnableFileDeletions();
 }
 
-Status DBWithTTL::GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs) {
-  return db_->GetLiveFiles(vec, mfs);
+Status DBWithTTL::GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
+                               bool flush_memtable) {
+  return db_->GetLiveFiles(vec, mfs, flush_memtable);
 }
 
 SequenceNumber DBWithTTL::GetLatestSequenceNumber() {

@@ -72,7 +72,8 @@ class DBImpl : public DB {
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions();
   virtual Status GetLiveFiles(std::vector<std::string>&,
-                              uint64_t* manifest_file_size);
+                              uint64_t* manifest_file_size,
+                              bool flush_memtable = true);
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
   virtual Status DeleteWalFiles(const VectorLogPtr& files);
   virtual SequenceNumber GetLatestSequenceNumber();

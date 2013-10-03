@@ -30,16 +30,19 @@ Status DBImpl::EnableFileDeletions() {
 }
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
-                            uint64_t* manifest_file_size) {
+                            uint64_t* manifest_file_size,
+                            bool flush_memtable) {
 
   *manifest_file_size = 0;
 
-  // flush all dirty data to disk.
-  Status status =  Flush(FlushOptions());
-  if (!status.ok()) {
-    Log(options_.info_log, "Cannot Flush data %s\n",
-        status.ToString().c_str());
-    return status;
+  if (flush_memtable) {
+    // flush all dirty data to disk.
+    Status status =  Flush(FlushOptions());
+    if (!status.ok()) {
+      Log(options_.info_log, "Cannot Flush data %s\n",
+          status.ToString().c_str());
+      return status;
+    }
   }
 
   MutexLock l(&mutex_);

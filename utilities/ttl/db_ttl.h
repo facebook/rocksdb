@@ -75,7 +75,8 @@ class DBWithTTL : public StackableDB {
 
   virtual Status EnableFileDeletions();
 
-  virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs);
+  virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
+                              bool flush_memtable = true);
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
 

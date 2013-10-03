@@ -133,9 +133,9 @@ class StackableDB : public DB {
     return sdb_->EnableFileDeletions();
   }
 
-  virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs)
-    override {
-      return sdb_->GetLiveFiles(vec, mfs);
+  virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
+                              bool flush_memtable = true) override {
+      return sdb_->GetLiveFiles(vec, mfs, flush_memtable);
   }
 
   virtual SequenceNumber GetLatestSequenceNumber() override {

@@ -60,7 +60,8 @@ public:
    return Status::NotSupported("Not supported operation in read only mode.");
  }
  virtual Status GetLiveFiles(std::vector<std::string>&,
-                             uint64_t* manifest_file_size) {
+                             uint64_t* manifest_file_size,
+                             bool flush_memtable = true) {
    return Status::NotSupported("Not supported operation in read only mode.");
  }
  virtual Status Flush(const FlushOptions& options) {
