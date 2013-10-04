@@ -1092,6 +1092,7 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() {
 Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                unique_ptr<TransactionLogIterator>* iter) {
 
+  RecordTick(options_.statistics, GET_UPDATES_SINCE_CALLS);
   if (seq > last_flushed_sequence_) {
     return Status::IOError("Requested sequence not yet written in the db");
   }
