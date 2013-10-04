@@ -3,7 +3,7 @@
 #include "rocksdb/ldb_tool.h"
 #include "util/ldb_cmd.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class LDBCommandRunner {
 public:
@@ -96,5 +96,5 @@ public:
 void LDBTool::Run(int argc, char** argv, Options options) {
   LDBCommandRunner::RunCommand(argc, argv, options);
 }
-} // namespace leveldb
+} // namespace rocksdb
 

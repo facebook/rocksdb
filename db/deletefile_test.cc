@@ -16,7 +16,7 @@
 #include <stdlib.h>
 #include <map>
 
-namespace leveldb {
+namespace rocksdb {
 
 class DeleteFileTest {
  public:
@@ -180,9 +180,9 @@ TEST(DeleteFileTest, DeleteFileWithIterator) {
   delete it;
   CloseDB();
 }
-} //namespace leveldb
+} //namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }
 

@@ -5,7 +5,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Env::~Env() {
 }
@@ -122,4 +122,4 @@ EnvOptions::EnvOptions() {
 }
 
 
-}  // namespace leveldb
+}  // namespace rocksdb

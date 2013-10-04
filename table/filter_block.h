@@ -18,7 +18,7 @@
 #include "rocksdb/slice_transform.h"
 #include "util/hash.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class FilterPolicy;
 

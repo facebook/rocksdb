@@ -8,7 +8,7 @@
 #include "rocksdb/filter_policy.h"
 #include "util/coding.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // See doc/table_format.txt for an explanation of the filter block format.
 

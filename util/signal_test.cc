@@ -19,7 +19,7 @@ void f3() {
 }
 
 int main() {
-  leveldb::InstallStackTraceHandler();
+  rocksdb::InstallStackTraceHandler();
 
   f3();
 

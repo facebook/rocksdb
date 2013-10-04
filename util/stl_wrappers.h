@@ -7,7 +7,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace stl_wrappers {
   class Base {
    protected:

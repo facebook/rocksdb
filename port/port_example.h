@@ -10,7 +10,7 @@
 #ifndef STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_
 #define STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_
 
-namespace leveldb {
+namespace rocksdb {
 namespace port {
 
 // TODO(jorlow): Many of these belong more in the environment class rather than
@@ -130,6 +130,6 @@ extern bool Snappy_Uncompress(const char* input_data, size_t input_length,
 extern bool GetHeapProfile(void (*func)(void*, const char*, int), void* arg);
 
 }  // namespace port
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_PORT_PORT_EXAMPLE_H_

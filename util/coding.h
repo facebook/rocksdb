@@ -15,7 +15,7 @@
 #include <string>
 #include "port/port.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // The maximum length of a varint in bytes for 32 and 64 bits respectively.
 const unsigned int kMaxVarint32Length = 5;
@@ -129,6 +129,6 @@ extern uint64_t BitStreamGetInt(const std::string* src, size_t offset,
 extern uint64_t BitStreamGetInt(const Slice* src, size_t offset,
                                 uint32_t bits);
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_CODING_H_

@@ -14,7 +14,7 @@
 #include "rocksdb/iterator.h"
 #include "util/stop_watch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Status BuildTable(const std::string& dbname,
                   Env* env,
@@ -204,4 +204,4 @@ Status BuildTable(const std::string& dbname,
   return s;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

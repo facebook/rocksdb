@@ -12,7 +12,7 @@
 #include <vector>
 #include <map>
 
-namespace leveldb {
+namespace rocksdb {
 
 class HistogramBucketMapper {
  public:
@@ -73,6 +73,6 @@ class HistogramImpl {
 
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_HISTOGRAM_H_

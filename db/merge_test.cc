@@ -14,7 +14,7 @@
 #include "utilities/utility_db.h"
 
 using namespace std;
-using namespace leveldb;
+using namespace rocksdb;
 
 
 std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false) {

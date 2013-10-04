@@ -58,7 +58,7 @@ class DBHandler : virtual public DBIf {
       throw e;
     }
     std::string dbdir = server_options.getDataDirectory(dbname);
-    leveldb::Options options;
+    rocksdb::Options options;
 
     // fill up per-server options
     options.block_cache = server_options.getCache();
@@ -71,9 +71,9 @@ class DBHandler : virtual public DBIf {
     options.block_size = dboptions.block_size;
     options.block_restart_interval = dboptions.block_restart_interval;
     if (dboptions.compression == kNoCompression) {
-      options.compression = leveldb::kNoCompression;
+      options.compression = rocksdb::kNoCompression;
     } else if (dboptions.compression == kSnappyCompression) {
-      options.compression = leveldb::kSnappyCompression;
+      options.compression = rocksdb::kSnappyCompression;
     }
     if (dboptions.num_levels > 0)
       options.num_levels = dboptions.num_levels;
@@ -109,19 +109,19 @@ class DBHandler : virtual public DBIf {
 
   Code Put(const DBHandle& dbhandle, const kv& kv, 
     const WriteOptions& options) {
-    leveldb::WriteOptions woptions;
+    rocksdb::WriteOptions woptions;
     woptions.sync = options.sync;
     woptions.disableWAL = options.disableWAL;
-    leveldb::Slice key, value;
+    rocksdb::Slice key, value;
     key.data_ = kv.key.data.data();
     key.size_ = kv.key.size;
     value.data_ = kv.value.data.data();
     value.size_ = kv.value.size;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
-    leveldb::Status status = db->Put(woptions, key, value);
+    rocksdb::Status status = db->Put(woptions, key, value);
     if (status.ok()) {
       return Code::kOk;
     }
@@ -130,17 +130,17 @@ class DBHandler : virtual public DBIf {
 
   Code Delete(const DBHandle& dbhandle, const Slice& kv, 
     const WriteOptions& options) {
-    leveldb::WriteOptions woptions;
+    rocksdb::WriteOptions woptions;
     woptions.sync = options.sync;
     woptions.disableWAL = options.disableWAL;
-    leveldb::Slice key;
+    rocksdb::Slice key;
     key.data_ = kv.data.data();
     key.size_ = kv.size;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
-    leveldb::Status status = db->Delete(woptions, key);
+    rocksdb::Status status = db->Delete(woptions, key);
     if (status.ok()) {
       return Code::kOk;
     }
@@ -149,11 +149,11 @@ class DBHandler : virtual public DBIf {
 
   Code Write(const DBHandle& dbhandle, const std::vector<kv> & batch, 
     const WriteOptions& options) {
-    leveldb::WriteOptions woptions;
-    leveldb::WriteBatch lbatch;
+    rocksdb::WriteOptions woptions;
+    rocksdb::WriteBatch lbatch;
     woptions.sync = options.sync;
     woptions.disableWAL = options.disableWAL;
-    leveldb::Slice key, value;
+    rocksdb::Slice key, value;
     for (unsigned int i = 0; i < batch.size(); i++) {
       kv one = batch[i];
       key.data_ = one.key.data.data();
@@ -162,11 +162,11 @@ class DBHandler : virtual public DBIf {
       value.size_ = one.value.size;
       lbatch.Put(key, value);
     }
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
-    leveldb::Status status = db->Write(woptions, &lbatch);
+    rocksdb::Status status = db->Write(woptions, &lbatch);
     if (status.ok()) {
       return Code::kOk;
     }
@@ -178,15 +178,15 @@ class DBHandler : virtual public DBIf {
     struct onehandle* thishandle;
     _return.status = Code::kNotFound;
     std::string ret;
-    leveldb::Slice ikey;
+    rocksdb::Slice ikey;
     ikey.data_ = inputkey.data.data();
     ikey.size_ = inputkey.size;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
     assert(thishandle != NULL);
-    const leveldb::Snapshot* s = NULL;
+    const rocksdb::Snapshot* s = NULL;
     if (options.snapshot.snapshotid > 0) {
       s = thishandle->lookupSnapshot(options.snapshot.snapshotid);
       assert(s != NULL);
@@ -194,12 +194,12 @@ class DBHandler : virtual public DBIf {
         return;
       }
     }
-    leveldb::ReadOptions roptions;
+    rocksdb::ReadOptions roptions;
     roptions.verify_checksums = options.verify_checksums;
     roptions.fill_cache = options.fill_cache;
     roptions.snapshot = s;
 
-    leveldb::Status status = db->Get(roptions, ikey, &ret);
+    rocksdb::Status status = db->Get(roptions, ikey, &ret);
     if (status.ok()) {
       _return.value.data = ret.data();
       _return.value.size = ret.size();
@@ -212,14 +212,14 @@ class DBHandler : virtual public DBIf {
      const Slice& target)  {
     struct onehandle* thishandle;
     _return.status = Code::kNotFound;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
     assert(thishandle != NULL);
 
     // check to see if snapshot is specified
-    const leveldb::Snapshot* s = NULL;
+    const rocksdb::Snapshot* s = NULL;
     if (options.snapshot.snapshotid > 0) {
       s = thishandle->lookupSnapshot(options.snapshot.snapshotid);
       assert(s != NULL);
@@ -229,11 +229,11 @@ class DBHandler : virtual public DBIf {
     }
 
     // create leveldb iterator
-    leveldb::ReadOptions roptions;
+    rocksdb::ReadOptions roptions;
     roptions.verify_checksums = options.verify_checksums;
     roptions.fill_cache = options.fill_cache;
     roptions.snapshot = s;
-    leveldb::Iterator* iter = db->NewIterator(roptions);
+    rocksdb::Iterator* iter = db->NewIterator(roptions);
     if (iter == NULL) {
       return;
     }
@@ -244,7 +244,7 @@ class DBHandler : virtual public DBIf {
     } else if (iteratorType == IteratorType::seekToLast) {
       iter->SeekToLast();
     } else if (iteratorType == IteratorType::seekToKey) {
-      leveldb::Slice key;
+      rocksdb::Slice key;
       key.data_ = target.data.data();
       key.size_ = target.size;
       iter->Seek(key);
@@ -264,14 +264,14 @@ class DBHandler : virtual public DBIf {
   Code DeleteIterator(const DBHandle& dbhandle, const Iterator& iterator) {
     // find the db
     struct onehandle* thishandle;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return kNotFound;
     }
     assert(thishandle != NULL);
 
     // find the leveldb iterator for this db
-    leveldb::Iterator* it = 
+    rocksdb::Iterator* it = 
       thishandle->lookupIterator(iterator.iteratorid);
     if (it == NULL) {
       // this must have been cleaned up by the last call to GetNext
@@ -289,14 +289,14 @@ class DBHandler : virtual public DBIf {
     // find the db
     struct onehandle* thishandle;
     _return.status = Code::kNotFound;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
     assert(thishandle != NULL);
 
     // find the leveldb iterator for this db
-    leveldb::Iterator* it = 
+    rocksdb::Iterator* it = 
       thishandle->lookupIterator(iterator.iteratorid);
     assert(it != NULL);
     if (it == NULL) {
@@ -322,8 +322,8 @@ class DBHandler : virtual public DBIf {
     }
 
     // find current key-value
-    leveldb::Slice key = it->key();
-    leveldb::Slice value = it->value();
+    rocksdb::Slice key = it->key();
+    rocksdb::Slice value = it->value();
 
     // pack results back to client
     _return.keyvalue.key.data.assign(key.data_, key.size_);
@@ -355,12 +355,12 @@ class DBHandler : virtual public DBIf {
   void GetSnapshot(ResultSnapshot& _return, const DBHandle& dbhandle) {
     _return.status = kIOError;
     struct onehandle* thishandle;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return;
     }
     // create leveldb snapshot
-    const leveldb::Snapshot* s = db->GetSnapshot();
+    const rocksdb::Snapshot* s = db->GetSnapshot();
 
     // store snapshot in dbhandle, get unique id.
     int64_t id = thishandle->addSnapshot(s);
@@ -370,11 +370,11 @@ class DBHandler : virtual public DBIf {
 
   Code ReleaseSnapshot(const DBHandle& dbhandle, const Snapshot& snapshot) {
     struct onehandle* thishandle;
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, &thishandle);
     if (db == NULL) {
       return kNotFound;
     }
-    const leveldb::Snapshot* s = thishandle->removeSnapshot(snapshot.snapshotid);
+    const rocksdb::Snapshot* s = thishandle->removeSnapshot(snapshot.snapshotid);
     if (s == NULL) {
       return Code::kNotFound;
     }
@@ -384,14 +384,14 @@ class DBHandler : virtual public DBIf {
 
   Code CompactRange(const DBHandle& dbhandle, const Slice& begin, 
     const Slice& end) {
-    leveldb::DB* db = openHandles->get(dbhandle.dbname, NULL);
+    rocksdb::DB* db = openHandles->get(dbhandle.dbname, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
-    leveldb::Slice k1, *start = &k1;
+    rocksdb::Slice k1, *start = &k1;
     k1.data_ = begin.data.data();
     k1.size_ = begin.size;
-    leveldb::Slice k2, *stop = &k2;
+    rocksdb::Slice k2, *stop = &k2;
     k2.data_ = begin.data.data();
     k2.size_ = begin.size;
     

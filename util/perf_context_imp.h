@@ -4,7 +4,7 @@
 #include "rocksdb/perf_context.h"
 #include "util/stop_watch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 extern enum PerfLevel perf_level;
 

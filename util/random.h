@@ -8,7 +8,7 @@
 #include <random>
 #include <stdint.h>
 
-namespace leveldb {
+namespace rocksdb {
 
 // A very simple random number generator.  Not especially good at
 // generating truly random bits, but good enough for our needs in this
@@ -84,6 +84,6 @@ class Random64 {
   }
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_RANDOM_H_

@@ -153,7 +153,7 @@ static int FLAGS_min_write_buffer_number_to_merge = 0;
 static int FLAGS_max_background_compactions = 0;
 
 // style of compaction: level-based vs universal
-static leveldb::CompactionStyle FLAGS_compaction_style = leveldb::kCompactionStyleLevel;
+static rocksdb::CompactionStyle FLAGS_compaction_style = rocksdb::kCompactionStyleLevel;
 
 // Percentage flexibility while comparing file size
 // (for universal compaction only).
@@ -201,7 +201,7 @@ static bool FLAGS_verify_checksum = false;
 
 // Database statistics
 static bool FLAGS_statistics = false;
-static class std::shared_ptr<leveldb::Statistics> dbstats;
+static class std::shared_ptr<rocksdb::Statistics> dbstats;
 
 // Number of write operations to do.  If negative, do FLAGS_num reads.
 static long FLAGS_writes = -1;
@@ -279,8 +279,8 @@ static int FLAGS_disable_seek_compaction = false;
 static uint64_t FLAGS_delete_obsolete_files_period_micros = 0;
 
 // Algorithm used to compress the database
-static enum leveldb::CompressionType FLAGS_compression_type =
-    leveldb::kSnappyCompression;
+static enum rocksdb::CompressionType FLAGS_compression_type =
+    rocksdb::kSnappyCompression;
 
 // If non-negative, compression starts from this level. Levels with number
 // < FLAGS_min_level_to_compress are not compressed.
@@ -290,7 +290,7 @@ static int FLAGS_min_level_to_compress = -1;
 static int FLAGS_table_cache_numshardbits = 4;
 
 // posix or hdfs environment
-static leveldb::Env* FLAGS_env = leveldb::Env::Default();
+static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 // Stats are reported every N operations when this is greater
 // than zero. When 0 the interval grows over time.
@@ -339,11 +339,11 @@ static bool FLAGS_use_mmap_writes;
 
 // Advise random access on table file open
 static bool FLAGS_advise_random_on_open =
-  leveldb::Options().advise_random_on_open;
+  rocksdb::Options().advise_random_on_open;
 
 // Access pattern advice when a file is compacted
 static auto FLAGS_compaction_fadvice =
-  leveldb::Options().access_hint_on_compaction_start;
+  rocksdb::Options().access_hint_on_compaction_start;
 
 // Use multiget to access a series of keys instead of get
 static bool FLAGS_use_multiget = false;
@@ -358,13 +358,13 @@ static bool FLAGS_warn_missing_keys = true;
 
 // Use adaptive mutex
 static auto FLAGS_use_adaptive_mutex =
-  leveldb::Options().use_adaptive_mutex;
+  rocksdb::Options().use_adaptive_mutex;
 
 // Allows OS to incrementally sync files to disk while they are being
 // written, in the background. Issue one request for every bytes_per_sync
 // written. 0 turns it off.
 static auto FLAGS_bytes_per_sync =
-  leveldb::Options().bytes_per_sync;
+  rocksdb::Options().bytes_per_sync;
 
 // On true, deletes use bloom-filter and drop the delete if key not present
 static bool FLAGS_filter_deletes = false;
@@ -387,9 +387,9 @@ static enum RepFactory FLAGS_rep_factory;
 static std::string FLAGS_merge_operator = "";
 
 static auto FLAGS_purge_log_after_memtable_flush =
-  leveldb::Options().purge_log_after_memtable_flush;
+  rocksdb::Options().purge_log_after_memtable_flush;
 
-namespace leveldb {
+namespace rocksdb {
 
 // Helper for quickly generating random data.
 class RandomGenerator {
@@ -691,16 +691,16 @@ class Benchmark {
     fprintf(stdout, "Write rate limit: %d\n", FLAGS_writes_per_second);
 
     switch (FLAGS_compression_type) {
-      case leveldb::kNoCompression:
+      case rocksdb::kNoCompression:
         fprintf(stdout, "Compression: none\n");
         break;
-      case leveldb::kSnappyCompression:
+      case rocksdb::kSnappyCompression:
         fprintf(stdout, "Compression: snappy\n");
         break;
-      case leveldb::kZlibCompression:
+      case rocksdb::kZlibCompression:
         fprintf(stdout, "Compression: zlib\n");
         break;
-      case leveldb::kBZip2Compression:
+      case rocksdb::kBZip2Compression:
         fprintf(stdout, "Compression: bzip2\n");
         break;
     }
@@ -735,7 +735,7 @@ class Benchmark {
             "WARNING: Assertions are enabled; benchmarks unnecessarily slow\n");
 #endif
 
-    if (FLAGS_compression_type != leveldb::kNoCompression) {
+    if (FLAGS_compression_type != rocksdb::kNoCompression) {
       // The test string should not be too small.
       const int len = FLAGS_block_size;
       char* text = (char*) malloc(len+1);
@@ -2303,24 +2303,24 @@ class Benchmark {
   }
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  leveldb::InstallStackTraceHandler();
+  rocksdb::InstallStackTraceHandler();
 
-  FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
-  FLAGS_max_write_buffer_number = leveldb::Options().max_write_buffer_number;
+  FLAGS_write_buffer_size = rocksdb::Options().write_buffer_size;
+  FLAGS_max_write_buffer_number = rocksdb::Options().max_write_buffer_number;
   FLAGS_min_write_buffer_number_to_merge =
-    leveldb::Options().min_write_buffer_number_to_merge;
-  FLAGS_open_files = leveldb::Options().max_open_files;
+    rocksdb::Options().min_write_buffer_number_to_merge;
+  FLAGS_open_files = rocksdb::Options().max_open_files;
   FLAGS_max_background_compactions =
-    leveldb::Options().max_background_compactions;
-  FLAGS_compaction_style = leveldb::Options().compaction_style;
+    rocksdb::Options().max_background_compactions;
+  FLAGS_compaction_style = rocksdb::Options().compaction_style;
   // Compression test code above refers to FLAGS_block_size
-  FLAGS_block_size = leveldb::Options().block_size;
-  FLAGS_use_os_buffer = leveldb::EnvOptions().use_os_buffer;
-  FLAGS_use_mmap_reads = leveldb::EnvOptions().use_mmap_reads;
-  FLAGS_use_mmap_writes = leveldb::EnvOptions().use_mmap_writes;
+  FLAGS_block_size = rocksdb::Options().block_size;
+  FLAGS_use_os_buffer = rocksdb::EnvOptions().use_os_buffer;
+  FLAGS_use_mmap_reads = rocksdb::EnvOptions().use_mmap_reads;
+  FLAGS_use_mmap_writes = rocksdb::EnvOptions().use_mmap_writes;
 
   std::string default_db_path;
 
@@ -2333,7 +2333,7 @@ int main(int argc, char** argv) {
     char buf[2048];
     char str[512];
 
-    if (leveldb::Slice(argv[i]).starts_with("--benchmarks=")) {
+    if (rocksdb::Slice(argv[i]).starts_with("--benchmarks=")) {
       FLAGS_benchmarks = argv[i] + strlen("--benchmarks=");
     } else if (sscanf(argv[i], "--compression_ratio=%lf%c", &d, &junk) == 1) {
       FLAGS_compression_ratio = d;
@@ -2384,7 +2384,7 @@ int main(int argc, char** argv) {
                == 1) {
       FLAGS_max_background_compactions = n;
     } else if (sscanf(argv[i], "--compaction_style=%d%c", &n, &junk) == 1) {
-      FLAGS_compaction_style = (leveldb::CompactionStyle)n;
+      FLAGS_compaction_style = (rocksdb::CompactionStyle)n;
     } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
       FLAGS_cache_size = l;
     } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
@@ -2424,7 +2424,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       if (n == 1) {
-        dbstats = leveldb::CreateDBStatistics();
+        dbstats = rocksdb::CreateDBStatistics();
         FLAGS_statistics = true;
       }
     } else if (sscanf(argv[i], "--writes=%lld%c", &ll, &junk) == 1) {
@@ -2456,7 +2456,7 @@ int main(int argc, char** argv) {
         (n == 0 || n == 1)) {
       FLAGS_get_approx = n;
     } else if (sscanf(argv[i], "--hdfs=%s", buf) == 1) {
-      FLAGS_env  = new leveldb::HdfsEnv(buf);
+      FLAGS_env  = new rocksdb::HdfsEnv(buf);
     } else if (sscanf(argv[i], "--num_levels=%d%c",
         &n, &junk) == 1) {
       FLAGS_num_levels = n;
@@ -2478,7 +2478,7 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i],
                 "--max_bytes_for_level_multiplier_additional=%s%c",
                 str, &junk) == 1) {
-      std::vector<std::string> fanout = leveldb::stringSplit(str, ',');
+      std::vector<std::string> fanout = rocksdb::stringSplit(str, ',');
       for (unsigned int j= 0; j < fanout.size(); j++) {
         FLAGS_max_bytes_for_level_multiplier_additional.push_back(
           std::stoi(fanout[j]));
@@ -2492,13 +2492,13 @@ int main(int argc, char** argv) {
     } else if (strncmp(argv[i], "--compression_type=", 19) == 0) {
       const char* ctype = argv[i] + 19;
       if (!strcasecmp(ctype, "none"))
-        FLAGS_compression_type = leveldb::kNoCompression;
+        FLAGS_compression_type = rocksdb::kNoCompression;
       else if (!strcasecmp(ctype, "snappy"))
-        FLAGS_compression_type = leveldb::kSnappyCompression;
+        FLAGS_compression_type = rocksdb::kSnappyCompression;
       else if (!strcasecmp(ctype, "zlib"))
-        FLAGS_compression_type = leveldb::kZlibCompression;
+        FLAGS_compression_type = rocksdb::kZlibCompression;
       else if (!strcasecmp(ctype, "bzip2"))
-        FLAGS_compression_type = leveldb::kBZip2Compression;
+        FLAGS_compression_type = rocksdb::kBZip2Compression;
       else {
         fprintf(stdout, "Cannot parse %s\n", argv[i]);
       }
@@ -2561,13 +2561,13 @@ int main(int argc, char** argv) {
       FLAGS_advise_random_on_open = n;
     } else if (sscanf(argv[i], "--compaction_fadvice=%s", buf) == 1) {
       if (!strcasecmp(buf, "NONE"))
-        FLAGS_compaction_fadvice = leveldb::Options::NONE;
+        FLAGS_compaction_fadvice = rocksdb::Options::NONE;
       else if (!strcasecmp(buf, "NORMAL"))
-        FLAGS_compaction_fadvice = leveldb::Options::NORMAL;
+        FLAGS_compaction_fadvice = rocksdb::Options::NORMAL;
       else if (!strcasecmp(buf, "SEQUENTIAL"))
-        FLAGS_compaction_fadvice = leveldb::Options::SEQUENTIAL;
+        FLAGS_compaction_fadvice = rocksdb::Options::SEQUENTIAL;
       else if (!strcasecmp(buf, "WILLNEED"))
-        FLAGS_compaction_fadvice = leveldb::Options::WILLNEED;
+        FLAGS_compaction_fadvice = rocksdb::Options::WILLNEED;
       else {
         fprintf(stdout, "Unknown compaction fadvice:%s\n", buf);
       }
@@ -2615,12 +2615,12 @@ int main(int argc, char** argv) {
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db == nullptr) {
-      leveldb::Env::Default()->GetTestDirectory(&default_db_path);
+      rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
       default_db_path += "/dbbench";
       FLAGS_db = default_db_path.c_str();
   }
 
-  leveldb::Benchmark benchmark;
+  rocksdb::Benchmark benchmark;
   benchmark.Run();
   return 0;
 }

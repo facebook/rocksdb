@@ -30,7 +30,7 @@
 #include "rocksdb/slice.h"
 #include "util/coding.h"
 
-namespace leveldb
+namespace rocksdb
 {
 
 /// Constructors

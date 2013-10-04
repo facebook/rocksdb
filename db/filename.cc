@@ -10,7 +10,7 @@
 #include "rocksdb/env.h"
 #include "util/logging.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Given a path, flatten the path name by replacing all chars not in
 // {[0-9,a-z,A-Z,-,_,.]} with _. And append '\0' at the end.
@@ -218,4 +218,4 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   return s;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

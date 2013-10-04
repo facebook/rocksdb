@@ -3,7 +3,7 @@
 
 using namespace std;
 
-namespace leveldb {
+namespace rocksdb {
 
 // -- AutoRollLogger
 Status AutoRollLogger::ResetLogger() {
@@ -100,4 +100,4 @@ Status CreateLoggerFromOptions(
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

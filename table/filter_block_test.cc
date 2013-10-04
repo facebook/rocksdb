@@ -11,7 +11,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // For testing: emit an array with one hash value per key
 class TestHashFilter : public FilterPolicy {
@@ -127,8 +127,8 @@ TEST(FilterBlockTest, MultiChunk) {
   ASSERT_TRUE(! reader.KeyMayMatch(9000, "bar"));
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

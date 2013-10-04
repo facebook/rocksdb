@@ -7,7 +7,7 @@
 
 #include "stackable_db.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // This class contains APIs to open leveldb with specific support eg. TTL
 class UtilityDB {
@@ -49,6 +49,6 @@ class UtilityDB {
                             bool read_only = false);
 };
 
-} //  namespace leveldb
+} //  namespace rocksdb
 
 #endif  //  LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_

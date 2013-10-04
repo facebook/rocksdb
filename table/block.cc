@@ -13,7 +13,7 @@
 #include "util/coding.h"
 #include "util/logging.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 inline uint32_t Block::NumRestarts() const {
   assert(size_ >= 2*sizeof(uint32_t));
@@ -265,4 +265,4 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

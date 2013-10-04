@@ -9,7 +9,7 @@
 #include "port/port.h"
 #include "util/logging.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Comparator::~Comparator() { }
 
@@ -78,4 +78,4 @@ const Comparator* BytewiseComparator() {
   return bytewise;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

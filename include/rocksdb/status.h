@@ -16,7 +16,7 @@
 #include <string>
 #include "rocksdb/slice.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Status {
  public:
@@ -121,6 +121,8 @@ inline void Status::operator=(const Status& s) {
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_STATUS_H_

@@ -74,12 +74,12 @@
 #include "leveldb/env.h"
 #include "leveldb/slice.h"
 
-struct JNIComparator : public leveldb::Comparator {
+struct JNIComparator : public rocksdb::Comparator {
   jobject target;
   jmethodID compare_method;
   const char *name;
 
-  int Compare(const leveldb::Slice& a, const leveldb::Slice& b) const {
+  int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const {
     JNIEnv *env;
     if ( hawtjni_attach_thread(&env, "leveldb") ) {
       return 0;
@@ -93,11 +93,11 @@ struct JNIComparator : public leveldb::Comparator {
      return name;
   }
 
-  void FindShortestSeparator(std::string*, const leveldb::Slice&) const { }
+  void FindShortestSeparator(std::string*, const rocksdb::Slice&) const { }
   void FindShortSuccessor(std::string*) const { }
 };
 
-struct JNILogger : public leveldb::Logger {
+struct JNILogger : public rocksdb::Logger {
   jobject target;
   jmethodID log_method;
 

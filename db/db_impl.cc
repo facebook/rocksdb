@@ -47,7 +47,7 @@
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 void dumpLeveldbBuildVersion(Logger * log);
 
@@ -3294,4 +3294,4 @@ void dumpLeveldbBuildVersion(Logger * log) {
       leveldb_build_compile_time, leveldb_build_compile_date);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

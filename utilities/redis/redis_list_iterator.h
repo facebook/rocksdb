@@ -45,7 +45,7 @@
 #include "rocksdb/slice.h"
 #include "util/coding.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 /// An abstraction over the "list" concept.
 /// All operations may throw a RedisListException
@@ -305,4 +305,4 @@ class RedisListIterator {
   std::vector<char> result_;    // The output data
 };
 
-} // namespace leveldb
+} // namespace rocksdb

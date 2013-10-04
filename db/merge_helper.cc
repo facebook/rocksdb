@@ -6,7 +6,7 @@
 #include <string>
 #include <stdio.h>
 
-namespace leveldb {
+namespace rocksdb {
 
 // PRE:  iter points to the first merge type entry
 // POST: iter points to the first entry beyond the merge process (or the end)
@@ -189,4 +189,4 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
   }
 }
 
-} // namespace leveldb
+} // namespace rocksdb

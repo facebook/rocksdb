@@ -38,13 +38,13 @@ import static org.fusesource.hawtjni.runtime.ArgFlag.*;
 import static org.fusesource.hawtjni.runtime.ClassFlag.*;
 
 /**
- * Provides a java interface to the C++ leveldb::Iterator class.
+ * Provides a java interface to the C++ rocksdb::Iterator class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
 public class NativeIterator extends NativeObject {
 
-    @JniClass(name="leveldb::Iterator", flags={CPP})
+    @JniClass(name="rocksdb::Iterator", flags={CPP})
     private static class IteratorJNI {
         static {
             NativeDB.LIBRARY.load();
@@ -86,17 +86,17 @@ public class NativeIterator extends NativeObject {
                 long self
                 );
 
-        @JniMethod(copy="leveldb::Slice", flags={CPP_METHOD})
+        @JniMethod(copy="rocksdb::Slice", flags={CPP_METHOD})
         static final native long key(
                 long self
                 );
 
-        @JniMethod(copy="leveldb::Slice", flags={CPP_METHOD})
+        @JniMethod(copy="rocksdb::Slice", flags={CPP_METHOD})
         static final native long value(
                 long self
                 );
 
-        @JniMethod(copy="leveldb::Status", flags={CPP_METHOD})
+        @JniMethod(copy="rocksdb::Status", flags={CPP_METHOD})
         static final native long status(
                 long self
                 );

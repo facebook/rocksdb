@@ -19,7 +19,7 @@
 
 
 #include "../DBClientProxy.h"
-using namespace leveldb;
+using namespace rocksdb;
 
 
 using namespace apache::thrift;

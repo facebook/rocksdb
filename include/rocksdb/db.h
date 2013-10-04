@@ -14,7 +14,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 using std::unique_ptr;
 
@@ -306,6 +306,8 @@ Status DestroyDB(const std::string& name, const Options& options);
 // on a database that contains important information.
 Status RepairDB(const std::string& dbname, const Options& options);
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_DB_H_

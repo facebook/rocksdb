@@ -5,7 +5,7 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-using namespace leveldb;
+using namespace rocksdb;
 
 namespace { // anonymous namespace
 
@@ -56,7 +56,7 @@ class UInt64AddOperator : public AssociativeMergeOperator {
 
 }
 
-namespace leveldb {
+namespace rocksdb {
 
 std::shared_ptr<MergeOperator> MergeOperators::CreateUInt64AddOperator() {
   return std::make_shared<UInt64AddOperator>();

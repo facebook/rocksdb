@@ -24,7 +24,7 @@ class ServerOptions {
   int port_;                       // port number
   std::string hostname_;           // host name of this machine
   std::string rootdir_;            // root directory of all DBs
-  leveldb::Cache* cache_;          // the block cache
+  rocksdb::Cache* cache_;          // the block cache
 
   // Number of concurrent threads to run.
   const static int DEFAULT_threads = 1;
@@ -110,9 +110,9 @@ public:
   // create a cache instance that is shared by all DBs served by this server
   void createCache() {
     if (cache_numshardbits_ >= 1) {
-      cache_ = leveldb::NewLRUCache(cache_size_, cache_numshardbits_);
+      cache_ = rocksdb::NewLRUCache(cache_size_, cache_numshardbits_);
     } else {
-      cache_ = leveldb::NewLRUCache(cache_size_);
+      cache_ = rocksdb::NewLRUCache(cache_size_);
     }
   }
 
@@ -129,7 +129,7 @@ public:
   }
 
   // Returns the cache
-  leveldb::Cache* getCache() {
+  rocksdb::Cache* getCache() {
     return cache_;
   }
 

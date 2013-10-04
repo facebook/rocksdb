@@ -12,7 +12,7 @@
 #include "util/mutexlock.h"
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static const int kDelayMicros = 100000;
 
@@ -357,8 +357,8 @@ TEST(EnvPosixTest, InvalidateCache) {
   ASSERT_OK(env_->DeleteFile(fname));
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

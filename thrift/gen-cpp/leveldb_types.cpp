@@ -29,13 +29,13 @@ const std::map<const char*, int, apache::thrift::ltstr> _CompressionType_NAMES_T
 } // namespace
 namespace apache { namespace thrift {
 template<>
-const char* TEnumTraits< ::Tleveldb::CompressionType>::findName( ::Tleveldb::CompressionType value) {
-return findName( ::Tleveldb::_CompressionType_VALUES_TO_NAMES, value);
+const char* TEnumTraits< ::Trocksdb::CompressionType>::findName( ::Trocksdb::CompressionType value) {
+return findName( ::Trocksdb::_CompressionType_VALUES_TO_NAMES, value);
 } 
 
 template<>
-bool TEnumTraits< ::Tleveldb::CompressionType>::findValue(const char* name,  ::Tleveldb::CompressionType* out) {
-return findValue( ::Tleveldb::_CompressionType_NAMES_TO_VALUES, name, out);
+bool TEnumTraits< ::Trocksdb::CompressionType>::findValue(const char* name,  ::Trocksdb::CompressionType* out) {
+return findValue( ::Trocksdb::_CompressionType_NAMES_TO_VALUES, name, out);
 } 
 }} // apache::thrift 
 
@@ -67,13 +67,13 @@ const std::map<const char*, int, apache::thrift::ltstr> _Code_NAMES_TO_VALUES(ap
 } // namespace
 namespace apache { namespace thrift {
 template<>
-const char* TEnumTraits< ::Tleveldb::Code>::findName( ::Tleveldb::Code value) {
-return findName( ::Tleveldb::_Code_VALUES_TO_NAMES, value);
+const char* TEnumTraits< ::Trocksdb::Code>::findName( ::Trocksdb::Code value) {
+return findName( ::Trocksdb::_Code_VALUES_TO_NAMES, value);
 } 
 
 template<>
-bool TEnumTraits< ::Tleveldb::Code>::findValue(const char* name,  ::Tleveldb::Code* out) {
-return findValue( ::Tleveldb::_Code_NAMES_TO_VALUES, name, out);
+bool TEnumTraits< ::Trocksdb::Code>::findValue(const char* name,  ::Trocksdb::Code* out) {
+return findValue( ::Trocksdb::_Code_NAMES_TO_VALUES, name, out);
 } 
 }} // apache::thrift 
 
@@ -97,13 +97,13 @@ const std::map<const char*, int, apache::thrift::ltstr> _IteratorType_NAMES_TO_V
 } // namespace
 namespace apache { namespace thrift {
 template<>
-const char* TEnumTraits< ::Tleveldb::IteratorType>::findName( ::Tleveldb::IteratorType value) {
-return findName( ::Tleveldb::_IteratorType_VALUES_TO_NAMES, value);
+const char* TEnumTraits< ::Trocksdb::IteratorType>::findName( ::Trocksdb::IteratorType value) {
+return findName( ::Trocksdb::_IteratorType_VALUES_TO_NAMES, value);
 } 
 
 template<>
-bool TEnumTraits< ::Tleveldb::IteratorType>::findValue(const char* name,  ::Tleveldb::IteratorType* out) {
-return findValue( ::Tleveldb::_IteratorType_NAMES_TO_VALUES, name, out);
+bool TEnumTraits< ::Trocksdb::IteratorType>::findValue(const char* name,  ::Trocksdb::IteratorType* out) {
+return findValue( ::Trocksdb::_IteratorType_NAMES_TO_VALUES, name, out);
 } 
 }} // apache::thrift 
 
@@ -133,13 +133,13 @@ const std::map<const char*, int, apache::thrift::ltstr> _AssocVisibility_NAMES_T
 } // namespace
 namespace apache { namespace thrift {
 template<>
-const char* TEnumTraits< ::Tleveldb::AssocVisibility>::findName( ::Tleveldb::AssocVisibility value) {
-return findName( ::Tleveldb::_AssocVisibility_VALUES_TO_NAMES, value);
+const char* TEnumTraits< ::Trocksdb::AssocVisibility>::findName( ::Trocksdb::AssocVisibility value) {
+return findName( ::Trocksdb::_AssocVisibility_VALUES_TO_NAMES, value);
 } 
 
 template<>
-bool TEnumTraits< ::Tleveldb::AssocVisibility>::findValue(const char* name,  ::Tleveldb::AssocVisibility* out) {
-return findValue( ::Tleveldb::_AssocVisibility_NAMES_TO_VALUES, name, out);
+bool TEnumTraits< ::Trocksdb::AssocVisibility>::findValue(const char* name,  ::Trocksdb::AssocVisibility* out) {
+return findValue( ::Trocksdb::_AssocVisibility_NAMES_TO_VALUES, name, out);
 } 
 }} // apache::thrift 
 

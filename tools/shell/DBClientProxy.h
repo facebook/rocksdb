@@ -18,7 +18,7 @@
  * it's client codes' responsibility to catch all possible exceptions.
  */
 
-namespace leveldb {
+namespace rocksdb {
 
 class DBClientProxy : private boost::noncopyable {
  public:
@@ -52,12 +52,12 @@ class DBClientProxy : private boost::noncopyable {
   // some internal help functions
   void cleanUp(void);
   void open(const std::string & db);
-  std::map<std::string, Tleveldb::DBHandle>::iterator getHandle(const std::string & db);
+  std::map<std::string, Trocksdb::DBHandle>::iterator getHandle(const std::string & db);
 
   const std::string host_;
   const int port_;
-  std::map<std::string, Tleveldb::DBHandle> dbToHandle_;
-  boost::shared_ptr<Tleveldb::DBClient> dbClient_;
+  std::map<std::string, Trocksdb::DBHandle> dbToHandle_;
+  boost::shared_ptr<Trocksdb::DBClient> dbClient_;
 };
 
 } // namespace

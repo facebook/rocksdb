@@ -7,7 +7,7 @@
 
 #include <string>
 
-namespace leveldb {
+namespace rocksdb {
 
 class Slice;
 
@@ -58,6 +58,8 @@ class Comparator {
 // must not be deleted.
 extern const Comparator* BytewiseComparator();
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_COMPARATOR_H_

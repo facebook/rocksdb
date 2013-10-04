@@ -8,7 +8,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 struct ReadOptions;
 
@@ -34,6 +34,6 @@ extern Iterator* NewTwoLevelIterator(
     const EnvOptions& soptions,
     bool for_compaction = false);
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_TABLE_TWO_LEVEL_ITERATOR_H_

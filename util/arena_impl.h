@@ -15,7 +15,7 @@
 #include <stdint.h>
 #include "rocksdb/arena.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class ArenaImpl : public Arena {
  public:
@@ -78,6 +78,6 @@ inline char* ArenaImpl::Allocate(size_t bytes) {
   return AllocateFallback(bytes);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_ARENA_IMPL_H_

@@ -32,7 +32,7 @@
 package org.fusesource.leveldbjni.internal;
 
 /**
- * Provides a java interface to the C++ leveldb::Snapshot class.
+ * Provides a java interface to the C++ rocksdb::Snapshot class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */

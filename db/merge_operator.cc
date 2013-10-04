@@ -7,7 +7,7 @@
 
 #include "rocksdb/merge_operator.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Given a "real" merge from the library, call the user's
 // associative merge function one-by-one on each of the operands.
@@ -48,4 +48,4 @@ bool AssociativeMergeOperator::PartialMerge(
   return Merge(key, &left_operand, right_operand, new_value, logger);
 }
 
-} // namespace leveldb
+} // namespace rocksdb

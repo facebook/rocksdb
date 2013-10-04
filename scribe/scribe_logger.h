@@ -15,7 +15,7 @@
 #include "boost/lexical_cast.hpp"
 
 using namespace Tleveldb;
-using Tleveldb::scribeClient;
+using Trocksdb::scribeClient;
 
 using namespace apache::thrift;
 using namespace apache::thrift::protocol;
@@ -25,7 +25,7 @@ using boost::shared_ptr;
 
 using namespace  ::Tleveldb;
 
-namespace leveldb {
+namespace rocksdb {
 
 class ScribeLogger : public StatsLogger{
 private:

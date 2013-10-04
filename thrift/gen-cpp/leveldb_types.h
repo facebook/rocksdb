@@ -31,12 +31,12 @@ extern const std::map<const char*, int, apache::thrift::ltstr> _CompressionType_
 } // namespace
 namespace apache { namespace thrift { 
 template<>
-inline constexpr  ::Tleveldb::CompressionType TEnumTraits< ::Tleveldb::CompressionType>::min() {
-return  ::Tleveldb::CompressionType::kNoCompression;
+inline constexpr  ::Trocksdb::CompressionType TEnumTraits< ::Trocksdb::CompressionType>::min() {
+return  ::Trocksdb::CompressionType::kNoCompression;
 }
 template<>
-inline constexpr  ::Tleveldb::CompressionType TEnumTraits< ::Tleveldb::CompressionType>::max() {
-return  ::Tleveldb::CompressionType::kSnappyCompression;
+inline constexpr  ::Trocksdb::CompressionType TEnumTraits< ::Trocksdb::CompressionType>::max() {
+return  ::Trocksdb::CompressionType::kSnappyCompression;
 }
 }} // apache:thrift
 
@@ -58,12 +58,12 @@ extern const std::map<const char*, int, apache::thrift::ltstr> _Code_NAMES_TO_VA
 } // namespace
 namespace apache { namespace thrift { 
 template<>
-inline constexpr  ::Tleveldb::Code TEnumTraits< ::Tleveldb::Code>::min() {
-return  ::Tleveldb::Code::kOk;
+inline constexpr  ::Trocksdb::Code TEnumTraits< ::Trocksdb::Code>::min() {
+return  ::Trocksdb::Code::kOk;
 }
 template<>
-inline constexpr  ::Tleveldb::Code TEnumTraits< ::Tleveldb::Code>::max() {
-return  ::Tleveldb::Code::kEnd;
+inline constexpr  ::Trocksdb::Code TEnumTraits< ::Trocksdb::Code>::max() {
+return  ::Trocksdb::Code::kEnd;
 }
 }} // apache:thrift
 
@@ -81,12 +81,12 @@ extern const std::map<const char*, int, apache::thrift::ltstr> _IteratorType_NAM
 } // namespace
 namespace apache { namespace thrift { 
 template<>
-inline constexpr  ::Tleveldb::IteratorType TEnumTraits< ::Tleveldb::IteratorType>::min() {
-return  ::Tleveldb::IteratorType::seekToFirst;
+inline constexpr  ::Trocksdb::IteratorType TEnumTraits< ::Trocksdb::IteratorType>::min() {
+return  ::Trocksdb::IteratorType::seekToFirst;
 }
 template<>
-inline constexpr  ::Tleveldb::IteratorType TEnumTraits< ::Tleveldb::IteratorType>::max() {
-return  ::Tleveldb::IteratorType::seekToKey;
+inline constexpr  ::Trocksdb::IteratorType TEnumTraits< ::Trocksdb::IteratorType>::max() {
+return  ::Trocksdb::IteratorType::seekToKey;
 }
 }} // apache:thrift
 
@@ -107,12 +107,12 @@ extern const std::map<const char*, int, apache::thrift::ltstr> _AssocVisibility_
 } // namespace
 namespace apache { namespace thrift { 
 template<>
-inline constexpr  ::Tleveldb::AssocVisibility TEnumTraits< ::Tleveldb::AssocVisibility>::min() {
-return  ::Tleveldb::AssocVisibility::VISIBLE;
+inline constexpr  ::Trocksdb::AssocVisibility TEnumTraits< ::Trocksdb::AssocVisibility>::min() {
+return  ::Trocksdb::AssocVisibility::VISIBLE;
 }
 template<>
-inline constexpr  ::Tleveldb::AssocVisibility TEnumTraits< ::Tleveldb::AssocVisibility>::max() {
-return  ::Tleveldb::AssocVisibility::HARD_DELETE;
+inline constexpr  ::Trocksdb::AssocVisibility TEnumTraits< ::Trocksdb::AssocVisibility>::max() {
+return  ::Trocksdb::AssocVisibility::HARD_DELETE;
 }
 }} // apache:thrift
 

@@ -8,7 +8,7 @@
 #ifndef STORAGE_LEVELDB_DB_LOG_FORMAT_H_
 #define STORAGE_LEVELDB_DB_LOG_FORMAT_H_
 
-namespace leveldb {
+namespace rocksdb {
 namespace log {
 
 enum RecordType {
@@ -30,6 +30,6 @@ static const unsigned int kBlockSize = 32768;
 static const int kHeaderSize = 4 + 1 + 2;
 
 }  // namespace log
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_LOG_FORMAT_H_

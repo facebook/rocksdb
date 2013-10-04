@@ -1,6 +1,6 @@
 #include "util/perf_context_imp.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // by default, enable counts only
 PerfLevel perf_level = kEnableCount;

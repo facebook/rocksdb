@@ -1,7 +1,7 @@
 #ifndef LEVELDB_UTIL_LDB_CMD_EXECUTE_RESULT_H_
 #define LEVELDB_UTIL_LDB_CMD_EXECUTE_RESULT_H_
 
-namespace leveldb {
+namespace rocksdb {
 
 class LDBCommandExecuteResult {
 public:

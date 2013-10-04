@@ -46,7 +46,7 @@ import static org.fusesource.hawtjni.runtime.MethodFlag.*;
 
 /**
  * <p>
- * Provides a java interface to the C++ leveldb::Logger class.
+ * Provides a java interface to the C++ rocksdb::Logger class.
  * </p>
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>

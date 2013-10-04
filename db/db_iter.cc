@@ -17,7 +17,7 @@
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 #if 0
 static void DumpInternalIter(Iterator* iter) {
@@ -471,4 +471,4 @@ Iterator* NewDBIterator(
                     internal_iter, sequence);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

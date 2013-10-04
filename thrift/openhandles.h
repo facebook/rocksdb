@@ -27,7 +27,7 @@ using namespace  ::Tleveldb;
 // List of snapshots. Each entry has a unique snapshot id.
 struct snapshotEntry {
   int64_t snapshotid;
-  const leveldb::Snapshot* lsnap;
+  const rocksdb::Snapshot* lsnap;
 
   snapshotEntry() : snapshotid(-1), lsnap(NULL)  {
   }
@@ -40,7 +40,7 @@ struct snapshotEntry {
 // List of iterators. Each entry has a unique iterator id.
 struct iteratorEntry {
   int64_t iteratorid;
-  leveldb::Iterator* liter;
+  rocksdb::Iterator* liter;
 
   iteratorEntry() : iteratorid(-1), liter(NULL)  {
   }
@@ -58,7 +58,7 @@ struct iteratorEntry {
 //
 struct onehandle {
   Text name;
-  leveldb::DB* onedb;    // locate the localleveldb instance
+  rocksdb::DB* onedb;    // locate the localleveldb instance
   int refcount;          // currently not used
   std::atomic<uint64_t> currentSnapshotId; // valid snapshotids > 0
   std::atomic<uint64_t> currentIteratorId; // valid iterators > 0
@@ -72,7 +72,7 @@ struct onehandle {
   }
 
   // stores a new leveldb snapshot and returns an unique id
-  int64_t addSnapshot(const leveldb::Snapshot* l) {
+  int64_t addSnapshot(const rocksdb::Snapshot* l) {
     struct snapshotEntry* news = new snapshotEntry;
     news->snapshotid = currentSnapshotId++;
     news->lsnap = l;
@@ -81,7 +81,7 @@ struct onehandle {
   }
 
   // lookup a snapshot from its ids
-  const leveldb::Snapshot* lookupSnapshot(int64_t id) {
+  const rocksdb::Snapshot* lookupSnapshot(int64_t id) {
     auto p = snaplist.find(id);
     if (p == snaplist.end()) {
       fprintf(stderr, "get:No snaphot with id %ld\n", id);
@@ -91,8 +91,8 @@ struct onehandle {
   }
 
   // remove a snapshot from this database
-  const leveldb::Snapshot* removeSnapshot(int64_t id) {
-    const leveldb::Snapshot* l = lookupSnapshot(id);
+  const rocksdb::Snapshot* removeSnapshot(int64_t id) {
+    const rocksdb::Snapshot* l = lookupSnapshot(id);
     if (l != NULL) {
       int numRemoved = snaplist.erase(id);
       assert(numRemoved == 1);
@@ -102,7 +102,7 @@ struct onehandle {
   }
 
   // stores a new leveldb iterator and returns an unique id
-  int64_t addIterator(leveldb::Iterator* l) {
+  int64_t addIterator(rocksdb::Iterator* l) {
     struct iteratorEntry* news = new iteratorEntry;
     news->iteratorid = currentIteratorId++;
     news->liter = l;
@@ -111,7 +111,7 @@ struct onehandle {
   }
 
   // lookup a iterator from its ids
-  leveldb::Iterator* lookupIterator(int64_t id) {
+  rocksdb::Iterator* lookupIterator(int64_t id) {
     auto p = iterlist.find(id);
     if (p == iterlist.end()) {
       fprintf(stderr, "lookupIterator:No iterator with id %ld\n", id);
@@ -121,8 +121,8 @@ struct onehandle {
   }
 
   // remove a iterator from this database
-  leveldb::Iterator* removeIterator(int64_t id) {
-    leveldb::Iterator* i = lookupIterator(id);
+  rocksdb::Iterator* removeIterator(int64_t id) {
+    rocksdb::Iterator* i = lookupIterator(id);
     if (i != NULL) {
       int numRemoved = iterlist.erase(id);
       assert(numRemoved == 1); 
@@ -145,14 +145,14 @@ class OpenHandles {
   // Inserts a new database into the list.
   // If the database is already open, increase refcount.  
   // If the database is not already open, open and insert into list.
-  void add(leveldb::Options& options, Text dbname, std::string dbdir) {
+  void add(rocksdb::Options& options, Text dbname, std::string dbdir) {
     struct onehandle* found = head_[dbname];
     if (found == NULL) {
       found = new onehandle;
       found->name = dbname;
       fprintf(stderr, "openhandle.add: Opening leveldb DB %s\n", 
               dbname.c_str());
-      leveldb::Status status = leveldb::DB::Open(options, dbdir, &found->onedb);
+      rocksdb::Status status = rocksdb::DB::Open(options, dbdir, &found->onedb);
       if (!status.ok()) {
         LeveldbException e;
         e.errorCode = Code::kIOError;
@@ -167,7 +167,7 @@ class OpenHandles {
     found->refcount++;
   }
 
-  leveldb::DB* get(Text dbname, struct onehandle** f) {
+  rocksdb::DB* get(Text dbname, struct onehandle** f) {
     auto p = head_.find(dbname);
     if (p == head_.end()) {
       fprintf(stderr, "get:No db with name\n");

@@ -39,13 +39,13 @@ import static org.fusesource.hawtjni.runtime.MethodFlag.CPP_DELETE;
 import static org.fusesource.hawtjni.runtime.MethodFlag.CPP_METHOD;
 
 /**
- * Provides a java interface to the C++ leveldb::Status class.
+ * Provides a java interface to the C++ rocksdb::Status class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
 class NativeStatus extends NativeObject{
 
-    @JniClass(name="leveldb::Status", flags={CPP})
+    @JniClass(name="rocksdb::Status", flags={CPP})
     static class StatusJNI {
         static {
             NativeDB.LIBRARY.load();

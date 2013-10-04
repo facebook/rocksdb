@@ -10,7 +10,7 @@
 #include "db/log_writer.h"
 #include "util/logging.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
 

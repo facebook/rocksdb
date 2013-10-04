@@ -42,11 +42,11 @@ import static org.fusesource.hawtjni.runtime.FieldFlag.FIELD_SKIP;
 import static org.fusesource.hawtjni.runtime.MethodFlag.CONSTANT_INITIALIZER;
 
 /**
- * Provides a java interface to the C++ leveldb::Options class.
+ * Provides a java interface to the C++ rocksdb::Options class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
-@JniClass(name="leveldb::Options", flags={STRUCT, CPP})
+@JniClass(name="rocksdb::Options", flags={STRUCT, CPP})
 public class NativeOptions {
 
     static {
@@ -57,7 +57,7 @@ public class NativeOptions {
     @JniMethod(flags={CONSTANT_INITIALIZER})
     private static final native void init();
 
-    @JniField(flags={CONSTANT}, cast="Env*", accessor="leveldb::Env::Default()")
+    @JniField(flags={CONSTANT}, cast="Env*", accessor="rocksdb::Env::Default()")
     private static long DEFAULT_ENV;
 
     private boolean create_if_missing = false;
@@ -83,7 +83,7 @@ public class NativeOptions {
 
     @JniField(flags={FIELD_SKIP})
     private NativeComparator comparatorObject = NativeComparator.BYTEWISE_COMPARATOR;
-    @JniField(cast="const leveldb::Comparator*")
+    @JniField(cast="const rocksdb::Comparator*")
     private long comparator = comparatorObject.pointer();
 
     @JniField(cast="uint64_t")
@@ -110,17 +110,17 @@ public class NativeOptions {
 
     @JniField(flags={FIELD_SKIP})
     private NativeLogger infoLogObject = null;
-    @JniField(cast="leveldb::Logger*")
+    @JniField(cast="rocksdb::Logger*")
     private long info_log = 0;
 
-    @JniField(cast="leveldb::Env*")
+    @JniField(cast="rocksdb::Env*")
     private long env = DEFAULT_ENV;
-    @JniField(cast="leveldb::Cache*")
+    @JniField(cast="rocksdb::Cache*")
     private long block_cache = 0;
     @JniField(flags={FIELD_SKIP})
     private NativeCache cache;
 
-    @JniField(cast="leveldb::CompressionType")
+    @JniField(cast="rocksdb::CompressionType")
     private int compression = NativeCompressionType.kSnappyCompression.value;
 
     public NativeOptions createIfMissing(boolean value) {

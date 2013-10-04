@@ -1,7 +1,7 @@
 #include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
                            const std::string& dbname,
@@ -168,4 +168,4 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
   );
   return Status::OK();
 }
-}  //  namespace leveldb
+}  //  namespace rocksdb

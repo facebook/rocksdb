@@ -7,7 +7,7 @@
 
 #include "rocksdb/db.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class SnapshotList;
 
@@ -80,6 +80,6 @@ class SnapshotList {
   SnapshotImpl list_;
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_SNAPSHOT_H_

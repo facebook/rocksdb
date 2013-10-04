@@ -23,7 +23,7 @@
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static bool SnappyCompressionSupported(const CompressionOptions& options) {
   std::string out;
@@ -831,7 +831,7 @@ TEST(DBTest, KeyMayExist) {
     std::string value;
     Options options = CurrentOptions();
     options.filter_policy = NewBloomFilterPolicy(20);
-    options.statistics = leveldb::CreateDBStatistics();
+    options.statistics = rocksdb::CreateDBStatistics();
     Reopen(&options);
 
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
@@ -892,7 +892,7 @@ TEST(DBTest, NonBlockingIteration) {
   do {
     ReadOptions non_blocking_opts, regular_opts;
     Options options = CurrentOptions();
-    options.statistics = leveldb::CreateDBStatistics();
+    options.statistics = rocksdb::CreateDBStatistics();
     non_blocking_opts.read_tier = kBlockCacheTier;
     Reopen(&options);
 
@@ -1140,7 +1140,7 @@ TEST(DBTest, IterReseek) {
   Options options = CurrentOptions();
   options.max_sequential_skip_in_iterations = 3;
   options.create_if_missing = true;
-  options.statistics = leveldb::CreateDBStatistics();
+  options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(&options);
 
   // insert two keys with same userkey and verify that
@@ -3858,7 +3858,7 @@ class ModelDB: public DB {
   return -1;
   }
 
-  virtual Status Flush(const leveldb::FlushOptions& options) {
+  virtual Status Flush(const rocksdb::FlushOptions& options) {
     Status ret;
     return ret;
   }
@@ -3885,8 +3885,8 @@ class ModelDB: public DB {
   virtual SequenceNumber GetLatestSequenceNumber() {
     return 0;
   }
-  virtual Status GetUpdatesSince(leveldb::SequenceNumber,
-                                 unique_ptr<leveldb::TransactionLogIterator>*) {
+  virtual Status GetUpdatesSince(rocksdb::SequenceNumber,
+                                 unique_ptr<rocksdb::TransactionLogIterator>*) {
     return Status::NotSupported("Not supported in Model DB");
   }
 
@@ -4303,16 +4303,16 @@ void BM_LogAndApply(int iters, int num_base_files) {
           buf, iters, us, ((float)us) / iters);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
   if (argc > 1 && std::string(argv[1]) == "--benchmark") {
-    leveldb::BM_LogAndApply(1000, 1);
-    leveldb::BM_LogAndApply(1000, 100);
-    leveldb::BM_LogAndApply(1000, 10000);
-    leveldb::BM_LogAndApply(100, 100000);
+    rocksdb::BM_LogAndApply(1000, 1);
+    rocksdb::BM_LogAndApply(1000, 100);
+    rocksdb::BM_LogAndApply(1000, 10000);
+    rocksdb::BM_LogAndApply(100, 100000);
     return 0;
   }
 
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

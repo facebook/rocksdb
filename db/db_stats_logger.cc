@@ -12,7 +12,7 @@
 #include "port/port.h"
 #include "util/mutexlock.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 void DBImpl::MaybeScheduleLogDBDeployStats() {
 

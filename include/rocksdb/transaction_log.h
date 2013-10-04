@@ -6,7 +6,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class LogFile;
 typedef std::vector<std::unique_ptr<LogFile>> VectorLogPtr;
@@ -76,6 +76,8 @@ class TransactionLogIterator {
   // ONLY use if Valid() is true and status() is OK.
   virtual BatchResult GetBatch() = 0;
 };
-} //  namespace leveldb
+} //  namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_

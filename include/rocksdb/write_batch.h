@@ -24,7 +24,7 @@
 #include <string>
 #include "rocksdb/status.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Slice;
 
@@ -94,6 +94,8 @@ class WriteBatch {
   // Intentionally copyable
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_

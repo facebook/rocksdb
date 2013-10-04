@@ -11,7 +11,7 @@
 #include "db/log_reader.h"
 #include "db/filename.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 struct LogReporter : public log::Reader::Reporter {
   Env* env;
@@ -99,5 +99,5 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
 
 
-}  //  namespace leveldb
+}  //  namespace rocksdb
 #endif  //  STORAGE_LEVELDB_INCLUDE_WRITES_ITERATOR_IMPL_H_

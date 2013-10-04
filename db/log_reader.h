@@ -12,7 +12,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class SequentialFile;
 using std::unique_ptr;
@@ -118,6 +118,6 @@ class Reader {
 };
 
 }  // namespace log
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_LOG_READER_H_

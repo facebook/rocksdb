@@ -9,7 +9,7 @@
 #include "table/table.h"
 #include "table/iterator_wrapper.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 namespace {
 
@@ -194,4 +194,4 @@ Iterator* NewTwoLevelIterator(
                               options, soptions, for_compaction);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

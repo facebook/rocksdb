@@ -10,7 +10,7 @@
 #include "util/coding.h"
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Conversions between numeric keys/values and the types expected by Cache.
 static std::string EncodeKey(int k) {
@@ -225,8 +225,8 @@ TEST(CacheTest, BadEviction) {
   std::cout << "Poor entries\n";
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

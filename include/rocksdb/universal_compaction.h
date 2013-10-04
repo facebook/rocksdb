@@ -14,7 +14,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 //
 // Algorithm used to make a compaction request stop picking new files
@@ -65,6 +65,8 @@ class CompactionOptionsUniversal {
   }
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_UNIVERSAL_COMPACTION_OPTIONS_H

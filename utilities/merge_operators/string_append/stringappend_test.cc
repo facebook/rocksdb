@@ -18,9 +18,9 @@
 #include "util/testharness.h"
 #include "util/random.h"
 
-using namespace leveldb;
+using namespace rocksdb;
 
-namespace leveldb {
+namespace rocksdb {
 
 // Path to the database on file system
 const std::string kDbName = "/tmp/mergetestdb";
@@ -139,7 +139,7 @@ TEST(StringAppendOperatorTest, IteratorTest) {
   slists.Append("k2", "a3");
 
   std::string res;
-  std::unique_ptr<leveldb::Iterator> it(db_->NewIterator(ReadOptions()));
+  std::unique_ptr<rocksdb::Iterator> it(db_->NewIterator(ReadOptions()));
   std::string k1("k1");
   std::string k2("k2");
   bool first = true;
@@ -464,7 +464,7 @@ TEST(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 
     // Append, Flush, Get
     slists.Append("c", "asdasd");
-    db->Flush(leveldb::FlushOptions());
+    db->Flush(rocksdb::FlushOptions());
     success = slists.Get("c", &c);
     ASSERT_TRUE(success);
     ASSERT_EQ(c, "asdasd");
@@ -472,7 +472,7 @@ TEST(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     // Append, Flush, Append, Get
     slists.Append("a", "x");
     slists.Append("b", "y");
-    db->Flush(leveldb::FlushOptions());
+    db->Flush(rocksdb::FlushOptions());
     slists.Append("a", "t");
     slists.Append("a", "r");
     slists.Append("b", "2");
@@ -543,7 +543,7 @@ TEST(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 
     // Append, Flush, Compact, Get
     slists.Append("b", "afcg");
-    db->Flush(leveldb::FlushOptions());
+    db->Flush(rocksdb::FlushOptions());
     db->CompactRange(nullptr, nullptr);
     slists.Get("b", &b);
     ASSERT_EQ(b, "y\n2\nmonkey\ndf\nl;\nafcg");
@@ -573,21 +573,21 @@ TEST(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   ASSERT_EQ(res, checker);
 }
 
-} // namespace leveldb
+} // namespace rocksdb
 
 int main(int arc, char** argv) {
   // Run with regular database
   {
     fprintf(stderr, "Running tests with regular db and operator.\n");
     StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
-    leveldb::test::RunAllTests();
+    rocksdb::test::RunAllTests();
   }
 
   // Run with TTL
   {
     fprintf(stderr, "Running tests with ttl db and generic operator.\n");
     StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
-    leveldb::test::RunAllTests();
+    rocksdb::test::RunAllTests();
   }
 
   return 0;

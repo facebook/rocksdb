@@ -3,12 +3,18 @@
 #define STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
 #include "rocksdb/options.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class LDBTool {
  public:
   void Run(int argc, char** argv, Options = Options());
 };
 
-} // namespace leveldb
+namespace leveldb = rocksdb;
+
+
+} // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
+
 #endif // STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H

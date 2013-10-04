@@ -11,7 +11,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class WritableFile;
 
@@ -49,6 +49,6 @@ class Writer {
 };
 
 }  // namespace log
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_LOG_WRITER_H_

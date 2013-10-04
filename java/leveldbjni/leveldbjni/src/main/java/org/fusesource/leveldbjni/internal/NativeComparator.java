@@ -40,7 +40,7 @@ import static org.fusesource.hawtjni.runtime.ClassFlag.*;
 
 /**
  * <p>
- * Provides a java interface to the C++ leveldb::Comparator class.
+ * Provides a java interface to the C++ rocksdb::Comparator class.
  * </p>
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
@@ -85,7 +85,7 @@ public abstract class NativeComparator extends NativeObject {
         @JniField(flags={CONSTANT}, accessor="sizeof(struct JNIComparator)")
         static int SIZEOF;
 
-        @JniField(flags={CONSTANT}, cast="const Comparator*", accessor="leveldb::BytewiseComparator()")
+        @JniField(flags={CONSTANT}, cast="const Comparator*", accessor="rocksdb::BytewiseComparator()")
         private static long BYTEWISE_COMPARATOR;
 
     }

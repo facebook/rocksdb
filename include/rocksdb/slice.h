@@ -20,7 +20,7 @@
 #include <string.h>
 #include <string>
 
-namespace leveldb {
+namespace rocksdb {
 
 class Slice {
  public:
@@ -117,6 +117,8 @@ inline int Slice::compare(const Slice& b) const {
   return r;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_SLICE_H_

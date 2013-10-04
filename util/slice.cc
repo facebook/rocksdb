@@ -5,7 +5,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/slice.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 namespace {
 
@@ -65,4 +65,4 @@ const SliceTransform* NewNoopTransform() {
   return new NoopTransform;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

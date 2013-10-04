@@ -13,7 +13,7 @@
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Constructor: also specify the delimiter character.
 StringAppendOperator::StringAppendOperator(char delim_char)
@@ -54,7 +54,7 @@ std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator() {
   return std::make_shared<StringAppendOperator>(',');
 }
 
-} // namespace leveldb
+} // namespace rocksdb
 
 
 

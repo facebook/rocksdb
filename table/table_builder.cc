@@ -16,7 +16,7 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 struct TableBuilder::Rep {
   Options options;
@@ -324,4 +324,4 @@ uint64_t TableBuilder::FileSize() const {
   return rep_->offset;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

@@ -3,7 +3,7 @@
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 
-using namespace leveldb;
+using namespace rocksdb;
 
 namespace { // anonymous namespace
 
@@ -45,7 +45,7 @@ class PutOperator : public MergeOperator {
 
 } // end of anonymous namespace
 
-namespace leveldb {
+namespace rocksdb {
 
 std::shared_ptr<MergeOperator> MergeOperators::CreatePutOperator() {
   return std::make_shared<PutOperator>();

@@ -9,7 +9,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 struct Options;
 struct FileMetaData;
@@ -36,6 +36,6 @@ extern Status BuildTable(const std::string& dbname,
                          const SequenceNumber newest_snapshot,
                          const SequenceNumber earliest_seqno_in_memtable);
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_BUILDER_H_

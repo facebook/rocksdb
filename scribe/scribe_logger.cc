@@ -1,6 +1,6 @@
 #include "scribe_logger.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 const std::string ScribeLogger::COL_SEPERATOR = "\x1";
 const std::string ScribeLogger::DEPLOY_STATS_CATEGORY = "leveldb_deploy_stats";

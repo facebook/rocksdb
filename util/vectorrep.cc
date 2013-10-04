@@ -11,7 +11,7 @@
 #include "util/mutexlock.h"
 #include "util/stl_wrappers.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace {
 
 using namespace stl_wrappers;
@@ -241,4 +241,4 @@ std::shared_ptr<MemTableRep> VectorRepFactory::CreateMemTableRep(
   MemTableRep::KeyComparator& compare, Arena* arena) {
   return std::make_shared<VectorRep>(compare, arena, count_);
 }
-} // namespace leveldb
+} // namespace rocksdb

@@ -8,7 +8,7 @@
 #include "include/rocksdb/env.h"
 #include "include/rocksdb/iterator.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Open the db inside DBWithTTL because options needs pointer to its ttl
 DBWithTTL::DBWithTTL(const int32_t ttl,
@@ -294,4 +294,4 @@ void DBWithTTL::TEST_Destroy_DBWithTtl() {
   ((DBImpl*) db_)->TEST_Destroy_DBImpl();
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

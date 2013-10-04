@@ -6,7 +6,7 @@
 #include "port/port.h"
 #include "rocksdb/status.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
   uint32_t size;
@@ -75,4 +75,4 @@ std::string Status::ToString() const {
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

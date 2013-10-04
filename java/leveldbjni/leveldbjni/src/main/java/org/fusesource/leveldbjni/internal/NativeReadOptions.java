@@ -38,11 +38,11 @@ import static org.fusesource.hawtjni.runtime.ClassFlag.CPP;
 import static org.fusesource.hawtjni.runtime.ClassFlag.STRUCT;
 
 /**
- * Provides a java interface to the C++ leveldb::ReadOptions class.
+ * Provides a java interface to the C++ rocksdb::ReadOptions class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
-@JniClass(name="leveldb::ReadOptions", flags={STRUCT, CPP})
+@JniClass(name="rocksdb::ReadOptions", flags={STRUCT, CPP})
 public class NativeReadOptions {
 
     @JniField
@@ -51,7 +51,7 @@ public class NativeReadOptions {
     @JniField
     private boolean fill_cache = true;
 
-    @JniField(cast="const leveldb::Snapshot*")
+    @JniField(cast="const rocksdb::Snapshot*")
     private long snapshot=0;
 
     public boolean fillCache() {

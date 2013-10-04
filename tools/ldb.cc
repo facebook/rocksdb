@@ -5,7 +5,7 @@
 #include "rocksdb/ldb_tool.h"
 
 int main(int argc, char** argv) {
-  leveldb::LDBTool tool;
+  rocksdb::LDBTool tool;
   tool.Run(argc, argv);
   return 0;
 }

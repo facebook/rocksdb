@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-namespace leveldb {
+namespace rocksdb {
 
 void EncodeFixed32(char* buf, uint32_t value) {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -298,4 +298,4 @@ uint64_t BitStreamGetInt(const Slice* src, size_t offset,
   return BitStreamGetInt(src->data(), src->size(), offset, bits);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

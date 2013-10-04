@@ -6,7 +6,7 @@
 
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Coding { };
 
@@ -284,8 +284,8 @@ TEST(Coding, BitStreamConvenienceFuncs) {
   ASSERT_EQ(BitStreamGetInt(&slice, 0, 64), (uint64_t)(-1));
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

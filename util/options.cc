@@ -13,7 +13,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/merge_operator.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Options::Options()
     : comparator(BytewiseComparator()),
@@ -292,4 +292,4 @@ Options::PrepareForBulkLoad()
   return this;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

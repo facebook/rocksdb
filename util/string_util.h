@@ -3,7 +3,7 @@
 #ifndef STORAGE_LEVELDB_UTIL_STRINGUTIL_H_
 #define STORAGE_LEVELDB_UTIL_STRINGUTIL_H_
 
-namespace leveldb {
+namespace rocksdb {
 
 extern std::vector<std::string> stringSplit(std::string arg, char delim);
 

@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "rocksdb/slice.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 struct Options;
 
@@ -55,6 +55,6 @@ class BlockBuilder {
   void operator=(const BlockBuilder&);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_TABLE_BLOCK_BUILDER_H_

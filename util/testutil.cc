@@ -6,7 +6,7 @@
 
 #include "util/random.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace test {
 
 Slice RandomString(Random* rnd, int len, std::string* dst) {
@@ -48,4 +48,4 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
 }
 
 }  // namespace test
-}  // namespace leveldb
+}  // namespace rocksdb

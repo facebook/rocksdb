@@ -38,7 +38,7 @@
 #define ARCH_CPU_ARM_FAMILY 1
 #endif
 
-namespace leveldb {
+namespace rocksdb {
 namespace port {
 
 // Define MemoryBarrier() if available
@@ -147,6 +147,6 @@ class AtomicPointer {
 #undef ARCH_CPU_ARM_FAMILY
 
 }  // namespace port
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // PORT_ATOMIC_POINTER_H_

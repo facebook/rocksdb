@@ -14,7 +14,7 @@
 
 #include "rocksdb/iterator.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class PrefixFilterIterator : public Iterator {
  private:
@@ -71,6 +71,6 @@ class PrefixFilterIterator : public Iterator {
   }
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif

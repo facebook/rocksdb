@@ -25,7 +25,7 @@
 #include "port/port.h"
 #include "db/table_cache.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 namespace log { class Writer; }
 
@@ -627,6 +627,6 @@ class Compaction {
   void ResetNextCompactionIndex();
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_VERSION_SET_H_

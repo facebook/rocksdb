@@ -32,12 +32,12 @@ extern const std::map<const char*, int, apache::thrift::ltstr> _ResultCode_NAMES
 } // namespace
 namespace apache { namespace thrift {
 template<>
-inline constexpr  ::Tleveldb::ResultCode TEnumTraits< ::Tleveldb::ResultCode>::min() {
-return  ::Tleveldb::ResultCode::OK;
+inline constexpr  ::Trocksdb::ResultCode TEnumTraits< ::Trocksdb::ResultCode>::min() {
+return  ::Trocksdb::ResultCode::OK;
 }
 template<>
-inline constexpr  ::Tleveldb::ResultCode TEnumTraits< ::Tleveldb::ResultCode>::max() {
-return  ::Tleveldb::ResultCode::ERROR_DECOMPRESS;
+inline constexpr  ::Trocksdb::ResultCode TEnumTraits< ::Trocksdb::ResultCode>::max() {
+return  ::Trocksdb::ResultCode::ERROR_DECOMPRESS;
 }
 }} // apache:thrift
 

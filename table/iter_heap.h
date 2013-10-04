@@ -7,7 +7,7 @@
 #include "rocksdb/comparator.h"
 #include "table/iterator_wrapper.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Return the max of two keys.
 class MaxIteratorComparator {
@@ -58,6 +58,6 @@ MinIterHeap NewMinIterHeap(const Comparator* comparator) {
   return MinIterHeap(MinIteratorComparator(comparator));
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_ITER_HEAP_H_

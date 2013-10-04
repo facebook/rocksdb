@@ -11,7 +11,7 @@
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static void DeleteEntry(const Slice& key, void* value) {
   Table* table = reinterpret_cast<Table*>(value);
@@ -160,4 +160,4 @@ void TableCache::Evict(uint64_t file_number) {
   cache_->Erase(Slice(buf, sizeof(buf)));
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include "port/port.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 HistogramBucketMapper::HistogramBucketMapper() :
   // Add newer bucket index here.

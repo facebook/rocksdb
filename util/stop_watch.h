@@ -4,7 +4,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 
-namespace leveldb {
+namespace rocksdb {
 // Auto-scoped.
 // Records the statistic into the corresponding histogram.
 class StopWatch {
@@ -64,5 +64,5 @@ class StopWatchNano {
   uint64_t start_;
 };
 
-} // namespace leveldb
+} // namespace rocksdb
 #endif // STORAGE_LEVELDB_UTIL_STOP_WATCH_H_

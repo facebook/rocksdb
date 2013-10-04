@@ -9,16 +9,16 @@
 #include "util/coding.h"
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class LockTest {
  public:
   static LockTest* current_;
   std::string file_;
-  leveldb::Env* env_;
+  rocksdb::Env* env_;
 
   LockTest() : file_(test::TmpDir() + "/db_testlock_file"),
-               env_(leveldb::Env::Default()) {
+               env_(rocksdb::Env::Default()) {
     current_ = this;
   }
 
@@ -50,8 +50,8 @@ TEST(LockTest, LockBySameThread) {
 
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

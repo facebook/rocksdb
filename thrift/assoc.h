@@ -46,7 +46,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
                       int64_t timestamp, AssocVisibility visibility, 
                       bool update_count, int64_t dataVersion, const Text& data, 
                       const Text& wormhole_comment) {
-    leveldb::DB* db = openhandles_->get(tableName, NULL);
+    rocksdb::DB* db = openhandles_->get(tableName, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
@@ -60,7 +60,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   int64_t taoAssocDelete(const Text& tableName, int64_t assocType, int64_t id1, 
                          int64_t id2, AssocVisibility visibility, bool update_count, 
                          const Text& wormhole_comment) {
-    leveldb::DB* db = openhandles_->get(tableName, NULL);
+    rocksdb::DB* db = openhandles_->get(tableName, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
@@ -73,11 +73,11 @@ class AssocServiceHandler : virtual public AssocServiceIf {
                         const Text& tableName, int64_t assocType, int64_t id1, 
                         int64_t start_time, int64_t end_time, int64_t offset, 
                         int64_t limit) {
-    leveldb::DB* db = openhandles_->get(tableName, NULL);
+    rocksdb::DB* db = openhandles_->get(tableName, NULL);
     if (db == NULL) {
       throw generate_exception(tableName, Code::kNotFound,
                "taoAssocRangeGet: Unable to open database " ,
-               assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+               assocType, id1, 0, 0, 0, 0, Trocksdb::UNUSED1);
     }
     assocRangeGetBytimeInternal(_return, tableName, db, assocType, id1,
                               start_time, end_time, offset, limit);
@@ -86,17 +86,17 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   void taoAssocGet(std::vector<TaoAssocGetResult> & _return, 
                    const Text& tableName, int64_t assocType, int64_t id1, 
                    const std::vector<int64_t> & id2s) {
-    leveldb::DB* db = openhandles_->get(tableName, NULL);
+    rocksdb::DB* db = openhandles_->get(tableName, NULL);
     if (db == NULL) {
       throw generate_exception(tableName, Code::kNotFound,
                "taoAssocGet:Unable to open database " ,
-               assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+               assocType, id1, 0, 0, 0, 0, Trocksdb::UNUSED1);
     }
     assocGetInternal(_return, tableName, db, assocType, id1, id2s);
   }
 
   int64_t taoAssocCount(const Text& tableName, int64_t assocType, int64_t id1) {
-    leveldb::DB* db = openhandles_->get(tableName, NULL);
+    rocksdb::DB* db = openhandles_->get(tableName, NULL);
     if (db == NULL) {
       return Code::kNotFound;
     }
@@ -105,9 +105,9 @@ class AssocServiceHandler : virtual public AssocServiceIf {
 
  private:
   OpenHandles* openhandles_;
-  leveldb::ReadOptions roptions_;
-  leveldb::WriteOptions woptions_;      // write with no sync
-  leveldb::WriteOptions woptions_sync_; // write with sync
+  rocksdb::ReadOptions roptions_;
+  rocksdb::WriteOptions woptions_;      // write with no sync
+  rocksdb::WriteOptions woptions_sync_; // write with sync
 
   // the maximum values returned in a rangeget/multiget call.
   const static unsigned int MAX_RANGE_SIZE = 10000;
@@ -117,10 +117,10 @@ class AssocServiceHandler : virtual public AssocServiceIf {
 
   // A bunch of rowlocks, sharded over the entire rowkey range
   // Each rowkey is deterministically mapped to one of these locks.
-  leveldb::port::RWMutex rowlocks_[1000];
+  rocksdb::port::RWMutex rowlocks_[1000];
 
   // A helper method that hashes the row key to a lock
-  leveldb::port::RWMutex* findRowLock(char* str, int size) {
+  rocksdb::port::RWMutex* findRowLock(char* str, int size) {
     int index = MurmurHash(str, size, HASHSEED) % sizeof(rowlocks_);
     return &rowlocks_[index];
   }
@@ -131,13 +131,13 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   // If !update_count, return zero.
   // On failure, throws exception
   // 
-  int64_t assocPutInternal(const Text& tableName, leveldb::DB* db,
+  int64_t assocPutInternal(const Text& tableName, rocksdb::DB* db,
                       int64_t assocType, int64_t id1, 
                       int64_t id2, int64_t id1Type, int64_t id2Type, 
                       int64_t ts, AssocVisibility vis, 
                       bool update_count, int64_t dataVersion, const Text& data, 
                       const Text& wormhole_comment) {
-    leveldb::WriteBatch batch;
+    rocksdb::WriteBatch batch;
     ts = convertTime(ts); // change time to numberofmillis till MAXLONG
 
     // create the payload for this assoc
@@ -155,7 +155,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     int64_t oldts;
     int8_t  oldvis;
     bool newassoc = false; // is this assoc new or an overwrite
-    leveldb::Status status;
+    rocksdb::Status status;
     std::string value;
 
     // create RowKey for 'c'
@@ -166,13 +166,13 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     char* keybuf = &dummy1[0];
     int rowkeysize = makeRowKey(keybuf, id1, assocType);
     int keysize = appendRowKeyForCount(rowkeysize, keybuf);
-    leveldb::Slice ckey(keybuf, keysize);
+    rocksdb::Slice ckey(keybuf, keysize);
 
     // find the row lock
-    leveldb::port::RWMutex* rowlock = findRowLock(keybuf, rowkeysize);
+    rocksdb::port::RWMutex* rowlock = findRowLock(keybuf, rowkeysize);
     {
       // acquire the row lock
-      leveldb::WriteLock l(rowlock);
+      rocksdb::WriteLock l(rowlock);
 
       // Scan 'c'  to get $count if $update_count == true
       if (update_count) {
@@ -196,7 +196,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
       keybuf = &dummy2[0];
       rowkeysize = makeRowKey(keybuf, id1, assocType);
       keysize = appendRowKeyForMeta(rowkeysize, keybuf, id2);
-      leveldb::Slice mkey(keybuf, keysize);
+      rocksdb::Slice mkey(keybuf, keysize);
       status = db->Get(roptions_, mkey, &value);
       if (status.IsNotFound()) {
         newassoc = true;
@@ -221,7 +221,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
       if (!newassoc) {
         extractTsVisString(&oldts, &oldvis, (char *)value.c_str());
         keysize = appendRowKeyForPayload(rowkeysize, keybuf, oldts, id2);
-        leveldb::Slice pkey(keybuf, keysize);
+        rocksdb::Slice pkey(keybuf, keysize);
         if (ts != oldts) {
           batch.Delete(pkey);
         }
@@ -232,14 +232,14 @@ class AssocServiceHandler : virtual public AssocServiceIf {
       myvalue.reserve(sizeof(int64_t) + sizeof(int8_t));
       myvalue.resize(sizeof(int64_t) + sizeof(int8_t));
       makeTsVisString(&myvalue[0], ts, vis);
-      leveldb::Slice sl(myvalue);
-      batch.Put(mkey, leveldb::Slice(myvalue));
+      rocksdb::Slice sl(myvalue);
+      batch.Put(mkey, rocksdb::Slice(myvalue));
 
       // store in p$ts$id2 the payload
       keybuf = &dummy3[0];
       keysize = appendRowKeyForPayload(rowkeysize, keybuf, ts, id2);
-      leveldb::Slice pkeynew(keybuf, keysize);
-      batch.Put(pkeynew, leveldb::Slice(payload));
+      rocksdb::Slice pkeynew(keybuf, keysize);
+      batch.Put(pkeynew, rocksdb::Slice(payload));
 
       // increment count
       if (update_count && (newassoc || oldvis != VISIBLE)) {
@@ -248,7 +248,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
         myvalue.reserve(sizeof(int64_t));
         myvalue.resize(sizeof(int64_t));
         makeCountString(&myvalue[0], count);
-        batch.Put(ckey, leveldb::Slice(myvalue));
+        batch.Put(ckey, rocksdb::Slice(myvalue));
       }
 
       // We do a write here without sync. This writes it to the
@@ -285,11 +285,11 @@ class AssocServiceHandler : virtual public AssocServiceIf {
   // If count changes return 1, else returns zero
   // On failure, thrws exception
   // 
-  int64_t assocDeleteInternal(const Text& tableName, leveldb::DB* db,
+  int64_t assocDeleteInternal(const Text& tableName, rocksdb::DB* db,
                       int64_t assocType, int64_t id1, 
                       int64_t id2, AssocVisibility vis, 
                       bool update_count, const Text& wormhole_comment) {
-    leveldb::WriteBatch batch;
+    rocksdb::WriteBatch batch;
     int return_value = 0;
     int64_t count = 0;
     int64_t oldts;
@@ -303,15 +303,15 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     dummy.resize(maxkeysize);
     char* keybuf = &dummy[0];
     int rowkeysize = makeRowKey(keybuf, id1, assocType);
-    leveldb::Status status;
+    rocksdb::Status status;
     int keysize = appendRowKeyForCount(rowkeysize, keybuf);
-    leveldb::Slice ckey(keybuf, keysize);
+    rocksdb::Slice ckey(keybuf, keysize);
 
     // find the row lock
-    leveldb::port::RWMutex* rowlock = findRowLock(keybuf, rowkeysize);
+    rocksdb::port::RWMutex* rowlock = findRowLock(keybuf, rowkeysize);
     {
       // acquire the row lock
-      leveldb::WriteLock l(rowlock);
+      rocksdb::WriteLock l(rowlock);
 
       // Scan 'c'  to get $count if $update_count == true
       if (update_count) {
@@ -337,7 +337,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
       keybuf = &dummy2[0];
       rowkeysize = makeRowKey(keybuf, id1, assocType);
       keysize = appendRowKeyForMeta(rowkeysize, keybuf, id2);
-      leveldb::Slice mkey(keybuf, keysize);
+      rocksdb::Slice mkey(keybuf, keysize);
       status = db->Get(roptions_, mkey, &value);
       if (status.IsNotFound()) {
         throw generate_exception(tableName, Code::kNotFound,
@@ -359,7 +359,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
       keybuf = &dummy3[0];
       rowkeysize = makeRowKey(keybuf, id1, assocType);
       keysize = appendRowKeyForDelete(rowkeysize, keybuf, id2);
-      leveldb::Slice dkey(keybuf, keysize);
+      rocksdb::Slice dkey(keybuf, keysize);
 
       // create key for 'p'
       maxkeysize = sizeof(id1) + sizeof(assocType) + 1 +
@@ -370,7 +370,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
       keybuf = &dummy4[0];
       rowkeysize = makeRowKey(keybuf, id1, assocType);
       keysize = appendRowKeyForPayload(rowkeysize, keybuf, oldts, id2);
-      leveldb::Slice pkey(keybuf, keysize);
+      rocksdb::Slice pkey(keybuf, keysize);
   
       // if this is a hard delete, then delete all columns
       if (vis == AssocVisibility::HARD_DELETE) {
@@ -385,7 +385,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
           mvalue.reserve(sizeof(int64_t) + sizeof(int8_t));
           mvalue.resize(sizeof(int64_t) + sizeof(int8_t));
           makeTsVisString(&mvalue[0], oldts, vis);
-          batch.Put(mkey, leveldb::Slice(mvalue));
+          batch.Put(mkey, rocksdb::Slice(mvalue));
         }
 
         // scan p$tsid2 to get payload
@@ -404,7 +404,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
         }
 
         // store payload in d$id2
-        batch.Put(dkey, leveldb::Slice(pvalue));
+        batch.Put(dkey, rocksdb::Slice(pvalue));
   
         // delete p$ts$id2
         batch.Delete(pkey);
@@ -417,7 +417,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
         myvalue.reserve(sizeof(int64_t));
         myvalue.resize(sizeof(int64_t));
         makeCountString(&myvalue[0], count);
-        batch.Put(ckey, leveldb::Slice(myvalue));
+        batch.Put(ckey, rocksdb::Slice(myvalue));
       }
       status = db->Write(woptions_, &batch); // write with no sync
       if (!status.ok()) {
@@ -443,7 +443,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     return return_value;
   }
 
-  int64_t assocCountInternal(const Text& tableName, leveldb::DB* db,
+  int64_t assocCountInternal(const Text& tableName, rocksdb::DB* db,
                                 int64_t assocType, int64_t id1) {
     // create key to query
     int maxkeysize = sizeof(id1) + sizeof(assocType) + 1;
@@ -453,10 +453,10 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     char* keybuf = &dummy[0];
     int rowkeysize = makeRowKey(keybuf, id1, assocType);
     int keysize = appendRowKeyForCount(rowkeysize, keybuf); // column 'c'
-    leveldb::Slice ckey(keybuf, keysize);
+    rocksdb::Slice ckey(keybuf, keysize);
 
     // Query database to find value
-    leveldb::Status status;
+    rocksdb::Status status;
     std::string value;
     int64_t count;
     status = db->Get(roptions_, ckey, &value);
@@ -467,27 +467,27 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     } else if (!status.ok()) {
       throw generate_exception(tableName, Code::kNotFound,
              "assocCountInternal Unable to find count ",
-             assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+             assocType, id1, 0, 0, 0, 0, Trocksdb::UNUSED1);
     }
     if (value.size() != sizeof(int64_t)) {
       printf("expected %ld got %ld\n", sizeof(int64_t), value.size());
       throw generate_exception(tableName, Code::kNotFound,
              "assocCountInternal Bad sizes for count ",
-             assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+             assocType, id1, 0, 0, 0, 0, Trocksdb::UNUSED1);
     }
     extract_int64(&count, (char *)value.c_str());
     return count;
   }
 
   void assocRangeGetBytimeInternal(std::vector<TaoAssocGetResult> & _return, 
-                        const Text& tableName, leveldb::DB* db,
+                        const Text& tableName, rocksdb::DB* db,
                         int64_t assocType, int64_t id1, 
                         int64_t start_time, int64_t end_time, int64_t offset, 
                         int64_t limit) {
     if (start_time < end_time) {
       throw generate_exception(tableName, Code::kNotFound,
              "assocRangeGetBytimeInternal:Bad starttime and endtime\n",
-             assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+             assocType, id1, 0, 0, 0, 0, Trocksdb::UNUSED1);
     }
     
     int64_t ts, id2;
@@ -511,8 +511,8 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     // Position scan at 'p'$ts$id2 where ts = startTime and id2 = 0
     id2 = 0;
     int keysize = appendRowKeyForPayload(rowkeysize, keybuf, startTime, id2); 
-    leveldb::Slice pkey(keybuf, keysize);
-    leveldb::Iterator* iter = db->NewIterator(roptions_);
+    rocksdb::Slice pkey(keybuf, keysize);
+    rocksdb::Iterator* iter = db->NewIterator(roptions_);
 
     for (iter->Seek(pkey); iter->Valid() && limit > 0 ; iter->Next()) {
       // skip over records that the caller is not interested in
@@ -545,7 +545,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
 
   void assocGetInternal(std::vector<TaoAssocGetResult> & _return, 
                    const Text& tableName, 
-                   leveldb::DB* db,
+                   rocksdb::DB* db,
                    int64_t assocType, int64_t id1, 
                    const std::vector<int64_t> & id2s) {
     int64_t ts, id2;
@@ -553,7 +553,7 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     if (id2s.size() > MAX_RANGE_SIZE) {
       throw generate_exception(tableName, Code::kNotFound,
                "assocGetInternal Ids2 cannot be gteater than 10K.",
-               assocType, id1, 0, 0, 0, 0, Tleveldb::UNUSED1);
+               assocType, id1, 0, 0, 0, 0, Trocksdb::UNUSED1);
     }
     // allocate the entire result buffer.
     _return.reserve(id2s.size());
@@ -568,32 +568,32 @@ class AssocServiceHandler : virtual public AssocServiceIf {
     // create rowkey
     char* keybuf = &dummy[0];
     int rowkeysize = makeRowKey(keybuf, id1, assocType);
-    leveldb::Iterator* iter = db->NewIterator(roptions_);
+    rocksdb::Iterator* iter = db->NewIterator(roptions_);
 
     for (unsigned int index = 0; index < id2s.size(); index++) {
       int64_t ts;
       int8_t  oldvis;
-      leveldb::Status status;
+      rocksdb::Status status;
       std::string wormhole;
 
       // query column 'm'$id2
       id2 = id2s[index];
       int keysize = appendRowKeyForMeta(rowkeysize, keybuf, id2); 
-      leveldb::Slice ckey(keybuf, keysize);
+      rocksdb::Slice ckey(keybuf, keysize);
       iter->Seek(ckey);
       if (!iter->Valid()) {
         throw generate_exception(tableName, Code::kNotFound,
                "Unable to find m$id2 ",
-               assocType, id1, id2, 0, 0, 0, Tleveldb::UNUSED1);
+               assocType, id1, id2, 0, 0, 0, Trocksdb::UNUSED1);
       }
       if (ckey != iter->key()) {
         continue;              // non existant assoc
       }
-      leveldb::Slice value = iter->value();
+      rocksdb::Slice value = iter->value();
       if (value.size() != sizeof(int64_t) + sizeof(int8_t)) {
         throw generate_exception(tableName, Code::kNotFound,
                "Unable to find m$id2 ",
-               assocType, id1, id2, 0, 0, 0, Tleveldb::UNUSED1);
+               assocType, id1, id2, 0, 0, 0, Trocksdb::UNUSED1);
       }
 
       extractTsVisString(&ts, &oldvis, (char*)value.data_);
@@ -604,12 +604,12 @@ class AssocServiceHandler : virtual public AssocServiceIf {
 
       // this assoc is visible, scan 'p'$ts$id2 to retrieve payload.
       keysize = appendRowKeyForPayload(rowkeysize, keybuf, ts, id2); 
-      leveldb::Slice pkey(keybuf, keysize);
+      rocksdb::Slice pkey(keybuf, keysize);
       iter->Seek(pkey);
       if (!iter->Valid() || (pkey != iter->key())) {
         throw generate_exception(tableName, Code::kNotFound,
                "Unable to find p$ts$id2 ",
-               assocType, id1, id2, 0, 0, ts, Tleveldb::UNUSED1);
+               assocType, id1, id2, 0, 0, ts, Trocksdb::UNUSED1);
       }
 
       // allocate a new slot in the result set.

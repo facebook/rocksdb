@@ -24,7 +24,7 @@
 #include "scribe/scribe_logger.h"
 #endif
 
-namespace leveldb {
+namespace rocksdb {
 
 class MemTable;
 class TableCache;
@@ -444,6 +444,6 @@ extern Options SanitizeOptions(const std::string& db,
                                const InternalFilterPolicy* ipolicy,
                                const Options& src);
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_DB_IMPL_H_

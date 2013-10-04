@@ -1,7 +1,7 @@
 #ifndef STATS_LOGGER_H_
 #define STATS_LOGGER_H_
 
-namespace leveldb {
+namespace rocksdb {
 
 class StatsLogger {
 

@@ -21,7 +21,7 @@
 #include "util/logging.h"
 #include "util/stop_watch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
@@ -3055,4 +3055,4 @@ void Compaction::Summary(char* output, int len) {
       level_low_summary, level_up_summary);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

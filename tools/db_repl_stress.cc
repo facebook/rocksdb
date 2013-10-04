@@ -13,7 +13,7 @@
 // --num_inserts = the num of inserts the first thread should perform.
 // --wal_ttl = the wal ttl for the run.
 
-using namespace leveldb;
+using namespace rocksdb;
 
 struct DataPumpThread {
   size_t no_records;

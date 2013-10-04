@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include "rocksdb/status.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class FileLock;
 class Logger;
@@ -563,6 +563,8 @@ class EnvWrapper : public Env {
   Env* target_;
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_ENV_H_

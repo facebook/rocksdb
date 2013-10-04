@@ -45,7 +45,7 @@ class ShellContext : private boost::noncopyable {
   int argc_;
   char ** argv_;
   int port_;
-  boost::shared_ptr<leveldb::DBClientProxy> clientProxy_;
+  boost::shared_ptr<rocksdb::DBClientProxy> clientProxy_;
 };
 
 #endif

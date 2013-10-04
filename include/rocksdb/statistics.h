@@ -13,7 +13,7 @@
 #include <memory>
 #include <vector>
 
-namespace leveldb {
+namespace rocksdb {
 
 /**
  * Keep adding ticker's here.
@@ -258,6 +258,8 @@ inline void SetTickerCount(std::shared_ptr<Statistics> statistics,
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_

@@ -13,7 +13,7 @@
 #endif
 #include "util/coding.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace crc32c {
 
 static const uint32_t table0_[256] = {
@@ -385,4 +385,4 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
 }
 
 }  // namespace crc32c
-}  // namespace leveldb
+}  // namespace rocksdb

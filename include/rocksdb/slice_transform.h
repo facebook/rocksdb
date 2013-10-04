@@ -13,7 +13,7 @@
 
 #include <string>
 
-namespace leveldb {
+namespace rocksdb {
 
 class Slice;
 
@@ -39,5 +39,7 @@ extern const SliceTransform* NewFixedPrefixTransform(size_t prefix_len);
 extern const SliceTransform* NewNoopTransform();
 
 }
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_SLICE_TRANSFORM_H_

@@ -9,7 +9,7 @@
 #include <stdint.h>
 #include "rocksdb/iterator.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 struct BlockContents;
 class Comparator;
@@ -41,6 +41,6 @@ class Block {
   class Iter;
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_TABLE_BLOCK_H_

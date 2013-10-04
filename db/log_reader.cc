@@ -9,7 +9,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace log {
 
 Reader::Reporter::~Reporter() {
@@ -256,4 +256,4 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
 }
 
 }  // namespace log
-}  // namespace leveldb
+}  // namespace rocksdb

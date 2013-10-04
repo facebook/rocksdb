@@ -39,19 +39,19 @@ import static org.fusesource.hawtjni.runtime.ClassFlag.CPP;
 import static org.fusesource.hawtjni.runtime.MethodFlag.CPP_DELETE;
 
 /**
- * Provides a java interface to the C++ leveldb::Cache class.
+ * Provides a java interface to the C++ rocksdb::Cache class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
 public class NativeCache extends NativeObject {
 
-    @JniClass(name="leveldb::Cache", flags={CPP})
+    @JniClass(name="rocksdb::Cache", flags={CPP})
     private static class CacheJNI {
         static {
             NativeDB.LIBRARY.load();
         }
 
-        @JniMethod(cast="leveldb::Cache *", accessor="leveldb::NewLRUCache")
+        @JniMethod(cast="rocksdb::Cache *", accessor="rocksdb::NewLRUCache")
         public static final native long NewLRUCache(
                 @JniArg(cast="size_t") long capacity);
 

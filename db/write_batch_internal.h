@@ -10,7 +10,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class MemTable;
 
@@ -51,7 +51,7 @@ class WriteBatchInternal {
   static void Append(WriteBatch* dst, const WriteBatch* src);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 
 #endif  // STORAGE_LEVELDB_DB_WRITE_BATCH_INTERNAL_H_

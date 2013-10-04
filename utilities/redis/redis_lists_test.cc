@@ -20,10 +20,10 @@
 #include "util/testharness.h"
 #include "util/random.h"
 
-using namespace leveldb;
+using namespace rocksdb;
 using namespace std;
 
-namespace leveldb {
+namespace rocksdb {
 
 class RedisListsTest {
  public:
@@ -868,7 +868,7 @@ int manual_redis_test(bool destructive){
   }
 }
 
-} // namespace leveldb
+} // namespace rocksdb
 
 
 // USAGE: "./redis_test" for default (unit tests)
@@ -892,9 +892,9 @@ bool found_arg(int argc, char* argv[], const char* want){
 int main(int argc, char* argv[]) {
   if (found_arg(argc, argv, "-m")) {
     bool destructive = found_arg(argc, argv, "-d");
-    return leveldb::manual_redis_test(destructive);
+    return rocksdb::manual_redis_test(destructive);
   } else {
-    return leveldb::test::RunAllTests();
+    return rocksdb::test::RunAllTests();
   }
 }
 

@@ -2,7 +2,7 @@
 #include "db/memtable.h"
 #include "db/skiplist.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace {
 class SkipListRep : public MemTableRep {
   SkipList<const char*, MemTableRep::KeyComparator&> skip_list_;
@@ -96,4 +96,4 @@ std::shared_ptr<MemTableRep> SkipListFactory::CreateMemTableRep (
     return std::shared_ptr<MemTableRep>(new SkipListRep(compare, arena));
 }
 
-} // namespace leveldb
+} // namespace rocksdb

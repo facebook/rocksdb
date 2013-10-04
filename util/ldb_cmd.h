@@ -28,7 +28,7 @@ using std::map;
 using std::vector;
 using std::ostringstream;
 
-namespace leveldb {
+namespace rocksdb {
 
 class LDBCommand {
 public:
@@ -680,5 +680,5 @@ private:
   static const char* DELETE_CMD;
 };
 
-} // namespace leveldb
+} // namespace rocksdb
 #endif // STORAGE_LEVELDB_UTIL_LDB_CMD_H_

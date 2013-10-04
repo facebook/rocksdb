@@ -7,7 +7,7 @@
 
 #include "rocksdb/db.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // This class contains APIs to stack rocksdb wrappers.Eg. Stack TTL over base d
 class StackableDB : public DB {
@@ -160,6 +160,6 @@ class StackableDB : public DB {
   StackableDB* sdb_;
 };
 
-} //  namespace leveldb
+} //  namespace rocksdb
 
 #endif  //  LEVELDB_INCLUDE_UTILITIES_STACKABLE_DB_H_

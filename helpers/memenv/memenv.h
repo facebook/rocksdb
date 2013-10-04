@@ -4,7 +4,7 @@
 
 #ifndef STORAGE_ROCKSDB_HELPERS_MEMENV_MEMENV_H_
 #define STORAGE_ROCKSDB_HELPERS_MEMENV_MEMENV_H_
-namespace leveldb {
+namespace rocksdb {
 
 class Env;
 
@@ -14,6 +14,6 @@ class Env;
 // *base_env must remain live while the result is in use.
 Env* NewMemEnv(Env* base_env);
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_HELPERS_MEMENV_MEMENV_H_

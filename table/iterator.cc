@@ -4,7 +4,7 @@
 
 #include "rocksdb/iterator.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Iterator::Iterator() {
   cleanup_.function = nullptr;
@@ -64,4 +64,4 @@ Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

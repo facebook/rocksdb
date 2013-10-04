@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-namespace leveldb {
+namespace rocksdb {
 
 enum PerfLevel {
   kDisable        = 0,  // disable perf stats
@@ -36,5 +36,6 @@ extern __thread PerfContext perf_context;
 
 }
 
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif

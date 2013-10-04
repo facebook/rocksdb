@@ -10,7 +10,7 @@
 #include <vector>
 #include "db/dbformat.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class VersionSet;
 
@@ -122,6 +122,6 @@ class VersionEdit {
   std::vector< std::pair<int, FileMetaData> > new_files_;
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_VERSION_EDIT_H_

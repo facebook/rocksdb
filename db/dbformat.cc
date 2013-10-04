@@ -8,7 +8,7 @@
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
@@ -139,4 +139,4 @@ LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
   end_ = dst;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

@@ -15,14 +15,14 @@
 
 namespace std {
 template <>
-struct hash<leveldb::Slice> {
-  size_t operator()(const leveldb::Slice& slice) const {
+struct hash<rocksdb::Slice> {
+  size_t operator()(const rocksdb::Slice& slice) const {
     return MurmurHash(slice.data(), slice.size(), 0);
   }
 };
 }
 
-namespace leveldb {
+namespace rocksdb {
 namespace {
 
 using namespace stl_wrappers;
@@ -334,4 +334,4 @@ std::shared_ptr<MemTableRep::Iterator> PrefixHashRep::GetPrefixIterator(
   return TransformRep::GetTransformIterator(prefix);
 }
 
-} // namespace leveldb
+} // namespace rocksdb

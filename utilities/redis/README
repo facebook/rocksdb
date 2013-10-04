@@ -1,5 +1,5 @@
 This folder defines a REDIS-style interface for Rocksdb.
-Right now it is written as a simple tag-on in the leveldb::RedisLists class.
+Right now it is written as a simple tag-on in the rocksdb::RedisLists class.
 It implements Redis Lists, and supports only the "non-blocking operations".
 
 Internally, the set of lists are stored in a rocksdb database, mapping keys to

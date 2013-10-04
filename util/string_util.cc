@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace leveldb {
+namespace rocksdb {
 
 using namespace std;
 using std::string;

@@ -20,7 +20,7 @@
 #include "rocksdb/env.h"
 #include <atomic>
 
-namespace leveldb {
+namespace rocksdb {
 
 const int kDebugLogChunkSize = 128 * 1024;
 
@@ -129,6 +129,6 @@ class PosixLogger : public Logger {
   }
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_POSIX_LOGGER_H_

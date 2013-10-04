@@ -11,7 +11,7 @@
 #include "util/crc32c.h"
 #include "util/perf_context_imp.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 void BlockHandle::EncodeTo(std::string* dst) const {
   // Sanity check that all fields have been set
@@ -187,4 +187,4 @@ Status ReadBlockContents(RandomAccessFile* file,
   return Status::OK();
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

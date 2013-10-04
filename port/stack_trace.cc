@@ -9,7 +9,7 @@
 #include <string.h>
 #include <unistd.h>
 
-namespace leveldb {
+namespace rocksdb {
 
 static const char* GetExecutableName()
 {
@@ -84,11 +84,11 @@ void InstallStackTraceHandler() {
 
 }
 
-}   // namespace leveldb
+}   // namespace rocksdb
 
 #else // no-op for non-linux system for now
 
-namespace leveldb {
+namespace rocksdb {
 
 void InstallStackTraceHandler() {}
 

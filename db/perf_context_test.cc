@@ -18,9 +18,9 @@ int FLAGS_max_write_buffer_number = 8;
 int FLAGS_min_write_buffer_number_to_merge = 7;
 
 // Path to the database on file system
-const std::string kDbName = leveldb::test::TmpDir() + "/perf_context_test";
+const std::string kDbName = rocksdb::test::TmpDir() + "/perf_context_test";
 
-void SeekToFirst(leveldb::Iterator* iter) {
+void SeekToFirst(rocksdb::Iterator* iter) {
 //  std::cout << "Press a key to continue:";
 //  std::string s;
 //  std::cin >> s;
@@ -30,7 +30,7 @@ void SeekToFirst(leveldb::Iterator* iter) {
 //  std::cin >> s2;
 }
 
-namespace leveldb {
+namespace rocksdb {
 
 std::shared_ptr<DB> OpenDb() {
     DB* db;
@@ -42,9 +42,9 @@ std::shared_ptr<DB> OpenDb() {
       FLAGS_min_write_buffer_number_to_merge;
 
     if (FLAGS_use_set_based_memetable) {
-      auto prefix_extractor = leveldb::NewFixedPrefixTransform(0);
+      auto prefix_extractor = rocksdb::NewFixedPrefixTransform(0);
       options.memtable_factory =
-        std::make_shared<leveldb::PrefixHashRepFactory>(prefix_extractor);
+        std::make_shared<rocksdb::PrefixHashRepFactory>(prefix_extractor);
     }
 
     Status s = DB::Open(options, kDbName,  &db);
@@ -315,6 +315,6 @@ int main(int argc, char** argv) {
 
   std::cout << kDbName << "\n";
 
-  leveldb::test::RunAllTests();
+  rocksdb::test::RunAllTests();
   return 0;
 }

@@ -9,7 +9,7 @@
 #include "util/logging.h"
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class FileNameTest { };
 
@@ -128,8 +128,8 @@ TEST(FileNameTest, Construction) {
   ASSERT_EQ(kMetaDatabase, type);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

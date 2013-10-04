@@ -12,7 +12,7 @@
 #include "rocksdb/slice.h"
 #include "util/random.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace test {
 
 // Run some of the tests registered by the TEST() macro.  If the
@@ -102,14 +102,14 @@ class Tester {
   }
 };
 
-#define ASSERT_TRUE(c) ::leveldb::test::Tester(__FILE__, __LINE__).Is((c), #c)
-#define ASSERT_OK(s) ::leveldb::test::Tester(__FILE__, __LINE__).IsOk((s))
-#define ASSERT_EQ(a,b) ::leveldb::test::Tester(__FILE__, __LINE__).IsEq((a),(b))
-#define ASSERT_NE(a,b) ::leveldb::test::Tester(__FILE__, __LINE__).IsNe((a),(b))
-#define ASSERT_GE(a,b) ::leveldb::test::Tester(__FILE__, __LINE__).IsGe((a),(b))
-#define ASSERT_GT(a,b) ::leveldb::test::Tester(__FILE__, __LINE__).IsGt((a),(b))
-#define ASSERT_LE(a,b) ::leveldb::test::Tester(__FILE__, __LINE__).IsLe((a),(b))
-#define ASSERT_LT(a,b) ::leveldb::test::Tester(__FILE__, __LINE__).IsLt((a),(b))
+#define ASSERT_TRUE(c) ::rocksdb::test::Tester(__FILE__, __LINE__).Is((c), #c)
+#define ASSERT_OK(s) ::rocksdb::test::Tester(__FILE__, __LINE__).IsOk((s))
+#define ASSERT_EQ(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsEq((a),(b))
+#define ASSERT_NE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsNe((a),(b))
+#define ASSERT_GE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsGe((a),(b))
+#define ASSERT_GT(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsGt((a),(b))
+#define ASSERT_LE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsLe((a),(b))
+#define ASSERT_LT(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsLt((a),(b))
 
 #define TCONCAT(a,b) TCONCAT1(a,b)
 #define TCONCAT1(a,b) a##b
@@ -124,7 +124,7 @@ class TCONCAT(_Test_,name) : public base {                              \
   }                                                                     \
 };                                                                      \
 bool TCONCAT(_Test_ignored_,name) =                                     \
-  ::leveldb::test::RegisterTest(#base, #name, &TCONCAT(_Test_,name)::_RunIt); \
+  ::rocksdb::test::RegisterTest(#base, #name, &TCONCAT(_Test_,name)::_RunIt); \
 void TCONCAT(_Test_,name)::_Run()
 
 // Register the specified test.  Typically not used directly, but
@@ -133,6 +133,6 @@ extern bool RegisterTest(const char* base, const char* name, void (*func)());
 
 
 }  // namespace test
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_TESTHARNESS_H_

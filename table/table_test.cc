@@ -20,7 +20,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Return reverse of "key".
 // Used to test non-lexicographic comparators.
@@ -961,8 +961,8 @@ TEST(TableTest, BlockCacheLeak) {
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

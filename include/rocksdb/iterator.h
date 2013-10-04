@@ -18,7 +18,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Iterator {
  public:
@@ -97,6 +97,8 @@ extern Iterator* NewEmptyIterator();
 // Return an empty iterator with the specified status.
 extern Iterator* NewErrorIterator(const Status& status);
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_

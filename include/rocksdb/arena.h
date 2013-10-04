@@ -11,7 +11,7 @@
 #include <limits>
 #include <memory>
 
-namespace leveldb {
+namespace rocksdb {
 
 class Arena {
  public:
@@ -36,6 +36,8 @@ class Arena {
   void operator=(const Arena&);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_ARENA_H_

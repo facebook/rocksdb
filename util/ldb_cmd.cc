@@ -18,7 +18,7 @@
 #include <string>
 #include <stdexcept>
 
-namespace leveldb {
+namespace rocksdb {
 
 using namespace std;
 

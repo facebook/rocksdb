@@ -1,7 +1,7 @@
 #include "rocksdb/statistics.h"
 #include <cstdio>
 
-namespace leveldb {
+namespace rocksdb {
 
 namespace {
 // a buffer size used for temp string buffers
@@ -52,4 +52,4 @@ std::string Statistics::ToString() {
   return res;
 }
 
-} // namespace leveldb
+} // namespace rocksdb

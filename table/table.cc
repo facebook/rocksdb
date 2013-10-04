@@ -22,7 +22,7 @@
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
@@ -495,4 +495,4 @@ uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
   return result;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

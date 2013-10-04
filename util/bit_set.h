@@ -8,7 +8,7 @@
 
 #include <cassert>
 
-namespace leveldb {
+namespace rocksdb {
 
 class BitSet {
  public:

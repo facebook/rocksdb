@@ -16,7 +16,7 @@
 using namespace std;
 using namespace boost;
 using namespace Tleveldb;
-using namespace leveldb;
+using namespace rocksdb;
 using namespace apache::thrift::protocol;
 using namespace apache::thrift::transport;
 

@@ -44,7 +44,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class MemTableRep {
  public:
@@ -255,5 +255,7 @@ public:
 };
 
 }
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif // STORAGE_ROCKSDB_DB_MEMTABLEREP_H_

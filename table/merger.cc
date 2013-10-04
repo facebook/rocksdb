@@ -11,7 +11,7 @@
 
 #include <vector>
 
-namespace leveldb {
+namespace rocksdb {
 
 namespace {
 
@@ -220,4 +220,4 @@ Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n) {
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

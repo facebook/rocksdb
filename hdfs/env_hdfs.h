@@ -31,7 +31,7 @@
 #ifdef USE_HDFS
 #include "hdfs/hdfs.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static const std::string kProto = "hdfs://";
 static const std::string pathsep = "/";
@@ -214,12 +214,12 @@ class HdfsEnv : public Env {
   }
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #else // USE_HDFS
 
 
-namespace leveldb {
+namespace rocksdb {
 
 static const Status notsup;
 

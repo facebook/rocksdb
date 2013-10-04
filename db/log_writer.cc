@@ -9,7 +9,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace log {
 
 Writer::Writer(unique_ptr<WritableFile>&& dest)
@@ -100,4 +100,4 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
 }
 
 }  // namespace log
-}  // namespace leveldb
+}  // namespace rocksdb

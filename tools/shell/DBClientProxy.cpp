@@ -16,7 +16,7 @@ using namespace Tleveldb;
 using namespace apache::thrift::protocol;
 using namespace apache::thrift::transport;
 
-namespace leveldb {
+namespace rocksdb {
 
 DBClientProxy::DBClientProxy(const string & host, int port) :
   host_(host),

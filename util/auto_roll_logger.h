@@ -12,7 +12,7 @@
 #include "port/port.h"
 #include "util/posix_logger.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Rolls the log file by size and/or time
 class AutoRollLogger : public Logger {
@@ -88,6 +88,6 @@ Status CreateLoggerFromOptions(
     const Options& options,
     std::shared_ptr<Logger>* logger);
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_AUTO_ROLL_LOGGER_H

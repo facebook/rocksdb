@@ -31,13 +31,13 @@ const std::map<const char*, int, apache::thrift::ltstr> _ResultCode_NAMES_TO_VAL
 } // namespace
 namespace apache { namespace thrift {
 template<>
-const char* TEnumTraits< ::Tleveldb::ResultCode>::findName( ::Tleveldb::ResultCode value) {
-return findName( ::Tleveldb::_ResultCode_VALUES_TO_NAMES, value);
+const char* TEnumTraits< ::Trocksdb::ResultCode>::findName( ::Trocksdb::ResultCode value) {
+return findName( ::Trocksdb::_ResultCode_VALUES_TO_NAMES, value);
 }
 
 template<>
-bool TEnumTraits< ::Tleveldb::ResultCode>::findValue(const char* name,  ::Tleveldb::ResultCode* out) {
-return findValue( ::Tleveldb::_ResultCode_NAMES_TO_VALUES, name, out);
+bool TEnumTraits< ::Trocksdb::ResultCode>::findValue(const char* name,  ::Trocksdb::ResultCode* out) {
+return findValue( ::Trocksdb::_ResultCode_NAMES_TO_VALUES, name, out);
 }
 }} // apache::thrift
 

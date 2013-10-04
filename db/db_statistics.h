@@ -16,7 +16,7 @@
 #include "util/mutexlock.h"
 
 
-namespace leveldb {
+namespace rocksdb {
 
 class DBStatistics: public Statistics {
  public:
@@ -59,6 +59,6 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<DBStatistics>();
 }
 
-} // namespace leveldb
+} // namespace rocksdb
 
 #endif // LEVELDB_STORAGE_DB_DB_STATISTICS_H_

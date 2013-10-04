@@ -21,7 +21,7 @@
 #include "scribe/scribe_logger.h"
 #endif
 
-namespace leveldb {
+namespace rocksdb {
 
 class DBImplReadOnly : public DBImpl {
 public:

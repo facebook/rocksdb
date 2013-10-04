@@ -17,7 +17,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class BlockBuilder;
 class BlockHandle;
@@ -90,6 +90,8 @@ class TableBuilder {
   void operator=(const TableBuilder&);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_TABLE_BUILDER_H_

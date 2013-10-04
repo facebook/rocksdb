@@ -15,7 +15,7 @@
 #include "redis_list_iterator.h"
 #include "redis_list_exception.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 /// The Redis functionality (see http://redis.io/commands#list)
 /// All functions may THROW a RedisListException
@@ -103,4 +103,4 @@ class RedisLists {
   std::unique_ptr<DB> db_;
 };
 
-} // namespace leveldb
+} // namespace rocksdb

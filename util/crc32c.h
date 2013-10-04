@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace leveldb {
+namespace rocksdb {
 namespace crc32c {
 
 // Return the crc32c of concat(A, data[0,n-1]) where init_crc is the
@@ -40,6 +40,6 @@ inline uint32_t Unmask(uint32_t masked_crc) {
 }
 
 }  // namespace crc32c
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_UTIL_CRC32C_H_

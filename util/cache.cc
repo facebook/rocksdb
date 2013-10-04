@@ -11,7 +11,7 @@
 #include "util/hash.h"
 #include "util/mutexlock.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Cache::~Cache() {
 }
@@ -351,4 +351,4 @@ shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits) {
   return std::make_shared<ShardedLRUCache>(capacity, numShardBits);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

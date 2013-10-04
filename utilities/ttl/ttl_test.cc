@@ -10,7 +10,7 @@
 #include <map>
 #include <unistd.h>
 
-namespace leveldb {
+namespace rocksdb {
 
 namespace {
 
@@ -496,9 +496,9 @@ TEST(TtlTest, KeyMayExist) {
   CloseTtl();
 }
 
-} //  namespace leveldb
+} //  namespace rocksdb
 
 // A black-box test for the ttl wrapper around rocksdb
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

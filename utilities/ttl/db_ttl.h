@@ -12,7 +12,7 @@
 #include "utilities/utility_db.h"
 #include "db/db_impl.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class DBWithTTL : public StackableDB {
  public:

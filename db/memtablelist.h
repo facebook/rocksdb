@@ -11,7 +11,7 @@
 #include "db/skiplist.h"
 #include "memtable.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class InternalKeyComparator;
 class Mutex;
@@ -99,6 +99,6 @@ class MemTableList {
 
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_MEMTABLELIST_H_

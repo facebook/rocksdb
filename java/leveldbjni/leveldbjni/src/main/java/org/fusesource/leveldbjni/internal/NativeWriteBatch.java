@@ -41,13 +41,13 @@ import static org.fusesource.hawtjni.runtime.ClassFlag.CPP;
 import static org.fusesource.hawtjni.runtime.MethodFlag.*;
 
 /**
- * Provides a java interface to the C++ leveldb::WriteBatch class.
+ * Provides a java interface to the C++ rocksdb::WriteBatch class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
 public class NativeWriteBatch extends NativeObject {
 
-    @JniClass(name="leveldb::WriteBatch", flags={CPP})
+    @JniClass(name="rocksdb::WriteBatch", flags={CPP})
     private static class WriteBatchJNI {
         static {
             NativeDB.LIBRARY.load();

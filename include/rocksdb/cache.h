@@ -22,7 +22,7 @@
 #include <stdint.h>
 #include "rocksdb/slice.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 using std::shared_ptr;
 
@@ -101,6 +101,8 @@ class Cache {
   void operator=(const Cache&);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_UTIL_CACHE_H_

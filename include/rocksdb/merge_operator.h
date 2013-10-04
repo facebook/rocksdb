@@ -9,7 +9,7 @@
 #include <deque>
 #include "rocksdb/slice.h"  // TODO: Remove this when migration is done;
 
-namespace leveldb {
+namespace rocksdb {
 
 class Slice;
 class Logger;
@@ -142,6 +142,8 @@ class AssociativeMergeOperator : public MergeOperator {
                             Logger* logger) const override;
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_

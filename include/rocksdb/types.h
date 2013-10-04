@@ -3,12 +3,15 @@
 
 #include <stdint.h>
 
-namespace leveldb {
+namespace rocksdb {
 
 // Define all public custom types here.
 
 // Represents a sequence number in a WAL file.
 typedef uint64_t SequenceNumber;
 
-}  //  namespace leveldb
+}  //  namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
+
 #endif //  STORAGE_ROCKSDB_INCLUDE_TYPES_H_

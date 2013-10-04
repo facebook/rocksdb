@@ -7,7 +7,7 @@
 
 #include "port/port.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Helper class that locks a mutex on construction and unlocks the mutex when
 // the destructor of the MutexLock object is invoked.
@@ -72,7 +72,7 @@ class WriteLock {
   void operator=(const WriteLock&);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 
 #endif  // STORAGE_LEVELDB_UTIL_MUTEXLOCK_H_

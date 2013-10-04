@@ -41,14 +41,14 @@ import static org.fusesource.hawtjni.runtime.MethodFlag.CONSTANT_INITIALIZER;
 import static org.fusesource.hawtjni.runtime.MethodFlag.CPP_DELETE;
 
 /**
- * Provides a java interface to the C++ leveldb::Slice class.
+ * Provides a java interface to the C++ rocksdb::Slice class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
-@JniClass(name="leveldb::Slice", flags={STRUCT, CPP})
+@JniClass(name="rocksdb::Slice", flags={STRUCT, CPP})
 class NativeSlice {
 
-    @JniClass(name="leveldb::Slice", flags={CPP})
+    @JniClass(name="rocksdb::Slice", flags={CPP})
     static class SliceJNI {
         static {
             NativeDB.LIBRARY.load();
@@ -74,7 +74,7 @@ class NativeSlice {
         @JniMethod(flags={CONSTANT_INITIALIZER})
         private static final native void init();
 
-        @JniField(flags={CONSTANT}, accessor="sizeof(struct leveldb::Slice)")
+        @JniField(flags={CONSTANT}, accessor="sizeof(struct rocksdb::Slice)")
         static int SIZEOF;
 
     }

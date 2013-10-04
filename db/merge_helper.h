@@ -7,7 +7,7 @@
 #include <string>
 #include <deque>
 
-namespace leveldb {
+namespace rocksdb {
 
 class Comparator;
 class Iterator;
@@ -93,6 +93,6 @@ class MergeHelper {
   bool success_;
 };
 
-} // namespace leveldb
+} // namespace rocksdb
 
 #endif

@@ -41,13 +41,13 @@ import static org.fusesource.hawtjni.runtime.FieldFlag.FIELD_SKIP;
 import static org.fusesource.hawtjni.runtime.MethodFlag.CONSTANT_INITIALIZER;
 
 /**
- * Provides a java interface to the C++ leveldb::ReadOptions class.
+ * Provides a java interface to the C++ rocksdb::ReadOptions class.
  *
  * @author <a href="http://hiramchirino.com">Hiram Chirino</a>
  */
 public class NativeRange {
 
-    @JniClass(name="leveldb::Range", flags={STRUCT, CPP})
+    @JniClass(name="rocksdb::Range", flags={STRUCT, CPP})
     static public class RangeJNI {
 
         static {
@@ -69,7 +69,7 @@ public class NativeRange {
         @JniMethod(flags={CONSTANT_INITIALIZER})
         private static final native void init();
 
-        @JniField(flags={CONSTANT}, accessor="sizeof(struct leveldb::Range)")
+        @JniField(flags={CONSTANT}, accessor="sizeof(struct rocksdb::Range)")
         static int SIZEOF;
 
         @JniField

@@ -16,7 +16,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Cache;
 class Comparator;
@@ -673,6 +673,8 @@ struct FlushOptions {
   }
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
+
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

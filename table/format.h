@@ -11,7 +11,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table_builder.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Block;
 class RandomAccessFile;
@@ -104,6 +104,6 @@ inline BlockHandle::BlockHandle()
       size_(~static_cast<uint64_t>(0)) {
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_TABLE_FORMAT_H_

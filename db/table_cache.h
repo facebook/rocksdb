@@ -15,7 +15,7 @@
 #include "port/port.h"
 #include "table/table.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Env;
 
@@ -72,6 +72,6 @@ class TableCache {
                    const bool no_io = false);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_TABLE_CACHE_H_

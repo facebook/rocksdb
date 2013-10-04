@@ -20,7 +20,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static const int kValueSize = 1000;
 
@@ -68,7 +68,7 @@ class CorruptionTest {
   void RepairDB() {
     delete db_;
     db_ = nullptr;
-    ASSERT_OK(::leveldb::RepairDB(dbname_, options_));
+    ASSERT_OK(::rocksdb::RepairDB(dbname_, options_));
   }
 
   void Build(int n) {
@@ -354,8 +354,8 @@ TEST(CorruptionTest, UnrelatedKeys) {
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

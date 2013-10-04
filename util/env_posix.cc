@@ -50,7 +50,7 @@
 // If non-zero, kill at various points in source code with probability 1/this
 int leveldb_kill_odds = 0;
 
-namespace leveldb {
+namespace rocksdb {
 
 
 namespace {
@@ -1275,4 +1275,4 @@ Env* Env::Default() {
   return &default_env;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

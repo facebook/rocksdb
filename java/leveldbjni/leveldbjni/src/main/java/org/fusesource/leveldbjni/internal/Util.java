@@ -51,14 +51,14 @@ import static org.fusesource.hawtjni.runtime.ArgFlag.*;
  */
 public class Util {
 
-    @JniClass(name="leveldb::Env", flags={CPP})
+    @JniClass(name="rocksdb::Env", flags={CPP})
     static class EnvJNI {
 
         static {
             NativeDB.LIBRARY.load();
         }
 
-        @JniMethod(cast = "leveldb::Env *", accessor = "leveldb::Env::Default")
+        @JniMethod(cast = "rocksdb::Env *", accessor = "rocksdb::Env::Default")
         public static final native long Default();
 
         @JniMethod(flags = {CPP_METHOD})

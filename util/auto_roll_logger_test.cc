@@ -13,7 +13,7 @@
 
 using namespace std;
 
-namespace leveldb {
+namespace rocksdb {
 
 class AutoRollLoggerTest {
  public:
@@ -254,8 +254,8 @@ int OldLogFileCount(const string& dir) {
   return log_file_count;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

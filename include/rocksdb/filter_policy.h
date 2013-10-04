@@ -18,7 +18,7 @@
 
 #include <string>
 
-namespace leveldb {
+namespace rocksdb {
 
 class Slice;
 
@@ -66,5 +66,6 @@ class FilterPolicy {
 extern const FilterPolicy* NewBloomFilterPolicy(int bits_per_key);
 
 }
+#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_

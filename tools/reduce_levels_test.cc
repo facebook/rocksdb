@@ -11,7 +11,7 @@
 #include "util/testharness.h"
 #include "util/ldb_cmd.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class ReduceLevelTest {
 public:
@@ -72,11 +72,11 @@ private:
 
 Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels,
     int mem_table_compact_level) {
-  leveldb::Options opt;
+  rocksdb::Options opt;
   opt.num_levels = num_levels;
   opt.create_if_missing = create_if_missing;
   opt.max_mem_compaction_level = mem_table_compact_level;
-  leveldb::Status st = leveldb::DB::Open(opt, dbname_, &db_);
+  rocksdb::Status st = rocksdb::DB::Open(opt, dbname_, &db_);
   if (!st.ok()) {
     fprintf(stderr, "Can't open the db:%s\n", st.ToString().c_str());
   }
@@ -84,7 +84,7 @@ Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels,
 }
 
 bool ReduceLevelTest::ReduceLevels(int target_level) {
-  std::vector<std::string> args = leveldb::ReduceDBLevelsCommand::PrepareArgs(
+  std::vector<std::string> args = rocksdb::ReduceDBLevelsCommand::PrepareArgs(
       dbname_, target_level, false);
   LDBCommand* level_reducer = LDBCommand::InitFromCmdLineArgs(args);
   level_reducer->Run();
@@ -193,5 +193,5 @@ TEST(ReduceLevelTest, All_Levels) {
 }
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

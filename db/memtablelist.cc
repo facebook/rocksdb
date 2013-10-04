@@ -10,7 +10,7 @@
 #include "rocksdb/iterator.h"
 #include "util/coding.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class InternalKeyComparator;
 class Mutex;
@@ -210,4 +210,4 @@ void MemTableList::GetMemTables(std::vector<MemTable*>* output) {
   }
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

@@ -10,7 +10,7 @@
 #include "util/random.h"
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 typedef uint64_t Key;
 
@@ -371,8 +371,8 @@ TEST(SkipTest, Concurrent3) { RunConcurrent(3); }
 TEST(SkipTest, Concurrent4) { RunConcurrent(4); }
 TEST(SkipTest, Concurrent5) { RunConcurrent(5); }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

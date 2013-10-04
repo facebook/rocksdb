@@ -12,7 +12,7 @@
 #include "util/logging.h"
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 static std::string PrintContents(WriteBatch* b) {
   InternalKeyComparator cmp(BytewiseComparator());
@@ -221,8 +221,8 @@ TEST(WriteBatchTest, Continue) {
             handler.seen);
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

@@ -38,7 +38,7 @@
 // will reside on the same HDFS cluster.
 //
 
-namespace leveldb {
+namespace rocksdb {
 
 namespace {
 
@@ -153,7 +153,7 @@ class HdfsReadableFile: virtual public SequentialFile, virtual public RandomAcce
       size = pFileInfo->mSize;
       hdfsFreeFileInfo(pFileInfo, 1);
     } else {
-      throw leveldb::HdfsFatalException("fileSize on unknown file " +
+      throw rocksdb::HdfsFatalException("fileSize on unknown file " +
                                             filename_);
     }
     return size;
@@ -505,7 +505,7 @@ Status HdfsEnv::NewLogger(const std::string& fname,
   return Status::OK();
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif // LEVELDB_HDFS_FILE_C
 
@@ -514,7 +514,7 @@ Status HdfsEnv::NewLogger(const std::string& fname,
 // dummy placeholders used when HDFS is not available
 #include "rocksdb/env.h"
 #include "hdfs/env_hdfs.h"
-namespace leveldb {
+namespace rocksdb {
  Status HdfsEnv::NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) {

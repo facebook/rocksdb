@@ -10,7 +10,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Block;
 class BlockHandle;
@@ -102,6 +102,6 @@ class Table {
   void operator=(const Table&);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_INCLUDE_TABLE_H_

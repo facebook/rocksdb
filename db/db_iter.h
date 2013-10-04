@@ -9,7 +9,7 @@
 #include "rocksdb/db.h"
 #include "db/dbformat.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number
@@ -22,6 +22,6 @@ extern Iterator* NewDBIterator(
     Iterator* internal_iter,
     const SequenceNumber& sequence);
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_DB_ITER_H_

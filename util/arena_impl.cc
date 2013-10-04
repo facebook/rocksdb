@@ -4,7 +4,7 @@
 
 #include "util/arena_impl.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 ArenaImpl::ArenaImpl(size_t block_size) {
   if (block_size < kMinBlockSize) {
@@ -70,4 +70,4 @@ char* ArenaImpl::AllocateNewBlock(size_t block_bytes) {
   return result;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

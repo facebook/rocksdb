@@ -52,7 +52,7 @@ public class NativeDB extends NativeObject {
 
     public static final Library LIBRARY = new Library("leveldbjni", NativeDB.class);
 
-    @JniClass(name="leveldb::DB", flags={CPP})
+    @JniClass(name="rocksdb::DB", flags={CPP})
     static class DBJNI {
         static {
             NativeDB.LIBRARY.load();
@@ -79,13 +79,13 @@ public class NativeDB extends NativeObject {
                 long self
                 );
 
-        @JniMethod(copy="leveldb::Status", accessor = "leveldb::DB::Open")
+        @JniMethod(copy="rocksdb::Status", accessor = "rocksdb::DB::Open")
         static final native long Open(
                 @JniArg(flags={BY_VALUE, NO_OUT}) NativeOptions options,
                 @JniArg(cast="const char*") String path,
-                @JniArg(cast="leveldb::DB**") long[] self);
+                @JniArg(cast="rocksdb::DB**") long[] self);
 
-        @JniMethod(copy="leveldb::Status", flags={CPP_METHOD})
+        @JniMethod(copy="rocksdb::Status", flags={CPP_METHOD})
         static final native long Put(
                 long self,
                 @JniArg(flags={BY_VALUE, NO_OUT}) NativeWriteOptions options,
@@ -93,21 +93,21 @@ public class NativeDB extends NativeObject {
                 @JniArg(flags={BY_VALUE, NO_OUT}) NativeSlice value
                 );
 
-        @JniMethod(copy="leveldb::Status", flags={CPP_METHOD})
+        @JniMethod(copy="rocksdb::Status", flags={CPP_METHOD})
         static final native long Delete(
                 long self,
                 @JniArg(flags={BY_VALUE, NO_OUT}) NativeWriteOptions options,
                 @JniArg(flags={BY_VALUE, NO_OUT}) NativeSlice key
                 );
 
-        @JniMethod(copy="leveldb::Status", flags={CPP_METHOD})
+        @JniMethod(copy="rocksdb::Status", flags={CPP_METHOD})
         static final native long Write(
                 long self,
                 @JniArg(flags={BY_VALUE}) NativeWriteOptions options,
-                @JniArg(cast="leveldb::WriteBatch *") long updates
+                @JniArg(cast="rocksdb::WriteBatch *") long updates
                 );
 
-        @JniMethod(copy="leveldb::Status", flags={CPP_METHOD})
+        @JniMethod(copy="rocksdb::Status", flags={CPP_METHOD})
         static final native long Get(
                 long self,
                 @JniArg(flags={NO_OUT, BY_VALUE}) NativeReadOptions options,
@@ -115,26 +115,26 @@ public class NativeDB extends NativeObject {
                 @JniArg(cast="std::string *") long value
                 );
 
-        @JniMethod(cast="leveldb::Iterator *", flags={CPP_METHOD})
+        @JniMethod(cast="rocksdb::Iterator *", flags={CPP_METHOD})
         static final native long NewIterator(
                 long self,
                 @JniArg(flags={NO_OUT, BY_VALUE}) NativeReadOptions options
                 );
 
-        @JniMethod(cast="leveldb::Snapshot *", flags={CPP_METHOD})
+        @JniMethod(cast="rocksdb::Snapshot *", flags={CPP_METHOD})
         static final native long GetSnapshot(
                 long self);
 
         @JniMethod(flags={CPP_METHOD})
         static final native void ReleaseSnapshot(
                 long self,
-                @JniArg(cast="const leveldb::Snapshot *") long snapshot
+                @JniArg(cast="const rocksdb::Snapshot *") long snapshot
                 );
 
         @JniMethod(flags={CPP_METHOD})
         static final native void GetApproximateSizes(
                 long self,
-                @JniArg(cast="const leveldb::Range *") long range,
+                @JniArg(cast="const rocksdb::Range *") long range,
                 int n,
                 @JniArg(cast="uint64_t*") long[] sizes
                 );
@@ -146,12 +146,12 @@ public class NativeDB extends NativeObject {
                 @JniArg(cast="std::string *") long value
                 );
 
-        @JniMethod(copy="leveldb::Status", accessor = "leveldb::DestroyDB")
+        @JniMethod(copy="rocksdb::Status", accessor = "rocksdb::DestroyDB")
         static final native long DestroyDB(
                 @JniArg(cast="const char*") String path,
                 @JniArg(flags={BY_VALUE, NO_OUT}) NativeOptions options);
 
-        @JniMethod(copy="leveldb::Status", accessor = "leveldb::RepairDB")
+        @JniMethod(copy="rocksdb::Status", accessor = "rocksdb::RepairDB")
         static final native long RepairDB(
                 @JniArg(cast="const char*") String path,
                 @JniArg(flags={BY_VALUE, NO_OUT}) NativeOptions options);

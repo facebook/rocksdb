@@ -14,7 +14,7 @@
 #include "util/coding.h"
 #include "util/murmurhash.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    std::shared_ptr<MemTableRepFactory> table_factory,
@@ -238,4 +238,4 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   return false;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb

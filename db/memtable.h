@@ -15,7 +15,7 @@
 #include "rocksdb/memtablerep.h"
 #include "util/arena_impl.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class Mutex;
 class MemTableIterator;
@@ -146,6 +146,6 @@ class MemTable {
   void operator=(const MemTable&);
 };
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_DB_MEMTABLE_H_

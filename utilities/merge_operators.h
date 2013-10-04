@@ -6,7 +6,7 @@
 
 #include "rocksdb/merge_operator.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class MergeOperators {
  public:
@@ -35,6 +35,6 @@ class MergeOperators {
 
 };
 
-} // namespace leveldb
+} // namespace rocksdb
 
 #endif

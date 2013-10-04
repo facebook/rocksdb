@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace leveldb {
+namespace rocksdb {
 
 class MemEnvTest {
  public:
@@ -226,8 +226,8 @@ TEST(MemEnvTest, DBTest) {
   delete db;
 }
 
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

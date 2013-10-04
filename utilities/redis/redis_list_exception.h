@@ -10,7 +10,7 @@
 
 #include <exception>
 
-namespace leveldb {
+namespace rocksdb {
 
 class RedisListException: public std::exception {
  public:
@@ -19,6 +19,6 @@ class RedisListException: public std::exception {
   }
 };
 
-} // namespace leveldb
+} // namespace rocksdb
 
 #endif // LEVELDB_REDIS_LIST_EXCEPTION_H

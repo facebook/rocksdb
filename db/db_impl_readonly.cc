@@ -34,7 +34,7 @@
 #include "util/logging.h"
 #include "util/build_version.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 DBImplReadOnly::DBImplReadOnly(const Options& options,
     const std::string& dbname)

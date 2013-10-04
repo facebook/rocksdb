@@ -19,7 +19,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 class SstFileReader {
  public:
@@ -119,7 +119,7 @@ Status SstFileReader::ReadSequential(bool print_kv,
    return ret;
 }
 
-} // namespace leveldb
+} // namespace rocksdb
 
 static void print_help() {
   fprintf(stderr,
@@ -206,8 +206,8 @@ int main(int argc, char** argv) {
   }
 
   std::vector<std::string> filenames;
-  leveldb::Env* env = leveldb::Env::Default();
-  leveldb::Status st = env->GetChildren(dir_or_file, &filenames);
+  rocksdb::Env* env = rocksdb::Env::Default();
+  rocksdb::Status st = env->GetChildren(dir_or_file, &filenames);
   bool dir = true;
   if (!st.ok()) {
     filenames.clear();
@@ -215,8 +215,8 @@ int main(int argc, char** argv) {
     dir = false;
   }
 
-  std::cout << "from [" << leveldb::Slice(from_key).ToString(true)
-            << "] to [" << leveldb::Slice(to_key).ToString(true) << "]\n";
+  std::cout << "from [" << rocksdb::Slice(from_key).ToString(true)
+            << "] to [" << rocksdb::Slice(to_key).ToString(true) << "]\n";
 
   uint64_t total_read = 0;
   for (size_t i = 0; i < filenames.size(); i++) {
@@ -229,9 +229,9 @@ int main(int argc, char** argv) {
     if(dir) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
-    leveldb::SstFileReader reader(filename, verify_checksum,
+    rocksdb::SstFileReader reader(filename, verify_checksum,
                                   output_hex);
-    leveldb::Status st;
+    rocksdb::Status st;
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
       st = reader.ReadSequential(command != "check",

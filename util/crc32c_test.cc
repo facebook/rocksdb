@@ -5,7 +5,7 @@
 #include "util/crc32c.h"
 #include "util/testharness.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace crc32c {
 
 class CRC { };
@@ -65,8 +65,8 @@ TEST(CRC, Mask) {
 }
 
 }  // namespace crc32c
-}  // namespace leveldb
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return leveldb::test::RunAllTests();
+  return rocksdb::test::RunAllTests();
 }

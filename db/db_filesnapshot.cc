@@ -13,7 +13,7 @@
 #include "port/port.h"
 #include "util/mutexlock.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 Status DBImpl::DisableFileDeletions() {
   MutexLock l(&mutex_);

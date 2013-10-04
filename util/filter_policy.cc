@@ -4,8 +4,8 @@
 
 #include "rocksdb/filter_policy.h"
 
-namespace leveldb {
+namespace rocksdb {
 
 FilterPolicy::~FilterPolicy() { }
 
-}  // namespace leveldb
+}  // namespace rocksdb

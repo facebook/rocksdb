@@ -9,7 +9,7 @@
 #include <string.h>
 #include "util/logging.h"
 
-namespace leveldb {
+namespace rocksdb {
 namespace port {
 
 static void PthreadCall(const char* label, int result) {
@@ -78,4 +78,4 @@ void InitOnce(OnceType* once, void (*initializer)()) {
 }
 
 }  // namespace port
-}  // namespace leveldb
+}  // namespace rocksdb

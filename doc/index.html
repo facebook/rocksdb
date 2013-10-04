@@ -25,27 +25,27 @@ creating it if necessary:
   #include &lt;assert&gt;
   #include "leveldb/db.h"
 
-  leveldb::DB* db;
-  leveldb::Options options;
+  rocksdb::DB* db;
+  rocksdb::Options options;
   options.create_if_missing = true;
-  leveldb::Status status = leveldb::DB::Open(options, "/tmp/testdb", &amp;db);
+  rocksdb::Status status = rocksdb::DB::Open(options, "/tmp/testdb", &amp;db);
   assert(status.ok());
   ...
 </pre>
 If you want to raise an error if the database already exists, add
-the following line before the <code>leveldb::DB::Open</code> call:
+the following line before the <code>rocksdb::DB::Open</code> call:
 <pre>
   options.error_if_exists = true;
 </pre>
 <h1>Status</h1>
 <p>
-You may have noticed the <code>leveldb::Status</code> type above.  Values of this
+You may have noticed the <code>rocksdb::Status</code> type above.  Values of this
 type are returned by most functions in <code>leveldb</code> that may encounter an
 error.  You can check if such a result is ok, and also print an
 associated error message:
 <p>
 <pre>
-   leveldb::Status s = ...;
+   rocksdb::Status s = ...;
    if (!s.ok()) cerr &lt;&lt; s.ToString() &lt;&lt; endl;
 </pre>
 <h1>Closing A Database</h1>
@@ -65,9 +65,9 @@ modify/query the database.  For example, the following code
 moves the value stored under key1 to key2.
 <pre>
   std::string value;
-  leveldb::Status s = db-&gt;Get(leveldb::ReadOptions(), key1, &amp;value);
-  if (s.ok()) s = db-&gt;Put(leveldb::WriteOptions(), key2, value);
-  if (s.ok()) s = db-&gt;Delete(leveldb::WriteOptions(), key1);
+  rocksdb::Status s = db-&gt;Get(rocksdb::ReadOptions(), key1, &amp;value);
+  if (s.ok()) s = db-&gt;Put(rocksdb::WriteOptions(), key2, value);
+  if (s.ok()) s = db-&gt;Delete(rocksdb::WriteOptions(), key1);
 </pre>
 
 <h1>Atomic Updates</h1>
@@ -81,12 +81,12 @@ atomically apply a set of updates:
   #include "leveldb/write_batch.h"
   ...
   std::string value;
-  leveldb::Status s = db-&gt;Get(leveldb::ReadOptions(), key1, &amp;value);
+  rocksdb::Status s = db-&gt;Get(rocksdb::ReadOptions(), key1, &amp;value);
   if (s.ok()) {
-    leveldb::WriteBatch batch;
+    rocksdb::WriteBatch batch;
     batch.Delete(key1);
     batch.Put(key2, value);
-    s = db-&gt;Write(leveldb::WriteOptions(), &amp;batch);
+    s = db-&gt;Write(rocksdb::WriteOptions(), &amp;batch);
   }
 </pre>
 The <code>WriteBatch</code> holds a sequence of edits to be made to the database,
@@ -109,7 +109,7 @@ persistent storage.  (On Posix systems, this is implemented by calling
 either <code>fsync(...)</code> or <code>fdatasync(...)</code> or
 <code>msync(..., MS_SYNC)</code> before the write operation returns.)
 <pre>
-  leveldb::WriteOptions write_options;
+  rocksdb::WriteOptions write_options;
   write_options.sync = true;
   db-&gt;Put(write_options, ...);
 </pre>
@@ -144,7 +144,7 @@ the batch.
 A database may only be opened by one process at a time.
 The <code>leveldb</code> implementation acquires a lock from the
 operating system to prevent misuse.  Within a single process, the
-same <code>leveldb::DB</code> object may be safely shared by multiple
+same <code>rocksdb::DB</code> object may be safely shared by multiple
 concurrent threads.  I.e., different threads may write into or fetch
 iterators or call <code>Get</code> on the same database without any
 external synchronization (the leveldb implementation will
@@ -160,7 +160,7 @@ The following example demonstrates how to print all key,value pairs
 in a database.
 <p>
 <pre>
-  leveldb::Iterator* it = db-&gt;NewIterator(leveldb::ReadOptions());
+  rocksdb::Iterator* it = db-&gt;NewIterator(rocksdb::ReadOptions());
   for (it-&gt;SeekToFirst(); it-&gt;Valid(); it-&gt;Next()) {
     cout &lt;&lt; it-&gt;key().ToString() &lt;&lt; ": "  &lt;&lt; it-&gt;value().ToString() &lt;&lt; endl;
   }
@@ -196,10 +196,10 @@ implicit snapshot of the current state.
 Snapshots are created by the DB::GetSnapshot() method:
 <p>
 <pre>
-  leveldb::ReadOptions options;
+  rocksdb::ReadOptions options;
   options.snapshot = db-&gt;GetSnapshot();
   ... apply some updates to db ...
-  leveldb::Iterator* iter = db-&gt;NewIterator(options);
+  rocksdb::Iterator* iter = db-&gt;NewIterator(options);
   ... read using iter to view the state when the snapshot was created ...
   delete iter;
   db-&gt;ReleaseSnapshot(options.snapshot);
@@ -211,7 +211,7 @@ support reading as of that snapshot.
 <h1>Slice</h1>
 <p>
 The return value of the <code>it->key()</code> and <code>it->value()</code> calls above
-are instances of the <code>leveldb::Slice</code> type.  <code>Slice</code> is a simple
+are instances of the <code>rocksdb::Slice</code> type.  <code>Slice</code> is a simple
 structure that contains a length and a pointer to an external byte
 array.  Returning a <code>Slice</code> is a cheaper alternative to returning a
 <code>std::string</code> since we do not need to copy potentially large keys and
@@ -223,10 +223,10 @@ C++ strings and null-terminated C-style strings can be easily converted
 to a Slice:
 <p>
 <pre>
-   leveldb::Slice s1 = "hello";
+   rocksdb::Slice s1 = "hello";
 
    std::string str("world");
-   leveldb::Slice s2 = str;
+   rocksdb::Slice s2 = str;
 </pre>
 A Slice can be easily converted back to a C++ string:
 <pre>
@@ -238,7 +238,7 @@ the external byte array into which the Slice points remains live while
 the Slice is in use.  For example, the following is buggy:
 <p>
 <pre>
-   leveldb::Slice slice;
+   rocksdb::Slice slice;
    if (...) {
      std::string str = ...;
      slice = str;
@@ -255,16 +255,16 @@ which orders bytes lexicographically.  You can however supply a custom
 comparator when opening a database.  For example, suppose each
 database key consists of two numbers and we should sort by the first
 number, breaking ties by the second number.  First, define a proper
-subclass of <code>leveldb::Comparator</code> that expresses these rules:
+subclass of <code>rocksdb::Comparator</code> that expresses these rules:
 <p>
 <pre>
-  class TwoPartComparator : public leveldb::Comparator {
+  class TwoPartComparator : public rocksdb::Comparator {
    public:
     // Three-way comparison function:
     //   if a &lt; b: negative result
     //   if a &gt; b: positive result
     //   else: zero result
-    int Compare(const leveldb::Slice&amp; a, const leveldb::Slice&amp; b) const {
+    int Compare(const rocksdb::Slice&amp; a, const rocksdb::Slice&amp; b) const {
       int a1, a2, b1, b2;
       ParseKey(a, &amp;a1, &amp;a2);
       ParseKey(b, &amp;b1, &amp;b2);
@@ -277,7 +277,7 @@ subclass of <code>leveldb::Comparator</code> that expresses these rules:
 
     // Ignore the following methods for now:
     const char* Name() const { return "TwoPartComparator"; }
-    void FindShortestSeparator(std::string*, const leveldb::Slice&amp;) const { }
+    void FindShortestSeparator(std::string*, const rocksdb::Slice&amp;) const { }
     void FindShortSuccessor(std::string*) const { }
   };
 </pre>
@@ -285,18 +285,18 @@ Now create a database using this custom comparator:
 <p>
 <pre>
   TwoPartComparator cmp;
-  leveldb::DB* db;
-  leveldb::Options options;
+  rocksdb::DB* db;
+  rocksdb::Options options;
   options.create_if_missing = true;
   options.comparator = &amp;cmp;
-  leveldb::Status status = leveldb::DB::Open(options, "/tmp/testdb", &amp;db);
+  rocksdb::Status status = rocksdb::DB::Open(options, "/tmp/testdb", &amp;db);
   ...
 </pre>
 <h2>Backwards compatibility</h2>
 <p>
 The result of the comparator's <code>Name</code> method is attached to the
 database when it is created, and is checked on every subsequent
-database open.  If the name changes, the <code>leveldb::DB::Open</code> call will
+database open.  If the name changes, the <code>rocksdb::DB::Open</code> call will
 fail.  Therefore, change the name if and only if the new key format
 and comparison function are incompatible with existing databases, and
 it is ok to discard the contents of all existing databases.
@@ -339,9 +339,9 @@ compression entirely, but should only do so if benchmarks show a
 performance improvement:
 <p>
 <pre>
-  leveldb::Options options;
-  options.compression = leveldb::kNoCompression;
-  ... leveldb::DB::Open(options, name, ...) ....
+  rocksdb::Options options;
+  options.compression = rocksdb::kNoCompression;
+  ... rocksdb::DB::Open(options, name, ...) ....
 </pre>
 <h2>Cache</h2>
 <p>
@@ -353,10 +353,10 @@ uncompressed block contents.
 <pre>
   #include "leveldb/cache.h"
 
-  leveldb::Options options;
-  options.cache = leveldb::NewLRUCache(100 * 1048576);  // 100MB cache
-  leveldb::DB* db;
-  leveldb::DB::Open(options, name, &db);
+  rocksdb::Options options;
+  options.cache = rocksdb::NewLRUCache(100 * 1048576);  // 100MB cache
+  rocksdb::DB* db;
+  rocksdb::DB::Open(options, name, &db);
   ... use the db ...
   delete db
   delete options.cache;
@@ -373,9 +373,9 @@ displacing most of the cached contents.  A per-iterator option can be
 used to achieve this:
 <p>
 <pre>
-  leveldb::ReadOptions options;
+  rocksdb::ReadOptions options;
   options.fill_cache = false;
-  leveldb::Iterator* it = db-&gt;NewIterator(options);
+  rocksdb::Iterator* it = db-&gt;NewIterator(options);
   for (it-&gt;SeekToFirst(); it-&gt;Valid(); it-&gt;Next()) {
     ...
   }
@@ -407,10 +407,10 @@ a single <code>Get()</code> call may involve multiple reads from disk.
 The optional <code>FilterPolicy</code> mechanism can be used to reduce
 the number of disk reads substantially.
 <pre>
-   leveldb::Options options;
+   rocksdb::Options options;
    options.filter_policy = NewBloomFilter(10);
-   leveldb::DB* db;
-   leveldb::DB::Open(options, "/tmp/testdb", &amp;db);
+   rocksdb::DB* db;
+   rocksdb::DB::Open(options, "/tmp/testdb", &amp;db);
    ... use the database ...
    delete db;
    delete options.filter_policy;
@@ -434,7 +434,7 @@ consider a comparator that ignores trailing spaces when comparing keys.
 Instead, the application should provide a custom filter policy that
 also ignores trailing spaces.  For example:
 <pre>
-  class CustomFilterPolicy : public leveldb::FilterPolicy {
+  class CustomFilterPolicy : public rocksdb::FilterPolicy {
    private:
     FilterPolicy* builtin_policy_;
    public:
@@ -484,7 +484,7 @@ checksums are verified:
   parts of its persistent storage have been corrupted.
 <p>
   If a database is corrupted (perhaps it cannot be opened when
-  paranoid checking is turned on), the <code>leveldb::RepairDB</code> function
+  paranoid checking is turned on), the <code>rocksdb::RepairDB</code> function
   may be used to recover as much of the data as possible
 <p>
 </ul>
@@ -494,11 +494,11 @@ The <code>GetApproximateSizes</code> method can used to get the approximate
 number of bytes of file system space used by one or more key ranges.
 <p>
 <pre>
-   leveldb::Range ranges[2];
-   ranges[0] = leveldb::Range("a", "c");
-   ranges[1] = leveldb::Range("x", "z");
+   rocksdb::Range ranges[2];
+   ranges[0] = rocksdb::Range("a", "c");
+   ranges[1] = rocksdb::Range("x", "z");
    uint64_t sizes[2];
-   leveldb::Status s = db-&gt;GetApproximateSizes(ranges, 2, sizes);
+   rocksdb::Status s = db-&gt;GetApproximateSizes(ranges, 2, sizes);
 </pre>
 The preceding call will set <code>sizes[0]</code> to the approximate number of
 bytes of file system space used by the key range <code>[a..c)</code> and
@@ -508,21 +508,21 @@ bytes of file system space used by the key range <code>[a..c)</code> and
 <h1>Environment</h1>
 <p>
 All file operations (and other operating system calls) issued by the
-<code>leveldb</code> implementation are routed through a <code>leveldb::Env</code> object.
+<code>leveldb</code> implementation are routed through a <code>rocksdb::Env</code> object.
 Sophisticated clients may wish to provide their own <code>Env</code>
 implementation to get better control.  For example, an application may
 introduce artificial delays in the file IO paths to limit the impact
 of <code>leveldb</code> on other activities in the system.
 <p>
 <pre>
-  class SlowEnv : public leveldb::Env {
+  class SlowEnv : public rocksdb::Env {
     .. implementation of the Env interface ...
   };
 
   SlowEnv env;
-  leveldb::Options options;
+  rocksdb::Options options;
   options.env = &amp;env;
-  Status s = leveldb::DB::Open(options, ...);
+  Status s = rocksdb::DB::Open(options, ...);
 </pre>
 <h1>Porting</h1>
 <p>
@@ -531,7 +531,7 @@ specific implementations of the types/methods/functions exported by
 <code>leveldb/port/port.h</code>.  See <code>leveldb/port/port_example.h</code> for more
 details.
 <p>
-In addition, the new platform may need a new default <code>leveldb::Env</code>
+In addition, the new platform may need a new default <code>rocksdb::Env</code>
 implementation.  See <code>leveldb/util/env_posix.h</code> for an example.
 
 <h1>Other Information</h1>
