@@ -249,7 +249,7 @@ class DBTest {
              env_(new SpecialEnv(Env::Default())) {
     filter_policy_ = NewBloomFilterPolicy(10);
     dbname_ = test::TmpDir() + "/db_test";
-    DestroyDB(dbname_, Options());
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
@@ -277,6 +277,7 @@ class DBTest {
     }
 
     if (option_config_ >= kEnd) {
+      Destroy(&last_options_);
       return false;
     } else {
       DestroyAndReopen();
@@ -285,10 +286,10 @@ class DBTest {
   }
 
   // Switch between different compaction styles (we have only 2 now).
-  bool ChangeCompactOptions() {
+  bool ChangeCompactOptions(Options* options = nullptr) {
     if (option_config_ == kDefault) {
       option_config_ = kUniversalCompaction;
-      DestroyAndReopen();
+      DestroyAndReopen(options);
       return true;
     } else {
       return false;
@@ -321,7 +322,8 @@ class DBTest {
       case kManifestFileSize:
         options.max_manifest_file_size = 50; // 50 bytes
       case kCompactOnFlush:
-        options.purge_redundant_kvs_while_flush = !options.purge_redundant_kvs_while_flush;
+        options.purge_redundant_kvs_while_flush =
+          !options.purge_redundant_kvs_while_flush;
         break;
       case kPerfOptions:
         options.hard_rate_limit = 2.0;
@@ -360,10 +362,15 @@ class DBTest {
   }
 
   void DestroyAndReopen(Options* options = nullptr) {
+    //Destroy using last options
+    Destroy(&last_options_);
+    ASSERT_OK(TryReopen(options));
+  }
+
+  void Destroy(Options* options) {
     delete db_;
     db_ = nullptr;
-    DestroyDB(dbname_, Options());
-    ASSERT_OK(TryReopen(options));
+    DestroyDB(dbname_, *options);
   }
 
   Status PureReopen(Options* options, DB** db) {
@@ -599,7 +606,7 @@ class DBTest {
     const SequenceNumber seq) {
     unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
-    ASSERT_TRUE(status.ok());
+    ASSERT_OK(status);
     ASSERT_TRUE(iter->Valid());
     return std::move(iter);
   }
@@ -904,7 +911,7 @@ TEST(DBTest, NonBlockingIteration) {
     Iterator* iter = db_->NewIterator(non_blocking_opts);
     int count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_TRUE(iter->status().ok());
+      ASSERT_OK(iter->status());
       count++;
     }
     ASSERT_EQ(count, 1);
@@ -940,7 +947,7 @@ TEST(DBTest, NonBlockingIteration) {
     iter = db_->NewIterator(non_blocking_opts);
     count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_TRUE(iter->status().ok());
+      ASSERT_OK(iter->status());
       count++;
     }
     ASSERT_EQ(count, 1);
@@ -1397,10 +1404,10 @@ TEST(DBTest, CheckLock) {
   do {
     DB* localdb;
     Options options = CurrentOptions();
-    ASSERT_TRUE(TryReopen(&options).ok());
+    ASSERT_OK(TryReopen(&options));
 
     // second open should fail
-    ASSERT_TRUE(!(PureReopen(&options, &localdb).ok()));
+    ASSERT_TRUE(!(PureReopen(&options, &localdb)).ok());
   } while (ChangeCompactOptions());
 }
 
@@ -2226,7 +2233,7 @@ TEST(DBTest, CompactionFilter) {
   int total = 0;
   Iterator* iter = dbfull()->TEST_NewInternalIterator();
   iter->SeekToFirst();
-  ASSERT_EQ(iter->status().ok(), true);
+  ASSERT_OK(iter->status());
   while (iter->Valid()) {
     ParsedInternalKey ikey;
     ikey.sequence = -1;
@@ -2311,7 +2318,7 @@ TEST(DBTest, CompactionFilter) {
   count = 0;
   iter = dbfull()->TEST_NewInternalIterator();
   iter->SeekToFirst();
-  ASSERT_EQ(iter->status().ok(), true);
+  ASSERT_OK(iter->status());
   while (iter->Valid()) {
     ParsedInternalKey ikey;
     ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
@@ -2715,7 +2722,7 @@ TEST(DBTest, OverlapInLevel0) {
     int tmp = dbfull()->MaxMemCompactionLevel();
     ASSERT_EQ(tmp, 2) << "Fix test to match config";
 
-    // Fill levels 1 and 2 to disable the pushing of new memtables to levels > 0.
+    //Fill levels 1 and 2 to disable the pushing of new memtables to levels > 0.
     ASSERT_OK(Put("100", "v100"));
     ASSERT_OK(Put("999", "v999"));
     dbfull()->TEST_CompactMemTable();
@@ -2919,7 +2926,7 @@ TEST(DBTest, ManualCompaction) {
 
 TEST(DBTest, DBOpen_Options) {
   std::string dbname = test::TmpDir() + "/db_options_test";
-  DestroyDB(dbname, Options());
+  ASSERT_OK(DestroyDB(dbname, Options()));
 
   // Does not exist, and create_if_missing == false: error
   DB* db = nullptr;
@@ -2958,7 +2965,7 @@ TEST(DBTest, DBOpen_Options) {
 
 TEST(DBTest, DBOpen_Change_NumLevels) {
   std::string dbname = test::TmpDir() + "/db_change_num_levels";
-  DestroyDB(dbname, Options());
+  ASSERT_OK(DestroyDB(dbname, Options()));
   Options opts;
   Status s;
   DB* db = nullptr;
@@ -2985,9 +2992,9 @@ TEST(DBTest, DestroyDBMetaDatabase) {
   std::string metametadbname = MetaDatabaseName(metadbname, 0);
 
   // Destroy previous versions if they exist. Using the long way.
-  DestroyDB(metametadbname, Options());
-  DestroyDB(metadbname, Options());
-  DestroyDB(dbname, Options());
+  ASSERT_OK(DestroyDB(metametadbname, Options()));
+  ASSERT_OK(DestroyDB(metadbname, Options()));
+  ASSERT_OK(DestroyDB(dbname, Options()));
 
   // Setup databases
   Options opts;
@@ -3004,13 +3011,13 @@ TEST(DBTest, DestroyDBMetaDatabase) {
   db = nullptr;
 
   // Delete databases
-  DestroyDB(dbname, Options());
+  ASSERT_OK(DestroyDB(dbname, Options()));
 
   // Check if deletion worked.
   opts.create_if_missing = false;
-  ASSERT_TRUE(!DB::Open(opts, dbname, &db).ok());
-  ASSERT_TRUE(!DB::Open(opts, metadbname, &db).ok());
-  ASSERT_TRUE(!DB::Open(opts, metametadbname, &db).ok());
+  ASSERT_TRUE(!(DB::Open(opts, dbname, &db)).ok());
+  ASSERT_TRUE(!(DB::Open(opts, metadbname, &db)).ok());
+  ASSERT_TRUE(!(DB::Open(opts, metametadbname, &db)).ok());
 }
 
 // Check that number of files does not grow when we are out of space
@@ -3249,7 +3256,7 @@ TEST(DBTest, SnapshotFiles) {
     DB* snapdb;
     opts.create_if_missing = false;
     Status stat = DB::Open(opts, snapdir, &snapdb);
-    ASSERT_TRUE(stat.ok());
+    ASSERT_OK(stat);
 
     ReadOptions roptions;
     std::string val;
@@ -3471,7 +3478,7 @@ void ExpectRecords(
     ASSERT_TRUE(res.sequence > lastSequence);
     ++i;
     lastSequence = res.sequence;
-    ASSERT_TRUE(iter->status().ok());
+    ASSERT_OK(iter->status());
     iter->Next();
   }
   ASSERT_EQ(i, expected_no_records);
@@ -4234,7 +4241,7 @@ TEST(DBTest, PrefixScan) {
     assert(iter->key().starts_with(prefix));
     count++;
   }
-  ASSERT_TRUE(iter->status().ok());
+  ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(count, 2);
   ASSERT_EQ(env_->random_read_counter_.Read(), 2);
@@ -4251,7 +4258,7 @@ TEST(DBTest, PrefixScan) {
     assert(iter->key().starts_with(prefix));
     count++;
   }
-  ASSERT_TRUE(iter->status().ok());
+  ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(count, 2);
   ASSERT_EQ(env_->random_read_counter_.Read(), 2);
@@ -4268,7 +4275,7 @@ TEST(DBTest, PrefixScan) {
     }
     count++;
   }
-  ASSERT_TRUE(iter->status().ok());
+  ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(count, 2);
   ASSERT_EQ(env_->random_read_counter_.Read(), 11);
@@ -4284,7 +4291,7 @@ std::string MakeKey(unsigned int num) {
 
 void BM_LogAndApply(int iters, int num_base_files) {
   std::string dbname = test::TmpDir() + "/rocksdb_test_benchmark";
-  DestroyDB(dbname, Options());
+  ASSERT_OK(DestroyDB(dbname, Options()));
 
   DB* db = nullptr;
   Options opts;
