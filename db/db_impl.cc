@@ -245,10 +245,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   dumpLeveldbBuildVersion(options_.info_log.get());
   options_.Dump(options_.info_log.get());
 
-#ifdef USE_SCRIBE
-  logger_.reset(new ScribeLogger("localhost", 1456));
-#endif
-
   char name[100];
   Status st = env_->GetHostName(name, 100L);
   if (st.ok()) {

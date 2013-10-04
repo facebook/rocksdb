@@ -17,10 +17,6 @@
 #include "port/port.h"
 #include "util/stats_logger.h"
 
-#ifdef USE_SCRIBE
-#include "scribe/scribe_logger.h"
-#endif
-
 namespace rocksdb {
 
 class DBImplReadOnly : public DBImpl {

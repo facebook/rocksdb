@@ -20,10 +20,6 @@
 #include "util/stats_logger.h"
 #include "memtablelist.h"
 
-#ifdef USE_SCRIBE
-#include "scribe/scribe_logger.h"
-#endif
-
 namespace rocksdb {
 
 class MemTable;

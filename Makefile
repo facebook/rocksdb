@@ -156,7 +156,7 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 	done
 
 clean:
-	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) $(THRIFTSERVER) build_config.mk
+	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk
 	-rm -rf ios-x86/* ios-arm/*
 	-find . -name "*.[od]" | xargs --no-run-if-empty rm
 	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" | xargs --no-run-if-empty rm
