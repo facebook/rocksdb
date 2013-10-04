@@ -3039,6 +3039,9 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
   } else if (in == "sstables") {
     *value = versions_->current()->DebugString();
     return true;
+  } else if (in == "num-immutable-mem-table") {
+    *value = std::to_string(imm_.size());
+    return true;
   }
 
   return false;

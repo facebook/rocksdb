@@ -1422,6 +1422,37 @@ TEST(DBTest, FlushMultipleMemtable) {
   } while (ChangeCompactOptions());
 }
 
+TEST(DBTest, NumImmutableMemTable) {
+  do {
+    Options options = CurrentOptions();
+    WriteOptions writeOpt = WriteOptions();
+    writeOpt.disableWAL = true;
+    options.max_write_buffer_number = 4;
+    options.min_write_buffer_number_to_merge = 3;
+    options.write_buffer_size = 1000000;
+    Reopen(&options);
+
+    std::string big_value(1000000, 'x');
+    std::string num;
+
+    ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
+    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_EQ(num, "0");
+
+    ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
+    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_EQ(num, "1");
+
+    ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
+    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_EQ(num, "2");
+
+    dbfull()->Flush(FlushOptions());
+    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_EQ(num, "0");
+  } while (ChangeCompactOptions());
+}
+
 TEST(DBTest, FLUSH) {
   do {
     Options options = CurrentOptions();
