@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_TABLE_ITERATOR_WRAPPER_H_
-#define STORAGE_LEVELDB_TABLE_ITERATOR_WRAPPER_H_
-
+#pragma once
 namespace rocksdb {
 
 // A internal wrapper class with an interface similar to Iterator that
@@ -59,5 +57,3 @@ class IteratorWrapper {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_TABLE_ITERATOR_WRAPPER_H_

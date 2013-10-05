@@ -7,9 +7,7 @@
 // * In addition we support variable length "varint" encoding
 // * Strings are encoded prefixed by their length in varint format
 
-#ifndef STORAGE_LEVELDB_UTIL_CODING_H_
-#define STORAGE_LEVELDB_UTIL_CODING_H_
-
+#pragma once
 #include <stdint.h>
 #include <string.h>
 #include <string>
@@ -130,5 +128,3 @@ extern uint64_t BitStreamGetInt(const Slice* src, size_t offset,
                                 uint32_t bits);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_UTIL_CODING_H_

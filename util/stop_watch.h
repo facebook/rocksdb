@@ -1,6 +1,4 @@
-#ifndef STORAGE_LEVELDB_UTIL_STOP_WATCH_H_
-#define STORAGE_LEVELDB_UTIL_STOP_WATCH_H_
-
+#pragma once
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
 
@@ -65,4 +63,3 @@ class StopWatchNano {
 };
 
 } // namespace rocksdb
-#endif // STORAGE_LEVELDB_UTIL_STOP_WATCH_H_

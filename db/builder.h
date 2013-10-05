@@ -1,10 +1,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
-#ifndef STORAGE_LEVELDB_DB_BUILDER_H_
-#define STORAGE_LEVELDB_DB_BUILDER_H_
-
+#pragma once
 #include "rocksdb/comparator.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
@@ -37,5 +34,3 @@ extern Status BuildTable(const std::string& dbname,
                          const SequenceNumber earliest_seqno_in_memtable);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_BUILDER_H_

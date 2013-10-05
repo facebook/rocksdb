@@ -17,9 +17,7 @@
  */
 // Copyright (c) 2012 Facebook. All rights reserved.
 
-#ifndef LEVELDB_HDFS_FILE_H
-#define LEVELDB_HDFS_FILE_H
-
+#pragma once
 #include <algorithm>
 #include <stdio.h>
 #include <sys/time.h>
@@ -55,7 +53,7 @@ private:
 };
 
 //
-// The HDFS environment for leveldb. This class overrides all the
+// The HDFS environment for rocksdb. This class overrides all the
 // file/dir access methods and delegates the thread-mgmt methods to the
 // default posix environment.
 //
@@ -227,7 +225,7 @@ class HdfsEnv : public Env {
 
  public:
   HdfsEnv(const std::string& fsname) {
-    fprintf(stderr, "You have not build leveldb with HDFS support\n");
+    fprintf(stderr, "You have not build rocksdb with HDFS support\n");
     fprintf(stderr, "Please see hdfs/README for details\n");
     throw new std::exception();
   }
@@ -305,5 +303,3 @@ class HdfsEnv : public Env {
 }
 
 #endif // USE_HDFS
-
-#endif // LEVELDB_HDFS_FILE_H

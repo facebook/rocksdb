@@ -10,7 +10,7 @@ import tempfile
 import subprocess
 
 # This python script runs db_stress multiple times. Some runs with
-# kill_random_test that causes leveldb to crash at various points in code.
+# kill_random_test that causes rocksdb to crash at various points in code.
 
 def main(argv):
     try:

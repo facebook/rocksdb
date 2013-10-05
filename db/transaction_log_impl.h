@@ -1,7 +1,5 @@
 // Copyright 2008-present Facebook. All Rights Reserved.
-#ifndef STORAGE_LEVELDB_INCLUDE_WRITES_ITERATOR_IMPL_H_
-#define STORAGE_LEVELDB_INCLUDE_WRITES_ITERATOR_IMPL_H_
-
+#pragma once
 #include <vector>
 
 #include "rocksdb/env.h"
@@ -96,8 +94,4 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const LogFile* file);
 };
-
-
-
 }  //  namespace rocksdb
-#endif  //  STORAGE_LEVELDB_INCLUDE_WRITES_ITERATOR_IMPL_H_

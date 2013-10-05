@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef LEVELDB_UTILITIES_TTL_DB_TTL_H_
-#define LEVELDB_UTILITIES_TTL_DB_TTL_H_
-
+#pragma once
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/compaction_filter.h"
@@ -360,4 +358,3 @@ class TtlMergeOperator : public MergeOperator {
 };
 
 }
-#endif  // LEVELDB_UTILITIES_TTL_DB_TTL_H_

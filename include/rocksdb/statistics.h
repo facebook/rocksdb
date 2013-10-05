@@ -198,7 +198,7 @@ class Histogram {
 
 /**
  * A dumb ticker which keeps incrementing through its life time.
- * Not thread safe. Locking is currently managed by external leveldb lock
+ * Thread safe. Locking managed by implementation of this interface.
  */
 class Ticker {
  public:

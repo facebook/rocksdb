@@ -6,9 +6,7 @@
 // it allocates a block with pre-defined block size. For a request of big
 // size, it uses malloc to directly get the requested size.
 
-#ifndef STORAGE_LEVELDB_UTIL_ARENA_IMPL_H_
-#define STORAGE_LEVELDB_UTIL_ARENA_IMPL_H_
-
+#pragma once
 #include <cstddef>
 #include <vector>
 #include <assert.h>
@@ -79,5 +77,3 @@ inline char* ArenaImpl::Allocate(size_t bytes) {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_UTIL_ARENA_IMPL_H_

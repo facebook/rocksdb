@@ -18,8 +18,8 @@
 // Copyright (c) 2012 Facebook. All rights reserved.
 
 #ifdef USE_HDFS
-#ifndef LEVELDB_HDFS_FILE_C
-#define LEVELDB_HDFS_FILE_C
+#ifndef ROCKSDB_HDFS_FILE_C
+#define ROCKSDB_HDFS_FILE_C
 
 #include <algorithm>
 #include <stdio.h>
@@ -33,8 +33,8 @@
 #include "hdfs/env_hdfs.h"
 
 //
-// This file defines an HDFS environment for leveldb. It uses the libhdfs
-// api to access HDFS. All HDFS files created by one instance of leveldb
+// This file defines an HDFS environment for rocksdb. It uses the libhdfs
+// api to access HDFS. All HDFS files created by one instance of rocksdb
 // will reside on the same HDFS cluster.
 //
 
@@ -507,7 +507,7 @@ Status HdfsEnv::NewLogger(const std::string& fname,
 
 }  // namespace rocksdb
 
-#endif // LEVELDB_HDFS_FILE_C
+#endif // ROCKSDB_HDFS_FILE_C
 
 #else // USE_HDFS
 

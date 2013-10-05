@@ -10,7 +10,7 @@
 // The liberal use of assertions is encouraged to enforce (1).
 //
 // The factory will be passed an Arena object when a new MemTableRep is
-// requested. The API for this object is in leveldb/arena.h.
+// requested. The API for this object is in rocksdb/arena.h.
 //
 // Users can implement their own memtable representations. We include four
 // types built in:
@@ -177,7 +177,7 @@ public:
 
 // TransformReps are backed by an unordered map of buffers to buckets. When
 // looking up a key, the user key is extracted and a user-supplied transform
-// function (see leveldb/slice_transform.h) is applied to get the key into the
+// function (see rocksdb/slice_transform.h) is applied to get the key into the
 // unordered map. This allows the user to bin user keys based on arbitrary
 // criteria. Two example implementations are UnsortedRepFactory and
 // PrefixHashRepFactory.

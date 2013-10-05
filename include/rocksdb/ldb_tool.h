@@ -10,9 +10,6 @@ class LDBTool {
   void Run(int argc, char** argv, Options = Options());
 };
 
-namespace leveldb = rocksdb;
-
-
 } // namespace rocksdb
 
 #include "rocksdb/rocksdb_to_leveldb.h"

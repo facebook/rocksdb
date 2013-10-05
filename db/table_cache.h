@@ -4,9 +4,7 @@
 //
 // Thread-safe (provides internal synchronization)
 
-#ifndef STORAGE_LEVELDB_DB_TABLE_CACHE_H_
-#define STORAGE_LEVELDB_DB_TABLE_CACHE_H_
-
+#pragma once
 #include <string>
 #include <stdint.h>
 #include "db/dbformat.h"
@@ -73,5 +71,3 @@ class TableCache {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_TABLE_CACHE_H_

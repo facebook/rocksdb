@@ -48,7 +48,7 @@
 
 // This is only set from db_stress.cc and for testing only.
 // If non-zero, kill at various points in source code with probability 1/this
-int leveldb_kill_odds = 0;
+int rocksdb_kill_odds = 0;
 
 namespace rocksdb {
 
@@ -65,7 +65,7 @@ static Status IOError(const std::string& context, int err_number) {
 
 #ifdef NDEBUG
 // empty in release build
-#define TEST_KILL_RANDOM(leveldb_kill_odds)
+#define TEST_KILL_RANDOM(rocksdb_kill_odds)
 #else
 
 // Kill the process with probablity 1/odds for testing.
@@ -88,9 +88,9 @@ static void TestKillRandom(int odds, const std::string& srcfile,
 #define REDUCE_ODDS 2
 #define REDUCE_ODDS2 4
 
-#define TEST_KILL_RANDOM(leveldb_kill_odds) {   \
-  if (leveldb_kill_odds > 0) { \
-    TestKillRandom(leveldb_kill_odds, __FILE__, __LINE__);     \
+#define TEST_KILL_RANDOM(rocksdb_kill_odds) {   \
+  if (rocksdb_kill_odds > 0) { \
+    TestKillRandom(rocksdb_kill_odds, __FILE__, __LINE__);     \
   } \
 }
 
@@ -314,7 +314,7 @@ class PosixMmapFile : public WritableFile {
 
   bool UnmapCurrentRegion() {
     bool result = true;
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (base_ != nullptr) {
       if (last_sync_ < limit_) {
         // Defer syncing this data until next Sync() call, if any
@@ -340,21 +340,21 @@ class PosixMmapFile : public WritableFile {
   Status MapNewRegion() {
     assert(base_ == nullptr);
 
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     int alloc_status = posix_fallocate(fd_, file_offset_, map_size_);
     if (alloc_status != 0) {
       return Status::IOError("Error allocating space to file : " + filename_ +
         "Error : " + strerror(alloc_status));
     }
 
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     void* ptr = mmap(nullptr, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED,
                      fd_, file_offset_);
     if (ptr == MAP_FAILED) {
       return Status::IOError("MMap failed on " + filename_);
     }
 
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     base_ = reinterpret_cast<char*>(ptr);
     limit_ = base_ + map_size_;
@@ -390,7 +390,7 @@ class PosixMmapFile : public WritableFile {
   virtual Status Append(const Slice& data) {
     const char* src = data.data();
     size_t left = data.size();
-    TEST_KILL_RANDOM(leveldb_kill_odds * REDUCE_ODDS);
+    TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS);
     PrepareWrite(GetFileSize(), left);
     while (left > 0) {
       assert(base_ <= dst_);
@@ -402,7 +402,7 @@ class PosixMmapFile : public WritableFile {
           if (!s.ok()) {
             return s;
           }
-          TEST_KILL_RANDOM(leveldb_kill_odds);
+          TEST_KILL_RANDOM(rocksdb_kill_odds);
         }
       }
 
@@ -412,7 +412,7 @@ class PosixMmapFile : public WritableFile {
       src += n;
       left -= n;
     }
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     return Status::OK();
   }
 
@@ -420,7 +420,7 @@ class PosixMmapFile : public WritableFile {
     Status s;
     size_t unused = limit_ - dst_;
 
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     if (!UnmapCurrentRegion()) {
       s = IOError(filename_, errno);
@@ -431,7 +431,7 @@ class PosixMmapFile : public WritableFile {
       }
     }
 
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     if (close(fd_) < 0) {
       if (s.ok()) {
@@ -446,7 +446,7 @@ class PosixMmapFile : public WritableFile {
   }
 
   virtual Status Flush() {
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     return Status::OK();
   }
 
@@ -455,12 +455,12 @@ class PosixMmapFile : public WritableFile {
 
     if (pending_sync_) {
       // Some unmapped data was not synced
-      TEST_KILL_RANDOM(leveldb_kill_odds);
+      TEST_KILL_RANDOM(rocksdb_kill_odds);
       pending_sync_ = false;
       if (fdatasync(fd_) < 0) {
         s = IOError(filename_, errno);
       }
-      TEST_KILL_RANDOM(leveldb_kill_odds * REDUCE_ODDS);
+      TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS);
     }
 
     if (dst_ > last_sync_) {
@@ -469,11 +469,11 @@ class PosixMmapFile : public WritableFile {
       size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
       size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
       last_sync_ = dst_;
-      TEST_KILL_RANDOM(leveldb_kill_odds);
+      TEST_KILL_RANDOM(rocksdb_kill_odds);
       if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
         s = IOError(filename_, errno);
       }
-      TEST_KILL_RANDOM(leveldb_kill_odds);
+      TEST_KILL_RANDOM(rocksdb_kill_odds);
     }
 
     return s;
@@ -485,12 +485,12 @@ class PosixMmapFile : public WritableFile {
   virtual Status Fsync() {
     if (pending_sync_) {
       // Some unmapped data was not synced
-      TEST_KILL_RANDOM(leveldb_kill_odds);
+      TEST_KILL_RANDOM(rocksdb_kill_odds);
       pending_sync_ = false;
       if (fsync(fd_) < 0) {
         return IOError(filename_, errno);
       }
-      TEST_KILL_RANDOM(leveldb_kill_odds);
+      TEST_KILL_RANDOM(rocksdb_kill_odds);
     }
     // This invocation to Sync will not issue the call to
     // fdatasync because pending_sync_ has already been cleared.
@@ -518,7 +518,7 @@ class PosixMmapFile : public WritableFile {
 
 #ifdef OS_LINUX
   virtual Status Allocate(off_t offset, off_t len) {
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
       return Status::OK();
     } else {
@@ -571,7 +571,7 @@ class PosixWritableFile : public WritableFile {
     pending_sync_ = true;
     pending_fsync_ = true;
 
-    TEST_KILL_RANDOM(leveldb_kill_odds * REDUCE_ODDS2);
+    TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
 
     PrepareWrite(GetFileSize(), left);
     // if there is no space in the cache, then flush
@@ -599,7 +599,7 @@ class PosixWritableFile : public WritableFile {
         if (done < 0) {
           return IOError(filename_, errno);
         }
-        TEST_KILL_RANDOM(leveldb_kill_odds);
+        TEST_KILL_RANDOM(rocksdb_kill_odds);
 
         left -= done;
         src += done;
@@ -615,7 +615,7 @@ class PosixWritableFile : public WritableFile {
     if (!s.ok()) {
     }
 
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     if (close(fd_) < 0) {
       if (s.ok()) {
@@ -628,7 +628,7 @@ class PosixWritableFile : public WritableFile {
 
   // write out the cached data to the OS cache
   virtual Status Flush() {
-    TEST_KILL_RANDOM(leveldb_kill_odds * REDUCE_ODDS2);
+    TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
     size_t left = cursize_;
     char* src = buf_.get();
     while (left != 0) {
@@ -636,7 +636,7 @@ class PosixWritableFile : public WritableFile {
       if (done < 0) {
         return IOError(filename_, errno);
       }
-      TEST_KILL_RANDOM(leveldb_kill_odds * REDUCE_ODDS2);
+      TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
       left -= done;
       src += done;
     }
@@ -656,21 +656,21 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status Sync() {
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (pending_sync_ && fdatasync(fd_) < 0) {
       return IOError(filename_, errno);
     }
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     pending_sync_ = false;
     return Status::OK();
   }
 
   virtual Status Fsync() {
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (pending_fsync_ && fsync(fd_) < 0) {
       return IOError(filename_, errno);
     }
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     pending_fsync_ = false;
     pending_sync_ = false;
     return Status::OK();
@@ -691,7 +691,7 @@ class PosixWritableFile : public WritableFile {
 
 #ifdef OS_LINUX
   virtual Status Allocate(off_t offset, off_t len) {
-    TEST_KILL_RANDOM(leveldb_kill_odds);
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
       return Status::OK();
     } else {
@@ -981,7 +981,7 @@ class PosixEnv : public Env {
       *result = env;
     } else {
       char buf[100];
-      snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d", int(geteuid()));
+      snprintf(buf, sizeof(buf), "/tmp/rocksdbtest-%d", int(geteuid()));
       *result = buf;
     }
     // Directory may already exist

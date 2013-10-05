@@ -25,9 +25,7 @@
 // ... prev vs. next pointer ordering ...
 //
 
-#ifndef STORAGE_LEVELDB_DB_SKIPLIST_H_
-#define STORAGE_LEVELDB_DB_SKIPLIST_H_
-
+#pragma once
 #include <assert.h>
 #include <stdlib.h>
 #include "port/port.h"
@@ -401,5 +399,3 @@ bool SkipList<Key,Comparator>::Contains(const Key& key) const {
 }
 
 }  // namespace rocksdb
-
-#endif // STORAGE_LEVELDB_DB_SKIPLIST_H_

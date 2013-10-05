@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef LEVELDB_STORAGE_DB_DB_STATISTICS_H_
-#define LEVELDB_STORAGE_DB_DB_STATISTICS_H_
-
+#pragma once
 #include <cassert>
 #include <stdlib.h>
 #include <vector>
@@ -60,5 +58,3 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
 }
 
 } // namespace rocksdb
-
-#endif // LEVELDB_STORAGE_DB_DB_STATISTICS_H_

@@ -4,9 +4,7 @@
 //
 // File names used by DB code
 
-#ifndef STORAGE_LEVELDB_DB_FILENAME_H_
-#define STORAGE_LEVELDB_DB_FILENAME_H_
-
+#pragma once
 #include <stdint.h>
 #include <string>
 #include "rocksdb/slice.h"
@@ -79,7 +77,7 @@ extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
 extern std::string MetaDatabaseName(const std::string& dbname,
                                     uint64_t number);
 
-// If filename is a leveldb file, store the type of the file in *type.
+// If filename is a rocksdb file, store the type of the file in *type.
 // The number encoded in the filename is stored in *number.  If the
 // filename was successfully parsed, returns true.  Else return false.
 extern bool ParseFileName(const std::string& filename,
@@ -93,5 +91,3 @@ extern Status SetCurrentFile(Env* env, const std::string& dbname,
 
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_FILENAME_H_

@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef STORAGE_LEVELDB_UTIL_LDB_CMD_H_
-#define STORAGE_LEVELDB_UTIL_LDB_CMD_H_
-
+#pragma once
 #include <string>
 #include <iostream>
 #include <sstream>
@@ -681,4 +679,3 @@ private:
 };
 
 } // namespace rocksdb
-#endif // STORAGE_LEVELDB_UTIL_LDB_CMD_H_

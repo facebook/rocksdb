@@ -634,7 +634,7 @@ void InternalDumpCommand::DoCommand() {
 
   if (print_stats_) {
     string stats;
-    if (db_->GetProperty("leveldb.stats", &stats)) {
+    if (db_->GetProperty("rocksdb.stats", &stats)) {
       fprintf(stdout, "%s\n", stats.c_str());
     }
   }
@@ -771,7 +771,7 @@ void DBDumperCommand::DoCommand() {
   uint64_t count = 0;
   if (print_stats_) {
     string stats;
-    if (db_->GetProperty("leveldb.stats", &stats)) {
+    if (db_->GetProperty("rocksdb.stats", &stats)) {
       fprintf(stdout, "%s\n", stats.c_str());
     }
   }
@@ -1080,7 +1080,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   std::string property;
   std::string files_per_level;
   for (int i = 0; i < db_->NumberLevels(); i++) {
-    db_->GetProperty("leveldb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(i),
                      &property);
 
     // format print string
@@ -1100,7 +1100,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   files_per_level = "";
   int num_files = 0;
   for (int i = 0; i < db_->NumberLevels(); i++) {
-    db_->GetProperty("leveldb.num-files-at-level" + NumberToString(i),
+    db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(i),
                      &property);
 
     // format print string

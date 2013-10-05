@@ -1,8 +1,6 @@
 // Copyright (c) 2012 Facebook.
 
-#ifndef STORAGE_LEVELDB_DB_MEMTABLELIST_H_
-#define STORAGE_LEVELDB_DB_MEMTABLELIST_H_
-
+#pragma once
 #include <string>
 #include <list>
 #include <deque>
@@ -100,5 +98,3 @@ class MemTableList {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_MEMTABLELIST_H_

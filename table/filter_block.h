@@ -6,9 +6,7 @@
 // filters (e.g., bloom filters) for all data blocks in the table combined
 // into a single filter block.
 
-#ifndef STORAGE_LEVELDB_TABLE_FILTER_BLOCK_H_
-#define STORAGE_LEVELDB_TABLE_FILTER_BLOCK_H_
-
+#pragma once
 #include <stddef.h>
 #include <stdint.h>
 #include <string>
@@ -76,5 +74,3 @@ class FilterBlockReader {
 };
 
 }
-
-#endif  // STORAGE_LEVELDB_TABLE_FILTER_BLOCK_H_

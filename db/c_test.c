@@ -296,7 +296,7 @@ int main(int argc, char** argv) {
   {
     char* prop = leveldb_property_value(db, "nosuchprop");
     CheckCondition(prop == NULL);
-    prop = leveldb_property_value(db, "leveldb.stats");
+    prop = leveldb_property_value(db, "rocksdb.stats");
     CheckCondition(prop != NULL);
     Free(&prop);
   }

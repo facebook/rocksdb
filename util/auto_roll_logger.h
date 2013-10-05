@@ -5,9 +5,7 @@
 // Logger implementation that can be shared by all environments
 // where enough posix functionality is available.
 
-#ifndef STORAGE_LEVELDB_UTIL_AUTO_ROLL_LOGGER_H
-#define STORAGE_LEVELDB_UTIL_AUTO_ROLL_LOGGER_H
-
+#pragma once
 #include "db/filename.h"
 #include "port/port.h"
 #include "util/posix_logger.h"
@@ -89,5 +87,3 @@ Status CreateLoggerFromOptions(
     std::shared_ptr<Logger>* logger);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_UTIL_AUTO_ROLL_LOGGER_H

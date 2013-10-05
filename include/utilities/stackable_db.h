@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef LEVELDB_INCLUDE_UTILITIES_STACKABLE_DB_H_
-#define LEVELDB_INCLUDE_UTILITIES_STACKABLE_DB_H_
-
+#pragma once
 #include "rocksdb/db.h"
 
 namespace rocksdb {
@@ -161,5 +159,3 @@ class StackableDB : public DB {
 };
 
 } //  namespace rocksdb
-
-#endif  //  LEVELDB_INCLUDE_UTILITIES_STACKABLE_DB_H_

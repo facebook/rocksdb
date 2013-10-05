@@ -5,9 +5,7 @@
 // Must not be included from any .h files to avoid polluting the namespace
 // with macros.
 
-#ifndef STORAGE_LEVELDB_UTIL_LOGGING_H_
-#define STORAGE_LEVELDB_UTIL_LOGGING_H_
-
+#pragma once
 #include <stdio.h>
 #include <stdint.h>
 #include <string>
@@ -43,5 +41,3 @@ extern bool ConsumeChar(Slice* in, char c);
 extern bool ConsumeDecimalNumber(Slice* in, uint64_t* val);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_UTIL_LOGGING_H_

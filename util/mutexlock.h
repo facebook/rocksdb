@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_UTIL_MUTEXLOCK_H_
-#define STORAGE_LEVELDB_UTIL_MUTEXLOCK_H_
-
+#pragma once
 #include "port/port.h"
 
 namespace rocksdb {
@@ -73,6 +71,3 @@ class WriteLock {
 };
 
 }  // namespace rocksdb
-
-
-#endif  // STORAGE_LEVELDB_UTIL_MUTEXLOCK_H_

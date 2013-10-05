@@ -19,7 +19,7 @@ class BytewiseComparatorImpl : public Comparator {
   BytewiseComparatorImpl() { }
 
   virtual const char* Name() const {
-    return "leveldb.BytewiseComparator";
+    return "rocksdb.BytewiseComparator";
   }
 
   virtual int Compare(const Slice& a, const Slice& b) const {

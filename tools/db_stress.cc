@@ -156,7 +156,7 @@ static bool FLAGS_use_fsync = false;
 
 // If non-zero, kill at various points in source code with probability 1/this
 static int FLAGS_kill_random_test = 0;
-extern int leveldb_kill_odds;
+extern int rocksdb_kill_odds;
 
 // If true, do not write WAL for write.
 static bool FLAGS_disable_wal = false;
@@ -1262,7 +1262,7 @@ class StressTest {
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
     options.allow_mmap_reads = FLAGS_use_mmap_reads;
-    leveldb_kill_odds = FLAGS_kill_random_test;
+    rocksdb_kill_odds = FLAGS_kill_random_test;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;

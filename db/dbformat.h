@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_DB_FORMAT_H_
-#define STORAGE_LEVELDB_DB_FORMAT_H_
-
+#pragma once
 #include <stdio.h>
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -90,7 +88,7 @@ class InternalKeyComparator : public Comparator {
   std::string name_;
  public:
   explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c),
-    name_("leveldb.InternalKeyComparator:" +
+    name_("rocksdb.InternalKeyComparator:" +
           std::string(user_comparator_->Name())) {
   }
 
@@ -224,5 +222,3 @@ inline LookupKey::~LookupKey() {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_FORMAT_H_

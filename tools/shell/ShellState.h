@@ -7,7 +7,7 @@ class ShellContext;
 /*
  * Currently, there are four types of state in total
  * 1. start state: the first state the program enters
- * 2. connecting state: the program try to connnect to a leveldb server, whose
+ * 2. connecting state: the program try to connnect to a rocksdb server, whose
  *    previous states could be "start" or "connected" states
  * 3. connected states: the program has already connected to a server, and is
  *    processing user commands

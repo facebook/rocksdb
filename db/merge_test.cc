@@ -85,7 +85,7 @@ class Counters {
     }
   }
 
-  // mapped to a leveldb Delete
+  // mapped to a rocksdb Delete
   bool remove(const string& key) {
     auto s = db_->Delete(delete_option_, key);
 
@@ -97,7 +97,7 @@ class Counters {
     }
   }
 
-  // mapped to a leveldb Get
+  // mapped to a rocksdb Get
   bool get(const string& key, uint64_t *value) {
     string str;
     auto s = db_->Get(get_option_, key, &str);
@@ -159,7 +159,7 @@ class MergeBasedCounters : public Counters {
         merge_option_() {
   }
 
-  // mapped to a leveldb Merge operation
+  // mapped to a rocksdb Merge operation
   virtual bool add(const string& key, uint64_t value) override {
     char encoded[sizeof(uint64_t)];
     EncodeFixed64(encoded, value);

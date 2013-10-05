@@ -489,7 +489,7 @@ class DBTest {
   int NumTableFilesAtLevel(int level) {
     std::string property;
     ASSERT_TRUE(
-        db_->GetProperty("leveldb.num-files-at-level" + NumberToString(level),
+        db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
                          &property));
     return atoi(property.c_str());
   }
@@ -574,7 +574,7 @@ class DBTest {
 
   std::string DumpSSTableList() {
     std::string property;
-    db_->GetProperty("leveldb.sstables", &property);
+    db_->GetProperty("rocksdb.sstables", &property);
     return property;
   }
 
@@ -2802,7 +2802,7 @@ TEST(DBTest, L0_CompactionBug_Issue44_b) {
 TEST(DBTest, ComparatorCheck) {
   class NewComparator : public Comparator {
    public:
-    virtual const char* Name() const { return "leveldb.NewComparator"; }
+    virtual const char* Name() const { return "rocksdb.NewComparator"; }
     virtual int Compare(const Slice& a, const Slice& b) const {
       return BytewiseComparator()->Compare(a, b);
     }
@@ -4283,7 +4283,7 @@ std::string MakeKey(unsigned int num) {
 }
 
 void BM_LogAndApply(int iters, int num_base_files) {
-  std::string dbname = test::TmpDir() + "/leveldb_test_benchmark";
+  std::string dbname = test::TmpDir() + "/rocksdb_test_benchmark";
   DestroyDB(dbname, Options());
 
   DB* db = nullptr;

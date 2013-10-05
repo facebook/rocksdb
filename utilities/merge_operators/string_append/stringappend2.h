@@ -1,5 +1,5 @@
 /**
- * A TEST MergeOperator for rocksdb/leveldb that implements string append.
+ * A TEST MergeOperator for rocksdb that implements string append.
  * It is built using the MergeOperator interface rather than the simpler
  * AssociativeMergeOperator interface. This is useful for testing/benchmarking.
  * While the two operators are semantically the same, all production code

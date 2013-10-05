@@ -1,7 +1,6 @@
 // Copyright 2008-present Facebook. All Rights Reserved.
-#ifndef STORAGE_LEVELDB_ITER_HEAP_H_
-#define STORAGE_LEVELDB_ITER_HEAP_H_
 
+#pragma once
 #include <queue>
 
 #include "rocksdb/comparator.h"
@@ -59,5 +58,3 @@ MinIterHeap NewMinIterHeap(const Comparator* comparator) {
 }
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_ITER_HEAP_H_

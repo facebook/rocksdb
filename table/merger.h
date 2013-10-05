@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_TABLE_MERGER_H_
-#define STORAGE_LEVELDB_TABLE_MERGER_H_
+#pragma once
 
 namespace rocksdb {
 
@@ -22,5 +21,3 @@ extern Iterator* NewMergingIterator(
     const Comparator* comparator, Iterator** children, int n);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_TABLE_MERGER_H_

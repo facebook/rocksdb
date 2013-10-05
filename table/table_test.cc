@@ -38,7 +38,7 @@ namespace {
 class ReverseKeyComparator : public Comparator {
  public:
   virtual const char* Name() const {
-    return "leveldb.ReverseBytewiseComparator";
+    return "rocksdb.ReverseBytewiseComparator";
   }
 
   virtual int Compare(const Slice& a, const Slice& b) const {
@@ -798,7 +798,7 @@ TEST(Harness, RandomizedLongDB) {
   for (int level = 0; level < db()->NumberLevels(); level++) {
     std::string value;
     char name[100];
-    snprintf(name, sizeof(name), "leveldb.num-files-at-level%d", level);
+    snprintf(name, sizeof(name), "rocksdb.num-files-at-level%d", level);
     ASSERT_TRUE(db()->GetProperty(name, &value));
     files += atoi(value.c_str());
   }

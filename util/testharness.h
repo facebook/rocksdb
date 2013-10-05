@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_UTIL_TESTHARNESS_H_
-#define STORAGE_LEVELDB_UTIL_TESTHARNESS_H_
+#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,14 +15,14 @@ namespace rocksdb {
 namespace test {
 
 // Run some of the tests registered by the TEST() macro.  If the
-// environment variable "LEVELDB_TESTS" is not set, runs all tests.
+// environment variable "ROCKSDB_TESTS" is not set, runs all tests.
 // Otherwise, runs only the tests whose name contains the value of
-// "LEVELDB_TESTS" as a substring.  E.g., suppose the tests are:
+// "ROCKSDB_TESTS" as a substring.  E.g., suppose the tests are:
 //    TEST(Foo, Hello) { ... }
 //    TEST(Foo, World) { ... }
-// LEVELDB_TESTS=Hello will run the first test
-// LEVELDB_TESTS=o     will run both tests
-// LEVELDB_TESTS=Junk  will run no tests
+// ROCKSDB_TESTS=Hello will run the first test
+// ROCKSDB_TESTS=o     will run both tests
+// ROCKSDB_TESTS=Junk  will run no tests
 //
 // Returns 0 if all tests pass.
 // Dies or returns a non-zero value if some test fails.
@@ -134,5 +133,3 @@ extern bool RegisterTest(const char* base, const char* name, void (*func)());
 
 }  // namespace test
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_UTIL_TESTHARNESS_H_

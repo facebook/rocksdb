@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef STORAGE_LEVELDB_DB_DB_IMPL_READONLY_H_
-#define STORAGE_LEVELDB_DB_DB_IMPL_READONLY_H_
-
+#pragma once
 #include "db/db_impl.h"
 
 #include <deque>
@@ -73,5 +71,3 @@ private:
 };
 
 }
-
-#endif

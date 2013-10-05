@@ -1,6 +1,4 @@
-#ifndef PERF_CONTEXT_IMP_H
-#define PERF_CONTEXT_IMP_H
-
+#pragma once
 #include "rocksdb/perf_context.h"
 #include "util/stop_watch.h"
 
@@ -29,5 +27,3 @@ inline void BumpPerfTime(uint64_t* time,
 }
 
 }
-
-#endif

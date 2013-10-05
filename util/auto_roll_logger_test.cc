@@ -149,7 +149,7 @@ TEST(AutoRollLoggerTest, RollLogFileByTime) {
 TEST(AutoRollLoggerTest,
      OpenLogFilesMultipleTimesWithOptionLog_max_size) {
   // If only 'log_max_size' options is specified, then every time
-  // when leveldb is restarted, a new empty log file will be created.
+  // when rocksdb is restarted, a new empty log file will be created.
   InitTestDb();
   // WORKAROUND:
   // avoid complier's complaint of "comparison between signed

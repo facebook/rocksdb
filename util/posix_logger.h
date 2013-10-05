@@ -5,9 +5,7 @@
 // Logger implementation that can be shared by all environments
 // where enough posix functionality is available.
 
-#ifndef STORAGE_LEVELDB_UTIL_POSIX_LOGGER_H_
-#define STORAGE_LEVELDB_UTIL_POSIX_LOGGER_H_
-
+#pragma once
 #include <algorithm>
 #include <stdio.h>
 #include <sys/time.h>
@@ -130,5 +128,3 @@ class PosixLogger : public Logger {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_UTIL_POSIX_LOGGER_H_

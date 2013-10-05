@@ -175,11 +175,11 @@ class DB {
   //
   // Valid property names include:
   //
-  //  "leveldb.num-files-at-level<N>" - return the number of files at level <N>,
+  //  "rocksdb.num-files-at-level<N>" - return the number of files at level <N>,
   //     where <N> is an ASCII representation of a level number (e.g. "0").
-  //  "leveldb.stats" - returns a multi-line string that describes statistics
+  //  "rocksdb.stats" - returns a multi-line string that describes statistics
   //     about the internal operation of the DB.
-  //  "leveldb.sstables" - returns a multi-line string that describes all
+  //  "rocksdb.sstables" - returns a multi-line string that describes all
   //     of the sstables that make up the db contents.
   virtual bool GetProperty(const Slice& property, std::string* value) = 0;
 

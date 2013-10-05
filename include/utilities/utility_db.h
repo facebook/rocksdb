@@ -2,14 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_
-#define LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_
-
+#pragma once
 #include "stackable_db.h"
 
 namespace rocksdb {
 
-// This class contains APIs to open leveldb with specific support eg. TTL
+// This class contains APIs to open rocksdb with specific support eg. TTL
 class UtilityDB {
 
   public:
@@ -50,5 +48,3 @@ class UtilityDB {
 };
 
 } //  namespace rocksdb
-
-#endif  //  LEVELDB_INCLUDE_UTILITIES_UTILITY_DB_H_

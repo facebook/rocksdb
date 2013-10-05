@@ -224,7 +224,7 @@ TEST(PerfContextTest, KeyComparisonCount) {
 }
 
 // make perf_context_test
-// export LEVELDB_TESTS=PerfContextTest.SeekKeyComparison
+// export ROCKSDB_TESTS=PerfContextTest.SeekKeyComparison
 // For one memtable:
 // ./perf_context_test --write_buffer_size=500000 --total_keys=10000
 // For two memtables:

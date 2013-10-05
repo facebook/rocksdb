@@ -12,9 +12,7 @@
 // Version,VersionSet are thread-compatible, but require external
 // synchronization on all accesses.
 
-#ifndef STORAGE_LEVELDB_DB_VERSION_SET_H_
-#define STORAGE_LEVELDB_DB_VERSION_SET_H_
-
+#pragma once
 #include <map>
 #include <memory>
 #include <set>
@@ -628,5 +626,3 @@ class Compaction {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_VERSION_SET_H_

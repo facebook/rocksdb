@@ -34,7 +34,7 @@ bool RegisterTest(const char* base, const char* name, void (*func)()) {
 }
 
 int RunAllTests() {
-  const char* matcher = getenv("LEVELDB_TESTS");
+  const char* matcher = getenv("ROCKSDB_TESTS");
 
   int num = 0;
   if (tests != nullptr) {

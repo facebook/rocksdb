@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_INCLUDE_TABLE_H_
-#define STORAGE_LEVELDB_INCLUDE_TABLE_H_
-
+#pragma once
 #include <memory>
 #include <stdint.h>
 #include "rocksdb/iterator.h"
@@ -103,5 +101,3 @@ class Table {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_INCLUDE_TABLE_H_

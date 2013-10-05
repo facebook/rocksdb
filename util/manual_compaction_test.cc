@@ -25,7 +25,7 @@ class ManualCompactionTest { };
 
 TEST(ManualCompactionTest, Test) {
   // Get rid of any state from an old run.
-  std::string dbpath = rocksdb::test::TmpDir() + "/leveldb_cbug_test";
+  std::string dbpath = rocksdb::test::TmpDir() + "/rocksdb_cbug_test";
   DestroyDB(dbpath, rocksdb::Options());
 
   // Open database.  Disable compression since it affects the creation

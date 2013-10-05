@@ -1,5 +1,4 @@
-#ifndef LEVELDB_UTIL_STL_WRAPPERS_H_
-#define LEVELDB_UTIL_STL_WRAPPERS_H_
+#pragma once
 
 #include "util/murmurhash.h"
 #include "util/coding.h"
@@ -45,5 +44,3 @@ namespace stl_wrappers {
   };
 }
 }
-
-#endif // LEVELDB_UTIL_STL_WRAPPERS_H_

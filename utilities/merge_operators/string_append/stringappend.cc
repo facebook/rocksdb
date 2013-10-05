@@ -1,5 +1,5 @@
 /**
- * A MergeOperator for rocksdb/leveldb that implements string append.
+ * A MergeOperator for rocksdb that implements string append.
  * @author Deon Nicholas (dnicholas@fb.com)
  * Copyright 2013 Facebook
  */

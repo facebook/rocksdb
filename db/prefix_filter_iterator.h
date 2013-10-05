@@ -9,9 +9,7 @@
 // underlying iterator would if there happened to be no non-matching
 // keys in the dataset.
 
-#ifndef STORAGE_LEVELDB_DB_PREFIX_FILTER_ITERATOR_H_
-#define STORAGE_LEVELDB_DB_PREFIX_FILTER_ITERATOR_H_
-
+#pragma once
 #include "rocksdb/iterator.h"
 
 namespace rocksdb {
@@ -72,5 +70,3 @@ class PrefixFilterIterator : public Iterator {
 };
 
 }  // namespace rocksdb
-
-#endif

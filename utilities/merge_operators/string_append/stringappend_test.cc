@@ -568,7 +568,7 @@ TEST(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   checker[5] = '\0';
   assert(checker.size() == 8);        // Verify it is still the correct size
 
-  // Check that the leveldb result string matches the desired string
+  // Check that the rocksdb result string matches the desired string
   assert(res.size() == checker.size());
   ASSERT_EQ(res, checker);
 }

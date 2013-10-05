@@ -3,9 +3,7 @@
  * @author Tudor Bosman (tudorb@facebook.com)
  */
 
-#ifndef STORAGE_LEVELDB_UTIL_BIT_SET_H_
-#define STORAGE_LEVELDB_UTIL_BIT_SET_H_
-
+#pragma once
 #include <cassert>
 
 namespace rocksdb {
@@ -71,5 +69,3 @@ class BitSet {
 };
 
 }  // namespace facebook
-
-#endif // STORAGE_LEVELDB_UTIL_BIT_SET_H_

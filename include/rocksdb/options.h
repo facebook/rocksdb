@@ -165,7 +165,7 @@ struct Options {
   // a block is the unit of reading from disk).
 
   // If non-NULL use the specified cache for blocks.
-  // If NULL, leveldb will automatically create and use an 8MB internal cache.
+  // If NULL, rocksdb will automatically create and use an 8MB internal cache.
   // Default: nullptr
   shared_ptr<Cache> block_cache;
 
@@ -497,7 +497,7 @@ struct Options {
   // Default: false
   bool skip_log_error_on_recovery;
 
-  // if not zero, dump leveldb.stats to LOG every stats_dump_period_sec
+  // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
   // Default: 3600 (1 hour)
   unsigned int stats_dump_period_sec;
 

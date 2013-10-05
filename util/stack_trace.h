@@ -1,6 +1,4 @@
-#ifndef STACK_TRACE_H
-#define STACK_TRACE_H
-
+#pragma once
 namespace rocksdb {
 
 // Install a signal handler to print callstack on the following signals:
@@ -9,5 +7,3 @@ namespace rocksdb {
 void InstallStackTraceHandler();
 
 }   // namespace rocksdb
-
-#endif

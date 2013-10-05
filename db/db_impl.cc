@@ -382,7 +382,7 @@ void DBImpl::MaybeDumpStats() {
     // period in rare cases.
     last_stats_dump_time_microsec_ = now_micros;
     std::string stats;
-    GetProperty("leveldb.stats", &stats);
+    GetProperty("rocksdb.stats", &stats);
     Log(options_.info_log, "%s", stats.c_str());
     PrintStatistics();
   }
@@ -630,7 +630,7 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
     //
     // Note that PrevLogNumber() is no longer used, but we pay
     // attention to it in case we are recovering a database
-    // produced by an older version of leveldb.
+    // produced by an older version of rocksdb.
     const uint64_t min_log = versions_->LogNumber();
     const uint64_t prev_log = versions_->PrevLogNumber();
     std::vector<std::string> filenames;
@@ -2846,7 +2846,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
 
   MutexLock l(&mutex_);
   Slice in = property;
-  Slice prefix("leveldb.");
+  Slice prefix("rocksdb.");
   if (!in.starts_with(prefix)) return false;
   in.remove_prefix(prefix.size());
 
@@ -3288,9 +3288,9 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 //
 // A global method that can dump out the build version
 void dumpLeveldbBuildVersion(Logger * log) {
-  Log(log, "Git sha %s", leveldb_build_git_sha);
+  Log(log, "Git sha %s", rocksdb_build_git_sha);
   Log(log, "Compile time %s %s",
-      leveldb_build_compile_time, leveldb_build_compile_date);
+      rocksdb_build_compile_time, rocksdb_build_compile_date);
 }
 
 }  // namespace rocksdb

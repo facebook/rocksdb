@@ -546,7 +546,7 @@ class Stats {
 
         if (FLAGS_stats_per_interval) {
           std::string stats;
-          if (db && db->GetProperty("leveldb.stats", &stats))
+          if (db && db->GetProperty("rocksdb.stats", &stats))
             fprintf(stderr, "%s\n", stats.c_str());
         }
 
@@ -985,11 +985,11 @@ class Benchmark {
       } else if (name == Slice("heapprofile")) {
         HeapProfile();
       } else if (name == Slice("stats")) {
-        PrintStats("leveldb.stats");
+        PrintStats("rocksdb.stats");
       } else if (name == Slice("levelstats")) {
-        PrintStats("leveldb.levelstats");
+        PrintStats("rocksdb.levelstats");
       } else if (name == Slice("sstables")) {
-        PrintStats("leveldb.sstables");
+        PrintStats("rocksdb.sstables");
       } else {
         if (name != Slice()) {  // No error message for empty name
           fprintf(stderr, "unknown benchmark '%s'\n", name.ToString().c_str());

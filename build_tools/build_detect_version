@@ -20,7 +20,7 @@ if [ "$?" = 0 ]; then
   BEGIN {
     print "#include \"build_version.h\"\n"
   }
-  { print "const char* leveldb_build_git_sha = \"leveldb_build_git_sha:" $0"\";" }
+  { print "const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:" $0"\";" }
   ' >  ${VFILE}
 else
   echo "git not found" |
@@ -28,13 +28,13 @@ else
     BEGIN {
       print "#include \"build_version.h\""
     }
-    { print "const char* leveldb_build_git_sha = \"leveldb_build_git_sha:git not found\";" }
+    { print "const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:git not found\";" }
     ' > ${VFILE}
 fi
 
-echo "const char* leveldb_build_git_datetime = \"leveldb_build_git_datetime:$(date)\";" >> ${VFILE}
-echo "const char* leveldb_build_compile_date = __DATE__;" >> ${VFILE}
-echo "const char* leveldb_build_compile_time = __TIME__;" >> ${VFILE}
+echo "const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:$(date)\";" >> ${VFILE}
+echo "const char* rocksdb_build_compile_date = __DATE__;" >> ${VFILE}
+echo "const char* rocksdb_build_compile_time = __TIME__;" >> ${VFILE}
 
 OUTFILE=$ROCKSDB_ROOT/util/build_version.cc
 if [ ! -e $OUTFILE ] || ! cmp -s $VFILE $OUTFILE; then

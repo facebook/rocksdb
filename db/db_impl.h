@@ -1,10 +1,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
-#ifndef STORAGE_LEVELDB_DB_DB_IMPL_H_
-#define STORAGE_LEVELDB_DB_DB_IMPL_H_
-
+#pragma once
 #include <atomic>
 #include <deque>
 #include <set>
@@ -236,7 +233,7 @@ class DBImpl : public DB {
 
   void PrintStatistics();
 
-  // dump leveldb.stats to LOG
+  // dump rocksdb.stats to LOG
   void MaybeDumpStats();
 
   // Return the minimum empty level that could hold the total data in the
@@ -441,5 +438,3 @@ extern Options SanitizeOptions(const std::string& db,
                                const Options& src);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_DB_IMPL_H_

@@ -1,5 +1,4 @@
-#ifndef STATS_LOGGER_H_
-#define STATS_LOGGER_H_
+#pragma once
 
 namespace rocksdb {
 
@@ -20,5 +19,3 @@ class StatsLogger {
 };
 
 }
-
-#endif

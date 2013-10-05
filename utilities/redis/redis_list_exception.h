@@ -5,9 +5,7 @@
  * Copyright 2013 Facebook
  */
 
-#ifndef LEVELDB_REDIS_LIST_EXCEPTION_H
-#define LEVELDB_REDIS_LIST_EXCEPTION_H
-
+#pragma once
 #include <exception>
 
 namespace rocksdb {
@@ -20,5 +18,3 @@ class RedisListException: public std::exception {
 };
 
 } // namespace rocksdb
-
-#endif // LEVELDB_REDIS_LIST_EXCEPTION_H

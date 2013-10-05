@@ -4,9 +4,7 @@
   All code is released to the public domain. For business purposes, Murmurhash is
   under the MIT license.
 */
-#ifndef MURMURHASH_H
-#define MURMURHASH_H
-
+#pragma once
 #include <stdint.h>
 
 #if defined(__x86_64__)
@@ -28,5 +26,3 @@ unsigned int MurmurHashNeutral2 ( const void * key, int len, unsigned int seed )
 typedef unsigned int murmur_t;
 
 #endif
-
-#endif /* MURMURHASH_H */

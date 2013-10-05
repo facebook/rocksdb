@@ -298,7 +298,7 @@ TEST(CorruptionTest, CompactionInputError) {
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_CompactMemTable();
   const int last = dbi->MaxMemCompactionLevel();
-  ASSERT_EQ(1, Property("leveldb.num-files-at-level" + NumberToString(last)));
+  ASSERT_EQ(1, Property("rocksdb.num-files-at-level" + NumberToString(last)));
 
   Corrupt(kTableFile, 100, 1);
   Check(9, 9);
@@ -324,7 +324,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
 
   Build(10);
   dbi->TEST_CompactMemTable();
-  ASSERT_EQ(1, Property("leveldb.num-files-at-level0"));
+  ASSERT_EQ(1, Property("rocksdb.num-files-at-level0"));
 
   Corrupt(kTableFile, 100, 1);
   Check(9, 9);

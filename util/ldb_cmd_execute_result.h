@@ -1,5 +1,4 @@
-#ifndef LEVELDB_UTIL_LDB_CMD_EXECUTE_RESULT_H_
-#define LEVELDB_UTIL_LDB_CMD_EXECUTE_RESULT_H_
+#pragma once
 
 namespace rocksdb {
 
@@ -70,5 +69,3 @@ private:
 };
 
 }
-
-#endif

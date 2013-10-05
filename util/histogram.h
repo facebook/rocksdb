@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef STORAGE_LEVELDB_UTIL_HISTOGRAM_H_
-#define STORAGE_LEVELDB_UTIL_HISTOGRAM_H_
-
+#pragma once
 #include "rocksdb/statistics.h"
 
 #include <cassert>
@@ -74,5 +72,3 @@ class HistogramImpl {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_UTIL_HISTOGRAM_H_

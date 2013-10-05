@@ -13,7 +13,7 @@ class Slice;
 
 // A Comparator object provides a total order across slices that are
 // used as keys in an sstable or a database.  A Comparator implementation
-// must be thread-safe since leveldb may invoke its methods concurrently
+// must be thread-safe since rocksdb may invoke its methods concurrently
 // from multiple threads.
 class Comparator {
  public:
@@ -33,7 +33,7 @@ class Comparator {
   // the comparator implementation changes in a way that will cause
   // the relative ordering of any two keys to change.
   //
-  // Names starting with "leveldb." are reserved and should not be used
+  // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
   virtual const char* Name() const = 0;
 

@@ -5,9 +5,7 @@
 // Log format information shared by reader and writer.
 // See ../doc/log_format.txt for more detail.
 
-#ifndef STORAGE_LEVELDB_DB_LOG_FORMAT_H_
-#define STORAGE_LEVELDB_DB_LOG_FORMAT_H_
-
+#pragma once
 namespace rocksdb {
 namespace log {
 
@@ -31,5 +29,3 @@ static const int kHeaderSize = 4 + 1 + 2;
 
 }  // namespace log
 }  // namespace rocksdb
-
-#endif  // STORAGE_LEVELDB_DB_LOG_FORMAT_H_

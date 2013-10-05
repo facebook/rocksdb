@@ -12,7 +12,7 @@
 
 /*
  * class DBClientProxy maintains:
- * 1. a connection to leveldb service
+ * 1. a connection to rocksdb service
  * 2. a map from db names to opened db handles
  *
  * it's client codes' responsibility to catch all possible exceptions.
