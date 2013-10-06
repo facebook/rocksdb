@@ -1436,19 +1436,19 @@ TEST(DBTest, NumImmutableMemTable) {
     std::string num;
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
-    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
-    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "1");
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
-    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "2");
 
     dbfull()->Flush(FlushOptions());
-    ASSERT_TRUE(dbfull()->GetProperty("leveldb.num-immutable-mem-table", &num));
+    ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
   } while (ChangeCompactOptions());
 }
