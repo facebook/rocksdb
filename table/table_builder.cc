@@ -269,7 +269,11 @@ Status TableBuilder::Finish() {
 
   // Write metaindex block
   if (ok()) {
-    BlockBuilder meta_index_block(&r->options);
+    // We use `BytewiseComparator` as the comparator for meta block.
+    BlockBuilder meta_index_block(
+        r->options.block_restart_interval,
+        BytewiseComparator()
+    );
     if (r->filter_block != nullptr) {
       // Add mapping from "filter.Name" to location of filter data
       std::string key = "filter.";

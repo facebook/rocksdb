@@ -36,13 +36,19 @@
 
 namespace rocksdb {
 
-BlockBuilder::BlockBuilder(const Options* options)
-    : options_(options),
+BlockBuilder::BlockBuilder(int block_restart_interval,
+                           const Comparator* comparator)
+    : block_restart_interval_(block_restart_interval),
+      comparator_(comparator),
       restarts_(),
       counter_(0),
       finished_(false) {
-  assert(options->block_restart_interval >= 1);
+  assert(block_restart_interval_ >= 1);
   restarts_.push_back(0);       // First restart point is at offset 0
+}
+
+BlockBuilder::BlockBuilder(const Options* options)
+    : BlockBuilder(options->block_restart_interval, options->comparator) {
 }
 
 void BlockBuilder::Reset() {
@@ -64,7 +70,7 @@ size_t BlockBuilder::EstimateSizeAfterKV(const Slice& key, const Slice& value)
   const {
   size_t estimate = CurrentSizeEstimate();
   estimate += key.size() + value.size();
-  if (counter_ >= options_->block_restart_interval) {
+  if (counter_ >= block_restart_interval_) {
     estimate += sizeof(uint32_t); // a new restart entry.
   }
 
@@ -88,11 +94,11 @@ Slice BlockBuilder::Finish() {
 void BlockBuilder::Add(const Slice& key, const Slice& value) {
   Slice last_key_piece(last_key_);
   assert(!finished_);
-  assert(counter_ <= options_->block_restart_interval);
+  assert(counter_ <= block_restart_interval_);
   assert(buffer_.empty() // No values yet?
-         || options_->comparator->Compare(key, last_key_piece) > 0);
+         || comparator_->Compare(key, last_key_piece) > 0);
   size_t shared = 0;
-  if (counter_ < options_->block_restart_interval) {
+  if (counter_ < block_restart_interval_) {
     // See how much sharing to do with previous string
     const size_t min_length = std::min(last_key_piece.size(), key.size());
     while ((shared < min_length) && (last_key_piece[shared] == key[shared])) {

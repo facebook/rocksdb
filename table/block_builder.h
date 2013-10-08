@@ -11,9 +11,11 @@
 namespace rocksdb {
 
 struct Options;
+class Comparator;
 
 class BlockBuilder {
  public:
+  BlockBuilder(int block_builder, const Comparator* comparator);
   explicit BlockBuilder(const Options* options);
 
   // Reset the contents as if the BlockBuilder was just constructed.
@@ -41,11 +43,13 @@ class BlockBuilder {
   }
 
  private:
-  const Options*        options_;
-  std::string           buffer_;      // Destination buffer
-  std::vector<uint32_t> restarts_;    // Restart points
-  int                   counter_;     // Number of entries emitted since restart
-  bool                  finished_;    // Has Finish() been called?
+  const int          block_restart_interval_;
+  const Comparator*  comparator_;
+
+  std::string           buffer_;    // Destination buffer
+  std::vector<uint32_t> restarts_;  // Restart points
+  int                   counter_;   // Number of entries emitted since restart
+  bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;
 
   // No copying allowed
