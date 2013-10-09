@@ -60,6 +60,4 @@ extern const Comparator* BytewiseComparator();
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_COMPARATOR_H_

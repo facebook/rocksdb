@@ -12,6 +12,4 @@ typedef uint64_t SequenceNumber;
 
 }  //  namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif //  STORAGE_ROCKSDB_INCLUDE_TYPES_H_

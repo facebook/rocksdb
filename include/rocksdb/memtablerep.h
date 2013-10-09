@@ -256,6 +256,4 @@ public:
 
 }
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif // STORAGE_ROCKSDB_DB_MEMTABLEREP_H_

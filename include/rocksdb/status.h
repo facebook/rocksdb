@@ -123,6 +123,4 @@ inline void Status::operator=(const Status& s) {
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_STATUS_H_

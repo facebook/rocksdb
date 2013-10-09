@@ -96,6 +96,4 @@ class WriteBatch {
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_

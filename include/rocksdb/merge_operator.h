@@ -7,7 +7,7 @@
 
 #include <string>
 #include <deque>
-#include "rocksdb/slice.h"  // TODO: Remove this when migration is done;
+#include "rocksdb/slice.h"
 
 namespace rocksdb {
 
@@ -143,7 +143,5 @@ class AssociativeMergeOperator : public MergeOperator {
 };
 
 }  // namespace rocksdb
-
-#include "rocksdb/rocksdb_to_leveldb.h"
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_

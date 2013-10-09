@@ -99,6 +99,4 @@ extern Iterator* NewErrorIterator(const Status& status);
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_

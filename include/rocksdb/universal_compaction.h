@@ -67,6 +67,4 @@ class CompactionOptionsUniversal {
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_UNIVERSAL_COMPACTION_OPTIONS_H

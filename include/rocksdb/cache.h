@@ -103,6 +103,4 @@ class Cache {
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_UTIL_CACHE_H_

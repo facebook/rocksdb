@@ -260,6 +260,4 @@ inline void SetTickerCount(std::shared_ptr<Statistics> statistics,
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_

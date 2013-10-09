@@ -68,6 +68,4 @@ class DefaultCompactionFilterFactory : public CompactionFilterFactory {
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_

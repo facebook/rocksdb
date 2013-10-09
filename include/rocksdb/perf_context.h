@@ -36,6 +36,4 @@ extern __thread PerfContext perf_context;
 
 }
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif

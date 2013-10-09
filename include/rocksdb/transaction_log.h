@@ -78,6 +78,4 @@ class TransactionLogIterator {
 };
 } //  namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_

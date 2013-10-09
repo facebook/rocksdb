@@ -92,6 +92,4 @@ class TableBuilder {
 
 }  // namespace rocksdb
 
-#include "rocksdb/rocksdb_to_leveldb.h"
-
 #endif  // STORAGE_ROCKSDB_INCLUDE_TABLE_BUILDER_H_
