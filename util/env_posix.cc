@@ -565,7 +565,7 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status Append(const Slice& data) {
-    char* src = (char *)data.data();
+    const char* src = data.data();
     size_t left = data.size();
     Status s;
     pending_sync_ = true;
@@ -701,6 +701,98 @@ class PosixWritableFile : public WritableFile {
 
   virtual Status RangeSync(off64_t offset, off64_t nbytes) {
     if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
+      return Status::OK();
+    } else {
+      return IOError(filename_, errno);
+    }
+  }
+#endif
+};
+
+class PosixRandomRWFile : public RandomRWFile {
+ private:
+  const std::string filename_;
+  int fd_;
+  bool pending_sync_;
+  bool pending_fsync_;
+
+ public:
+  PosixRandomRWFile(const std::string& fname, int fd,
+                    const EnvOptions& options) :
+      filename_(fname),
+      fd_(fd),
+      pending_sync_(false),
+      pending_fsync_(false) {
+    assert(!options.use_mmap_writes && !options.use_mmap_reads);
+  }
+
+  ~PosixRandomRWFile() {
+    if (fd_ >= 0) {
+      Close();
+    }
+  }
+
+  virtual Status Write(uint64_t offset, const Slice& data) {
+    const char* src = data.data();
+    size_t left = data.size();
+    Status s;
+    pending_sync_ = true;
+    pending_fsync_ = true;
+
+    while (left != 0) {
+      ssize_t done = pwrite(fd_, src, left, offset);
+      if (done < 0) {
+        return IOError(filename_, errno);
+      }
+
+      left -= done;
+      src += done;
+      offset += done;
+    }
+
+    return Status::OK();
+  }
+
+  virtual Status Read(uint64_t offset, size_t n, Slice* result,
+                      char* scratch) const {
+    Status s;
+    ssize_t r = pread(fd_, scratch, n, static_cast<off_t>(offset));
+    *result = Slice(scratch, (r < 0) ? 0 : r);
+    if (r < 0) {
+      s = IOError(filename_, errno);
+    }
+    return s;
+  }
+
+  virtual Status Close() {
+    Status s = Status::OK();
+    if (fd_ >= 0 && close(fd_) < 0) {
+      s = IOError(filename_, errno);
+    }
+    fd_ = -1;
+    return s;
+  }
+
+  virtual Status Sync() {
+    if (pending_sync_ && fdatasync(fd_) < 0) {
+      return IOError(filename_, errno);
+    }
+    pending_sync_ = false;
+    return Status::OK();
+  }
+
+  virtual Status Fsync() {
+    if (pending_fsync_ && fsync(fd_) < 0) {
+      return IOError(filename_, errno);
+    }
+    pending_fsync_ = false;
+    pending_sync_ = false;
+    return Status::OK();
+  }
+
+#ifdef OS_LINUX
+  virtual Status Allocate(off_t offset, off_t len) {
+    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
       return Status::OK();
     } else {
       return IOError(filename_, errno);
@@ -851,6 +943,25 @@ class PosixEnv : public Env {
       } else {
         result->reset(new PosixWritableFile(fname, fd, 65536, options));
       }
+    }
+    return s;
+  }
+
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options) {
+    result->reset();
+    Status s;
+    const int fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
+    if (fd < 0) {
+      s = IOError(fname, errno);
+    } else {
+      SetFD_CLOEXEC(fd, &options);
+      // no support for mmap yet
+      if (options.use_mmap_writes || options.use_mmap_reads) {
+        return Status::NotSupported("No support for mmap read/write yet");
+      }
+      result->reset(new PosixRandomRWFile(fname, fd, options));
     }
     return s;
   }
