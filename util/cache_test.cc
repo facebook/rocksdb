@@ -185,7 +185,7 @@ class Value {
  private:
   int v_;
  public:
-  Value(int v) : v_(v) { }
+  explicit Value(int v) : v_(v) { }
 
   ~Value() { std::cout << v_ << " is destructed\n"; }
 };
