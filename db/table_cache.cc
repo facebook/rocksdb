@@ -32,7 +32,10 @@ TableCache::TableCache(const std::string& dbname,
       dbname_(dbname),
       options_(options),
       storage_options_(storage_options),
-      cache_(NewLRUCache(entries, options->table_cache_numshardbits)) {}
+      cache_(
+        NewLRUCache(entries, options->table_cache_numshardbits,
+                    options->table_cache_remove_scan_count_limit)) {
+}
 
 TableCache::~TableCache() {
 }

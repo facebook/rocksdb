@@ -35,33 +35,69 @@ class CacheTest {
   }
 
   static const int kCacheSize = 1000;
+  static const int kNumShardBits = 4;
+  static const int kRemoveScanCountLimit = 16;
+
+  static const int kCacheSize2 = 100;
+  static const int kNumShardBits2 = 2;
+  static const int kRemoveScanCountLimit2 = 200;
+
   std::vector<int> deleted_keys_;
   std::vector<int> deleted_values_;
   shared_ptr<Cache> cache_;
+  shared_ptr<Cache> cache2_;
 
-  CacheTest() : cache_(NewLRUCache(kCacheSize)) {
+  CacheTest() :
+      cache_(NewLRUCache(kCacheSize, kNumShardBits, kRemoveScanCountLimit)),
+      cache2_(NewLRUCache(kCacheSize2, kNumShardBits2,
+                          kRemoveScanCountLimit2)) {
     current_ = this;
   }
 
   ~CacheTest() {
   }
 
-  int Lookup(int key) {
-    Cache::Handle* handle = cache_->Lookup(EncodeKey(key));
-    const int r = (handle == nullptr) ? -1 : DecodeValue(cache_->Value(handle));
+  int Lookup(shared_ptr<Cache> cache, int key) {
+    Cache::Handle* handle = cache->Lookup(EncodeKey(key));
+    const int r = (handle == nullptr) ? -1 : DecodeValue(cache->Value(handle));
     if (handle != nullptr) {
-      cache_->Release(handle);
+      cache->Release(handle);
     }
     return r;
   }
 
+  void Insert(shared_ptr<Cache> cache, int key, int value, int charge = 1) {
+    cache->Release(cache->Insert(EncodeKey(key), EncodeValue(value), charge,
+                                  &CacheTest::Deleter));
+  }
+
+  void Erase(shared_ptr<Cache> cache, int key) {
+    cache->Erase(EncodeKey(key));
+  }
+
+
+  int Lookup(int key) {
+    return Lookup(cache_, key);
+  }
+
   void Insert(int key, int value, int charge = 1) {
-    cache_->Release(cache_->Insert(EncodeKey(key), EncodeValue(value), charge,
-                                   &CacheTest::Deleter));
+    Insert(cache_, key, value, charge);
   }
 
   void Erase(int key) {
-    cache_->Erase(EncodeKey(key));
+    Erase(cache_, key);
+  }
+
+  int Lookup2(int key) {
+    return Lookup(cache2_, key);
+  }
+
+  void Insert2(int key, int value, int charge = 1) {
+    Insert(cache2_, key, value, charge);
+  }
+
+  void Erase2(int key) {
+    Erase(cache2_, key);
   }
 };
 CacheTest* CacheTest::current_;
@@ -146,6 +182,124 @@ TEST(CacheTest, EvictionPolicy) {
   ASSERT_EQ(101, Lookup(100));
   ASSERT_EQ(-1, Lookup(200));
 }
+
+TEST(CacheTest, EvictionPolicyRef) {
+  Insert(100, 101);
+  Insert(101, 102);
+  Insert(102, 103);
+  Insert(103, 104);
+  Insert(200, 101);
+  Insert(201, 102);
+  Insert(202, 103);
+  Insert(203, 104);
+  Cache::Handle* h201 = cache_->Lookup(EncodeKey(200));
+  Cache::Handle* h202 = cache_->Lookup(EncodeKey(201));
+  Cache::Handle* h203 = cache_->Lookup(EncodeKey(202));
+  Cache::Handle* h204 = cache_->Lookup(EncodeKey(203));
+  Insert(300, 101);
+  Insert(301, 102);
+  Insert(302, 103);
+  Insert(303, 104);
+
+  // Insert entries much more than Cache capacity
+  for (int i = 0; i < kCacheSize + 100; i++) {
+    Insert(1000 + i, 2000 + i);
+  }
+
+  // Check whether the entries inserted in the beginning
+  // are evicted. Ones without extra ref are evicted and
+  // those with are not.
+  ASSERT_EQ(-1, Lookup(100));
+  ASSERT_EQ(-1, Lookup(101));
+  ASSERT_EQ(-1, Lookup(102));
+  ASSERT_EQ(-1, Lookup(103));
+
+  ASSERT_EQ(-1, Lookup(300));
+  ASSERT_EQ(-1, Lookup(301));
+  ASSERT_EQ(-1, Lookup(302));
+  ASSERT_EQ(-1, Lookup(303));
+
+  ASSERT_EQ(101, Lookup(200));
+  ASSERT_EQ(102, Lookup(201));
+  ASSERT_EQ(103, Lookup(202));
+  ASSERT_EQ(104, Lookup(203));
+
+  // Cleaning up all the handles
+  cache_->Release(h201);
+  cache_->Release(h202);
+  cache_->Release(h203);
+  cache_->Release(h204);
+}
+
+TEST(CacheTest, EvictionPolicyRef2) {
+  std::vector<Cache::Handle*> handles;
+
+  Insert(100, 101);
+  // Insert entries much more than Cache capacity
+  for (int i = 0; i < kCacheSize + 100; i++) {
+    Insert(1000 + i, 2000 + i);
+    if (i < kCacheSize ) {
+      handles.push_back(cache_->Lookup(EncodeKey(1000 + i)));
+    }
+  }
+
+  // Make sure referenced keys are also possible to be deleted
+  // if there are not sufficient non-referenced keys
+  for (int i = 0; i < 5; i++) {
+    ASSERT_EQ(-1, Lookup(1000 + i));
+  }
+
+  for (int i = kCacheSize; i < kCacheSize + 100; i++) {
+    ASSERT_EQ(2000 + i, Lookup(1000 + i));
+  }
+  ASSERT_EQ(-1, Lookup(100));
+
+  // Cleaning up all the handles
+  while (handles.size() > 0) {
+    cache_->Release(handles.back());
+    handles.pop_back();
+  }
+}
+
+TEST(CacheTest, EvictionPolicyRefLargeScanLimit) {
+  std::vector<Cache::Handle*> handles2;
+
+  // Cache2 has a cache RemoveScanCountLimit higher than cache size
+  // so it would trigger a boundary condition.
+
+  // Populate the cache with 10 more keys than its size.
+  // Reference all keys except one close to the end.
+  for (int i = 0; i < kCacheSize2 + 10; i++) {
+    Insert2(1000 + i, 2000+i);
+    if (i != kCacheSize2 ) {
+      handles2.push_back(cache2_->Lookup(EncodeKey(1000 + i)));
+    }
+  }
+
+  // Make sure referenced keys are also possible to be deleted
+  // if there are not sufficient non-referenced keys
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ(-1, Lookup2(1000 + i));
+  }
+  // The non-referenced value is deleted even if it's accessed
+  // recently.
+  ASSERT_EQ(-1, Lookup2(1000 + kCacheSize2));
+  // Other values recently accessed are not deleted since they
+  // are referenced.
+  for (int i = kCacheSize2 - 10; i < kCacheSize2 + 10; i++) {
+    if (i != kCacheSize2) {
+      ASSERT_EQ(2000 + i, Lookup2(1000 + i));
+    }
+  }
+
+  // Cleaning up all the handles
+  while (handles2.size() > 0) {
+    cache2_->Release(handles2.back());
+    handles2.pop_back();
+  }
+}
+
+
 
 TEST(CacheTest, HeavyEntries) {
   // Add a bunch of light and heavy entries and then count the combined

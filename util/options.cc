@@ -65,6 +65,7 @@ Options::Options()
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       no_block_cache(false),
       table_cache_numshardbits(4),
+      table_cache_remove_scan_count_limit(16),
       arena_block_size(0),
       disable_auto_compactions(false),
       WAL_ttl_seconds(0),
@@ -197,6 +198,8 @@ Options::Dump(Logger* log) const
         no_block_cache);
     Log(log,"               Options.table_cache_numshardbits: %d",
         table_cache_numshardbits);
+    Log(log,"    Options.table_cache_remove_scan_count_limit: %d",
+        table_cache_remove_scan_count_limit);
     Log(log,"                       Options.arena_block_size: %ld",
         arena_block_size);
     Log(log,"    Options.delete_obsolete_files_period_micros: %ld",

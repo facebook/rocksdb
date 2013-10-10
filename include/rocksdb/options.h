@@ -442,6 +442,15 @@ struct Options {
   // Number of shards used for table cache.
   int table_cache_numshardbits;
 
+  // During data eviction of table's LRU cache, it would be inefficient
+  // to strictly follow LRU because this piece of memory will not really
+  // be released unless its refcount falls to zero. Instead, make two
+  // passes: the first pass will release items with refcount = 1,
+  // and if not enough space releases after scanning the number of
+  // elements specified by this parameter, we will remove items in LRU
+  // order.
+  int table_cache_remove_scan_count_limit;
+
   // size of one block in arena memory allocation.
   // If <= 0, a proper value is automatically calculated (usually 1/10 of
   // writer_buffer_size).

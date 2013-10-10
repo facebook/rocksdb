@@ -196,6 +196,8 @@ static const char* FLAGS_db = nullptr;
 // if FLAGS_cache_size is non-negative.
 static int FLAGS_cache_numshardbits = -1;
 
+static int FLAGS_cache_remove_scan_count_limit = 32;
+
 // Verify checksum for every block read from storage
 static bool FLAGS_verify_checksum = false;
 
@@ -816,7 +818,8 @@ class Benchmark {
   Benchmark()
   : cache_(FLAGS_cache_size >= 0 ?
            (FLAGS_cache_numshardbits >= 1 ?
-            NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits) :
+            NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits,
+                        FLAGS_cache_remove_scan_count_limit) :
             NewLRUCache(FLAGS_cache_size)) : nullptr),
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
