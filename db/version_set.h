@@ -30,11 +30,9 @@ namespace log { class Writer; }
 class Compaction;
 class Iterator;
 class MemTable;
-class TableBuilder;
 class TableCache;
 class Version;
 class VersionSet;
-class WritableFile;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.

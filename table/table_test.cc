@@ -4,6 +4,8 @@
 #include <map>
 #include <string>
 #include <memory>
+#include <vector>
+
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -232,7 +234,8 @@ class BlockConstructor: public Constructor {
 
 class TableConstructor: public Constructor {
  public:
-  explicit TableConstructor(const Comparator* cmp)
+  explicit TableConstructor(
+      const Comparator* cmp)
       : Constructor(cmp) {
   }
   ~TableConstructor() {
@@ -845,6 +848,118 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
 }
 
 class TableTest { };
+
+// This test include all the basic checks except those for index size and block
+// size, which will be conducted in separated unit tests.
+TEST(TableTest, BasicTableStats) {
+  TableConstructor c(BytewiseComparator());
+
+  c.Add("a1", "val1");
+  c.Add("b2", "val2");
+  c.Add("c3", "val3");
+  c.Add("d4", "val4");
+  c.Add("e5", "val5");
+  c.Add("f6", "val6");
+  c.Add("g7", "val7");
+  c.Add("h8", "val8");
+  c.Add("j9", "val9");
+
+  std::vector<std::string> keys;
+  KVMap kvmap;
+  Options options;
+  options.compression = kNoCompression;
+  options.block_restart_interval = 1;
+
+  c.Finish(options, &keys, &kvmap);
+
+  auto& stats = c.table()->GetTableStats();
+  ASSERT_EQ(kvmap.size(), stats.num_entries);
+
+  auto raw_key_size = kvmap.size() * 2ul;
+  auto raw_value_size = kvmap.size() * 4ul;
+
+  ASSERT_EQ(raw_key_size, stats.raw_key_size);
+  ASSERT_EQ(raw_value_size, stats.raw_value_size);
+  ASSERT_EQ(1ul, stats.num_data_blocks);
+
+  // Verify data size.
+  BlockBuilder block_builder(&options);
+  for (const auto& item : kvmap) {
+    block_builder.Add(item.first, item.second);
+  }
+  Slice content = block_builder.Finish();
+  ASSERT_EQ(
+      content.size() + kBlockTrailerSize,
+      stats.data_size
+  );
+}
+
+static std::string RandomString(Random* rnd, int len) {
+  std::string r;
+  test::RandomString(rnd, len, &r);
+  return r;
+}
+
+// It's very hard to figure out the index block size of a block accurately.
+// To make sure we get the index size, we just make sure as key number
+// grows, the filter block size also grows.
+TEST(TableTest, IndexSizeStat) {
+  uint64_t last_index_size = 0;
+
+  // we need to use random keys since the pure human readable texts
+  // may be well compressed, resulting insignifcant change of index
+  // block size.
+  Random rnd(test::RandomSeed());
+  std::vector<std::string> keys;
+
+  for (int i = 0; i < 100; ++i) {
+    keys.push_back(RandomString(&rnd, 10000));
+  }
+
+  // Each time we load one more key to the table. the table index block
+  // size is expected to be larger than last time's.
+  for (size_t i = 1; i < keys.size(); ++i) {
+    TableConstructor c(BytewiseComparator());
+    for (size_t j = 0; j < i; ++j) {
+      c.Add(keys[j], "val");
+    }
+
+    std::vector<std::string> ks;
+    KVMap kvmap;
+    Options options;
+    options.compression = kNoCompression;
+    options.block_restart_interval = 1;
+
+    c.Finish(options, &ks, &kvmap);
+    auto index_size =
+      c.table()->GetTableStats().index_size;
+    ASSERT_GT(index_size, last_index_size);
+    last_index_size = index_size;
+  }
+}
+
+TEST(TableTest, NumBlockStat) {
+  Random rnd(test::RandomSeed());
+  TableConstructor c(BytewiseComparator());
+  Options options;
+  options.compression = kNoCompression;
+  options.block_restart_interval = 1;
+  options.block_size = 1000;
+
+  for (int i = 0; i < 10; ++i) {
+    // the key/val are slightly smaller than block size, so that each block
+    // holds roughly one key/value pair.
+    c.Add(RandomString(&rnd, 900), "val");
+  }
+
+  std::vector<std::string> ks;
+  KVMap kvmap;
+  c.Finish(options, &ks, &kvmap);
+  ASSERT_EQ(
+      kvmap.size(),
+      c.table()->GetTableStats().num_data_blocks
+  );
+}
 
 TEST(TableTest, ApproximateOffsetOfPlain) {
   TableConstructor c(BytewiseComparator());

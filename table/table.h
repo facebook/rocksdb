@@ -5,8 +5,9 @@
 #pragma once
 #include <memory>
 #include <stdint.h>
-#include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/table_stats.h"
 
 namespace rocksdb {
 
@@ -25,6 +26,9 @@ using std::unique_ptr;
 // multiple threads without external synchronization.
 class Table {
  public:
+  static const std::string kFilterBlockPrefix;
+  static const std::string kStatsBlock;
+
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
   // retrieving data from the table.
@@ -68,10 +72,13 @@ class Table {
   // posix_fadvise
   void SetupForCompaction();
 
+  const TableStats& GetTableStats() const;
+
  private:
   struct Rep;
   Rep* rep_;
   bool compaction_optimized_;
+
   explicit Table(Rep* rep) : compaction_optimized_(false) { rep_ = rep; }
   static Iterator* BlockReader(void*, const ReadOptions&,
                                const EnvOptions& soptions, const Slice&,
@@ -92,12 +99,22 @@ class Table {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
+  static Status ReadStats(const Slice& handle_value, Rep* rep);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // No copying allowed
   Table(const Table&);
   void operator=(const Table&);
+};
+
+struct TableStatsNames {
+  static const std::string kDataSize;
+  static const std::string kIndexSize;
+  static const std::string kRawKeySize;
+  static const std::string kRawValueSize;
+  static const std::string kNumDataBlocks;
+  static const std::string kNumEntries;
 };
 
 }  // namespace rocksdb

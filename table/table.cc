@@ -16,6 +16,7 @@
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/table.h"
 #include "table/two_level_iterator.h"
 
 #include "util/coding.h"
@@ -50,6 +51,7 @@ struct Table::Rep {
 
   BlockHandle metaindex_handle;  // Handle to metaindex_block: saved from footer
   Block* index_block;
+  TableStats table_stats;
 };
 
 // Helper function to setup the cache key's prefix for the Table.
@@ -168,11 +170,11 @@ void Table::SetupForCompaction() {
   compaction_optimized_ = true;
 }
 
-void Table::ReadMeta(const Footer& footer) {
-  if (rep_->options.filter_policy == nullptr) {
-    return;  // Do not need any metadata
-  }
+const TableStats& Table::GetTableStats() const {
+  return rep_->table_stats;
+}
 
+void Table::ReadMeta(const Footer& footer) {
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
   // it is an empty block.
   //  TODO: we never really verify check sum for meta index block
@@ -184,12 +186,33 @@ void Table::ReadMeta(const Footer& footer) {
   }
 
   Iterator* iter = meta->NewIterator(BytewiseComparator());
-  std::string key = "filter.";
-  key.append(rep_->options.filter_policy->Name());
-  iter->Seek(key);
-  if (iter->Valid() && iter->key() == Slice(key)) {
-    ReadFilter(iter->value());
+  // read filter
+  if (rep_->options.filter_policy) {
+    std::string key = kFilterBlockPrefix;
+    key.append(rep_->options.filter_policy->Name());
+    iter->Seek(key);
+
+    if (iter->Valid() && iter->key() == Slice(key)) {
+      ReadFilter(iter->value());
+    }
   }
+
+  // read stats
+  iter->Seek(kStatsBlock);
+  if (iter->Valid() && iter->key() == Slice(kStatsBlock)) {
+    auto s = iter->status();
+    if (s.ok()) {
+      s = ReadStats(iter->value(), rep_);
+    }
+
+    if (!s.ok()) {
+      auto err_msg =
+        "[Warning] Encountered error while reading data from stats block " +
+        s.ToString();
+      Log(rep_->options.info_log, err_msg.c_str());
+    }
+  }
+
   delete iter;
   delete meta;
 }
@@ -213,6 +236,82 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
     rep_->filter_data = block.data.data();     // Will need to delete later
   }
   rep_->filter = new FilterBlockReader(rep_->options, block.data);
+}
+
+Status Table::ReadStats(const Slice& handle_value, Rep* rep) {
+  Slice v = handle_value;
+  BlockHandle handle;
+  if (!handle.DecodeFrom(&v).ok()) {
+    return Status::InvalidArgument("Failed to decode stats block handle");
+  }
+
+  BlockContents block_contents;
+  Status s = ReadBlockContents(
+      rep->file.get(),
+      ReadOptions(),
+      handle,
+      &block_contents,
+      rep->options.env
+  );
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  Block stats_block(block_contents);
+  std::unique_ptr<Iterator> iter(
+      stats_block.NewIterator(BytewiseComparator())
+  );
+
+  auto& table_stats = rep->table_stats;
+  std::unordered_map<std::string, uint64_t*> predefined_name_stat_map = {
+    { TableStatsNames::kDataSize,      &table_stats.data_size       },
+    { TableStatsNames::kIndexSize,     &table_stats.index_size      },
+    { TableStatsNames::kRawKeySize,    &table_stats.raw_key_size    },
+    { TableStatsNames::kRawValueSize,  &table_stats.raw_value_size  },
+    { TableStatsNames::kNumDataBlocks, &table_stats.num_data_blocks },
+    { TableStatsNames::kNumEntries,    &table_stats.num_entries     },
+  };
+
+  std::string last_key;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    s = iter->status();
+    if (!s.ok()) {
+      break;
+    }
+
+    auto key = iter->key().ToString();
+    // stats block is strictly sorted with no duplicate key.
+    assert(
+        last_key.empty() ||
+        BytewiseComparator()->Compare(key, last_key) > 0
+    );
+    last_key = key;
+
+    auto raw_val = iter->value();
+    auto pos = predefined_name_stat_map.find(key);
+
+    if (pos == predefined_name_stat_map.end()) {
+      // handle user-collected
+      table_stats.user_collected_stats.insert(
+          std::make_pair(iter->key().ToString(), raw_val.ToString())
+      );
+    } else {
+      // handle predefined rocksdb stats
+      uint64_t val;
+      if (!GetVarint64(&raw_val, &val)) {
+        // skip malformed value
+        auto error_msg =
+          "[Warning] detect malformed value in stats meta-block:"
+          "\tkey: " + key + "\tval: " + raw_val.ToString();
+        Log(rep->options.info_log, error_msg.c_str());
+        continue;
+      }
+      *(pos->second) = val;
+    }
+  }
+
+  return s;
 }
 
 Table::~Table() {
@@ -494,5 +593,15 @@ uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
   delete index_iter;
   return result;
 }
+
+const std::string Table::kFilterBlockPrefix = "filter.";
+const std::string Table::kStatsBlock = "rocksdb.stats";
+
+const std::string TableStatsNames::kDataSize = "rocksdb.data.size";
+const std::string TableStatsNames::kIndexSize = "rocksdb.index.size";
+const std::string TableStatsNames::kRawKeySize = "rocksdb.raw.key.size";
+const std::string TableStatsNames::kRawValueSize = "rocksdb.raw.value.size";
+const std::string TableStatsNames::kNumDataBlocks = "rocksdb.num.data.blocks";
+const std::string TableStatsNames::kNumEntries = "rocksdb.num.entries";
 
 }  // namespace rocksdb

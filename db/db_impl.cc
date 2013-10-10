@@ -1972,9 +1972,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           compaction_filter_value.clear();
           bool to_delete =
             compaction_filter->Filter(compact->compaction->level(),
-                                               ikey.user_key, value,
-                                               &compaction_filter_value,
-                                               &value_changed);
+                                      ikey.user_key, value,
+                                      &compaction_filter_value,
+                                      &value_changed);
           if (to_delete) {
             // make a copy of the original key
             delete_key.assign(key.data(), key.data() + key.size());

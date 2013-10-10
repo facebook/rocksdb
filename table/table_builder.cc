@@ -5,6 +5,8 @@
 #include "rocksdb/table_builder.h"
 
 #include <assert.h>
+#include <map>
+
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -12,23 +14,63 @@
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/table.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
 
+namespace {
+
+struct BytewiseLessThan {
+  bool operator()(const std::string& key1, const std::string& key2) {
+    // smaller entries will be placed in front.
+    return comparator->Compare(key1, key2) <= 0;
+  }
+  const Comparator* comparator = BytewiseComparator();
+};
+
+// When writing to a block that requires entries to be sorted by
+// `BytewiseComparator`, we can buffer the content to `BytewiseSortedMap`
+// before writng to store.
+typedef std::map<std::string, std::string, BytewiseLessThan> BytewiseSortedMap;
+
+void AddStats(BytewiseSortedMap& stats, std::string name, uint64_t val) {
+  assert(stats.find(name) == stats.end());
+
+  std::string dst;
+  PutVarint64(&dst, val);
+
+  stats.insert(
+      std::make_pair(name, dst)
+  );
+}
+
+static bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
+  // Check to see if compressed less than 12.5%
+  return compressed_size < raw_size - (raw_size / 8u);
+}
+
+}  // anonymous namespace
+
 struct TableBuilder::Rep {
   Options options;
   Options index_block_options;
   WritableFile* file;
-  uint64_t offset;
+  uint64_t offset = 0;
   Status status;
   BlockBuilder data_block;
   BlockBuilder index_block;
   std::string last_key;
-  int64_t num_entries;
-  bool closed;          // Either Finish() or Abandon() has been called.
+
+  uint64_t num_entries = 0;
+  uint64_t num_data_blocks = 0;
+  uint64_t raw_key_size = 0;
+  uint64_t raw_value_size = 0;
+  uint64_t data_size = 0;
+
+  bool closed = false;  // Either Finish() or Abandon() has been called.
   FilterBlockBuilder* filter_block;
 
   // We do not emit the index entry for a block until we have seen the
@@ -49,11 +91,8 @@ struct TableBuilder::Rep {
       : options(opt),
         index_block_options(opt),
         file(f),
-        offset(0),
         data_block(&options),
         index_block(&index_block_options),
-        num_entries(0),
-        closed(false),
         filter_block(opt.filter_policy == nullptr ? nullptr
                      : new FilterBlockBuilder(opt)),
         pending_index_entry(false) {
@@ -129,8 +168,10 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   }
 
   r->last_key.assign(key.data(), key.size());
-  r->num_entries++;
   r->data_block.Add(key, value);
+  r->num_entries++;
+  r->raw_key_size += key.size();
+  r->raw_value_size += value.size();
 }
 
 void TableBuilder::Flush() {
@@ -147,11 +188,8 @@ void TableBuilder::Flush() {
   if (r->filter_block != nullptr) {
     r->filter_block->StartBlock(r->offset);
   }
-}
-
-static bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
-  // Check to see if compressed less than 12.5%
-  return compressed_size < raw_size - (raw_size / 8u);
+  r->data_size = r->offset;
+  ++r->num_data_blocks;
 }
 
 void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
@@ -267,35 +305,88 @@ Status TableBuilder::Finish() {
                   &filter_block_handle);
   }
 
-  // Write metaindex block
+  // To make sure stats block is able to keep the accurate size of index
+  // block, we will finish writing all index entries here and flush them
+  // to storage after metaindex block is written.
+  if (ok() && (r->pending_index_entry)) {
+      r->options.comparator->FindShortSuccessor(&r->last_key);
+      std::string handle_encoding;
+      r->pending_handle.EncodeTo(&handle_encoding);
+      r->index_block.Add(r->last_key, Slice(handle_encoding));
+      r->pending_index_entry = false;
+  }
+
+  // Write meta blocks and metaindex block with the following order.
+  //    1. [meta block: filter]
+  //    2. [meta block: stats]
+  //    3. [metaindex block]
   if (ok()) {
     // We use `BytewiseComparator` as the comparator for meta block.
     BlockBuilder meta_index_block(
         r->options.block_restart_interval,
         BytewiseComparator()
     );
+    // Key: meta block name
+    // Value: block handle to that meta block
+    BytewiseSortedMap meta_block_handles;
+
+    // Write filter block.
     if (r->filter_block != nullptr) {
-      // Add mapping from "filter.Name" to location of filter data
-      std::string key = "filter.";
+      // Add mapping from "<filter_block_prefix>.Name" to location
+      // of filter data.
+      std::string key = Table::kFilterBlockPrefix;
       key.append(r->options.filter_policy->Name());
       std::string handle_encoding;
       filter_block_handle.EncodeTo(&handle_encoding);
-      meta_index_block.Add(key, handle_encoding);
+      meta_block_handles.insert(
+          std::make_pair(key, handle_encoding)
+      );
     }
 
-    // TODO(postrelease): Add stats and other meta blocks
+    // Write stats block.
+    {
+      BlockBuilder stats_block(
+          r->options.block_restart_interval,
+          BytewiseComparator()
+      );
+
+      BytewiseSortedMap stats;
+
+      // Add basic stats
+      AddStats(stats, TableStatsNames::kRawKeySize, r->raw_key_size);
+      AddStats(stats, TableStatsNames::kRawValueSize, r->raw_value_size);
+      AddStats(stats, TableStatsNames::kDataSize, r->data_size);
+      AddStats(
+          stats,
+          TableStatsNames::kIndexSize,
+          r->index_block.CurrentSizeEstimate() + kBlockTrailerSize
+      );
+      AddStats(stats, TableStatsNames::kNumEntries, r->num_entries);
+      AddStats(stats, TableStatsNames::kNumDataBlocks, r->num_data_blocks);
+
+      for (const auto& stat : stats) {
+        stats_block.Add(stat.first, stat.second);
+      }
+
+      BlockHandle stats_block_handle;
+      WriteBlock(&stats_block, &stats_block_handle);
+
+      std::string handle_encoding;
+      stats_block_handle.EncodeTo(&handle_encoding);
+      meta_block_handles.insert(
+          std::make_pair(Table::kStatsBlock, handle_encoding)
+      );
+    }  // end of stats block writing
+
+    for (const auto& metablock : meta_block_handles) {
+      meta_index_block.Add(metablock.first, metablock.second);
+    }
+
     WriteBlock(&meta_index_block, &metaindex_block_handle);
-  }
+  }  // meta blocks and metaindex block.
 
   // Write index block
   if (ok()) {
-    if (r->pending_index_entry) {
-      r->options.comparator->FindShortSuccessor(&r->last_key);
-      std::string handle_encoding;
-      r->pending_handle.EncodeTo(&handle_encoding);
-      r->index_block.Add(r->last_key, Slice(handle_encoding));
-      r->pending_index_entry = false;
-    }
     WriteBlock(&r->index_block, &index_block_handle);
   }
 
