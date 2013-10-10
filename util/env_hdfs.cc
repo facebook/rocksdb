@@ -374,6 +374,12 @@ Status HdfsEnv::NewWritableFile(const std::string& fname,
   return Status::OK();
 }
 
+Status HdfsEnv::NewRandomRWFile(const std::string& fname,
+                                unique_ptr<RandomRWFile>* result,
+                                const EnvOptions& options) {
+  return Status::NotSupported("NewRandomRWFile not supported on HdfsEnv");
+}
+
 bool HdfsEnv::FileExists(const std::string& fname) {
   int value = hdfsExists(fileSys_, fname.c_str());
   if (value == 0) {

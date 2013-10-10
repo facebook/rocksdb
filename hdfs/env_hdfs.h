@@ -79,6 +79,10 @@ class HdfsEnv : public Env {
   virtual Status NewWritableFile(const std::string& fname,
                                  WritableFile** result);
 
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options);
+
   virtual bool FileExists(const std::string& fname);
 
   virtual Status GetChildren(const std::string& path,
@@ -245,6 +249,12 @@ class HdfsEnv : public Env {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options) {
+    return notsup;
+  }
+
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) {
     return notsup;
   }
