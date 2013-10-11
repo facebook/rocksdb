@@ -3308,8 +3308,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     env->GetChildren(archivedir, &archiveFiles);
     // Delete archival files.
     for (size_t i = 0; i < archiveFiles.size(); ++i) {
-      ParseFileName(archiveFiles[i], &number, &type);
-      if (type == kLogFile) {
+      if (ParseFileName(archiveFiles[i], &number, &type) &&
+          type == kLogFile) {
         Status del = env->DeleteFile(archivedir + "/" + archiveFiles[i]);
         if (result.ok() && !del.ok()) {
           result = del;

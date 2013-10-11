@@ -257,7 +257,7 @@ class DBTest {
 
   ~DBTest() {
     delete db_;
-    DestroyDB(dbname_, Options());
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     delete env_;
     delete filter_policy_;
   }
@@ -378,7 +378,7 @@ class DBTest {
   void Destroy(Options* options) {
     delete db_;
     db_ = nullptr;
-    DestroyDB(dbname_, *options);
+    ASSERT_OK(DestroyDB(dbname_, *options));
   }
 
   Status PureReopen(Options* options, DB** db) {
