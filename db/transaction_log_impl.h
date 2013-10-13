@@ -88,9 +88,11 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   Status OpenLogFile(const LogFile* logFile, unique_ptr<SequentialFile>* file);
   LogReporter reporter_;
   SequenceNumber const * const lastFlushedSequence_;
-  // represents the sequence number being read currently.
-  SequenceNumber currentSequence_;
 
+  SequenceNumber currentBatchSeq_; // sequence number at start of current batch
+  uint64_t currentBatchCount_; // count in current batch
+
+  void SeekToStartSequence();
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const LogFile* file);
 };

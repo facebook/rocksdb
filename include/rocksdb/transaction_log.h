@@ -67,8 +67,8 @@ class TransactionLogIterator {
   // REQUIRES: Valid() to be true.
   virtual void Next() = 0;
 
-  // Return's ok if the iterator is valid.
-  // Return the Error when something has gone wrong.
+  // Returns ok if the iterator is valid.
+  // Returns the Error when something has gone wrong.
   virtual Status status() = 0;
 
   // If valid return's the current write_batch and the sequence number of the

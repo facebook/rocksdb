@@ -20,10 +20,11 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     currentFileIndex_(0),
     lastFlushedSequence_(lastFlushedSequence) {
   assert(startingSequenceNumber_ <= *lastFlushedSequence_);
-  assert(files_.get() != nullptr);
+  assert(files_ != nullptr);
 
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
+  SeekToStartSequence(); // Seek till starting sequence
 }
 
 Status TransactionLogIteratorImpl::OpenLogFile(
@@ -52,7 +53,7 @@ Status TransactionLogIteratorImpl::OpenLogFile(
 BatchResult TransactionLogIteratorImpl::GetBatch()  {
   assert(isValid_);  //  cannot call in a non valid state.
   BatchResult result;
-  result.sequence = currentSequence_;
+  result.sequence = currentBatchSeq_;
   result.writeBatchPtr = std::move(currentBatch_);
   return result;
 }
@@ -65,24 +66,21 @@ bool TransactionLogIteratorImpl::Valid() {
   return started_ && isValid_;
 }
 
-void TransactionLogIteratorImpl::Next() {
-  LogFile* currentLogFile = files_.get()->at(currentFileIndex_).get();
-
-//  First seek to the given seqNo. in the current file.
-  std::string scratch;
-  Slice record;
-  if (!started_) {
-    started_ = true;  // this piece only runs onced.
+void TransactionLogIteratorImpl::SeekToStartSequence() {
+    std::string scratch;
+    Slice record;
     isValid_ = false;
     if (startingSequenceNumber_ > *lastFlushedSequence_) {
       currentStatus_ = Status::IOError("Looking for a sequence, "
-                                        "which is not flushed yet.");
+                                       "which is not flushed yet.");
       return;
     }
-    Status s = OpenLogReader(currentLogFile);
+    if (files_->size() == 0) {
+      return;
+    }
+    Status s = OpenLogReader(files_->at(0).get());
     if (!s.ok()) {
       currentStatus_ = s;
-      isValid_ = false;
       return;
     }
     while (currentLogReader_->ReadRecord(&record, &scratch)) {
@@ -92,23 +90,39 @@ void TransactionLogIteratorImpl::Next() {
         continue;
       }
       UpdateCurrentWriteBatch(record);
-      if (currentSequence_ >= startingSequenceNumber_) {
-        assert(currentSequence_ <= *lastFlushedSequence_);
+      if (currentBatchSeq_ + currentBatchCount_ - 1 >=
+          startingSequenceNumber_) {
+        assert(currentBatchSeq_ <= *lastFlushedSequence_);
         isValid_ = true;
-        break;
+        started_ = true; // set started_ as we could seek till starting sequence
+        return;
       } else {
         isValid_ = false;
       }
     }
-    if (isValid_) {
-      // Done for this iteration
-      return;
+    // Could not find start sequence in first file. Normally this must be the
+    // only file. Otherwise log the error and let the iterator return next entry
+    if (files_->size() != 1) {
+      currentStatus_ = Status::Corruption("Start sequence was not found, "
+                                          "skipping to the next available");
+      reporter_.Corruption(0, currentStatus_);
+      started_ = true; // Let Next find next available entry
+      Next();
     }
+}
+
+void TransactionLogIteratorImpl::Next() {
+  // TODO:Next() says that it requires Valid to be true but this is not true
+  // assert(Valid());
+  std::string scratch;
+  Slice record;
+  isValid_ = false;
+  if (!started_) {  // Runs every time until we can seek to the start sequence
+    return SeekToStartSequence();
   }
-  bool openNextFile = true;
-  while(openNextFile) {
+  while(true) {
     assert(currentLogReader_);
-    if (currentSequence_ < *lastFlushedSequence_) {
+    if (currentBatchSeq_ < *lastFlushedSequence_) {
       if (currentLogReader_->IsEOF()) {
         currentLogReader_->UnmarkEOF();
       }
@@ -119,30 +133,28 @@ void TransactionLogIteratorImpl::Next() {
           continue;
         } else {
           UpdateCurrentWriteBatch(record);
-          openNextFile = false;
-          break;
+          return;
         }
       }
     }
 
-    if (openNextFile) {
-      if (currentFileIndex_ < files_.get()->size() - 1) {
-        ++currentFileIndex_;
-        Status status =OpenLogReader(files_.get()->at(currentFileIndex_).get());
-        if (!status.ok()) {
-          isValid_ = false;
-          currentStatus_ = status;
-          return;
-        }
-      } else {
+    // Open the next file
+    if (currentFileIndex_ < files_->size() - 1) {
+      ++currentFileIndex_;
+      Status status =OpenLogReader(files_->at(currentFileIndex_).get());
+      if (!status.ok()) {
         isValid_ = false;
-        openNextFile = false;
-        if (currentSequence_ == *lastFlushedSequence_) {
-          currentStatus_ = Status::OK();
-        } else {
-          currentStatus_ = Status::IOError(" NO MORE DATA LEFT");
-        }
+        currentStatus_ = status;
+        return;
       }
+    } else {
+      isValid_ = false;
+      if (currentBatchSeq_ == *lastFlushedSequence_) {
+        currentStatus_ = Status::OK();
+      } else {
+        currentStatus_ = Status::IOError(" NO MORE DATA LEFT");
+      }
+      return;
     }
   }
 }
@@ -150,7 +162,8 @@ void TransactionLogIteratorImpl::Next() {
 void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   WriteBatch* batch = new WriteBatch();
   WriteBatchInternal::SetContents(batch, record);
-  currentSequence_ = WriteBatchInternal::Sequence(batch);
+  currentBatchSeq_ = WriteBatchInternal::Sequence(batch);
+  currentBatchCount_ = WriteBatchInternal::Count(batch);
   currentBatch_.reset(batch);
   isValid_ = true;
   currentStatus_ = Status::OK();

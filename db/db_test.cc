@@ -3563,7 +3563,8 @@ TEST(DBTest, TransactionLogIteratorJustEmptyFile) {
     DestroyAndReopen(&options);
     unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
-    ASSERT_TRUE(!status.ok());
+    // Check that an empty iterator is returned
+    ASSERT_TRUE(!iter->Valid());
   } while (ChangeCompactOptions());
 }
 
@@ -3594,7 +3595,7 @@ TEST(DBTest, TransactionLogIteratorBatchOperations) {
     Reopen(&options);
     Put("key4", DummyString(1024));
     auto iter = OpenTransactionLogIter(3);
-    ExpectRecords(1, iter);
+    ExpectRecords(2, iter);
   } while (ChangeCompactOptions());
 }
 

@@ -1117,11 +1117,6 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
     return s;
   }
 
-  if (wal_files->empty()) {
-    return Status::IOError(" NO WAL Files present in the db");
-  }
-  //  std::shared_ptr would have been useful here.
-
   s = RetainProbableWalFiles(*wal_files, seq);
   if (!s.ok()) {
     return s;
@@ -1133,8 +1128,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                    seq,
                                    std::move(wal_files),
                                    &last_flushed_sequence_));
-  iter->get()->Next();
-  return iter->get()->status();
+  return (*iter)->status();
 }
 
 Status DBImpl::RetainProbableWalFiles(VectorLogPtr& all_logs,
