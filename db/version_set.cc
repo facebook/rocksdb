@@ -1430,9 +1430,9 @@ Status VersionSet::Recover() {
       if (s.ok()) {
         if (edit.has_comparator_ &&
             edit.comparator_ != icmp_.user_comparator()->Name()) {
-          s = Status::InvalidArgument(
-              edit.comparator_ + "does not match existing comparator ",
-              icmp_.user_comparator()->Name());
+          s = Status::InvalidArgument(icmp_.user_comparator()->Name(),
+                                      "does not match existing comparator " +
+                                      edit.comparator_);
         }
       }
 
@@ -1548,9 +1548,9 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       if (s.ok()) {
         if (edit.has_comparator_ &&
             edit.comparator_ != icmp_.user_comparator()->Name()) {
-          s = Status::InvalidArgument(
-              edit.comparator_ + "does not match existing comparator ",
-              icmp_.user_comparator()->Name());
+          s = Status::InvalidArgument(icmp_.user_comparator()->Name(),
+                                      "does not match existing comparator " +
+                                      edit.comparator_);
         }
       }
 
