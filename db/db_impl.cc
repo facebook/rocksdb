@@ -924,13 +924,13 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   return s;
 }
 
-Status DBImpl::CompactMemTable(bool* madeProgress) {
+Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress) {
   mutex_.AssertHeld();
   assert(imm_.size() != 0);
 
   if (!imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
-    Log(options_.info_log, "Memcompaction already in progress");
-    Status s = Status::IOError("Memcompaction already in progress");
+    Log(options_.info_log, "FlushMemTableToOutputFile already in progress");
+    Status s = Status::IOError("FlushMemTableToOutputFile already in progress");
     return s;
   }
 
@@ -998,7 +998,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end,
       }
     }
   }
-  TEST_CompactMemTable(); // TODO(sanjay): Skip if memtable does not overlap
+  TEST_FlushMemTable(); // TODO(sanjay): Skip if memtable does not overlap
   for (int level = 0; level < max_level_with_files; level++) {
     TEST_CompactRange(level, begin, end);
   }
@@ -1345,7 +1345,7 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
     if (bg_compaction_scheduled_ == LargeNumber) {
       bg_compaction_scheduled_ = newvalue;
     }
-    MaybeScheduleCompaction();
+    MaybeScheduleFlushOrCompaction();
     while (manual_compaction_ == &manual) {
       bg_cv_.Wait();
     }
@@ -1366,12 +1366,12 @@ Status DBImpl::FlushMemTable(const FlushOptions& options) {
   Status s = Write(WriteOptions(), nullptr);
   if (s.ok() && options.wait) {
     // Wait until the compaction completes
-    s = WaitForCompactMemTable();
+    s = WaitForFlushMemTable();
   }
   return s;
 }
 
-Status DBImpl::WaitForCompactMemTable() {
+Status DBImpl::WaitForFlushMemTable() {
   Status s;
   // Wait until the compaction completes
   MutexLock l(&mutex_);
@@ -1384,16 +1384,21 @@ Status DBImpl::WaitForCompactMemTable() {
   return s;
 }
 
-Status DBImpl::TEST_CompactMemTable() {
+Status DBImpl::TEST_FlushMemTable() {
   return FlushMemTable(FlushOptions());
 }
 
-Status DBImpl::TEST_WaitForCompactMemTable() {
-  return WaitForCompactMemTable();
+Status DBImpl::TEST_WaitForFlushMemTable() {
+  return WaitForFlushMemTable();
 }
 
 Status DBImpl::TEST_WaitForCompact() {
   // Wait until the compaction completes
+
+  // TODO: a bug here. This function actually does not necessarily
+  // wait for compact. It actually waits for scheduled compaction
+  // OR flush to finish.
+
   MutexLock l(&mutex_);
   while ((bg_compaction_scheduled_ || bg_flush_scheduled_) &&
          bg_error_.ok()) {
@@ -1402,7 +1407,7 @@ Status DBImpl::TEST_WaitForCompact() {
   return bg_error_;
 }
 
-void DBImpl::MaybeScheduleCompaction() {
+void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   if (bg_work_gate_closed_) {
     // gate closed for backgrond work
@@ -1442,9 +1447,9 @@ Status DBImpl::BackgroundFlush() {
   while (stat.ok() &&
          imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
     Log(options_.info_log,
-        "BackgroundCallFlush doing CompactMemTable, flush slots available %d",
+        "BackgroundCallFlush doing FlushMemTableToOutputFile, flush slots available %d",
         options_.max_background_flushes - bg_flush_scheduled_);
-    stat = CompactMemTable();
+    stat = FlushMemTableToOutputFile();
   }
   return stat;
 }
@@ -1521,7 +1526,7 @@ void DBImpl::BackgroundCallCompaction() {
   // So reschedule another compaction if we made progress in the
   // last compaction.
   if (madeProgress) {
-    MaybeScheduleCompaction();
+    MaybeScheduleFlushOrCompaction();
   }
   bg_cv_.SignalAll();
 
@@ -1535,9 +1540,10 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   // TODO: remove memtable flush from formal compaction
   while (imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
     Log(options_.info_log,
-        "BackgroundCompaction doing CompactMemTable, compaction slots available %d",
+        "BackgroundCompaction doing FlushMemTableToOutputFile, compaction slots "
+        "available %d",
         options_.max_background_compactions - bg_compaction_scheduled_);
-    Status stat = CompactMemTable(madeProgress);
+    Status stat = FlushMemTableToOutputFile(madeProgress);
     if (!stat.ok()) {
       return stat;
     }
@@ -1590,7 +1596,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     versions_->ReleaseCompactionFiles(c.get(), status);
     *madeProgress = true;
   } else {
-    MaybeScheduleCompaction(); // do more compaction work in parallel.
+    MaybeScheduleFlushOrCompaction(); // do more compaction work in parallel.
     CompactionState* compact = new CompactionState(c.get());
     status = DoCompactionWork(compact);
     CleanupCompaction(compact);
@@ -1914,7 +1920,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       const uint64_t imm_start = env_->NowMicros();
       mutex_.Lock();
       if (imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
-        CompactMemTable();
+        FlushMemTableToOutputFile();
         bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
       }
       mutex_.Unlock();
@@ -2356,7 +2362,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   if (!options_.disable_seek_compaction &&
       have_stat_update && current->UpdateStats(stats)) {
-    MaybeScheduleCompaction();
+    MaybeScheduleFlushOrCompaction();
   }
   mem->Unref();
   imm.UnrefAll();
@@ -2434,7 +2440,7 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   mutex_.Lock();
   if (!options_.disable_seek_compaction &&
       have_stat_update && current->UpdateStats(stats)) {
-    MaybeScheduleCompaction();
+    MaybeScheduleFlushOrCompaction();
   }
   mem->Unref();
   imm.UnrefAll();
@@ -2853,7 +2859,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       mem_->Ref();
       mem_->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room
-      MaybeScheduleCompaction();
+      MaybeScheduleFlushOrCompaction();
     }
   }
   return s;
@@ -3229,7 +3235,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     if (s.ok()) {
       impl->mem_->SetLogNumber(impl->logfile_number_);
       impl->DeleteObsoleteFiles();
-      impl->MaybeScheduleCompaction();
+      impl->MaybeScheduleFlushOrCompaction();
       impl->MaybeScheduleLogDBDeployStats();
     }
   }

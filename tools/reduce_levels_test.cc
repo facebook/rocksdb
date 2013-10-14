@@ -45,7 +45,7 @@ public:
       return Status::InvalidArgument("DB not opened.");
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
-    return db_impl->TEST_CompactMemTable();
+    return db_impl->TEST_FlushMemTable();
   }
 
   void CloseDB() {

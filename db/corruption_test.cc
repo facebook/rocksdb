@@ -230,7 +230,7 @@ TEST(CorruptionTest, NewFileErrorDuringWrite) {
 TEST(CorruptionTest, TableFile) {
   Build(100);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-  dbi->TEST_CompactMemTable();
+  dbi->TEST_FlushMemTable();
   dbi->TEST_CompactRange(0, nullptr, nullptr);
   dbi->TEST_CompactRange(1, nullptr, nullptr);
 
@@ -241,7 +241,7 @@ TEST(CorruptionTest, TableFile) {
 TEST(CorruptionTest, TableFileIndexData) {
   Build(10000);  // Enough to build multiple Tables
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-  dbi->TEST_CompactMemTable();
+  dbi->TEST_FlushMemTable();
 
   Corrupt(kTableFile, -2000, 500);
   Reopen();
@@ -279,7 +279,7 @@ TEST(CorruptionTest, SequenceNumberRecovery) {
 TEST(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "hello"));
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-  dbi->TEST_CompactMemTable();
+  dbi->TEST_FlushMemTable();
   dbi->TEST_CompactRange(0, nullptr, nullptr);
 
   Corrupt(kDescriptorFile, 0, 1000);
@@ -296,7 +296,7 @@ TEST(CorruptionTest, CorruptedDescriptor) {
 TEST(CorruptionTest, CompactionInputError) {
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-  dbi->TEST_CompactMemTable();
+  dbi->TEST_FlushMemTable();
   const int last = dbi->MaxMemCompactionLevel();
   ASSERT_EQ(1, Property("rocksdb.num-files-at-level" + NumberToString(last)));
 
@@ -319,11 +319,11 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   for (int level = 1; level < dbi->NumberLevels(); level++) {
     dbi->Put(WriteOptions(), "", "begin");
     dbi->Put(WriteOptions(), "~", "end");
-    dbi->TEST_CompactMemTable();
+    dbi->TEST_FlushMemTable();
   }
 
   Build(10);
-  dbi->TEST_CompactMemTable();
+  dbi->TEST_FlushMemTable();
   ASSERT_EQ(1, Property("rocksdb.num-files-at-level0"));
 
   Corrupt(kTableFile, 100, 1);
@@ -341,7 +341,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
 TEST(CorruptionTest, UnrelatedKeys) {
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-  dbi->TEST_CompactMemTable();
+  dbi->TEST_FlushMemTable();
   Corrupt(kTableFile, 100, 1);
 
   std::string tmp1, tmp2;
@@ -349,7 +349,7 @@ TEST(CorruptionTest, UnrelatedKeys) {
   std::string v;
   ASSERT_OK(db_->Get(ReadOptions(), Key(1000, &tmp1), &v));
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
-  dbi->TEST_CompactMemTable();
+  dbi->TEST_FlushMemTable();
   ASSERT_OK(db_->Get(ReadOptions(), Key(1000, &tmp1), &v));
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
 }

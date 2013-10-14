@@ -570,7 +570,7 @@ class DBTest {
     for (int i = 0; i < n; i++) {
       Put(small, "begin");
       Put(large, "end");
-      dbfull()->TEST_CompactMemTable();
+      dbfull()->TEST_FlushMemTable();
     }
   }
 
@@ -739,7 +739,7 @@ TEST(DBTest, GetFromImmutableLayer) {
 TEST(DBTest, GetFromVersions) {
   do {
     ASSERT_OK(Put("foo", "v1"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_EQ("v1", Get("foo"));
   } while (ChangeOptions());
 }
@@ -754,7 +754,7 @@ TEST(DBTest, GetSnapshot) {
       ASSERT_OK(Put(key, "v2"));
       ASSERT_EQ("v2", Get(key));
       ASSERT_EQ("v1", Get(key, s1));
-      dbfull()->TEST_CompactMemTable();
+      dbfull()->TEST_FlushMemTable();
       ASSERT_EQ("v2", Get(key));
       ASSERT_EQ("v1", Get(key, s1));
       db_->ReleaseSnapshot(s1);
@@ -770,9 +770,9 @@ TEST(DBTest, GetLevel0Ordering) {
     // one has a smaller "smallest" key.
     ASSERT_OK(Put("bar", "b"));
     ASSERT_OK(Put("foo", "v1"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_OK(Put("foo", "v2"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_EQ("v2", Get("foo"));
   } while (ChangeOptions());
 }
@@ -784,7 +784,7 @@ TEST(DBTest, GetOrderedByLevels) {
     ASSERT_EQ("v1", Get("foo"));
     ASSERT_OK(Put("foo", "v2"));
     ASSERT_EQ("v2", Get("foo"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_EQ("v2", Get("foo"));
   } while (ChangeOptions());
 }
@@ -822,7 +822,7 @@ TEST(DBTest, GetEncountersEmptyLevel) {
       compaction_count++;
       Put("a", "begin");
       Put("z", "end");
-      dbfull()->TEST_CompactMemTable();
+      dbfull()->TEST_FlushMemTable();
     }
 
     // Step 2: clear level 1 if necessary.
@@ -1668,7 +1668,7 @@ TEST(DBTest, CompactionTrigger) {
       values.push_back(RandomString(&rnd, 10000));
       ASSERT_OK(Put(Key(i), values[i]));
     }
-    dbfull()->TEST_WaitForCompactMemTable();
+    dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
   }
 
@@ -1706,7 +1706,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
       ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
-    dbfull()->TEST_WaitForCompactMemTable();
+    dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
   }
 
@@ -1741,7 +1741,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
       ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
-    dbfull()->TEST_WaitForCompactMemTable();
+    dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 3);
   }
 
@@ -1770,7 +1770,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
       ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
-    dbfull()->TEST_WaitForCompactMemTable();
+    dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 3);
   }
 
@@ -1840,7 +1840,7 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
       ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
-    dbfull()->TEST_WaitForCompactMemTable();
+    dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
   }
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
@@ -1873,7 +1873,7 @@ TEST(DBTest, UniversalCompactionOptions) {
       ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
-    dbfull()->TEST_WaitForCompactMemTable();
+    dbfull()->TEST_WaitForFlushMemTable();
 
     if (num < options.level0_file_num_compaction_trigger - 1) {
       ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
@@ -1994,7 +1994,7 @@ void MinLevelHelper(DBTest* self, Options& options) {
       values.push_back(RandomString(&rnd, 10000));
       ASSERT_OK(self->Put(Key(i), values[i]));
     }
-    self->dbfull()->TEST_WaitForCompactMemTable();
+    self->dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(self->NumTableFilesAtLevel(0), num + 1);
   }
 
@@ -2219,7 +2219,7 @@ TEST(DBTest, CompactionFilter) {
     snprintf(key, sizeof(key), "B%010d", i);
     Put(key, value);
   }
-  dbfull()->TEST_CompactMemTable();
+  dbfull()->TEST_FlushMemTable();
 
   // Push all files to the highest level L2. Verify that
   // the compaction is each level invokes the filter for
@@ -2267,7 +2267,7 @@ TEST(DBTest, CompactionFilter) {
     snprintf(key, sizeof(key), "B%010d", i);
     Put(key, value);
   }
-  dbfull()->TEST_CompactMemTable();
+  dbfull()->TEST_FlushMemTable();
 
   // push all files to the highest level L2. This
   // means that all keys should pass at least once
@@ -2294,7 +2294,7 @@ TEST(DBTest, CompactionFilter) {
     snprintf(key, sizeof(key), "B%010d", i);
     Put(key, value);
   }
-  dbfull()->TEST_CompactMemTable();
+  dbfull()->TEST_FlushMemTable();
   ASSERT_NE(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
@@ -2365,7 +2365,7 @@ TEST(DBTest, CompactionFilterWithValueChange) {
     }
 
     // push all files to  lower levels
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     dbfull()->TEST_CompactRange(0, nullptr, nullptr);
     dbfull()->TEST_CompactRange(1, nullptr, nullptr);
 
@@ -2378,7 +2378,7 @@ TEST(DBTest, CompactionFilterWithValueChange) {
 
     // push all files to  lower levels. This should
     // invoke the compaction filter for all 100000 keys.
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     dbfull()->TEST_CompactRange(0, nullptr, nullptr);
     dbfull()->TEST_CompactRange(1, nullptr, nullptr);
 
@@ -2416,14 +2416,14 @@ TEST(DBTest, SparseMerge) {
       Put(key, value);
     }
     Put("C", "vc");
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     dbfull()->TEST_CompactRange(0, nullptr, nullptr);
 
     // Make sparse update
     Put("A",    "va2");
     Put("B100", "bvalue2");
     Put("C",    "vc2");
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
 
     // Compactions should not cause us to create a situation where
     // a file overlaps too much data at the next level.
@@ -2599,7 +2599,7 @@ TEST(DBTest, HiddenValuesAreRemoved) {
     Put("foo", "tiny");
     Put("pastfoo2", "v2");        // Advance sequence number one more
 
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_GT(NumTableFilesAtLevel(0), 0);
 
     ASSERT_EQ(big, Get("foo", snapshot));
@@ -2634,7 +2634,7 @@ TEST(DBTest, CompactBetweenSnapshots) {
 
     // All entries (including duplicates) exist
     // before any compaction is triggered.
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ("sixth", Get("foo"));
     ASSERT_EQ("fourth", Get("foo", snapshot2));
     ASSERT_EQ("first", Get("foo", snapshot1));
@@ -2673,21 +2673,21 @@ TEST(DBTest, CompactBetweenSnapshots) {
 
 TEST(DBTest, DeletionMarkers1) {
   Put("foo", "v1");
-  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
   const int last = dbfull()->MaxMemCompactionLevel();
   ASSERT_EQ(NumTableFilesAtLevel(last), 1);   // foo => v1 is now in last level
 
   // Place a table at level last-1 to prevent merging with preceding mutation
   Put("a", "begin");
   Put("z", "end");
-  dbfull()->TEST_CompactMemTable();
+  dbfull()->TEST_FlushMemTable();
   ASSERT_EQ(NumTableFilesAtLevel(last), 1);
   ASSERT_EQ(NumTableFilesAtLevel(last-1), 1);
 
   Delete("foo");
   Put("foo", "v2");
   ASSERT_EQ(AllEntriesFor("foo"), "[ v2, DEL, v1 ]");
-  ASSERT_OK(dbfull()->TEST_CompactMemTable());  // Moves to level last-2
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());  // Moves to level last-2
   if (CurrentOptions().purge_redundant_kvs_while_flush) {
     ASSERT_EQ(AllEntriesFor("foo"), "[ v2, v1 ]");
   } else {
@@ -2706,20 +2706,20 @@ TEST(DBTest, DeletionMarkers1) {
 
 TEST(DBTest, DeletionMarkers2) {
   Put("foo", "v1");
-  ASSERT_OK(dbfull()->TEST_CompactMemTable());
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());
   const int last = dbfull()->MaxMemCompactionLevel();
   ASSERT_EQ(NumTableFilesAtLevel(last), 1);   // foo => v1 is now in last level
 
   // Place a table at level last-1 to prevent merging with preceding mutation
   Put("a", "begin");
   Put("z", "end");
-  dbfull()->TEST_CompactMemTable();
+  dbfull()->TEST_FlushMemTable();
   ASSERT_EQ(NumTableFilesAtLevel(last), 1);
   ASSERT_EQ(NumTableFilesAtLevel(last-1), 1);
 
   Delete("foo");
   ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v1 ]");
-  ASSERT_OK(dbfull()->TEST_CompactMemTable());  // Moves to level last-2
+  ASSERT_OK(dbfull()->TEST_FlushMemTable());  // Moves to level last-2
   ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v1 ]");
   dbfull()->TEST_CompactRange(last-2, nullptr, nullptr);
   // DEL kept: "last" file overlaps
@@ -2738,10 +2738,10 @@ TEST(DBTest, OverlapInLevel0) {
     //Fill levels 1 and 2 to disable the pushing of new memtables to levels > 0.
     ASSERT_OK(Put("100", "v100"));
     ASSERT_OK(Put("999", "v999"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_OK(Delete("100"));
     ASSERT_OK(Delete("999"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_EQ("0,1,1", FilesPerLevel());
 
     // Make files spanning the following ranges in level-0:
@@ -2750,11 +2750,11 @@ TEST(DBTest, OverlapInLevel0) {
     // Note that files are sorted by smallest key.
     ASSERT_OK(Put("300", "v300"));
     ASSERT_OK(Put("500", "v500"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_OK(Put("200", "v200"));
     ASSERT_OK(Put("600", "v600"));
     ASSERT_OK(Put("900", "v900"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_EQ("2,1,1", FilesPerLevel());
 
     // Compact away the placeholder files we created initially
@@ -2766,7 +2766,7 @@ TEST(DBTest, OverlapInLevel0) {
     // not detect the overlap with level-0 files and would incorrectly place
     // the deletion in a deeper level.
     ASSERT_OK(Delete("600"));
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_EQ("3", FilesPerLevel());
     ASSERT_EQ("NOT_FOUND", Get("600"));
   } while (ChangeOptions(kSkipUniversalCompaction));
@@ -3104,7 +3104,7 @@ TEST(DBTest, ManifestWriteError) {
     ASSERT_EQ("bar", Get("foo"));
 
     // Memtable compaction (will succeed)
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     ASSERT_EQ("bar", Get("foo"));
     const int last = dbfull()->MaxMemCompactionLevel();
     ASSERT_EQ(NumTableFilesAtLevel(last), 1);   // foo=>bar is now in last level
@@ -3152,7 +3152,7 @@ TEST(DBTest, BloomFilter) {
     for (int i = 0; i < N; i += 100) {
       ASSERT_OK(Put(Key(i), Key(i)));
     }
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
 
     // Prevent auto compactions triggered by seeks
     env_->delay_sstable_sync_.Release_Store(env_);
@@ -3322,13 +3322,13 @@ TEST(DBTest, CompactOnFlush) {
     Reopen(&options);
 
     Put("foo", "v1");
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ(AllEntriesFor("foo"), "[ v1 ]");
 
     // Write two new keys
     Put("a", "begin");
     Put("z", "end");
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
 
     // Case1: Delete followed by a put
     Delete("foo");
@@ -3337,7 +3337,7 @@ TEST(DBTest, CompactOnFlush) {
 
     // After the current memtable is flushed, the DEL should
     // have been removed
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ(AllEntriesFor("foo"), "[ v2, v1 ]");
 
     dbfull()->CompactRange(nullptr, nullptr);
@@ -3347,7 +3347,7 @@ TEST(DBTest, CompactOnFlush) {
     Delete("foo");
     Delete("foo");
     ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, DEL, v2 ]");
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v2 ]");
     dbfull()->CompactRange(nullptr, nullptr);
     ASSERT_EQ(AllEntriesFor("foo"), "[ ]");
@@ -3356,7 +3356,7 @@ TEST(DBTest, CompactOnFlush) {
     Put("foo", "v3");
     Delete("foo");
     ASSERT_EQ(AllEntriesFor("foo"), "[ DEL, v3 ]");
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ(AllEntriesFor("foo"), "[ DEL ]");
     dbfull()->CompactRange(nullptr, nullptr);
     ASSERT_EQ(AllEntriesFor("foo"), "[ ]");
@@ -3365,7 +3365,7 @@ TEST(DBTest, CompactOnFlush) {
     Put("foo", "v4");
     Put("foo", "v5");
     ASSERT_EQ(AllEntriesFor("foo"), "[ v5, v4 ]");
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ(AllEntriesFor("foo"), "[ v5 ]");
     dbfull()->CompactRange(nullptr, nullptr);
     ASSERT_EQ(AllEntriesFor("foo"), "[ v5 ]");
@@ -3380,7 +3380,7 @@ TEST(DBTest, CompactOnFlush) {
     Put("foo", "v6");
     const Snapshot* snapshot = db_->GetSnapshot();
     Put("foo", "v7");
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ(AllEntriesFor("foo"), "[ v7, v6 ]");
     db_->ReleaseSnapshot(snapshot);
 
@@ -3394,7 +3394,7 @@ TEST(DBTest, CompactOnFlush) {
     const Snapshot* snapshot1 = db_->GetSnapshot();
     Put("foo", "v8");
     Put("foo", "v9");
-    ASSERT_OK(dbfull()->TEST_CompactMemTable());
+    ASSERT_OK(dbfull()->TEST_FlushMemTable());
     ASSERT_EQ(AllEntriesFor("foo"), "[ v9 ]");
     db_->ReleaseSnapshot(snapshot1);
   } while (ChangeCompactOptions());
@@ -3662,7 +3662,7 @@ TEST(DBTest, ReadCompaction) {
     }
 
     // clear level 0 and 1 if necessary.
-    dbfull()->TEST_CompactMemTable();
+    dbfull()->TEST_FlushMemTable();
     dbfull()->TEST_CompactRange(0, nullptr, nullptr);
     dbfull()->TEST_CompactRange(1, nullptr, nullptr);
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
@@ -4186,7 +4186,7 @@ void PrefixScanInit(DBTest *dbtest) {
   snprintf(buf, sizeof(buf), "%02d______:end", 10);
   keystr = std::string(buf);
   ASSERT_OK(dbtest->Put(keystr, keystr));
-  dbtest->dbfull()->TEST_CompactMemTable();
+  dbtest->dbfull()->TEST_FlushMemTable();
   dbtest->dbfull()->CompactRange(nullptr, nullptr); // move to level 1
 
   // GROUP 1
@@ -4197,7 +4197,7 @@ void PrefixScanInit(DBTest *dbtest) {
     snprintf(buf, sizeof(buf), "%02d______:end", i+1);
     keystr = std::string(buf);
     ASSERT_OK(dbtest->Put(keystr, keystr));
-    dbtest->dbfull()->TEST_CompactMemTable();
+    dbtest->dbfull()->TEST_FlushMemTable();
   }
 
   // GROUP 2
@@ -4210,7 +4210,7 @@ void PrefixScanInit(DBTest *dbtest) {
              small_range_sstfiles+i+1);
     keystr = std::string(buf);
     ASSERT_OK(dbtest->Put(keystr, keystr));
-    dbtest->dbfull()->TEST_CompactMemTable();
+    dbtest->dbfull()->TEST_FlushMemTable();
   }
 }
 

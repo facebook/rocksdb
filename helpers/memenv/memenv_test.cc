@@ -215,7 +215,7 @@ TEST(MemEnvTest, DBTest) {
   delete iterator;
 
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
-  ASSERT_OK(dbi->TEST_CompactMemTable());
+  ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
     std::string res;

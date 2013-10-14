@@ -82,11 +82,11 @@ class DBImpl : public DB {
   // Compact any files in the named level that overlap [*begin, *end]
   void TEST_CompactRange(int level, const Slice* begin, const Slice* end);
 
-  // Force current memtable contents to be compacted.
-  Status TEST_CompactMemTable();
+  // Force current memtable contents to be flushed.
+  Status TEST_FlushMemTable();
 
   // Wait for memtable compaction
-  Status TEST_WaitForCompactMemTable();
+  Status TEST_WaitForFlushMemTable();
 
   // Wait for any compaction
   Status TEST_WaitForCompact();
@@ -148,9 +148,9 @@ class DBImpl : public DB {
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
 
-  // Compact the in-memory write buffer to disk.  Switches to a new
+  // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status CompactMemTable(bool* madeProgress = nullptr);
+  Status FlushMemTableToOutputFile(bool* madeProgress = nullptr);
 
   Status RecoverLogFile(uint64_t log_number,
                         VersionEdit* edit,
@@ -173,14 +173,14 @@ class DBImpl : public DB {
   // Force current memtable contents to be flushed.
   Status FlushMemTable(const FlushOptions& options);
 
-  // Wait for memtable compaction
-  Status WaitForCompactMemTable();
+  // Wait for memtable flushed
+  Status WaitForFlushMemTable();
 
   void MaybeScheduleLogDBDeployStats();
   static void BGLogDBDeployStats(void* db);
   void LogDBDeployStats();
 
-  void MaybeScheduleCompaction();
+  void MaybeScheduleFlushOrCompaction();
   static void BGWorkCompaction(void* db);
   static void BGWorkFlush(void* db);
   void BackgroundCallCompaction();

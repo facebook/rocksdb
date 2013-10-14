@@ -92,12 +92,12 @@ class DeleteFileTest {
   void CreateTwoLevels() {
     AddKeys(50000, 10000);
     DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
-    ASSERT_OK(dbi->TEST_CompactMemTable());
-    ASSERT_OK(dbi->TEST_WaitForCompactMemTable());
+    ASSERT_OK(dbi->TEST_FlushMemTable());
+    ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
 
     AddKeys(50000, 10000);
-    ASSERT_OK(dbi->TEST_CompactMemTable());
-    ASSERT_OK(dbi->TEST_WaitForCompactMemTable());
+    ASSERT_OK(dbi->TEST_FlushMemTable());
+    ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
   }
 
 };
