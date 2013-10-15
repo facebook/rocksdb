@@ -364,7 +364,10 @@ TEST(EnvPosixTest, PosixRandomRWFileTest) {
 
   unique_ptr<RandomRWFile> file;
   ASSERT_OK(env_->NewRandomRWFile(fname, &file, soptions));
-  ASSERT_OK(file.get()->Allocate(0, 10*1024*1024));
+  // If you run the unit test on tmpfs, then tmpfs might not
+  // support ftruncate. It is still better to trigger that
+  // code-path instead of eliminating it completely.
+  file.get()->Allocate(0, 10*1024*1024);
   ASSERT_OK(file.get()->Write(100, Slice("Hello world")));
   ASSERT_OK(file.get()->Write(105, Slice("Hello world")));
   ASSERT_OK(file.get()->Sync());
