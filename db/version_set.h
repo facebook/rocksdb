@@ -312,7 +312,17 @@ class VersionSet {
   // Returns true iff some level needs a compaction because it has
   // exceeded its target size.
   bool NeedsSizeCompaction() const {
-    for (int i = 0; i < NumberLevels()-1; i++) {
+    // In universal compaction case, this check doesn't really
+    // check the compaction condition, but checks num of files threshold
+    // only. We are not going to miss any compaction opportunity
+    // but it's likely that more compactions are scheduled but
+    // ending up with nothing to do. We can improve it later.
+    // TODO: improve this function to be accurate for universal
+    //       compactions.
+    int num_levels_to_check =
+        (options_->compaction_style != kCompactionStyleUniversal) ?
+            NumberLevels() - 1 : 1;
+    for (int i = 0; i < num_levels_to_check; i++) {
       if (current_->compaction_score_[i] >= 1) {
         return true;
       }

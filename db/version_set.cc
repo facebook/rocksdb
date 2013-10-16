@@ -1645,7 +1645,12 @@ void VersionSet::Finalize(Version* v,
   double max_score = 0;
   int max_score_level = 0;
 
-  for (int level = 0; level < NumberLevels()-1; level++) {
+  int num_levels_to_check =
+      (options_->compaction_style != kCompactionStyleUniversal) ?
+          NumberLevels() - 1 : 1;
+
+  for (int level = 0; level < num_levels_to_check; level++) {
+
     double score;
     if (level == 0) {
       // We treat level-0 specially by bounding the number of files

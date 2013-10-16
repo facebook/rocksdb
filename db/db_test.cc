@@ -1850,6 +1850,8 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
   // but will instead trigger size amplification.
   dbfull()->Flush(FlushOptions());
 
+  dbfull()->TEST_WaitForCompact();
+
   // Verify that size amplification did occur
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
 }

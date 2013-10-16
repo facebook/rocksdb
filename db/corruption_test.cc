@@ -324,6 +324,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
 
   Build(10);
   dbi->TEST_FlushMemTable();
+  dbi->TEST_WaitForCompact();
   ASSERT_EQ(1, Property("rocksdb.num-files-at-level0"));
 
   Corrupt(kTableFile, 100, 1);

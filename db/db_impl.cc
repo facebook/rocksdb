@@ -1436,24 +1436,25 @@ void DBImpl::BGWorkCompaction(void* db) {
   reinterpret_cast<DBImpl*>(db)->BackgroundCallCompaction();
 }
 
-Status DBImpl::BackgroundFlush() {
+Status DBImpl::BackgroundFlush(bool* madeProgress) {
   Status stat;
   while (stat.ok() &&
          imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
     Log(options_.info_log,
         "BackgroundCallFlush doing FlushMemTableToOutputFile, flush slots available %d",
         options_.max_background_flushes - bg_flush_scheduled_);
-    stat = FlushMemTableToOutputFile();
+    stat = FlushMemTableToOutputFile(madeProgress);
   }
   return stat;
 }
 
 void DBImpl::BackgroundCallFlush() {
+  bool madeProgress = false;
   assert(bg_flush_scheduled_);
   MutexLock l(&mutex_);
 
   if (!shutting_down_.Acquire_Load()) {
-    Status s = BackgroundFlush();
+    Status s = BackgroundFlush(&madeProgress);
     if (!s.ok()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
@@ -1469,7 +1470,9 @@ void DBImpl::BackgroundCallFlush() {
   }
 
   bg_flush_scheduled_--;
-
+  if (madeProgress) {
+    MaybeScheduleFlushOrCompaction();
+  }
   bg_cv_.SignalAll();
 }
 
