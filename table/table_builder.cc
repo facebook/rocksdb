@@ -57,6 +57,18 @@ static bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   return compressed_size < raw_size - (raw_size / 8u);
 }
 
+// Were we encounter any error occurs during user-defined statistics collection,
+// we'll write the warning message to info log.
+void LogStatsCollectionError(
+    Logger* info_log, const std::string& method, const std::string& name) {
+  assert(method == "Add" || method == "Finish");
+
+  std::string msg =
+    "[Warning] encountered error when calling TableStatsCollector::" +
+    method + "() with collector name: " + name;
+  Log(info_log, msg.c_str());
+}
+
 }  // anonymous namespace
 
 struct TableBuilder::Rep {
@@ -179,6 +191,17 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   r->num_entries++;
   r->raw_key_size += key.size();
   r->raw_value_size += value.size();
+
+  for (auto collector : r->options.table_stats_collectors) {
+    Status s = collector->Add(key, value);
+    if (!s.ok()) {
+      LogStatsCollectionError(
+          r->options.info_log.get(),
+          "Add", /* method */
+          collector->Name()
+      );
+    }
+  }
 }
 
 void TableBuilder::Flush() {
@@ -381,6 +404,25 @@ Status TableBuilder::Finish() {
               TableStatsNames::kFilterPolicy,
               r->options.filter_policy->Name()
         ));
+      }
+
+      for (auto collector : r->options.table_stats_collectors) {
+        TableStats::UserCollectedStats user_collected_stats;
+        Status s =
+          collector->Finish(&user_collected_stats);
+
+        if (!s.ok()) {
+          LogStatsCollectionError(
+              r->options.info_log.get(),
+              "Finish", /* method */
+              collector->Name()
+          );
+        } else {
+          stats.insert(
+              user_collected_stats.begin(),
+              user_collected_stats.end()
+          );
+        }
       }
 
       for (const auto& stat : stats) {

@@ -264,6 +264,13 @@ Options::Dump(Logger* log) const
         compaction_options_universal.max_size_amplification_percent);
     Log(log,"          Options.purge_log_after_memtable_flush: %d",
         purge_log_after_memtable_flush);
+    std::string collector_names;
+    for (auto collector : table_stats_collectors) {
+      collector_names.append(collector->Name());
+      collector_names.append("; ");
+    }
+    Log(log,"          Options.table_stats_collectors: %s",
+        collector_names.c_str());
 }   // Options::Dump
 
 //

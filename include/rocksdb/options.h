@@ -10,11 +10,13 @@
 #include <memory>
 #include <vector>
 #include <stdint.h>
-#include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/universal_compaction.h"
+
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/table_stats.h"
+#include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
 
@@ -586,6 +588,12 @@ struct Options {
   // to data file.
   // Default: true
   bool purge_log_after_memtable_flush;
+
+  // This option allows user to to collect their own interested statistics of
+  // the tables.
+  // Default: emtpy vector -- no user-defined statistics collection will be
+  // performed.
+  std::vector<std::shared_ptr<TableStatsCollector>> table_stats_collectors;
 };
 
 //

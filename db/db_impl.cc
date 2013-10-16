@@ -13,15 +13,15 @@
 #include <climits>
 #include <cstdio>
 #include <set>
-#include <string>
-#include <stdint.h>
 #include <stdexcept>
-#include <vector>
+#include <stdint.h>
+#include <string>
 #include <unordered_set>
+#include <vector>
 
 #include "db/builder.h"
-#include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/db_iter.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -30,9 +30,11 @@
 #include "db/merge_helper.h"
 #include "db/prefix_filter_iterator.h"
 #include "db/table_cache.h"
+#include "db/table_stats_collector.h"
+#include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
-#include "db/transaction_log_impl.h"
+#include "port/port.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -40,7 +42,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_builder.h"
-#include "port/port.h"
 #include "table/block.h"
 #include "table/merger.h"
 #include "table/table.h"
@@ -190,6 +191,23 @@ Options SanitizeOptions(const std::string& dbname,
     // Use dbname as default
     result.wal_dir = dbname;
   }
+
+  // -- Sanitize the table stats collector
+  // All user defined stats collectors will be wrapped by
+  // UserKeyTableStatsCollector since for them they only have the knowledge of
+  // the user keys; internal keys are invisible to them.
+  auto& collectors = result.table_stats_collectors;
+  for (size_t i = 0; i < result.table_stats_collectors.size(); ++i) {
+    assert(collectors[i]);
+    collectors[i] =
+      std::make_shared<UserKeyTableStatsCollector>(collectors[i]);
+  }
+
+  // Add collector to collect internal key statistics
+  collectors.push_back(
+      std::make_shared<InternalKeyStatsCollector>()
+  );
+
   return result;
 }
 
