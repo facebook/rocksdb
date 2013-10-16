@@ -269,7 +269,8 @@ Status Table::ReadStats(const Slice& handle_value, Rep* rep) {
   );
 
   auto& table_stats = rep->table_stats;
-  std::unordered_map<std::string, uint64_t*> predefined_name_stat_map = {
+  // All pre-defined stats of type uint64_t
+  std::unordered_map<std::string, uint64_t*> predefined_uint64_stats = {
     { TableStatsNames::kDataSize,      &table_stats.data_size       },
     { TableStatsNames::kIndexSize,     &table_stats.index_size      },
     { TableStatsNames::kRawKeySize,    &table_stats.raw_key_size    },
@@ -294,14 +295,9 @@ Status Table::ReadStats(const Slice& handle_value, Rep* rep) {
     last_key = key;
 
     auto raw_val = iter->value();
-    auto pos = predefined_name_stat_map.find(key);
+    auto pos = predefined_uint64_stats.find(key);
 
-    if (pos == predefined_name_stat_map.end()) {
-      // handle user-collected
-      table_stats.user_collected_stats.insert(
-          std::make_pair(iter->key().ToString(), raw_val.ToString())
-      );
-    } else {
+    if (pos != predefined_uint64_stats.end()) {
       // handle predefined rocksdb stats
       uint64_t val;
       if (!GetVarint64(&raw_val, &val)) {
@@ -313,6 +309,13 @@ Status Table::ReadStats(const Slice& handle_value, Rep* rep) {
         continue;
       }
       *(pos->second) = val;
+    } else if (key == TableStatsNames::kFilterPolicy) {
+      table_stats.filter_policy_name = raw_val.ToString();
+    } else {
+      // handle user-collected
+      table_stats.user_collected_stats.insert(
+          std::make_pair(iter->key().ToString(), raw_val.ToString())
+      );
     }
   }
 
@@ -602,11 +605,12 @@ uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
 const std::string Table::kFilterBlockPrefix = "filter.";
 const std::string Table::kStatsBlock = "rocksdb.stats";
 
-const std::string TableStatsNames::kDataSize = "rocksdb.data.size";
-const std::string TableStatsNames::kIndexSize = "rocksdb.index.size";
-const std::string TableStatsNames::kRawKeySize = "rocksdb.raw.key.size";
-const std::string TableStatsNames::kRawValueSize = "rocksdb.raw.value.size";
+const std::string TableStatsNames::kDataSize      = "rocksdb.data.size";
+const std::string TableStatsNames::kIndexSize     = "rocksdb.index.size";
+const std::string TableStatsNames::kRawKeySize    = "rocksdb.raw.key.size";
+const std::string TableStatsNames::kRawValueSize  = "rocksdb.raw.value.size";
 const std::string TableStatsNames::kNumDataBlocks = "rocksdb.num.data.blocks";
-const std::string TableStatsNames::kNumEntries = "rocksdb.num.entries";
+const std::string TableStatsNames::kNumEntries    = "rocksdb.num.entries";
+const std::string TableStatsNames::kFilterPolicy  = "rocksdb.filter.policy";
 
 }  // namespace rocksdb

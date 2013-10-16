@@ -35,6 +35,10 @@ struct TableStats {
   // the number of entries in this table
   uint64_t num_entries = 0;
 
+  // The name of the filter policy used in this table.
+  // If no filter policy is used, `filter_policy_name` will be an empty string.
+  std::string filter_policy_name;
+
   // user collected stats
   UserCollectedStats user_collected_stats;
 };

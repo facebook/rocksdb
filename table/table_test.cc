@@ -886,6 +886,7 @@ TEST(TableTest, BasicTableStats) {
   ASSERT_EQ(raw_key_size, stats.raw_key_size);
   ASSERT_EQ(raw_value_size, stats.raw_value_size);
   ASSERT_EQ(1ul, stats.num_data_blocks);
+  ASSERT_EQ("", stats.filter_policy_name);  // no filter policy is used
 
   // Verify data size.
   BlockBuilder block_builder(&options);
@@ -897,6 +898,19 @@ TEST(TableTest, BasicTableStats) {
       content.size() + kBlockTrailerSize,
       stats.data_size
   );
+}
+
+TEST(TableTest, FilterPolicyNameStats) {
+  TableConstructor c(BytewiseComparator());
+  c.Add("a1", "val1");
+  std::vector<std::string> keys;
+  KVMap kvmap;
+  Options options;
+  options.filter_policy = NewBloomFilterPolicy(10);
+
+  c.Finish(options, &keys, &kvmap);
+  auto& stats = c.table()->GetTableStats();
+  ASSERT_EQ("rocksdb.BuiltinBloomFilter", stats.filter_policy_name);
 }
 
 static std::string RandomString(Random* rnd, int len) {

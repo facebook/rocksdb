@@ -368,6 +368,12 @@ Status TableBuilder::Finish() {
       );
       AddStats(stats, TableStatsNames::kNumEntries, r->num_entries);
       AddStats(stats, TableStatsNames::kNumDataBlocks, r->num_data_blocks);
+      if (r->filter_block != nullptr) {
+        stats.insert(std::make_pair(
+              TableStatsNames::kFilterPolicy,
+              r->options.filter_policy->Name()
+        ));
+      }
 
       for (const auto& stat : stats) {
         stats_block.Add(stat.first, stat.second);

@@ -120,6 +120,7 @@ struct TableStatsNames {
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
   static const std::string kNumEntries;
+  static const std::string kFilterPolicy;
 };
 
 }  // namespace rocksdb
