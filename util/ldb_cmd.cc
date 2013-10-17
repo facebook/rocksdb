@@ -334,7 +334,7 @@ CompactorCommand::CompactorCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, false,
                BuildCmdLineOptions({ARG_FROM, ARG_TO, ARG_HEX, ARG_KEY_HEX,
-                                   ARG_VALUE_HEX})),
+                                    ARG_VALUE_HEX, ARG_TTL})),
     null_from_(true), null_to_(true) {
 
   map<string, string>::const_iterator itr = options.find(ARG_FROM);
