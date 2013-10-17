@@ -48,6 +48,7 @@ TESTS = \
 	db_test \
 	dbformat_test \
 	env_test \
+	blob_store_test \
 	filelock_test \
 	filename_test \
 	filter_block_test \
@@ -203,6 +204,9 @@ cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+blob_store_test: util/blob_store_test.o $(LIBOBJECTS) $(TESTHARNESS) $(TESTUTIL)
+	$(CXX) util/blob_store_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
