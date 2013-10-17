@@ -30,7 +30,12 @@ class TableBuilder {
   // caller to close the file after calling Finish(). The output file
   // will be part of level specified by 'level'.  A value of -1 means
   // that the caller does not know which level the output file will reside.
-  TableBuilder(const Options& options, WritableFile* file, int level=-1);
+  //
+  // If enable_compression=true, this table will follow the compression
+  // setting given in parameter options. If enable_compression=false, the
+  // table will not be compressed.
+  TableBuilder(const Options& options, WritableFile* file, int level=-1,
+               const bool enable_compression=true);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~TableBuilder();

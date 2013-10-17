@@ -51,6 +51,23 @@ class CompactionOptionsUniversal {
   // 300 bytes of storage.
   unsigned int max_size_amplification_percent;
 
+  // If this option is set to be -1 (the default value), all the output files
+  // will follow compression type specified.
+  //
+  // If this option is not negative, we will try to make sure compressed
+  // size is just above this value. In normal cases, at least this percentage
+  // of data will be compressed.
+  // When we are compacting to a new file, here is the criteria whether
+  // it needs to be compressed: assuming here are the list of files sorted
+  // by generation time:
+  //    A1...An B1...Bm C1...Ct
+  // where A1 is the newest and Ct is the oldest, and we are going to compact
+  // B1...Bm, we calculate the total size of all the files as total_size, as
+  // well as  the total size of C1...Ct as total_C, the compaction output file
+  // will be compressed iff
+  //   total_C / total_size < this percentage
+  int compression_size_percent;
+
   // The algorithm used to stop picking files into a single compaction run
   // Default: kCompactionStopStyleTotalSize
   CompactionStopStyle stop_style;
@@ -61,6 +78,7 @@ class CompactionOptionsUniversal {
     min_merge_width(2),
     max_merge_width(UINT_MAX),
     max_size_amplification_percent(200),
+    compression_size_percent(-1),
     stop_style(kCompactionStopStyleTotalSize) {
   }
 };

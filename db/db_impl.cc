@@ -821,7 +821,7 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
     s = BuildTable(dbname_, env_, options_, storage_options_,
                    table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable);
+                   earliest_seqno_in_memtable, true);
     mutex_.Lock();
   }
 
@@ -877,10 +877,15 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
+    // We skip compression if universal compression is used and the size
+    // threshold is set for compression.
+    bool enable_compression = (options_.compaction_style
+        != kCompactionStyleUniversal ||
+        options_.compaction_options_universal.compression_size_percent < 0);
     s = BuildTable(dbname_, env_, options_, storage_options_,
                    table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable);
+                   earliest_seqno_in_memtable, enable_compression);
     mutex_.Lock();
   }
   base->Unref();
@@ -1724,7 +1729,8 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
       1.1 * versions_->MaxFileSizeForLevel(compact->compaction->output_level()));
 
     compact->builder.reset(new TableBuilder(options_, compact->outfile.get(),
-                                            compact->compaction->output_level()));
+                                            compact->compaction->output_level(),
+                                            compact->compaction->enable_compression()));
   }
   return s;
 }

@@ -30,7 +30,8 @@ Status BuildTable(const std::string& dbname,
                   FileMetaData* meta,
                   const Comparator* user_comparator,
                   const SequenceNumber newest_snapshot,
-                  const SequenceNumber earliest_seqno_in_memtable) {
+                  const SequenceNumber earliest_seqno_in_memtable,
+                  const bool enable_compression) {
   Status s;
   meta->file_size = 0;
   meta->smallest_seqno = meta->largest_seqno = 0;
@@ -51,7 +52,8 @@ Status BuildTable(const std::string& dbname,
     if (!s.ok()) {
       return s;
     }
-    TableBuilder* builder = new TableBuilder(options, file.get(), 0);
+    TableBuilder* builder = new TableBuilder(options, file.get(), 0,
+                                             enable_compression);
 
     // the first key is the smallest key
     Slice key = iter->key();

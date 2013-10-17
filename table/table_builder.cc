@@ -68,6 +68,8 @@ struct TableBuilder::Rep {
   BlockBuilder data_block;
   BlockBuilder index_block;
   std::string last_key;
+  // Whether enable compression in this table.
+  bool enable_compression;
 
   uint64_t num_entries = 0;
   uint64_t num_data_blocks = 0;
@@ -92,12 +94,13 @@ struct TableBuilder::Rep {
 
   std::string compressed_output;
 
-  Rep(const Options& opt, WritableFile* f)
+  Rep(const Options& opt, WritableFile* f, bool enable_compression)
       : options(opt),
         index_block_options(opt),
         file(f),
         data_block(&options),
         index_block(&index_block_options),
+        enable_compression(enable_compression),
         filter_block(opt.filter_policy == nullptr ? nullptr
                      : new FilterBlockBuilder(opt)),
         pending_index_entry(false) {
@@ -106,8 +109,8 @@ struct TableBuilder::Rep {
 };
 
 TableBuilder::TableBuilder(const Options& options, WritableFile* file,
-                           int level)
-    : rep_(new Rep(options, file)), level_(level) {
+                           int level, const bool enable_compression)
+    : rep_(new Rep(options, file, enable_compression)), level_(level) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
@@ -209,18 +212,24 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   Slice block_contents;
   std::string* compressed = &r->compressed_output;
   CompressionType type;
-  // If the use has specified a different compression level for each level,
-  // then pick the compresison for that level.
-  if (!r->options.compression_per_level.empty()) {
-    const int n = r->options.compression_per_level.size();
-    // It is possible for level_ to be -1; in that case, we use level
-    // 0's compression.  This occurs mostly in backwards compatibility
-    // situations when the builder doesn't know what level the file
-    // belongs to.  Likewise, if level_ is beyond the end of the
-    // specified compression levels, use the last value.
-    type = r->options.compression_per_level[std::max(0, std::min(level_, n))];
+  if (!r->enable_compression) {
+    // disable compression
+    type = kNoCompression;
   } else {
-    type = r->options.compression;
+    // If the use has specified a different compression level for each level,
+    // then pick the compresison for that level.
+    if (!r->options.compression_per_level.empty()) {
+      const int n = r->options.compression_per_level.size();
+      // It is possible for level_ to be -1; in that case, we use level
+      // 0's compression.  This occurs mostly in backwards compatibility
+      // situations when the builder doesn't know what level the file
+      // belongs to.  Likewise, if level_ is beyond the end of the
+      // specified compression levels, use the last value.
+      type = r->options.compression_per_level[std::max(0,
+                                                       std::min(level_, n))];
+    } else {
+      type = r->options.compression;
+    }
   }
   switch (type) {
     case kNoCompression:

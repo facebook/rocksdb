@@ -54,6 +54,12 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
+static std::string CompressibleString(Random* rnd, int len) {
+  std::string r;
+  test::CompressibleString(rnd, 0.8, len, &r);
+  return r;
+}
+
 namespace anon {
 class AtomicCounter {
  private:
@@ -1867,6 +1873,7 @@ TEST(DBTest, UniversalCompactionOptions) {
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = 1;
+  options.compaction_options_universal.compression_size_percent = -1;
   Reopen(&options);
 
   Random rnd(301);
@@ -1892,6 +1899,97 @@ TEST(DBTest, UniversalCompactionOptions) {
   for (int i = 1; i < options.num_levels ; i++) {
     ASSERT_EQ(NumTableFilesAtLevel(i), 0);
   }
+}
+
+TEST(DBTest, UniversalCompactionCompressRatio1) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100<<10; //100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+  options.compaction_options_universal.compression_size_percent = 70;
+  Reopen(&options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // The first compaction (2) is compressed.
+  for (int num = 0; num < 2; num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(), 120000 * 2 * 0.9);
+
+  // The second compaction (4) is compressed
+  for (int num = 0; num < 2; num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(), 120000 * 4 * 0.9);
+
+  // The third compaction (2 4) is compressed since this time it is
+  // (1 1 3.2) and 3.2/5.2 doesn't reach ratio.
+  for (int num = 0; num < 2; num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(), 120000 * 6 * 0.9);
+
+  // When we start for the compaction up to (2 4 8), the latest
+  // compressed is not compressed.
+  for (int num = 0; num < 8; num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_GT((int ) dbfull()->TEST_GetLevel0TotalSize(),
+            120000 * 12 * 0.8 + 110000 * 2);
+}
+
+TEST(DBTest, UniversalCompactionCompressRatio2) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100<<10; //100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+  options.compaction_options_universal.compression_size_percent = 95;
+  Reopen(&options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // When we start for the compaction up to (2 4 8), the latest
+  // compressed is compressed given the size ratio to compress.
+  for (int num = 0; num < 14; num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(),
+            120000 * 12 * 0.8 + 110000 * 2);
 }
 
 TEST(DBTest, ConvertCompactionStyle) {

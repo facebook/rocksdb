@@ -2250,8 +2250,10 @@ Compaction* VersionSet::PickCompactionUniversalSizeAmp(
   assert(start_index >= 0 && start_index < file_by_time.size() - 1);
 
   // create a compaction request
+  // We always compact all the files, so always compress.
   Compaction* c = new Compaction(level, level, MaxFileSizeForLevel(level),
-                                 LLONG_MAX, NumberLevels());
+                                 LLONG_MAX, NumberLevels(), false,
+                                 true);
   c->score_ = score;
   for (unsigned int loop = start_index; loop < file_by_time.size(); loop++) {
     int index = file_by_time[loop];
@@ -2356,11 +2358,30 @@ Compaction* VersionSet::PickCompactionUniversalReadAmp(
   if (!done || candidate_count <= 1) {
     return nullptr;
   }
+  unsigned int first_index_after = start_index + candidate_count;
+  // Compression is enabled if files compacted earlier already reached
+  // size ratio of compression.
+  bool enable_compression = true;
+  int ratio_to_compress =
+      options_->compaction_options_universal.compression_size_percent;
+  if (ratio_to_compress >= 0) {
+    uint64_t total_size = TotalFileSize(current_->files_[level]);
+    uint64_t older_file_size = 0;
+    for (unsigned int i = file_by_time.size() - 1; i >= first_index_after;
+        i--) {
+      older_file_size += current_->files_[level][file_by_time[i]]->file_size;
+      if (older_file_size * 100L >= total_size * (long) ratio_to_compress) {
+        enable_compression = false;
+        break;
+      }
+    }
+  }
   Compaction* c = new Compaction(level, level, MaxFileSizeForLevel(level),
-                                 LLONG_MAX, NumberLevels());
+                                 LLONG_MAX, NumberLevels(), false,
+                                 enable_compression);
   c->score_ = score;
 
-  for (unsigned int i = start_index; i < start_index + candidate_count; i++) {
+  for (unsigned int i = start_index; i < first_index_after; i++) {
     int index = file_by_time[i];
     FileMetaData* f = current_->files_[level][index];
     c->inputs_[0].push_back(f);
@@ -2884,7 +2905,7 @@ Compaction* VersionSet::CompactRange(
 
 Compaction::Compaction(int level, int out_level, uint64_t target_file_size,
   uint64_t max_grandparent_overlap_bytes, int number_levels,
-  bool seek_compaction)
+  bool seek_compaction, bool enable_compression)
     : level_(level),
       out_level_(out_level),
       max_output_file_size_(target_file_size),
@@ -2892,6 +2913,7 @@ Compaction::Compaction(int level, int out_level, uint64_t target_file_size,
       input_version_(nullptr),
       number_levels_(number_levels),
       seek_compaction_(seek_compaction),
+      enable_compression_(enable_compression),
       grandparent_index_(0),
       seen_key_(false),
       overlapped_bytes_(0),

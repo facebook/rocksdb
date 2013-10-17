@@ -558,6 +558,9 @@ class Compaction {
   // Maximum size of files to build during this compaction.
   uint64_t MaxOutputFileSize() const { return max_output_file_size_; }
 
+  // Whether compression will be enabled for compaction outputs
+  bool enable_compression() const { return enable_compression_; }
+
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
@@ -592,7 +595,7 @@ class Compaction {
 
   explicit Compaction(int level, int out_level, uint64_t target_file_size,
     uint64_t max_grandparent_overlap_bytes, int number_levels,
-    bool seek_compaction = false);
+    bool seek_compaction = false, bool enable_compression = true);
 
   int level_;
   int out_level_; // levels to which output files are stored
@@ -603,6 +606,7 @@ class Compaction {
   int number_levels_;
 
   bool seek_compaction_;
+  bool enable_compression_;
 
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData*> inputs_[2];      // The two sets of inputs

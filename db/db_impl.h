@@ -114,6 +114,9 @@ class DBImpl : public DB {
   // Trigger's a background call for testing.
   void TEST_PurgeObsoleteteWAL();
 
+  // get total level0 file size. Only for testing.
+  uint64_t TEST_GetLevel0TotalSize() { return versions_->NumLevelBytes(0);}
+
  protected:
   Env* const env_;
   const std::string dbname_;
