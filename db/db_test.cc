@@ -254,7 +254,8 @@ class DBTest {
   enum OptionSkip {
     kNoSkip = 0,
     kSkipDeletesFilterFirst = 1,
-    kSkipUniversalCompaction = 2
+    kSkipUniversalCompaction = 2,
+    kSkipMergePut = 4
   };
 
   DBTest() : option_config_(kDefault),
@@ -287,7 +288,9 @@ class DBTest {
         option_config_ == kUniversalCompaction) {
       option_config_++;
     }
-
+    if (skip_mask & kSkipMergePut && option_config_ == kMergePut) {
+      option_config_++;
+    }
     if (option_config_ >= kEnd) {
       Destroy(&last_options_);
       return false;
@@ -638,6 +641,13 @@ class DBTest {
 
   std::string DummyString(size_t len, char c = 'a') {
     return std::string(len, c);
+  }
+
+  void VerifyIterLast(std::string expected_key) {
+    Iterator* iter = db_->NewIterator(ReadOptions());
+    iter->SeekToLast();
+    ASSERT_EQ(IterStatus(iter), expected_key);
+    delete iter;
   }
 };
 
@@ -1312,6 +1322,35 @@ TEST(DBTest, IterMultiWithDelete) {
     }
     delete iter;
   } while (ChangeOptions());
+}
+
+TEST(DBTest, IterPrevMaxSkip) {
+  do {
+    for (int i = 0; i < 2; i++) {
+      db_->Put(WriteOptions(), "key1", "v1");
+      db_->Put(WriteOptions(), "key2", "v2");
+      db_->Put(WriteOptions(), "key3", "v3");
+      db_->Put(WriteOptions(), "key4", "v4");
+      db_->Put(WriteOptions(), "key5", "v5");
+    }
+
+    VerifyIterLast("key5->v5");
+
+    ASSERT_OK(db_->Delete(WriteOptions(), "key5"));
+    VerifyIterLast("key4->v4");
+
+    ASSERT_OK(db_->Delete(WriteOptions(), "key4"));
+    VerifyIterLast("key3->v3");
+
+    ASSERT_OK(db_->Delete(WriteOptions(), "key3"));
+    VerifyIterLast("key2->v2");
+
+    ASSERT_OK(db_->Delete(WriteOptions(), "key2"));
+    VerifyIterLast("key1->v1");
+
+    ASSERT_OK(db_->Delete(WriteOptions(), "key1"));
+    VerifyIterLast("(invalid)");
+  } while (ChangeOptions(kSkipMergePut));
 }
 
 TEST(DBTest, IterWithSnapshot) {

@@ -373,6 +373,7 @@ void DBIter::FindPrevUserEntry() {
   if (iter_->Valid()) {
     do {
       ParsedInternalKey ikey;
+      bool saved_key_cleared = false;
       if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
         if ((value_type != kTypeDeletion) &&
             user_comparator_->Compare(ikey.user_key, saved_key_) < 0) {
@@ -383,6 +384,7 @@ void DBIter::FindPrevUserEntry() {
         if (value_type == kTypeDeletion) {
           saved_key_.clear();
           ClearSavedValue();
+          saved_key_cleared = true;
         } else {
           Slice raw_value = iter_->value();
           if (saved_value_.capacity() > raw_value.size() + 1048576) {
@@ -398,7 +400,7 @@ void DBIter::FindPrevUserEntry() {
       // found the prev user-key, then it is better to seek so that we can
       // avoid too many key comparisons. We seek to the first occurence of
       // our current key by looking for max sequence number.
-      if (num_skipped > max_skip_) {
+      if (!saved_key_cleared && num_skipped > max_skip_) {
         num_skipped = 0;
         std::string last_key;
         AppendInternalKey(&last_key,
