@@ -509,6 +509,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           break;
         case kCurrentFile:
         case kDBLockFile:
+        case kIdentityFile:
         case kMetaDatabase:
           keep = true;
           break;
@@ -637,6 +638,13 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
       if (options_.error_if_exists) {
         return Status::InvalidArgument(
             dbname_, "exists (error_if_exists is true)");
+      }
+    }
+    // Check for the IDENTITY file and create it if not there
+    if (!env_->FileExists(IdentityFileName(dbname_))) {
+      s = SetIdentityFile(env_, dbname_);
+      if (!s.ok()) {
+        return s;
       }
     }
   }

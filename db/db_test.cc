@@ -1630,12 +1630,12 @@ TEST(DBTest, ManifestRollOver) {
       ASSERT_OK(Put("manifest_key1", std::string(1000, '1')));
       ASSERT_OK(Put("manifest_key2", std::string(1000, '2')));
       ASSERT_OK(Put("manifest_key3", std::string(1000, '3')));
-      uint64_t manifest_before_fulsh =
+      uint64_t manifest_before_flush =
         dbfull()->TEST_Current_Manifest_FileNo();
       dbfull()->Flush(FlushOptions()); // This should trigger LogAndApply.
       uint64_t manifest_after_flush =
         dbfull()->TEST_Current_Manifest_FileNo();
-      ASSERT_GT(manifest_after_flush, manifest_before_fulsh);
+      ASSERT_GT(manifest_after_flush, manifest_before_flush);
       Reopen(&options);
       ASSERT_GT(dbfull()->TEST_Current_Manifest_FileNo(),
                 manifest_after_flush);
@@ -1644,6 +1644,36 @@ TEST(DBTest, ManifestRollOver) {
       ASSERT_EQ(std::string(1000, '2'), Get("manifest_key2"));
       ASSERT_EQ(std::string(1000, '3'), Get("manifest_key3"));
     }
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, IdentityAcrossRestarts) {
+  do {
+    std::string idfilename = IdentityFileName(dbname_);
+    unique_ptr<SequentialFile> idfile;
+    const EnvOptions soptions;
+    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
+    char buffer1[100];
+    Slice id1;
+    ASSERT_OK(idfile->Read(100, &id1, buffer1));
+
+    Options options = CurrentOptions();
+    Reopen(&options);
+    char buffer2[100];
+    Slice id2;
+    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
+    ASSERT_OK(idfile->Read(100, &id2, buffer2));
+    // id1 should match id2 because identity was not regenerated
+    ASSERT_EQ(id1.ToString(), id2.ToString());
+
+    ASSERT_OK(env_->DeleteFile(idfilename));
+    Reopen(&options);
+    char buffer3[100];
+    Slice id3;
+    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
+    ASSERT_OK(idfile->Read(100, &id3, buffer3));
+    // id1 should NOT match id2 because identity was regenerated
+    ASSERT_NE(id1.ToString(0), id3.ToString());
   } while (ChangeCompactOptions());
 }
 

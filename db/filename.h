@@ -28,7 +28,8 @@ enum FileType {
   kCurrentFile,
   kTempFile,
   kInfoLogFile,  // Either the current one, or an old one
-  kMetaDatabase
+  kMetaDatabase,
+  kIdentityFile
 };
 
 // Return the name of the log file with the specified number
@@ -82,6 +83,11 @@ extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
 extern std::string MetaDatabaseName(const std::string& dbname,
                                     uint64_t number);
 
+// Return the name of the Identity file which stores a unique number for the db
+// that will get regenerated if the db loses all its data and is recreated fresh
+// either from a backup-image or empty
+extern std::string IdentityFileName(const std::string& dbname);
+
 // If filename is a rocksdb file, store the type of the file in *type.
 // The number encoded in the filename is stored in *number.  If the
 // filename was successfully parsed, returns true.  Else return false.
@@ -94,5 +100,7 @@ extern bool ParseFileName(const std::string& filename,
 extern Status SetCurrentFile(Env* env, const std::string& dbname,
                              uint64_t descriptor_number);
 
+// Make the IDENTITY file for the db
+extern Status SetIdentityFile(Env* env, const std::string& dbname);
 
 }  // namespace rocksdb

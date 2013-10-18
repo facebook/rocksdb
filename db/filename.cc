@@ -127,7 +127,12 @@ std::string MetaDatabaseName(const std::string& dbname, uint64_t number) {
   return dbname + buf;
 }
 
+std::string IdentityFileName(const std::string& dbname) {
+  return dbname + "/IDENTITY";
+}
+
 // Owned filenames have the form:
+//    dbname/IDENTITY
 //    dbname/CURRENT
 //    dbname/LOCK
 //    dbname/LOG
@@ -143,7 +148,10 @@ bool ParseFileName(const std::string& fname,
   if (fname.length() > 1 && fname[0] == '/') {
     rest.remove_prefix(1);
   }
-  if (rest == "CURRENT") {
+  if (rest == "IDENTITY") {
+    *number = 0;
+    *type = kIdentityFile;
+  } else if (rest == "CURRENT") {
     *number = 0;
     *type = kCurrentFile;
   } else if (rest == "LOCK") {
@@ -216,6 +224,20 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp);
   if (s.ok()) {
     s = env->RenameFile(tmp, CurrentFileName(dbname));
+  }
+  if (!s.ok()) {
+    env->DeleteFile(tmp);
+  }
+  return s;
+}
+
+Status SetIdentityFile(Env* env, const std::string& dbname) {
+  std::string id = env->GenerateUniqueId();
+  assert(!id.empty());
+  std::string tmp = TempFileName(dbname, id.size());
+  Status s = WriteStringToFileSync(env, id, tmp);
+  if (s.ok()) {
+    s = env->RenameFile(tmp, IdentityFileName(dbname));
   }
   if (!s.ok()) {
     env->DeleteFile(tmp);

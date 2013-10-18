@@ -1386,6 +1386,25 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
 
 }  // namespace
 
+std::string Env::GenerateUniqueId() {
+  std::string uuid_file = "/proc/sys/kernel/random/uuid";
+  if (FileExists(uuid_file)) {
+    std::string uuid;
+    Status s = ReadFileToString(this, uuid_file, &uuid);
+    if (s.ok()) {
+      return uuid;
+    }
+  }
+  // Could not read uuid_file - generate uuid using "nanos-random"
+  Random64 r(time(nullptr));
+  uint64_t random_uuid_portion =
+    r.Uniform(std::numeric_limits<uint64_t>::max());
+  uint64_t nanos_uuid_portion = NowNanos();
+  char uuid2[200];
+  snprintf(uuid2, 200, "%lx-%lx", nanos_uuid_portion, random_uuid_portion);
+  return uuid2;
+}
+
 Env* Env::Default() {
   static PosixEnv default_env;
   return &default_env;

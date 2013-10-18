@@ -233,6 +233,9 @@ class Env {
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
 
+  // Generates a unique id that can be used to identify a db
+  virtual std::string GenerateUniqueId();
+
  private:
   // No copying allowed
   Env(const Env&);

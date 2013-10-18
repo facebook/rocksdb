@@ -134,14 +134,6 @@ $PWD/build_tools/build_detect_version
 # of all files matching either rule, so we need to append -print to make the
 # prune take effect.
 DIRS="util db table utilities"
-if test "$USE_THRIFT"; then
-  DIRS="$DIRS thrift/server_utils.cpp thrift/gen-cpp "
-  THRIFTSERVER=leveldb_server
-fi
-
-if test "$USE_SCRIBE"; then
-  DIRS="$DIRS scribe "
-fi
 
 set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
@@ -227,14 +219,6 @@ if test "$USE_HDFS"; then
   PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $HDFS_LDFLAGS"
 fi
 
-# shall we build thrift server or scribe logger
-if test "$USE_THRIFT" ||  test "$USE_SCRIBE" ; then
-    THRIFT_CCFLAGS=" -I./thrift -I./thrift/gen-cpp -I./thrift/lib/cpp -I/usr/include -std=gnu++0x"
-    THRIFT_LDFLAGS=" -lexample -lserver -lthrift_base -ltransport -lthrift_exception -lutil -L./thrift/libs "
-    COMMON_FLAGS="$COMMON_FLAGS $THRIFT_CCFLAGS"
-    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $THRIFT_LDFLAGS"
-fi
-
 # if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 "
 COMMON_FLAGS="$COMMON_FLAGS $USE_SSE"
 
@@ -254,5 +238,4 @@ echo "PLATFORM_SHARED_CFLAGS=$PLATFORM_SHARED_CFLAGS" >> $OUTPUT
 echo "PLATFORM_SHARED_EXT=$PLATFORM_SHARED_EXT" >> $OUTPUT
 echo "PLATFORM_SHARED_LDFLAGS=$PLATFORM_SHARED_LDFLAGS" >> $OUTPUT
 echo "PLATFORM_SHARED_VERSIONED=$PLATFORM_SHARED_VERSIONED" >> $OUTPUT
-echo "THRIFTSERVER=$THRIFTSERVER" >> $OUTPUT
 echo "EXEC_LDFLAGS=$EXEC_LDFLAGS" >> $OUTPUT
