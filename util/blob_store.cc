@@ -261,7 +261,10 @@ Status BlobStore::Allocate(uint32_t blocks, Blob* blob) {
 
   s = free_list_.Allocate(blocks, blob);
   if (!s.ok()) {
-    CreateNewBucket();
+    s = CreateNewBucket();
+    if (!s.ok()) {
+      return s;
+    }
     s = free_list_.Allocate(blocks, blob);
   }
 
@@ -284,12 +287,8 @@ Status BlobStore::CreateNewBucket() {
     return s;
   }
 
-  s = buckets_[new_bucket_id].get()->Allocate(
-      0, block_size_ * blocks_per_bucket_);
-  if (!s.ok()) {
-    buckets_.erase(buckets_.begin() + new_bucket_id);
-    return s;
-  }
+  // tmpfs does not support allocate
+  buckets_[new_bucket_id].get()->Allocate(0, block_size_ * blocks_per_bucket_);
 
   return free_list_.Free(Blob(new_bucket_id, 0, blocks_per_bucket_));
 }
