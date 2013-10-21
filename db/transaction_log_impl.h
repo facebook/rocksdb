@@ -21,6 +21,9 @@ struct LogReporter : public log::Reader::Reporter {
   virtual void Corruption(size_t bytes, const Status& s) {
     Log(info_log, "dropping %zu bytes; %s", bytes, s.ToString().c_str());
   }
+  virtual void Info(const char* s) {
+    Log(info_log, "%s", s);
+  }
 };
 
 class LogFileImpl : public LogFile {
@@ -81,7 +84,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   const std::string& dir_;
   const Options* options_;
   const EnvOptions& soptions_;
-  const SequenceNumber startingSequenceNumber_;
+  SequenceNumber startingSequenceNumber_;
   std::unique_ptr<VectorLogPtr> files_;
   bool started_;
   bool isValid_;  // not valid when it starts of.
@@ -91,12 +94,18 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   unique_ptr<log::Reader> currentLogReader_;
   Status OpenLogFile(const LogFile* logFile, unique_ptr<SequentialFile>* file);
   LogReporter reporter_;
-  SequenceNumber const * const lastFlushedSequence_;
-
   SequenceNumber currentBatchSeq_; // sequence number at start of current batch
   uint64_t currentBatchCount_; // count in current batch
+  SequenceNumber const * const lastFlushedSequence_;
 
-  void SeekToStartSequence();
+  // Reads from transaction log only if the writebatch record has been written
+  bool RestrictedRead(Slice* record, std::string* scratch);
+  // Seeks to startingSequenceNumber reading from startFileIndex in files_.
+  // If strict is set,then must get a batch starting with startingSequenceNumber
+  void SeekToStartSequence(uint64_t startFileIndex = 0, bool strict = false);
+  // Check if batch is continuous starting from expectedSeq, else return false
+  bool IsBatchContinuous(const WriteBatch* batch, SequenceNumber expectedSeq);
+  // Update current batch if a continuous batch is found, else return false
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const LogFile* file);
 };
