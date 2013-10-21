@@ -906,7 +906,10 @@ TEST(TableTest, FilterPolicyNameStats) {
   std::vector<std::string> keys;
   KVMap kvmap;
   Options options;
-  options.filter_policy = NewBloomFilterPolicy(10);
+  std::unique_ptr<const FilterPolicy> filter_policy(
+    NewBloomFilterPolicy(10)
+  );
+  options.filter_policy = filter_policy.get();
 
   c.Finish(options, &keys, &kvmap);
   auto& stats = c.table()->GetTableStats();
