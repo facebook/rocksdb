@@ -287,7 +287,9 @@ Status BlobStore::CreateNewBucket() {
     return s;
   }
 
-  // tmpfs does not support allocate
+  // whether Allocate succeeds or not, does not affect the overall correctness
+  // of this function - calling Allocate is really optional
+  // (also, tmpfs does not support allocate)
   buckets_[new_bucket_id].get()->Allocate(0, block_size_ * blocks_per_bucket_);
 
   return free_list_.Free(Blob(new_bucket_id, 0, blocks_per_bucket_));
