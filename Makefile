@@ -246,6 +246,9 @@ table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
+prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
