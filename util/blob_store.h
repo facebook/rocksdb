@@ -102,10 +102,14 @@ class BlobStore {
    //   Bucket is a device or a file that we use to store the blobs.
    //   If we don't have enough blocks to allocate a new blob, we will
    //   try to create a new file or device.
+   // max_buckets - maximum number of buckets BlobStore will create
+   //   BlobStore max size in bytes is
+   //     max_buckets * blocks_per_bucket * block_size
    // env - env for creating new files
   BlobStore(const std::string& directory,
             uint64_t block_size,
             uint32_t blocks_per_bucket,
+            uint32_t max_buckets,
             Env* env);
   ~BlobStore();
 
@@ -134,10 +138,15 @@ class BlobStore {
   EnvOptions storage_options_;
   // protected by free_list_mutex_
   FreeList free_list_;
+  // free_list_mutex_ is locked BEFORE buckets_mutex_
   mutable port::Mutex free_list_mutex_;
-  // protected by buckets mutex
-  std::vector<unique_ptr<RandomRWFile>> buckets_;
-  mutable port::RWMutex buckets_mutex_;
+  // protected by buckets_mutex_
+  // array of buckets
+  unique_ptr<RandomRWFile>* buckets_;
+  // number of buckets in the array
+  uint32_t buckets_size_;
+  uint32_t max_buckets_;
+  mutable port::Mutex buckets_mutex_;
 
   // Calls FreeList allocate. If free list can't allocate
   // new blob, creates new bucket and tries again

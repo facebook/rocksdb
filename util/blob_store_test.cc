@@ -37,6 +37,7 @@ TEST(BlobStoreTest, SanityTest) {
   BlobStore blob_store(test::TmpDir() + "/blob_store_test",
                        block_size,
                        blocks_per_file,
+                       1000,
                        Env::Default());
 
   string buf;
@@ -98,6 +99,7 @@ TEST(BlobStoreTest, FragmentedChunksTest) {
   BlobStore blob_store(test::TmpDir() + "/blob_store_test",
                        block_size,
                        blocks_per_file,
+                       1000,
                        Env::Default());
 
   string buf;
@@ -138,6 +140,7 @@ TEST(BlobStoreTest, CreateAndStoreTest) {
   BlobStore blob_store(test::TmpDir() + "/blob_store_test",
                        block_size,
                        blocks_per_file,
+                       10000,
                        Env::Default());
   vector<pair<Blob, string>> ranges;
 
@@ -163,6 +166,31 @@ TEST(BlobStoreTest, CreateAndStoreTest) {
     }
   }
   ASSERT_OK(blob_store.Sync());
+}
+
+TEST(BlobStoreTest, MaxSizeTest) {
+  const uint64_t block_size = 10;
+  const uint32_t blocks_per_file = 100;
+  const int max_buckets = 10;
+  Random random(5);
+
+  BlobStore blob_store(test::TmpDir() + "/blob_store_test",
+                       block_size,
+                       blocks_per_file,
+                       max_buckets,
+                       Env::Default());
+  string buf;
+  for (int i = 0; i < max_buckets; ++i) {
+    test::RandomString(&random, 1000, &buf);
+    Blob r;
+    ASSERT_OK(blob_store.Put(Slice(buf), &r));
+  }
+
+  test::RandomString(&random, 1000, &buf);
+  Blob r;
+  // should fail because max size
+  Status s = blob_store.Put(Slice(buf), &r);
+  ASSERT_EQ(s.ok(), false);
 }
 
 }  // namespace rocksdb
