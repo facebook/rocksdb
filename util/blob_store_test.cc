@@ -44,7 +44,7 @@ TEST(BlobStoreTest, SanityTest) {
   // put string of size 170
   test::RandomString(&random, 170, &buf);
   Blob r1;
-  ASSERT_OK(blob_store.Put(buf.data(), 170, &r1));
+  ASSERT_OK(blob_store.Put(Slice(buf), &r1));
   // use the first file
   for (size_t i = 0; i < r1.chunks.size(); ++i) {
     ASSERT_EQ(r1.chunks[0].bucket_id, 0u);
@@ -53,7 +53,7 @@ TEST(BlobStoreTest, SanityTest) {
   // put string of size 30
   test::RandomString(&random, 30, &buf);
   Blob r2;
-  ASSERT_OK(blob_store.Put(buf.data(), 30, &r2));
+  ASSERT_OK(blob_store.Put(Slice(buf), &r2));
   // use the first file
   for (size_t i = 0; i < r2.chunks.size(); ++i) {
     ASSERT_EQ(r2.chunks[0].bucket_id, 0u);
@@ -65,7 +65,7 @@ TEST(BlobStoreTest, SanityTest) {
   // put a string of size 100
   test::RandomString(&random, 100, &buf);
   Blob r3;
-  ASSERT_OK(blob_store.Put(buf.data(), 100, &r3));
+  ASSERT_OK(blob_store.Put(Slice(buf), &r3));
   // use the first file
   for (size_t i = 0; i < r3.chunks.size(); ++i) {
     ASSERT_EQ(r3.chunks[0].bucket_id, 0u);
@@ -74,7 +74,7 @@ TEST(BlobStoreTest, SanityTest) {
   // put a string of size 70
   test::RandomString(&random, 70, &buf);
   Blob r4;
-  ASSERT_OK(blob_store.Put(buf.data(), 70, &r4));
+  ASSERT_OK(blob_store.Put(Slice(buf), &r4));
   // use the first file
   for (size_t i = 0; i < r4.chunks.size(); ++i) {
     ASSERT_EQ(r4.chunks[0].bucket_id, 0u);
@@ -83,12 +83,50 @@ TEST(BlobStoreTest, SanityTest) {
   // put a string of size 5
   test::RandomString(&random, 5, &buf);
   Blob r5;
-  ASSERT_OK(blob_store.Put(buf.data(), 70, &r5));
+  ASSERT_OK(blob_store.Put(Slice(buf), &r5));
   // now you get to use the second file
   for (size_t i = 0; i < r5.chunks.size(); ++i) {
     ASSERT_EQ(r5.chunks[0].bucket_id, 1u);
   }
+}
 
+TEST(BlobStoreTest, FragmentedChunksTest) {
+  const uint64_t block_size = 10;
+  const uint32_t blocks_per_file = 20;
+  Random random(5);
+
+  BlobStore blob_store(test::TmpDir() + "/blob_store_test",
+                       block_size,
+                       blocks_per_file,
+                       Env::Default());
+
+  string buf;
+
+  vector <Blob> r(4);
+
+  // put 4 strings of size 50
+  for (int k = 0; k < 4; ++k)  {
+    test::RandomString(&random, 50, &buf);
+    ASSERT_OK(blob_store.Put(Slice(buf), &r[k]));
+    // use the first file
+    for (size_t i = 0; i < r[k].chunks.size(); ++i) {
+      ASSERT_EQ(r[k].chunks[0].bucket_id, 0u);
+    }
+  }
+
+  // delete the first and third
+  ASSERT_OK(blob_store.Delete(r[0]));
+  ASSERT_OK(blob_store.Delete(r[2]));
+
+  // put string of size 100. it should reuse space that we deleting
+  // by deleting first and third strings of size 50
+  test::RandomString(&random, 100, &buf);
+  Blob r2;
+  ASSERT_OK(blob_store.Put(Slice(buf), &r2));
+  // use the first file
+  for (size_t i = 0; i < r2.chunks.size(); ++i) {
+    ASSERT_EQ(r2.chunks[0].bucket_id, 0u);
+  }
 }
 
 TEST(BlobStoreTest, CreateAndStoreTest) {
@@ -111,7 +149,7 @@ TEST(BlobStoreTest, CreateAndStoreTest) {
       int string_size = size_blocks * block_size - (rand() % block_size);
       test::RandomString(&random, string_size, &buf);
       Blob r;
-      ASSERT_OK(blob_store.Put(buf.data(), string_size, &r));
+      ASSERT_OK(blob_store.Put(Slice(buf), &r));
       ranges.push_back(make_pair(r, buf));
     } else if (decision == 3) {
       int ti = rand() % ranges.size();
@@ -124,6 +162,7 @@ TEST(BlobStoreTest, CreateAndStoreTest) {
       ranges.erase(ranges.begin() + ti);
     }
   }
+  ASSERT_OK(blob_store.Sync());
 }
 
 }  // namespace rocksdb

@@ -10,6 +10,7 @@
 #include "util/coding.h"
 
 #include <list>
+#include <deque>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
@@ -25,16 +26,6 @@ struct BlobChunk {
   BlobChunk() {}
   BlobChunk(uint32_t bucket_id, uint32_t offset, uint32_t size) :
     bucket_id(bucket_id), offset(offset), size(size) {}
-
-  bool operator <= (const BlobChunk& chunk) const {
-    if (bucket_id != chunk.bucket_id) {
-      return bucket_id < chunk.bucket_id;
-    }
-    if (offset != chunk.offset) {
-      return offset < chunk.offset;
-    }
-    return true;
-  }
 
   // returns true if it's immediately before chunk
   bool ImmediatelyBefore(const BlobChunk& chunk) const;
@@ -63,15 +54,26 @@ struct Blob {
     chunks.push_back(BlobChunk(bucket_id, offset, size));
   }
 
+  uint32_t Size() const { // in blocks
+    uint32_t ret = 0;
+    for (auto chunk : chunks) {
+      ret += chunk.size;
+    }
+    assert(ret > 0);
+    return ret;
+  }
+
   // bucket_id, offset, size
   std::vector<BlobChunk> chunks;
 };
 
 // Keeps a list of free chunks
+// NOT thread-safe. Externally synchronized
 class FreeList {
  public:
-  FreeList ();
-  ~FreeList();
+  FreeList() :
+    free_blocks_(0) {}
+  ~FreeList() {}
 
   // Allocates a a blob. Stores the allocated blob in
   // 'blob'. Returns non-OK status if it failed to allocate.
@@ -85,12 +87,8 @@ class FreeList {
   bool Overlap(const Blob &blob) const;
 
  private:
-  struct FreeChunk {
-    BlobChunk chunk;
-    FreeChunk* next;
-  };
-
-  FreeChunk* free_chunks_list_;
+  std::deque<BlobChunk> fifo_free_chunks_;
+  uint32_t free_blocks_;
   mutable port::Mutex mutex_;
 };
 
@@ -111,17 +109,19 @@ class BlobStore {
             Env* env);
   ~BlobStore();
 
-  // Allocates space for size bytes (rounded up to be multiple of
-  // block size) and writes size bytes from value to a backing store.
+  // Allocates space for value.size bytes (rounded up to be multiple of
+  // block size) and writes value.size bytes from value.data to a backing store.
   // Sets Blob blob that can than be used for addressing the
   // stored value. Returns non-OK status on error.
-  Status Put(const char* value, uint64_t size, Blob* blob);
+  Status Put(const Slice& value, Blob* blob);
   // Value needs to have enough space to store all the loaded stuff.
   // This function is thread safe!
   Status Get(const Blob& blob, std::string* value) const;
   // Frees the blob for reuse, but does not delete the data
   // on the backing store.
   Status Delete(const Blob& blob);
+  // Sync all opened files that are modified
+  Status Sync();
 
  private:
   const std::string directory_;
@@ -132,10 +132,12 @@ class BlobStore {
   const uint32_t blocks_per_bucket_;
   Env* env_;
   EnvOptions storage_options_;
+  // protected by free_list_mutex_
   FreeList free_list_;
+  mutable port::Mutex free_list_mutex_;
   // protected by buckets mutex
   std::vector<unique_ptr<RandomRWFile>> buckets_;
-  mutable port::Mutex allocate_mutex_;
+  mutable port::RWMutex buckets_mutex_;
 
   // Calls FreeList allocate. If free list can't allocate
   // new blob, creates new bucket and tries again
@@ -144,7 +146,6 @@ class BlobStore {
 
   // Creates a new backing store and adds all the blocks
   // from the new backing store to the free list
-  // NOT thread-safe, call with lock held
   Status CreateNewBucket();
 };
 

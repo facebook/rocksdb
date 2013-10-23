@@ -47,59 +47,15 @@ Blob::Blob(const std::string& blob) {
 }
 
 // FreeList
-FreeList::FreeList() {
-  // We add (0, 0, 0) blob because it makes our life easier and
-  // code cleaner. (0, 0, 0) is always in the list so we can
-  // guarantee that free_chunks_list_ != nullptr, which avoids
-  // lots of unnecessary ifs
-  free_chunks_list_ = (FreeChunk *)malloc(sizeof(FreeChunk));
-  free_chunks_list_->chunk = BlobChunk(0, 0, 0);
-  free_chunks_list_->next = nullptr;
-}
-
-FreeList::~FreeList() {
-  while (free_chunks_list_ != nullptr) {
-    FreeChunk* t = free_chunks_list_;
-    free_chunks_list_ = free_chunks_list_->next;
-    free(t);
-  }
-}
-
 Status FreeList::Free(const Blob& blob) {
-  MutexLock l(&mutex_);
-
   // add it back to the free list
   for (auto chunk : blob.chunks) {
-    FreeChunk* itr = free_chunks_list_;
-
-    // find a node AFTER which we'll add the block
-    for ( ; itr->next != nullptr && itr->next->chunk <= chunk;
-            itr = itr->next) {
-    }
-
-    // try to merge with previous block
-    if (itr->chunk.ImmediatelyBefore(chunk)) {
-      // merge
-      itr->chunk.size += chunk.size;
+    free_blocks_ += chunk.size;
+    if (fifo_free_chunks_.size() &&
+        fifo_free_chunks_.back().ImmediatelyBefore(chunk)) {
+      fifo_free_chunks_.back().size += chunk.size;
     } else {
-      // Insert the block after itr
-      FreeChunk* t = (FreeChunk*)malloc(sizeof(FreeChunk));
-      if (t == nullptr) {
-        throw runtime_error("Malloc failed");
-      }
-      t->chunk = chunk;
-      t->next = itr->next;
-      itr->next = t;
-      itr = t;
-    }
-
-    // try to merge with the next block
-    if (itr->next != nullptr &&
-        itr->chunk.ImmediatelyBefore(itr->next->chunk)) {
-      FreeChunk *tobedeleted = itr->next;
-      itr->chunk.size += itr->next->chunk.size;
-      itr->next = itr->next->next;
-      free(tobedeleted);
+      fifo_free_chunks_.push_back(chunk);
     }
   }
 
@@ -107,48 +63,38 @@ Status FreeList::Free(const Blob& blob) {
 }
 
 Status FreeList::Allocate(uint32_t blocks, Blob* blob) {
-  MutexLock l(&mutex_);
-  FreeChunk** best_fit_node = nullptr;
-
-  // Find the smallest free chunk whose size is greater or equal to blocks
-  for (FreeChunk** itr = &free_chunks_list_; (*itr) != nullptr;
-       itr = &((*itr)->next)) {
-    if ((*itr)->chunk.size >= blocks &&
-        (best_fit_node == nullptr ||
-         (*best_fit_node)->chunk.size > (*itr)->chunk.size)) {
-      best_fit_node = itr;
-    }
-  }
-
-  if (best_fit_node == nullptr || *best_fit_node == nullptr) {
-    // Not enough memory
+  if (free_blocks_ < blocks) {
     return Status::Incomplete("");
   }
 
-  blob->SetOneChunk((*best_fit_node)->chunk.bucket_id,
-                    (*best_fit_node)->chunk.offset,
-                    blocks);
+  blob->chunks.clear();
+  free_blocks_ -= blocks;
 
-  if ((*best_fit_node)->chunk.size > blocks) {
-    // just shorten best_fit_node
-    (*best_fit_node)->chunk.offset += blocks;
-    (*best_fit_node)->chunk.size -= blocks;
-  } else {
-    assert(blocks == (*best_fit_node)->chunk.size);
-    // delete best_fit_node
-    FreeChunk* t = *best_fit_node;
-    (*best_fit_node) = (*best_fit_node)->next;
-    free(t);
+  while (blocks > 0) {
+    assert(fifo_free_chunks_.size() > 0);
+    auto& front = fifo_free_chunks_.front();
+    if (front.size > blocks) {
+      blob->chunks.push_back(BlobChunk(front.bucket_id, front.offset, blocks));
+      front.offset += blocks;
+      front.size -= blocks;
+      blocks = 0;
+    } else {
+      blob->chunks.push_back(front);
+      blocks -= front.size;
+      fifo_free_chunks_.pop_front();
+    }
   }
+  assert(blocks == 0);
 
   return Status::OK();
 }
 
 bool FreeList::Overlap(const Blob &blob) const {
-  MutexLock l(&mutex_);
   for (auto chunk : blob.chunks) {
-    for (auto itr = free_chunks_list_; itr != nullptr; itr = itr->next) {
-      if (itr->chunk.Overlap(chunk)) {
+    for (auto itr = fifo_free_chunks_.begin();
+         itr != fifo_free_chunks_.end();
+         ++itr) {
+      if (itr->Overlap(chunk)) {
         return true;
       }
     }
@@ -177,26 +123,28 @@ BlobStore::~BlobStore() {
   // TODO we don't care about recovery for now
 }
 
-Status BlobStore::Put(const char* value, uint64_t size, Blob* blob) {
+Status BlobStore::Put(const Slice& value, Blob* blob) {
   // convert size to number of blocks
-  Status s = Allocate((size + block_size_ - 1) / block_size_, blob);
+  Status s = Allocate((value.size() + block_size_ - 1) / block_size_, blob);
   if (!s.ok()) {
     return s;
   }
+  ReadLock l(&buckets_mutex_);
+  size_t size_left = value.size();
 
   uint64_t offset = 0; // in bytes, not blocks
   for (auto chunk : blob->chunks) {
-    uint64_t write_size = min(chunk.size * block_size_, size);
+    uint64_t write_size = min(chunk.size * block_size_, size_left);
     assert(chunk.bucket_id < buckets_.size());
     s = buckets_[chunk.bucket_id].get()->Write(chunk.offset * block_size_,
-                                               Slice(value + offset,
+                                               Slice(value.data() + offset,
                                                      write_size));
     if (!s.ok()) {
       Delete(*blob);
       return s;
     }
     offset += write_size;
-    size -= write_size;
+    size_left -= write_size;
     if (write_size < chunk.size * block_size_) {
       // if we have any space left in the block, fill it up with zeros
       string zero_string(chunk.size * block_size_ - write_size, 0);
@@ -206,7 +154,7 @@ Status BlobStore::Put(const char* value, uint64_t size, Blob* blob) {
     }
   }
 
-  if (size > 0) {
+  if (size_left > 0) {
     Delete(*blob);
     return Status::IOError("Tried to write more data than fits in the blob");
   }
@@ -216,16 +164,13 @@ Status BlobStore::Put(const char* value, uint64_t size, Blob* blob) {
 
 Status BlobStore::Get(const Blob& blob,
                       string* value) const {
+  ReadLock l(&buckets_mutex_);
+
   // assert that it doesn't overlap with free list
   // it will get compiled out for release
   assert(!free_list_.Overlap(blob));
 
-  uint32_t total_size = 0; // in blocks
-  for (auto chunk : blob.chunks) {
-    total_size += chunk.size;
-  }
-  assert(total_size > 0);
-  value->resize(total_size * block_size_);
+  value->resize(blob.Size() * block_size_);
 
   uint64_t offset = 0; // in bytes, not blocks
   for (auto chunk : blob.chunks) {
@@ -250,13 +195,23 @@ Status BlobStore::Get(const Blob& blob,
 }
 
 Status BlobStore::Delete(const Blob& blob) {
+  MutexLock l(&free_list_mutex_);
   return free_list_.Free(blob);
 }
 
+Status BlobStore::Sync() {
+  ReadLock l(&buckets_mutex_);
+  for (size_t i = 0; i < buckets_.size(); ++i) {
+    Status s = buckets_[i].get()->Sync();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return Status::OK();
+}
+
 Status BlobStore::Allocate(uint32_t blocks, Blob* blob) {
-  // TODO we don't currently support fragmented blobs
-  MutexLock l(&allocate_mutex_);
-  assert(blocks <= blocks_per_bucket_);
+  MutexLock l(&free_list_mutex_);
   Status s;
 
   s = free_list_.Allocate(blocks, blob);
@@ -271,7 +226,9 @@ Status BlobStore::Allocate(uint32_t blocks, Blob* blob) {
   return s;
 }
 
+// called with free_list_mutex_ held
 Status BlobStore::CreateNewBucket() {
+  WriteLock l(&buckets_mutex_);
   int new_bucket_id;
   new_bucket_id = buckets_.size();
   buckets_.push_back(unique_ptr<RandomRWFile>());
