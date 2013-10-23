@@ -85,7 +85,9 @@ MEMENVLIBRARY = libmemenv.a
 
 default: all
 
-# Should we build shared libraries?
+#-----------------------------------------------
+# Create platform independent shared libraries.
+#-----------------------------------------------
 ifneq ($(PLATFORM_SHARED_EXT),)
 
 ifneq ($(PLATFORM_SHARED_VERSIONED),true)
@@ -112,7 +114,7 @@ $(SHARED3):
 
 endif  # PLATFORM_SHARED_EXT
 
-all: $(SHARED) $(LIBRARY) $(PROGRAMS)
+all: $(LIBRARY) $(PROGRAMS)
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
 	release tags valgrind_check whitebox_crash_test
