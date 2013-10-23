@@ -50,6 +50,7 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -2576,7 +2577,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       }
 
       if (!options.disableWAL) {
+        StopWatchNano timer(env_);
+        StartPerfTimer(&timer);
         status = log_->AddRecord(WriteBatchInternal::Contents(updates));
+        BumpPerfTime(&perf_context.wal_write_time, &timer);
         if (status.ok() && options.sync) {
           if (options_.use_fsync) {
             StopWatch(env_, options_.statistics, WAL_FILE_SYNC_MICROS);

@@ -22,6 +22,7 @@ void PerfContext::Reset() {
   block_decompress_time = 0;
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
+  wal_write_time = 0;
 }
 
 __thread PerfContext perf_context;

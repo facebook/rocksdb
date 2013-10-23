@@ -25,16 +25,6 @@ int FLAGS_min_write_buffer_number_to_merge = 7;
 // Path to the database on file system
 const std::string kDbName = rocksdb::test::TmpDir() + "/perf_context_test";
 
-void SeekToFirst(rocksdb::Iterator* iter) {
-//  std::cout << "Press a key to continue:";
-//  std::string s;
-//  std::cin >> s;
-  iter->SeekToFirst();
-//  std::cout << "Press a key to continue:";
-//  std::string s2;
-//  std::cin >> s2;
-}
-
 namespace rocksdb {
 
 std::shared_ptr<DB> OpenDb() {
@@ -100,10 +90,7 @@ TEST(PerfContextTest, SeekIntoDeletion) {
 
   perf_context.Reset();
   StopWatchNano timer(Env::Default(), true);
-  //CALLGRIND_ZERO_STATS;
-  SeekToFirst(iter.get());
-  //iter->SeekToFirst();
-  //CALLGRIND_DUMP_STATS;
+  iter->SeekToFirst();
   hist_seek_to_first.Add(perf_context.user_key_comparison_count);
   auto elapsed_nanos = timer.ElapsedNanos();
 
@@ -257,12 +244,28 @@ TEST(PerfContextTest, SeekKeyComparison) {
     std::random_shuffle(keys.begin(), keys.end());
   }
 
+  HistogramImpl hist_put_time;
+  HistogramImpl hist_wal_time;
+  HistogramImpl hist_time_diff;
+
+  SetPerfLevel(kEnableTime);
+  StopWatchNano timer(Env::Default());
   for (const int i : keys) {
     std::string key = "k" + std::to_string(i);
     std::string value = "v" + std::to_string(i);
 
+    perf_context.Reset();
+    timer.Start();
     db->Put(write_options, key, value);
+    auto put_time = timer.ElapsedNanos();
+    hist_put_time.Add(put_time);
+    hist_wal_time.Add(perf_context.wal_write_time);
+    hist_time_diff.Add(put_time - perf_context.wal_write_time);
   }
+
+  std::cout << "Put time:\n" << hist_put_time.ToString()
+            << "WAL time:\n" << hist_wal_time.ToString()
+            << "time diff:\n" << hist_time_diff.ToString();
 
   HistogramImpl hist_seek;
   HistogramImpl hist_next;
