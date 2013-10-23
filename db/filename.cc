@@ -92,7 +92,7 @@ std::string LockFileName(const std::string& dbname) {
 }
 
 std::string TempFileName(const std::string& dbname, uint64_t number) {
-  assert(number > 0);
+  assert(number >= 0);
   return MakeFileName(dbname, number, "dbtmp");
 }
 
@@ -234,7 +234,8 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
 Status SetIdentityFile(Env* env, const std::string& dbname) {
   std::string id = env->GenerateUniqueId();
   assert(!id.empty());
-  std::string tmp = TempFileName(dbname, id.size());
+  // Reserve the filename dbname/000000.dbtmp for the temporary identity file
+  std::string tmp = TempFileName(dbname, 0);
   Status s = WriteStringToFileSync(env, id, tmp);
   if (s.ok()) {
     s = env->RenameFile(tmp, IdentityFileName(dbname));
