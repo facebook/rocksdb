@@ -5,6 +5,8 @@
 //
 #include <cstdio>
 
+#include <gflags/gflags.h>
+
 #include "db/write_batch_internal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/types.h"
@@ -76,23 +78,14 @@ static void ReplicationThreadBody(void* arg) {
   }
 }
 
+DEFINE_uint64(num_inserts, 1000, "the num of inserts the first thread should"
+              " perform.");
+DEFINE_uint64(wal_ttl, 1000, "the wal ttl for the run(in seconds)");
+
 int main(int argc, const char** argv) {
-
-  uint64_t FLAGS_num_inserts = 1000;
-  uint64_t FLAGS_WAL_ttl_seconds = 1000;
-  char junk;
-  long l;
-
-  for (int i = 1; i < argc; ++i) {
-    if (sscanf(argv[i], "--num_inserts=%ld%c", &l, &junk) == 1) {
-      FLAGS_num_inserts = l;
-    } else if (sscanf(argv[i], "--wal_ttl=%ld%c", &l, &junk) == 1) {
-      FLAGS_WAL_ttl_seconds = l;
-    } else {
-      fprintf(stderr, "Invalid Flag '%s'\n", argv[i]);
-      exit(1);
-    }
-  }
+  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+    " --num_inserts=<num_inserts> --wal_ttl=<WAL_ttl_seconds>");
+  google::ParseCommandLineFlags(&argc, const_cast<char***>(&argv), true);
 
   Env* env = Env::Default();
   std::string default_db_path;
@@ -100,7 +93,7 @@ int main(int argc, const char** argv) {
   default_db_path += "db_repl_stress";
   Options options;
   options.create_if_missing = true;
-  options.WAL_ttl_seconds = FLAGS_WAL_ttl_seconds;
+  options.WAL_ttl_seconds = FLAGS_wal_ttl;
   DB* db;
   DestroyDB(default_db_path, options);
 

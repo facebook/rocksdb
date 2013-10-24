@@ -23,6 +23,7 @@
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "db/db_statistics.h"
@@ -45,192 +46,255 @@
 
 static const long KB = 1024;
 
-// Seed for PRNG
-static uint32_t FLAGS_seed = 2341234;
 
-// Max number of key/values to place in database
-static long FLAGS_max_key = 1 * KB * KB * KB;
+static bool ValidateUint32Range(const char* flagname, uint64_t value) {
+  if (value > std::numeric_limits<uint32_t>::max()) {
+    fprintf(stderr, "Invalid value for --%s: %lu, overflow\n", flagname, value);
+    return false;
+  }
+  return true;
+}
+DEFINE_uint64(seed, 2341234, "Seed for PRNG");
+static const bool FLAGS_seed_dummy =
+  google::RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
-// If set, the test uses MultiGet(), MultiPut() and MultiDelete() which
-// read/write/delete multiple keys in a batch. In this mode, we do not verify
-// db content by comparing the content with the pre-allocated array. Instead,
-// we do partial verification inside MultiGet() by checking various values in
-// a batch. Benefit of this mode:
-// (a) No need to acquire mutexes during writes (less cache flushes
-//     in multi-core leading to speed up)
-// (b) No long validation at the end (more speed up)
-// (c) Test snapshot and atomicity of batch writes
-static bool FLAGS_test_batches_snapshots = false;
+DEFINE_int64(max_key, 1 * KB * KB * KB,
+             "Max number of key/values to place in database");
 
-// Number of concurrent threads to run.
-static int FLAGS_threads = 32;
+DEFINE_bool(test_batches_snapshots, false,
+            "If set, the test uses MultiGet(), MultiPut() and MultiDelete()"
+            " which read/write/delete multiple keys in a batch. In this mode,"
+            " we do not verify db content by comparing the content with the "
+            "pre-allocated array. Instead, we do partial verification inside"
+            " MultiGet() by checking various values in a batch. Benefit of"
+            " this mode:\n"
+            "\t(a) No need to acquire mutexes during writes (less cache "
+            "flushes in multi-core leading to speed up)\n"
+            "\t(b) No long validation at the end (more speed up)\n"
+            "\t(c) Test snapshot and atomicity of batch writes");
 
-// Opens the db with this ttl value if this is not -1
-// Carefully specify a large value such that verifications on deleted
-// values don't fail
-static int FLAGS_ttl = -1;
+DEFINE_int32(threads, 32, "Number of concurrent threads to run.");
 
-// Size of each value will be this number times rand_int(1,3) bytes
-static int FLAGS_value_size_mult = 8;
+DEFINE_int32(ttl, -1,
+             "Opens the db with this ttl value if this is not -1. "
+             "Carefully specify a large value such that verifications on "
+             "deleted values don't fail");
 
-static bool FLAGS_verify_before_write = false;
+DEFINE_int32(value_size_mult, 8,
+             "Size of value will be this number times rand_int(1,3) bytes");
 
-// Print histogram of operation timings
-static bool FLAGS_histogram = false;
+DEFINE_bool(verify_before_write, false, "Verify before write");
 
-// Destroys the database dir before start if this is true
-static bool FLAGS_destroy_db_initially = true;
+DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
-static bool FLAGS_verbose = false;
+DEFINE_bool(destroy_db_initially, true,
+            "Destroys the database dir before start if this is true");
 
-// Number of bytes to buffer in memtable before compacting
-// (initialized to default value by "main")
-static int FLAGS_write_buffer_size = 0;
+DEFINE_bool (verbose, false, "Verbose");
 
-// The number of in-memory memtables.
-// Each memtable is of size FLAGS_write_buffer_size.
-// This is initialized to default value of 2 in "main" function.
-static int FLAGS_max_write_buffer_number = 0;
+DEFINE_int32(write_buffer_size, rocksdb::Options().write_buffer_size,
+             "Number of bytes to buffer in memtable before compacting");
 
-// The minimum number of write buffers that will be merged together
-// before writing to storage. This is cheap because it is an
-// in-memory merge. If this feature is not enabled, then all these
-// write buffers are flushed to L0 as separate files and this increases
-// read amplification because a get request has to check in all of these
-// files. Also, an in-memory merge may result in writing less
-// data to storage if there are duplicate records in each of these
-// individual write buffers.
-static int FLAGS_min_write_buffer_number_to_merge = 0;
+DEFINE_int32(max_write_buffer_number,
+             rocksdb::Options().max_write_buffer_number,
+             "The number of in-memory memtables. "
+             "Each memtable is of size FLAGS_write_buffer_size.");
 
-// The maximum number of concurrent background compactions
-// that can occur in parallel.
-// This is initialized to default value of 1 in "main" function.
-static int FLAGS_max_background_compactions = 0;
+DEFINE_int32(min_write_buffer_number_to_merge,
+             rocksdb::Options().min_write_buffer_number_to_merge,
+             "The minimum number of write buffers that will be merged together "
+             "before writing to storage. This is cheap because it is an "
+             "in-memory merge. If this feature is not enabled, then all these "
+             "write buffers are flushed to L0 as separate files and this "
+             "increases read amplification because a get request has to check "
+             "in all of these files. Also, an in-memory merge may result in "
+             "writing less data to storage if there are duplicate records in"
+             " each of these individual write buffers.");
 
-// This is initialized to default value of false
-static rocksdb::CompactionStyle FLAGS_compaction_style = rocksdb::kCompactionStyleLevel;
+DEFINE_int32(open_files, rocksdb::Options().max_open_files,
+             "Maximum number of files to keep open at the same time "
+             "(use default if == 0)");
 
-// The ratio of file sizes that trigger compaction in universal style
-static unsigned int FLAGS_universal_size_ratio = 0;
+DEFINE_int32(compaction_style, rocksdb::Options().compaction_style, "");
 
-// The minimum number of files to compact in universal style compaction
-static unsigned int FLAGS_universal_min_merge_width = 0;
+DEFINE_int32(level0_file_num_compaction_trigger,
+             rocksdb::Options().level0_file_num_compaction_trigger,
+             "Level0 compaction start trigger");
 
-// The max number of files to compact in universal style compaction
-static unsigned int FLAGS_universal_max_merge_width = 0;
+DEFINE_int32(level0_slowdown_writes_trigger,
+             rocksdb::Options().level0_slowdown_writes_trigger,
+             "Number of files in level-0 that will slow down writes");
 
-// The max size amplification for universal style compaction
-static unsigned int FLAGS_universal_max_size_amplification_percent = 0;
+DEFINE_int32(level0_stop_writes_trigger,
+             rocksdb::Options().level0_stop_writes_trigger,
+             "Number of files in level-0 that will trigger put stop.");
 
-// Number of bytes to use as a cache of uncompressed data.
-static long FLAGS_cache_size = 2 * KB * KB * KB;
+DEFINE_int32(block_size, rocksdb::Options().block_size,
+             "Number of bytes in a block.");
 
-// Number of bytes in a block.
-static int FLAGS_block_size = 4 * KB;
+DEFINE_int32(max_background_compactions,
+             rocksdb::Options().max_background_compactions,
+             "The maximum number of concurrent background compactions "
+             "that can occur in parallel.");
 
-// Number of times database reopens
-static int FLAGS_reopen = 10;
+DEFINE_int32(universal_size_ratio, 0, "The ratio of file sizes that trigger"
+             " compaction in universal style");
 
-// Maximum number of files to keep open at the same time (use default if == 0)
-static int FLAGS_open_files = 0;
+DEFINE_int32(universal_min_merge_width, 0, "The minimum number of files to "
+             "compact in universal style compaction");
 
-// Bloom filter bits per key.
-// Negative means use default settings.
-static int FLAGS_bloom_bits = 10;
+DEFINE_int32(universal_max_merge_width, 0, "The max number of files to compact"
+             " in universal style compaction");
 
-// Use the db with the following name.
-static const char* FLAGS_db = nullptr;
+DEFINE_int32(universal_max_size_amplification_percent, 0,
+             "The max size amplification for universal style compaction");
 
-// Verify checksum for every block read from storage
-static bool FLAGS_verify_checksum = false;
+DEFINE_int64(cache_size, 2 * KB * KB * KB,
+             "Number of bytes to use as a cache of uncompressed data.");
 
-// Allow reads to occur via mmap-ing files
-static bool FLAGS_use_mmap_reads = rocksdb::EnvOptions().use_mmap_reads;
+static bool ValidateInt32Positive(const char* flagname, int32_t value) {
+  if (value < 0) {
+    fprintf(stderr, "Invalid value for --%s: %d, must be >=0\n",
+            flagname, value);
+    return false;
+  }
+  return true;
+}
+DEFINE_int32(reopen, 10, "Number of times database reopens");
+static const bool FLAGS_reopen_dummy =
+  google::RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
+
+DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
+             "Negative means use default settings.");
+
+DEFINE_string(db, "", "Use the db with the following name.");
+
+DEFINE_bool(verify_checksum, false,
+            "Verify checksum for every block read from storage");
+
+DEFINE_bool(mmap_read, rocksdb::EnvOptions().use_mmap_reads,
+            "Allow reads to occur via mmap-ing files");
 
 // Database statistics
 static std::shared_ptr<rocksdb::Statistics> dbstats;
+DEFINE_bool(statistics, false, "Create database statistics");
 
-// Sync all writes to disk
-static bool FLAGS_sync = false;
+DEFINE_bool(sync, false, "Sync all writes to disk");
 
-// If true, do not wait until data is synced to disk.
-static bool FLAGS_disable_data_sync = false;
+DEFINE_bool(disable_data_sync, false,
+            "If true, do not wait until data is synced to disk.");
 
-// If true, issue fsync instead of fdatasync
-static bool FLAGS_use_fsync = false;
+DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
-// If non-zero, kill at various points in source code with probability 1/this
-static int FLAGS_kill_random_test = 0;
+DEFINE_int32(kill_random_test, 0,
+             "If non-zero, kill at various points in source code with "
+             "probability 1/this");
+static const bool FLAGS_kill_random_test_dummy =
+  google::RegisterFlagValidator(&FLAGS_kill_random_test,
+                                &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
-// If true, do not write WAL for write.
-static bool FLAGS_disable_wal = false;
+DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
-// Target level-1 file size for compaction
-static int FLAGS_target_file_size_base = 64 * KB;
+DEFINE_int32(target_file_size_base, 64 * KB,
+             "Target level-1 file size for compaction");
 
-// A multiplier to compute targe level-N file size (N >= 2)
-static int FLAGS_target_file_size_multiplier = 1;
+DEFINE_int32(target_file_size_multiplier, 1,
+             "A multiplier to compute targe level-N file size (N >= 2)");
 
-// Max bytes for level-1
-static uint64_t FLAGS_max_bytes_for_level_base = 256 * KB;
+DEFINE_uint64(max_bytes_for_level_base, 256 * KB, "Max bytes for level-1");
 
-// A multiplier to compute max bytes for level-N (N >= 2)
-static int FLAGS_max_bytes_for_level_multiplier = 2;
+DEFINE_int32(max_bytes_for_level_multiplier, 2,
+             "A multiplier to compute max bytes for level-N (N >= 2)");
 
-// Number of files in level-0 that will trigger put stop.
-static int FLAGS_level0_stop_writes_trigger = 12;
+static bool ValidateInt32Percent(const char* flagname, int32_t value) {
+  if (value < 0 || value>100) {
+    fprintf(stderr, "Invalid value for --%s: %d, 0<= pct <=100 \n",
+            flagname, value);
+    return false;
+  }
+  return true;
+}
+DEFINE_int32(readpercent, 10,
+             "Ratio of reads to total workload (expressed as a percentage)");
+static const bool FLAGS_readpercent_dummy =
+  google::RegisterFlagValidator(&FLAGS_readpercent, &ValidateInt32Percent);
 
-// Number of files in level-0 that will slow down writes.
-static int FLAGS_level0_slowdown_writes_trigger = 8;
+DEFINE_int32(prefixpercent, 20,
+             "Ratio of prefix iterators to total workload (expressed as a"
+             " percentage)");
+static const bool FLAGS_prefixpercent_dummy =
+  google::RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
 
-// Ratio of reads to total workload (expressed as a percentage)
-static unsigned int FLAGS_readpercent = 10;
+DEFINE_int32(writepercent, 45,
+             " Ratio of deletes to total workload (expressed as a percentage)");
+static const bool FLAGS_writepercent_dummy =
+  google::RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
 
-// Ratio of prefix iterators to total workload (expressed as a percentage)
-static unsigned int FLAGS_prefixpercent = 20;
+DEFINE_int32(delpercent, 15,
+             "Ratio of deletes to total workload (expressed as a percentage)");
+static const bool FLAGS_delpercent_dummy =
+  google::RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
 
-// Ratio of deletes to total workload (expressed as a percentage)
-static unsigned int FLAGS_writepercent = 45;
+DEFINE_int32(iterpercent, 10, "Ratio of iterations to total workload"
+             " (expressed as a percentage)");
+static const bool FLAGS_iterpercent_dummy =
+  google::RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
-// Ratio of deletes to total workload (expressed as a percentage)
-static unsigned int FLAGS_delpercent = 15;
+DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
+static const bool FLAGS_num_iterations_dummy =
+  google::RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
-// Ratio of iterations to total workload (expressed as a percentage)
-static unsigned int FLAGS_iterpercent = 10;
+DEFINE_bool(disable_seek_compaction, false,
+            "Option to disable compation triggered by read.");
 
-// Number of iterations per MultiIterate run
-static uint32_t FLAGS_num_iterations = 10;
+DEFINE_uint64(delete_obsolete_files_period_micros, 0,
+              "Option to delete obsolete files periodically"
+              "0 means that obsolete files are "
+              " deleted after every compaction run.");
 
-// Option to disable compation triggered by read.
-static int FLAGS_disable_seek_compaction = false;
+enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
+  assert(ctype);
 
-// Option to delete obsolete files periodically
-// Default: 0 which means that obsolete files are
-// deleted after every compaction run.
- static uint64_t FLAGS_delete_obsolete_files_period_micros = 0;
+  if (!strcasecmp(ctype, "none"))
+    return rocksdb::kNoCompression;
+  else if (!strcasecmp(ctype, "snappy"))
+    return rocksdb::kSnappyCompression;
+  else if (!strcasecmp(ctype, "zlib"))
+    return rocksdb::kZlibCompression;
+  else if (!strcasecmp(ctype, "bzip2"))
+    return rocksdb::kBZip2Compression;
 
-// Algorithm to use to compress the database
-static enum rocksdb::CompressionType FLAGS_compression_type =
+  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
+  return rocksdb::kSnappyCompression; //default value
+}
+DEFINE_string(compression_type, "snappy",
+              "Algorithm to use to compress the database");
+static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 
+DEFINE_string(hdfs, "", "Name of hdfs environment");
 // posix or hdfs environment
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
-// Number of operations per thread.
-static uint32_t FLAGS_ops_per_thread = 600000;
+DEFINE_uint64(ops_per_thread, 600000, "Number of operations per thread.");
+static const bool FLAGS_ops_per_thread_dummy =
+  google::RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);
 
-// Log2 of number of keys per lock
-static uint32_t FLAGS_log2_keys_per_lock = 2; // implies 2^2 keys per lock
+DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
+static const bool FLAGS_log2_keys_per_lock_dummy =
+  google::RegisterFlagValidator(&FLAGS_log2_keys_per_lock,
+                                &ValidateUint32Range);
 
-// Percentage of times we want to purge redundant keys in memory before flushing
-static uint32_t FLAGS_purge_redundant_percent = 50;
+DEFINE_int32(purge_redundant_percent, 50,
+             "Percentage of times we want to purge redundant keys in memory "
+             "before flushing");
+static const bool FLAGS_purge_redundant_percent_dummy =
+  google::RegisterFlagValidator(&FLAGS_purge_redundant_percent,
+                                &ValidateInt32Percent);
 
-// On true, deletes use KeyMayExist to drop the delete if key not present
-static bool FLAGS_filter_deletes = false;
-
-// Level0 compaction start trigger
-static int FLAGS_level0_file_num_compaction_trigger = 0;
+DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
+            " the delete if key not present");
 
 enum RepFactory {
   kSkipList,
@@ -238,14 +302,39 @@ enum RepFactory {
   kUnsorted,
   kVectorRep
 };
+enum RepFactory StringToRepFactory(const char* ctype) {
+  assert(ctype);
 
+  if (!strcasecmp(ctype, "skip_list"))
+    return kSkipList;
+  else if (!strcasecmp(ctype, "prefix_hash"))
+    return kPrefixHash;
+  else if (!strcasecmp(ctype, "unsorted"))
+    return kUnsorted;
+  else if (!strcasecmp(ctype, "vector"))
+    return kVectorRep;
+
+  fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
+  return kSkipList;
+}
 static enum RepFactory FLAGS_rep_factory;
+DEFINE_string(memtablerep, "skip_list", "");
 
-// Control the prefix size for PrefixHashRep
-static bool FLAGS_prefix_size = 0;
+static bool ValidatePrefixSize(const char* flagname, int32_t value) {
+  if (value < 0 || value>=2000000000) {
+    fprintf(stderr, "Invalid value for --%s: %d. 0<= PrefixSize <=2000000000\n",
+            flagname, value);
+    return false;
+  }
+  return true;
+}
+DEFINE_int32(prefix_size, 0, "Control the prefix size for PrefixHashRep");
+static const bool FLAGS_prefix_size_dummy =
+  google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
-// On true, replaces all writes with a Merge that behaves like a Put
-static bool FLAGS_use_merge_put = false;
+DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
+            "that behaves like a Put");
+
 
 namespace rocksdb {
 
@@ -596,7 +685,7 @@ class StressTest {
       FLAGS_env->GetChildren(FLAGS_db, &files);
       for (unsigned int i = 0; i < files.size(); i++) {
         if (Slice(files[i]).starts_with("heap-")) {
-          FLAGS_env->DeleteFile(std::string(FLAGS_db) + "/" + files[i]);
+          FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
         }
       }
       DestroyDB(FLAGS_db, Options());
@@ -733,7 +822,7 @@ class StressTest {
       keys[i] += key.ToString();
       values[i] += value.ToString();
       value_slices[i] = values[i];
-      if (FLAGS_use_merge_put) {
+      if (FLAGS_use_merge) {
         batch.Merge(keys[i], value_slices[i]);
       } else {
         batch.Put(keys[i], value_slices[i]);
@@ -921,7 +1010,7 @@ class StressTest {
     unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy));
 
     iter->Seek(key);
-    for (long i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
+    for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
       if (thread->rand.OneIn(2)) {
         iter->Next();
       } else {
@@ -955,7 +1044,7 @@ class StressTest {
     const int delBound = writeBound + (int)FLAGS_delpercent;
 
     thread->stats.Start();
-    for (long i = 0; i < FLAGS_ops_per_thread; i++) {
+    for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       if(i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
         {
           thread->stats.FinishedSingleOp();
@@ -1038,7 +1127,7 @@ class StressTest {
                         true);
           }
           thread->shared->Put(rand_key, value_base);
-          if (FLAGS_use_merge_put) {
+          if (FLAGS_use_merge) {
             db_->Merge(write_opts, key, v);
           } else {
             db_->Put(write_opts, key, v);
@@ -1183,7 +1272,7 @@ class StressTest {
     fprintf(stdout, "LevelDB version     : %d.%d\n",
             kMajorVersion, kMinorVersion);
     fprintf(stdout, "Number of threads   : %d\n", FLAGS_threads);
-    fprintf(stdout, "Ops per thread      : %d\n", FLAGS_ops_per_thread);
+    fprintf(stdout, "Ops per thread      : %lu\n", FLAGS_ops_per_thread);
     std::string ttl_state("unused");
     if (FLAGS_ttl > 0) {
       ttl_state = NumberToString(FLAGS_ttl);
@@ -1195,7 +1284,7 @@ class StressTest {
     fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
     fprintf(stdout, "Iterate percentage  : %d\n", FLAGS_iterpercent);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
-    fprintf(stdout, "Iterations          : %d\n", FLAGS_num_iterations);
+    fprintf(stdout, "Iterations          : %lu\n", FLAGS_num_iterations);
     fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);
     fprintf(stdout, "Ratio #ops/#keys    : %f\n",
             (1.0 * FLAGS_ops_per_thread * FLAGS_threads)/FLAGS_max_key);
@@ -1210,7 +1299,7 @@ class StressTest {
             1 << FLAGS_log2_keys_per_lock);
 
     const char* compression = "";
-    switch (FLAGS_compression_type) {
+    switch (FLAGS_compression_type_e) {
       case rocksdb::kNoCompression:
         compression = "none";
         break;
@@ -1257,7 +1346,8 @@ class StressTest {
     options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
     options.max_background_compactions = FLAGS_max_background_compactions;
-    options.compaction_style = FLAGS_compaction_style;
+    options.compaction_style =
+      static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.prefix_extractor = prefix_extractor_;
@@ -1266,7 +1356,7 @@ class StressTest {
     options.env = FLAGS_env;
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
-    options.allow_mmap_reads = FLAGS_use_mmap_reads;
+    options.allow_mmap_reads = FLAGS_mmap_read;
     rocksdb_kill_odds = FLAGS_kill_random_test;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
@@ -1278,7 +1368,7 @@ class StressTest {
       FLAGS_level0_slowdown_writes_trigger;
     options.level0_file_num_compaction_trigger =
       FLAGS_level0_file_num_compaction_trigger;
-    options.compression = FLAGS_compression_type;
+    options.compression = FLAGS_compression_type_e;
     options.create_if_missing = true;
     options.disable_seek_compaction = FLAGS_disable_seek_compaction;
     options.delete_obsolete_files_period_micros =
@@ -1311,11 +1401,12 @@ class StressTest {
         break;
     }
     static Random purge_percent(1000); // no benefit from non-determinism here
-    if (purge_percent.Uniform(100) < FLAGS_purge_redundant_percent - 1) {
+    if (static_cast<int32_t>(purge_percent.Uniform(100)) <
+        FLAGS_purge_redundant_percent - 1) {
       options.purge_redundant_kvs_while_flush = false;
     }
 
-    if (FLAGS_use_merge_put) {
+    if (FLAGS_use_merge) {
       options.merge_operator = MergeOperators::CreatePutOperator();
     }
 
@@ -1337,7 +1428,7 @@ class StressTest {
         FLAGS_universal_max_size_amplification_percent;
     }
 
-    fprintf(stdout, "DB path: [%s]\n", FLAGS_db);
+    fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
     Status s;
     if (FLAGS_ttl == -1) {
@@ -1387,213 +1478,22 @@ class StressTest {
 
 }  // namespace rocksdb
 
+
+
 int main(int argc, char** argv) {
-  FLAGS_write_buffer_size = rocksdb::Options().write_buffer_size;
-  FLAGS_max_write_buffer_number = rocksdb::Options().max_write_buffer_number;
-  FLAGS_min_write_buffer_number_to_merge =
-    rocksdb::Options().min_write_buffer_number_to_merge;
-  FLAGS_open_files = rocksdb::Options().max_open_files;
-  FLAGS_max_background_compactions =
-    rocksdb::Options().max_background_compactions;
-  FLAGS_compaction_style =
-    rocksdb::Options().compaction_style;
-  FLAGS_level0_file_num_compaction_trigger =
-    rocksdb::Options().level0_file_num_compaction_trigger;
-  FLAGS_level0_slowdown_writes_trigger =
-    rocksdb::Options().level0_slowdown_writes_trigger;
-  FLAGS_level0_stop_writes_trigger =
-    rocksdb::Options().level0_stop_writes_trigger;
-  // Compression test code above refers to FLAGS_block_size
-  FLAGS_block_size = rocksdb::Options().block_size;
-  std::string default_db_path;
+  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+                          " [OPTIONS]...");
+  google::ParseCommandLineFlags(&argc, &argv, true);
 
-  for (int i = 1; i < argc; i++) {
-    int n;
-    uint32_t u;
-    long l;
-    char junk;
-    char hdfsname[2048];
-
-    if (sscanf(argv[i], "--seed=%uf%c", &u, &junk) == 1) {
-      FLAGS_seed = u;
-    } else if (sscanf(argv[i], "--max_key=%ld%c", &l, &junk) == 1) {
-      FLAGS_max_key = l;
-    } else if (sscanf(argv[i], "--log2_keys_per_lock=%u%c", &u, &junk) == 1) {
-      FLAGS_log2_keys_per_lock = u;
-    } else if (sscanf(argv[i], "--ops_per_thread=%u%c", &u, &junk) == 1) {
-      FLAGS_ops_per_thread = u;
-    } else if (sscanf(argv[i], "--verbose=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_verbose = n;
-    } else if (sscanf(argv[i], "--histogram=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_histogram = n;
-    } else if (sscanf(argv[i], "--destroy_db_initially=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_destroy_db_initially = n;
-    } else if (sscanf(argv[i], "--verify_before_write=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_verify_before_write = n;
-    } else if (sscanf(argv[i], "--test_batches_snapshots=%d%c", &n, &junk) == 1
-               && (n == 0 || n == 1)) {
-      FLAGS_test_batches_snapshots = n;
-    } else if (sscanf(argv[i], "--threads=%d%c", &n, &junk) == 1) {
-      FLAGS_threads = n;
-    } else if (sscanf(argv[i], "--ttl=%d%c", &n, &junk) == 1) {
-      FLAGS_ttl = n;
-    } else if (sscanf(argv[i], "--value_size_mult=%d%c", &n, &junk) == 1) {
-      FLAGS_value_size_mult = n;
-    } else if (sscanf(argv[i], "--write_buffer_size=%d%c", &n, &junk) == 1) {
-      FLAGS_write_buffer_size = n;
-    } else if (sscanf(argv[i], "--max_write_buffer_number=%d%c", &n, &junk) == 1) {
-      FLAGS_max_write_buffer_number = n;
-    } else if (sscanf(argv[i], "--min_write_buffer_number_to_merge=%d%c",
-               &n, &junk) == 1) {
-      FLAGS_min_write_buffer_number_to_merge = n;
-    } else if (sscanf(argv[i], "--max_background_compactions=%d%c", &n, &junk) == 1) {
-      FLAGS_max_background_compactions = n;
-    } else if (sscanf(argv[i], "--compaction_style=%d%c", &n, &junk) == 1) {
-      FLAGS_compaction_style = (rocksdb::CompactionStyle)n;
-    } else if (sscanf(argv[i], "--cache_size=%ld%c", &l, &junk) == 1) {
-      FLAGS_cache_size = l;
-    } else if (sscanf(argv[i], "--block_size=%d%c", &n, &junk) == 1) {
-      FLAGS_block_size = n;
-    } else if (sscanf(argv[i], "--reopen=%d%c", &n, &junk) == 1 && n >= 0) {
-      FLAGS_reopen = n;
-    } else if (sscanf(argv[i], "--bloom_bits=%d%c", &n, &junk) == 1) {
-      FLAGS_bloom_bits = n;
-    } else if (sscanf(argv[i], "--open_files=%d%c", &n, &junk) == 1) {
-      FLAGS_open_files = n;
-    } else if (strncmp(argv[i], "--db=", 5) == 0) {
-      FLAGS_db = argv[i] + 5;
-    } else if (sscanf(argv[i], "--verify_checksum=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_verify_checksum = n;
-    } else if (sscanf(argv[i], "--mmap_read=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_use_mmap_reads = n;
-    } else if (sscanf(argv[i], "--statistics=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      if (n == 1) {
-        dbstats = rocksdb::CreateDBStatistics();
-      }
-    } else if (sscanf(argv[i], "--sync=%d%c", &n, &junk) == 1 &&
-               (n == 0 || n == 1)) {
-      FLAGS_sync = n;
-    } else if (sscanf(argv[i], "--readpercent=%d%c", &n, &junk) == 1 &&
-               (n >= 0 && n <= 100)) {
-      FLAGS_readpercent = n;
-    } else if (sscanf(argv[i], "--prefixpercent=%d%c", &n, &junk) == 1 &&
-               (n >= 0 && n <= 100)) {
-      FLAGS_prefixpercent = n;
-    } else if (sscanf(argv[i], "--writepercent=%d%c", &n, &junk) == 1 &&
-               (n >= 0 && n <= 100)) {
-      FLAGS_writepercent = n;
-    } else if (sscanf(argv[i], "--iterpercent=%d%c", &n, &junk) == 1 &&
-               (n >= 0 && n <= 100)) {
-      FLAGS_iterpercent = n;
-    } else if (sscanf(argv[i], "--delpercent=%d%c", &n, &junk) == 1 &&
-               (n >= 0 && n <= 100)) {
-      FLAGS_delpercent = n;
-    } else if (sscanf(argv[i], "--numiterations=%u%c", &u, &junk) == 1) {
-      FLAGS_num_iterations = u;
-    } else if (sscanf(argv[i], "--disable_data_sync=%d%c", &n, &junk) == 1 &&
-        (n == 0 || n == 1)) {
-      FLAGS_disable_data_sync = n;
-    } else if (sscanf(argv[i], "--use_fsync=%d%c", &n, &junk) == 1 &&
-        (n == 0 || n == 1)) {
-      FLAGS_use_fsync = n;
-    } else if (sscanf(argv[i], "--kill_random_test=%d%c", &n, &junk) == 1 &&
-               (n >= 0)) {
-      FLAGS_kill_random_test = n;
-    } else if (sscanf(argv[i], "--disable_wal=%d%c", &n, &junk) == 1 &&
-        (n == 0 || n == 1)) {
-      FLAGS_disable_wal = n;
-    } else if (sscanf(argv[i], "--hdfs=%s", hdfsname) == 1) {
-      FLAGS_env  = new rocksdb::HdfsEnv(hdfsname);
-    } else if (sscanf(argv[i], "--target_file_size_base=%d%c",
-        &n, &junk) == 1) {
-      FLAGS_target_file_size_base = n;
-    } else if ( sscanf(argv[i], "--target_file_size_multiplier=%d%c",
-        &n, &junk) == 1) {
-      FLAGS_target_file_size_multiplier = n;
-    } else if (
-        sscanf(argv[i], "--max_bytes_for_level_base=%ld%c", &l, &junk) == 1) {
-      FLAGS_max_bytes_for_level_base = l;
-    } else if (sscanf(argv[i], "--max_bytes_for_level_multiplier=%d%c",
-        &n, &junk) == 1) {
-      FLAGS_max_bytes_for_level_multiplier = n;
-    } else if (sscanf(argv[i],"--level0_stop_writes_trigger=%d%c",
-        &n, &junk) == 1) {
-      FLAGS_level0_stop_writes_trigger = n;
-    } else if (sscanf(argv[i],"--level0_slowdown_writes_trigger=%d%c",
-        &n, &junk) == 1) {
-      FLAGS_level0_slowdown_writes_trigger = n;
-    } else if (sscanf(argv[i],"--level0_file_num_compaction_trigger=%d%c",
-        &n, &junk) == 1) {
-      FLAGS_level0_file_num_compaction_trigger = n;
-    } else if (strncmp(argv[i], "--compression_type=", 19) == 0) {
-      const char* ctype = argv[i] + 19;
-      if (!strcasecmp(ctype, "none"))
-        FLAGS_compression_type = rocksdb::kNoCompression;
-      else if (!strcasecmp(ctype, "snappy"))
-        FLAGS_compression_type = rocksdb::kSnappyCompression;
-      else if (!strcasecmp(ctype, "zlib"))
-        FLAGS_compression_type = rocksdb::kZlibCompression;
-      else if (!strcasecmp(ctype, "bzip2"))
-        FLAGS_compression_type = rocksdb::kBZip2Compression;
-      else {
-        fprintf(stdout, "Cannot parse %s\n", argv[i]);
-      }
-    } else if (strncmp(argv[i], "--memtablerep=", 14) == 0) {
-      const char* ctype = argv[i] + 14;
-      if (!strcasecmp(ctype, "skip_list"))
-        FLAGS_rep_factory = kSkipList;
-      else if (!strcasecmp(ctype, "prefix_hash"))
-        FLAGS_rep_factory = kPrefixHash;
-      else if (!strcasecmp(ctype, "unsorted"))
-        FLAGS_rep_factory = kUnsorted;
-      else if (!strcasecmp(ctype, "vector"))
-        FLAGS_rep_factory = kVectorRep;
-      else {
-        fprintf(stdout, "Cannot parse %s\n", argv[i]);
-      }
-    } else if (sscanf(argv[i], "--disable_seek_compaction=%d%c", &n, &junk) == 1
-        && (n == 0 || n == 1)) {
-      FLAGS_disable_seek_compaction = n;
-    } else if (sscanf(argv[i], "--delete_obsolete_files_period_micros=%ld%c",
-                      &l, &junk) == 1) {
-      FLAGS_delete_obsolete_files_period_micros = n;
-    } else if (sscanf(argv[i], "--purge_redundant_percent=%d%c", &n, &junk) == 1
-        && (n >= 0 && n <= 100)) {
-      FLAGS_purge_redundant_percent = n;
-    } else if (sscanf(argv[i], "--filter_deletes=%d%c", &n, &junk)
-        == 1 && (n == 0 || n == 1)) {
-      FLAGS_filter_deletes = n;
-    } else if (sscanf(argv[i], "--prefix_size=%d%c", &n, &junk) == 1 &&
-               n >= 0 && n < 2000000000) {
-      FLAGS_prefix_size = n;
-    } else if (sscanf(argv[i], "--use_merge=%d%c", &n, &junk)
-        == 1 && (n == 0 || n == 1)) {
-      FLAGS_use_merge_put = n;
-    } else if (sscanf(argv[i], "--universal_size_ratio=%d%c",
-                      &n, &junk) == 1) {
-      FLAGS_universal_size_ratio = n;
-    } else if (sscanf(argv[i], "--universal_min_merge_width=%d%c",
-                      &n, &junk) == 1) {
-      FLAGS_universal_min_merge_width = n;
-    } else if (sscanf(argv[i], "--universal_max_merge_width=%d%c",
-                      &n, &junk) == 1) {
-      FLAGS_universal_max_merge_width = n;
-    } else if (sscanf(argv[i],
-                      "--universal_max_size_amplification_percent=%d%c",
-                      &n, &junk) == 1) {
-      FLAGS_universal_max_size_amplification_percent = n;
-    } else {
-      fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
-      exit(1);
-    }
+  if (FLAGS_statistics) {
+    dbstats = rocksdb::CreateDBStatistics();
   }
+  FLAGS_compression_type_e =
+    StringToCompressionType(FLAGS_compression_type.c_str());
+  if (!FLAGS_hdfs.empty()) {
+    FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
+  }
+  FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
@@ -1611,16 +1511,17 @@ int main(int argc, char** argv) {
   }
   if ((unsigned)FLAGS_reopen >= FLAGS_ops_per_thread) {
       fprintf(stderr, "Error: #DB-reopens should be < ops_per_thread\n"
-        "Provided reopens = %d and ops_per_thread = %u\n", FLAGS_reopen,
+        "Provided reopens = %d and ops_per_thread = %lu\n", FLAGS_reopen,
         FLAGS_ops_per_thread);
       exit(1);
   }
 
   // Choose a location for the test database if none given with --db=<path>
-  if (FLAGS_db == nullptr) {
+  if (FLAGS_db.empty()) {
+      std::string default_db_path;
       rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
       default_db_path += "/dbstress";
-      FLAGS_db = default_db_path.c_str();
+      FLAGS_db = default_db_path;
   }
 
   rocksdb::StressTest stress;

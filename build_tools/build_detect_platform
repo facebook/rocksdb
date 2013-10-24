@@ -175,6 +175,17 @@ EOF
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS ${SNAPPY_LDFLAGS:-./snappy/libs/libsnappy.a}"
     fi
 
+
+    # Test whether gflags library is installed
+    # http://code.google.com/p/gflags/
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <gflags/gflags.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS"
+    fi
+
     # Test whether zlib library is installed
     $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
       #include <zlib.h>
