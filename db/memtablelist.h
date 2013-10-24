@@ -54,7 +54,8 @@ class MemTableList {
   // not yet started.
   bool IsFlushPending(int min_write_buffer_number_to_merge);
 
-  // Returns the earliest memtables that needs to be flushed.
+  // Returns the earliest memtables that needs to be flushed. The returned
+  // memtables are guaranteed to be in the ascending order of created time.
   void PickMemtablesToFlush(std::vector<MemTable*>* mems);
 
   // Commit a successful flush in the manifest file

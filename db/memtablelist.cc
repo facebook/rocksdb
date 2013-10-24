@@ -98,7 +98,6 @@ Status MemTableList::InstallMemtableFlushResults(
   // flush was sucessful
   bool first = true;
   for (MemTable* m : mems) {
-
     // All the edits are associated with the first memtable of this batch.
     assert(first || m->GetEdits()->NumEntries() == 0);
     first = false;
@@ -124,22 +123,21 @@ Status MemTableList::InstallMemtableFlushResults(
     if (!m->flush_completed_) {
       break;
     }
-    first = true;
 
-    Log(info_log,
-        "Level-0 commit table #%llu: started",
-        (unsigned long long)m->file_number_);
+    Log(info_log, "Level-0 commit table #%lu started", m->file_number_);
 
     // this can release and reacquire the mutex.
     s = vset->LogAndApply(&m->edit_, mu);
 
     // All the later memtables that have the same filenum
     // are part of the same batch. They can be committed now.
+    uint64_t mem_id = 1;  // how many memtables has been flushed.
     do {
       if (s.ok()) { // commit new state
-        Log(info_log, "Level-0 commit table #%llu: done %s",
-                       (unsigned long long)m->file_number_,
-                       first ? "": "bulk");
+        Log(info_log,
+            "Level-0 commit table #%lu: memtable #%lu done",
+            m->file_number_,
+            mem_id);
         memlist_.remove(m);
         assert(m->file_number_ > 0);
 
@@ -152,8 +150,10 @@ Status MemTableList::InstallMemtableFlushResults(
         size_--;
       } else {
         //commit failed. setup state so that we can flush again.
-        Log(info_log, "Level-0 commit table #%llu: failed",
-                       (unsigned long long)m->file_number_);
+        Log(info_log,
+            "Level-0 commit table #%lu: memtable #%lu failed",
+            m->file_number_,
+            mem_id);
         m->flush_completed_ = false;
         m->flush_in_progress_ = false;
         m->edit_.Clear();
@@ -163,7 +163,7 @@ Status MemTableList::InstallMemtableFlushResults(
         imm_flush_needed.Release_Store((void *)1);
         s = Status::IOError("Unable to commit flushed memtable");
       }
-      first = false;
+      ++mem_id;
     } while (!memlist_.empty() && (m = memlist_.back()) &&
              m->file_number_ == file_number);
   }

@@ -871,6 +871,9 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
 
   std::vector<Iterator*> list;
   for (MemTable* m : mems) {
+    Log(options_.info_log,
+        "Flushing memtable with log file: %lu\n",
+        m->GetLogNumber());
     list.push_back(m->NewIterator());
   }
   Iterator* iter = NewMergingIterator(&internal_comparator_, &list[0],
@@ -964,11 +967,22 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress) {
   }
 
   // record the logfile_number_ before we release the mutex
+  // entries mems are (implicitly) sorted in ascending order by their created
+  // time. We will use the first memtable's `edit` to keep the meta info for
+  // this flush.
   MemTable* m = mems[0];
   VersionEdit* edit = m->GetEdits();
   edit->SetPrevLogNumber(0);
-  edit->SetLogNumber(m->GetNextLogNumber());  // Earlier logs no longer needed
-  auto to_delete = m->GetLogNumber();
+  // SetLogNumber(log_num) indicates logs with number smaller than log_num
+  // will no longer be picked up for recovery.
+  edit->SetLogNumber(
+      mems.back()->GetNextLogNumber()
+  );
+
+  std::vector<uint64_t> logs_to_delete;
+  for (auto mem : mems) {
+    logs_to_delete.push_back(mem->GetLogNumber());
+  }
 
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table(mems, edit, &file_number);
@@ -994,12 +1008,17 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress) {
     // should store the file number in the shared state, and retry
     // However, for now, PurgeObsoleteFiles will take care of that
     // anyways.
-    if (options_.purge_log_after_memtable_flush &&
-        !disable_delete_obsolete_files_ &&
-        to_delete > 0) {
-      mutex_.Unlock();
-      DeleteLogFile(to_delete);
-      mutex_.Lock();
+    bool should_delete_log = options_.purge_log_after_memtable_flush &&
+                             !disable_delete_obsolete_files_;
+    if (should_delete_log) {
+      for (auto log_num : logs_to_delete) {
+        if (log_num < 0) {
+          continue;
+        }
+        mutex_.Unlock();
+        DeleteLogFile(log_num);
+        mutex_.Lock();
+      }
     }
   }
   return s;
@@ -2874,9 +2893,12 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       if (force) {
         imm_.FlushRequested();
       }
-      mem_ = new MemTable(internal_comparator_, mem_rep_factory_,
-        NumberLevels(), options_);
+      mem_ = new MemTable(
+          internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
       mem_->Ref();
+      Log(options_.info_log,
+          "New memtable created with log file: #%lu\n",
+          logfile_number_);
       mem_->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
@@ -3129,8 +3151,9 @@ Status DBImpl::DeleteFile(std::string name) {
   FileType type;
   if (!ParseFileName(name, &number, &type) ||
       (type != kTableFile)) {
-    Log(options_.info_log, "DeleteFile #%lld FAILED. Invalid file name\n",
-        static_cast<unsigned long long>(number));
+    Log(options_.info_log,
+        "DeleteFile #%ld FAILED. Invalid file name\n",
+        number);
     return Status::InvalidArgument("Invalid file name");
   }
 
