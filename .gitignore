@@ -9,9 +9,8 @@ build_config.mk
 *.so
 *.so.*
 *_test
-db_bench
-db_repl_stress
-db_stress
+*_bench
+*_stress
 ldb
 leveldb_server
 leveldb_shell
