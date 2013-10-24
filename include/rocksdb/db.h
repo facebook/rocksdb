@@ -257,10 +257,6 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
-  // Delete wal files in files. These can be either live or archived.
-  // Returns Status::OK if all files could be deleted, otherwise Status::IOError
-  virtual Status DeleteWalFiles(const VectorLogPtr& files) = 0;
-
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() = 0;
 
@@ -278,11 +274,10 @@ class DB {
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter) = 0;
 
-  // Delete the file name from the db directory and update the internal
-  // state to reflect that.
-  virtual Status DeleteFile(std::string name) {
-    return Status::OK();
-  }
+  // Delete the file name from the db directory and update the internal state to
+  // reflect that. Supports deletion of sst and log files only. 'name' must be
+  // path relative to the db directory. eg. 000001.sst, /archive/000003.log
+  virtual Status DeleteFile(std::string name) = 0;
 
   // Returns a list of all table files with their level, start key
   // and end key

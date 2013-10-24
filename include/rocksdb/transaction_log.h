@@ -5,6 +5,8 @@
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
+#include <memory>
+#include <vector>
 
 namespace rocksdb {
 

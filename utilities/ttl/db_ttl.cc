@@ -280,8 +280,8 @@ Status DBWithTTL::GetSortedWalFiles(VectorLogPtr& files) {
   return db_->GetSortedWalFiles(files);
 }
 
-Status DBWithTTL::DeleteWalFiles(const VectorLogPtr& files){
-  return db_->DeleteWalFiles(files);
+Status DBWithTTL::DeleteFile(std::string name) {
+  return db_->DeleteFile(name);
 }
 
 Status DBWithTTL::GetUpdatesSince(

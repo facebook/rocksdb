@@ -144,8 +144,8 @@ class StackableDB : public DB {
     return sdb_->GetSortedWalFiles(files);
   }
 
-  virtual Status DeleteWalFiles(const VectorLogPtr& files) override {
-    return sdb_->DeleteWalFiles(files);
+  virtual Status DeleteFile(std::string name) override {
+    return sdb_->DeleteFile(name);
   }
 
   virtual Status GetUpdatesSince(SequenceNumber seq_number,

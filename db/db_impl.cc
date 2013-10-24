@@ -3149,12 +3149,25 @@ inline void DBImpl::DelayLoggingAndReset() {
 Status DBImpl::DeleteFile(std::string name) {
   uint64_t number;
   FileType type;
-  if (!ParseFileName(name, &number, &type) ||
-      (type != kTableFile)) {
-    Log(options_.info_log,
-        "DeleteFile #%ld FAILED. Invalid file name\n",
-        number);
+  WalFileType log_type;
+  if (!ParseFileName(name, &number, &type, &log_type) ||
+      (type != kTableFile && type != kLogFile)) {
+    Log(options_.info_log, "DeleteFile %s failed.\n", name.c_str());
     return Status::InvalidArgument("Invalid file name");
+  }
+
+  Status status;
+  if (type == kLogFile) {
+    // Only allow deleting archived log files
+    if (log_type != kArchivedLogFile) {
+      Log(options_.info_log, "DeleteFile %s failed.\n", name.c_str());
+      return Status::NotSupported("Delete only supported for archived logs");
+    }
+    status = env_->DeleteFile(options_.wal_dir + "/" + name.c_str());
+    if (!status.ok()) {
+      Log(options_.info_log, "DeleteFile %s failed.\n", name.c_str());
+    }
+    return status;
   }
 
   int level;
@@ -3162,13 +3175,12 @@ Status DBImpl::DeleteFile(std::string name) {
   int maxlevel = NumberLevels();
   VersionEdit edit(maxlevel);
   DeletionState deletion_state;
-  Status status;
   {
     MutexLock l(&mutex_);
     status = versions_->GetMetadataForFile(number, &level, &metadata);
     if (!status.ok()) {
-      Log(options_.info_log, "DeleteFile #%lld FAILED. File not found\n",
-          static_cast<unsigned long long>(number));
+      Log(options_.info_log, "DeleteFile %s failed. File not found\n",
+                             name.c_str());
       return Status::InvalidArgument("File not found");
     }
     assert((level > 0) && (level < maxlevel));
@@ -3176,8 +3188,7 @@ Status DBImpl::DeleteFile(std::string name) {
     // If the file is being compacted no need to delete.
     if (metadata.being_compacted) {
       Log(options_.info_log,
-          "DeleteFile #%lld Skipped. File about to be compacted\n",
-          static_cast<unsigned long long>(number));
+          "DeleteFile %s Skipped. File about to be compacted\n", name.c_str());
       return Status::OK();
     }
 
@@ -3187,8 +3198,7 @@ Status DBImpl::DeleteFile(std::string name) {
     for (int i = level + 1; i < maxlevel; i++) {
       if (versions_->NumLevelFiles(i) != 0) {
         Log(options_.info_log,
-            "DeleteFile #%lld FAILED. File not in last level\n",
-            static_cast<unsigned long long>(number));
+            "DeleteFile %s FAILED. File not in last level\n", name.c_str());
         return Status::InvalidArgument("File not in last level");
       }
     }

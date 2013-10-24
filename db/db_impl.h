@@ -73,7 +73,6 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true);
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
-  virtual Status DeleteWalFiles(const VectorLogPtr& files);
   virtual SequenceNumber GetLatestSequenceNumber();
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter);

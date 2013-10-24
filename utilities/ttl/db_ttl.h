@@ -78,7 +78,7 @@ class DBWithTTL : public StackableDB {
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
 
-  virtual Status DeleteWalFiles(const VectorLogPtr& files);
+  virtual Status DeleteFile(std::string name);
 
   virtual SequenceNumber GetLatestSequenceNumber();
 

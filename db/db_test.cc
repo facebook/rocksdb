@@ -4104,7 +4104,7 @@ class ModelDB: public DB {
     return Status::OK();
   }
 
-  virtual Status DeleteWalFiles(const VectorLogPtr& files) {
+  virtual Status DeleteFile(std::string name) {
     return Status::OK();
   }
 

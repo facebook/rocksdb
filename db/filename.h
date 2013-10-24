@@ -14,6 +14,7 @@
 #include <string>
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/transaction_log.h"
 #include "port/port.h"
 
 namespace rocksdb {
@@ -93,7 +94,8 @@ extern std::string IdentityFileName(const std::string& dbname);
 // filename was successfully parsed, returns true.  Else return false.
 extern bool ParseFileName(const std::string& filename,
                           uint64_t* number,
-                          FileType* type);
+                          FileType* type,
+                          WalFileType* log_type = nullptr);
 
 // Make the CURRENT file point to the descriptor file with the
 // specified number.

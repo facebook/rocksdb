@@ -143,7 +143,8 @@ std::string IdentityFileName(const std::string& dbname) {
 //    Disregards / at the beginning
 bool ParseFileName(const std::string& fname,
                    uint64_t* number,
-                   FileType* type) {
+                   FileType* type,
+                   WalFileType* log_type) {
   Slice rest(fname);
   if (fname.length() > 1 && fname[0] == '/') {
     rest.remove_prefix(1);
@@ -194,6 +195,17 @@ bool ParseFileName(const std::string& fname,
   } else {
     // Avoid strtoull() to keep filename format independent of the
     // current locale
+    bool archive_dir_found = false;
+    if (rest.starts_with(ARCHIVAL_DIR)) {
+      if (rest.size() <= ARCHIVAL_DIR.size()) {
+        return false;
+      }
+      rest.remove_prefix(ARCHIVAL_DIR.size() + 1); // Add 1 to remove / also
+      if (log_type) {
+        *log_type = kArchivedLogFile;
+      }
+      archive_dir_found = true;
+    }
     uint64_t num;
     if (!ConsumeDecimalNumber(&rest, &num)) {
       return false;
@@ -201,6 +213,11 @@ bool ParseFileName(const std::string& fname,
     Slice suffix = rest;
     if (suffix == Slice(".log")) {
       *type = kLogFile;
+      if (log_type && !archive_dir_found) {
+        *log_type = kAliveLogFile;
+      }
+    } else if (archive_dir_found) {
+      return false; // Archive dir can contain only log files
     } else if (suffix == Slice(".sst")) {
       *type = kTableFile;
     } else if (suffix == Slice(".dbtmp")) {

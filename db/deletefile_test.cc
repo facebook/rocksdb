@@ -15,6 +15,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "rocksdb/env.h"
+#include "rocksdb/transaction_log.h"
 #include <vector>
 #include <stdlib.h>
 #include <map>
@@ -36,6 +37,7 @@ class DeleteFileTest {
     options_.write_buffer_size = 1024*1024*1000;
     options_.target_file_size_base = 1024*1024*1000;
     options_.max_bytes_for_level_base = 1024*1024*1000;
+    options_.WAL_ttl_seconds = 300; // Used to test log files
     dbname_ = test::TmpDir() + "/deletefile_test";
     DestroyDB(dbname_, options_);
     numlevels_ = 7;
@@ -153,7 +155,6 @@ TEST(DeleteFileTest, AddKeysAndQueryLevels) {
   CloseDB();
 }
 
-
 TEST(DeleteFileTest, DeleteFileWithIterator) {
   CreateTwoLevels();
   ReadOptions options;
@@ -184,6 +185,41 @@ TEST(DeleteFileTest, DeleteFileWithIterator) {
   delete it;
   CloseDB();
 }
+
+TEST(DeleteFileTest, DeleteLogFiles) {
+  AddKeys(10, 0);
+  VectorLogPtr logfiles;
+  db_->GetSortedWalFiles(logfiles);
+  ASSERT_GT(logfiles.size(), 0UL);
+  // Take the last log file which is expected to be alive and try to delete it
+  // Should not succeed because live logs are not allowed to be deleted
+  std::unique_ptr<LogFile> alive_log = std::move(logfiles.back());
+  ASSERT_EQ(alive_log->Type(), kAliveLogFile);
+  ASSERT_TRUE(env_->FileExists(dbname_ + "/" + alive_log->PathName()));
+  fprintf(stdout, "Deleting alive log file %s\n",
+          alive_log->PathName().c_str());
+  ASSERT_TRUE(!db_->DeleteFile(alive_log->PathName()).ok());
+  ASSERT_TRUE(env_->FileExists(dbname_ + "/" + alive_log->PathName()));
+  logfiles.clear();
+
+  // Call Flush to bring about a new working log file and add more keys
+  // Call Flush again to flush out memtable and move alive log to archived log
+  // and try to delete the archived log file
+  FlushOptions fopts;
+  db_->Flush(fopts);
+  AddKeys(10, 0);
+  db_->Flush(fopts);
+  db_->GetSortedWalFiles(logfiles);
+  ASSERT_GT(logfiles.size(), 0UL);
+  std::unique_ptr<LogFile> archived_log = std::move(logfiles.front());
+  ASSERT_EQ(archived_log->Type(), kArchivedLogFile);
+  ASSERT_TRUE(env_->FileExists(dbname_ + "/" + archived_log->PathName()));
+  fprintf(stdout, "Deleting archived log file %s\n",
+          archived_log->PathName().c_str());
+  ASSERT_OK(db_->DeleteFile(archived_log->PathName()));
+  ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + archived_log->PathName()));
+}
+
 } //namespace rocksdb
 
 int main(int argc, char** argv) {
