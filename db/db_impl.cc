@@ -274,7 +274,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       flush_on_destroy_(false),
       stats_(options.num_levels),
       delayed_writes_(0),
-      last_flushed_sequence_(0),
       storage_options_(options),
       bg_work_gate_closed_(false),
       refitting_level_(false) {
@@ -743,9 +742,6 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
     if (s.ok()) {
       if (versions_->LastSequence() < max_sequence) {
         versions_->SetLastSequence(max_sequence);
-        last_flushed_sequence_ = max_sequence;
-      } else {
-        last_flushed_sequence_ = versions_->LastSequence();
       }
       SetTickerCount(options_.statistics, SEQUENCE_NUMBER,
                      versions_->LastSequence());
@@ -1180,7 +1176,7 @@ Status DBImpl::Flush(const FlushOptions& options) {
   return status;
 }
 
-SequenceNumber DBImpl::GetLatestSequenceNumber() {
+SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
@@ -1188,7 +1184,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                unique_ptr<TransactionLogIterator>* iter) {
 
   RecordTick(options_.statistics, GET_UPDATES_SINCE_CALLS);
-  if (seq > last_flushed_sequence_) {
+  if (seq > versions_->LastSequence()) {
     return Status::IOError("Requested sequence not yet written in the db");
   }
   //  Get all sorted Wal Files.
@@ -1210,7 +1206,7 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
                                    storage_options_,
                                    seq,
                                    std::move(wal_files),
-                                   &last_flushed_sequence_));
+                                   this));
   return (*iter)->status();
 }
 
@@ -2682,7 +2678,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       mutex_.Lock();
       if (status.ok()) {
         versions_->SetLastSequence(last_sequence);
-        last_flushed_sequence_ = current_sequence;
       }
     }
     if (updates == &tmp_batch_) tmp_batch_.Clear();

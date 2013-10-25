@@ -258,19 +258,15 @@ class DB {
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
   // The sequence number of the most recent transaction.
-  virtual SequenceNumber GetLatestSequenceNumber() = 0;
+  virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 
-  // Return's an iterator for all writes since the sequence number
-  // Status::ok if iterator is valid.
-  // The iterator internally holds references to the available log files.
-  // It automatically takes care of closing a file with no-updates left, and
-  // opening the next one.
-  // If the sequence number is non existent. it returns an iterator at a seq_no
-  // just greater than the requested seq_no.
-  // Must set WAL_ttl_seconds to a large value to use this api.
-  // else the WAL files will get
-  // cleared aggressively and the iterator might keep getting invalid before
-  // an update is read.
+  // Sets iter to an iterator that is positioned at a write-batch containing
+  // seq_number. If the sequence number is non existent, it returns an iterator
+  // at the first available seq_no after the requested seq_no
+  // Returns Status::Ok if iterator is valid
+  // Must set WAL_ttl_seconds to a large value to use this api, else the WAL
+  // files will get cleared aggressively and the iterator might keep getting
+  // invalid before an update is read.
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter) = 0;
 

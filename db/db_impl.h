@@ -73,7 +73,7 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true);
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
-  virtual SequenceNumber GetLatestSequenceNumber();
+  virtual SequenceNumber GetLatestSequenceNumber() const;
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter);
   virtual Status DeleteFile(std::string name);
@@ -401,10 +401,6 @@ class DBImpl : public DB {
 
   // count of the number of contiguous delaying writes
   int delayed_writes_;
-
-  // store the last flushed sequence.
-  // Used by transaction log iterator.
-  SequenceNumber last_flushed_sequence_;
 
   // The options to access storage files
   const EnvOptions storage_options_;

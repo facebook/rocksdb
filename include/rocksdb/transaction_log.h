@@ -54,7 +54,9 @@ struct BatchResult {
   std::unique_ptr<WriteBatch> writeBatchPtr;
 };
 
-//  A TransactionLogIterator is used to iterate over the Transaction's in a db.
+// A TransactionLogIterator is used to iterate over the transactions in a db.
+// One run of the iterator is continuous, i.e. the iterator will stop at the
+// beginning of any gap in sequences
 class TransactionLogIterator {
  public:
   TransactionLogIterator() {}
@@ -74,7 +76,7 @@ class TransactionLogIterator {
   virtual Status status() = 0;
 
   // If valid return's the current write_batch and the sequence number of the
-  // latest transaction contained in the batch.
+  // earliest transaction contained in the batch.
   // ONLY use if Valid() is true and status() is OK.
   virtual BatchResult GetBatch() = 0;
 };

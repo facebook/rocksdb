@@ -660,7 +660,7 @@ class DBTest {
   }
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
-    const SequenceNumber seq) {
+      const SequenceNumber seq) {
     unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
     ASSERT_OK(status);
@@ -3876,20 +3876,29 @@ TEST(DBTest, WALClear) {
   } while (ChangeCompactOptions());
 }
 
-void ExpectRecords(
-  const int expected_no_records,
-  std::unique_ptr<TransactionLogIterator>& iter) {
-  int i = 0;
+SequenceNumber ReadRecords(
+    std::unique_ptr<TransactionLogIterator>& iter,
+    int& count) {
+  count = 0;
   SequenceNumber lastSequence = 0;
+  BatchResult res;
   while (iter->Valid()) {
-    BatchResult res = iter->GetBatch();
+    res = iter->GetBatch();
     ASSERT_TRUE(res.sequence > lastSequence);
-    ++i;
+    ++count;
     lastSequence = res.sequence;
     ASSERT_OK(iter->status());
     iter->Next();
   }
-  ASSERT_EQ(i, expected_no_records);
+  return res.sequence;
+}
+
+void ExpectRecords(
+    const int expected_no_records,
+    std::unique_ptr<TransactionLogIterator>& iter) {
+  int num_records;
+  ReadRecords(iter, num_records);
+  ASSERT_EQ(num_records, expected_no_records);
 }
 
 TEST(DBTest, TransactionLogIterator) {
@@ -3973,6 +3982,35 @@ TEST(DBTest, TransactionLogIteratorCheckAfterRestart) {
     Reopen(&options);
     auto iter = OpenTransactionLogIter(0);
     ExpectRecords(2, iter);
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, TransactionLogIteratorCorruptedLog) {
+  do {
+    Options options = OptionsForLogIterTest();
+    DestroyAndReopen(&options);
+    for (int i = 0; i < 1024; i++) {
+      Put("key"+std::to_string(i), DummyString(10));
+    }
+    dbfull()->Flush(FlushOptions());
+    // Corrupt this log to create a gap
+    rocksdb::VectorLogPtr wal_files;
+    ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    const auto logfilePath = dbname_ + "/" + wal_files.front()->PathName();
+    ASSERT_EQ(
+      0,
+      truncate(logfilePath.c_str(), wal_files.front()->SizeFileBytes() / 2));
+    // Insert a new entry to a new log file
+    Put("key1025", DummyString(10));
+    // Try to read from the beginning. Should stop before the gap and read less
+    // than 1025 entries
+    auto iter = OpenTransactionLogIter(0);
+    int count;
+    int last_sequence_read = ReadRecords(iter, count);
+    ASSERT_LT(last_sequence_read, 1025);
+    // Try to read past the gap, should be able to seek to key1025
+    auto iter2 = OpenTransactionLogIter(last_sequence_read + 1);
+    ExpectRecords(1, iter2);
   } while (ChangeCompactOptions());
 }
 
@@ -4329,7 +4367,7 @@ class ModelDB: public DB {
     return Status::OK();
   }
 
-  virtual SequenceNumber GetLatestSequenceNumber() {
+  virtual SequenceNumber GetLatestSequenceNumber() const {
     return 0;
   }
   virtual Status GetUpdatesSince(rocksdb::SequenceNumber,

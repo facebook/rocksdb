@@ -10,6 +10,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
+#include "db/db_impl.h"
 #include "db/log_reader.h"
 #include "db/filename.h"
 
@@ -70,7 +71,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
                              const EnvOptions& soptions,
                              const SequenceNumber seqNum,
                              std::unique_ptr<VectorLogPtr> files,
-                             SequenceNumber const * const lastFlushedSequence);
+                             DBImpl const * const dbimpl);
 
   virtual bool Valid();
 
@@ -95,16 +96,21 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   Status OpenLogFile(const LogFile* logFile, unique_ptr<SequentialFile>* file);
   LogReporter reporter_;
   SequenceNumber currentBatchSeq_; // sequence number at start of current batch
-  uint64_t currentBatchCount_; // count in current batch
-  SequenceNumber const * const lastFlushedSequence_;
+  SequenceNumber currentLastSeq_; // last sequence in the current batch
+  DBImpl const * const dbimpl_; // The db on whose log files this iterates
 
   // Reads from transaction log only if the writebatch record has been written
   bool RestrictedRead(Slice* record, std::string* scratch);
   // Seeks to startingSequenceNumber reading from startFileIndex in files_.
   // If strict is set,then must get a batch starting with startingSequenceNumber
   void SeekToStartSequence(uint64_t startFileIndex = 0, bool strict = false);
-  // Check if batch is continuous starting from expectedSeq, else return false
-  bool IsBatchContinuous(const WriteBatch* batch, SequenceNumber expectedSeq);
+  // Implementation of Next. SeekToStartSequence calls it internally with
+  // internal=true to let it find next entry even if it has to jump gaps because
+  // the iterator may start off from the first available entry but promises to
+  // be continuous after that
+  void NextImpl(bool internal = false);
+  // Check if batch is expected, else return false
+  bool IsBatchExpected(const WriteBatch* batch, SequenceNumber expectedSeq);
   // Update current batch if a continuous batch is found, else return false
   void UpdateCurrentWriteBatch(const Slice& record);
   Status OpenLogReader(const LogFile* file);

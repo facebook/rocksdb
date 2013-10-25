@@ -272,7 +272,7 @@ Status DBWithTTL::GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
   return db_->GetLiveFiles(vec, mfs, flush_memtable);
 }
 
-SequenceNumber DBWithTTL::GetLatestSequenceNumber() {
+SequenceNumber DBWithTTL::GetLatestSequenceNumber() const {
   return db_->GetLatestSequenceNumber();
 }
 

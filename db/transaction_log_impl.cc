@@ -14,7 +14,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
                            const EnvOptions& soptions,
                            const SequenceNumber seq,
                            std::unique_ptr<VectorLogPtr> files,
-                           SequenceNumber const * const lastFlushedSequence) :
+                           DBImpl const * const dbimpl) :
     dir_(dir),
     options_(options),
     soptions_(soptions),
@@ -24,10 +24,10 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     isValid_(false),
     currentFileIndex_(0),
     currentBatchSeq_(0),
-    currentBatchCount_(0),
-    lastFlushedSequence_(lastFlushedSequence) {
-  assert(startingSequenceNumber_ <= *lastFlushedSequence_);
+    currentLastSeq_(0),
+    dbimpl_(dbimpl) {
   assert(files_ != nullptr);
+  assert(dbimpl_ != nullptr);
 
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
@@ -77,7 +77,7 @@ bool TransactionLogIteratorImpl::RestrictedRead(
     Slice* record,
     std::string* scratch) {
   // Don't read if no more complete entries to read from logs
-  if (currentBatchSeq_ >= *lastFlushedSequence_) {
+  if (currentLastSeq_ >= dbimpl_->GetLatestSequenceNumber()) {
     return false;
   }
   return currentLogReader_->ReadRecord(record, scratch);
@@ -90,11 +90,6 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   Slice record;
   started_ = false;
   isValid_ = false;
-  if (startingSequenceNumber_ > *lastFlushedSequence_) {
-    currentStatus_ = Status::IOError("Looking for a sequence, "
-                                     "which is not flushed yet.");
-    return;
-  }
   if (files_->size() <= startFileIndex) {
     return;
   }
@@ -110,8 +105,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
       continue;
     }
     UpdateCurrentWriteBatch(record);
-    if (currentBatchSeq_ + currentBatchCount_ - 1 >=
-        startingSequenceNumber_) {
+    if (currentLastSeq_ >= startingSequenceNumber_) {
       if (strict && currentBatchSeq_ != startingSequenceNumber_) {
         currentStatus_ = Status::Corruption("Gap in sequence number. Could not "
                                             "seek to required sequence number");
@@ -128,38 +122,57 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
       isValid_ = false;
     }
   }
+
   // Could not find start sequence in first file. Normally this must be the
   // only file. Otherwise log the error and let the iterator return next entry
-  if (files_->size() != 1) {
+  // If strict is set, we want to seek exactly till the start sequence and it
+  // should have been present in the file we scanned above
+  if (strict) {
+    currentStatus_ = Status::Corruption("Gap in sequence number. Could not "
+                                        "seek to required sequence number");
+    reporter_.Info(currentStatus_.ToString().c_str());
+  } else if (files_->size() != 1) {
     currentStatus_ = Status::Corruption("Start sequence was not found, "
                                         "skipping to the next available");
-    reporter_.Corruption(0, currentStatus_);
-    started_ = true; // Let Next find next available entry
-    Next();
+    reporter_.Info(currentStatus_.ToString().c_str());
+    // Let NextImpl find the next available entry. started_ remains false
+    // because we don't want to check for gaps while moving to start sequence
+    NextImpl(true);
   }
 }
 
 void TransactionLogIteratorImpl::Next() {
+  return NextImpl(false);
+}
+
+void TransactionLogIteratorImpl::NextImpl(bool internal) {
   std::string scratch;
   Slice record;
   isValid_ = false;
-  if (!started_) {  // Runs every time until we can seek to the start sequence
+  if (!internal && !started_) {
+    // Runs every time until we can seek to the start sequence
     return SeekToStartSequence();
   }
   while(true) {
     assert(currentLogReader_);
-    if (currentBatchSeq_ < *lastFlushedSequence_) {
-      if (currentLogReader_->IsEOF()) {
-        currentLogReader_->UnmarkEOF();
-      }
-      while (currentLogReader_->ReadRecord(&record, &scratch)) {
-        if (record.size() < 12) {
-          reporter_.Corruption(
-            record.size(), Status::Corruption("very small log record"));
-          continue;
-        } else {
-          return UpdateCurrentWriteBatch(record);
+    if (currentLogReader_->IsEOF()) {
+      currentLogReader_->UnmarkEOF();
+    }
+    while (RestrictedRead(&record, &scratch)) {
+      if (record.size() < 12) {
+        reporter_.Corruption(
+          record.size(), Status::Corruption("very small log record"));
+        continue;
+      } else {
+        // started_ should be true if called by application
+        assert(internal || started_);
+        // started_ should be false if called internally
+        assert(!internal || !started_);
+        UpdateCurrentWriteBatch(record);
+        if (internal && !started_) {
+          started_ = true;
         }
+        return;
       }
     }
 
@@ -174,27 +187,27 @@ void TransactionLogIteratorImpl::Next() {
       }
     } else {
       isValid_ = false;
-      if (currentBatchSeq_ == *lastFlushedSequence_) {
+      if (currentLastSeq_ == dbimpl_->GetLatestSequenceNumber()) {
         currentStatus_ = Status::OK();
       } else {
-        currentStatus_ = Status::IOError(" NO MORE DATA LEFT");
+        currentStatus_ = Status::IOError("NO MORE DATA LEFT");
       }
       return;
     }
   }
 }
 
-bool TransactionLogIteratorImpl::IsBatchContinuous(
+bool TransactionLogIteratorImpl::IsBatchExpected(
     const WriteBatch* batch,
     const SequenceNumber expectedSeq) {
   assert(batch);
   SequenceNumber batchSeq = WriteBatchInternal::Sequence(batch);
-  if (started_ && batchSeq != expectedSeq) {
+  if (batchSeq != expectedSeq) {
     char buf[200];
     snprintf(buf, sizeof(buf),
              "Discontinuity in log records. Got seq=%lu, Expected seq=%lu, "
-             "Last flushed seq=%lu. Log iterator will seek the correct batch.",
-             batchSeq, expectedSeq, *lastFlushedSequence_);
+             "Last flushed seq=%lu.Log iterator will reseek the correct batch.",
+             batchSeq, expectedSeq, dbimpl_->GetLatestSequenceNumber());
     reporter_.Info(buf);
     return false;
   }
@@ -205,8 +218,9 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   WriteBatch* batch = new WriteBatch();
   WriteBatchInternal::SetContents(batch, record);
 
-  SequenceNumber expectedSeq = currentBatchSeq_ + currentBatchCount_;
-  if (!IsBatchContinuous(batch, expectedSeq)) {
+  SequenceNumber expectedSeq = currentLastSeq_ + 1;
+  // If the iterator has started, then confirm that we get continuous batches
+  if (started_ && !IsBatchExpected(batch, expectedSeq)) {
     // Seek to the batch having expected sequence number
     if (expectedSeq < files_->at(currentFileIndex_)->StartSequence()) {
       // Expected batch must lie in the previous log file
@@ -214,13 +228,15 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
       currentFileIndex_ = (currentFileIndex_ >= 0) ? currentFileIndex_ : 0;
     }
     startingSequenceNumber_ = expectedSeq;
+    // currentStatus_ will be set to Ok if reseek succeeds
+    currentStatus_ = Status::NotFound("Gap in sequence numbers");
     return SeekToStartSequence(currentFileIndex_, true);
   }
 
   currentBatchSeq_ = WriteBatchInternal::Sequence(batch);
-  currentBatchCount_ = WriteBatchInternal::Count(batch);
+  currentLastSeq_ = currentBatchSeq_ + WriteBatchInternal::Count(batch) - 1;
   // currentBatchSeq_ can only change here
-  assert(currentBatchSeq_ <= *lastFlushedSequence_);
+  assert(currentLastSeq_ <= dbimpl_->GetLatestSequenceNumber());
 
   currentBatch_.reset(batch);
   isValid_ = true;

@@ -136,7 +136,7 @@ class StackableDB : public DB {
       return sdb_->GetLiveFiles(vec, mfs, flush_memtable);
   }
 
-  virtual SequenceNumber GetLatestSequenceNumber() override {
+  virtual SequenceNumber GetLatestSequenceNumber() const override {
     return sdb_->GetLatestSequenceNumber();
   }
 
