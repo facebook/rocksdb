@@ -589,6 +589,9 @@ class Compaction {
   // Is this compaction creating a file in the bottom most level?
   bool BottomMostLevel() { return bottommost_level_; }
 
+  // Does this compaction include all sst files?
+  bool IsFullCompaction() { return is_full_compaction_; }
+
  private:
   friend class Version;
   friend class VersionSet;
@@ -624,6 +627,8 @@ class Compaction {
 
   // Is this compaction creating a file in the bottom most level?
   bool bottommost_level_;
+  // Does this compaction include all sst files?
+  bool is_full_compaction_;
 
   // level_ptrs_ holds indices into input_version_->levels_: our state
   // is that we are positioned at one of the file ranges for each

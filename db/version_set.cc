@@ -2467,6 +2467,10 @@ Compaction* VersionSet::PickCompactionUniversal(int level, double score) {
   // remember this currently undergoing compaction
   compactions_in_progress_[level].insert(c);
 
+  // Record whether this compaction includes all sst files.
+  // For now, it is only relevant in universal compaction mode.
+  c->is_full_compaction_ = (c->inputs_[0].size() == current_->files_[0].size());
+
   return c;
 }
 
@@ -2921,6 +2925,7 @@ Compaction::Compaction(int level, int out_level, uint64_t target_file_size,
       parent_index_(-1),
       score_(0),
       bottommost_level_(false),
+      is_full_compaction_(false),
       level_ptrs_(std::vector<size_t>(number_levels)) {
   edit_ = new VersionEdit(number_levels_);
   for (int i = 0; i < number_levels_; i++) {

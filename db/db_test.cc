@@ -2430,7 +2430,7 @@ class ChangeFilter : public CompactionFilter {
 class KeepFilterFactory : public CompactionFilterFactory {
   public:
     virtual std::unique_ptr<CompactionFilter>
-    CreateCompactionFilter() override {
+    CreateCompactionFilter(const CompactionFilter::Context& context) override {
       return std::unique_ptr<CompactionFilter>(new KeepFilter());
     }
 
@@ -2442,7 +2442,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
 class DeleteFilterFactory : public CompactionFilterFactory {
   public:
     virtual std::unique_ptr<CompactionFilter>
-    CreateCompactionFilter() override {
+    CreateCompactionFilter(const CompactionFilter::Context& context) override {
       return std::unique_ptr<CompactionFilter>(new DeleteFilter());
     }
 
@@ -2456,7 +2456,7 @@ class ChangeFilterFactory : public CompactionFilterFactory {
     explicit ChangeFilterFactory(int argv) : argv_(argv) {}
 
     virtual std::unique_ptr<CompactionFilter>
-    CreateCompactionFilter() override {
+    CreateCompactionFilter(const CompactionFilter::Context& context) override {
       return std::unique_ptr<CompactionFilter>(new ChangeFilter(argv_));
     }
 

@@ -236,12 +236,15 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
     : ttl_(ttl),
       user_comp_filter_factory_(comp_filter_factory) { }
 
-    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter() {
+    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context& context) {
       return std::unique_ptr<TtlCompactionFilter>(
-          new TtlCompactionFilter(
-            ttl_,
-            nullptr,
-            std::move(user_comp_filter_factory_->CreateCompactionFilter())));
+        new TtlCompactionFilter(
+          ttl_,
+          nullptr,
+          std::move(user_comp_filter_factory_->CreateCompactionFilter(context))
+        )
+      );
     }
 
     virtual const char* Name() const override {

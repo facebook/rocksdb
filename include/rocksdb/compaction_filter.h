@@ -16,8 +16,14 @@ class Slice;
 
 class CompactionFilter {
  public:
-  virtual ~CompactionFilter() {}
 
+  // Context information of a compaction run
+  struct Context {
+    // Does this compaction run include all data files
+    bool is_full_compaction;
+  };
+
+  virtual ~CompactionFilter() {}
 
   // The compaction process invokes this
   // method for kv that is being compacted. A return value
@@ -44,26 +50,28 @@ class CompactionFilter {
 // Each compaction will create a new CompactionFilter allowing the
 // application to know about different campactions
 class CompactionFilterFactory {
-  public:
-    virtual ~CompactionFilterFactory() { };
-    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter() = 0;
+ public:
+  virtual ~CompactionFilterFactory() { };
 
-    // Returns a name that identifies this compaction filter factory.
-    virtual const char* Name() const = 0;
+  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+    const CompactionFilter::Context& context) = 0;
+
+  // Returns a name that identifies this compaction filter factory.
+  virtual const char* Name() const = 0;
 };
 
 // Default implementaion of CompactionFilterFactory which does not
 // return any filter
 class DefaultCompactionFilterFactory : public CompactionFilterFactory {
-  public:
-    virtual std::unique_ptr<CompactionFilter>
-    CreateCompactionFilter() override {
-      return std::unique_ptr<CompactionFilter>(nullptr);
-    }
+ public:
+  virtual std::unique_ptr<CompactionFilter>
+  CreateCompactionFilter(const CompactionFilter::Context& context) override {
+    return std::unique_ptr<CompactionFilter>(nullptr);
+  }
 
-    virtual const char* Name() const override {
-      return "DefaultCompactionFilterFactory";
-    }
+  virtual const char* Name() const override {
+    return "DefaultCompactionFilterFactory";
+  }
 };
 
 }  // namespace rocksdb

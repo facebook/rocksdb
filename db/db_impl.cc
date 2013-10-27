@@ -101,6 +101,13 @@ struct DBImpl::CompactionState {
       : compaction(c),
         total_bytes(0) {
   }
+
+  // Create a client visible context of this compaction
+  CompactionFilter::Context GetFilterContext() {
+    CompactionFilter::Context context;
+    context.is_full_compaction = compaction->IsFullCompaction();
+    return context;
+  }
 };
 
 struct DBImpl::DeletionState {
@@ -166,9 +173,8 @@ Options SanitizeOptions(const std::string& dbname,
   if (result.soft_rate_limit > result.hard_rate_limit) {
     result.soft_rate_limit = result.hard_rate_limit;
   }
-  if (result.compaction_filter &&
-      result.compaction_filter_factory->CreateCompactionFilter().get()) {
-    Log(result.info_log, "Both filter and factory specified. Using filter");
+  if (result.compaction_filter) {
+    Log(result.info_log, "Compaction filter specified, ignore factory");
   }
   if (result.prefix_extractor) {
     // If a prefix extractor has been supplied and a PrefixHashRepFactory is
@@ -1927,6 +1933,7 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
 }
 
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
+  assert(compact);
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   Log(options_.info_log,
       "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
@@ -1987,10 +1994,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   auto compaction_filter = options_.compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (!compaction_filter) {
-    compaction_filter_from_factory = std::move(
-        options_.compaction_filter_factory->CreateCompactionFilter());
+    auto context = compact->GetFilterContext();
+    compaction_filter_from_factory =
+      options_.compaction_filter_factory->CreateCompactionFilter(context);
     compaction_filter = compaction_filter_from_factory.get();
   }
+
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     // TODO: remove memtable flush from normal compaction work
