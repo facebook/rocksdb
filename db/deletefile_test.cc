@@ -218,6 +218,7 @@ TEST(DeleteFileTest, DeleteLogFiles) {
           archived_log->PathName().c_str());
   ASSERT_OK(db_->DeleteFile(archived_log->PathName()));
   ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + archived_log->PathName()));
+  CloseDB();
 }
 
 } //namespace rocksdb
