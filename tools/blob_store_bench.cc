@@ -125,16 +125,20 @@ static void WorkerThreadBody(void* arg) {
   t->stopped.store(true);
 }
 
-Result StartBenchmark(vector<WorkerThread>& config) {
+Result StartBenchmark(vector<WorkerThread*>& config) {
   for (auto w : config) {
-    env->StartThread(WorkerThreadBody, &w);
+    env->StartThread(WorkerThreadBody, w);
   }
 
   Result result;
 
   for (auto w : config) {
-    while (!w.stopped.load());
-    result = result + w.result;
+    while (!w->stopped.load());
+    result = result + w->result;
+  }
+
+  for (auto w : config) {
+    delete w;
   }
 
   delete bs;
@@ -142,7 +146,7 @@ Result StartBenchmark(vector<WorkerThread>& config) {
   return result;
 }
 
-vector<WorkerThread> SetupBenchmarkBalanced() {
+vector<WorkerThread*> SetupBenchmarkBalanced() {
   string test_path;
   env->GetTestDirectory(&test_path);
   test_path.append("/blob_store");
@@ -160,19 +164,19 @@ vector<WorkerThread> SetupBenchmarkBalanced() {
 
   bs = new BlobStore(test_path, block_size, file_size / block_size, 10000, env);
 
-  vector <WorkerThread> config;
+  vector <WorkerThread*> config;
 
   for (int i = 0; i < number_of_threads; ++i) {
-    config.push_back(WorkerThread(data_read_from,
-                                  data_read_to,
-                                  read_write_ratio,
-                                  working_set_size));
+    config.push_back(new WorkerThread(data_read_from,
+                                      data_read_to,
+                                      read_write_ratio,
+                                      working_set_size));
   };
 
   return config;
 }
 
-vector<WorkerThread> SetupBenchmarkWriteHeavy() {
+vector<WorkerThread*> SetupBenchmarkWriteHeavy() {
   string test_path;
   env->GetTestDirectory(&test_path);
   test_path.append("/blob_store");
@@ -190,19 +194,19 @@ vector<WorkerThread> SetupBenchmarkWriteHeavy() {
 
   bs = new BlobStore(test_path, block_size, file_size / block_size, 10000, env);
 
-  vector <WorkerThread> config;
+  vector <WorkerThread*> config;
 
   for (int i = 0; i < number_of_threads; ++i) {
-    config.push_back(WorkerThread(data_read_from,
-                                  data_read_to,
-                                  read_write_ratio,
-                                  working_set_size));
+    config.push_back(new WorkerThread(data_read_from,
+                                      data_read_to,
+                                      read_write_ratio,
+                                      working_set_size));
   };
 
   return config;
 }
 
-vector<WorkerThread> SetupBenchmarkReadHeavy() {
+vector<WorkerThread*> SetupBenchmarkReadHeavy() {
   string test_path;
   env->GetTestDirectory(&test_path);
   test_path.append("/blob_store");
@@ -220,13 +224,13 @@ vector<WorkerThread> SetupBenchmarkReadHeavy() {
 
   bs = new BlobStore(test_path, block_size, file_size / block_size, 10000, env);
 
-  vector <WorkerThread> config;
+  vector <WorkerThread*> config;
 
   for (int i = 0; i < number_of_threads; ++i) {
-    config.push_back(WorkerThread(data_read_from,
-                                  data_read_to,
-                                  read_write_ratio,
-                                  working_set_size));
+    config.push_back(new WorkerThread(data_read_from,
+                                      data_read_to,
+                                      read_write_ratio,
+                                      working_set_size));
   };
 
   return config;
@@ -238,19 +242,19 @@ int main(int argc, const char** argv) {
 
   {
     printf("--- Balanced read/write benchmark ---\n");
-    vector <WorkerThread> config = SetupBenchmarkBalanced();
+    vector <WorkerThread*> config = SetupBenchmarkBalanced();
     Result r = StartBenchmark(config);
     r.print();
   }
   {
     printf("--- Write heavy benchmark ---\n");
-    vector <WorkerThread> config = SetupBenchmarkWriteHeavy();
+    vector <WorkerThread*> config = SetupBenchmarkWriteHeavy();
     Result r = StartBenchmark(config);
     r.print();
   }
   {
     printf("--- Read heavy benchmark ---\n");
-    vector <WorkerThread> config = SetupBenchmarkReadHeavy();
+    vector <WorkerThread*> config = SetupBenchmarkReadHeavy();
     Result r = StartBenchmark(config);
     r.print();
   }
