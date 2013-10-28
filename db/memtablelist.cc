@@ -96,14 +96,12 @@ Status MemTableList::InstallMemtableFlushResults(
   }
 
   // flush was sucessful
-  bool first = true;
-  for (MemTable* m : mems) {
+  for (size_t i = 0; i < mems.size(); ++i) {
     // All the edits are associated with the first memtable of this batch.
-    assert(first || m->GetEdits()->NumEntries() == 0);
-    first = false;
+    assert(i == 0 || m->GetEdits()->NumEntries() == 0);
 
-    m->flush_completed_ = true;
-    m->file_number_ = file_number;
+    mems[i]->flush_completed_ = true;
+    mems[i]->file_number_ = file_number;
   }
 
   // if some other thread is already commiting, then return
