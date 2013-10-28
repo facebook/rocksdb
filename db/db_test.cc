@@ -101,6 +101,9 @@ class SpecialEnv : public EnvWrapper {
   // Force write to manifest files to fail while this pointer is non-nullptr
   port::AtomicPointer manifest_write_error_;
 
+  // Force write to log files to fail while this pointer is non-nullptr
+  port::AtomicPointer log_write_error_;
+
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
 
@@ -113,6 +116,7 @@ class SpecialEnv : public EnvWrapper {
     count_random_reads_ = false;
     manifest_sync_error_.Release_Store(nullptr);
     manifest_write_error_.Release_Store(nullptr);
+    log_write_error_.Release_Store(nullptr);
    }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
@@ -168,6 +172,24 @@ class SpecialEnv : public EnvWrapper {
         }
       }
     };
+    class LogFile : public WritableFile {
+     private:
+      SpecialEnv* env_;
+      unique_ptr<WritableFile> base_;
+     public:
+      LogFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
+          : env_(env), base_(std::move(b)) { }
+      Status Append(const Slice& data) {
+        if (env_->log_write_error_.Acquire_Load() != nullptr) {
+          return Status::IOError("simulated writer error");
+        } else {
+          return base_->Append(data);
+        }
+      }
+      Status Close() { return base_->Close(); }
+      Status Flush() { return base_->Flush(); }
+      Status Sync() { return base_->Sync(); }
+    };
 
     if (non_writable_.Acquire_Load() != nullptr) {
       return Status::IOError("simulated write error");
@@ -179,6 +201,8 @@ class SpecialEnv : public EnvWrapper {
         r->reset(new SSTableFile(this, std::move(*r)));
       } else if (strstr(f.c_str(), "MANIFEST") != nullptr) {
         r->reset(new ManifestFile(this, std::move(*r)));
+      } else if (strstr(f.c_str(), "log") != nullptr) {
+        r->reset(new LogFile(this, std::move(*r)));
       }
     }
     return s;
@@ -3293,6 +3317,49 @@ TEST(DBTest, ManifestWriteError) {
     Reopen(&options);
     ASSERT_EQ("bar", Get("foo"));
   }
+}
+
+TEST(DBTest, PutFailsParanoid) {
+  // Test the following:
+  // (a) A random put fails in paranoid mode (simulate by sync fail)
+  // (b) All other puts have to fail, even if writes would succeed
+  // (c) All of that should happen ONLY if paranoid_checks = true
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  options.paranoid_checks = true;
+  DestroyAndReopen(&options);
+  Status s;
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  // simulate error
+  env_->log_write_error_.Release_Store(env_);
+  s = Put("foo2", "bar2");
+  ASSERT_TRUE(!s.ok());
+  env_->log_write_error_.Release_Store(nullptr);
+  s = Put("foo3", "bar3");
+  // the next put should fail, too
+  ASSERT_TRUE(!s.ok());
+  // but we're still able to read
+  ASSERT_EQ("bar", Get("foo"));
+
+  // do the same thing with paranoid checks off
+  options.paranoid_checks = false;
+  DestroyAndReopen(&options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  // simulate error
+  env_->log_write_error_.Release_Store(env_);
+  s = Put("foo2", "bar2");
+  ASSERT_TRUE(!s.ok());
+  env_->log_write_error_.Release_Store(nullptr);
+  s = Put("foo3", "bar3");
+  // the next put should NOT fail
+  ASSERT_TRUE(s.ok());
 }
 
 TEST(DBTest, FilesDeletedAfterCompaction) {

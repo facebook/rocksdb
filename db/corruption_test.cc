@@ -221,10 +221,15 @@ TEST(CorruptionTest, NewFileErrorDuringWrite) {
   const int num = 3 + (Options().write_buffer_size / kValueSize);
   std::string value_storage;
   Status s;
-  for (int i = 0; s.ok() && i < num; i++) {
+  bool failed = false;
+  for (int i = 0; i < num; i++) {
     WriteBatch batch;
     batch.Put("a", Value(100, &value_storage));
     s = db_->Write(WriteOptions(), &batch);
+    if (!s.ok()) {
+      failed = true;
+    }
+    ASSERT_TRUE(!failed || !s.ok());
   }
   ASSERT_TRUE(!s.ok());
   ASSERT_GE(env_.num_writable_file_errors_, 1);
@@ -338,8 +343,14 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   // Write must eventually fail because of corrupted table
   Status s;
   std::string tmp1, tmp2;
+  bool failed = false;
   for (int i = 0; i < 10000 && s.ok(); i++) {
     s = db_->Put(WriteOptions(), Key(i, &tmp1), Value(i, &tmp2));
+    if (!s.ok()) {
+      failed = true;
+    }
+    // if one write failed, every subsequent write must fail, too
+    ASSERT_TRUE(!failed || !s.ok()) << "write did not fail in a corrupted db";
   }
   ASSERT_TRUE(!s.ok()) << "write did not fail in corrupted paranoid db";
 }

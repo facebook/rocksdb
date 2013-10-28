@@ -2630,6 +2630,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     }
     if (updates == &tmp_batch_) tmp_batch_.Clear();
   }
+  if (options_.paranoid_checks && !status.ok() && bg_error_.ok()) {
+    bg_error_ = status; // stop compaction & fail any further writes
+  }
 
   while (true) {
     Writer* ready = writers_.front();
