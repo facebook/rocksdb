@@ -98,7 +98,7 @@ Status MemTableList::InstallMemtableFlushResults(
   // flush was sucessful
   for (size_t i = 0; i < mems.size(); ++i) {
     // All the edits are associated with the first memtable of this batch.
-    assert(i == 0 || m->GetEdits()->NumEntries() == 0);
+    assert(i == 0 || mems[i]->GetEdits()->NumEntries() == 0);
 
     mems[i]->flush_completed_ = true;
     mems[i]->file_number_ = file_number;
