@@ -99,12 +99,11 @@ struct TableBuilder::Rep {
         index_block_options(opt),
         file(f),
         data_block(&options),
-        index_block(&index_block_options),
+        index_block(1, index_block_options.comparator),
         enable_compression(enable_compression),
         filter_block(opt.filter_policy == nullptr ? nullptr
                      : new FilterBlockBuilder(opt)),
         pending_index_entry(false) {
-    index_block_options.block_restart_interval = 1;
   }
 };
 
