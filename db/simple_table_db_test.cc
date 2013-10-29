@@ -313,9 +313,9 @@ SimpleTableIterator::SimpleTableIterator(SimpleTable* table) :
 }
 
 SimpleTableIterator::~SimpleTableIterator() {
- delete key_str_;
+ delete[] key_str_;
  if (value_str_len_ >= 0) {
-   delete value_str_;
+   delete[] value_str_;
  }
 }
 
@@ -361,12 +361,11 @@ void SimpleTableIterator::Next() {
   Slice value_slice;
   if ((int) value_size > value_str_len_) {
     if (value_str_len_ >= 0) {
-      delete value_str_;
+      delete[] value_str_;
     }
     value_str_ = new char[value_size];
     value_str_len_ = value_size;
   }
-  char* value_str_ = new char[value_size];
   s = table_->rep_->file->Read(next_offset_, value_size, &value_slice,
                                value_str_);
   next_offset_ += value_size;
