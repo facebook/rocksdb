@@ -16,7 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/cache.h"
 #include "port/port.h"
-#include "table/table.h"
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 

@@ -19,7 +19,7 @@
 #include "db/table_cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
@@ -294,11 +294,11 @@ struct Saver {
 };
 }
 
-// Called from TableCache::Get and InternalGet when file/block in which key may
-// exist are not there in TableCache/BlockCache respectively. In this case we
-// can't guarantee that key does not exist and are not permitted to do IO to be
-// certain.Set the status=kFound and value_found=false to let the caller know
-// that key may exist but is not there in memory
+// Called from TableCache::Get and Table::Get when file/block in which
+// key may  exist are not there in TableCache/BlockCache respectively. In this
+// case we  can't guarantee that key does not exist and are not permitted to do
+// IO to be  certain.Set the status=kFound and value_found=false to let the
+// caller know that key may exist but is not there in memory
 static void MarkKeyMayExist(void* arg) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   s->state = kFound;

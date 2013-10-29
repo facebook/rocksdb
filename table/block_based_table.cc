@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "table/table.h"
+#include "table/block_based_table.h"
 
 #include "db/dbformat.h"
 
@@ -17,11 +17,11 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/table.h"
 
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
-#include "table/table.h"
 #include "table/two_level_iterator.h"
 
 #include "util/coding.h"
@@ -35,7 +35,7 @@ namespace rocksdb {
 // varints.
 const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
 
-struct Table::Rep {
+struct BlockBasedTable::Rep {
   ~Rep() {
     delete filter;
     delete [] filter_data;
@@ -59,8 +59,12 @@ struct Table::Rep {
   TableStats table_stats;
 };
 
+BlockBasedTable::~BlockBasedTable() {
+  delete rep_;
+}
+
 // Helper function to setup the cache key's prefix for the Table.
-void Table::SetupCacheKeyPrefix(Rep* rep) {
+void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   assert(kMaxCacheKeyPrefixSize >= 10);
   rep->cache_key_prefix_size = 0;
   if (rep->options.block_cache) {
@@ -105,11 +109,11 @@ Status ReadBlock(RandomAccessFile* file,
 
 } // end of anonymous namespace
 
-Status Table::Open(const Options& options,
-                   const EnvOptions& soptions,
-                   unique_ptr<RandomAccessFile>&& file,
-                   uint64_t size,
-                   unique_ptr<Table>* table) {
+Status BlockBasedTable::Open(const Options& options,
+                             const EnvOptions& soptions,
+                             unique_ptr<RandomAccessFile> && file,
+                             uint64_t size,
+                             unique_ptr<Table>* table) {
   table->reset();
   if (size < Footer::kEncodedLength) {
     return Status::InvalidArgument("file is too short to be an sstable");
@@ -139,7 +143,7 @@ Status Table::Open(const Options& options,
   if (s.ok()) {
     // We've successfully read the footer and the index block: we're
     // ready to serve requests.
-    Rep* rep = new Table::Rep(soptions);
+    BlockBasedTable::Rep* rep = new BlockBasedTable::Rep(soptions);
     rep->options = options;
     rep->file = std::move(file);
     rep->metaindex_handle = footer.metaindex_handle();
@@ -147,8 +151,8 @@ Status Table::Open(const Options& options,
     SetupCacheKeyPrefix(rep);
     rep->filter_data = nullptr;
     rep->filter = nullptr;
-    table->reset(new Table(rep));
-    (*table)->ReadMeta(footer);
+    table->reset(new BlockBasedTable(rep));
+    ((BlockBasedTable*) (table->get()))->ReadMeta(footer);
   } else {
     if (index_block) delete index_block;
   }
@@ -156,7 +160,7 @@ Status Table::Open(const Options& options,
   return s;
 }
 
-void Table::SetupForCompaction() {
+void BlockBasedTable::SetupForCompaction() {
   switch (rep_->options.access_hint_on_compaction_start) {
     case Options::NONE:
       break;
@@ -175,11 +179,11 @@ void Table::SetupForCompaction() {
   compaction_optimized_ = true;
 }
 
-const TableStats& Table::GetTableStats() const {
+TableStats& BlockBasedTable::GetTableStats() {
   return rep_->table_stats;
 }
 
-void Table::ReadMeta(const Footer& footer) {
+void BlockBasedTable::ReadMeta(const Footer& footer) {
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
   // it is an empty block.
   //  TODO: we never really verify check sum for meta index block
@@ -222,7 +226,7 @@ void Table::ReadMeta(const Footer& footer) {
   delete meta;
 }
 
-void Table::ReadFilter(const Slice& filter_handle_value) {
+void BlockBasedTable::ReadFilter(const Slice& filter_handle_value) {
   Slice v = filter_handle_value;
   BlockHandle filter_handle;
   if (!filter_handle.DecodeFrom(&v).ok()) {
@@ -230,7 +234,7 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   }
 
   // TODO: We might want to unify with ReadBlock() if we start
-  // requiring checksum verification in Table::Open.
+  // requiring checksum verification in BlockBasedTable::Open.
   ReadOptions opt;
   BlockContents block;
   if (!ReadBlockContents(rep_->file.get(), opt, filter_handle, &block,
@@ -243,7 +247,7 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
   rep_->filter = new FilterBlockReader(rep_->options, block.data);
 }
 
-Status Table::ReadStats(const Slice& handle_value, Rep* rep) {
+Status BlockBasedTable::ReadStats(const Slice& handle_value, Rep* rep) {
   Slice v = handle_value;
   BlockHandle handle;
   if (!handle.DecodeFrom(&v).ok()) {
@@ -322,10 +326,6 @@ Status Table::ReadStats(const Slice& handle_value, Rep* rep) {
   return s;
 }
 
-Table::~Table() {
-  delete rep_;
-}
-
 static void DeleteBlock(void* arg, void* ignored) {
   delete reinterpret_cast<Block*>(arg);
 }
@@ -343,13 +343,13 @@ static void ReleaseBlock(void* arg, void* h) {
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
-Iterator* Table::BlockReader(void* arg,
-                             const ReadOptions& options,
-                             const Slice& index_value,
-                             bool* didIO,
-                             bool for_compaction) {
+Iterator* BlockBasedTable::BlockReader(void* arg,
+                                       const ReadOptions& options,
+                                       const Slice& index_value,
+                                       bool* didIO,
+                                       bool for_compaction) {
   const bool no_io = (options.read_tier == kBlockCacheTier);
-  Table* table = reinterpret_cast<Table*>(arg);
+  BlockBasedTable* table = reinterpret_cast<BlockBasedTable*>(arg);
   Cache* block_cache = table->rep_->options.block_cache.get();
   std::shared_ptr<Statistics> statistics = table->rep_->options.statistics;
   Block* block = nullptr;
@@ -427,11 +427,11 @@ Iterator* Table::BlockReader(void* arg,
   return iter;
 }
 
-Iterator* Table::BlockReader(void* arg,
-                             const ReadOptions& options,
-                             const EnvOptions& soptions,
-                             const Slice& index_value,
-                             bool for_compaction) {
+Iterator* BlockBasedTable::BlockReader(void* arg,
+                                       const ReadOptions& options,
+                                       const EnvOptions& soptions,
+                                       const Slice& index_value,
+                                       bool for_compaction) {
   return BlockReader(arg, options, index_value, nullptr, for_compaction);
 }
 
@@ -448,7 +448,7 @@ Iterator* Table::BlockReader(void* arg,
 // in memory.  When blooms may need to be paged in, we should refactor so that
 // this is only ever called lazily.  In particular, this shouldn't be called
 // while the DB lock is held like it is now.
-bool Table::PrefixMayMatch(const Slice& internal_prefix) const {
+bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
   FilterBlockReader* filter = rep_->filter;
   bool may_match = true;
   Status s;
@@ -497,7 +497,11 @@ bool Table::PrefixMayMatch(const Slice& internal_prefix) const {
   return may_match;
 }
 
-Iterator* Table::NewIterator(const ReadOptions& options) const {
+Iterator* Table::NewIterator(const ReadOptions& options) {
+  return nullptr;
+}
+
+Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
   if (options.prefix) {
     InternalKey internal_prefix(*options.prefix, 0, kTypeValue);
     if (!PrefixMayMatch(internal_prefix.Encode())) {
@@ -509,14 +513,15 @@ Iterator* Table::NewIterator(const ReadOptions& options) const {
 
   return NewTwoLevelIterator(
       rep_->index_block->NewIterator(rep_->options.comparator),
-      &Table::BlockReader, const_cast<Table*>(this), options, rep_->soptions);
+      &BlockBasedTable::BlockReader, const_cast<BlockBasedTable*>(this),
+      options, rep_->soptions);
 }
 
-Status Table::InternalGet(const ReadOptions& options, const Slice& k,
-                          void* arg,
-                          bool (*saver)(void*, const Slice&, const Slice&,
-                                        bool),
-                          void (*mark_key_may_exist)(void*)) {
+Status BlockBasedTable::Get(const ReadOptions& options, const Slice& k,
+                            void* arg,
+                            bool (*saver)(void*, const Slice&, const Slice&,
+                                          bool),
+                            void (*mark_key_may_exist)(void*)) {
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   bool done = false;
@@ -566,16 +571,17 @@ bool SaveDidIO(void* arg, const Slice& key, const Slice& value, bool didIO) {
   *reinterpret_cast<bool*>(arg) = didIO;
   return false;
 }
-bool Table::TEST_KeyInCache(const ReadOptions& options, const Slice& key) {
-  // We use InternalGet() as it has logic that checks whether we read the
+bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
+                                      const Slice& key) {
+  // We use Get() as it has logic that checks whether we read the
   // block from the disk or not.
   bool didIO = false;
-  Status s = InternalGet(options, key, &didIO, SaveDidIO);
+  Status s = Get(options, key, &didIO, SaveDidIO);
   assert(s.ok());
   return !didIO;
 }
 
-uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
+uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
   Iterator* index_iter =
       rep_->index_block->NewIterator(rep_->options.comparator);
   index_iter->Seek(key);
@@ -602,8 +608,8 @@ uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
   return result;
 }
 
-const std::string Table::kFilterBlockPrefix = "filter.";
-const std::string Table::kStatsBlock = "rocksdb.stats";
+const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
+const std::string BlockBasedTable::kStatsBlock = "rocksdb.stats";
 
 const std::string TableStatsNames::kDataSize      = "rocksdb.data.size";
 const std::string TableStatsNames::kIndexSize     = "rocksdb.index.size";

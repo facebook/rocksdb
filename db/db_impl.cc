@@ -41,10 +41,10 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
+#include "port/port.h"
 #include "table/block.h"
 #include "table/merger.h"
-#include "table/table.h"
 #include "table/two_level_iterator.h"
 #include "util/auto_roll_logger.h"
 #include "util/build_version.h"
@@ -1774,9 +1774,10 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     compact->outfile->SetPreallocationBlockSize(
       1.1 * versions_->MaxFileSizeForLevel(compact->compaction->output_level()));
 
-    compact->builder.reset(new TableBuilder(options_, compact->outfile.get(),
-                                            compact->compaction->output_level(),
-                                            compact->compaction->enable_compression()));
+    compact->builder.reset(
+        GetTableBuilder(options_, compact->outfile.get(),
+                        compact->compaction->output_level(),
+                        compact->compaction->enable_compression()));
   }
   return s;
 }
@@ -2026,9 +2027,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           compaction_filter_value.clear();
           bool to_delete =
             compaction_filter->Filter(compact->compaction->level(),
-                                      ikey.user_key, value,
-                                      &compaction_filter_value,
-                                      &value_changed);
+                                               ikey.user_key, value,
+                                               &compaction_filter_value,
+                                               &value_changed);
           if (to_delete) {
             // make a copy of the original key
             delete_key.assign(key.data(), key.data() + key.size());

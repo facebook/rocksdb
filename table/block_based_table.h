@@ -13,6 +13,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table_stats.h"
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 
@@ -23,13 +24,14 @@ struct Options;
 class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
+class Table;
 
 using std::unique_ptr;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
 // multiple threads without external synchronization.
-class Table {
+class BlockBasedTable : public Table {
  public:
   static const std::string kFilterBlockPrefix;
   static const std::string kStatsBlock;
@@ -52,14 +54,18 @@ class Table {
                      uint64_t file_size,
                      unique_ptr<Table>* table);
 
-  ~Table();
-
-  bool PrefixMayMatch(const Slice& internal_prefix) const;
+  bool PrefixMayMatch(const Slice& internal_prefix) override;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
-  Iterator* NewIterator(const ReadOptions&) const;
+  Iterator* NewIterator(const ReadOptions&) override;
+
+  Status Get(
+      const ReadOptions&, const Slice& key,
+      void* arg,
+      bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
+      void (*mark_key_may_exist)(void*) = nullptr) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -67,24 +73,25 @@ class Table {
   // bytes, and so includes effects like compression of the underlying data.
   // E.g., the approximate offset of the last key in the table will
   // be close to the file length.
-  uint64_t ApproximateOffsetOf(const Slice& key) const;
+  uint64_t ApproximateOffsetOf(const Slice& key) override;
 
   // Returns true if the block for the specified key is in cache.
   // REQUIRES: key is in this table.
-  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
+  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key) override;
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
-  void SetupForCompaction();
+  void SetupForCompaction() override;
 
-  const TableStats& GetTableStats() const;
+  TableStats& GetTableStats() override;
+
+  ~BlockBasedTable();
 
  private:
   struct Rep;
   Rep* rep_;
   bool compaction_optimized_;
 
-  explicit Table(Rep* rep) : compaction_optimized_(false) { rep_ = rep; }
   static Iterator* BlockReader(void*, const ReadOptions&,
                                const EnvOptions& soptions, const Slice&,
                                bool for_compaction);
@@ -95,12 +102,6 @@ class Table {
   // after a call to Seek(key), until handle_result returns false.
   // May not make such a call if filter policy says that key is not present.
   friend class TableCache;
-  Status InternalGet(
-      const ReadOptions&, const Slice& key,
-      void* arg,
-      bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
-      void (*mark_key_may_exist)(void*) = nullptr);
-
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
@@ -108,19 +109,14 @@ class Table {
 
   static void SetupCacheKeyPrefix(Rep* rep);
 
-  // No copying allowed
-  Table(const Table&);
-  void operator=(const Table&);
-};
+  explicit BlockBasedTable(Rep* rep) :
+      compaction_optimized_(false) {
+    rep_ = rep;
+  }
 
-struct TableStatsNames {
-  static const std::string kDataSize;
-  static const std::string kIndexSize;
-  static const std::string kRawKeySize;
-  static const std::string kRawValueSize;
-  static const std::string kNumDataBlocks;
-  static const std::string kNumEntries;
-  static const std::string kFilterPolicy;
+  // No copying allowed
+  explicit BlockBasedTable(const Table&) = delete;
+  void operator=(const Table&) = delete;
 };
 
 }  // namespace rocksdb

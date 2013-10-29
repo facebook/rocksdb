@@ -7,19 +7,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/table_builder.h"
+#include "table/block_based_table_builder.h"
 
 #include <assert.h>
 #include <map>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/table.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "table/block_based_table.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"
-#include "table/table.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
@@ -71,7 +72,7 @@ void LogStatsCollectionError(
 
 }  // anonymous namespace
 
-struct TableBuilder::Rep {
+struct BlockBasedTableBuilder::Rep {
   Options options;
   Options index_block_options;
   WritableFile* file;
@@ -119,37 +120,22 @@ struct TableBuilder::Rep {
   }
 };
 
-TableBuilder::TableBuilder(const Options& options, WritableFile* file,
-                           int level, const bool enable_compression)
-    : rep_(new Rep(options, file, enable_compression)), level_(level) {
+BlockBasedTableBuilder::BlockBasedTableBuilder(const Options& options,
+                                               WritableFile* file, int level,
+                                               const bool enable_compression)
+    : TableBuilder(level),  rep_(new Rep(options, file, enable_compression)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
 }
 
-TableBuilder::~TableBuilder() {
+BlockBasedTableBuilder::~BlockBasedTableBuilder() {
   assert(rep_->closed);  // Catch errors where caller forgot to call Finish()
   delete rep_->filter_block;
   delete rep_;
 }
 
-Status TableBuilder::ChangeOptions(const Options& options) {
-  // Note: if more fields are added to Options, update
-  // this function to catch changes that should not be allowed to
-  // change in the middle of building a Table.
-  if (options.comparator != rep_->options.comparator) {
-    return Status::InvalidArgument("changing comparator while building table");
-  }
-
-  // Note that any live BlockBuilders point to rep_->options and therefore
-  // will automatically pick up the updated options.
-  rep_->options = options;
-  rep_->index_block_options = options;
-  rep_->index_block_options.block_restart_interval = 1;
-  return Status::OK();
-}
-
-void TableBuilder::Add(const Slice& key, const Slice& value) {
+void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
@@ -204,7 +190,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   }
 }
 
-void TableBuilder::Flush() {
+void BlockBasedTableBuilder::Flush() {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
@@ -222,7 +208,8 @@ void TableBuilder::Flush() {
   ++r->num_data_blocks;
 }
 
-void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
+void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
+                                        BlockHandle* handle) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    type: uint8
@@ -302,9 +289,9 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   block->Reset();
 }
 
-void TableBuilder::WriteRawBlock(const Slice& block_contents,
-                                 CompressionType type,
-                                 BlockHandle* handle) {
+void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
+                                           CompressionType type,
+                                           BlockHandle* handle) {
   Rep* r = rep_;
   StopWatch sw(r->options.env, r->options.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
@@ -323,11 +310,11 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
   }
 }
 
-Status TableBuilder::status() const {
+Status BlockBasedTableBuilder::status() const {
   return rep_->status;
 }
 
-Status TableBuilder::Finish() {
+Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_;
   Flush();
   assert(!r->closed);
@@ -370,7 +357,7 @@ Status TableBuilder::Finish() {
     if (r->filter_block != nullptr) {
       // Add mapping from "<filter_block_prefix>.Name" to location
       // of filter data.
-      std::string key = Table::kFilterBlockPrefix;
+      std::string key = BlockBasedTable::kFilterBlockPrefix;
       key.append(r->options.filter_policy->Name());
       std::string handle_encoding;
       filter_block_handle.EncodeTo(&handle_encoding);
@@ -435,7 +422,7 @@ Status TableBuilder::Finish() {
       std::string handle_encoding;
       stats_block_handle.EncodeTo(&handle_encoding);
       meta_block_handles.insert(
-          std::make_pair(Table::kStatsBlock, handle_encoding)
+          std::make_pair(BlockBasedTable::kStatsBlock, handle_encoding)
       );
     }  // end of stats block writing
 
@@ -466,17 +453,17 @@ Status TableBuilder::Finish() {
   return r->status;
 }
 
-void TableBuilder::Abandon() {
+void BlockBasedTableBuilder::Abandon() {
   Rep* r = rep_;
   assert(!r->closed);
   r->closed = true;
 }
 
-uint64_t TableBuilder::NumEntries() const {
+uint64_t BlockBasedTableBuilder::NumEntries() const {
   return rep_->num_entries;
 }
 
-uint64_t TableBuilder::FileSize() const {
+uint64_t BlockBasedTableBuilder::FileSize() const {
   return rep_->offset;
 }
 

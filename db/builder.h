@@ -20,6 +20,11 @@ class EnvOptions;
 class Iterator;
 class TableCache;
 class VersionEdit;
+class TableBuilder;
+class WritableFile;
+
+extern TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
+                                     int level, const bool enable_compression);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to meta->number.  On success, the rest of

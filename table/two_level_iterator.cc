@@ -9,9 +9,10 @@
 
 #include "table/two_level_iterator.h"
 
+#include "rocksdb/options.h"
+#include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/format.h"
-#include "table/table.h"
 #include "table/iterator_wrapper.h"
 
 namespace rocksdb {

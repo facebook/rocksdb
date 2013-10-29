@@ -3,7 +3,6 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-#include "table/table.h"
 
 #include <map>
 #include <string>
@@ -15,7 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"
@@ -76,7 +75,10 @@ Status SstFileReader::ReadSequential(bool print_kv,
   }
   uint64_t file_size;
   table_options.env->GetFileSize(file_name_, &file_size);
-  s = Table::Open(table_options, soptions_, std::move(file), file_size, &table);
+  unique_ptr<TableFactory> table_factory;
+  s = table_options.table_factory->OpenTable(table_options, soptions_,
+                                             std::move(file), file_size,
+                                             &table);
   if(!s.ok()) {
    return s;
   }

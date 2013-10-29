@@ -10,9 +10,8 @@
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/table_stats_collector.h"
-#include "rocksdb/table_builder.h"
 #include "rocksdb/table_stats.h"
-#include "table/table.h"
+#include "rocksdb/table.h"
 #include "util/coding.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -89,7 +88,8 @@ void MakeBuilder(
     std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
   builder->reset(
-      new TableBuilder(options, writable->get())
+      options.table_factory->GetTableBuilder(options, writable->get(), 0,
+                                             true)
   );
 }
 
@@ -98,7 +98,7 @@ void OpenTable(
     const std::string& contents,
     std::unique_ptr<Table>* table) {
   std::unique_ptr<RandomAccessFile> file(new FakeRandomeAccessFile(contents));
-  auto s = Table::Open(
+  auto s = options.table_factory->OpenTable(
       options,
       EnvOptions(),
       std::move(file),

@@ -15,12 +15,12 @@
 #include <sys/types.h>
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
+#include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
-#include "table/table.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 #include "util/testutil.h"

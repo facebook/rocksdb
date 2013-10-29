@@ -12,7 +12,7 @@
 #include "db/filename.h"
 
 #include "rocksdb/statistics.h"
-#include "table/table.h"
+#include "rocksdb/table.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
@@ -71,7 +71,9 @@ Status TableCache::FindTable(const EnvOptions& toptions,
         file->Hint(RandomAccessFile::RANDOM);
       }
       StopWatch sw(env_, options_->statistics, TABLE_OPEN_IO_MICROS);
-      s = Table::Open(*options_, toptions, std::move(file), file_size, &table);
+      s = options_->table_factory->OpenTable(*options_, toptions,
+                                             std::move(file),
+                                             file_size, &table);
     }
 
     if (!s.ok()) {
@@ -134,7 +136,7 @@ Status TableCache::Get(const ReadOptions& options,
   if (s.ok()) {
     Table* t =
       reinterpret_cast<Table*>(cache_->Value(handle));
-    s = t->InternalGet(options, k, arg, saver, mark_key_may_exist);
+    s = t->Get(options, k, arg, saver, mark_key_may_exist);
     cache_->Release(handle);
   } else if (options.read_tier && s.IsIncomplete()) {
     // Couldnt find Table in cache but treat as kFound if no_io set
