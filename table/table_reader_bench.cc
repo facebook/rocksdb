@@ -6,12 +6,14 @@
 #include <gflags/gflags.h>
 
 #include "rocksdb/db.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "port/atomic_pointer.h"
 #include "table/block_based_table_factory.h"
+#include "rocksdb/plain_table_factory.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -218,6 +220,8 @@ DEFINE_bool(iterator, false, "For test iterator");
 DEFINE_bool(through_db, false, "If enable, a DB instance will be created and "
             "the query will be against DB. Otherwise, will be directly against "
             "a table reader.");
+DEFINE_bool(plain_table, false, "Use PlainTable");
+
 
 int main(int argc, char** argv) {
   google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -230,10 +234,18 @@ int main(int argc, char** argv) {
     options.prefix_extractor = rocksdb::NewFixedPrefixTransform(
         FLAGS_prefix_len);
   }
-  options.SetUpDefaultFlushBlockPolicyFactory();
   rocksdb::ReadOptions ro;
   rocksdb::EnvOptions env_options;
   options.create_if_missing = true;
+  options.compression = rocksdb::CompressionType::kNoCompression;
+
+  if (FLAGS_plain_table) {
+    options.allow_mmap_reads = true;
+    env_options.use_mmap_reads = true;
+    tf = new rocksdb::PlainTableFactory(16, FLAGS_prefix_len);
+  } else {
+    tf = new rocksdb::BlockBasedTableFactory();
+  }
   options.table_factory =
       std::shared_ptr<rocksdb::TableFactory>(tf);
   TableReaderBenchmark(options, env_options, ro, FLAGS_num_keys1,
