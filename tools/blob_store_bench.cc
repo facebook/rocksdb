@@ -8,6 +8,10 @@
 
 #define KB 1024LL
 #define MB 1024*1024LL
+// BlobStore does costly asserts to make sure it's running correctly, which
+// significantly impacts benchmark runtime.
+// NDEBUG will compile out those asserts.
+#define NDEBUG
 
 using namespace rocksdb;
 using namespace std;
