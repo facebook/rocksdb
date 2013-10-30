@@ -60,11 +60,10 @@ namespace rocksdb {
 // | index_block_offset (8 bytes) |
 // +------------------------------+
 
-
 // SimpleTable is a simple table format for UNIT TEST ONLY. It is not built
 // as production quality.
-class SimpleTable : public Table {
- public:
+class SimpleTableReader: public TableReader {
+public:
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
   // retrieving data from the table.
@@ -77,19 +76,16 @@ class SimpleTable : public Table {
   // for the duration of the returned table's lifetime.
   //
   // *file must remain live while this Table is in use.
-  static Status Open(const Options& options,
-                     const EnvOptions& soptions,
-                     unique_ptr<RandomAccessFile>&& file,
-                     uint64_t file_size,
-                     unique_ptr<Table>* table);
+  static Status Open(const Options& options, const EnvOptions& soptions,
+                     unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+                     unique_ptr<TableReader>* table_reader);
 
   bool PrefixMayMatch(const Slice& internal_prefix) override;
 
   Iterator* NewIterator(const ReadOptions&) override;
 
   Status Get(
-      const ReadOptions&, const Slice& key,
-      void* arg,
+      const ReadOptions&, const Slice& key, void* arg,
       bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
       void (*mark_key_may_exist)(void*) = nullptr) override;
 
@@ -101,13 +97,13 @@ class SimpleTable : public Table {
 
   TableStats& GetTableStats() override;
 
-  ~SimpleTable();
+  ~SimpleTableReader();
 
- private:
+private:
   struct Rep;
   Rep* rep_;
 
-  explicit SimpleTable(Rep* rep) {
+  explicit SimpleTableReader(Rep* rep) {
     rep_ = rep;
   }
   friend class TableCache;
@@ -116,51 +112,51 @@ class SimpleTable : public Table {
   Status GetOffset(const Slice& target, uint64_t* offset);
 
   // No copying allowed
-  explicit SimpleTable(const Table&) = delete;
-  void operator=(const Table&) = delete;
+  explicit SimpleTableReader(const TableReader&) = delete;
+  void operator=(const TableReader&) = delete;
 };
 
 // Iterator to iterate SimpleTable
 class SimpleTableIterator: public Iterator {
 public:
-  explicit SimpleTableIterator(SimpleTable* table);
+  explicit SimpleTableIterator(SimpleTableReader* table);
   ~SimpleTableIterator();
 
- bool Valid() const;
+  bool Valid() const;
 
- void SeekToFirst();
+  void SeekToFirst();
 
- void SeekToLast();
+  void SeekToLast();
 
- void Seek(const Slice& target);
+  void Seek(const Slice& target);
 
- void Next();
+  void Next();
 
- void Prev();
+  void Prev();
 
- Slice key() const;
+  Slice key() const;
 
- Slice value() const;
+  Slice value() const;
 
- Status status() const;
+  Status status() const;
 
 private:
- SimpleTable* table_;
- uint64_t offset_;
- uint64_t next_offset_;
- Slice key_;
- Slice value_;
- char tmp_str_[4];
- char* key_str_;
- char* value_str_;
- int value_str_len_;
- Status status_;
- // No copying allowed
- SimpleTableIterator(const SimpleTableIterator&) = delete;
- void operator=(const Iterator&) = delete;
+  SimpleTableReader* table_;
+  uint64_t offset_;
+  uint64_t next_offset_;
+  Slice key_;
+  Slice value_;
+  char tmp_str_[4];
+  char* key_str_;
+  char* value_str_;
+  int value_str_len_;
+  Status status_;
+  // No copying allowed
+  SimpleTableIterator(const SimpleTableIterator&) = delete;
+  void operator=(const Iterator&) = delete;
 };
 
-struct SimpleTable::Rep {
+struct SimpleTableReader::Rep {
   ~Rep() {
   }
   Rep(const EnvOptions& storage_options, uint64_t index_start_offset,
@@ -186,13 +182,15 @@ struct SimpleTable::Rep {
   }
 };
 
-SimpleTable::~SimpleTable() {
+SimpleTableReader::~SimpleTableReader() {
   delete rep_;
 }
 
-Status SimpleTable::Open(const Options& options, const EnvOptions& soptions,
-                         unique_ptr<RandomAccessFile> && file, uint64_t size,
-                         unique_ptr<Table>* table) {
+Status SimpleTableReader::Open(const Options& options,
+                               const EnvOptions& soptions,
+                               unique_ptr<RandomAccessFile> && file,
+                               uint64_t size,
+                               unique_ptr<TableReader>* table_reader) {
   char footer_space[Rep::offset_length];
   Slice footer_input;
   Status s = file->Read(size - Rep::offset_length, Rep::offset_length,
@@ -202,33 +200,33 @@ Status SimpleTable::Open(const Options& options, const EnvOptions& soptions,
 
     int num_entries = (size - Rep::offset_length - index_start_offset)
         / (Rep::GetInternalKeyLength() + Rep::offset_length);
-    SimpleTable::Rep* rep = new SimpleTable::Rep(soptions, index_start_offset,
-                                                 num_entries);
-
+    SimpleTableReader::Rep* rep = new SimpleTableReader::Rep(soptions,
+                                                             index_start_offset,
+                                                             num_entries);
 
     rep->file = std::move(file);
     rep->options = options;
-    table->reset(new SimpleTable(rep));
+    table_reader->reset(new SimpleTableReader(rep));
   }
   return s;
 }
 
-void SimpleTable::SetupForCompaction() {
+void SimpleTableReader::SetupForCompaction() {
 }
 
-TableStats& SimpleTable::GetTableStats() {
+TableStats& SimpleTableReader::GetTableStats() {
   return rep_->table_stats;
 }
 
-bool SimpleTable::PrefixMayMatch(const Slice& internal_prefix) {
+bool SimpleTableReader::PrefixMayMatch(const Slice& internal_prefix) {
   return true;
 }
 
-Iterator* SimpleTable::NewIterator(const ReadOptions& options) {
+Iterator* SimpleTableReader::NewIterator(const ReadOptions& options) {
   return new SimpleTableIterator(this);
 }
 
-Status SimpleTable::GetOffset(const Slice& target, uint64_t* offset) {
+Status SimpleTableReader::GetOffset(const Slice& target, uint64_t* offset) {
   uint32_t left = 0;
   uint32_t right = rep_->num_entries - 1;
   char key_chars[Rep::GetInternalKeyLength()];
@@ -281,9 +279,10 @@ Status SimpleTable::GetOffset(const Slice& target, uint64_t* offset) {
   return s;
 }
 
-Status SimpleTable::Get(const ReadOptions& options, const Slice& k, void* arg,
-                        bool (*saver)(void*, const Slice&, const Slice&, bool),
-                        void (*mark_key_may_exist)(void*)) {
+Status SimpleTableReader::Get(
+    const ReadOptions& options, const Slice& k, void* arg,
+    bool (*saver)(void*, const Slice&, const Slice&, bool),
+    void (*mark_key_may_exist)(void*)) {
   Status s;
   SimpleTableIterator* iter = new SimpleTableIterator(this);
   for (iter->Seek(k); iter->Valid(); iter->Next()) {
@@ -296,18 +295,18 @@ Status SimpleTable::Get(const ReadOptions& options, const Slice& k, void* arg,
   return s;
 }
 
-bool SimpleTable::TEST_KeyInCache(const ReadOptions& options,
-                                  const Slice& key) {
+bool SimpleTableReader::TEST_KeyInCache(const ReadOptions& options,
+                                        const Slice& key) {
   return false;
 }
 
-uint64_t SimpleTable::ApproximateOffsetOf(const Slice& key) {
+uint64_t SimpleTableReader::ApproximateOffsetOf(const Slice& key) {
   return 0;
 }
 
-SimpleTableIterator::SimpleTableIterator(SimpleTable* table) :
+SimpleTableIterator::SimpleTableIterator(SimpleTableReader* table) :
     table_(table) {
-  key_str_ = new char[table->rep_->GetInternalKeyLength()];
+  key_str_ = new char[SimpleTableReader::Rep::GetInternalKeyLength()];
   value_str_len_ = -1;
   SeekToFirst();
 }
@@ -346,7 +345,7 @@ void SimpleTableIterator::Next() {
     return;
   }
   Slice result;
-  int internal_key_size = table_->rep_->GetInternalKeyLength();
+  int internal_key_size = SimpleTableReader::Rep::GetInternalKeyLength();
 
   Status s = table_->rep_->file->Read(next_offset_, internal_key_size, &result,
                                       key_str_);
@@ -389,14 +388,15 @@ Status SimpleTableIterator::status() const {
   return status_;
 }
 
-class SimpleTableBuilder : public TableBuilder {
- public:
+class SimpleTableBuilder: public TableBuilder {
+public:
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish(). The output file
   // will be part of level specified by 'level'.  A value of -1 means
   // that the caller does not know which level the output file will reside.
-  SimpleTableBuilder(const Options& options, WritableFile* file, int level=-1);
+  SimpleTableBuilder(const Options& options, WritableFile* file,
+                     CompressionType compression_type);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~SimpleTableBuilder();
@@ -428,7 +428,7 @@ class SimpleTableBuilder : public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
- private:
+private:
   struct Rep;
   Rep* rep_;
 
@@ -457,25 +457,25 @@ struct SimpleTableBuilder::Rep {
 
   std::string index;
 
-  Rep(const Options& opt, WritableFile* f)
-      : options(opt),
-        file(f) {
+  Rep(const Options& opt, WritableFile* f) :
+      options(opt), file(f) {
   }
   ~Rep() {
   }
 };
 
 SimpleTableBuilder::SimpleTableBuilder(const Options& options,
-                                         WritableFile* file, int level)
-    : TableBuilder(level),  rep_(new SimpleTableBuilder::Rep(options, file)) {
+                                       WritableFile* file,
+                                       CompressionType compression_type) :
+    rep_(new SimpleTableBuilder::Rep(options, file)) {
 }
 
 SimpleTableBuilder::~SimpleTableBuilder() {
-  delete(rep_);
+  delete (rep_);
 }
 
 void SimpleTableBuilder::Add(const Slice& key, const Slice& value) {
-  assert((int) key.size() == Rep::GetInternalKeyLength());
+  assert((int ) key.size() == Rep::GetInternalKeyLength());
 
   // Update index
   rep_->index.append(key.data(), key.size());
@@ -531,204 +531,50 @@ uint64_t SimpleTableBuilder::FileSize() const {
   return rep_->offset;
 }
 
-class SimpleTableFactory : public TableFactory {
- public:
-  ~SimpleTableFactory() {}
-  SimpleTableFactory() {}
+class SimpleTableFactory: public TableFactory {
+public:
+  ~SimpleTableFactory() {
+  }
+  SimpleTableFactory() {
+  }
   const char* Name() const override {
     return "SimpleTable";
   }
-  Status OpenTable(const Options& options, const EnvOptions& soptions,
-                   unique_ptr<RandomAccessFile> && file, uint64_t file_size,
-                   unique_ptr<Table>* table) const;
+  Status GetTableReader(const Options& options, const EnvOptions& soptions,
+                        unique_ptr<RandomAccessFile> && file,
+                        uint64_t file_size,
+                        unique_ptr<TableReader>* table_reader) const;
 
   TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
-                                int level, const bool enable_compression) const;
+                                CompressionType compression_type) const;
 };
 
-Status SimpleTableFactory::OpenTable(const Options& options,
-                                     const EnvOptions& soptions,
-                                     unique_ptr<RandomAccessFile> && file,
-                                     uint64_t file_size,
-                                     unique_ptr<Table>* table) const {
+Status SimpleTableFactory::GetTableReader(
+    const Options& options, const EnvOptions& soptions,
+    unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+    unique_ptr<TableReader>* table_reader) const {
 
-  return SimpleTable::Open(options, soptions, std::move(file), file_size,
-                           table);
+  return SimpleTableReader::Open(options, soptions, std::move(file), file_size,
+                                 table_reader);
 }
 
 TableBuilder* SimpleTableFactory::GetTableBuilder(
-    const Options& options, WritableFile* file, int level,
-    const bool enable_compression) const {
-  return new SimpleTableBuilder(options, file, level);
+    const Options& options, WritableFile* file,
+    CompressionType compression_type) const {
+  return new SimpleTableBuilder(options, file, compression_type);
 }
-
-
-namespace anon {
-class AtomicCounter {
- private:
-  port::Mutex mu_;
-  int count_;
- public:
-  AtomicCounter() : count_(0) { }
-  void Increment() {
-    MutexLock l(&mu_);
-    count_++;
-  }
-  int Read() {
-    MutexLock l(&mu_);
-    return count_;
-  }
-  void Reset() {
-    MutexLock l(&mu_);
-    count_ = 0;
-  }
-};
-
-}
-
-// Special Env used to delay background operations
-class SpecialEnv : public EnvWrapper {
- public:
-  // sstable Sync() calls are blocked while this pointer is non-nullptr.
-  port::AtomicPointer delay_sstable_sync_;
-
-  // Simulate no-space errors while this pointer is non-nullptr.
-  port::AtomicPointer no_space_;
-
-  // Simulate non-writable file system while this pointer is non-nullptr
-  port::AtomicPointer non_writable_;
-
-  // Force sync of manifest files to fail while this pointer is non-nullptr
-  port::AtomicPointer manifest_sync_error_;
-
-  // Force write to manifest files to fail while this pointer is non-nullptr
-  port::AtomicPointer manifest_write_error_;
-
-  bool count_random_reads_;
-  anon::AtomicCounter random_read_counter_;
-
-  anon::AtomicCounter sleep_counter_;
-
-  explicit SpecialEnv(Env* base) : EnvWrapper(base) {
-    delay_sstable_sync_.Release_Store(nullptr);
-    no_space_.Release_Store(nullptr);
-    non_writable_.Release_Store(nullptr);
-    count_random_reads_ = false;
-    manifest_sync_error_.Release_Store(nullptr);
-    manifest_write_error_.Release_Store(nullptr);
-   }
-
-  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions) {
-    class SSTableFile : public WritableFile {
-     private:
-      SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
-
-     public:
-      SSTableFile(SpecialEnv* env, unique_ptr<WritableFile>&& base)
-          : env_(env),
-            base_(std::move(base)) {
-      }
-      Status Append(const Slice& data) {
-        if (env_->no_space_.Acquire_Load() != nullptr) {
-          // Drop writes on the floor
-          return Status::OK();
-        } else {
-          return base_->Append(data);
-        }
-      }
-      Status Close() { return base_->Close(); }
-      Status Flush() { return base_->Flush(); }
-      Status Sync() {
-        while (env_->delay_sstable_sync_.Acquire_Load() != nullptr) {
-          env_->SleepForMicroseconds(100000);
-        }
-        return base_->Sync();
-      }
-    };
-    class ManifestFile : public WritableFile {
-     private:
-      SpecialEnv* env_;
-      unique_ptr<WritableFile> base_;
-     public:
-      ManifestFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
-          : env_(env), base_(std::move(b)) { }
-      Status Append(const Slice& data) {
-        if (env_->manifest_write_error_.Acquire_Load() != nullptr) {
-          return Status::IOError("simulated writer error");
-        } else {
-          return base_->Append(data);
-        }
-      }
-      Status Close() { return base_->Close(); }
-      Status Flush() { return base_->Flush(); }
-      Status Sync() {
-        if (env_->manifest_sync_error_.Acquire_Load() != nullptr) {
-          return Status::IOError("simulated sync error");
-        } else {
-          return base_->Sync();
-        }
-      }
-    };
-
-    if (non_writable_.Acquire_Load() != nullptr) {
-      return Status::IOError("simulated write error");
-    }
-
-    Status s = target()->NewWritableFile(f, r, soptions);
-    if (s.ok()) {
-      if (strstr(f.c_str(), ".sst") != nullptr) {
-        r->reset(new SSTableFile(this, std::move(*r)));
-      } else if (strstr(f.c_str(), "MANIFEST") != nullptr) {
-        r->reset(new ManifestFile(this, std::move(*r)));
-      }
-    }
-    return s;
-  }
-
-  Status NewRandomAccessFile(const std::string& f,
-                             unique_ptr<RandomAccessFile>* r,
-                             const EnvOptions& soptions) {
-    class CountingFile : public RandomAccessFile {
-     private:
-      unique_ptr<RandomAccessFile> target_;
-      anon::AtomicCounter* counter_;
-     public:
-      CountingFile(unique_ptr<RandomAccessFile>&& target,
-                   anon::AtomicCounter* counter)
-          : target_(std::move(target)), counter_(counter) {
-      }
-      virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const {
-        counter_->Increment();
-        return target_->Read(offset, n, result, scratch);
-      }
-    };
-
-    Status s = target()->NewRandomAccessFile(f, r, soptions);
-    if (s.ok() && count_random_reads_) {
-      r->reset(new CountingFile(std::move(*r), &random_read_counter_));
-    }
-    return s;
-  }
-
-  virtual void SleepForMicroseconds(int micros) {
-    sleep_counter_.Increment();
-    target()->SleepForMicroseconds(micros);
-  }
-};
 
 class SimpleTableDBTest {
- protected:
- public:
+protected:
+public:
   std::string dbname_;
-  SpecialEnv* env_;
+  Env* env_;
   DB* db_;
 
   Options last_options_;
 
-  SimpleTableDBTest() : env_(new SpecialEnv(Env::Default())) {
+  SimpleTableDBTest() :
+      env_(Env::Default()) {
     dbname_ = test::TmpDir() + "/simple_table_db_test";
     ASSERT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
@@ -738,7 +584,6 @@ class SimpleTableDBTest {
   ~SimpleTableDBTest() {
     delete db_;
     ASSERT_OK(DestroyDB(dbname_, Options()));
-    delete env_;
   }
 
   // Return the current option configuration.
@@ -813,81 +658,6 @@ class SimpleTableDBTest {
     return result;
   }
 
-  // Return a string that contains all key,value pairs in order,
-  // formatted like "(k1->v1)(k2->v2)".
-  std::string Contents() {
-    std::vector<std::string> forward;
-    std::string result;
-    Iterator* iter = db_->NewIterator(ReadOptions());
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      std::string s = IterStatus(iter);
-      result.push_back('(');
-      result.append(s);
-      result.push_back(')');
-      forward.push_back(s);
-    }
-
-    // Check reverse iteration results are the reverse of forward results
-    unsigned int matched = 0;
-    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-      ASSERT_LT(matched, forward.size());
-      ASSERT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
-      matched++;
-    }
-    ASSERT_EQ(matched, forward.size());
-
-    delete iter;
-    return result;
-  }
-
-  std::string AllEntriesFor(const Slice& user_key) {
-    Iterator* iter = dbfull()->TEST_NewInternalIterator();
-    InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
-    iter->Seek(target.Encode());
-    std::string result;
-    if (!iter->status().ok()) {
-      result = iter->status().ToString();
-    } else {
-      result = "[ ";
-      bool first = true;
-      while (iter->Valid()) {
-        ParsedInternalKey ikey;
-        if (!ParseInternalKey(iter->key(), &ikey)) {
-          result += "CORRUPTED";
-        } else {
-          if (last_options_.comparator->Compare(ikey.user_key, user_key) != 0) {
-            break;
-          }
-          if (!first) {
-            result += ", ";
-          }
-          first = false;
-          switch (ikey.type) {
-            case kTypeValue:
-              result += iter->value().ToString();
-              break;
-            case kTypeMerge:
-              // keep it the same as kTypeValue for testing kMergePut
-              result += iter->value().ToString();
-              break;
-            case kTypeDeletion:
-              result += "DEL";
-              break;
-            case kTypeLogData:
-              assert(false);
-              break;
-          }
-        }
-        iter->Next();
-      }
-      if (!first) {
-        result += " ";
-      }
-      result += "]";
-    }
-    delete iter;
-    return result;
-  }
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
@@ -895,14 +665,6 @@ class SimpleTableDBTest {
         db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
                          &property));
     return atoi(property.c_str());
-  }
-
-  int TotalTableFiles() {
-    int result = 0;
-    for (int level = 0; level < db_->NumberLevels(); level++) {
-      result += NumTableFilesAtLevel(level);
-    }
-    return result;
   }
 
   // Return spread of files per level
@@ -922,71 +684,6 @@ class SimpleTableDBTest {
     return result;
   }
 
-  int CountFiles() {
-    std::vector<std::string> files;
-    env_->GetChildren(dbname_, &files);
-
-    std::vector<std::string> logfiles;
-    if (dbname_ != last_options_.wal_dir) {
-      env_->GetChildren(last_options_.wal_dir, &logfiles);
-    }
-
-    return static_cast<int>(files.size() + logfiles.size());
-  }
-
-  int CountLiveFiles() {
-    std::vector<std::string> files;
-    uint64_t manifest_file_size;
-    db_->GetLiveFiles(files, &manifest_file_size);
-    return files.size();
-  }
-
-  uint64_t Size(const Slice& start, const Slice& limit) {
-    Range r(start, limit);
-    uint64_t size;
-    db_->GetApproximateSizes(&r, 1, &size);
-    return size;
-  }
-
-  void Compact(const Slice& start, const Slice& limit) {
-    db_->CompactRange(&start, &limit);
-  }
-
-  // Do n memtable compactions, each of which produces an sstable
-  // covering the range [small,large].
-  void MakeTables(int n, const std::string& small, const std::string& large) {
-    for (int i = 0; i < n; i++) {
-      Put(small, "begin");
-      Put(large, "end");
-      dbfull()->TEST_FlushMemTable();
-    }
-  }
-
-  // Prevent pushing of new sstables into deeper levels by adding
-  // tables that cover a specified range to all levels.
-  void FillLevels(const std::string& smallest, const std::string& largest) {
-    MakeTables(db_->NumberLevels(), smallest, largest);
-  }
-
-  void DumpFileCounts(const char* label) {
-    fprintf(stderr, "---\n%s:\n", label);
-    fprintf(stderr, "maxoverlap: %lld\n",
-            static_cast<long long>(
-                dbfull()->TEST_MaxNextLevelOverlappingBytes()));
-    for (int level = 0; level < db_->NumberLevels(); level++) {
-      int num = NumTableFilesAtLevel(level);
-      if (num > 0) {
-        fprintf(stderr, "  level %3d : %d files\n", level, num);
-      }
-    }
-  }
-
-  std::string DumpSSTableList() {
-    std::string property;
-    db_->GetProperty("rocksdb.sstables", &property);
-    return property;
-  }
-
   std::string IterStatus(Iterator* iter) {
     std::string result;
     if (iter->Valid()) {
@@ -995,26 +692,6 @@ class SimpleTableDBTest {
       result = "(invalid)";
     }
     return result;
-  }
-
-  Options OptionsForLogIterTest() {
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    options.WAL_ttl_seconds = 1000;
-    return options;
-  }
-
-  std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
-    const SequenceNumber seq) {
-    unique_ptr<TransactionLogIterator> iter;
-    Status status = dbfull()->GetUpdatesSince(seq, &iter);
-    ASSERT_OK(status);
-    ASSERT_TRUE(iter->Valid());
-    return std::move(iter);
-  }
-
-  std::string DummyString(size_t len, char c = 'a') {
-    return std::string(len, c);
   }
 };
 
@@ -1077,7 +754,7 @@ static std::string RandomString(Random* rnd, int len) {
 
 TEST(SimpleTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 100<<10; //100KB
+  options.write_buffer_size = 100 << 10; //100KB
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 3;
@@ -1085,9 +762,8 @@ TEST(SimpleTableDBTest, CompactionTrigger) {
 
   Random rnd(301);
 
-  for (int num = 0;
-       num < options.level0_file_num_compaction_trigger - 1;
-       num++) {
+  for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
+      num++) {
     std::vector<std::string> values;
     // Write 120KB (12 values, each 10K)
     for (int i = 0; i < 12; i++) {

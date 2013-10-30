@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "table/block_based_table.h"
+#include "table/block_based_table_reader.h"
 
 #include "db/dbformat.h"
 
@@ -113,8 +113,8 @@ Status BlockBasedTable::Open(const Options& options,
                              const EnvOptions& soptions,
                              unique_ptr<RandomAccessFile> && file,
                              uint64_t size,
-                             unique_ptr<Table>* table) {
-  table->reset();
+                             unique_ptr<TableReader>* table_reader) {
+  table_reader->reset();
   if (size < Footer::kEncodedLength) {
     return Status::InvalidArgument("file is too short to be an sstable");
   }
@@ -151,8 +151,8 @@ Status BlockBasedTable::Open(const Options& options,
     SetupCacheKeyPrefix(rep);
     rep->filter_data = nullptr;
     rep->filter = nullptr;
-    table->reset(new BlockBasedTable(rep));
-    ((BlockBasedTable*) (table->get()))->ReadMeta(footer);
+    table_reader->reset(new BlockBasedTable(rep));
+    ((BlockBasedTable*) (table_reader->get()))->ReadMeta(footer);
   } else {
     if (index_block) delete index_block;
   }
@@ -275,12 +275,12 @@ Status BlockBasedTable::ReadStats(const Slice& handle_value, Rep* rep) {
   auto& table_stats = rep->table_stats;
   // All pre-defined stats of type uint64_t
   std::unordered_map<std::string, uint64_t*> predefined_uint64_stats = {
-    { TableStatsNames::kDataSize,      &table_stats.data_size       },
-    { TableStatsNames::kIndexSize,     &table_stats.index_size      },
-    { TableStatsNames::kRawKeySize,    &table_stats.raw_key_size    },
-    { TableStatsNames::kRawValueSize,  &table_stats.raw_value_size  },
-    { TableStatsNames::kNumDataBlocks, &table_stats.num_data_blocks },
-    { TableStatsNames::kNumEntries,    &table_stats.num_entries     },
+    { BlockBasedTableStatsNames::kDataSize,      &table_stats.data_size      },
+    { BlockBasedTableStatsNames::kIndexSize,     &table_stats.index_size     },
+    { BlockBasedTableStatsNames::kRawKeySize,    &table_stats.raw_key_size   },
+    { BlockBasedTableStatsNames::kRawValueSize,  &table_stats.raw_value_size },
+    { BlockBasedTableStatsNames::kNumDataBlocks, &table_stats.num_data_blocks},
+    { BlockBasedTableStatsNames::kNumEntries,    &table_stats.num_entries    },
   };
 
   std::string last_key;
@@ -313,7 +313,7 @@ Status BlockBasedTable::ReadStats(const Slice& handle_value, Rep* rep) {
         continue;
       }
       *(pos->second) = val;
-    } else if (key == TableStatsNames::kFilterPolicy) {
+    } else if (key == BlockBasedTableStatsNames::kFilterPolicy) {
       table_stats.filter_policy_name = raw_val.ToString();
     } else {
       // handle user-collected
@@ -464,7 +464,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
     // we're past end of file
     may_match = false;
   } else if (ExtractUserKey(iiter->key()).starts_with(
-                                             ExtractUserKey(internal_prefix))) {
+                                            ExtractUserKey(internal_prefix))) {
     // we need to check for this subtle case because our only
     // guarantee is that "the key is a string >= last key in that data
     // block" according to the doc/table_format.txt spec.
@@ -497,10 +497,6 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
   return may_match;
 }
 
-Iterator* Table::NewIterator(const ReadOptions& options) {
-  return nullptr;
-}
-
 Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
   if (options.prefix) {
     InternalKey internal_prefix(*options.prefix, 0, kTypeValue);
@@ -517,21 +513,23 @@ Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
       options, rep_->soptions);
 }
 
-Status BlockBasedTable::Get(const ReadOptions& options, const Slice& k,
-                            void* arg,
-                            bool (*saver)(void*, const Slice&, const Slice&,
-                                          bool),
-                            void (*mark_key_may_exist)(void*)) {
+Status BlockBasedTable::Get(
+    const ReadOptions& readOptions,
+    const Slice& key,
+    void* handle_context,
+    bool (*result_handler)(void* handle_context, const Slice& k,
+                           const Slice& v, bool didIO),
+    void (*mark_key_may_exist_handler)(void* handle_context)) {
   Status s;
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   bool done = false;
-  for (iiter->Seek(k); iiter->Valid() && !done; iiter->Next()) {
+  for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
     Slice handle_value = iiter->value();
     FilterBlockReader* filter = rep_->filter;
     BlockHandle handle;
     if (filter != nullptr &&
         handle.DecodeFrom(&handle_value).ok() &&
-        !filter->KeyMayMatch(handle.offset(), k)) {
+        !filter->KeyMayMatch(handle.offset(), key)) {
       // Not found
       // TODO: think about interaction with Merge. If a user key cannot
       // cross one data block, we should be fine.
@@ -540,19 +538,20 @@ Status BlockBasedTable::Get(const ReadOptions& options, const Slice& k,
     } else {
       bool didIO = false;
       std::unique_ptr<Iterator> block_iter(
-        BlockReader(this, options, iiter->value(), &didIO));
+        BlockReader(this, readOptions, iiter->value(), &didIO));
 
-      if (options.read_tier && block_iter->status().IsIncomplete()) {
+      if (readOptions.read_tier && block_iter->status().IsIncomplete()) {
         // couldn't get block from block_cache
         // Update Saver.state to Found because we are only looking for whether
         // we can guarantee the key is not there when "no_io" is set
-        (*mark_key_may_exist)(arg);
+        (*mark_key_may_exist_handler)(handle_context);
         break;
       }
 
       // Call the *saver function on each entry/block until it returns false
-      for (block_iter->Seek(k); block_iter->Valid(); block_iter->Next()) {
-        if (!(*saver)(arg, block_iter->key(), block_iter->value(), didIO)) {
+      for (block_iter->Seek(key); block_iter->Valid(); block_iter->Next()) {
+        if (!(*result_handler)(handle_context, block_iter->key(),
+                               block_iter->value(), didIO)) {
           done = true;
           break;
         }
@@ -611,12 +610,17 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kStatsBlock = "rocksdb.stats";
 
-const std::string TableStatsNames::kDataSize      = "rocksdb.data.size";
-const std::string TableStatsNames::kIndexSize     = "rocksdb.index.size";
-const std::string TableStatsNames::kRawKeySize    = "rocksdb.raw.key.size";
-const std::string TableStatsNames::kRawValueSize  = "rocksdb.raw.value.size";
-const std::string TableStatsNames::kNumDataBlocks = "rocksdb.num.data.blocks";
-const std::string TableStatsNames::kNumEntries    = "rocksdb.num.entries";
-const std::string TableStatsNames::kFilterPolicy  = "rocksdb.filter.policy";
+const std::string BlockBasedTableStatsNames::kDataSize  = "rocksdb.data.size";
+const std::string BlockBasedTableStatsNames::kIndexSize = "rocksdb.index.size";
+const std::string BlockBasedTableStatsNames::kRawKeySize =
+    "rocksdb.raw.key.size";
+const std::string BlockBasedTableStatsNames::kRawValueSize =
+    "rocksdb.raw.value.size";
+const std::string BlockBasedTableStatsNames::kNumDataBlocks =
+    "rocksdb.num.data.blocks";
+const std::string BlockBasedTableStatsNames::kNumEntries =
+    "rocksdb.num.entries";
+const std::string BlockBasedTableStatsNames::kFilterPolicy =
+    "rocksdb.filter.policy";
 
 }  // namespace rocksdb

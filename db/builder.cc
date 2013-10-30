@@ -18,6 +18,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
 #include "table/block_based_table_builder.h"
 #include "util/stop_watch.h"
 
@@ -26,9 +27,9 @@ namespace rocksdb {
 class TableFactory;
 
 TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
-                              int level, const bool enable_compression) {
-  return options.table_factory->GetTableBuilder(options, file, level,
-                                                enable_compression);
+                              CompressionType compression_type) {
+  return options.table_factory->GetTableBuilder(options, file,
+                                                compression_type);
 }
 
 Status BuildTable(const std::string& dbname,
@@ -63,8 +64,8 @@ Status BuildTable(const std::string& dbname,
       return s;
     }
 
-    TableBuilder* builder = GetTableBuilder(options, file.get(), 0,
-                                            enable_compression);
+    TableBuilder* builder = GetTableBuilder(options, file.get(),
+                                            options.compression);
 
     // the first key is the smallest key
     Slice key = iter->key();

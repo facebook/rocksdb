@@ -11,24 +11,22 @@
 #include <stdint.h>
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 
 class BlockBuilder;
 class BlockHandle;
 class WritableFile;
-class TableBuilder;
 
 
 class BlockBasedTableBuilder : public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
-  // caller to close the file after calling Finish(). The output file
-  // will be part of level specified by 'level'.  A value of -1 means
-  // that the caller does not know which level the output file will reside.
+  // caller to close the file after calling Finish().
   BlockBasedTableBuilder(const Options& options, WritableFile* file,
-                      int level = -1, const bool enable_compression = true);
+                         CompressionType compression_type);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();

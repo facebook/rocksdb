@@ -22,7 +22,7 @@
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"
-#include "table/block_based_table.h"
+#include "table/block_based_table_reader.h"
 #include "table/block_based_table_builder.h"
 #include "util/random.h"
 #include "util/testharness.h"
@@ -250,7 +250,7 @@ class BlockBasedTableConstructor: public Constructor {
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     Reset();
     sink_.reset(new StringSink());
-    BlockBasedTableBuilder builder(options, sink_.get());
+    BlockBasedTableBuilder builder(options, sink_.get(), options.compression);
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -267,36 +267,36 @@ class BlockBasedTableConstructor: public Constructor {
     uniq_id_ = cur_uniq_id_++;
     source_.reset(new StringSource(sink_->contents(), uniq_id_));
     unique_ptr<TableFactory> table_factory;
-    return options.table_factory->OpenTable(options, soptions,
-                                            std::move(source_),
-                                            sink_->contents().size(),
-                                            &table_);
+    return options.table_factory->GetTableReader(options, soptions,
+                                                 std::move(source_),
+                                                 sink_->contents().size(),
+                                                 &table_reader_);
   }
 
   virtual Iterator* NewIterator() const {
-    return table_->NewIterator(ReadOptions());
+    return table_reader_->NewIterator(ReadOptions());
   }
 
   uint64_t ApproximateOffsetOf(const Slice& key) const {
-    return table_->ApproximateOffsetOf(key);
+    return table_reader_->ApproximateOffsetOf(key);
   }
 
   virtual Status Reopen(const Options& options) {
     source_.reset(new StringSource(sink_->contents(), uniq_id_));
-    return options.table_factory->OpenTable(options, soptions,
-                                            std::move(source_),
-                                            sink_->contents().size(),
-                                            &table_);
+    return options.table_factory->GetTableReader(options, soptions,
+                                                 std::move(source_),
+                                                 sink_->contents().size(),
+                                                 &table_reader_);
   }
 
-  virtual Table* table() {
-    return table_.get();
+  virtual TableReader* table_reader() {
+    return table_reader_.get();
   }
 
  private:
   void Reset() {
     uniq_id_ = 0;
-    table_.reset();
+    table_reader_.reset();
     sink_.reset();
     source_.reset();
   }
@@ -304,7 +304,7 @@ class BlockBasedTableConstructor: public Constructor {
   uint64_t uniq_id_;
   unique_ptr<StringSink> sink_;
   unique_ptr<StringSource> source_;
-  unique_ptr<Table> table_;
+  unique_ptr<TableReader> table_reader_;
 
   BlockBasedTableConstructor();
 
@@ -883,7 +883,7 @@ TEST(TableTest, BasicTableStats) {
 
   c.Finish(options, &keys, &kvmap);
 
-  auto& stats = c.table()->GetTableStats();
+  auto& stats = c.table_reader()->GetTableStats();
   ASSERT_EQ(kvmap.size(), stats.num_entries);
 
   auto raw_key_size = kvmap.size() * 2ul;
@@ -918,7 +918,7 @@ TEST(TableTest, FilterPolicyNameStats) {
   options.filter_policy = filter_policy.get();
 
   c.Finish(options, &keys, &kvmap);
-  auto& stats = c.table()->GetTableStats();
+  auto& stats = c.table_reader()->GetTableStats();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", stats.filter_policy_name);
 }
 
@@ -960,7 +960,7 @@ TEST(TableTest, IndexSizeStat) {
 
     c.Finish(options, &ks, &kvmap);
     auto index_size =
-      c.table()->GetTableStats().index_size;
+      c.table_reader()->GetTableStats().index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
   }
@@ -985,7 +985,7 @@ TEST(TableTest, NumBlockStat) {
   c.Finish(options, &ks, &kvmap);
   ASSERT_EQ(
       kvmap.size(),
-      c.table()->GetTableStats().num_data_blocks
+      c.table_reader()->GetTableStats().num_data_blocks
   );
 }
 
@@ -1100,7 +1100,7 @@ TEST(TableTest, BlockCacheLeak) {
 
   ASSERT_OK(c.Reopen(opt));
   for (const std::string& key: keys) {
-    ASSERT_TRUE(c.table()->TEST_KeyInCache(ReadOptions(), key));
+    ASSERT_TRUE(c.table_reader()->TEST_KeyInCache(ReadOptions(), key));
   }
 }
 

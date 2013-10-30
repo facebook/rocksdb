@@ -13,6 +13,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table_stats.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -31,22 +32,8 @@ using std::unique_ptr;
 // external synchronization, but if any of the threads may call a
 // non-const method, all threads accessing the same TableBuilder must use
 // external synchronization.
-
 class TableBuilder {
  public:
-  // Create a builder that will store the contents of the table it is
-  // building in *file.  Does not close the file.  It is up to the
-  // caller to close the file after calling Finish(). The output file
-  // will be part of level specified by 'level'.  A value of -1 means
-  // that the caller does not know which level the output file will reside.
-  //
-  // If enable_compression=true, this table will follow the compression
-  // setting given in parameter options. If enable_compression=false, the
-  // table will not be compressed.
-  explicit TableBuilder(int level = -1, const bool enable_compression = true) :
-      level_(level) {
-  }
-
   // REQUIRES: Either Finish() or Abandon() has been called.
   virtual ~TableBuilder() {}
 
@@ -74,17 +61,14 @@ class TableBuilder {
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
-
-protected:
-  int level_;
 };
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
 // multiple threads without external synchronization.
-class Table {
+class TableReader {
  public:
-  virtual ~Table() {}
+  virtual ~TableReader() {}
 
   // Determine whether there is a chance that the current table file
   // contains the key a key starting with iternal_prefix. The specific
@@ -116,29 +100,25 @@ class Table {
 
   virtual TableStats& GetTableStats() = 0;
 
-  // Get function issued to look for specific key.
-  // The table will search the first entry in the table whose user key
-  // matches key, and pass it to the call back function handle_result,
-  // with the first argument to be parameter arg, and the last bool
-  // parameter to be whether an I/O is issued.
-  // mark_key_may_exist call back is called when it is configured to be
+  // Calls (*result_handler)(handle_context, ...) repeatedly, starting with
+  // the entry found after a call to Seek(key), until result_handler returns
+  // false, where k is the actual internal key for a row found and v as the
+  // value of the key. didIO is true if I/O is involved in the operation. May
+  // not make such a call if filter policy says that key is not present.
+  //
+  // mark_key_may_exist_handler needs to be called when it is configured to be
   // memory only and the key is not found in the block cache, with
-  // the parameter to be arg.
+  // the parameter to be handle_context.
+  //
+  // readOptions is the options for the read
+  // key is the key to search for
   virtual Status Get(
-      const ReadOptions&, const Slice& key,
-      void* arg,
-      bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
-      void (*mark_key_may_exist)(void*) = nullptr) = 0;
-};
-
-struct TableStatsNames {
-  static const std::string kDataSize;
-  static const std::string kIndexSize;
-  static const std::string kRawKeySize;
-  static const std::string kRawValueSize;
-  static const std::string kNumDataBlocks;
-  static const std::string kNumEntries;
-  static const std::string kFilterPolicy;
+      const ReadOptions& readOptions,
+      const Slice& key,
+      void* handle_context,
+      bool (*result_handler)(void* handle_context, const Slice& k,
+                             const Slice& v, bool didIO),
+      void (*mark_key_may_exist_handler)(void* handle_context) = nullptr) = 0;
 };
 
 // A base class for table factories
@@ -146,7 +126,7 @@ class TableFactory {
  public:
   virtual ~TableFactory() {}
 
-  // The name of the comparator.
+  // The type of the table.
   //
   // The client of this package should switch to a new name whenever
   // the table format implementation changes.
@@ -159,16 +139,21 @@ class TableFactory {
   // in parameter file. It's the caller's responsibility to make sure
   // file is in the correct format.
   //
-  // OpenTable() is called in two places:
+  // GetTableReader() is called in two places:
   // (1) TableCache::FindTable() calls the function when table cache miss
   //     and cache the table object returned.
   // (1) SstFileReader (for SST Dump) opens the table and dump the table
   //     contents using the interator of the table.
-  virtual Status OpenTable(const Options& options,
-                           const EnvOptions& soptions,
-                           unique_ptr<RandomAccessFile>&& file,
-                           uint64_t file_size,
-                           unique_ptr<Table>* table) const = 0;
+  // options and soptions are options. options is the general options.
+  // Multiple configured can be accessed from there, including and not
+  // limited to block cache and key comparators.
+  // file is a file handler to handle the file for the table
+  // file_size is the physical file size of the file
+  // table_reader is the output table reader
+  virtual Status GetTableReader(
+      const Options& options, const EnvOptions& soptions,
+      unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+      unique_ptr<TableReader>* table_reader) const = 0;
 
   // Return a table builder to write to a file for this table type.
   //
@@ -182,8 +167,14 @@ class TableFactory {
   //     by calling BuildTable())
   // (4) When running Repairer, it creates a table builder to convert logs to
   //     SST files (In Repairer::ConvertLogToTable() by calling BuildTable())
+  //
+  // options is the general options. Multiple configured can be acceseed from
+  // there, including and not limited to compression options.
+  // file is a handle of a writable file. It is the caller's responsibility to
+  // keep the file open and close the file after closing the table builder.
+  // compression_type is the compression type to use in this table.
   virtual TableBuilder* GetTableBuilder(
-      const Options& options, WritableFile* file, int level,
-      const bool enable_compression) const = 0;
+      const Options& options, WritableFile* file,
+      CompressionType compression_type) const = 0;
 };
 }  // namespace rocksdb

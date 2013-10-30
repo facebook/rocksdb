@@ -24,14 +24,14 @@ struct Options;
 class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
-class Table;
+class TableReader;
 
 using std::unique_ptr;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
 // multiple threads without external synchronization.
-class BlockBasedTable : public Table {
+class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
   static const std::string kStatsBlock;
@@ -40,19 +40,17 @@ class BlockBasedTable : public Table {
   // of "file", and read the metadata entries necessary to allow
   // retrieving data from the table.
   //
-  // If successful, returns ok and sets "*table" to the newly opened
-  // table.  The client should delete "*table" when no longer needed.
-  // If there was an error while initializing the table, sets "*table"
-  // to nullptr and returns a non-ok status.  Does not take ownership of
-  // "*source", but the client must ensure that "source" remains live
-  // for the duration of the returned table's lifetime.
+  // If successful, returns ok and sets "*table_reader" to the newly opened
+  // table.  The client should delete "*table_reader" when no longer needed.
+  // If there was an error while initializing the table, sets "*table_reader"
+  // to nullptr and returns a non-ok status.
   //
   // *file must remain live while this Table is in use.
   static Status Open(const Options& options,
                      const EnvOptions& soptions,
                      unique_ptr<RandomAccessFile>&& file,
                      uint64_t file_size,
-                     unique_ptr<Table>* table);
+                     unique_ptr<TableReader>* table_reader);
 
   bool PrefixMayMatch(const Slice& internal_prefix) override;
 
@@ -62,10 +60,13 @@ class BlockBasedTable : public Table {
   Iterator* NewIterator(const ReadOptions&) override;
 
   Status Get(
-      const ReadOptions&, const Slice& key,
-      void* arg,
-      bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
-      void (*mark_key_may_exist)(void*) = nullptr) override;
+        const ReadOptions& readOptions,
+        const Slice& key,
+        void* handle_context,
+        bool (*result_handler)(void* handle_context, const Slice& k,
+                               const Slice& v, bool didIO),
+        void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
+    override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -115,8 +116,18 @@ class BlockBasedTable : public Table {
   }
 
   // No copying allowed
-  explicit BlockBasedTable(const Table&) = delete;
-  void operator=(const Table&) = delete;
+  explicit BlockBasedTable(const TableReader&) = delete;
+  void operator=(const TableReader&) = delete;
+};
+
+struct BlockBasedTableStatsNames {
+  static const std::string kDataSize;
+  static const std::string kIndexSize;
+  static const std::string kRawKeySize;
+  static const std::string kRawValueSize;
+  static const std::string kNumDataBlocks;
+  static const std::string kNumEntries;
+  static const std::string kFilterPolicy;
 };
 
 }  // namespace rocksdb

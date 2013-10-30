@@ -1920,12 +1920,12 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
       } else {
         // "ikey" falls in the range for this table.  Add the
         // approximate offset of "ikey" within the table.
-        Table* tableptr;
+        TableReader* table_reader_ptr;
         Iterator* iter = table_cache_->NewIterator(
             ReadOptions(), storage_options_, files[i]->number,
-            files[i]->file_size, &tableptr);
-        if (tableptr != nullptr) {
-          result += tableptr->ApproximateOffsetOf(ikey.Encode());
+            files[i]->file_size, &table_reader_ptr);
+        if (table_reader_ptr != nullptr) {
+          result += table_reader_ptr->ApproximateOffsetOf(ikey.Encode());
         }
         delete iter;
       }

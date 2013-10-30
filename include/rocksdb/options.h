@@ -19,7 +19,6 @@
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/table.h"
 
 namespace rocksdb {
 

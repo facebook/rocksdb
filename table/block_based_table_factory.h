@@ -36,12 +36,13 @@ public:
   const char* Name() const override {
     return "BlockBasedTable";
   }
-  Status OpenTable(const Options& options, const EnvOptions& soptions,
-                   unique_ptr<RandomAccessFile> && file, uint64_t file_size,
-                   unique_ptr<Table>* table) const override;
+  Status GetTableReader(const Options& options, const EnvOptions& soptions,
+                        unique_ptr<RandomAccessFile> && file,
+                        uint64_t file_size,
+                        unique_ptr<TableReader>* table_reader) const override;
 
   TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
-                                int level, const bool enable_compression) const
+                                CompressionType compression_type) const
                                     override;
 };
 

@@ -211,6 +211,27 @@ Options SanitizeOptions(const std::string& dbname,
   return result;
 }
 
+CompressionType GetCompressionType(const Options& options, int level,
+                                   const bool enable_compression) {
+  if (!enable_compression) {
+    // disable compression
+    return kNoCompression;
+  }
+  // If the use has specified a different compression level for each level,
+  // then pick the compresison for that level.
+  if (!options.compression_per_level.empty()) {
+    const int n = options.compression_per_level.size() - 1;
+    // It is possible for level_ to be -1; in that case, we use level
+    // 0's compression.  This occurs mostly in backwards compatibility
+    // situations when the builder doesn't know what level the file
+    // belongs to.  Likewise, if level_ is beyond the end of the
+    // specified compression levels, use the last value.
+    return options.compression_per_level[std::max(0, std::min(level, n))];
+  } else {
+    return options.compression;
+  }
+}
+
 DBImpl::DBImpl(const Options& options, const std::string& dbname)
     : env_(options.env),
       dbname_(dbname),
@@ -1774,10 +1795,12 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     compact->outfile->SetPreallocationBlockSize(
       1.1 * versions_->MaxFileSizeForLevel(compact->compaction->output_level()));
 
+    CompressionType compression_type = GetCompressionType(
+        options_, compact->compaction->output_level(),
+        compact->compaction->enable_compression());
+
     compact->builder.reset(
-        GetTableBuilder(options_, compact->outfile.get(),
-                        compact->compaction->output_level(),
-                        compact->compaction->enable_compression()));
+        GetTableBuilder(options_, compact->outfile.get(), compression_type));
   }
   return s;
 }

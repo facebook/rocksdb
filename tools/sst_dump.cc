@@ -63,7 +63,7 @@ Status SstFileReader::ReadSequential(bool print_kv,
                                      bool has_to,
                                      const std::string& to_key)
 {
-  unique_ptr<Table> table;
+  unique_ptr<TableReader> table_reader;
   InternalKeyComparator internal_comparator_(BytewiseComparator());
   Options table_options;
   table_options.comparator = &internal_comparator_;
@@ -76,14 +76,15 @@ Status SstFileReader::ReadSequential(bool print_kv,
   uint64_t file_size;
   table_options.env->GetFileSize(file_name_, &file_size);
   unique_ptr<TableFactory> table_factory;
-  s = table_options.table_factory->OpenTable(table_options, soptions_,
-                                             std::move(file), file_size,
-                                             &table);
+  s = table_options.table_factory->GetTableReader(table_options, soptions_,
+                                                  std::move(file), file_size,
+                                                  &table_reader);
   if(!s.ok()) {
    return s;
   }
 
-  Iterator* iter = table->NewIterator(ReadOptions(verify_checksum_, false));
+  Iterator* iter = table_reader->NewIterator(ReadOptions(verify_checksum_,
+                                                         false));
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey(from_key, kMaxSequenceNumber, kValueTypeForSeek);

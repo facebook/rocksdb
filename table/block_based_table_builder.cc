@@ -17,7 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
-#include "table/block_based_table.h"
+#include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"
@@ -81,8 +81,7 @@ struct BlockBasedTableBuilder::Rep {
   BlockBuilder data_block;
   BlockBuilder index_block;
   std::string last_key;
-  // Whether enable compression in this table.
-  bool enable_compression;
+  CompressionType compression_type;
 
   uint64_t num_entries = 0;
   uint64_t num_data_blocks = 0;
@@ -107,13 +106,13 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string compressed_output;
 
-  Rep(const Options& opt, WritableFile* f, bool enable_compression)
+  Rep(const Options& opt, WritableFile* f, CompressionType compression_type)
       : options(opt),
         index_block_options(opt),
         file(f),
         data_block(&options),
         index_block(1, index_block_options.comparator),
-        enable_compression(enable_compression),
+        compression_type(compression_type),
         filter_block(opt.filter_policy == nullptr ? nullptr
                      : new FilterBlockBuilder(opt)),
         pending_index_entry(false) {
@@ -121,9 +120,9 @@ struct BlockBasedTableBuilder::Rep {
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(const Options& options,
-                                               WritableFile* file, int level,
-                                               const bool enable_compression)
-    : TableBuilder(level),  rep_(new Rep(options, file, enable_compression)) {
+                                               WritableFile* file,
+                                               CompressionType compression_type)
+    : rep_(new Rep(options, file, compression_type)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
@@ -220,26 +219,7 @@ void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
 
   Slice block_contents;
   std::string* compressed = &r->compressed_output;
-  CompressionType type;
-  if (!r->enable_compression) {
-    // disable compression
-    type = kNoCompression;
-  } else {
-    // If the use has specified a different compression level for each level,
-    // then pick the compresison for that level.
-    if (!r->options.compression_per_level.empty()) {
-      const int n = r->options.compression_per_level.size();
-      // It is possible for level_ to be -1; in that case, we use level
-      // 0's compression.  This occurs mostly in backwards compatibility
-      // situations when the builder doesn't know what level the file
-      // belongs to.  Likewise, if level_ is beyond the end of the
-      // specified compression levels, use the last value.
-      type = r->options.compression_per_level[std::max(0,
-                                                       std::min(level_, n))];
-    } else {
-      type = r->options.compression;
-    }
-  }
+  CompressionType type = r->compression_type;
   switch (type) {
     case kNoCompression:
       block_contents = raw;
@@ -376,19 +356,21 @@ Status BlockBasedTableBuilder::Finish() {
       BytewiseSortedMap stats;
 
       // Add basic stats
-      AddStats(stats, TableStatsNames::kRawKeySize, r->raw_key_size);
-      AddStats(stats, TableStatsNames::kRawValueSize, r->raw_value_size);
-      AddStats(stats, TableStatsNames::kDataSize, r->data_size);
+      AddStats(stats, BlockBasedTableStatsNames::kRawKeySize, r->raw_key_size);
+      AddStats(stats, BlockBasedTableStatsNames::kRawValueSize,
+               r->raw_value_size);
+      AddStats(stats, BlockBasedTableStatsNames::kDataSize, r->data_size);
       AddStats(
           stats,
-          TableStatsNames::kIndexSize,
+          BlockBasedTableStatsNames::kIndexSize,
           r->index_block.CurrentSizeEstimate() + kBlockTrailerSize
       );
-      AddStats(stats, TableStatsNames::kNumEntries, r->num_entries);
-      AddStats(stats, TableStatsNames::kNumDataBlocks, r->num_data_blocks);
+      AddStats(stats, BlockBasedTableStatsNames::kNumEntries, r->num_entries);
+      AddStats(stats, BlockBasedTableStatsNames::kNumDataBlocks,
+               r->num_data_blocks);
       if (r->filter_block != nullptr) {
         stats.insert(std::make_pair(
-              TableStatsNames::kFilterPolicy,
+              BlockBasedTableStatsNames::kFilterPolicy,
               r->options.filter_policy->Name()
         ));
       }

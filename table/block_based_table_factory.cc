@@ -13,24 +13,22 @@
 #include <memory>
 #include <stdint.h>
 #include "table/block_based_table_builder.h"
-#include "table/block_based_table.h"
+#include "table/block_based_table_reader.h"
 #include "port/port.h"
 
 namespace rocksdb {
 
-Status BlockBasedTableFactory::OpenTable(const Options& options,
-                                         const EnvOptions& soptions,
-                                         unique_ptr<RandomAccessFile> && file,
-                                         uint64_t file_size,
-                                         unique_ptr<Table>* table) const {
-
+Status BlockBasedTableFactory::GetTableReader(
+    const Options& options, const EnvOptions& soptions,
+    unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+    unique_ptr<TableReader>* table_reader) const {
   return BlockBasedTable::Open(options, soptions, std::move(file), file_size,
-                            table);
+                               table_reader);
 }
 
 TableBuilder* BlockBasedTableFactory::GetTableBuilder(
-    const Options& options, WritableFile* file, int level,
-    const bool enable_compression) const {
-  return new BlockBasedTableBuilder(options, file, level, enable_compression);
+    const Options& options, WritableFile* file,
+    CompressionType compression_type) const {
+  return new BlockBasedTableBuilder(options, file, compression_type);
 }
 }  // namespace rocksdb
