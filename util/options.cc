@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/merge_operator.h"
+#include "table/block_based_table_factory.h"
 
 namespace rocksdb {
 
@@ -91,6 +92,8 @@ Options::Options()
       filter_deletes(false),
       max_sequential_skip_in_iterations(8),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
+      table_factory(
+        std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       compaction_filter_factory(
           std::shared_ptr<CompactionFilterFactory>(
             new DefaultCompactionFilterFactory())),
@@ -116,6 +119,7 @@ Options::Dump(Logger* log) const
         compaction_filter_factory->Name());
     Log(log,"        Options.memtable_factory: %s",
         memtable_factory->Name());
+    Log(log,"           Options.table_factory: %s", table_factory->Name());
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"       Options.create_if_missing: %d", create_if_missing);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);

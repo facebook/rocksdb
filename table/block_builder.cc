@@ -36,7 +36,6 @@
 #include <algorithm>
 #include <assert.h>
 #include "rocksdb/comparator.h"
-#include "rocksdb/table_builder.h"
 #include "util/coding.h"
 
 namespace rocksdb {

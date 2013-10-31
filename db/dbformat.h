@@ -13,7 +13,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
 #include "util/logging.h"

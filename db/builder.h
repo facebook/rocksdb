@@ -9,6 +9,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -20,6 +21,12 @@ class EnvOptions;
 class Iterator;
 class TableCache;
 class VersionEdit;
+class TableBuilder;
+class WritableFile;
+
+
+extern TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
+                                     CompressionType compression_type);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to meta->number.  On success, the rest of

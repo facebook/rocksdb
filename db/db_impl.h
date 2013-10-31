@@ -444,4 +444,13 @@ extern Options SanitizeOptions(const std::string& db,
                                const InternalFilterPolicy* ipolicy,
                                const Options& src);
 
+
+// Determine compression type, based on user options, level of the output
+// file and whether compression is disabled.
+// If enable_compression is false, then compression is always disabled no
+// matter what the values of the other two parameters are.
+// Otherwise, the compression type is determined based on options and level.
+CompressionType GetCompressionType(const Options& options, int level,
+                                   const bool enable_compression);
+
 }  // namespace rocksdb

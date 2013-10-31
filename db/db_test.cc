@@ -20,7 +20,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
-#include "table/table.h"
+#include "rocksdb/table.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"

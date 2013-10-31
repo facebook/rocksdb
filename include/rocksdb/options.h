@@ -17,6 +17,8 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table_stats.h"
 #include "rocksdb/universal_compaction.h"
+#include "rocksdb/memtablerep.h"
+#include "rocksdb/slice_transform.h"
 
 namespace rocksdb {
 
@@ -29,6 +31,7 @@ class MergeOperator;
 class Snapshot;
 class CompactionFilter;
 class CompactionFilterFactory;
+class TableFactory;
 
 using std::shared_ptr;
 
@@ -578,6 +581,11 @@ struct Options {
   // Default: a factory that provides a skip-list-based implementation of
   // MemTableRep.
   std::shared_ptr<MemTableRepFactory> memtable_factory;
+
+  // This is a factory that provides TableFactory objects.
+  // Default: a factory that provides a default implementation of
+  // Table and TableBuilder.
+  std::shared_ptr<TableFactory> table_factory;
 
   // This is a factory that provides compaction filter objects which allow
   // an application to modify/delete a key-value during background compaction.

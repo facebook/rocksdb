@@ -20,7 +20,7 @@ class Comparator;
 
 class BlockBuilder {
  public:
-  BlockBuilder(int block_builder, const Comparator* comparator);
+  BlockBuilder(int block_restart_interval, const Comparator* comparator);
   explicit BlockBuilder(const Options* options);
 
   // Reset the contents as if the BlockBuilder was just constructed.

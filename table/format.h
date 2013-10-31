@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 

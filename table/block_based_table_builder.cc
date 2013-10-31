@@ -7,19 +7,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/table_builder.h"
+#include "table/block_based_table_builder.h"
 
 #include <assert.h>
 #include <map>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/table.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"
-#include "table/table.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
@@ -71,7 +72,7 @@ void LogStatsCollectionError(
 
 }  // anonymous namespace
 
-struct TableBuilder::Rep {
+struct BlockBasedTableBuilder::Rep {
   Options options;
   Options index_block_options;
   WritableFile* file;
@@ -80,8 +81,7 @@ struct TableBuilder::Rep {
   BlockBuilder data_block;
   BlockBuilder index_block;
   std::string last_key;
-  // Whether enable compression in this table.
-  bool enable_compression;
+  CompressionType compression_type;
 
   uint64_t num_entries = 0;
   uint64_t num_data_blocks = 0;
@@ -106,50 +106,35 @@ struct TableBuilder::Rep {
 
   std::string compressed_output;
 
-  Rep(const Options& opt, WritableFile* f, bool enable_compression)
+  Rep(const Options& opt, WritableFile* f, CompressionType compression_type)
       : options(opt),
         index_block_options(opt),
         file(f),
         data_block(&options),
         index_block(1, index_block_options.comparator),
-        enable_compression(enable_compression),
+        compression_type(compression_type),
         filter_block(opt.filter_policy == nullptr ? nullptr
                      : new FilterBlockBuilder(opt)),
         pending_index_entry(false) {
   }
 };
 
-TableBuilder::TableBuilder(const Options& options, WritableFile* file,
-                           int level, const bool enable_compression)
-    : rep_(new Rep(options, file, enable_compression)), level_(level) {
+BlockBasedTableBuilder::BlockBasedTableBuilder(const Options& options,
+                                               WritableFile* file,
+                                               CompressionType compression_type)
+    : rep_(new Rep(options, file, compression_type)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
 }
 
-TableBuilder::~TableBuilder() {
+BlockBasedTableBuilder::~BlockBasedTableBuilder() {
   assert(rep_->closed);  // Catch errors where caller forgot to call Finish()
   delete rep_->filter_block;
   delete rep_;
 }
 
-Status TableBuilder::ChangeOptions(const Options& options) {
-  // Note: if more fields are added to Options, update
-  // this function to catch changes that should not be allowed to
-  // change in the middle of building a Table.
-  if (options.comparator != rep_->options.comparator) {
-    return Status::InvalidArgument("changing comparator while building table");
-  }
-
-  // Note that any live BlockBuilders point to rep_->options and therefore
-  // will automatically pick up the updated options.
-  rep_->options = options;
-  rep_->index_block_options = options;
-  rep_->index_block_options.block_restart_interval = 1;
-  return Status::OK();
-}
-
-void TableBuilder::Add(const Slice& key, const Slice& value) {
+void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
@@ -204,7 +189,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   }
 }
 
-void TableBuilder::Flush() {
+void BlockBasedTableBuilder::Flush() {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
@@ -222,7 +207,8 @@ void TableBuilder::Flush() {
   ++r->num_data_blocks;
 }
 
-void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
+void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
+                                        BlockHandle* handle) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
   //    type: uint8
@@ -233,26 +219,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 
   Slice block_contents;
   std::string* compressed = &r->compressed_output;
-  CompressionType type;
-  if (!r->enable_compression) {
-    // disable compression
-    type = kNoCompression;
-  } else {
-    // If the use has specified a different compression level for each level,
-    // then pick the compresison for that level.
-    if (!r->options.compression_per_level.empty()) {
-      const int n = r->options.compression_per_level.size();
-      // It is possible for level_ to be -1; in that case, we use level
-      // 0's compression.  This occurs mostly in backwards compatibility
-      // situations when the builder doesn't know what level the file
-      // belongs to.  Likewise, if level_ is beyond the end of the
-      // specified compression levels, use the last value.
-      type = r->options.compression_per_level[std::max(0,
-                                                       std::min(level_, n))];
-    } else {
-      type = r->options.compression;
-    }
-  }
+  CompressionType type = r->compression_type;
   switch (type) {
     case kNoCompression:
       block_contents = raw;
@@ -302,9 +269,9 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   block->Reset();
 }
 
-void TableBuilder::WriteRawBlock(const Slice& block_contents,
-                                 CompressionType type,
-                                 BlockHandle* handle) {
+void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
+                                           CompressionType type,
+                                           BlockHandle* handle) {
   Rep* r = rep_;
   StopWatch sw(r->options.env, r->options.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
@@ -323,11 +290,11 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
   }
 }
 
-Status TableBuilder::status() const {
+Status BlockBasedTableBuilder::status() const {
   return rep_->status;
 }
 
-Status TableBuilder::Finish() {
+Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_;
   Flush();
   assert(!r->closed);
@@ -370,7 +337,7 @@ Status TableBuilder::Finish() {
     if (r->filter_block != nullptr) {
       // Add mapping from "<filter_block_prefix>.Name" to location
       // of filter data.
-      std::string key = Table::kFilterBlockPrefix;
+      std::string key = BlockBasedTable::kFilterBlockPrefix;
       key.append(r->options.filter_policy->Name());
       std::string handle_encoding;
       filter_block_handle.EncodeTo(&handle_encoding);
@@ -389,19 +356,21 @@ Status TableBuilder::Finish() {
       BytewiseSortedMap stats;
 
       // Add basic stats
-      AddStats(stats, TableStatsNames::kRawKeySize, r->raw_key_size);
-      AddStats(stats, TableStatsNames::kRawValueSize, r->raw_value_size);
-      AddStats(stats, TableStatsNames::kDataSize, r->data_size);
+      AddStats(stats, BlockBasedTableStatsNames::kRawKeySize, r->raw_key_size);
+      AddStats(stats, BlockBasedTableStatsNames::kRawValueSize,
+               r->raw_value_size);
+      AddStats(stats, BlockBasedTableStatsNames::kDataSize, r->data_size);
       AddStats(
           stats,
-          TableStatsNames::kIndexSize,
+          BlockBasedTableStatsNames::kIndexSize,
           r->index_block.CurrentSizeEstimate() + kBlockTrailerSize
       );
-      AddStats(stats, TableStatsNames::kNumEntries, r->num_entries);
-      AddStats(stats, TableStatsNames::kNumDataBlocks, r->num_data_blocks);
+      AddStats(stats, BlockBasedTableStatsNames::kNumEntries, r->num_entries);
+      AddStats(stats, BlockBasedTableStatsNames::kNumDataBlocks,
+               r->num_data_blocks);
       if (r->filter_block != nullptr) {
         stats.insert(std::make_pair(
-              TableStatsNames::kFilterPolicy,
+              BlockBasedTableStatsNames::kFilterPolicy,
               r->options.filter_policy->Name()
         ));
       }
@@ -435,7 +404,7 @@ Status TableBuilder::Finish() {
       std::string handle_encoding;
       stats_block_handle.EncodeTo(&handle_encoding);
       meta_block_handles.insert(
-          std::make_pair(Table::kStatsBlock, handle_encoding)
+          std::make_pair(BlockBasedTable::kStatsBlock, handle_encoding)
       );
     }  // end of stats block writing
 
@@ -466,17 +435,17 @@ Status TableBuilder::Finish() {
   return r->status;
 }
 
-void TableBuilder::Abandon() {
+void BlockBasedTableBuilder::Abandon() {
   Rep* r = rep_;
   assert(!r->closed);
   r->closed = true;
 }
 
-uint64_t TableBuilder::NumEntries() const {
+uint64_t BlockBasedTableBuilder::NumEntries() const {
   return rep_->num_entries;
 }
 
-uint64_t TableBuilder::FileSize() const {
+uint64_t BlockBasedTableBuilder::FileSize() const {
   return rep_->offset;
 }
 

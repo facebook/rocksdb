@@ -12,15 +12,15 @@
 #include "db/filename.h"
 
 #include "rocksdb/statistics.h"
-#include "table/table.h"
+#include "rocksdb/table.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
 
 static void DeleteEntry(const Slice& key, void* value) {
-  Table* table = reinterpret_cast<Table*>(value);
-  delete table;
+  TableReader* table_reader = reinterpret_cast<TableReader*>(value);
+  delete table_reader;
 }
 
 static void UnrefEntry(void* arg1, void* arg2) {
@@ -63,7 +63,7 @@ Status TableCache::FindTable(const EnvOptions& toptions,
     }
     std::string fname = TableFileName(dbname_, file_number);
     unique_ptr<RandomAccessFile> file;
-    unique_ptr<Table> table;
+    unique_ptr<TableReader> table_reader;
     s = env_->NewRandomAccessFile(fname, &file, toptions);
     RecordTick(options_->statistics, NO_FILE_OPENS);
     if (s.ok()) {
@@ -71,17 +71,19 @@ Status TableCache::FindTable(const EnvOptions& toptions,
         file->Hint(RandomAccessFile::RANDOM);
       }
       StopWatch sw(env_, options_->statistics, TABLE_OPEN_IO_MICROS);
-      s = Table::Open(*options_, toptions, std::move(file), file_size, &table);
+      s = options_->table_factory->GetTableReader(*options_, toptions,
+                                                  std::move(file), file_size,
+                                                  &table_reader);
     }
 
     if (!s.ok()) {
-      assert(table == nullptr);
+      assert(table_reader == nullptr);
       RecordTick(options_->statistics, NO_FILE_ERRORS);
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
       assert(file.get() == nullptr);
-      *handle = cache_->Insert(key, table.release(), 1, &DeleteEntry);
+      *handle = cache_->Insert(key, table_reader.release(), 1, &DeleteEntry);
     }
   }
   return s;
@@ -91,10 +93,10 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   const EnvOptions& toptions,
                                   uint64_t file_number,
                                   uint64_t file_size,
-                                  Table** tableptr,
+                                  TableReader** table_reader_ptr,
                                   bool for_compaction) {
-  if (tableptr != nullptr) {
-    *tableptr = nullptr;
+  if (table_reader_ptr != nullptr) {
+    *table_reader_ptr = nullptr;
   }
 
   Cache::Handle* handle = nullptr;
@@ -104,16 +106,16 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
     return NewErrorIterator(s);
   }
 
-  Table* table =
-    reinterpret_cast<Table*>(cache_->Value(handle));
-  Iterator* result = table->NewIterator(options);
+  TableReader* table_reader =
+    reinterpret_cast<TableReader*>(cache_->Value(handle));
+  Iterator* result = table_reader->NewIterator(options);
   result->RegisterCleanup(&UnrefEntry, cache_.get(), handle);
-  if (tableptr != nullptr) {
-    *tableptr = table;
+  if (table_reader_ptr != nullptr) {
+    *table_reader_ptr = table_reader;
   }
 
   if (for_compaction) {
-    table->SetupForCompaction();
+    table_reader->SetupForCompaction();
   }
 
   return result;
@@ -132,9 +134,9 @@ Status TableCache::Get(const ReadOptions& options,
                        &handle, table_io,
                        options.read_tier == kBlockCacheTier);
   if (s.ok()) {
-    Table* t =
-      reinterpret_cast<Table*>(cache_->Value(handle));
-    s = t->InternalGet(options, k, arg, saver, mark_key_may_exist);
+    TableReader* t =
+      reinterpret_cast<TableReader*>(cache_->Value(handle));
+    s = t->Get(options, k, arg, saver, mark_key_may_exist);
     cache_->Release(handle);
   } else if (options.read_tier && s.IsIncomplete()) {
     // Couldnt find Table in cache but treat as kFound if no_io set
@@ -154,8 +156,8 @@ bool TableCache::PrefixMayMatch(const ReadOptions& options,
                        file_size, &handle, table_io);
   bool may_match = true;
   if (s.ok()) {
-    Table* t =
-      reinterpret_cast<Table*>(cache_->Value(handle));
+    TableReader* t =
+      reinterpret_cast<TableReader*>(cache_->Value(handle));
     may_match = t->PrefixMayMatch(internal_prefix);
     cache_->Release(handle);
   }

@@ -17,12 +17,13 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
 #include "rocksdb/memtablerep.h"
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"
-#include "table/table.h"
+#include "table/block_based_table_reader.h"
+#include "table/block_based_table_builder.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -237,19 +238,19 @@ class BlockConstructor: public Constructor {
   BlockConstructor();
 };
 
-class TableConstructor: public Constructor {
+class BlockBasedTableConstructor: public Constructor {
  public:
-  explicit TableConstructor(
+  explicit BlockBasedTableConstructor(
       const Comparator* cmp)
       : Constructor(cmp) {
   }
-  ~TableConstructor() {
+  ~BlockBasedTableConstructor() {
     Reset();
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     Reset();
     sink_.reset(new StringSink());
-    TableBuilder builder(options, sink_.get());
+    BlockBasedTableBuilder builder(options, sink_.get(), options.compression);
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -265,32 +266,37 @@ class TableConstructor: public Constructor {
     // Open the table
     uniq_id_ = cur_uniq_id_++;
     source_.reset(new StringSource(sink_->contents(), uniq_id_));
-    return Table::Open(options, soptions, std::move(source_),
-                       sink_->contents().size(), &table_);
+    unique_ptr<TableFactory> table_factory;
+    return options.table_factory->GetTableReader(options, soptions,
+                                                 std::move(source_),
+                                                 sink_->contents().size(),
+                                                 &table_reader_);
   }
 
   virtual Iterator* NewIterator() const {
-    return table_->NewIterator(ReadOptions());
+    return table_reader_->NewIterator(ReadOptions());
   }
 
   uint64_t ApproximateOffsetOf(const Slice& key) const {
-    return table_->ApproximateOffsetOf(key);
+    return table_reader_->ApproximateOffsetOf(key);
   }
 
   virtual Status Reopen(const Options& options) {
     source_.reset(new StringSource(sink_->contents(), uniq_id_));
-    return Table::Open(options, soptions, std::move(source_),
-                       sink_->contents().size(), &table_);
+    return options.table_factory->GetTableReader(options, soptions,
+                                                 std::move(source_),
+                                                 sink_->contents().size(),
+                                                 &table_reader_);
   }
 
-  virtual Table* table() {
-    return table_.get();
+  virtual TableReader* table_reader() {
+    return table_reader_.get();
   }
 
  private:
   void Reset() {
     uniq_id_ = 0;
-    table_.reset();
+    table_reader_.reset();
     sink_.reset();
     source_.reset();
   }
@@ -298,14 +304,14 @@ class TableConstructor: public Constructor {
   uint64_t uniq_id_;
   unique_ptr<StringSink> sink_;
   unique_ptr<StringSource> source_;
-  unique_ptr<Table> table_;
+  unique_ptr<TableReader> table_reader_;
 
-  TableConstructor();
+  BlockBasedTableConstructor();
 
   static uint64_t cur_uniq_id_;
   const EnvOptions soptions;
 };
-uint64_t TableConstructor::cur_uniq_id_ = 1;
+uint64_t BlockBasedTableConstructor::cur_uniq_id_ = 1;
 
 // A helper class that converts internal format keys into user keys
 class KeyConvertingIterator: public Iterator {
@@ -533,7 +539,7 @@ class Harness {
     }
     switch (args.type) {
       case TABLE_TEST:
-        constructor_ = new TableConstructor(options_.comparator);
+        constructor_ = new BlockBasedTableConstructor(options_.comparator);
         break;
       case BLOCK_TEST:
         constructor_ = new BlockConstructor(options_.comparator);
@@ -858,7 +864,7 @@ class TableTest { };
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
 TEST(TableTest, BasicTableStats) {
-  TableConstructor c(BytewiseComparator());
+  BlockBasedTableConstructor c(BytewiseComparator());
 
   c.Add("a1", "val1");
   c.Add("b2", "val2");
@@ -878,7 +884,7 @@ TEST(TableTest, BasicTableStats) {
 
   c.Finish(options, &keys, &kvmap);
 
-  auto& stats = c.table()->GetTableStats();
+  auto& stats = c.table_reader()->GetTableStats();
   ASSERT_EQ(kvmap.size(), stats.num_entries);
 
   auto raw_key_size = kvmap.size() * 2ul;
@@ -902,7 +908,7 @@ TEST(TableTest, BasicTableStats) {
 }
 
 TEST(TableTest, FilterPolicyNameStats) {
-  TableConstructor c(BytewiseComparator());
+  BlockBasedTableConstructor c(BytewiseComparator());
   c.Add("a1", "val1");
   std::vector<std::string> keys;
   KVMap kvmap;
@@ -913,7 +919,7 @@ TEST(TableTest, FilterPolicyNameStats) {
   options.filter_policy = filter_policy.get();
 
   c.Finish(options, &keys, &kvmap);
-  auto& stats = c.table()->GetTableStats();
+  auto& stats = c.table_reader()->GetTableStats();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", stats.filter_policy_name);
 }
 
@@ -942,7 +948,7 @@ TEST(TableTest, IndexSizeStat) {
   // Each time we load one more key to the table. the table index block
   // size is expected to be larger than last time's.
   for (size_t i = 1; i < keys.size(); ++i) {
-    TableConstructor c(BytewiseComparator());
+    BlockBasedTableConstructor c(BytewiseComparator());
     for (size_t j = 0; j < i; ++j) {
       c.Add(keys[j], "val");
     }
@@ -955,7 +961,7 @@ TEST(TableTest, IndexSizeStat) {
 
     c.Finish(options, &ks, &kvmap);
     auto index_size =
-      c.table()->GetTableStats().index_size;
+      c.table_reader()->GetTableStats().index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
   }
@@ -963,7 +969,7 @@ TEST(TableTest, IndexSizeStat) {
 
 TEST(TableTest, NumBlockStat) {
   Random rnd(test::RandomSeed());
-  TableConstructor c(BytewiseComparator());
+  BlockBasedTableConstructor c(BytewiseComparator());
   Options options;
   options.compression = kNoCompression;
   options.block_restart_interval = 1;
@@ -980,12 +986,12 @@ TEST(TableTest, NumBlockStat) {
   c.Finish(options, &ks, &kvmap);
   ASSERT_EQ(
       kvmap.size(),
-      c.table()->GetTableStats().num_data_blocks
+      c.table_reader()->GetTableStats().num_data_blocks
   );
 }
 
 TEST(TableTest, ApproximateOffsetOfPlain) {
-  TableConstructor c(BytewiseComparator());
+  BlockBasedTableConstructor c(BytewiseComparator());
   c.Add("k01", "hello");
   c.Add("k02", "hello2");
   c.Add("k03", std::string(10000, 'x'));
@@ -1016,7 +1022,7 @@ TEST(TableTest, ApproximateOffsetOfPlain) {
 
 static void Do_Compression_Test(CompressionType comp) {
   Random rnd(301);
-  TableConstructor c(BytewiseComparator());
+  BlockBasedTableConstructor c(BytewiseComparator());
   std::string tmp;
   c.Add("k01", "hello");
   c.Add("k02", test::CompressibleString(&rnd, 0.25, 10000, &tmp));
@@ -1072,7 +1078,7 @@ TEST(TableTest, BlockCacheLeak) {
   opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever
                                                // lose cached values.
 
-  TableConstructor c(BytewiseComparator());
+  BlockBasedTableConstructor c(BytewiseComparator());
   c.Add("k01", "hello");
   c.Add("k02", "hello2");
   c.Add("k03", std::string(10000, 'x'));
@@ -1095,7 +1101,7 @@ TEST(TableTest, BlockCacheLeak) {
 
   ASSERT_OK(c.Reopen(opt));
   for (const std::string& key: keys) {
-    ASSERT_TRUE(c.table()->TEST_KeyInCache(ReadOptions(), key));
+    ASSERT_TRUE(c.table_reader()->TEST_KeyInCache(ReadOptions(), key));
   }
 }
 

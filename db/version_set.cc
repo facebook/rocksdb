@@ -19,7 +19,7 @@
 #include "db/table_cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
@@ -294,11 +294,11 @@ struct Saver {
 };
 }
 
-// Called from TableCache::Get and InternalGet when file/block in which key may
-// exist are not there in TableCache/BlockCache respectively. In this case we
-// can't guarantee that key does not exist and are not permitted to do IO to be
-// certain.Set the status=kFound and value_found=false to let the caller know
-// that key may exist but is not there in memory
+// Called from TableCache::Get and Table::Get when file/block in which
+// key may  exist are not there in TableCache/BlockCache respectively. In this
+// case we  can't guarantee that key does not exist and are not permitted to do
+// IO to be  certain.Set the status=kFound and value_found=false to let the
+// caller know that key may exist but is not there in memory
 static void MarkKeyMayExist(void* arg) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   s->state = kFound;
@@ -1920,12 +1920,12 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
       } else {
         // "ikey" falls in the range for this table.  Add the
         // approximate offset of "ikey" within the table.
-        Table* tableptr;
+        TableReader* table_reader_ptr;
         Iterator* iter = table_cache_->NewIterator(
             ReadOptions(), storage_options_, files[i]->number,
-            files[i]->file_size, &tableptr);
-        if (tableptr != nullptr) {
-          result += tableptr->ApproximateOffsetOf(ikey.Encode());
+            files[i]->file_size, &table_reader_ptr);
+        if (table_reader_ptr != nullptr) {
+          result += table_reader_ptr->ApproximateOffsetOf(ikey.Encode());
         }
         delete iter;
       }

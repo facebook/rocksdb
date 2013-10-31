@@ -10,9 +10,8 @@
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/table_stats_collector.h"
-#include "rocksdb/table_builder.h"
 #include "rocksdb/table_stats.h"
-#include "table/table.h"
+#include "rocksdb/table.h"
 #include "util/coding.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -21,7 +20,7 @@ namespace rocksdb {
 
 class TableStatsTest {
  private:
-  unique_ptr<Table> table_;
+  unique_ptr<TableReader> table_reader_;
 };
 
 // TODO(kailiu) the following classes should be moved to some more general
@@ -89,21 +88,21 @@ void MakeBuilder(
     std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
   builder->reset(
-      new TableBuilder(options, writable->get())
-  );
+      options.table_factory->GetTableBuilder(options, writable->get(),
+                                             options.compression));
 }
 
 void OpenTable(
     const Options& options,
     const std::string& contents,
-    std::unique_ptr<Table>* table) {
+    std::unique_ptr<TableReader>* table_reader) {
   std::unique_ptr<RandomAccessFile> file(new FakeRandomeAccessFile(contents));
-  auto s = Table::Open(
+  auto s = options.table_factory->GetTableReader(
       options,
       EnvOptions(),
       std::move(file),
       contents.size(),
-      table
+      table_reader
   );
   ASSERT_OK(s);
 }
@@ -176,9 +175,9 @@ TEST(TableStatsTest, CustomizedTableStatsCollector) {
     ASSERT_OK(builder->Finish());
 
     // -- Step 2: Open table
-    std::unique_ptr<Table> table;
-    OpenTable(options, writable->contents(), &table);
-    const auto& stats = table->GetTableStats().user_collected_stats;
+    std::unique_ptr<TableReader> table_reader;
+    OpenTable(options, writable->contents(), &table_reader);
+    const auto& stats = table_reader->GetTableStats().user_collected_stats;
 
     ASSERT_EQ("Rocksdb", stats.at("TableStatsTest"));
 
@@ -234,9 +233,9 @@ TEST(TableStatsTest, InternalKeyStatsCollector) {
 
     ASSERT_OK(builder->Finish());
 
-    std::unique_ptr<Table> table;
-    OpenTable(options, writable->contents(), &table);
-    const auto& stats = table->GetTableStats().user_collected_stats;
+    std::unique_ptr<TableReader> table_reader;
+    OpenTable(options, writable->contents(), &table_reader);
+    const auto& stats = table_reader->GetTableStats().user_collected_stats;
 
     uint64_t deleted = 0;
     Slice key(stats.at(InternalKeyTableStatsNames::kDeletedKeys));

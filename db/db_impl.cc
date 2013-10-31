@@ -41,10 +41,10 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table_builder.h"
+#include "rocksdb/table.h"
+#include "port/port.h"
 #include "table/block.h"
 #include "table/merger.h"
-#include "table/table.h"
 #include "table/two_level_iterator.h"
 #include "util/auto_roll_logger.h"
 #include "util/build_version.h"
@@ -209,6 +209,27 @@ Options SanitizeOptions(const std::string& dbname,
   );
 
   return result;
+}
+
+CompressionType GetCompressionType(const Options& options, int level,
+                                   const bool enable_compression) {
+  if (!enable_compression) {
+    // disable compression
+    return kNoCompression;
+  }
+  // If the use has specified a different compression level for each level,
+  // then pick the compresison for that level.
+  if (!options.compression_per_level.empty()) {
+    const int n = options.compression_per_level.size() - 1;
+    // It is possible for level_ to be -1; in that case, we use level
+    // 0's compression.  This occurs mostly in backwards compatibility
+    // situations when the builder doesn't know what level the file
+    // belongs to.  Likewise, if level_ is beyond the end of the
+    // specified compression levels, use the last value.
+    return options.compression_per_level[std::max(0, std::min(level, n))];
+  } else {
+    return options.compression;
+  }
 }
 
 DBImpl::DBImpl(const Options& options, const std::string& dbname)
@@ -1774,9 +1795,12 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     compact->outfile->SetPreallocationBlockSize(
       1.1 * versions_->MaxFileSizeForLevel(compact->compaction->output_level()));
 
-    compact->builder.reset(new TableBuilder(options_, compact->outfile.get(),
-                                            compact->compaction->output_level(),
-                                            compact->compaction->enable_compression()));
+    CompressionType compression_type = GetCompressionType(
+        options_, compact->compaction->output_level(),
+        compact->compaction->enable_compression());
+
+    compact->builder.reset(
+        GetTableBuilder(options_, compact->outfile.get(), compression_type));
   }
   return s;
 }
@@ -2026,9 +2050,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
           compaction_filter_value.clear();
           bool to_delete =
             compaction_filter->Filter(compact->compaction->level(),
-                                      ikey.user_key, value,
-                                      &compaction_filter_value,
-                                      &value_changed);
+                                               ikey.user_key, value,
+                                               &compaction_filter_value,
+                                               &value_changed);
           if (to_delete) {
             // make a copy of the original key
             delete_key.assign(key.data(), key.data() + key.size());

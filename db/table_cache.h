@@ -16,7 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/cache.h"
 #include "port/port.h"
-#include "table/table.h"
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 
@@ -39,7 +39,7 @@ class TableCache {
                         const EnvOptions& toptions,
                         uint64_t file_number,
                         uint64_t file_size,
-                        Table** tableptr = nullptr,
+                        TableReader** table_reader_ptr = nullptr,
                         bool for_compaction = false);
 
   // If a seek to internal key "k" in specified file finds an entry,
