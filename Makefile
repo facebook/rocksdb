@@ -78,7 +78,7 @@ TOOLS = \
 	blob_store_bench
 
 PROGRAMS = db_bench signal_test $(TESTS) $(TOOLS)
-BENCHMARKS = db_bench_sqlite3 db_bench_tree_db
+BENCHMARKS = db_bench_sqlite3 db_bench_tree_db table_reader_bench
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
@@ -239,6 +239,9 @@ db_test: db/db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 simple_table_db_test: db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
