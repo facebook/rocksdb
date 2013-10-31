@@ -11,7 +11,9 @@
 // BlobStore does costly asserts to make sure it's running correctly, which
 // significantly impacts benchmark runtime.
 // NDEBUG will compile out those asserts.
+#ifndef NDEBUG
 #define NDEBUG
+#endif
 
 using namespace rocksdb;
 using namespace std;
