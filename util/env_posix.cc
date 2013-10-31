@@ -1121,7 +1121,7 @@ class PosixEnv : public Env {
     } else {
       int fd = fileno(f);
       SetFD_CLOEXEC(fd, nullptr);
-      result->reset(new PosixLogger(f, &PosixEnv::gettid));
+      result->reset(new PosixLogger(f, &PosixEnv::gettid, this));
       return Status::OK();
     }
   }

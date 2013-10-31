@@ -33,9 +33,13 @@ class PosixLogger : public Logger {
   uint64_t (*gettid_)();  // Return the thread id for the current thread
   std::atomic_size_t log_size_;
   int fd_;
+  const static uint64_t flush_every_seconds_ = 5;
+  uint64_t last_flush_micros_;
+  Env* env_;
  public:
-  PosixLogger(FILE* f, uint64_t (*gettid)()) :
-    file_(f), gettid_(gettid), log_size_(0), fd_(fileno(f)) { }
+  PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env) :
+    file_(f), gettid_(gettid), log_size_(0), fd_(fileno(f)),
+    last_flush_micros_(0), env_(env) { }
   virtual ~PosixLogger() {
     fclose(file_);
   }
@@ -118,7 +122,11 @@ class PosixLogger : public Logger {
       size_t sz = fwrite(base, 1, write_size, file_);
       assert(sz == write_size);
       if (sz > 0) {
-        fflush(file_);
+        if (env_->NowMicros() - last_flush_micros_ >=
+            flush_every_seconds_ * 1000000) {
+          fflush(file_);
+          last_flush_micros_ = env_->NowMicros();
+        }
         log_size_ += write_size;
       }
       if (base != buffer) {
