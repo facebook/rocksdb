@@ -95,13 +95,13 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           }
           std::string start_key = MakeKey(r1, r2);
           std::string end_key = MakeKey(r1, r2 + r2_len);
-          uint64_t first_part_time = 0;
+          uint64_t total_time = 0;
           uint64_t start_micros = env->NowMicros();
           Iterator* iter = table_reader->NewIterator(read_options);
           int count = 0;
           for(iter->Seek(start_key); iter->Valid(); iter->Next()) {
             // verify key;
-            first_part_time = env->NowMicros() - start_micros;
+            total_time += env->NowMicros() - start_micros;
             assert(Slice(MakeKey(r1, r2 + count)) == iter->key());
             start_micros = env->NowMicros();
             if (++count >= r2_len) {
@@ -115,7 +115,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             assert(false);
           }
           delete iter;
-          hist.Add(first_part_time + env->NowMicros() - start_micros);
+          total_time += env->NowMicros() - start_micros;
+          hist.Add(total_time);
         }
       }
     }
@@ -129,7 +130,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
       "num_key2: %5d  %10s\n"
       "==================================================="
       "===================================================="
-      "\nHistogram (unit: nanoseconds): \n%s",
+      "\nHistogram (unit: microseconds): \n%s",
       tf->Name(), num_keys1, num_keys2,
       for_iterator? "iterator" : (if_query_empty_keys ? "empty" : "non_empty"),
       hist.ToString().c_str());
