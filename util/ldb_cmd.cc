@@ -580,6 +580,7 @@ void PrintBucketCounts(const vector<uint64_t>& bucket_counts, int ttl_start,
 }
 
 const string InternalDumpCommand::ARG_COUNT_ONLY = "count_only";
+const string InternalDumpCommand::ARG_COUNT_DELIM = "count_delim";
 const string InternalDumpCommand::ARG_STATS = "stats";
 const string InternalDumpCommand::ARG_INPUT_KEY_HEX = "input_key_hex";
 
@@ -589,12 +590,14 @@ InternalDumpCommand::InternalDumpCommand(const vector<string>& params,
     LDBCommand(options, flags, true,
                BuildCmdLineOptions({ ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
                                      ARG_FROM, ARG_TO, ARG_MAX_KEYS,
-                                     ARG_COUNT_ONLY, ARG_STATS,
+                                     ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
                                      ARG_INPUT_KEY_HEX})),
     has_from_(false),
     has_to_(false),
     max_keys_(-1),
+    delim_("."),
     count_only_(false),
+    count_delim_(false),
     print_stats_(false),
     is_input_key_hex_(false) {
 
@@ -602,6 +605,15 @@ InternalDumpCommand::InternalDumpCommand(const vector<string>& params,
   has_to_ = ParseStringOption(options, ARG_TO, &to_);
 
   ParseIntOption(options, ARG_MAX_KEYS, max_keys_, exec_state_);
+  map<string, string>::const_iterator itr = options.find(ARG_COUNT_DELIM);
+  if (itr != options.end()) {
+    delim_ = itr->second;
+    count_delim_ = true;
+   // fprintf(stdout,"delim = %c\n",delim_[0]);
+  } else {
+    count_delim_ = IsFlagPresent(flags, ARG_COUNT_DELIM);
+    delim_=".";
+  }
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
@@ -624,6 +636,7 @@ void InternalDumpCommand::Help(string& ret) {
   ret.append(" [--" + ARG_INPUT_KEY_HEX + "]");
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
+  ret.append(" [--" + ARG_COUNT_DELIM + "=<char>]");
   ret.append(" [--" + ARG_STATS + "]");
   ret.append("\n");
 }
@@ -646,7 +659,10 @@ void InternalDumpCommand::DoCommand() {
     exec_state_ = LDBCommandExecuteResult::FAILED("DB is not DBImpl");
     return;
   }
-
+  string rtype1,rtype2,row,val;
+  rtype2 = "";
+  uint64_t c=0;
+  uint64_t s1=0,s2=0;
   // Setup internal key iterator
   auto iter = unique_ptr<Iterator>(idb->TEST_NewInternalIterator());
   Status st = iter->status();
@@ -678,8 +694,32 @@ void InternalDumpCommand::DoCommand() {
     }
 
     ++count;
+    int k;
+    if (count_delim_) {
+      rtype1 = "";
+      s1=0;
+      row = iter->key().ToString();
+      val = iter->value().ToString();
+      for(k=0;row[k]!='\x01' && row[k]!='\0';k++)
+        s1++;
+      for(k=0;val[k]!='\x01' && val[k]!='\0';k++)
+        s1++;
+      for(int j=0;row[j]!=delim_[0] && row[j]!='\0' && row[j]!='\x01';j++)
+        rtype1+=row[j];
+      if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
+        fprintf(stdout,"%s => count:%lld\tsize:%lld\n",rtype2.c_str(),
+            (long long)c,(long long)s2);
+        c=1;
+        s2=s1;
+        rtype2 = rtype1;
+      } else {
+        c++;
+        s2+=s1;
+        rtype2=rtype1;
+    }
+  }
 
-    if (!count_only_) {
+    if (!count_only_ && !count_delim_) {
       string key = ikey.DebugString(is_key_hex_);
       string value = iter->value().ToString(is_value_hex_);
       std::cout << key << " => " << value << "\n";
@@ -688,12 +728,16 @@ void InternalDumpCommand::DoCommand() {
     // Terminate if maximum number of keys have been dumped
     if (max_keys_ > 0 && count >= max_keys_) break;
   }
-
+  if(count_delim_) {
+    fprintf(stdout,"%s => count:%lld\tsize:%lld\n", rtype2.c_str(),
+        (long long)c,(long long)s2);
+  } else
   fprintf(stdout, "Internal keys in range: %lld\n", (long long) count);
 }
 
 
 const string DBDumperCommand::ARG_COUNT_ONLY = "count_only";
+const string DBDumperCommand::ARG_COUNT_DELIM = "count_delim";
 const string DBDumperCommand::ARG_STATS = "stats";
 const string DBDumperCommand::ARG_TTL_BUCKET = "bucket";
 
@@ -702,13 +746,15 @@ DBDumperCommand::DBDumperCommand(const vector<string>& params,
     LDBCommand(options, flags, true,
                BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
                                     ARG_VALUE_HEX, ARG_FROM, ARG_TO,
-                                    ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_STATS,
-                                    ARG_TTL_START, ARG_TTL_END,
-                                    ARG_TTL_BUCKET, ARG_TIMESTAMP})),
+                                    ARG_MAX_KEYS, ARG_COUNT_ONLY,
+                                    ARG_COUNT_DELIM, ARG_STATS, ARG_TTL_START,
+                                    ARG_TTL_END, ARG_TTL_BUCKET,
+                                    ARG_TIMESTAMP})),
     null_from_(true),
     null_to_(true),
     max_keys_(-1),
     count_only_(false),
+    count_delim_(false),
     print_stats_(false) {
 
   map<string, string>::const_iterator itr = options.find(ARG_FROM);
@@ -735,6 +781,14 @@ DBDumperCommand::DBDumperCommand(const vector<string>& params,
                         " has a value out-of-range");
     }
   }
+  itr = options.find(ARG_COUNT_DELIM);
+  if (itr != options.end()) {
+    delim_ = itr->second;
+    count_delim_ = true;
+  } else {
+    count_delim_ = IsFlagPresent(flags, ARG_COUNT_DELIM);
+    delim_=".";
+  }
 
   print_stats_ = IsFlagPresent(flags, ARG_STATS);
   count_only_ = IsFlagPresent(flags, ARG_COUNT_ONLY);
@@ -757,6 +811,7 @@ void DBDumperCommand::Help(string& ret) {
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>]");
   ret.append(" [--" + ARG_TIMESTAMP + "]");
   ret.append(" [--" + ARG_COUNT_ONLY + "]");
+  ret.append(" [--" + ARG_COUNT_DELIM + "=<char>]");
   ret.append(" [--" + ARG_STATS + "]");
   ret.append(" [--" + ARG_TTL_BUCKET + "=<N>]");
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
@@ -811,11 +866,17 @@ void DBDumperCommand::DoCommand() {
       bucket_size <= 0) {
     bucket_size = time_range; // Will have just 1 bucket by default
   }
+  //cretaing variables for row count of each type
+  string rtype1,rtype2,row,val;
+  rtype2 = "";
+  uint64_t c=0;
+  uint64_t s1=0,s2=0;
+
   // At this point, bucket_size=0 => time_range=0
   uint64_t num_buckets = (bucket_size >= time_range) ? 1 :
     ((time_range + bucket_size - 1) / bucket_size);
   vector<uint64_t> bucket_counts(num_buckets, 0);
-  if (is_db_ttl_ && !count_only_ && timestamp_) {
+  if (is_db_ttl_ && !count_only_ && timestamp_ && !count_delim_) {
     fprintf(stdout, "Dumping key-values from %s to %s\n",
             ReadableTime(ttl_start).c_str(), ReadableTime(ttl_end).c_str());
   }
@@ -844,7 +905,30 @@ void DBDumperCommand::DoCommand() {
                       rawtime, num_buckets);
     }
     ++count;
-    if (!count_only_) {
+    if (count_delim_) {
+      rtype1 = "";
+      row = iter->key().ToString();
+      val = iter->value().ToString();
+      s1 = row.size()+val.size();
+      for(int j=0;row[j]!=delim_[0] && row[j]!='\0';j++)
+        rtype1+=row[j];
+      if(rtype2.compare("") && rtype2.compare(rtype1)!=0) {
+        fprintf(stdout,"%s => count:%lld\tsize:%lld\n",rtype2.c_str(),
+            (long long )c,(long long)s2);
+        c=1;
+        s2=s1;
+        rtype2 = rtype1;
+      } else {
+          c++;
+          s2+=s1;
+          rtype2=rtype1;
+      }
+
+    }
+
+
+
+    if (!count_only_ && !count_delim_) {
       if (is_db_ttl_ && timestamp_) {
         fprintf(stdout, "%s ", ReadableTime(rawtime).c_str());
       }
@@ -854,9 +938,13 @@ void DBDumperCommand::DoCommand() {
       fprintf(stdout, "%s\n", str.c_str());
     }
   }
+
   if (num_buckets > 1 && is_db_ttl_) {
     PrintBucketCounts(bucket_counts, ttl_start, ttl_end, bucket_size,
                       num_buckets);
+  } else if(count_delim_) {
+    fprintf(stdout,"%s => count:%lld\tsize:%lld\n",rtype2.c_str(),
+        (long long )c,(long long)s2);
   } else {
     fprintf(stdout, "Keys in range: %lld\n", (long long) count);
   }

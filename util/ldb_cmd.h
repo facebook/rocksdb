@@ -395,10 +395,13 @@ private:
   bool null_to_;
   string to_;
   int max_keys_;
+  string delim_;
   bool count_only_;
+  bool count_delim_;
   bool print_stats_;
 
   static const string ARG_COUNT_ONLY;
+  static const string ARG_COUNT_DELIM;
   static const string ARG_STATS;
   static const string ARG_TTL_BUCKET;
 };
@@ -421,11 +424,15 @@ private:
   bool has_to_;
   string to_;
   int max_keys_;
+  string delim_;
   bool count_only_;
+  bool count_delim_;
   bool print_stats_;
   bool is_input_key_hex_;
 
+  static const string ARG_DELIM;
   static const string ARG_COUNT_ONLY;
+  static const string ARG_COUNT_DELIM;
   static const string ARG_STATS;
   static const string ARG_INPUT_KEY_HEX;
 };

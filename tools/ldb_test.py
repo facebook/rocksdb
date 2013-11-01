@@ -145,6 +145,24 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("batchput k1")
         self.assertRunFAIL("batchput k1 v1 k2")
 
+    def testCountDelimDump(self):
+        print "Running testCountDelimDump..."
+        self.assertRunOK("batchput x.1 x1 --create_if_missing", "OK")
+        self.assertRunOK("batchput y.abc abc y.2 2 z.13c pqr", "OK")
+        self.assertRunOK("dump --count_delim", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
+        self.assertRunOK("dump --count_delim=\".\"", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
+        self.assertRunOK("batchput x,2 x2 x,abc xabc", "OK")
+        self.assertRunOK("dump --count_delim=\",\"", "x => count:2\tsize:14\nx.1 => count:1\tsize:5\ny.2 => count:1\tsize:4\ny.abc => count:1\tsize:8\nz.13c => count:1\tsize:8")
+
+    def testCountDelimIDump(self):
+        print "Running testCountDelimIDump..."
+        self.assertRunOK("batchput x.1 x1 --create_if_missing", "OK")
+        self.assertRunOK("batchput y.abc abc y.2 2 z.13c pqr", "OK")
+        self.assertRunOK("dump --count_delim", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
+        self.assertRunOK("dump --count_delim=\".\"", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
+        self.assertRunOK("batchput x,2 x2 x,abc xabc", "OK")
+        self.assertRunOK("dump --count_delim=\",\"", "x => count:2\tsize:14\nx.1 => count:1\tsize:5\ny.2 => count:1\tsize:4\ny.abc => count:1\tsize:8\nz.13c => count:1\tsize:8")
+
     def testInvalidCmdLines(self):
         print "Running testInvalidCmdLines..."
         # db not specified
