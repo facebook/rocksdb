@@ -1248,18 +1248,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   }
 
   if (!descriptor_log_ || new_descriptor_log) {
-    // No reason to unlock *mu here since we only hit this path in the
-    // first call to LogAndApply (when opening the database).
-    assert(!descriptor_log_ || new_descriptor_log);
     new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
-    unique_ptr<WritableFile> descriptor_file;
-    s = env_->NewWritableFile(new_manifest_file, &descriptor_file,
-                              storage_options_);
-    if (s.ok()) {
-      descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
-      s = WriteSnapshot(descriptor_log_.get());
-    }
   }
 
   // Unlock during expensive MANIFEST log write. New writes cannot get here
@@ -1270,6 +1260,18 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     SizeBeingCompacted(size_being_compacted);
 
     mu->Unlock();
+
+    // This is fine because everything inside of this block is serialized --
+    // only one thread can be here at the same time
+    if (!new_manifest_file.empty()) {
+      unique_ptr<WritableFile> descriptor_file;
+      s = env_->NewWritableFile(new_manifest_file, &descriptor_file,
+                                storage_options_);
+      if (s.ok()) {
+        descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
+        s = WriteSnapshot(descriptor_log_.get());
+      }
+    }
 
     // The calls to Finalize and UpdateFilesBySize are cpu-heavy
     // and is best called outside the mutex.
