@@ -75,8 +75,6 @@ class TestKeyComparator : public Comparator {
 
   virtual void FindShortSuccessor(std::string* key) const {}
 
- private:
-
 };
 
 class PrefixTest {
@@ -116,6 +114,93 @@ class PrefixTest {
   Options options;
 };
 
+TEST(PrefixTest, DynamicPrefixIterator) {
+
+  DestroyDB(kDbName, Options());
+  auto db = OpenDb();
+  WriteOptions write_options;
+  ReadOptions read_options;
+
+  std::vector<uint64_t> prefixes;
+  for (uint64_t i = 0; i < FLAGS_total_prefixes; ++i) {
+    prefixes.push_back(i);
+  }
+
+  if (FLAGS_random_prefix) {
+    std::random_shuffle(prefixes.begin(), prefixes.end());
+  }
+
+  // insert x random prefix, each with y continuous element.
+  for (auto prefix : prefixes) {
+     for (uint64_t sorted = 0; sorted < FLAGS_items_per_prefix; sorted++) {
+      TestKey test_key(prefix, sorted);
+
+      Slice key = TestKeyToSlice(test_key);
+      std::string value = "v" + std::to_string(sorted);
+
+      ASSERT_OK(db->Put(write_options, key, value));
+    }
+  }
+
+  // test seek existing keys
+  HistogramImpl hist_seek_time;
+  HistogramImpl hist_seek_comparison;
+
+  if (FLAGS_use_prefix_hash_memtable) {
+    read_options.prefix_seek = true;
+  }
+  std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+
+  for (auto prefix : prefixes) {
+    TestKey test_key(prefix, FLAGS_items_per_prefix / 2);
+    Slice key = TestKeyToSlice(test_key);
+    std::string value = "v" + std::to_string(0);
+
+    perf_context.Reset();
+    StopWatchNano timer(Env::Default(), true);
+    uint64_t total_keys = 0;
+    for (iter->Seek(key); iter->Valid(); iter->Next()) {
+      if (FLAGS_trigger_deadlock) {
+        std::cout << "Behold the deadlock!\n";
+        db->Delete(write_options, iter->key());
+      }
+      auto test_key = SliceToTestKey(iter->key());
+      if (test_key->prefix != prefix) break;
+      total_keys++;
+    }
+    hist_seek_time.Add(timer.ElapsedNanos());
+    hist_seek_comparison.Add(perf_context.user_key_comparison_count);
+    ASSERT_EQ(total_keys, FLAGS_items_per_prefix - FLAGS_items_per_prefix/2);
+  }
+
+  std::cout << "Seek key comparison: \n"
+            << hist_seek_comparison.ToString()
+            << "Seek time: \n"
+            << hist_seek_time.ToString();
+
+  // test non-existing keys
+  HistogramImpl hist_no_seek_time;
+  HistogramImpl hist_no_seek_comparison;
+
+  for (auto prefix = FLAGS_total_prefixes;
+       prefix < FLAGS_total_prefixes + 100;
+       prefix++) {
+    TestKey test_key(prefix, 0);
+    Slice key = TestKeyToSlice(test_key);
+
+    perf_context.Reset();
+    StopWatchNano timer(Env::Default(), true);
+    iter->Seek(key);
+    hist_no_seek_time.Add(timer.ElapsedNanos());
+    hist_no_seek_comparison.Add(perf_context.user_key_comparison_count);
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  std::cout << "non-existing Seek key comparison: \n"
+            << hist_no_seek_comparison.ToString()
+            << "non-existing Seek time: \n"
+            << hist_no_seek_time.ToString();
+}
 
 TEST(PrefixTest, PrefixHash) {
 

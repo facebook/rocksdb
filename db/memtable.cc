@@ -84,11 +84,16 @@ static const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator: public Iterator {
  public:
-  explicit MemTableIterator(MemTableRep* table)
-    : iter_(table->GetIterator()) { }
-
-  MemTableIterator(MemTableRep* table, const Slice* prefix)
-    : iter_(table->GetPrefixIterator(*prefix)) { }
+  MemTableIterator(MemTableRep* table, const ReadOptions& options)
+    : iter_() {
+    if (options.prefix) {
+      iter_ = table->GetPrefixIterator(*options.prefix);
+    } else if (options.prefix_seek) {
+      iter_ = table->GetDynamicPrefixIterator();
+    } else {
+      iter_ = table->GetIterator();
+    }
+  }
 
   virtual bool Valid() const { return iter_->Valid(); }
   virtual void Seek(const Slice& k) { iter_->Seek(EncodeKey(&tmp_, k)); }
@@ -115,12 +120,8 @@ class MemTableIterator: public Iterator {
   void operator=(const MemTableIterator&);
 };
 
-Iterator* MemTable::NewIterator(const Slice* prefix) {
-  if (prefix) {
-    return new MemTableIterator(table_.get(), prefix);
-  } else {
-    return new MemTableIterator(table_.get());
-  }
+Iterator* MemTable::NewIterator(const ReadOptions& options) {
+  return new MemTableIterator(table_.get(), options);
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {

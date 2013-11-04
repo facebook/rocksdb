@@ -65,10 +65,14 @@ class MemTable {
   // iterator are internal keys encoded by AppendInternalKey in the
   // db/dbformat.{h,cc} module.
   //
-  // If a prefix is supplied, it is passed to the underlying MemTableRep as a
-  // hint that the iterator only need to support access to keys with that
-  // prefix.
-  Iterator* NewIterator(const Slice* prefix = nullptr);
+  // If options.prefix is supplied, it is passed to the underlying MemTableRep
+  // as a hint that the iterator only need to support access to keys with that
+  // specific prefix.
+  // If options.prefix is not supplied and options.prefix_seek is set, the
+  // iterator is not bound to a specific prefix. However, the semantics of
+  // Seek is changed - the result might only include keys with the same prefix
+  // as the seek-key.
+  Iterator* NewIterator(const ReadOptions& options = ReadOptions());
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.

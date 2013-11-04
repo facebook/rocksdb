@@ -2454,7 +2454,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   // Collect together all needed child iterators for mem
   std::vector<Iterator*> list;
   mem_->Ref();
-  list.push_back(mem_->NewIterator(options.prefix));
+  list.push_back(mem_->NewIterator(options));
 
   cleanup->mem.push_back(mem_);
 
@@ -2464,7 +2464,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   for (unsigned int i = 0; i < immutables.size(); i++) {
     MemTable* m = immutables[i];
     m->Ref();
-    list.push_back(m->NewIterator(options.prefix));
+    list.push_back(m->NewIterator(options));
     cleanup->mem.push_back(m);
   }
 

@@ -649,6 +649,10 @@ struct ReadOptions {
   // Default: true
   bool fill_cache;
 
+  // If this option is set and memtable implementation allows, Seek
+  // might only return keys with the same prefix as the seek-key
+  bool prefix_seek;
+
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
   // not have been released).  If "snapshot" is nullptr, use an impliicit
@@ -678,13 +682,14 @@ struct ReadOptions {
   ReadOptions()
       : verify_checksums(false),
         fill_cache(true),
+        prefix_seek(false),
         snapshot(nullptr),
         prefix(nullptr),
         read_tier(kReadAllTier) {
   }
   ReadOptions(bool cksum, bool cache) :
               verify_checksums(cksum), fill_cache(cache),
-              snapshot(nullptr), prefix(nullptr),
+              prefix_seek(false), snapshot(nullptr), prefix(nullptr),
               read_tier(kReadAllTier) {
   }
 };

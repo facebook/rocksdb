@@ -130,6 +130,12 @@ class MemTableRep {
     return GetIterator();
   }
 
+  // Return an iterator that has a special Seek semantics. The result of
+  // a Seek might only include keys with the same prefix as the target key.
+  virtual std::shared_ptr<Iterator> GetDynamicPrefixIterator() {
+    return GetIterator();
+  }
+
  protected:
   // When *key is an internal key concatenated with the value, returns the
   // user key.

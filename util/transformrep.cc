@@ -51,10 +51,16 @@ class TransformRep : public MemTableRep {
   virtual std::shared_ptr<MemTableRep::Iterator> GetIterator(
     const Slice& slice) override;
 
+  virtual std::shared_ptr<MemTableRep::Iterator> GetDynamicPrefixIterator()
+      override {
+    return std::make_shared<DynamicPrefixIterator>(*this);
+  }
+
   std::shared_ptr<MemTableRep::Iterator> GetTransformIterator(
     const Slice& transformed);
 
  private:
+  friend class DynamicPrefixIterator;
   typedef std::set<const char*, Compare> Bucket;
   typedef std::unordered_map<Slice, std::shared_ptr<Bucket>> BucketMap;
 
@@ -147,6 +153,80 @@ class TransformRep : public MemTableRep {
     virtual ~TransformIterator() { }
    private:
     const ReadLock l_;
+  };
+
+
+  class DynamicPrefixIterator : public MemTableRep::Iterator {
+   private:
+    // the underlying memtable rep
+    const TransformRep& memtable_rep_;
+    // the result of a prefix seek
+    std::unique_ptr<MemTableRep::Iterator> bucket_iterator_;
+
+   public:
+    explicit DynamicPrefixIterator(const TransformRep& memtable_rep)
+    : memtable_rep_(memtable_rep) {}
+
+    virtual ~DynamicPrefixIterator() { };
+
+    // Returns true iff the iterator is positioned at a valid node.
+    virtual bool Valid() const {
+      return bucket_iterator_ && bucket_iterator_->Valid();
+    }
+
+    // Returns the key at the current position.
+    // REQUIRES: Valid()
+    virtual const char* key() const {
+      assert(Valid());
+      return bucket_iterator_->key();
+    }
+
+    // Advances to the next position.
+    // REQUIRES: Valid()
+    virtual void Next() {
+      assert(Valid());
+      bucket_iterator_->Next();
+    }
+
+    // Advances to the previous position.
+    // REQUIRES: Valid()
+    virtual void Prev() {
+      assert(Valid());
+      bucket_iterator_->Prev();
+    }
+
+    // Advance to the first entry with a key >= target within the
+    // same bucket as target
+    virtual void Seek(const char* target) {
+      Slice prefix = memtable_rep_.transform_->Transform(
+        memtable_rep_.UserKey(target));
+
+      ReadLock l(&memtable_rep_.rwlock_);
+      auto bucket = memtable_rep_.buckets_.find(prefix);
+      if (bucket == memtable_rep_.buckets_.end()) {
+        bucket_iterator_.reset(nullptr);
+      } else {
+        bucket_iterator_.reset(
+          new TransformIterator(bucket->second, memtable_rep_.GetLock(prefix)));
+        bucket_iterator_->Seek(target);
+      }
+    }
+
+    // Position at the first entry in collection.
+    // Final state of iterator is Valid() iff collection is not empty.
+    virtual void SeekToFirst() {
+      // Prefix iterator does not support total order.
+      // We simply set the iterator to invalid state
+      bucket_iterator_.reset(nullptr);
+    }
+
+    // Position at the last entry in collection.
+    // Final state of iterator is Valid() iff collection is not empty.
+    virtual void SeekToLast() {
+      // Prefix iterator does not support total order.
+      // We simply set the iterator to invalid state
+      bucket_iterator_.reset(nullptr);
+    }
   };
 };
 
