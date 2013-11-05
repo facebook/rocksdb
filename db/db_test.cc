@@ -1800,7 +1800,7 @@ TEST(DBTest, CompressedCache) {
     std::string str;
     for (int i = 0; i < num_iter; i++) {
       if (i % 4 == 0) {        // high compression ratio
-        str = RandomString(&rnd, 100000);
+        str = RandomString(&rnd, 1000);
       }
       values.push_back(str);
       ASSERT_OK(Put(Key(i), values[i]));
