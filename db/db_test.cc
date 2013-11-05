@@ -1797,12 +1797,12 @@ TEST(DBTest, CompressedCache) {
     // Write 8MB (80 values, each 100K)
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
     std::vector<std::string> values;
-    Slice str;
+    std::string str;
     for (int i = 0; i < num_iter; i++) {
       if (i % 4 == 0) {        // high compression ratio
         str = RandomString(&rnd, 100000);
       }
-      values.push_back(str.ToString(true));
+      values.push_back(str);
       ASSERT_OK(Put(Key(i), values[i]));
     }
 
