@@ -135,7 +135,7 @@ Status ReadBlockContents(RandomAccessFile* file,
     result->compression_type = (rocksdb::CompressionType)data[n];
     s =  Status::OK();
   } else {
-    s = UncompressBlockContents(buf, n, result);
+    s = UncompressBlockContents(data, n, result);
     delete[] buf;
   }
   BumpPerfTime(&perf_context.block_decompress_time, &timer);
