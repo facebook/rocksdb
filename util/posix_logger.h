@@ -33,7 +33,7 @@ class PosixLogger : public Logger {
   uint64_t (*gettid_)();  // Return the thread id for the current thread
   std::atomic_size_t log_size_;
   int fd_;
-  const static uint64_t flush_every_seconds_ = 5;
+  const static uint64_t flush_every_seconds_ = 0;
   uint64_t last_flush_micros_;
   Env* env_;
  public:
