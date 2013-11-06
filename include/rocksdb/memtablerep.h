@@ -15,11 +15,11 @@
 // Users can implement their own memtable representations. We include four
 // types built in:
 //  - SkipListRep: This is the default; it is backed by a skip list.
-//  - TransformRep: This is backed by an std::unordered_map<Slice,
-// std::set>. On construction, they are given a SliceTransform object. This
+//  - TransformRep: This is backed by an custom hash map.
+// On construction, they are given a SliceTransform object. This
 // object is applied to the user key of stored items which indexes into the
-// unordered map to yield a set containing all records that share the same user
-// key under the transform function.
+// hash map to yield a skiplist containing all records that share the same
+// user key under the transform function.
 //  - UnsortedRep: A subclass of TransformRep where the transform function is
 // the identity function. Optimized for point lookups.
 //  - PrefixHashRep: A subclass of TransformRep where the transform function is
@@ -251,6 +251,68 @@ public:
 
   virtual const char* Name() const override {
     return "PrefixHashRepFactory";
+  }
+};
+
+
+// NO LOCKS VERSION
+
+// The same as TransformRepFactory except it doesn't use locks.
+// Experimental, will replace TransformRepFactory once we are sure
+// it performs better
+class TransformRepNoLockFactory : public MemTableRepFactory {
+ public:
+  explicit TransformRepNoLockFactory(const SliceTransform* transform,
+    size_t bucket_count)
+    : transform_(transform),
+      bucket_count_(bucket_count) { }
+
+  virtual ~TransformRepNoLockFactory() { delete transform_; }
+
+  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
+    MemTableRep::KeyComparator&, Arena*) override;
+
+  virtual const char* Name() const override {
+    return "TransformRepNoLockFactory";
+  }
+
+  const SliceTransform* GetTransform() { return transform_; }
+
+ protected:
+  const SliceTransform* transform_;
+  const size_t bucket_count_;
+};
+
+// UnsortedReps bin user keys based on an identity function transform -- that
+// is, transform(key) = key. This optimizes for point look-ups.
+//
+// Parameters: See TransformRepNoLockFactory.
+class UnsortedRepNoLockFactory : public TransformRepNoLockFactory {
+public:
+  explicit UnsortedRepNoLockFactory(size_t bucket_count = 1000000)
+    : TransformRepNoLockFactory(NewNoopTransform(),
+                                bucket_count) { }
+  virtual const char* Name() const override {
+    return "UnsortedRepNoLockFactory";
+  }
+};
+
+// PrefixHashReps bin user keys based on a fixed-size prefix. This optimizes for
+// short ranged scans over a given prefix.
+//
+// Parameters: See TransformRepNoLockFactory.
+class PrefixHashRepNoLockFactory : public TransformRepNoLockFactory {
+public:
+  explicit PrefixHashRepNoLockFactory(const SliceTransform* prefix_extractor,
+    size_t bucket_count = 1000000)
+    : TransformRepNoLockFactory(prefix_extractor, bucket_count)
+    { }
+
+  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
+    MemTableRep::KeyComparator&, Arena*) override;
+
+  virtual const char* Name() const override {
+    return "PrefixHashRepNoLockFactory";
   }
 };
 
