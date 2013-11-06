@@ -1,4 +1,5 @@
 build_config.mk
+
 *.a
 *.arc
 *.d
@@ -11,9 +12,8 @@ build_config.mk
 *_test
 *_bench
 *_stress
+
 ldb
-leveldb_server
-leveldb_shell
 manifest_dump
 sst_dump
 util/build_version.cc
