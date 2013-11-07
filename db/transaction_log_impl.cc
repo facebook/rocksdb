@@ -215,12 +215,12 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
 }
 
 void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
-  WriteBatch* batch = new WriteBatch();
-  WriteBatchInternal::SetContents(batch, record);
+  std::unique_ptr<WriteBatch> batch(new WriteBatch());
+  WriteBatchInternal::SetContents(batch.get(), record);
 
   SequenceNumber expectedSeq = currentLastSeq_ + 1;
   // If the iterator has started, then confirm that we get continuous batches
-  if (started_ && !IsBatchExpected(batch, expectedSeq)) {
+  if (started_ && !IsBatchExpected(batch.get(), expectedSeq)) {
     // Seek to the batch having expected sequence number
     if (expectedSeq < files_->at(currentFileIndex_)->StartSequence()) {
       // Expected batch must lie in the previous log file
@@ -233,12 +233,13 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     return SeekToStartSequence(currentFileIndex_, true);
   }
 
-  currentBatchSeq_ = WriteBatchInternal::Sequence(batch);
-  currentLastSeq_ = currentBatchSeq_ + WriteBatchInternal::Count(batch) - 1;
+  currentBatchSeq_ = WriteBatchInternal::Sequence(batch.get());
+  currentLastSeq_ = currentBatchSeq_ +
+                    WriteBatchInternal::Count(batch.get()) - 1;
   // currentBatchSeq_ can only change here
   assert(currentLastSeq_ <= dbimpl_->GetLatestSequenceNumber());
 
-  currentBatch_.reset(batch);
+  currentBatch_ = move(batch);
   isValid_ = true;
   currentStatus_ = Status::OK();
 }
