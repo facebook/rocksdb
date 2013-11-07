@@ -27,6 +27,7 @@
 namespace rocksdb {
 
 class Slice;
+class SliceParts;
 
 class WriteBatch {
  public:
@@ -35,6 +36,11 @@ class WriteBatch {
 
   // Store the mapping "key->value" in the database.
   void Put(const Slice& key, const Slice& value);
+
+  // Variant of Put() that gathers output like writev(2).  The key and value
+  // that will be written to the database are concatentations of arrays of
+  // slices.
+  void Put(const SliceParts& key, const SliceParts& value);
 
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"

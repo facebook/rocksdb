@@ -107,6 +107,18 @@ void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
   dst->append(value.data(), value.size());
 }
 
+void PutLengthPrefixedSliceParts(std::string* dst,
+                                 const SliceParts& slice_parts) {
+  uint32_t total_bytes = 0;
+  for (int i = 0; i < slice_parts.num_parts; ++i) {
+    total_bytes += slice_parts.parts[i].size();
+  }
+  PutVarint32(dst, total_bytes);
+  for (int i = 0; i < slice_parts.num_parts; ++i) {
+    dst->append(slice_parts.parts[i].data(), slice_parts.parts[i].size());
+  }
+}
+
 int VarintLength(uint64_t v) {
   int len = 1;
   while (v >= 128) {

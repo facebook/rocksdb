@@ -227,6 +227,34 @@ TEST(WriteBatchTest, Continue) {
             handler.seen);
 }
 
+TEST(WriteBatchTest, PutGatherSlices) {
+  WriteBatch batch;
+  batch.Put(Slice("foo"), Slice("bar"));
+
+  {
+    // Try a write where the key is one slice but the value is two
+    Slice key_slice("baz");
+    Slice value_slices[2] = { Slice("header"), Slice("payload") };
+    batch.Put(SliceParts(&key_slice, 1),
+              SliceParts(value_slices, 2));
+  }
+
+  {
+    // One where the key is composite but the value is a single slice
+    Slice key_slices[3] = { Slice("key"), Slice("part2"), Slice("part3") };
+    Slice value_slice("value");
+    batch.Put(SliceParts(key_slices, 3),
+              SliceParts(&value_slice, 1));
+  }
+
+  WriteBatchInternal::SetSequence(&batch, 100);
+  ASSERT_EQ("Put(baz, headerpayload)@101"
+            "Put(foo, bar)@100"
+            "Put(keypart2part3, value)@102",
+            PrintContents(&batch));
+  ASSERT_EQ(3, batch.Count());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

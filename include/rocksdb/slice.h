@@ -98,6 +98,16 @@ class Slice {
   // Intentionally copyable
 };
 
+// A set of Slices that are virtually concatenated together.  'parts' points
+// to an array of Slices.  The number of elements in the array is 'num_parts'.
+struct SliceParts {
+  SliceParts(const Slice* parts, int num_parts) :
+      parts(parts), num_parts(num_parts) { }
+
+  const Slice* parts;
+  int num_parts;
+};
+
 inline bool operator==(const Slice& x, const Slice& y) {
   return ((x.size() == y.size()) &&
           (memcmp(x.data(), y.data(), x.size()) == 0));

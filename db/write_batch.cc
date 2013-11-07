@@ -146,6 +146,13 @@ void WriteBatch::Put(const Slice& key, const Slice& value) {
   PutLengthPrefixedSlice(&rep_, value);
 }
 
+void WriteBatch::Put(const SliceParts& key, const SliceParts& value) {
+  WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
+  rep_.push_back(static_cast<char>(kTypeValue));
+  PutLengthPrefixedSliceParts(&rep_, key);
+  PutLengthPrefixedSliceParts(&rep_, value);
+}
+
 void WriteBatch::Delete(const Slice& key) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   rep_.push_back(static_cast<char>(kTypeDeletion));
