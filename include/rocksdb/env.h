@@ -497,6 +497,8 @@ class Logger {
   virtual size_t GetLogFileSize() const {
     return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;
   }
+  // Flush to the OS buffers
+  virtual void Flush() {}
 
  private:
   // No copying allowed
@@ -516,12 +518,17 @@ class FileLock {
   void operator=(const FileLock&);
 };
 
+
+extern void LogFlush(const shared_ptr<Logger>& info_log);
+
 // Log the specified data to *info_log if info_log is non-nullptr.
 extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
 #   endif
     ;
+
+extern void LogFlush(Logger *info_log);
 
 extern void Log(Logger* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)

@@ -311,6 +311,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   }
   last_log_ts = 0;
 
+  LogFlush(options_.info_log);
 }
 
 DBImpl::~DBImpl() {
@@ -333,6 +334,7 @@ DBImpl::~DBImpl() {
 
   if (mem_ != nullptr) mem_->Unref();
   imm_.UnrefAll();
+  LogFlush(options_.info_log);
 }
 
 // Do not flush and close database elegantly. Simulate a crash.
@@ -354,6 +356,7 @@ void DBImpl::TEST_Destroy_DBImpl() {
   bg_compaction_scheduled_ += LargeNumber;
 
   mutex_.Unlock();
+  LogFlush(options_.info_log);
 
   // force release the lock file.
   if (db_lock_ != nullptr) {
@@ -967,6 +970,7 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
                    table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
                    earliest_seqno_in_memtable, true);
+    LogFlush(options_.info_log);
     mutex_.Lock();
   }
 
@@ -1034,6 +1038,7 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
                    table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
                    earliest_seqno_in_memtable, enable_compression);
+    LogFlush(options_.info_log);
     mutex_.Lock();
   }
   base->Unref();
@@ -1153,6 +1158,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress) {
         }
         mutex_.Unlock();
         DeleteLogFile(log_num);
+        LogFlush(options_.info_log);
         mutex_.Lock();
       }
     }
@@ -1180,6 +1186,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end,
   if (reduce_level) {
     ReFitLevel(max_level_with_files, target_level);
   }
+  LogFlush(options_.info_log);
 }
 
 // return the same level if it cannot be moved
@@ -1638,6 +1645,7 @@ void DBImpl::BackgroundCallFlush() {
       Log(options_.info_log, "Waiting after background flush error: %s",
           s.ToString().c_str());
       mutex_.Unlock();
+      LogFlush(options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
     }
@@ -1675,6 +1683,7 @@ void DBImpl::BackgroundCallCompaction() {
       Log(options_.info_log, "Waiting after background compaction error: %s",
           s.ToString().c_str());
       mutex_.Unlock();
+      LogFlush(options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
     }
@@ -1685,6 +1694,7 @@ void DBImpl::BackgroundCallCompaction() {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
     EvictObsoleteFiles(deletion_state);
+    LogFlush(options_.info_log);
     mutex_.Lock();
 
   }
@@ -1905,6 +1915,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     compact->builder.reset(
         GetTableBuilder(options_, compact->outfile.get(), compression_type));
   }
+  LogFlush(options_.info_log);
   return s;
 }
 
@@ -2102,6 +2113,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     // TODO: remove memtable flush from normal compaction work
     if (imm_.imm_flush_needed.NoBarrier_Load() != nullptr) {
       const uint64_t imm_start = env_->NowMicros();
+      LogFlush(options_.info_log);
       mutex_.Lock();
       if (imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
         FlushMemTableToOutputFile();
@@ -2395,6 +2407,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     stats.bytes_written += compact->outputs[i].file_size;
   }
 
+  LogFlush(options_.info_log);
   mutex_.Lock();
   stats_[compact->compaction->output_level()].Add(stats);
 
@@ -2479,6 +2492,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
   mutex_.Unlock();
+  LogFlush(options_.info_log);
   return internal_iter;
 }
 
@@ -2553,6 +2567,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   current->Unref();
   mutex_.Unlock();
 
+  LogFlush(options_.info_log);
   // Note, tickers are atomic now - no lock protection needed any more.
   RecordTick(options_.statistics, NUMBER_KEYS_READ);
   RecordTick(options_.statistics, BYTES_READ, value->size());
@@ -2631,6 +2646,7 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   current->Unref();
   mutex_.Unlock();
 
+  LogFlush(options_.info_log);
   RecordTick(options_.statistics, NUMBER_MULTIGET_CALLS);
   RecordTick(options_.statistics, NUMBER_MULTIGET_KEYS_READ, numKeys);
   RecordTick(options_.statistics, NUMBER_MULTIGET_BYTES_READ, bytesRead);
@@ -2770,6 +2786,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         }
         SetTickerCount(options_.statistics, SEQUENCE_NUMBER, last_sequence);
       }
+      LogFlush(options_.info_log);
       mutex_.Lock();
       if (status.ok()) {
         versions_->SetLastSequence(last_sequence);
@@ -3358,6 +3375,7 @@ Status DBImpl::DeleteFile(std::string name) {
       FindObsoleteFiles(deletion_state);
     }
   } // lock released here
+  LogFlush(options_.info_log);
 
   if (status.ok()) {
     // remove files outside the db-lock

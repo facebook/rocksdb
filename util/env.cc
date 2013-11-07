@@ -30,12 +30,24 @@ Logger::~Logger() {
 FileLock::~FileLock() {
 }
 
+void LogFlush(Logger *info_log) {
+  if (info_log) {
+    info_log->Flush();
+  }
+}
+
 void Log(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(format, ap);
     va_end(ap);
+  }
+}
+
+void LogFlush(const shared_ptr<Logger>& info_log) {
+  if (info_log) {
+    info_log->Flush();
   }
 }
 
