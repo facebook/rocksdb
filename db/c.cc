@@ -554,6 +554,11 @@ void leveldb_options_set_WAL_ttl_seconds(leveldb_options_t* opt, uint64_t ttl) {
   opt->rep.WAL_ttl_seconds = ttl;
 }
 
+void leveldb_options_set_WAL_size_limit_MB(
+    leveldb_options_t* opt, uint64_t limit) {
+  opt->rep.WAL_size_limit_MB = limit;
+}
+
 leveldb_comparator_t* leveldb_comparator_create(
     void* state,
     void (*destructor)(void*),

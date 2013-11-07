@@ -116,6 +116,11 @@ class DBImpl : public DB {
   // get total level0 file size. Only for testing.
   uint64_t TEST_GetLevel0TotalSize() { return versions_->NumLevelBytes(0);}
 
+  void TEST_SetDefaultTimeToCheck(uint64_t default_interval_to_delete_obsolete_WAL)
+  {
+    default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
+  }
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -322,6 +327,10 @@ class DBImpl : public DB {
 
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
+
+  // obsolete files will be deleted every this seconds if ttl deletion is
+  // enabled and archive size_limit is disabled.
+  uint64_t default_interval_to_delete_obsolete_WAL_;
 
   // These count the number of microseconds for which MakeRoomForWrite stalls.
   uint64_t stall_level0_slowdown_;

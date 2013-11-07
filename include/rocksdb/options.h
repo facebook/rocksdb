@@ -489,15 +489,20 @@ struct Options {
   // be issued on this database.
   bool disable_auto_compactions;
 
-  // The number of seconds a WAL(write ahead log) should be kept after it has
-  // been marked as Not Live. If the value is set. The WAL files are moved to
-  // the archive directory and deleted after the given TTL.
-  // If set to 0, WAL files are deleted as soon as they are not required by
-  // the database.
-  // If set to std::numeric_limits<uint64_t>::max() the WAL files will never be
-  // deleted.
-  // Default : 0
+  // The following two fields affect how archived logs will be deleted.
+  // 1. If both set to 0, logs will be deleted asap and will not get into
+  //    the archive.
+  // 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+  //    WAL files will be checked every 10 min and if total size is greater
+  //    then WAL_size_limit_MB, they will be deleted starting with the
+  //    earliest until size_limit is met. All empty files will be deleted.
+  // 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+  //    WAL files will be checked every WAL_ttl_secondsi / 2 and those which
+  //    are older than WAL_ttl_seconds will be deleted.
+  // 4. If both are not 0, WAL files will be checked every 10 min and both
+  //    checks will be performed with ttl being first.
   uint64_t WAL_ttl_seconds;
+  uint64_t WAL_size_limit_MB;
 
   // Number of bytes to preallocate (via fallocate) the manifest
   // files.  Default is 4mb, which is reasonable to reduce random IO

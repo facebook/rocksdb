@@ -397,7 +397,9 @@ DEFINE_int32(source_compaction_factor, 1, "Cap the size of data in level-K for"
              " a compaction run that compacts Level-K with Level-(K+1) (for"
              " K >= 1)");
 
-DEFINE_uint64(wal_ttl, 0, "Set the TTL for the WAL Files in seconds.");
+DEFINE_uint64(wal_ttl_seconds, 0, "Set the TTL for the WAL Files in seconds.");
+DEFINE_uint64(wal_size_limit_MB, 0, "Set the size limit for the WAL Files"
+              " in MB.");
 
 DEFINE_bool(bufferedio, rocksdb::EnvOptions().use_os_buffer,
             "Allow buffered io using OS buffers");
@@ -1352,7 +1354,8 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
-    options.WAL_ttl_seconds = FLAGS_wal_ttl;
+    options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
+    options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
     if (FLAGS_min_level_to_compress >= 0) {
       assert(FLAGS_min_level_to_compress <= FLAGS_num_levels);
       options.compression_per_level.resize(FLAGS_num_levels);

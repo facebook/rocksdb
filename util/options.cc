@@ -77,6 +77,7 @@ Options::Options()
       arena_block_size(0),
       disable_auto_compactions(false),
       WAL_ttl_seconds(0),
+      WAL_size_limit_MB(0),
       manifest_preallocation_size(4 * 1024 * 1024),
       purge_redundant_kvs_while_flush(true),
       allow_os_buffer(true),
@@ -237,6 +238,8 @@ Options::Dump(Logger* log) const
         disable_auto_compactions);
     Log(log,"                        Options.WAL_ttl_seconds: %ld",
         WAL_ttl_seconds);
+    Log(log,"                      Options.WAL_size_limit_MB: %ld",
+                 WAL_size_limit_MB);
     Log(log,"            Options.manifest_preallocation_size: %ld",
         manifest_preallocation_size);
     Log(log,"         Options.purge_redundant_kvs_while_flush: %d",

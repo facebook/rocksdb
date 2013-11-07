@@ -38,6 +38,7 @@ class DeleteFileTest {
     options_.target_file_size_base = 1024*1024*1000;
     options_.max_bytes_for_level_base = 1024*1024*1000;
     options_.WAL_ttl_seconds = 300; // Used to test log files
+    options_.WAL_size_limit_MB = 1024; // Used to test log files
     dbname_ = test::TmpDir() + "/deletefile_test";
     DestroyDB(dbname_, options_);
     numlevels_ = 7;

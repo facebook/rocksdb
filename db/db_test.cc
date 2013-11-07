@@ -3811,28 +3811,28 @@ std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
   return std::move(log_files);
 }
 
-TEST(DBTest, WALArchival) {
+TEST(DBTest, WALArchivalTtl) {
   do {
-    std::string value(1024, '1');
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.WAL_ttl_seconds = 1000;
     DestroyAndReopen(&options);
 
-
-    //  TEST : Create DB with a ttl.
+    //  TEST : Create DB with a ttl and no size limit.
     //  Put some keys. Count the log files present in the DB just after insert.
     //  Re-open db. Causes deletion/archival to take place.
     //  Assert that the files moved under "/archive".
+    //  Reopen db with small ttl.
+    //  Assert that archive was removed.
 
     std::string archiveDir = ArchivalDirectory(dbname_);
 
     for (int i = 0; i < 10; ++i) {
       for (int j = 0; j < 10; ++j) {
-        ASSERT_OK(Put(Key(10*i+j), value));
+        ASSERT_OK(Put(Key(10 * i + j), DummyString(1024)));
       }
 
-      std::vector<uint64_t> logFiles = ListLogFiles(env_, dbname_);
+      std::vector<uint64_t> log_files = ListLogFiles(env_, dbname_);
 
       options.create_if_missing = false;
       Reopen(&options);
@@ -3840,37 +3840,78 @@ TEST(DBTest, WALArchival) {
       std::vector<uint64_t> logs = ListLogFiles(env_, archiveDir);
       std::set<uint64_t> archivedFiles(logs.begin(), logs.end());
 
-      for (auto& log : logFiles) {
+      for (auto& log : log_files) {
         ASSERT_TRUE(archivedFiles.find(log) != archivedFiles.end());
       }
     }
 
-    std::vector<uint64_t> logFiles = ListLogFiles(env_, archiveDir);
-    ASSERT_TRUE(logFiles.size() > 0);
+    std::vector<uint64_t> log_files = ListLogFiles(env_, archiveDir);
+    ASSERT_TRUE(log_files.size() > 0);
+
     options.WAL_ttl_seconds = 1;
-    env_->SleepForMicroseconds(2*1000*1000);
+    env_->SleepForMicroseconds(2 * 1000 * 1000);
     Reopen(&options);
 
-    logFiles = ListLogFiles(env_, archiveDir);
-    ASSERT_TRUE(logFiles.size() == 0);
+    log_files = ListLogFiles(env_, archiveDir);
+    ASSERT_TRUE(log_files.empty());
   } while (ChangeCompactOptions());
 }
 
-TEST(DBTest, WALClear) {
+uint64_t GetLogDirSize(std::string dir_path, SpecialEnv* env) {
+  uint64_t dir_size = 0;
+  std::vector<std::string> files;
+  env->GetChildren(dir_path, &files);
+  for (auto& f : files) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == kLogFile) {
+      std::string const file_path = dir_path + "/" + f;
+      uint64_t file_size;
+      env->GetFileSize(file_path, &file_size);
+      dir_size += file_size;
+    }
+  }
+  return dir_size;
+}
+
+TEST(DBTest, WALArchivalSizeLimit) {
   do {
     Options options = CurrentOptions();
     options.create_if_missing = true;
-    options.WAL_ttl_seconds = 1;
+    options.WAL_ttl_seconds = 0;
+    options.WAL_size_limit_MB = 1000;
 
-    for (int j = 0; j < 10; ++j)
-    for (int i = 0; i < 10; ++i)
-      ASSERT_OK(Put(Key(10*i+j), DummyString(1024)));
+    // TEST : Create DB with huge size limit and no ttl.
+    // Put some keys. Count the archived log files present in the DB
+    // just after insert. Assert that there are many enough.
+    // Change size limit. Re-open db.
+    // Assert that archive is not greater than WAL_size_limit_MB.
+    // Set ttl and time_to_check_ to small values. Re-open db.
+    // Assert that there are no archived logs left.
+
+    DestroyAndReopen(&options);
+    for (int i = 0; i < 128 * 128; ++i) {
+      ASSERT_OK(Put(Key(i), DummyString(1024)));
+    }
     Reopen(&options);
+
     std::string archive_dir = ArchivalDirectory(dbname_);
     std::vector<std::uint64_t> log_files = ListLogFiles(env_, archive_dir);
-    ASSERT_TRUE(!log_files.empty());
-    env_->SleepForMicroseconds(2 * 1000 * 1000);
+    ASSERT_TRUE(log_files.size() > 2);
+
+    options.WAL_size_limit_MB = 8;
+    Reopen(&options);
     dbfull()->TEST_PurgeObsoleteteWAL();
+
+    uint64_t archive_size = GetLogDirSize(archive_dir, env_);
+    ASSERT_TRUE(archive_size <= options.WAL_size_limit_MB * 1024 * 1024);
+
+    options.WAL_ttl_seconds = 1;
+    dbfull()->TEST_SetDefaultTimeToCheck(1);
+    env_->SleepForMicroseconds(2 * 1000 * 1000);
+    Reopen(&options);
+    dbfull()->TEST_PurgeObsoleteteWAL();
+
     log_files = ListLogFiles(env_, archive_dir);
     ASSERT_TRUE(log_files.empty());
   } while (ChangeCompactOptions());

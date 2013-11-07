@@ -264,9 +264,10 @@ class DB {
   // seq_number. If the sequence number is non existent, it returns an iterator
   // at the first available seq_no after the requested seq_no
   // Returns Status::Ok if iterator is valid
-  // Must set WAL_ttl_seconds to a large value to use this api, else the WAL
-  // files will get cleared aggressively and the iterator might keep getting
-  // invalid before an update is read.
+  // Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
+  // use this api, else the WAL files will get
+  // cleared aggressively and the iterator might keep getting invalid before
+  // an update is read.
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter) = 0;
 

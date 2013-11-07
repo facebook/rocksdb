@@ -264,6 +264,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       delete_obsolete_files_last_run_(0),
       purge_wal_files_last_run_(0),
       last_stats_dump_time_microsec_(0),
+      default_interval_to_delete_obsolete_WAL_(600),
       stall_level0_slowdown_(0),
       stall_memtable_compaction_(0),
       stall_level0_num_files_(0),
@@ -407,7 +408,7 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 }
 
 const Status DBImpl::CreateArchivalDirectory() {
-  if (options_.WAL_ttl_seconds > 0) {
+  if (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0) {
     std::string archivalPath = ArchivalDirectory(options_.wal_dir);
     return env_->CreateDirIfMissing(archivalPath);
   }
@@ -494,7 +495,7 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state) {
 Status DBImpl::DeleteLogFile(uint64_t number) {
   Status s;
   auto filename = LogFileName(options_.wal_dir, number);
-  if (options_.WAL_ttl_seconds > 0) {
+  if (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0) {
     s = env_->RenameFile(filename,
                          ArchivedLogFileName(options_.wal_dir, number));
 
@@ -613,34 +614,128 @@ void DBImpl::DeleteObsoleteFiles() {
   EvictObsoleteFiles(deletion_state);
 }
 
+// 1. Go through all archived files and
+//    a. if ttl is enabled, delete outdated files
+//    b. if archive size limit is enabled, delete empty files,
+//        compute file number and size.
+// 2. If size limit is enabled:
+//    a. compute how many files should be deleted
+//    b. get sorted non-empty archived logs
+//    c. delete what should be deleted
 void DBImpl::PurgeObsoleteWALFiles() {
+  bool const ttl_enabled = options_.WAL_ttl_seconds > 0;
+  bool const size_limit_enabled =  options_.WAL_size_limit_MB > 0;
+  if (!ttl_enabled && !size_limit_enabled) {
+    return;
+  }
+
   int64_t current_time;
   Status s = env_->GetCurrentTime(&current_time);
-  uint64_t now_seconds = static_cast<uint64_t>(current_time);
-  assert(s.ok());
+  if (!s.ok()) {
+    Log(options_.info_log, "Can't get current time: %s", s.ToString().c_str());
+    assert(false);
+    return;
+  }
+  uint64_t const now_seconds = static_cast<uint64_t>(current_time);
+  uint64_t const time_to_check = (ttl_enabled && !size_limit_enabled) ?
+    options_.WAL_ttl_seconds / 2 : default_interval_to_delete_obsolete_WAL_;
 
-  if (options_.WAL_ttl_seconds != ULONG_MAX && options_.WAL_ttl_seconds > 0) {
-    if (purge_wal_files_last_run_ + options_.WAL_ttl_seconds > now_seconds) {
-      return;
-    }
-    std::vector<std::string> wal_files;
-    std::string archival_dir = ArchivalDirectory(options_.wal_dir);
-    env_->GetChildren(archival_dir, &wal_files);
-    for (const auto& f : wal_files) {
-      uint64_t file_m_time;
-      const std::string file_path = archival_dir + "/" + f;
-      const Status s = env_->GetFileModificationTime(file_path, &file_m_time);
-      if (s.ok() && (now_seconds - file_m_time > options_.WAL_ttl_seconds)) {
-        Status status = env_->DeleteFile(file_path);
-        if (!status.ok()) {
-          Log(options_.info_log,
-              "Failed Deleting a WAL file Error : i%s",
-              status.ToString().c_str());
+  if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
+    return;
+  }
+
+  purge_wal_files_last_run_ = now_seconds;
+
+  std::string archival_dir = ArchivalDirectory(options_.wal_dir);
+  std::vector<std::string> files;
+  s = env_->GetChildren(archival_dir, &files);
+  if (!s.ok()) {
+    Log(options_.info_log, "Can't get archive files: %s", s.ToString().c_str());
+    assert(false);
+    return;
+  }
+
+  size_t log_files_num = 0;
+  uint64_t log_file_size = 0;
+
+  for (auto& f : files) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == kLogFile) {
+      std::string const file_path = archival_dir + "/" + f;
+      if (ttl_enabled) {
+        uint64_t file_m_time;
+        Status const s = env_->GetFileModificationTime(file_path,
+          &file_m_time);
+        if (!s.ok()) {
+          Log(options_.info_log, "Can't get file mod time: %s: %s",
+              file_path.c_str(), s.ToString().c_str());
+          continue;
         }
-      } // Ignore errors.
+        if (now_seconds - file_m_time > options_.WAL_ttl_seconds) {
+          Status const s = env_->DeleteFile(file_path);
+          if (!s.ok()) {
+            Log(options_.info_log, "Can't delete file: %s: %s",
+                file_path.c_str(), s.ToString().c_str());
+            continue;
+          }
+          continue;
+        }
+      }
+
+      if (size_limit_enabled) {
+        uint64_t file_size;
+        Status const s = env_->GetFileSize(file_path, &file_size);
+        if (!s.ok()) {
+          Log(options_.info_log, "Can't get file size: %s: %s",
+              file_path.c_str(), s.ToString().c_str());
+          return;
+        } else {
+          if (file_size > 0) {
+            log_file_size = std::max(log_file_size, file_size);
+            ++log_files_num;
+          } else {
+            Status s = env_->DeleteFile(file_path);
+            if (!s.ok()) {
+              Log(options_.info_log, "Can't delete file: %s: %s",
+                  file_path.c_str(), s.ToString().c_str());
+              continue;
+            }
+          }
+        }
+      }
     }
   }
-  purge_wal_files_last_run_ = now_seconds;
+
+  if (0 == log_files_num || !size_limit_enabled) {
+    return;
+  }
+
+  size_t const files_keep_num = options_.WAL_size_limit_MB *
+    1024 * 1024 / log_file_size;
+  if (log_files_num <= files_keep_num) {
+    return;
+  }
+
+  size_t files_del_num = log_files_num - files_keep_num;
+  VectorLogPtr archived_logs;
+  AppendSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
+
+  if (files_del_num > archived_logs.size()) {
+    Log(options_.info_log, "Trying to delete more archived log files than "
+        "exist. Deleting all");
+    files_del_num = archived_logs.size();
+  }
+
+  for (size_t i = 0; i < files_del_num; ++i) {
+    std::string const file_path = archived_logs[i]->PathName();
+    Status const s = DeleteFile(file_path);
+    if (!s.ok()) {
+      Log(options_.info_log, "Can't delete file: %s: %s",
+          file_path.c_str(), s.ToString().c_str());
+      continue;
+    }
+  }
 }
 
 // If externalTable is set, then apply recovered transactions
