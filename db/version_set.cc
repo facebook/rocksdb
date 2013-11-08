@@ -50,7 +50,7 @@ Version::~Version() {
       assert(f->refs > 0);
       f->refs--;
       if (f->refs <= 0) {
-        delete f;
+        vset_->obsolete_files_.push_back(f);
       }
     }
   }
@@ -1161,6 +1161,7 @@ VersionSet::VersionSet(const std::string& dbname,
 VersionSet::~VersionSet() {
   current_->Unref();
   assert(dummy_versions_.next_ == &dummy_versions_);  // List must be empty
+  GetAndFreeObsoleteFiles(nullptr);
   delete[] compact_pointer_;
   delete[] max_file_size_;
   delete[] level_max_bytes_;
@@ -1239,6 +1240,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   std::string new_manifest_file;
   uint64_t new_manifest_file_size = 0;
   Status s;
+  // we will need this if we are creating new manifest
+  uint64_t old_manifest_file_number = manifest_file_number_;
 
   //  No need to perform this check if a new Manifest is being created anyways.
   if (!descriptor_log_ ||
@@ -1247,7 +1250,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     manifest_file_number_ = NewFileNumber(); // Change manifest file no.
   }
 
-  if (!descriptor_log_ || new_descriptor_log) {
+  if (new_descriptor_log) {
     new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
   }
@@ -1313,6 +1316,15 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     // new CURRENT file that points to it.
     if (s.ok() && !new_manifest_file.empty()) {
       s = SetCurrentFile(env_, dbname_, manifest_file_number_);
+      if (s.ok() && old_manifest_file_number < manifest_file_number_) {
+        // delete old manifest file
+        Log(options_->info_log,
+            "Deleting manifest %lu current manifest %lu\n",
+            old_manifest_file_number, manifest_file_number_);
+        // we don't care about an error here, PurgeObsoleteFiles will take care
+        // of it later
+        env_->DeleteFile(DescriptorFileName(dbname_, old_manifest_file_number));
+      }
     }
 
     // find offset in manifest file where this version is stored.
@@ -2847,6 +2859,19 @@ void VersionSet::GetLiveFilesMetaData(
       metadata->push_back(filemetadata);
     }
   }
+}
+
+void VersionSet::GetAndFreeObsoleteFiles(std::vector<uint64_t>* files) {
+  if (files != nullptr) {
+    files->reserve(files->size() + obsolete_files_.size());
+  }
+  for (size_t i = 0; i < obsolete_files_.size(); i++) {
+    if (files != nullptr) {
+      files->push_back(obsolete_files_[i]->number);
+    }
+    delete obsolete_files_[i];
+  }
+  obsolete_files_.clear();
 }
 
 Compaction* VersionSet::CompactRange(

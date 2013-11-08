@@ -62,7 +62,7 @@ Options::Options()
       db_log_dir(""),
       wal_dir(""),
       disable_seek_compaction(false),
-      delete_obsolete_files_period_micros(0),
+      delete_obsolete_files_period_micros(6 * 60 * 60 * 1000000UL),
       max_background_compactions(1),
       max_background_flushes(0),
       max_log_file_size(0),

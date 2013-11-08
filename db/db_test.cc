@@ -3616,8 +3616,11 @@ TEST(DBTest, SnapshotFiles) {
     ASSERT_EQ(system(mkdir.c_str()), 0);
 
     for (unsigned int i = 0; i < files.size(); i++) {
-      std::string src = dbname_ + "/" + files[i];
-      std::string dest = snapdir + "/" + files[i];
+      // our clients require that GetLiveFiles returns
+      // files with "/" as first character!
+      ASSERT_EQ(files[i][0], '/');
+      std::string src = dbname_ + files[i];
+      std::string dest = snapdir + files[i];
 
       uint64_t size;
       ASSERT_OK(env_->GetFileSize(src, &size));

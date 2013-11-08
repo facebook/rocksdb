@@ -431,6 +431,8 @@ class VersionSet {
   void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);
 
+  void GetAndFreeObsoleteFiles(std::vector<uint64_t>* files);
+
  private:
   class Builder;
   struct ManifestWriter;
@@ -506,6 +508,8 @@ class VersionSet {
   // Store the manifest file size when it is checked.
   // Save us the cost of checking file size twice in LogAndApply
   uint64_t last_observed_manifest_size_;
+
+  std::vector<FileMetaData*> obsolete_files_;
 
   // storage options for all reads and writes except compactions
   const EnvOptions& storage_options_;

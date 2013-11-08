@@ -28,9 +28,15 @@ Status DBImpl::DisableFileDeletions() {
 }
 
 Status DBImpl::EnableFileDeletions() {
-  MutexLock l(&mutex_);
-  disable_delete_obsolete_files_ = false;
-  Log(options_.info_log, "File Deletions Enabled");
+  DeletionState deletion_state;
+  {
+    MutexLock l(&mutex_);
+    disable_delete_obsolete_files_ = false;
+    Log(options_.info_log, "File Deletions Enabled");
+    FindObsoleteFiles(deletion_state, true);
+  }
+  PurgeObsoleteFiles(deletion_state);
+  LogFlush(options_.info_log);
   return Status::OK();
 }
 

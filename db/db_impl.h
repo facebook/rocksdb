@@ -69,6 +69,7 @@ class DBImpl : public DB {
   virtual Status Flush(const FlushOptions& options);
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions();
+  // All the returned filenames start with "/"
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true);
@@ -143,7 +144,6 @@ class DBImpl : public DB {
   friend class DB;
   struct CompactionState;
   struct Writer;
-  struct DeletionState;
 
   Status NewDB();
 
@@ -157,12 +157,37 @@ class DBImpl : public DB {
 
   const Status CreateArchivalDirectory();
 
+  struct DeletionState {
+    inline bool HaveSomethingToDelete() const {
+      return allfiles.size() || sstdeletefiles.size() || logdeletefiles.size();
+    }
+
+    // a list of all files that we'll consider deleting
+    // (every once in a while this is filled up with all files
+    // in the DB directory)
+    std::vector<std::string> allfiles;
+
+    // the list of all live sst files that cannot be deleted
+    std::vector<uint64_t> sstlive;
+
+    // a list of sst files that we need to delete
+    std::vector<uint64_t> sstdeletefiles;
+
+    // a list of log files that we need to delete
+    std::vector<uint64_t> logdeletefiles;
+
+    // the current manifest_file_number, log_number and prev_log_number
+    // that corresponds to the set of files in 'live'.
+    uint64_t manifest_file_number, log_number, prev_log_number;
+  };
+
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status FlushMemTableToOutputFile(bool* madeProgress = nullptr);
+  Status FlushMemTableToOutputFile(bool* madeProgress,
+                                   DeletionState& deletion_state);
 
   Status RecoverLogFile(uint64_t log_number,
                         VersionEdit* edit,
@@ -198,9 +223,10 @@ class DBImpl : public DB {
   void BackgroundCallCompaction();
   void BackgroundCallFlush();
   Status BackgroundCompaction(bool* madeProgress,DeletionState& deletion_state);
-  Status BackgroundFlush(bool* madeProgress);
+  Status BackgroundFlush(bool* madeProgress, DeletionState& deletion_state);
   void CleanupCompaction(CompactionState* compact, Status status);
-  Status DoCompactionWork(CompactionState* compact);
+  Status DoCompactionWork(CompactionState* compact,
+                          DeletionState& deletion_state);
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
@@ -208,20 +234,18 @@ class DBImpl : public DB {
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
-
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'allfiles'.
-  void FindObsoleteFiles(DeletionState& deletion_state);
+  // If force == false and the last call was less than
+  // options_.delete_obsolete_files_period_micros microseconds ago,
+  // it will not fill up the deletion_state
+  void FindObsoleteFiles(DeletionState& deletion_state, bool force);
 
   // Diffs the files listed in filenames and those that do not
-  // belong to live files are posibly removed. If the removed file
-  // is a sst file, then it returns the file number in files_to_evict.
+  // belong to live files are posibly removed. Also, removes all the
+  // files in sstdeletefiles and logdeletefiles.
+  // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(DeletionState& deletion_state);
-
-  // Removes the file listed in files_to_evict from the table_cache
-  void EvictObsoleteFiles(DeletionState& deletion_state);
-
-  Status DeleteLogFile(uint64_t number);
 
   void PurgeObsoleteWALFiles();
 
