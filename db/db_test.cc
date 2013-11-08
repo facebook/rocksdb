@@ -4714,8 +4714,8 @@ TEST(DBTest, PrefixScan) {
     options.create_if_missing = true;
     options.disable_seek_compaction = true;
     if (it == 0) {
-      options.memtable_factory = std::make_shared<PrefixHashRepNoLockFactory>(
-          prefix_extractor);
+      options.memtable_factory.reset(NewHashSkipListRepFactory(
+            prefix_extractor));
     } else {
       options.memtable_factory = std::make_shared<PrefixHashRepFactory>(
           prefix_extractor);
