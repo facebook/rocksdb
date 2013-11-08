@@ -63,6 +63,11 @@ class SkipList {
     // The returned iterator is not valid.
     explicit Iterator(const SkipList* list);
 
+    // Change the underlying skiplist used for this iterator
+    // This enables us not changing the iterator without deallocating
+    // an old one and then allocating a new one
+    void SetList(const SkipList* list);
+
     // Returns true iff the iterator is positioned at a valid node.
     bool Valid() const;
 
@@ -194,6 +199,11 @@ SkipList<Key,Comparator>::NewNode(const Key& key, int height) {
 
 template<typename Key, class Comparator>
 inline SkipList<Key,Comparator>::Iterator::Iterator(const SkipList* list) {
+  SetList(list);
+}
+
+template<typename Key, class Comparator>
+inline void SkipList<Key,Comparator>::Iterator::SetList(const SkipList* list) {
   list_ = list;
   node_ = nullptr;
 }

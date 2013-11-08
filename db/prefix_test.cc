@@ -93,9 +93,8 @@ class PrefixTest {
       auto prefix_extractor = NewFixedPrefixTransform(8);
       options.prefix_extractor = prefix_extractor;
       if (FLAGS_use_nolock_version) {
-        options.memtable_factory =
-          std::make_shared<rocksdb::PrefixHashRepNoLockFactory>(
-            prefix_extractor, FLAGS_bucket_count);
+        options.memtable_factory.reset(NewHashSkipListRepFactory(
+            prefix_extractor, FLAGS_bucket_count));
       } else {
         options.memtable_factory =
           std::make_shared<rocksdb::PrefixHashRepFactory>(
