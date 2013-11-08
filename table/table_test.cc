@@ -30,6 +30,7 @@
 
 namespace rocksdb {
 
+namespace {
 // Return reverse of "key".
 // Used to test non-lexicographic comparators.
 static std::string Reverse(const Slice& key) {
@@ -42,7 +43,12 @@ static std::string Reverse(const Slice& key) {
   return rev;
 }
 
-namespace {
+static Options GetDefaultOptions() {
+  Options options;
+  options.SetUpDefaultFlushBlockPolicyFactory();
+  return options;
+}
+
 class ReverseKeyComparator : public Comparator {
  public:
   virtual const char* Name() const {
@@ -423,7 +429,7 @@ class DBConstructor: public Constructor {
   void NewDB() {
     std::string name = test::TmpDir() + "/table_testdb";
 
-    Options options;
+    Options options = GetDefaultOptions();
     options.comparator = comparator_;
     Status status = DestroyDB(name, options);
     ASSERT_TRUE(status.ok()) << status.ToString();
@@ -442,14 +448,16 @@ class DBConstructor: public Constructor {
 static bool SnappyCompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Snappy_Compress(Options().compression_opts, in.data(), in.size(),
+  return port::Snappy_Compress(GetDefaultOptions().compression_opts,
+                               in.data(), in.size(),
                                &out);
 }
 
 static bool ZlibCompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Zlib_Compress(Options().compression_opts, in.data(), in.size(),
+  return port::Zlib_Compress(GetDefaultOptions().compression_opts,
+                             in.data(), in.size(),
                              &out);
 }
 
@@ -457,7 +465,8 @@ static bool ZlibCompressionSupported() {
 static bool BZip2CompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::BZip2_Compress(Options().compression_opts, in.data(), in.size(),
+  return port::BZip2_Compress(GetDefaultOptions().compression_opts,
+                              in.data(), in.size(),
                               &out);
 }
 #endif
@@ -527,7 +536,7 @@ class Harness {
   void Init(const TestArgs& args) {
     delete constructor_;
     constructor_ = nullptr;
-    options_ = Options();
+    options_ = GetDefaultOptions();
 
     options_.block_restart_interval = args.restart_interval;
     options_.compression = args.compression;
@@ -727,7 +736,7 @@ class Harness {
   DB* db() const { return constructor_->db(); }
 
  private:
-  Options options_;
+  Options options_ = GetDefaultOptions();
   Constructor* constructor_;
 };
 
@@ -827,7 +836,7 @@ TEST(MemTableTest, Simple) {
   MemTable* memtable = new MemTable(cmp, table_factory);
   memtable->Ref();
   WriteBatch batch;
-  Options options;
+  Options options = GetDefaultOptions();
   WriteBatchInternal::SetSequence(&batch, 100);
   batch.Put(std::string("k1"), std::string("v1"));
   batch.Put(std::string("k2"), std::string("v2"));
@@ -878,7 +887,7 @@ TEST(TableTest, BasicTableStats) {
 
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options;
+  Options options = GetDefaultOptions();
   options.compression = kNoCompression;
   options.block_restart_interval = 1;
 
@@ -912,7 +921,7 @@ TEST(TableTest, FilterPolicyNameStats) {
   c.Add("a1", "val1");
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options;
+  Options options = GetDefaultOptions();
   std::unique_ptr<const FilterPolicy> filter_policy(
     NewBloomFilterPolicy(10)
   );
@@ -955,7 +964,7 @@ TEST(TableTest, IndexSizeStat) {
 
     std::vector<std::string> ks;
     KVMap kvmap;
-    Options options;
+    Options options = GetDefaultOptions();
     options.compression = kNoCompression;
     options.block_restart_interval = 1;
 
@@ -974,6 +983,9 @@ TEST(TableTest, NumBlockStat) {
   options.compression = kNoCompression;
   options.block_restart_interval = 1;
   options.block_size = 1000;
+  // Block Size changed, need to set up a new flush policy to reflect the
+  // change.
+  options.SetUpDefaultFlushBlockPolicyFactory();
 
   for (int i = 0; i < 10; ++i) {
     // the key/val are slightly smaller than block size, so that each block
@@ -1001,7 +1013,7 @@ TEST(TableTest, ApproximateOffsetOfPlain) {
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options;
+  Options options = GetDefaultOptions();
   options.block_size = 1024;
   options.compression = kNoCompression;
   c.Finish(options, &keys, &kvmap);
@@ -1030,7 +1042,7 @@ static void Do_Compression_Test(CompressionType comp) {
   c.Add("k04", test::CompressibleString(&rnd, 0.25, 10000, &tmp));
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options;
+  Options options = GetDefaultOptions();
   options.block_size = 1024;
   options.compression = comp;
   c.Finish(options, &keys, &kvmap);
@@ -1072,7 +1084,7 @@ TEST(TableTest, BlockCacheLeak) {
   // in the cache. This test checks whether the Table actually makes use of the
   // unique ID from the file.
 
-  Options opt;
+  Options opt = GetDefaultOptions();
   opt.block_size = 1024;
   opt.compression = kNoCompression;
   opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever

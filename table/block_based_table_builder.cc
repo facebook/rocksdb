@@ -12,6 +12,7 @@
 #include <assert.h>
 #include <map>
 
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
@@ -96,19 +97,11 @@ struct BlockBasedTableBuilder::Rep {
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
-  // We do not emit the index entry for a block until we have seen the
-  // first key for the next data block.  This allows us to use shorter
-  // keys in the index block.  For example, consider a block boundary
-  // between the keys "the quick brown fox" and "the who".  We can use
-  // "the r" as the key for the index block entry since it is >= all
-  // entries in the first block and < all entries in subsequent
-  // blocks.
-  //
-  // Invariant: r->pending_index_entry is true only if data_block is empty.
-  bool pending_index_entry;
+
   BlockHandle pending_handle;  // Handle to add to index block
 
   std::string compressed_output;
+  std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
   Rep(const Options& opt, WritableFile* f, CompressionType compression_type)
       : options(opt),
@@ -118,8 +111,10 @@ struct BlockBasedTableBuilder::Rep {
         index_block(1, index_block_options.comparator),
         compression_type(compression_type),
         filter_block(opt.filter_policy == nullptr ? nullptr
-                     : new FilterBlockBuilder(opt)),
-        pending_index_entry(false) {
+                     : new FilterBlockBuilder(opt)) {
+    assert(options.flush_block_policy_factory);
+    auto factory = options.flush_block_policy_factory;
+    flush_block_policy.reset(factory->NewFlushBlockPolicy(data_block));
   }
 };
 
@@ -151,29 +146,25 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
-  const size_t curr_size = r->data_block.CurrentSizeEstimate();
-  const size_t estimated_size_after = r->data_block.EstimateSizeAfterKV(key,
-      value);
-  // Do flush if one of the below two conditions is true:
-  // 1) if the current estimated size already exceeds the block size,
-  // 2) block_size_deviation is set and the estimated size after appending
-  // the kv will exceed the block size and the current size is under the
-  // the deviation.
-  if (curr_size >= r->options.block_size ||
-      (estimated_size_after > r->options.block_size &&
-      r->options.block_size_deviation > 0 &&
-      (curr_size * 100) >
-        r->options.block_size * (100 - r->options.block_size_deviation))) {
+  auto should_flush = r->flush_block_policy->Update(key, value);
+  if (should_flush) {
+    assert(!r->data_block.empty());
     Flush();
-  }
 
-  if (r->pending_index_entry) {
-    assert(r->data_block.empty());
-    r->options.comparator->FindShortestSeparator(&r->last_key, key);
-    std::string handle_encoding;
-    r->pending_handle.EncodeTo(&handle_encoding);
-    r->index_block.Add(r->last_key, Slice(handle_encoding));
-    r->pending_index_entry = false;
+    // Add item to index block.
+    // We do not emit the index entry for a block until we have seen the
+    // first key for the next data block.  This allows us to use shorter
+    // keys in the index block.  For example, consider a block boundary
+    // between the keys "the quick brown fox" and "the who".  We can use
+    // "the r" as the key for the index block entry since it is >= all
+    // entries in the first block and < all entries in subsequent
+    // blocks.
+    if (ok()) {
+      r->options.comparator->FindShortestSeparator(&r->last_key, key);
+      std::string handle_encoding;
+      r->pending_handle.EncodeTo(&handle_encoding);
+      r->index_block.Add(r->last_key, Slice(handle_encoding));
+    }
   }
 
   if (r->filter_block != nullptr) {
@@ -203,10 +194,8 @@ void BlockBasedTableBuilder::Flush() {
   assert(!r->closed);
   if (!ok()) return;
   if (r->data_block.empty()) return;
-  assert(!r->pending_index_entry);
   WriteBlock(&r->data_block, &r->pending_handle);
   if (ok()) {
-    r->pending_index_entry = true;
     r->status = r->file->Flush();
   }
   if (r->filter_block != nullptr) {
@@ -358,11 +347,14 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
 Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_;
+  bool empty_data_block = r->data_block.empty();
   Flush();
   assert(!r->closed);
   r->closed = true;
 
-  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
+  BlockHandle filter_block_handle,
+              metaindex_block_handle,
+              index_block_handle;
 
   // Write filter block
   if (ok() && r->filter_block != nullptr) {
@@ -373,12 +365,12 @@ Status BlockBasedTableBuilder::Finish() {
   // To make sure stats block is able to keep the accurate size of index
   // block, we will finish writing all index entries here and flush them
   // to storage after metaindex block is written.
-  if (ok() && (r->pending_index_entry)) {
-      r->options.comparator->FindShortSuccessor(&r->last_key);
-      std::string handle_encoding;
-      r->pending_handle.EncodeTo(&handle_encoding);
-      r->index_block.Add(r->last_key, Slice(handle_encoding));
-      r->pending_index_entry = false;
+  if (ok() && !empty_data_block) {
+    r->options.comparator->FindShortSuccessor(&r->last_key);
+
+    std::string handle_encoding;
+    r->pending_handle.EncodeTo(&handle_encoding);
+    r->index_block.Add(r->last_key, handle_encoding);
   }
 
   // Write meta blocks and metaindex block with the following order.

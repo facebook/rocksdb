@@ -83,10 +83,13 @@ class DumbLogger : public Logger {
 
 // Utilities test functions
 void MakeBuilder(
-    const Options& options,
+    Options options,
     std::unique_ptr<FakeWritableFile>* writable,
     std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
+  if (!options.flush_block_policy_factory) {
+    options.SetUpDefaultFlushBlockPolicyFactory();
+  }
   builder->reset(
       options.table_factory->GetTableBuilder(options, writable->get(),
                                              options.compression));

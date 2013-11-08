@@ -214,6 +214,10 @@ Options SanitizeOptions(const std::string& dbname,
       std::make_shared<InternalKeyStatsCollector>()
   );
 
+  if (!result.flush_block_policy_factory) {
+    result.SetUpDefaultFlushBlockPolicyFactory();
+  }
+
   return result;
 }
 

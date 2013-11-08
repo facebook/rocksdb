@@ -16,6 +16,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "table/block_based_table_factory.h"
 
@@ -286,12 +287,14 @@ Options::Dump(Logger* log) const
       collector_names.append(collector->Name());
       collector_names.append("; ");
     }
-    Log(log,"                  Options.table_stats_collectors: %s",
+    Log(log, "                  Options.table_stats_collectors: %s",
         collector_names.c_str());
-    Log(log,"                    Options.inplace_update_support: %d",
+    Log(log, "                  Options.inplace_update_support: %d",
         inplace_update_support);
-    Log(log,"                Options.inplace_update_num_locks: %zd",
+    Log(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
+    Log(log, "              Options.flush_block_policy_factory: %s",
+        flush_block_policy_factory ? flush_block_policy_factory->Name() : "");
 }   // Options::Dump
 
 //
@@ -328,6 +331,14 @@ Options::PrepareForBulkLoad()
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
+  return this;
+}
+
+Options* Options::SetUpDefaultFlushBlockPolicyFactory() {
+  assert(!flush_block_policy_factory);
+  flush_block_policy_factory =
+    std::make_shared<FlushBlockBySizePolicyFactory>(
+        block_size, block_size_deviation);
   return this;
 }
 
