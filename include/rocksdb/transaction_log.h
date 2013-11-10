@@ -52,7 +52,7 @@ class LogFile {
 };
 
 struct BatchResult {
-  SequenceNumber sequence;
+  SequenceNumber sequence = SequenceNumber();
   std::unique_ptr<WriteBatch> writeBatchPtr;
 };
 
