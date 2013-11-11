@@ -179,6 +179,12 @@ class DBImpl : public DB {
     // the current manifest_file_number, log_number and prev_log_number
     // that corresponds to the set of files in 'live'.
     uint64_t manifest_file_number, log_number, prev_log_number;
+
+    DeletionState() {
+      manifest_file_number = 0;
+      log_number = 0;
+      prev_log_number = 0;
+    }
   };
 
   // Delete any unneeded files and stale in-memory entries.
