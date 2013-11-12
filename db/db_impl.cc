@@ -1627,12 +1627,13 @@ void DBImpl::BackgroundCallFlush() {
       LogFlush(options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
-      // clean up all the files we might have created
+      // clean up all the files we might have created.
       FindObsoleteFiles(deletion_state, true);
     }
   }
 
   // delete unnecessary files if any, this is done outside the mutex
+  FindObsoleteFiles(deletion_state, false);
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
@@ -1680,6 +1681,7 @@ void DBImpl::BackgroundCallCompaction() {
   }
 
   // delete unnecessary files if any, this is done outside the mutex
+  FindObsoleteFiles(deletion_state, false);
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
@@ -1771,7 +1773,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     versions_->ReleaseCompactionFiles(c.get(), status);
     c->ReleaseInputs();
     versions_->GetAndFreeObsoleteFiles(&deletion_state.sstdeletefiles);
-    FindObsoleteFiles(deletion_state, false);
     *madeProgress = true;
   }
   c.reset();
@@ -3363,6 +3364,7 @@ Status DBImpl::DeleteFile(std::string name) {
     if (status.ok()) {
       versions_->GetAndFreeObsoleteFiles(&deletion_state.sstdeletefiles);
     }
+    FindObsoleteFiles(deletion_state, false);
   } // lock released here
   LogFlush(options_.info_log);
 
