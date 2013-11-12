@@ -28,6 +28,11 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
 
   virtual bool Update(const Slice& key,
                       const Slice& value) override {
+    // it makes no sense to flush when the data block is empty
+    if (data_block_builder_.empty()) {
+      return false;
+    }
+
     auto curr_size = data_block_builder_.CurrentSizeEstimate();
 
     // Do flush if one of the below two conditions is true:
