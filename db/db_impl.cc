@@ -1631,10 +1631,10 @@ void DBImpl::BackgroundCallFlush() {
     }
   }
 
-  // delete unnecessary files if any, this is done outside the mutex
   // If !s.ok(), this means that Flush failed. In that case, we want
   // to delete all obsolete files and we force FindObsoleteFiles()
   FindObsoleteFiles(deletion_state, !s.ok());
+  // delete unnecessary files if any, this is done outside the mutex
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
@@ -1680,12 +1680,12 @@ void DBImpl::BackgroundCallCompaction() {
     }
   }
 
-  // delete unnecessary files if any, this is done outside the mutex
   // If !s.ok(), this means that Compaction failed. In that case, we want
   // to delete all obsolete files we might have created and we force
   // FindObsoleteFiles(). This is because deletion_state does not catch
   // all created files if compaction failed.
   FindObsoleteFiles(deletion_state, !s.ok());
+  // delete unnecessary files if any, this is done outside the mutex
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
