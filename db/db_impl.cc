@@ -1613,8 +1613,9 @@ void DBImpl::BackgroundCallFlush() {
   assert(bg_flush_scheduled_);
   MutexLock l(&mutex_);
 
+  Status s;
   if (!shutting_down_.Acquire_Load()) {
-    Status s = BackgroundFlush(&madeProgress, deletion_state);
+    s = BackgroundFlush(&madeProgress, deletion_state);
     if (!s.ok()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
@@ -1627,13 +1628,13 @@ void DBImpl::BackgroundCallFlush() {
       LogFlush(options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
-      // clean up all the files we might have created.
-      FindObsoleteFiles(deletion_state, true);
     }
   }
 
   // delete unnecessary files if any, this is done outside the mutex
-  FindObsoleteFiles(deletion_state, false);
+  // If !s.ok(), this means that Flush failed. In that case, we want
+  // to delete all obsolete files and we force FindObsoleteFiles()
+  FindObsoleteFiles(deletion_state, !s.ok());
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
@@ -1661,8 +1662,9 @@ void DBImpl::BackgroundCallCompaction() {
   MutexLock l(&mutex_);
   // Log(options_.info_log, "XXX BG Thread %llx process new work item", pthread_self());
   assert(bg_compaction_scheduled_);
+  Status s;
   if (!shutting_down_.Acquire_Load()) {
-    Status s = BackgroundCompaction(&madeProgress, deletion_state);
+    s = BackgroundCompaction(&madeProgress, deletion_state);
     if (!s.ok()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
@@ -1675,13 +1677,15 @@ void DBImpl::BackgroundCallCompaction() {
       LogFlush(options_.info_log);
       env_->SleepForMicroseconds(1000000);
       mutex_.Lock();
-      // clean up all the files we might have created
-      FindObsoleteFiles(deletion_state, true);
     }
   }
 
   // delete unnecessary files if any, this is done outside the mutex
-  FindObsoleteFiles(deletion_state, false);
+  // If !s.ok(), this means that Compaction failed. In that case, we want
+  // to delete all obsolete files we might have created and we force
+  // FindObsoleteFiles(). This is because deletion_state does not catch
+  // all created files if compaction failed.
+  FindObsoleteFiles(deletion_state, !s.ok());
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
     PurgeObsoleteFiles(deletion_state);
