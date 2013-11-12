@@ -1161,7 +1161,10 @@ VersionSet::VersionSet(const std::string& dbname,
 VersionSet::~VersionSet() {
   current_->Unref();
   assert(dummy_versions_.next_ == &dummy_versions_);  // List must be empty
-  GetAndFreeObsoleteFiles(nullptr);
+  for (auto file : obsolete_files_) {
+    delete file;
+  }
+  obsolete_files_.clear();
   delete[] compact_pointer_;
   delete[] max_file_size_;
   delete[] level_max_bytes_;
@@ -2861,16 +2864,10 @@ void VersionSet::GetLiveFilesMetaData(
   }
 }
 
-void VersionSet::GetAndFreeObsoleteFiles(std::vector<uint64_t>* files) {
-  if (files != nullptr) {
-    files->reserve(files->size() + obsolete_files_.size());
-  }
-  for (size_t i = 0; i < obsolete_files_.size(); i++) {
-    if (files != nullptr) {
-      files->push_back(obsolete_files_[i]->number);
-    }
-    delete obsolete_files_[i];
-  }
+void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files) {
+  files->insert(files->end(),
+                obsolete_files_.begin(),
+                obsolete_files_.end());
   obsolete_files_.clear();
 }
 

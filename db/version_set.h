@@ -431,7 +431,7 @@ class VersionSet {
   void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);
 
-  void GetAndFreeObsoleteFiles(std::vector<uint64_t>* files);
+  void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
  private:
   class Builder;

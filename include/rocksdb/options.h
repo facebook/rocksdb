@@ -609,11 +609,6 @@ struct Options {
   // Default: a factory that doesn't provide any object
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 
-  // Remove the log file immediately after the corresponding memtable is flushed
-  // to data file.
-  // Default: true
-  bool purge_log_after_memtable_flush;
-
   // This option allows user to to collect their own interested statistics of
   // the tables.
   // Default: emtpy vector -- no user-defined statistics collection will be

@@ -435,8 +435,8 @@ void DBImpl::MaybeDumpStats() {
   }
 }
 
-// Returns the list of live files in 'sstlive' and the list
-// of all files in the filesystem in 'allfiles'.
+// Returns the list of live files in 'sst_live' and the list
+// of all files in the filesystem in 'all_files'.
 void DBImpl::FindObsoleteFiles(DeletionState& deletion_state, bool force) {
   mutex_.AssertHeld();
 
@@ -464,19 +464,19 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state, bool force) {
 
   // Make a list of all of the live files; set is slow, should not
   // be used.
-  deletion_state.sstlive.assign(pending_outputs_.begin(),
-                                pending_outputs_.end());
-  versions_->AddLiveFiles(&deletion_state.sstlive);
+  deletion_state.sst_live.assign(pending_outputs_.begin(),
+                                 pending_outputs_.end());
+  versions_->AddLiveFiles(&deletion_state.sst_live);
 
   // set of all files in the directory
-  env_->GetChildren(dbname_, &deletion_state.allfiles); // Ignore errors
+  env_->GetChildren(dbname_, &deletion_state.all_files); // Ignore errors
 
   //Add log files in wal_dir
   if (options_.wal_dir != dbname_) {
     std::vector<std::string> log_files;
     env_->GetChildren(options_.wal_dir, &log_files); // Ignore errors
-    deletion_state.allfiles.insert(
-      deletion_state.allfiles.end(),
+    deletion_state.all_files.insert(
+      deletion_state.all_files.end(),
       log_files.begin(),
       log_files.end()
     );
@@ -485,7 +485,7 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state, bool force) {
 
 // Diffs the files listed in filenames and those that do not
 // belong to live files are posibly removed. Also, removes all the
-// files in sstdeletefiles and logdeletefiles.
+// files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   // if deletion is disabled, do nothing
@@ -499,23 +499,26 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
 
   // Now, convert live list to an unordered set, WITHOUT mutex held;
   // set is slow.
-  std::unordered_set<uint64_t> live_set(state.sstlive.begin(),
-                                        state.sstlive.end());
+  std::unordered_set<uint64_t> live_set(state.sst_live.begin(),
+                                        state.sst_live.end());
 
-  state.allfiles.reserve(state.allfiles.size() + state.sstdeletefiles.size());
-  for (auto filenum : state.sstdeletefiles) {
-    state.allfiles.push_back(TableFileName("", filenum));
+  state.all_files.reserve(state.all_files.size() +
+      state.sst_delete_files.size());
+  for (auto file : state.sst_delete_files) {
+    state.all_files.push_back(TableFileName("", file->number));
+    delete file;
   }
 
-  state.allfiles.reserve(state.allfiles.size() + state.logdeletefiles.size());
-  for (auto filenum : state.logdeletefiles) {
+  state.all_files.reserve(state.all_files.size() +
+      state.log_delete_files.size());
+  for (auto filenum : state.log_delete_files) {
     if (filenum > 0) {
-      state.allfiles.push_back(LogFileName("", filenum));
+      state.all_files.push_back(LogFileName("", filenum));
     }
   }
 
-  for (size_t i = 0; i < state.allfiles.size(); i++) {
-    if (ParseFileName(state.allfiles[i], &number, &type)) {
+  for (size_t i = 0; i < state.all_files.size(); i++) {
+    if (ParseFileName(state.all_files[i], &number, &type)) {
       bool keep = true;
       switch (type) {
         case kLogFile:
@@ -538,7 +541,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
         case kInfoLogFile:
           keep = true;
           if (number != 0) {
-            old_log_files.push_back(state.allfiles[i]);
+            old_log_files.push_back(state.all_files[i]);
           }
           break;
         case kCurrentFile:
@@ -559,14 +562,14 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
         Status st;
         if (type == kLogFile && (options_.WAL_ttl_seconds > 0 ||
               options_.WAL_size_limit_MB > 0)) {
-            st = env_->RenameFile(dbname_ + "/" + state.allfiles[i],
+            st = env_->RenameFile(dbname_ + "/" + state.all_files[i],
                                   ArchivedLogFileName(options_.wal_dir,
                                                       number));
             if (!st.ok()) {
               Log(options_.info_log, "RenameFile logfile #%lu FAILED", number);
             }
         } else {
-          st = env_->DeleteFile(dbname_ + "/" + state.allfiles[i]);
+          st = env_->DeleteFile(dbname_ + "/" + state.all_files[i]);
           if (!st.ok()) {
             Log(options_.info_log, "Delete type=%d #%lu FAILED\n",
                 int(type), number);
@@ -1132,12 +1135,12 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
     MaybeScheduleLogDBDeployStats();
 
-    if (options_.purge_log_after_memtable_flush &&
-        !disable_delete_obsolete_files_) {
+    if (!disable_delete_obsolete_files_) {
       // add to deletion state
-      deletion_state.logdeletefiles.insert(deletion_state.logdeletefiles.end(),
-                                           logs_to_delete.begin(),
-                                           logs_to_delete.end());
+      deletion_state.log_delete_files.insert(
+          deletion_state.log_delete_files.end(),
+          logs_to_delete.begin(),
+          logs_to_delete.end());
     }
   }
   return s;
@@ -1776,7 +1779,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     CleanupCompaction(compact, status);
     versions_->ReleaseCompactionFiles(c.get(), status);
     c->ReleaseInputs();
-    versions_->GetAndFreeObsoleteFiles(&deletion_state.sstdeletefiles);
+    versions_->GetObsoleteFiles(&deletion_state.sst_delete_files);
     *madeProgress = true;
   }
   c.reset();
@@ -3366,7 +3369,7 @@ Status DBImpl::DeleteFile(std::string name) {
     edit.DeleteFile(level, number);
     status = versions_->LogAndApply(&edit, &mutex_);
     if (status.ok()) {
-      versions_->GetAndFreeObsoleteFiles(&deletion_state.sstdeletefiles);
+      versions_->GetObsoleteFiles(&deletion_state.sst_delete_files);
     }
     FindObsoleteFiles(deletion_state, false);
   } // lock released here

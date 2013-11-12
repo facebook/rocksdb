@@ -101,7 +101,6 @@ Options::Options()
       compaction_filter_factory(
           std::shared_ptr<CompactionFilterFactory>(
             new DefaultCompactionFilterFactory())),
-      purge_log_after_memtable_flush(true),
       inplace_update_support(false),
       inplace_update_num_locks(10000) {
   assert(memtable_factory.get() != nullptr);
@@ -280,8 +279,6 @@ Options::Dump(Logger* log) const
     Log(log,"Options.compaction_options_universal."
             "max_size_amplification_percent: %u",
         compaction_options_universal.max_size_amplification_percent);
-    Log(log,"          Options.purge_log_after_memtable_flush: %d",
-        purge_log_after_memtable_flush);
     std::string collector_names;
     for (auto collector : table_stats_collectors) {
       collector_names.append(collector->Name());

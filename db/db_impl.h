@@ -14,6 +14,7 @@
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
+#include "db/version_edit.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -159,22 +160,24 @@ class DBImpl : public DB {
 
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
-      return allfiles.size() || sstdeletefiles.size() || logdeletefiles.size();
+      return all_files.size() ||
+        sst_delete_files.size() ||
+        log_delete_files.size();
     }
 
     // a list of all files that we'll consider deleting
     // (every once in a while this is filled up with all files
     // in the DB directory)
-    std::vector<std::string> allfiles;
+    std::vector<std::string> all_files;
 
     // the list of all live sst files that cannot be deleted
-    std::vector<uint64_t> sstlive;
+    std::vector<uint64_t> sst_live;
 
     // a list of sst files that we need to delete
-    std::vector<uint64_t> sstdeletefiles;
+    std::vector<FileMetaData*> sst_delete_files;
 
     // a list of log files that we need to delete
-    std::vector<uint64_t> logdeletefiles;
+    std::vector<uint64_t> log_delete_files;
 
     // the current manifest_file_number, log_number and prev_log_number
     // that corresponds to the set of files in 'live'.
@@ -241,7 +244,7 @@ class DBImpl : public DB {
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
   // Returns the list of live files in 'live' and the list
-  // of all files in the filesystem in 'allfiles'.
+  // of all files in the filesystem in 'all_files'.
   // If force == false and the last call was less than
   // options_.delete_obsolete_files_period_micros microseconds ago,
   // it will not fill up the deletion_state
@@ -249,7 +252,7 @@ class DBImpl : public DB {
 
   // Diffs the files listed in filenames and those that do not
   // belong to live files are posibly removed. Also, removes all the
-  // files in sstdeletefiles and logdeletefiles.
+  // files in sst_delete_files and log_delete_files.
   // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(DeletionState& deletion_state);
 
