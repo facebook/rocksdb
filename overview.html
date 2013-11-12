@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>RocksDB | A persistent key-value store for fast storage environments</title>
+    <link rel='stylesheet' href='static/rocksdb.css' type='text/css'/>
+    <link rel='shortcut icon' href='static/favicon.ico'>
+    <meta name='viewport' content='width=device-width'>
+    <meta property='og:type' content='website'>
+    <meta property='og:title' content='RocksDB | A persistent key-value store for fast storage environments'>
+    <meta property='og:description' content='A persistent key-value store for fast storage environments'>
+    <meta property='og:image' content='static/rocksdb.png'>
+</head>
+<body>
+
+<header class='topbar'><nav class='width'>
+    <a href='index.html'><h1>RocksDB</h1></a>
+    <ul>
+        <li><a href='overview.html' class='active'>Overview</a></li>
+        <li><a href='https://github.com/facebook/rocksdb/wiki/_pages'>Wiki</a></li>
+        <li><a href='https://github.com/facebook/rocksdb'>GitHub</a>
+    </ul>
+</nav></header>
+
+<header class='hero'><div class='width'>
+    <hgroup>
+        <h1>
+            Overview
+        </h1>
+    </hgroup>
+</div></header>
+
+<section class='content'><div class='width'>
+
+    <article>
+
+        <h2>Opening A Database</h2>
+        <p>
+            A <code>rocksdb</code> database has a name which corresponds to a
+            file system directory. All of the contents of database are stored in
+            this directory. The following example shows how to open a database,
+            creating it if necessary:
+        </p>
+
+<pre>#include &lt;assert&gt;
+#include "rocksdb/db.h"
+
+rocksdb::DB* db;
+rocksdb::Options options;
+options.create_if_missing = true;
+rocksdb::Status status = rocksdb::DB::Open(options, "/tmp/testdb", &amp;db);
+assert(status.ok());
+...</pre>
+
+        <p>
+            If you want to raise an error if the database already exists, add
+            the following line before the <code>rocksdb::DB::Open</code> call:
+        </p>
+
+<pre>options.error_if_exists = true;</pre>
+
+        <h2>etc...</h2>
+    </article>
+
+</div></section>
+
+<footer><div class='width'>
+    &copy; Copyright 2013, Facebook
+</div></footer>
+
+</body>
+</html>

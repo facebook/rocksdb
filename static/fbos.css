@@ -1,0 +1,250 @@
+/* mobile first */
+
+* {
+    padding: 0;
+    margin: 0;
+}
+
+html {
+    -webkit-font-smoothing: antialiased;
+    background-color: #fafafa;
+}
+
+body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, 'lucida grande', tahoma, verdana, arial, sans-serif;
+    color: #222222;
+    margin: 0;
+    line-height: 1.5em;
+}
+
+h1, h2, h3, h4 {
+    color: #374665;
+    font-weight: normal;
+    margin: 1.5em 0 0.5em;
+}
+
+h1:first-child, h2:first-child, h3:first-child, h4:first-child {
+    margin-top: 0;
+}
+
+h1 {
+    font-size: 1.5em;
+}
+
+h2 {
+    font-size: 1.4em;
+}
+
+h3 {
+    font-size: 1.3em;
+}
+
+h4 {
+    font-size: 1.2em;
+}
+
+p, pre, ul {
+    margin: 1em 0;
+}
+
+p {
+    text-align: justify;
+}
+
+pre {
+    border: 1px solid #ccc;
+    padding: 1em;
+    overflow-x: scroll;
+    background: #fff;
+    border-radius: 5px;
+}
+
+ul {
+    list-style-position: inside;
+    line-height: 2em;
+}
+
+a {
+    text-decoration: none;
+    font-weight: bold;
+    color: #3b5998;
+}
+
+.width {
+    margin: 0 auto !important;
+    padding: 0 20px !important;
+}
+
+header:after, section.content:after, footer:after {
+    clear: both;
+    content: ".";
+    display: block;
+    font-size: 0;
+    height: 0;
+    line-height: 0;
+    visibility: hidden;
+}
+
+header.topbar {
+    background: #000;
+    padding: 10px 0;
+}
+
+header.topbar h1 {
+    background-image: url(facebookcode.png);
+    background-size: 123px 16px;
+    background-position: 0 50%;
+    background-repeat: no-repeat;
+    float: left;
+    line-height: 60px;
+    margin: 0 10px 0 0;
+    overflow: hidden;
+    text-indent: 100%;
+    white-space: nowrap;
+    width: 240px;
+}
+
+header.topbar nav ul {
+    float: right;
+    text-align: right;
+    margin: 0 0 0 10px;
+    padding: 0;
+}
+
+header.topbar nav ul li {
+    display: inline;
+    text-transform: uppercase;
+}
+
+header.topbar nav ul li a {
+    color: #fff;
+    font-size: 12px;
+    margin: 0 0 0 10px;
+    text-decoration: none;
+    font-weight: bold;
+    line-height: 60px;
+}
+
+header.topbar nav ul li a.active {
+    color: #3b5998;
+}
+
+header.hero {
+    background: #374665;
+    padding: 20px 0;
+}
+
+header.hero hgroup h1 {
+    font-size: 2em;
+    font-weight: normal;
+    color: #fff;
+    margin: 0;
+    line-height: 2em;
+}
+
+header.hero hgroup a.button {
+    background: #102747;
+    color: #fff;
+    font-weight: bold;
+    text-transform: uppercase;
+    padding: 10px 20px;
+    border-radius: 5px;
+    display: inline-block;
+    margin-top: 1em;
+}
+
+header.hero aside {
+    display: none;
+}
+
+header.hero aside * {
+    max-width: 100%;
+}
+
+section.content {
+    padding: 30px 0;
+}
+
+section.content article h2 {
+    color: #888888;
+    font-weight: bold;
+}
+
+section.content article img {
+    display: block;
+    margin: 1em auto;
+}
+
+section.content article blockquote {
+    padding: 0px 20px;
+    margin: 0 0 20px;
+    border-left: 5px solid #eee;
+}
+
+section.content article blockquote p {
+    font-style: italic;
+}
+
+section.content article blockquote small:before {
+    content: '\2014 \00A0';
+}
+
+section.content aside .fb-like {
+    top: 4px;
+    left: 4px;
+}
+
+footer {
+    background: #000;
+    padding: 10px 0;
+    color: #fff;
+}
+
+/* tabletish */
+
+@media (min-width: 480px) {
+
+    header.topbar nav ul li a {
+        font-weight: bold;
+        letter-spacing: 0.1em;
+        margin-left: 20px;
+    }
+
+}
+
+/* desktopish */
+
+@media (min-width: 1000px) {
+
+    header.topbar nav ul li a {
+        font-size: 15px;
+        margin-left: 30px;
+    }
+
+    .width {
+        width: 960px;
+        /* make columns add to <880 for 60 gutter */
+    }
+
+    header.hero hgroup {
+        float: left;
+        width: 440px;
+    }
+
+    header.hero aside {
+        display: block;
+        float: right;
+        width: 440px;
+    }
+
+    section.content article {
+        float: left;
+        width: 660px;
+    }
+
+    section.content aside {
+        float: right;
+        width: 220px;
+    }
+
+}
