@@ -480,10 +480,6 @@ DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               " database The possible merge operators are defined in"
               " utilities/merge_operators.h");
 
-DEFINE_bool(purge_log_after_memtable_flush,
-            rocksdb::Options().purge_log_after_memtable_flush,
-            "");
-
 namespace rocksdb {
 
 // Helper for quickly generating random data.
@@ -1336,8 +1332,6 @@ class Benchmark {
         );
         break;
     }
-    options.purge_log_after_memtable_flush =
-      FLAGS_purge_log_after_memtable_flush;
     if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() !=
           (unsigned int)FLAGS_num_levels) {
