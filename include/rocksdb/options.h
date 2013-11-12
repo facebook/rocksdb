@@ -355,7 +355,7 @@ struct Options {
   // If true, then every store to stable storage will issue a fsync.
   // If false, then every store to stable storage will issue a fdatasync.
   // This parameter should be set to true while storing data to
-  // filesystem like ext3 which can lose files after a reboot.
+  // filesystem like ext3 that can lose files after a reboot.
   // Default: false
   bool use_fsync;
 
@@ -504,7 +504,7 @@ struct Options {
   //    then WAL_size_limit_MB, they will be deleted starting with the
   //    earliest until size_limit is met. All empty files will be deleted.
   // 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-  //    WAL files will be checked every WAL_ttl_secondsi / 2 and those which
+  //    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
   //    are older than WAL_ttl_seconds will be deleted.
   // 4. If both are not 0, WAL files will be checked every 10 min and both
   //    checks will be performed with ttl being first.
@@ -723,7 +723,7 @@ struct WriteOptions {
   // In other words, a DB write with sync==false has similar
   // crash semantics as the "write()" system call.  A DB write
   // with sync==true has similar crash semantics to a "write()"
-  // system call followed by "fsync()".
+  // system call followed by "fdatasync()".
   //
   // Default: false
   bool sync;

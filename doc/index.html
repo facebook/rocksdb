@@ -2,28 +2,30 @@
 <html>
 <head>
 <link rel="stylesheet" type="text/css" href="doc.css" />
-<title>Leveldb</title>
+<title>RocksDB</title>
 </head>
 
 <body>
-<h1>Leveldb</h1>
-<address>Jeff Dean, Sanjay Ghemawat</address>
+<h1>RocksDB</h1>
+<address>The Facebook Database Engineering Team</address>
+<address>Build on earlier work on leveldb by Sanjay Ghemawat
+               (sanjay@google.com) and Jeff Dean (jeff@google.com)</address>
 <p>
-The <code>leveldb</code> library provides a persistent key value store.  Keys and
+The <code>rocksdb</code> library provides a persistent key value store.  Keys and
 values are arbitrary byte arrays.  The keys are ordered within the key
 value store according to a user-specified comparator function.
 
 <p>
 <h1>Opening A Database</h1>
 <p>
-A <code>leveldb</code> database has a name which corresponds to a file system
+A <code>rocksdb</code> database has a name which corresponds to a file system
 directory.  All of the contents of database are stored in this
 directory.  The following example shows how to open a database,
 creating it if necessary:
 <p>
 <pre>
   #include &lt;assert&gt;
-  #include "leveldb/db.h"
+  #include "rocksdb/db.h"
 
   rocksdb::DB* db;
   rocksdb::Options options;
@@ -40,7 +42,7 @@ the following line before the <code>rocksdb::DB::Open</code> call:
 <h1>Status</h1>
 <p>
 You may have noticed the <code>rocksdb::Status</code> type above.  Values of this
-type are returned by most functions in <code>leveldb</code> that may encounter an
+type are returned by most functions in <code>rocksdb</code> that may encounter an
 error.  You can check if such a result is ok, and also print an
 associated error message:
 <p>
@@ -139,10 +141,29 @@ the synchronous write will be amortized across all of the writes in
 the batch.
 
 <p>
+We also provide a way to completely disable Write Ahead Log for a
+particular write. If you set write_option.disableWAL to true, the
+write will not go to the log at all and may be lost in an event of
+process crash.
+
+<p>
+When opening a DB, you can disable syncing of data files by setting
+Options::disableDataSync to true. This can be useful when doing
+bulk-loading or big idempotent operations. Once the operation is
+finished, you can manually call sync() to flush all dirty buffers
+to stable storage.
+
+<p>
+RocksDB by default uses faster fdatasync() to sync files. If you want
+to use fsync(), you can set Options::use_fsync to true. You should set
+this to true on filesystems like ext3 that can lose files after a
+reboot.
+
+<p>
 <h1>Concurrency</h1>
 <p>
 A database may only be opened by one process at a time.
-The <code>leveldb</code> implementation acquires a lock from the
+The <code>rocksdb</code> implementation acquires a lock from the
 operating system to prevent misuse.  Within a single process, the
 same <code>rocksdb::DB</code> object may be safely shared by multiple
 concurrent threads.  I.e., different threads may write into or fetch
@@ -153,6 +174,19 @@ automatically do the required synchronization).  However other objects
 If two threads share such an object, they must protect access to it
 using their own locking protocol.  More details are available in
 the public header files.
+
+<p>
+<h1>Merge operators</h1>
+<p>
+Merge operators provide efficient support for read-modify-write operation.
+More on the interface and implementation can be found on:
+<p>
+<a href="https://github.com/facebook/rocksdb/wiki/Merge-Operator">
+    Merge Operator</a>
+<p>
+<a href="https://github.com/facebook/rocksdb/wiki/Merge-Operator-Implementation">
+    Merge Operator Implementation</a>
+
 <p>
 <h1>Iteration</h1>
 <p>
@@ -215,8 +249,8 @@ are instances of the <code>rocksdb::Slice</code> type.  <code>Slice</code> is a 
 structure that contains a length and a pointer to an external byte
 array.  Returning a <code>Slice</code> is a cheaper alternative to returning a
 <code>std::string</code> since we do not need to copy potentially large keys and
-values.  In addition, <code>leveldb</code> methods do not return null-terminated
-C-style strings since <code>leveldb</code> keys and values are allowed to
+values.  In addition, <code>rocksdb</code> methods do not return null-terminated
+C-style strings since <code>rocksdb</code> keys and values are allowed to
 contain '\0' bytes.
 <p>
 C++ strings and null-terminated C-style strings can be easily converted
@@ -309,16 +343,42 @@ third part to the keys processed by <code>TwoPartComparator</code>),
 (a) keep the same comparator name (b) increment the version number
 for new keys (c) change the comparator function so it uses the
 version numbers found in the keys to decide how to interpret them.
+
+
+<p>
+<h1>MemTable and Table factories</h1>
+<p>
+By default, we keep the data in memory in skiplist memtable and the data
+on disk in a table format described here:
+<a href="https://github.com/facebook/rocksdb/wiki/Rocksdb-Table-Format">
+    RocksDB Table Format</a>.
+<p>
+Since one of the goals of RocksDB is to have
+different parts of the system easily pluggable, we support different
+implementations of both memtable and table format. You can supply
+your own memtable factory by setting <code>Options::memtable_factory</code>
+and your own table factory by setting <code>Options::table_factory</code>.
+For available memtable factories, please refer to
+<code>rocksdb/memtablerep.h</code> and for table factores to
+<code>rocksdb/table.h</code>. These features are both in active development
+and please be wary of any API changes that might break your application
+going forward.
+<p>
+You can also read more about memtables here:
+<a href="https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide#memtables">
+Memtables wiki
+</a>
+
 <p>
 <h1>Performance</h1>
 <p>
 Performance can be tuned by changing the default values of the
-types defined in <code>include/leveldb/options.h</code>.
+types defined in <code>include/rocksdb/options.h</code>.
 
 <p>
 <h2>Block size</h2>
 <p>
-<code>leveldb</code> groups adjacent keys together into the same block and such a
+<code>rocksdb</code> groups adjacent keys together into the same block and such a
 block is the unit of transfer to and from persistent storage.  The
 default block size is approximately 4096 uncompressed bytes.
 Applications that mostly do bulk scans over the contents of the
@@ -328,6 +388,29 @@ size if performance measurements indicate an improvement.  There isn't
 much benefit in using blocks smaller than one kilobyte, or larger than
 a few megabytes.  Also note that compression will be more effective
 with larger block sizes.
+<p>
+<h2>Write buffer</h2>
+<p>
+<code>Options::write_buffer_size</code> specifies the amount of data
+to build up in memory before converting to a sorted on-disk file.
+Larger values increase performance, especially during bulk loads.
+Up to max_write_buffer_number write buffers may be held in memory
+at the same time,
+so you may wish to adjust this parameter to control memory usage.
+Also, a larger write buffer will result in a longer recovery time
+the next time the database is opened.
+Related option is
+<code>Options::max_write_buffer_number</code>, which is maximum number
+of write buffers that are built up in memory. The default is 2, so that
+when 1 write buffer is being flushed to storage, new writes can continue
+to the other write buffer.
+<code>Options::min_write_buffer_number_to_merge</code> is the minimum number
+of write buffers that will be merged together before writing to storage.
+If set to 1, then all write buffers are fushed to L0 as individual files and
+this increases read amplification because a get request has to check in all
+of these files. Also, an in-memory merge may result in writing lesser
+data to storage if there are duplicate records in each of these
+individual write buffers.  Default: 1
 <p>
 <h2>Compression</h2>
 <p>
@@ -347,25 +430,26 @@ performance improvement:
 <p>
 The contents of the database are stored in a set of files in the
 filesystem and each file stores a sequence of compressed blocks.  If
-<code>options.cache</code> is non-NULL, it is used to cache frequently used
-uncompressed block contents.
+<code>options.block_cache</code> is non-NULL, it is used to cache frequently
+used uncompressed block contents. If <code>options.block_cache_compressed</code>
+is non-NULL, it is used to cache frequently used compressed blocks. Compressed
+cache is an alternative to OS cache, which also caches compressed blocks. If
+compressed cache is used, you should disable OS cache by setting
+<code>options.allow_os_buffer</code> to false.
 <p>
 <pre>
-  #include "leveldb/cache.h"
+  #include "rocksdb/cache.h"
 
   rocksdb::Options options;
-  options.cache = rocksdb::NewLRUCache(100 * 1048576);  // 100MB cache
+  options.block_cache = rocksdb::NewLRUCache(100 * 1048576);  // 100MB uncompressed cache
+  options.block_cache_compressed = rocksdb::NewLRUCache(100 * 1048576);  // 100MB compressed cache
   rocksdb::DB* db;
   rocksdb::DB::Open(options, name, &db);
   ... use the db ...
   delete db
-  delete options.cache;
+  delete options.block_cache;
+  delete options.block_cache_compressed;
 </pre>
-Note that the cache holds uncompressed data, and therefore it should
-be sized according to application level data sizes, without any
-reduction from compression.  (Caching of compressed blocks is left to
-the operating system buffer cache, or any custom <code>Env</code>
-implementation provided by the client.)
 <p>
 When performing a bulk read, the application may wish to disable
 caching so that the data processed by the bulk read does not end up
@@ -380,6 +464,9 @@ used to achieve this:
     ...
   }
 </pre>
+<p>
+You can also disable block cache by setting <code>options.no_block_cache</code>
+to true.
 <h2>Key Layout</h2>
 <p>
 Note that the unit of disk transfer and caching is a block.  Adjacent
@@ -389,7 +476,7 @@ by placing keys that are accessed together near each other and placing
 infrequently used keys in a separate region of the key space.
 <p>
 For example, suppose we are implementing a simple file system on top
-of <code>leveldb</code>.  The types of entries we might wish to store are:
+of <code>rocksdb</code>.  The types of entries we might wish to store are:
 <p>
 <pre>
    filename -&gt; permission-bits, length, list of file_block_ids
@@ -402,7 +489,7 @@ contents.
 <p>
 <h2>Filters</h2>
 <p>
-Because of the way <code>leveldb</code> data is organized on disk,
+Because of the way <code>rocksdb</code> data is organized on disk,
 a single <code>Get()</code> call may involve multiple reads from disk.
 The optional <code>FilterPolicy</code> mechanism can be used to reduce
 the number of disk reads substantially.
@@ -461,11 +548,11 @@ also ignores trailing spaces.  For example:
 <p>
 Advanced applications may provide a filter policy that does not use
 a bloom filter but uses some other mechanism for summarizing a set
-of keys.  See <code>leveldb/filter_policy.h</code> for detail.
+of keys.  See <code>rocksdb/filter_policy.h</code> for detail.
 <p>
 <h1>Checksums</h1>
 <p>
-<code>leveldb</code> associates checksums with all data it stores in the file system.
+<code>rocksdb</code> associates checksums with all data it stores in the file system.
 There are two separate controls provided over how aggressively these
 checksums are verified:
 <p>
@@ -485,9 +572,52 @@ checksums are verified:
 <p>
   If a database is corrupted (perhaps it cannot be opened when
   paranoid checking is turned on), the <code>rocksdb::RepairDB</code> function
-  may be used to recover as much of the data as possible
+  may be used to recover as much of the data as possible.
 <p>
 </ul>
+
+<p>
+<h1>Compaction</h1>
+<p>
+You can read more on Compactions here:
+<a href="https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide#multi-threaded-compactions">
+    Multi-threaded compactions
+</a>
+<p>
+Here we give overview of the options that impact behavior of Compactions:
+<ul>
+<p>
+<li><code>Options::compaction_style</code> - RocksDB currently supports two
+compaction algorithms - Compaction style and Level style. This option switches
+between the two.  Can be kCompactionStyleUniversal or kCompactionStyleLevel.
+If this is kCompactionStyleUniversal, then you can configure universal style
+parameters with <code>Options::compaction_options_universal</code>.
+<p>
+<li><code>Options::disable_auto_compactions</code> - Disable automatic compactions.
+Manual compactions can still be issued on this database.
+<p>
+<li><code>Options::compaction_filter</code> - Allows an application to modify/delete
+a key-value during background compaction. The client must provide
+compaction_filter_factory if it requires a new compaction filter to be used
+for different compaction processes. Client should specify only one of filter
+or factory.
+<p>
+<li><code>Options::compaction_filter_factory</code> - a factory that provides
+compaction filter objects which allow an application to modify/delete a
+key-value during background compaction.
+</ul>
+<p>
+Other options impacting performance of compactions and when they get triggered
+are: <code>access_hint_on_compaction_start</code>,
+<code>level0_file_num_compaction_trigger</code>,
+<code>max_mem_compaction_level</code>, <code>target_file_size_base</code>,
+<code>target_file_size_multiplier</code>,
+<code>expanded_compaction_factor</code>, <code>source_compaction_factor</code>,
+<code>max_grandparent_overlap_factor</code>,
+<code>disable_seek_compaction</code>, <code>max_background_compactions</code>.
+<p>
+You can learn more about all of those options in <code>rocksdb/options.h</code>
+
 <h1>Approximate Sizes</h1>
 <p>
 The <code>GetApproximateSizes</code> method can used to get the approximate
@@ -508,11 +638,11 @@ bytes of file system space used by the key range <code>[a..c)</code> and
 <h1>Environment</h1>
 <p>
 All file operations (and other operating system calls) issued by the
-<code>leveldb</code> implementation are routed through a <code>rocksdb::Env</code> object.
+<code>rocksdb</code> implementation are routed through a <code>rocksdb::Env</code> object.
 Sophisticated clients may wish to provide their own <code>Env</code>
 implementation to get better control.  For example, an application may
 introduce artificial delays in the file IO paths to limit the impact
-of <code>leveldb</code> on other activities in the system.
+of <code>rocksdb</code> on other activities in the system.
 <p>
 <pre>
   class SlowEnv : public rocksdb::Env {
@@ -526,22 +656,66 @@ of <code>leveldb</code> on other activities in the system.
 </pre>
 <h1>Porting</h1>
 <p>
-<code>leveldb</code> may be ported to a new platform by providing platform
+<code>rocksdb</code> may be ported to a new platform by providing platform
 specific implementations of the types/methods/functions exported by
-<code>leveldb/port/port.h</code>.  See <code>leveldb/port/port_example.h</code> for more
+<code>rocksdb/port/port.h</code>.  See <code>rocksdb/port/port_example.h</code> for more
 details.
 <p>
 In addition, the new platform may need a new default <code>rocksdb::Env</code>
-implementation.  See <code>leveldb/util/env_posix.h</code> for an example.
+implementation.  See <code>rocksdb/util/env_posix.h</code> for an example.
+
+<h1>Statistics</h1>
+<p>
+To be able to efficiently tune your application, it is always helpful if you
+have access to usage statistics. You can collect those statistics by setting
+<code>Options::table_stats_collectors</code> or
+<code>Options::statistics</code>. For more information, refer to
+<code>rocksdb/table_stats.h</code> and <code>rocksdb/statistics.h</code>.
+These should not add significant overhead to your application and we
+recommend exporting them to other monitoring tools.
+
+<h1>Purging WAL files</h1>
+<p>
+By default, old write-ahead logs are deleted automatically when they fall out
+of scope and application doesn't need them anymore. There are options that
+enable the user to archive the logs and then delete them lazily, either in
+TTL fashion or based on size limit.
+
+The options are <code>Options::WAL_ttl_seconds</code> and
+<code>Options::WAL_size_limit_MB</code>. Here is how they can be used:
+<ul>
+<li>
+<p>
+If both set to 0, logs will be deleted asap and will never get into the archive.
+<li>
+<p>
+If <code>WAL_ttl_seconds</code> is 0 and WAL_size_limit_MB is not 0, WAL
+files will be checked every 10 min and if total size is greater then
+<code>WAL_size_limit_MB</code>, they will be deleted starting with the
+earliest until size_limit is met. All empty files will be deleted.
+<li>
+<p>
+If <code>WAL_ttl_seconds</code> is not 0 and WAL_size_limit_MB is 0, then
+WAL files will be checked every <code>WAL_ttl_seconds / 2</code> and those
+that are older than WAL_ttl_seconds will be deleted.
+<li>
+<p>
+If both are not 0, WAL files will be checked every 10 min and both
+checks will be performed with ttl being first.
+</ul>
+
+You can completely disable WAL file purging by setting
+<code>Options::purge_log_after_memtable_flush</code> to false.
 
 <h1>Other Information</h1>
-
 <p>
-Details about the <code>leveldb</code> implementation may be found in
+Details about the <code>rocksdb</code> implementation may be found in
 the following documents:
 <ul>
-<li> <a href="impl.html">Implementation notes</a>
-<li> <a href="table_format.txt">Format of an immutable Table file</a>
+<li> <a href="https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide">
+  RocksDB Architecture Guide</a>
+<li> <a href="https://github.com/facebook/rocksdb/wiki/Rocksdb-Table-Format">
+    Format of an immutable Table file</a>
 <li> <a href="log_format.txt">Format of a log file</a>
 </ul>
 
