@@ -653,7 +653,8 @@ struct ReadOptions {
   // Default: false
   bool verify_checksums;
 
-  // Should the data read for this iteration be cached in memory?
+  // Should the "data block"/"index block"/"filter block" read for this
+  // iteration be cached in memory?
   // Callers may wish to set this field to false for bulk scans.
   // Default: true
   bool fill_cache;

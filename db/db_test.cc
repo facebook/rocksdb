@@ -698,6 +698,63 @@ TEST(DBTest, ReadWrite) {
   } while (ChangeOptions());
 }
 
+// Make sure that when options.block_cache is set, after a new table is
+// created its index/filter blocks are added to block cache.
+TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
+  Options options = CurrentOptions();
+  std::unique_ptr<const FilterPolicy> filter_policy(NewBloomFilterPolicy(20));
+  options.filter_policy = filter_policy.get();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(&options);
+
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
+  // Create a new talbe.
+  dbfull()->Flush(FlushOptions());
+
+  // index/filter blocks added to block cache right after table creation.
+  ASSERT_EQ(1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(2, /* only index/filter were added */
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
+  ASSERT_EQ(0,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_DATA_MISS));
+
+  // Make sure filter block is in cache.
+  std::string value;
+  ReadOptions ropt;
+  db_->KeyMayExist(ReadOptions(), "key", &value);
+
+  // Miss count should remain the same.
+  ASSERT_EQ(1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+
+  db_->KeyMayExist(ReadOptions(), "key", &value);
+  ASSERT_EQ(1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(2,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+
+  // Make sure index block is in cache.
+  auto index_block_hit =
+    options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT);
+  value = Get("key");
+  ASSERT_EQ(1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(index_block_hit + 1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+
+  value = Get("key");
+  ASSERT_EQ(1,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(index_block_hit + 2,
+            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+}
+
 static std::string Key(int i) {
   char buf[100];
   snprintf(buf, sizeof(buf), "key%06d", i);
@@ -767,6 +824,7 @@ TEST(DBTest, PutDeleteGet) {
     ASSERT_EQ("NOT_FOUND", Get("foo"));
   } while (ChangeOptions());
 }
+
 
 TEST(DBTest, GetFromImmutableLayer) {
   do {
@@ -917,43 +975,46 @@ TEST(DBTest, KeyMayExist) {
     value.clear();
 
     long numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    long cache_miss =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    long cache_added =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
     ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
     ASSERT_TRUE(!value_found);
     // assert that no new files were opened and no new blocks were
     // read into block cache.
     ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_miss,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    ASSERT_EQ(cache_added,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "a"));
 
     numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    cache_added =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
     ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_miss,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    ASSERT_EQ(cache_added,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
 
     dbfull()->Flush(FlushOptions());
     dbfull()->CompactRange(nullptr, nullptr);
 
     numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    cache_added =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
     ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_miss,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    ASSERT_EQ(cache_added,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "c"));
 
     numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    cache_added =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "c", &value));
     ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_miss,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    ASSERT_EQ(cache_added,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
 
     delete options.filter_policy;
   } while (ChangeOptions());
@@ -987,8 +1048,8 @@ TEST(DBTest, NonBlockingIteration) {
     // verify that a non-blocking iterator does not find any
     // kvs. Neither does it do any IOs to storage.
     long numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    long cache_miss =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    long cache_added =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
     iter = db_->NewIterator(non_blocking_opts);
     count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -997,8 +1058,8 @@ TEST(DBTest, NonBlockingIteration) {
     ASSERT_EQ(count, 0);
     ASSERT_TRUE(iter->status().IsIncomplete());
     ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_miss,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    ASSERT_EQ(cache_added,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
     delete iter;
 
     // read in the specified block via a regular get
@@ -1006,7 +1067,8 @@ TEST(DBTest, NonBlockingIteration) {
 
     // verify that we can find it via a non-blocking scan
     numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_miss = options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    cache_added =
+      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
     iter = db_->NewIterator(non_blocking_opts);
     count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -1015,8 +1077,8 @@ TEST(DBTest, NonBlockingIteration) {
     }
     ASSERT_EQ(count, 1);
     ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_miss,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS));
+    ASSERT_EQ(cache_added,
+              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
     delete iter;
 
   } while (ChangeOptions());
@@ -3534,7 +3596,7 @@ TEST(DBTest, BloomFilter) {
     env_->count_random_reads_ = true;
     Options options = CurrentOptions();
     options.env = env_;
-    options.block_cache = NewLRUCache(0);  // Prevent cache hits
+    options.no_block_cache = true;
     options.filter_policy = NewBloomFilterPolicy(10);
     Reopen(&options);
 
@@ -4128,7 +4190,7 @@ TEST(DBTest, ReadCompaction) {
     options.write_buffer_size = 64 * 1024;
     options.filter_policy = nullptr;
     options.block_size = 4096;
-    options.block_cache = NewLRUCache(0);  // Prevent cache hits
+    options.no_block_cache = true;
 
     Reopen(&options);
 
@@ -4708,7 +4770,7 @@ TEST(DBTest, PrefixScan) {
     env_->count_random_reads_ = true;
     Options options = CurrentOptions();
     options.env = env_;
-    options.block_cache = NewLRUCache(0);  // Prevent cache hits
+    options.no_block_cache = true;
     options.filter_policy =  NewBloomFilterPolicy(10);
     options.prefix_extractor = prefix_extractor;
     options.whole_key_filtering = false;

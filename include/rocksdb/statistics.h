@@ -23,9 +23,32 @@ namespace rocksdb {
  * And incrementing TICKER_ENUM_MAX.
  */
 enum Tickers {
+  // total block cache misses
+  // REQUIRES: BLOCK_CACHE_MISS == BLOCK_CACHE_INDEX_MISS +
+  //                               BLOCK_CACHE_FILTER_MISS +
+  //                               BLOCK_CACHE_DATA_MISS;
   BLOCK_CACHE_MISS,
+  // total block cache hit
+  // REQUIRES: BLOCK_CACHE_HIT == BLOCK_CACHE_INDEX_HIT +
+  //                              BLOCK_CACHE_FILTER_HIT +
+  //                              BLOCK_CACHE_DATA_HIT;
   BLOCK_CACHE_HIT,
-  BLOOM_FILTER_USEFUL, // no. of times bloom filter has avoided file reads.
+  // # of blocks added to block cache.
+  BLOCK_CACHE_ADD,
+  // # of times cache miss when accessing index block from block cache.
+  BLOCK_CACHE_INDEX_MISS,
+  // # of times cache hit when accessing index block from block cache.
+  BLOCK_CACHE_INDEX_HIT,
+  // # of times cache miss when accessing filter block from block cache.
+  BLOCK_CACHE_FILTER_MISS,
+  // # of times cache hit when accessing filter block from block cache.
+  BLOCK_CACHE_FILTER_HIT,
+  // # of times cache miss when accessing data block from block cache.
+  BLOCK_CACHE_DATA_MISS,
+  // # of times cache hit when accessing data block from block cache.
+  BLOCK_CACHE_DATA_HIT,
+  // # of times bloom filter has avoided file reads.
+  BLOOM_FILTER_USEFUL,
 
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
@@ -93,6 +116,13 @@ enum Tickers {
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { BLOCK_CACHE_MISS, "rocksdb.block.cache.miss" },
   { BLOCK_CACHE_HIT, "rocksdb.block.cache.hit" },
+  { BLOCK_CACHE_ADD, "rocksdb.block.cache.add" },
+  { BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss" },
+  { BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit" },
+  { BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss" },
+  { BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit" },
+  { BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss" },
+  { BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit" },
   { BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful" },
   { COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new" },
   { COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete" },

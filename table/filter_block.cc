@@ -127,7 +127,8 @@ void FilterBlockBuilder::GenerateFilter() {
   start_.clear();
 }
 
-FilterBlockReader::FilterBlockReader(const Options& opt, const Slice& contents)
+FilterBlockReader::FilterBlockReader(
+    const Options& opt, const Slice& contents, bool delete_contents_after_use)
     : policy_(opt.filter_policy),
       prefix_extractor_(opt.prefix_extractor),
       whole_key_filtering_(opt.whole_key_filtering),
@@ -143,6 +144,9 @@ FilterBlockReader::FilterBlockReader(const Options& opt, const Slice& contents)
   data_ = contents.data();
   offset_ = data_ + last_word;
   num_ = (n - 5 - last_word) / 4;
+  if (delete_contents_after_use) {
+    filter_data.reset(contents.data());
+  }
 }
 
 bool FilterBlockReader::KeyMayMatch(uint64_t block_offset,

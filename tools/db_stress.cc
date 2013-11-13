@@ -1285,11 +1285,11 @@ class StressTest {
       ttl_state = NumberToString(FLAGS_ttl);
     }
     fprintf(stdout, "Time to live(sec)   : %s\n", ttl_state.c_str());
-    fprintf(stdout, "Read percentage     : %d\n", FLAGS_readpercent);
-    fprintf(stdout, "Prefix percentage   : %d\n", FLAGS_prefixpercent);
-    fprintf(stdout, "Write percentage    : %d\n", FLAGS_writepercent);
-    fprintf(stdout, "Delete percentage   : %d\n", FLAGS_delpercent);
-    fprintf(stdout, "Iterate percentage  : %d\n", FLAGS_iterpercent);
+    fprintf(stdout, "Read percentage     : %d%%\n", FLAGS_readpercent);
+    fprintf(stdout, "Prefix percentage   : %d%%\n", FLAGS_prefixpercent);
+    fprintf(stdout, "Write percentage    : %d%%\n", FLAGS_writepercent);
+    fprintf(stdout, "Delete percentage   : %d%%\n", FLAGS_delpercent);
+    fprintf(stdout, "Iterate percentage  : %d%%\n", FLAGS_iterpercent);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
     fprintf(stdout, "Iterations          : %lu\n", FLAGS_num_iterations);
     fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);

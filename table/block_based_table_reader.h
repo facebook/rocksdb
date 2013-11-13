@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/table_stats.h"
 #include "rocksdb/table.h"
 #include "util/coding.h"
@@ -27,6 +28,7 @@ class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
 class TableReader;
+class FilterBlockReader;
 
 using std::unique_ptr;
 
@@ -91,6 +93,9 @@ class BlockBasedTable : public TableReader {
   ~BlockBasedTable();
 
  private:
+  template <class TValue>
+  struct CachableEntry;
+
   struct Rep;
   Rep* rep_;
   bool compaction_optimized_;
@@ -98,8 +103,36 @@ class BlockBasedTable : public TableReader {
   static Iterator* BlockReader(void*, const ReadOptions&,
                                const EnvOptions& soptions, const Slice&,
                                bool for_compaction);
+
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
                                bool* didIO, bool for_compaction = false);
+
+  // if `no_io == true`, we will not try to read filter from sst file
+  // if it is not cached yet.
+  CachableEntry<FilterBlockReader> GetFilter(bool no_io = false) const;
+
+  Iterator* IndexBlockReader(const ReadOptions& options) const;
+
+  // Read the block, either from sst file or from cache. This method will try
+  // to read from cache only when block_cache is set or ReadOption doesn't
+  // explicitly prohibit storage IO.
+  //
+  // If the block is read from cache, the statistics for cache miss/hit of the
+  // the given type of block will be updated. User can specify
+  // `block_cache_miss_ticker` and `block_cache_hit_ticker` for the statistics
+  // update.
+  //
+  // On success, the `result` parameter will be populated, which contains a
+  // pointer to the block and its cache handle, which will be nullptr if it's
+  // not read from the cache.
+  static Status GetBlock(const BlockBasedTable* table,
+                         const BlockHandle& handle,
+                         const ReadOptions& options,
+                         bool for_compaction,
+                         Tickers block_cache_miss_ticker,
+                         Tickers block_cache_hit_ticker,
+                         bool* didIO,
+                         CachableEntry<Block>* result);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -110,6 +143,22 @@ class BlockBasedTable : public TableReader {
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
   static Status ReadStats(const Slice& handle_value, Rep* rep);
+
+  // Read the meta block from sst.
+  static Status ReadMetaBlock(
+      Rep* rep,
+      std::unique_ptr<Block>* meta_block,
+      std::unique_ptr<Iterator>* iter);
+
+  // Create the filter from the filter block.
+  static FilterBlockReader* ReadFilter(
+      const Slice& filter_handle_value,
+      Rep* rep,
+      size_t* filter_size = nullptr);
+
+  // Read the table stats from stats block.
+  static Status ReadStats(
+      const Slice& handle_value, Rep* rep, TableStats* stats);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 

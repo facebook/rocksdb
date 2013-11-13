@@ -12,6 +12,8 @@
 // into a single filter block.
 
 #pragma once
+
+#include <memory>
 #include <stddef.h>
 #include <stdint.h>
 #include <string>
@@ -62,7 +64,10 @@ class FilterBlockBuilder {
 class FilterBlockReader {
  public:
  // REQUIRES: "contents" and *policy must stay live while *this is live.
-  FilterBlockReader(const Options& opt, const Slice& contents);
+  FilterBlockReader(
+    const Options& opt,
+    const Slice& contents,
+    bool delete_contents_after_use = false);
   bool KeyMayMatch(uint64_t block_offset, const Slice& key);
   bool PrefixMayMatch(uint64_t block_offset, const Slice& prefix);
 
@@ -74,6 +79,8 @@ class FilterBlockReader {
   const char* offset_;  // Pointer to beginning of offset array (at block-end)
   size_t num_;          // Number of entries in offset array
   size_t base_lg_;      // Encoding parameter (see kFilterBaseLg in .cc file)
+  std::unique_ptr<const char[]> filter_data;
+
 
   bool MayMatch(uint64_t block_offset, const Slice& entry);
 };

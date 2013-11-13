@@ -12,18 +12,19 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "db/db_statistics.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/table.h"
 #include "rocksdb/memtablerep.h"
-#include "table/block.h"
-#include "table/block_builder.h"
-#include "table/format.h"
-#include "table/block_based_table_reader.h"
 #include "table/block_based_table_builder.h"
+#include "table/block_based_table_reader.h"
+#include "table/block_builder.h"
+#include "table/block.h"
+#include "table/format.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -486,8 +487,7 @@ struct TestArgs {
 };
 
 
-static std::vector<TestArgs> Generate_Arg_List()
-{
+static std::vector<TestArgs> Generate_Arg_List() {
   std::vector<TestArgs> ret;
   TestType test_type[4] = {TABLE_TEST, BLOCK_TEST, MEMTABLE_TEST, DB_TEST};
   int test_type_len = 4;
@@ -926,6 +926,181 @@ TEST(TableTest, NumBlockStat) {
       kvmap.size(),
       c.table_reader()->GetTableStats().num_data_blocks
   );
+}
+
+class BlockCacheStats {
+ public:
+  explicit BlockCacheStats(std::shared_ptr<Statistics> statistics) {
+    block_cache_miss =
+      statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+    block_cache_hit =
+      statistics.get()->getTickerCount(BLOCK_CACHE_HIT);
+    index_block_cache_miss =
+      statistics.get()->getTickerCount(BLOCK_CACHE_INDEX_MISS);
+    index_block_cache_hit =
+      statistics.get()->getTickerCount(BLOCK_CACHE_INDEX_HIT);
+    data_block_cache_miss =
+      statistics.get()->getTickerCount(BLOCK_CACHE_DATA_MISS);
+    data_block_cache_hit =
+      statistics.get()->getTickerCount(BLOCK_CACHE_DATA_HIT);
+  }
+
+  // Check if the fetched stats matches the expected ones.
+  void AssertEqual(
+      long index_block_cache_miss,
+      long index_block_cache_hit,
+      long data_block_cache_miss,
+      long data_block_cache_hit) const {
+    ASSERT_EQ(index_block_cache_miss, this->index_block_cache_miss);
+    ASSERT_EQ(index_block_cache_hit, this->index_block_cache_hit);
+    ASSERT_EQ(data_block_cache_miss, this->data_block_cache_miss);
+    ASSERT_EQ(data_block_cache_hit, this->data_block_cache_hit);
+    ASSERT_EQ(
+        index_block_cache_miss + data_block_cache_miss,
+        this->block_cache_miss
+    );
+    ASSERT_EQ(
+        index_block_cache_hit + data_block_cache_hit,
+        this->block_cache_hit
+    );
+  }
+
+ private:
+  long block_cache_miss = 0;
+  long block_cache_hit = 0;
+  long index_block_cache_miss = 0;
+  long index_block_cache_hit = 0;
+  long data_block_cache_miss = 0;
+  long data_block_cache_hit = 0;
+};
+
+TEST(TableTest, BlockCacheTest) {
+  // -- Table construction
+  Options options;
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.block_cache = NewLRUCache(1024);
+  std::vector<std::string> keys;
+  KVMap kvmap;
+
+  BlockBasedTableConstructor c(BytewiseComparator());
+  c.Add("key", "value");
+  c.Finish(options, &keys, &kvmap);
+
+  // -- PART 1: Open with regular block cache.
+  // Since block_cache is disabled, no cache activities will be involved.
+  unique_ptr<Iterator> iter;
+
+  // At first, no block will be accessed.
+  {
+    BlockCacheStats stats(options.statistics);
+    // index will be added to block cache.
+    stats.AssertEqual(
+        1,  // index block miss
+        0,
+        0,
+        0
+    );
+  }
+
+  // Only index block will be accessed
+  {
+    iter.reset(c.NewIterator());
+    BlockCacheStats stats(options.statistics);
+    // NOTE: to help better highlight the "detla" of each ticker, I use
+    // <last_value> + <added_value> to indicate the increment of changed
+    // value; other numbers remain the same.
+    stats.AssertEqual(
+        1,
+        0 + 1,  // index block hit
+        0,
+        0
+    );
+  }
+
+  // Only data block will be accessed
+  {
+    iter->SeekToFirst();
+    BlockCacheStats stats(options.statistics);
+    stats.AssertEqual(
+        1,
+        1,
+        0 + 1,  // data block miss
+        0
+    );
+  }
+
+  // Data block will be in cache
+  {
+    iter.reset(c.NewIterator());
+    iter->SeekToFirst();
+    BlockCacheStats stats(options.statistics);
+    stats.AssertEqual(
+        1,
+        1 + 1,  // index block hit
+        1,
+        0 + 1  // data block hit
+    );
+  }
+  // release the iterator so that the block cache can reset correctly.
+  iter.reset();
+
+  // -- PART 2: Open without block cache
+  options.block_cache.reset();
+  options.statistics = CreateDBStatistics();  // reset the stats
+  c.Reopen(options);
+
+  {
+    iter.reset(c.NewIterator());
+    iter->SeekToFirst();
+    ASSERT_EQ("key", iter->key().ToString());
+    BlockCacheStats stats(options.statistics);
+    // Nothing is affected at all
+    stats.AssertEqual(0, 0, 0, 0);
+  }
+
+  // -- PART 3: Open with very small block cache
+  // In this test, no block will ever get hit since the block cache is
+  // too small to fit even one entry.
+  options.block_cache = NewLRUCache(1);
+  c.Reopen(options);
+  {
+    BlockCacheStats stats(options.statistics);
+    stats.AssertEqual(
+        1,  // index block miss
+        0,
+        0,
+        0
+    );
+  }
+
+
+  {
+    // Both index and data block get accessed.
+    // It first cache index block then data block. But since the cache size
+    // is only 1, index block will be purged after data block is inserted.
+    iter.reset(c.NewIterator());
+    BlockCacheStats stats(options.statistics);
+    stats.AssertEqual(
+        1 + 1,  // index block miss
+        0,
+        0,  // data block miss
+        0
+    );
+  }
+
+  {
+    // SeekToFirst() accesses data block. With similar reason, we expect data
+    // block's cache miss.
+    iter->SeekToFirst();
+    BlockCacheStats stats(options.statistics);
+    stats.AssertEqual(
+        2,
+        0,
+        0 + 1,  // data block miss
+        0
+    );
+  }
 }
 
 TEST(TableTest, ApproximateOffsetOfPlain) {
