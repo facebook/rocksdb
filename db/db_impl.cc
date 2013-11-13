@@ -505,7 +505,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   state.all_files.reserve(state.all_files.size() +
       state.sst_delete_files.size());
   for (auto file : state.sst_delete_files) {
-    state.all_files.push_back(TableFileName("", file->number));
+    state.all_files.push_back(TableFileName("", file->number).substr(1));
     delete file;
   }
 
@@ -513,11 +513,16 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       state.log_delete_files.size());
   for (auto filenum : state.log_delete_files) {
     if (filenum > 0) {
-      state.all_files.push_back(LogFileName("", filenum));
+      state.all_files.push_back(LogFileName("", filenum).substr(1));
     }
   }
 
-  for (size_t i = 0; i < state.all_files.size(); i++) {
+  // dedup state.all_files so we don't try to delete the same
+  // file twice
+  sort(state.all_files.begin(), state.all_files.end());
+  auto unique_end = unique(state.all_files.begin(), state.all_files.end());
+
+  for (size_t i = 0; state.all_files.begin() + i < unique_end; i++) {
     if (ParseFileName(state.all_files[i], &number, &type)) {
       bool keep = true;
       switch (type) {
@@ -557,22 +562,25 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           // evict from cache
           table_cache_->Evict(number);
         }
-        Log(options_.info_log, "Delete type=%d #%llu", int(type), number);
+        std::string fname = dbname_ + "/" + state.all_files[i];
+
+        Log(options_.info_log, "Delete type=%d #%lu -- %s",
+            int(type), number, fname.c_str());
 
         Status st;
         if (type == kLogFile && (options_.WAL_ttl_seconds > 0 ||
               options_.WAL_size_limit_MB > 0)) {
-            st = env_->RenameFile(dbname_ + "/" + state.all_files[i],
-                                  ArchivedLogFileName(options_.wal_dir,
-                                                      number));
+            st = env_->RenameFile(fname,
+                ArchivedLogFileName(options_.wal_dir, number));
             if (!st.ok()) {
-              Log(options_.info_log, "RenameFile logfile #%llu FAILED", number);
+              Log(options_.info_log, "RenameFile logfile #%lu FAILED -- %s\n",
+                  number, st.ToString().c_str());
             }
         } else {
-          st = env_->DeleteFile(dbname_ + "/" + state.all_files[i]);
+          st = env_->DeleteFile(fname);
           if (!st.ok()) {
-            Log(options_.info_log, "Delete type=%d #%llu FAILED\n",
-                int(type), number);
+            Log(options_.info_log, "Delete type=%d #%lu FAILED -- %s\n",
+                int(type), number, st.ToString().c_str());
           }
         }
       }
