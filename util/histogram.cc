@@ -169,7 +169,7 @@ std::string HistogramImpl::ToString() const {
              // left
              (unsigned long)((b == 0) ? 0 : bucketMapper.BucketLimit(b-1)),
              (unsigned long)bucketMapper.BucketLimit(b), // right
-             buckets_[b],                 // count
+             (unsigned long)buckets_[b],                 // count
              (mult * buckets_[b]),        // percentage
              (mult * sum));               // cumulative percentage
     r.append(buf);
