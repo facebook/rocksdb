@@ -369,7 +369,7 @@ endif
 # the correct path prefix.
 %.d: %.cc
 	$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -MM $< -o $@
-	@sed -i -e 's|.*:|$*.o:|' $@
+	@sed -i -e 's/.*:/$*.o:/' $@
 
 DEPFILES = $(filter-out util/build_version.d,$(SOURCES:.cc=.d))
 
