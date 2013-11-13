@@ -543,6 +543,7 @@ class Harness {
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
     options_.block_size = 256;
+    options_.SetUpDefaultFlushBlockPolicyFactory();
     if (args.reverse_compare) {
       options_.comparator = &reverse_key_comparator;
     }
@@ -909,6 +910,8 @@ TEST(TableTest, NumBlockStat) {
   options.compression = kNoCompression;
   options.block_restart_interval = 1;
   options.block_size = 1000;
+  options.SetUpDefaultFlushBlockPolicyFactory();
+
   // Block Size changed, need to set up a new flush policy to reflect the
   // change.
   options.SetUpDefaultFlushBlockPolicyFactory();
@@ -976,7 +979,7 @@ class BlockCacheStats {
 
 TEST(TableTest, BlockCacheTest) {
   // -- Table construction
-  Options options;
+  Options options = GetDefaultOptions();
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
   options.block_cache = NewLRUCache(1024);
@@ -1116,6 +1119,7 @@ TEST(TableTest, ApproximateOffsetOfPlain) {
   KVMap kvmap;
   Options options = GetDefaultOptions();
   options.block_size = 1024;
+  options.SetUpDefaultFlushBlockPolicyFactory();
   options.compression = kNoCompression;
   c.Finish(options, &keys, &kvmap);
 
@@ -1145,6 +1149,7 @@ static void Do_Compression_Test(CompressionType comp) {
   KVMap kvmap;
   Options options = GetDefaultOptions();
   options.block_size = 1024;
+  options.SetUpDefaultFlushBlockPolicyFactory();
   options.compression = comp;
   c.Finish(options, &keys, &kvmap);
 
@@ -1187,6 +1192,7 @@ TEST(TableTest, BlockCacheLeak) {
 
   Options opt = GetDefaultOptions();
   opt.block_size = 1024;
+  opt.SetUpDefaultFlushBlockPolicyFactory();
   opt.compression = kNoCompression;
   opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever
                                                // lose cached values.

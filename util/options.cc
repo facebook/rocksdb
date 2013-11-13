@@ -332,7 +332,6 @@ Options::PrepareForBulkLoad()
 }
 
 Options* Options::SetUpDefaultFlushBlockPolicyFactory() {
-  assert(!flush_block_policy_factory);
   flush_block_policy_factory =
     std::make_shared<FlushBlockBySizePolicyFactory>(
         block_size, block_size_deviation);
