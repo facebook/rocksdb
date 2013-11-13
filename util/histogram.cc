@@ -165,12 +165,13 @@ std::string HistogramImpl::ToString() const {
     if (buckets_[b] <= 0.0) continue;
     sum += buckets_[b];
     snprintf(buf, sizeof(buf),
-             "[ %7llu, %7llu ) %8llu %7.3f%% %7.3f%% ",
-             ((b == 0) ? 0 : bucketMapper.BucketLimit(b-1)),      // left
-             bucketMapper.BucketLimit(b),                           // right
-             buckets_[b],                             // count
-             mult * buckets_[b],                      // percentage
-             mult * sum);                             // cumulative percentage
+             "[ %7lu, %7lu ) %8lu %7.3f%% %7.3f%% ",
+             // left
+             (unsigned long)((b == 0) ? 0 : bucketMapper.BucketLimit(b-1)),
+             (unsigned long)bucketMapper.BucketLimit(b), // right
+             buckets_[b],                 // count
+             (mult * buckets_[b]),        // percentage
+             (mult * sum));               // cumulative percentage
     r.append(buf);
 
     // Add hash marks based on percentage; 20 marks for 100%.

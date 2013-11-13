@@ -205,10 +205,12 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
   if (batchSeq != expectedSeq) {
     char buf[200];
     snprintf(buf, sizeof(buf),
-             "Discontinuity in log records. Got seq=%llu, Expected seq=%llu, "
-             "Last flushed seq=%llu.Log iterator will reseek the correct "
+             "Discontinuity in log records. Got seq=%lu, Expected seq=%lu, "
+             "Last flushed seq=%lu.Log iterator will reseek the correct "
              "batch.",
-             batchSeq, expectedSeq, dbimpl_->GetLatestSequenceNumber());
+             (unsigned long)batchSeq,
+             (unsigned long)expectedSeq,
+             (unsigned long)dbimpl_->GetLatestSequenceNumber());
     reporter_.Info(buf);
     return false;
   }

@@ -161,8 +161,8 @@ Options::Dump(Logger* log) const
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);
     Log(log,"     Options.max_log_file_size: %ld", max_log_file_size);
-    Log(log,"Options.max_manifest_file_size: %llu",
-      max_manifest_file_size);
+    Log(log,"Options.max_manifest_file_size: %lu",
+        (unsigned long)max_manifest_file_size);
     Log(log,"     Options.log_file_time_to_roll: %ld", log_file_time_to_roll);
     Log(log,"     Options.keep_log_file_num: %ld", keep_log_file_num);
     Log(log," Options.db_stats_log_interval: %d",
@@ -192,16 +192,16 @@ Options::Dump(Logger* log) const
         target_file_size_base);
     Log(log,"            Options.target_file_size_multiplier: %d",
         target_file_size_multiplier);
-    Log(log,"               Options.max_bytes_for_level_base: %llu",
-        max_bytes_for_level_base);
+    Log(log,"               Options.max_bytes_for_level_base: %lu",
+        (unsigned long)max_bytes_for_level_base);
     Log(log,"         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);
     for (int i = 0; i < num_levels; i++) {
       Log(log,"Options.max_bytes_for_level_multiplier_addtl[%d]: %d",
           i, max_bytes_for_level_multiplier_additional[i]);
     }
-    Log(log,"      Options.max_sequential_skip_in_iterations: %llu",
-        max_sequential_skip_in_iterations);
+    Log(log,"      Options.max_sequential_skip_in_iterations: %lu",
+        (unsigned long)max_sequential_skip_in_iterations);
     Log(log,"             Options.expanded_compaction_factor: %d",
         expanded_compaction_factor);
     Log(log,"               Options.source_compaction_factor: %d",
@@ -222,8 +222,8 @@ Options::Dump(Logger* log) const
         table_cache_remove_scan_count_limit);
     Log(log,"                       Options.arena_block_size: %ld",
         arena_block_size);
-    Log(log,"    Options.delete_obsolete_files_period_micros: %llu",
-        delete_obsolete_files_period_micros);
+    Log(log,"    Options.delete_obsolete_files_period_micros: %lu",
+        (unsigned long)delete_obsolete_files_period_micros);
     Log(log,"             Options.max_background_compactions: %d",
         max_background_compactions);
     Log(log,"                 Options.max_background_flushes: %d",
@@ -236,10 +236,10 @@ Options::Dump(Logger* log) const
         rate_limit_delay_max_milliseconds);
     Log(log,"               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Log(log,"                        Options.WAL_ttl_seconds: %llu",
-        WAL_ttl_seconds);
-    Log(log,"                      Options.WAL_size_limit_MB: %llu",
-                 WAL_size_limit_MB);
+    Log(log,"                        Options.WAL_ttl_seconds: %lu",
+        (unsigned long)WAL_ttl_seconds);
+    Log(log,"                      Options.WAL_size_limit_MB: %lu",
+        (unsigned long)WAL_size_limit_MB);
     Log(log,"            Options.manifest_preallocation_size: %ld",
         manifest_preallocation_size);
     Log(log,"         Options.purge_redundant_kvs_while_flush: %d",
@@ -264,8 +264,8 @@ Options::Dump(Logger* log) const
         access_hints[access_hint_on_compaction_start]);
     Log(log,"                      Options.use_adaptive_mutex: %d",
         use_adaptive_mutex);
-    Log(log,"                          Options.bytes_per_sync: %llu",
-        bytes_per_sync);
+    Log(log,"                          Options.bytes_per_sync: %lu",
+        (unsigned long)bytes_per_sync);
     Log(log,"                          Options.filter_deletes: %d",
         filter_deletes);
     Log(log,"                        Options.compaction_style: %d",

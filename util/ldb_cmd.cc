@@ -508,7 +508,10 @@ void ManifestDumpCommand::DoCommand() {
     while ((entry = readdir(d)) != nullptr) {
       unsigned int match;
       unsigned long long num;
-      if (sscanf(entry->d_name, "MANIFEST-%llu%n", &num, &match)
+      if (sscanf(entry->d_name,
+                 "MANIFEST-%ln%ln",
+                 (unsigned long*)&num,
+                 (unsigned long*)&match)
           && match == strlen(entry->d_name)) {
         if (!found) {
           manifestfile = db_path_ + "/" + std::string(entry->d_name);
@@ -570,13 +573,15 @@ void PrintBucketCounts(const vector<uint64_t>& bucket_counts, int ttl_start,
       int ttl_end, int bucket_size, int num_buckets) {
   int time_point = ttl_start;
   for(int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
-    fprintf(stdout, "Keys in range %s to %s : %llu\n",
+    fprintf(stdout, "Keys in range %s to %s : %lu\n",
             ReadableTime(time_point).c_str(),
-            ReadableTime(time_point + bucket_size).c_str(), bucket_counts[i]);
+            ReadableTime(time_point + bucket_size).c_str(),
+            (unsigned long)bucket_counts[i]);
   }
-  fprintf(stdout, "Keys in range %s to %s : %llu\n",
+  fprintf(stdout, "Keys in range %s to %s : %lu\n",
           ReadableTime(time_point).c_str(),
-          ReadableTime(ttl_end).c_str(), bucket_counts[num_buckets - 1]);
+          ReadableTime(ttl_end).c_str(),
+          (unsigned long)bucket_counts[num_buckets - 1]);
 }
 
 const string InternalDumpCommand::ARG_COUNT_ONLY = "count_only";
@@ -1424,7 +1429,7 @@ void ApproxSizeCommand::DoCommand() {
   ranges[0] = Range(start_key_, end_key_);
   uint64_t sizes[1];
   db_->GetApproximateSizes(ranges, 1, sizes);
-  fprintf(stdout, "%llu\n", sizes[0]);
+  fprintf(stdout, "%lu\n", (unsigned long)sizes[0]);
   /* Weird that GetApproximateSizes() returns void, although documentation
    * says that it returns a Status object.
   if (!st.ok()) {

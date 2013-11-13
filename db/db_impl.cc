@@ -563,9 +563,10 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           table_cache_->Evict(number);
         }
         std::string fname = dbname_ + "/" + state.all_files[i];
-
-        Log(options_.info_log, "Delete type=%d #%lu -- %s",
-            int(type), number, fname.c_str());
+        Log(options_.info_log,
+            "Delete type=%d #%lu",
+            int(type),
+            (unsigned long)number);
 
         Status st;
         if (type == kLogFile && (options_.WAL_ttl_seconds > 0 ||
@@ -573,14 +574,15 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
             st = env_->RenameFile(fname,
                 ArchivedLogFileName(options_.wal_dir, number));
             if (!st.ok()) {
-              Log(options_.info_log, "RenameFile logfile #%lu FAILED -- %s\n",
-                  number, st.ToString().c_str());
+              Log(options_.info_log,
+                  "RenameFile logfile #%lu FAILED",
+                  (unsigned long)number);
             }
         } else {
           st = env_->DeleteFile(fname);
           if (!st.ok()) {
-            Log(options_.info_log, "Delete type=%d #%lu FAILED -- %s\n",
-                int(type), number, st.ToString().c_str());
+            Log(options_.info_log, "Delete type=%d #%lu FAILED\n",
+                int(type), (unsigned long)number);
           }
         }
       }
@@ -887,8 +889,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
   // large sequence numbers).
   log::Reader reader(std::move(file), &reporter, true/*checksum*/,
                      0/*initial_offset*/);
-  Log(options_.info_log, "Recovering log #%llu",
-      (unsigned long long) log_number);
+  Log(options_.info_log, "Recovering log #%lu",
+      (unsigned long) log_number);
 
   // Read all the records and add to a memtable
   std::string scratch;
@@ -956,8 +958,8 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mem->GetFirstSequenceNumber();
-  Log(options_.info_log, "Level-0 table #%llu: started",
-      (unsigned long long) meta.number);
+  Log(options_.info_log, "Level-0 table #%lu: started",
+      (unsigned long) meta.number);
 
   Status s;
   {
@@ -970,9 +972,9 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
     mutex_.Lock();
   }
 
-  Log(options_.info_log, "Level-0 table #%llu: %lld bytes %s",
-      (unsigned long long) meta.number,
-      (unsigned long long) meta.file_size,
+  Log(options_.info_log, "Level-0 table #%lu: %lu bytes %s",
+      (unsigned long) meta.number,
+      (unsigned long) meta.file_size,
       s.ToString().c_str());
   delete iter;
 
@@ -1008,8 +1010,8 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   std::vector<Iterator*> list;
   for (MemTable* m : mems) {
     Log(options_.info_log,
-        "Flushing memtable with log file: %llu\n",
-        m->GetLogNumber());
+        "Flushing memtable with log file: %lu\n",
+        (unsigned long)m->GetLogNumber());
     list.push_back(m->NewIterator());
   }
   Iterator* iter = NewMergingIterator(&internal_comparator_, &list[0],
@@ -1017,7 +1019,9 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mems[0]->GetFirstSequenceNumber();
-  Log(options_.info_log, "Level-0 flush table #%llu: started", meta.number);
+  Log(options_.info_log,
+      "Level-0 flush table #%lu: started",
+      (unsigned long)meta.number);
 
   Version* base = versions_->current();
   base->Ref();          // it is likely that we do not need this reference
@@ -1038,9 +1042,9 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   }
   base->Unref();
 
-  Log(options_.info_log, "Level-0 flush table #%llu: %lld bytes %s",
-      (unsigned long long) meta.number,
-      (unsigned long long) meta.file_size,
+  Log(options_.info_log, "Level-0 flush table #%lu: %lu bytes %s",
+      (unsigned long) meta.number,
+      (unsigned long) meta.file_size,
       s.ToString().c_str());
   delete iter;
 
@@ -1969,10 +1973,10 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
     delete iter;
     if (s.ok()) {
       Log(options_.info_log,
-          "Generated table #%llu: %lld keys, %lld bytes",
-          (unsigned long long) output_number,
-          (unsigned long long) current_entries,
-          (unsigned long long) current_bytes);
+          "Generated table #%lu: %lu keys, %lu bytes",
+          (unsigned long) output_number,
+          (unsigned long) current_entries,
+          (unsigned long) current_bytes);
     }
   }
   return s;
@@ -2037,8 +2041,9 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
     assert(prev);
   }
   Log(options_.info_log,
-      "Looking for seqid %llu but maxseqid is %llu", in,
-      snapshots[snapshots.size()-1]);
+      "Looking for seqid %lu but maxseqid is %lu",
+      (unsigned long)in,
+      (unsigned long)snapshots[snapshots.size()-1]);
   assert(0);
   return 0;
 }
@@ -2949,9 +2954,6 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       stall_level0_slowdown_ += delayed;
       stall_level0_slowdown_count_++;
       allow_delay = false;  // Do not delay a single write more than once
-      //Log(options_.info_log,
-      //    "delaying write %llu usecs for level0_slowdown_writes_trigger\n",
-      //     (long long unsigned int)delayed);
       mutex_.Lock();
       delayed_writes_++;
     } else if (!force &&
@@ -3014,9 +3016,6 @@ Status DBImpl::MakeRoomForWrite(bool force) {
           (unsigned)options_.rate_limit_delay_max_milliseconds) {
         allow_hard_rate_limit_delay = false;
       }
-      // Log(options_.info_log,
-      //    "delaying write %llu usecs for rate limits with max score %.2f\n",
-      //    (long long unsigned int)delayed, score);
       mutex_.Lock();
     } else if (
         allow_soft_rate_limit_delay &&
@@ -3068,8 +3067,8 @@ Status DBImpl::MakeRoomForWrite(bool force) {
           internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
       mem_->Ref();
       Log(options_.info_log,
-          "New memtable created with log file: #%llu\n",
-          logfile_number_);
+          "New memtable created with log file: #%lu\n",
+          (unsigned long)logfile_number_);
       mem_->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
