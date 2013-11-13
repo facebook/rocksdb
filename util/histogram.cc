@@ -165,7 +165,7 @@ std::string HistogramImpl::ToString() const {
     if (buckets_[b] <= 0.0) continue;
     sum += buckets_[b];
     snprintf(buf, sizeof(buf),
-             "[ %7ld, %7ld ) %8ld %7.3f%% %7.3f%% ",
+             "[ %7llu, %7llu ) %8llu %7.3f%% %7.3f%% ",
              ((b == 0) ? 0 : bucketMapper.BucketLimit(b-1)),      // left
              bucketMapper.BucketLimit(b),                           // right
              buckets_[b],                             // count

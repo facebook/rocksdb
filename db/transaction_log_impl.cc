@@ -205,8 +205,9 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
   if (batchSeq != expectedSeq) {
     char buf[200];
     snprintf(buf, sizeof(buf),
-             "Discontinuity in log records. Got seq=%lu, Expected seq=%lu, "
-             "Last flushed seq=%lu.Log iterator will reseek the correct batch.",
+             "Discontinuity in log records. Got seq=%llu, Expected seq=%llu, "
+             "Last flushed seq=%llu.Log iterator will reseek the correct "
+             "batch.",
              batchSeq, expectedSeq, dbimpl_->GetLatestSequenceNumber());
     reporter_.Info(buf);
     return false;
@@ -224,8 +225,10 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     // Seek to the batch having expected sequence number
     if (expectedSeq < files_->at(currentFileIndex_)->StartSequence()) {
       // Expected batch must lie in the previous log file
-      currentFileIndex_--;
-      currentFileIndex_ = (currentFileIndex_ >= 0) ? currentFileIndex_ : 0;
+      // Avoid underflow.
+      if (currentFileIndex_ != 0) {
+        currentFileIndex_--;
+      }
     }
     startingSequenceNumber_ = expectedSeq;
     // currentStatus_ will be set to Ok if reseek succeeds

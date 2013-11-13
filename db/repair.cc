@@ -102,7 +102,6 @@ class Repairer {
   InternalKeyComparator const icmp_;
   InternalFilterPolicy const ipolicy_;
   Options const options_;
-  bool owns_cache_;
   TableCache* table_cache_;
   VersionEdit* edit_;
 

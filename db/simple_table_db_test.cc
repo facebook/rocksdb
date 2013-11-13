@@ -319,7 +319,7 @@ SimpleTableIterator::~SimpleTableIterator() {
 }
 
 bool SimpleTableIterator::Valid() const {
-  return offset_ < table_->rep_->index_start_offset && offset_ >= 0;
+  return offset_ < table_->rep_->index_start_offset;
 }
 
 void SimpleTableIterator::SeekToFirst() {

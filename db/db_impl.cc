@@ -557,7 +557,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           // evict from cache
           table_cache_->Evict(number);
         }
-        Log(options_.info_log, "Delete type=%d #%lu", int(type), number);
+        Log(options_.info_log, "Delete type=%d #%llu", int(type), number);
 
         Status st;
         if (type == kLogFile && (options_.WAL_ttl_seconds > 0 ||
@@ -566,12 +566,12 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
                                   ArchivedLogFileName(options_.wal_dir,
                                                       number));
             if (!st.ok()) {
-              Log(options_.info_log, "RenameFile logfile #%lu FAILED", number);
+              Log(options_.info_log, "RenameFile logfile #%llu FAILED", number);
             }
         } else {
           st = env_->DeleteFile(dbname_ + "/" + state.all_files[i]);
           if (!st.ok()) {
-            Log(options_.info_log, "Delete type=%d #%lu FAILED\n",
+            Log(options_.info_log, "Delete type=%d #%llu FAILED\n",
                 int(type), number);
           }
         }
@@ -1000,7 +1000,7 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   std::vector<Iterator*> list;
   for (MemTable* m : mems) {
     Log(options_.info_log,
-        "Flushing memtable with log file: %lu\n",
+        "Flushing memtable with log file: %llu\n",
         m->GetLogNumber());
     list.push_back(m->NewIterator());
   }
@@ -1009,8 +1009,7 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mems[0]->GetFirstSequenceNumber();
-  Log(options_.info_log, "Level-0 flush table #%llu: started",
-      (unsigned long long) meta.number);
+  Log(options_.info_log, "Level-0 flush table #%llu: started", meta.number);
 
   Version* base = versions_->current();
   base->Ref();          // it is likely that we do not need this reference
@@ -1346,7 +1345,7 @@ Status DBImpl::ReadFirstRecord(const WalFileType type, const uint64_t number,
     Status status = ReadFirstLine(fname, result);
     return status;
   }
-  return Status::NotSupported("File Type Not Known: " + type);
+  return Status::NotSupported("File Type Not Known: " + std::to_string(type));
 }
 
 Status DBImpl::ReadFirstLine(const std::string& fname,
@@ -2030,7 +2029,7 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
     assert(prev);
   }
   Log(options_.info_log,
-      "Looking for seqid %ld but maxseqid is %ld", in,
+      "Looking for seqid %llu but maxseqid is %llu", in,
       snapshots[snapshots.size()-1]);
   assert(0);
   return 0;
@@ -3061,7 +3060,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
           internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
       mem_->Ref();
       Log(options_.info_log,
-          "New memtable created with log file: #%lu\n",
+          "New memtable created with log file: #%llu\n",
           logfile_number_);
       mem_->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room

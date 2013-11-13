@@ -33,7 +33,7 @@ namespace rocksdb {
 namespace {
 
 struct BytewiseLessThan {
-  bool operator()(const std::string& key1, const std::string& key2) {
+  bool operator()(const std::string& key1, const std::string& key2) const {
     // smaller entries will be placed in front.
     return comparator->Compare(key1, key2) <= 0;
   }
@@ -70,7 +70,7 @@ void LogStatsCollectionError(
   std::string msg =
     "[Warning] encountered error when calling TableStatsCollector::" +
     method + "() with collector name: " + name;
-  Log(info_log, msg.c_str());
+  Log(info_log, "%s", msg.c_str());
 }
 
 }  // anonymous namespace

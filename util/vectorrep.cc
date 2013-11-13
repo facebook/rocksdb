@@ -138,7 +138,7 @@ VectorRep::Iterator::Iterator(class VectorRep* vrep,
                    const KeyComparator& compare)
 : vrep_(vrep),
   bucket_(bucket),
-  cit_(nullptr),
+  cit_(bucket_->end()),
   compare_(compare),
   sorted_(false) { }
 

@@ -41,38 +41,13 @@ Options RedisListsTest::options = Options();
 // operator== and operator<< are defined below for vectors (lists)
 // Needed for ASSERT_EQ
 
-// Compare two lists for equality.
-bool operator==(const std::vector<std::string>& a,
-                const std::vector<std::string>& b) {
-  if (a.size() != b.size()) {
-    return false;
+void AssertListEq(const std::vector<std::string>& result,
+                  const std::vector<std::string>& expected_result) {
+  ASSERT_EQ(result.size(), expected_result.size());
+  for (size_t i = 0; i < result.size(); ++i) {
+    ASSERT_EQ(result[i], expected_result[i]);
   }
-
-  int n = a.size();
-  for (int i=0; i<n; ++i) {
-    if (a[i] != b[i]) {
-      return false;
-    }
-  }
-
-  return true;
 }
-
-// Print out a list
-ostream& operator<<(ostream& out, const std::vector<std::string>& vec) {
-  out << "[";
-  int n = vec.size();
-  for(int i=0; i<n; ++i) {
-    if (i > 0) {
-      out << ", ";
-    }
-    out << vec[i];
-  }
-  out << "]";
-  return out;
-}
-
-/// THE TEST CASES BEGIN HERE
 
 // PushRight, Length, Index, Range
 TEST(RedisListsTest, SimpleTest) {
@@ -100,7 +75,7 @@ TEST(RedisListsTest, SimpleTest) {
   expected_result[0] = "v1";
   expected_result[1] = "v2";
   expected_result[2] = "v3";
-  ASSERT_EQ(result, expected_result);  // Uses my overloaded operator==() above
+  AssertListEq(result, expected_result);
 }
 
 // PushLeft, Length, Index, Range
@@ -129,7 +104,7 @@ TEST(RedisListsTest, SimpleTest2) {
   expected_result[0] = "v1";
   expected_result[1] = "v2";
   expected_result[2] = "v3";
-  ASSERT_EQ(result, expected_result);  // Uses my overloaded operator==() above
+  AssertListEq(result, expected_result);
 }
 
 // Exhaustive test of the Index() function

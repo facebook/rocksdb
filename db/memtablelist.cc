@@ -122,7 +122,7 @@ Status MemTableList::InstallMemtableFlushResults(
       break;
     }
 
-    Log(info_log, "Level-0 commit table #%lu started", m->file_number_);
+    Log(info_log, "Level-0 commit table #%llu started", m->file_number_);
 
     // this can release and reacquire the mutex.
     s = vset->LogAndApply(&m->edit_, mu);
@@ -133,7 +133,7 @@ Status MemTableList::InstallMemtableFlushResults(
     do {
       if (s.ok()) { // commit new state
         Log(info_log,
-            "Level-0 commit table #%lu: memtable #%lu done",
+            "Level-0 commit table #%llu: memtable #%llu done",
             m->file_number_,
             mem_id);
         memlist_.remove(m);
@@ -149,7 +149,7 @@ Status MemTableList::InstallMemtableFlushResults(
       } else {
         //commit failed. setup state so that we can flush again.
         Log(info_log,
-            "Level-0 commit table #%lu: memtable #%lu failed",
+            "Level-0 commit table #%llu: memtable #%llu failed",
             m->file_number_,
             mem_id);
         m->flush_completed_ = false;

@@ -29,7 +29,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class RandomRWFile;
-class Options;
+struct Options;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -424,7 +424,7 @@ class WritableFile {
   // This asks the OS to initiate flushing the cached data to disk,
   // without waiting for completion.
   // Default implementation does nothing.
-  virtual Status RangeSync(off64_t offset, off64_t nbytes) {
+  virtual Status RangeSync(off_t offset, off_t nbytes) {
     return Status::OK();
   }
 

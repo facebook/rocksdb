@@ -74,8 +74,8 @@ TOOLS = \
         sst_dump \
         db_stress \
         ldb \
-	db_repl_stress \
-	blob_store_bench
+				db_repl_stress \
+ 				blob_store_bench
 
 PROGRAMS = db_bench signal_test $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db table_reader_bench
@@ -131,7 +131,7 @@ coverage:
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check
 	(cd coverage; ./coverage_test.sh)
 	# Delete intermediate files
-	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" | xargs --no-run-if-empty rm
+	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
 check: all $(PROGRAMS) $(TESTS) $(TOOLS) ldb_tests
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
@@ -164,8 +164,8 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 clean:
 	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk
 	-rm -rf ios-x86/* ios-arm/*
-	-find . -name "*.[od]" | xargs --no-run-if-empty rm
-	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" | xargs --no-run-if-empty rm
+	-find . -name "*.[od]" -exec rm {} \;
+	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'`

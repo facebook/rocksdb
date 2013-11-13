@@ -135,7 +135,7 @@ Status BlobStore::Put(const Slice& value, Blob* blob) {
   if (!s.ok()) {
     return s;
   }
-  size_t size_left = value.size();
+  auto size_left = (uint64_t) value.size();
 
   uint64_t offset = 0; // in bytes, not blocks
   for (auto chunk : blob->chunks) {

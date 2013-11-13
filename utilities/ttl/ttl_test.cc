@@ -126,7 +126,7 @@ class TtlTest {
     static FlushOptions flush_opts;
     kv_it_ = kvmap_.begin();
     advance(kv_it_, start_pos_map);
-    for (int i = 0; kv_it_ != kvmap_.end(), i < num_entries; i++, kv_it_++) {
+    for (int i = 0; kv_it_ != kvmap_.end() && i < num_entries; i++, kv_it_++) {
       ASSERT_OK(db_ttl_->Put(wopts, kv_it_->first, kv_it_->second));
     }
     // Put a mock kv at the end because CompactionFilter doesn't delete last key
@@ -175,7 +175,7 @@ class TtlTest {
     kv_it_ = kvmap_.begin();
     advance(kv_it_, st_pos);
     std::string v;
-    for (int i = 0; kv_it_ != kvmap_.end(), i < span; i++, kv_it_++) {
+    for (int i = 0; kv_it_ != kvmap_.end() && i < span; i++, kv_it_++) {
       Status s = db_ttl_->Get(ropts, kv_it_->first, &v);
       if (s.ok() != check) {
         fprintf(stderr, "key=%s ", kv_it_->first.c_str());

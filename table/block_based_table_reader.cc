@@ -249,7 +249,7 @@ void BlockBasedTable::ReadMeta(const Footer& footer) {
       auto err_msg =
         "[Warning] Encountered error while reading data from stats block " +
         s.ToString();
-      Log(rep_->options.info_log, err_msg.c_str());
+      Log(rep_->options.info_log, "%s", err_msg.c_str());
     }
   }
 
@@ -341,7 +341,7 @@ Status BlockBasedTable::ReadStats(const Slice& handle_value, Rep* rep) {
         auto error_msg =
           "[Warning] detect malformed value in stats meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
-        Log(rep->options.info_log, error_msg.c_str());
+        Log(rep->options.info_log, "%s", error_msg.c_str());
         continue;
       }
       *(pos->second) = val;

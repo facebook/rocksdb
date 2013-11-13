@@ -27,7 +27,7 @@
 namespace rocksdb {
 
 class Slice;
-class SliceParts;
+struct SliceParts;
 
 class WriteBatch {
  public:

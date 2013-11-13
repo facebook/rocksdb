@@ -3644,7 +3644,7 @@ TEST(DBTest, SnapshotFiles) {
       char buffer[4096];
       Slice slice;
       while (size > 0) {
-        uint64_t one = std::min(sizeof(buffer), size);
+        uint64_t one = std::min(uint64_t(sizeof(buffer)), size);
         ASSERT_OK(srcfile->Read(one, &slice, buffer));
         ASSERT_OK(destfile->Append(slice));
         size -= slice.size();

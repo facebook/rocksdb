@@ -570,11 +570,11 @@ void PrintBucketCounts(const vector<uint64_t>& bucket_counts, int ttl_start,
       int ttl_end, int bucket_size, int num_buckets) {
   int time_point = ttl_start;
   for(int i = 0; i < num_buckets - 1; i++, time_point += bucket_size) {
-    fprintf(stdout, "Keys in range %s to %s : %lu\n",
+    fprintf(stdout, "Keys in range %s to %s : %llu\n",
             ReadableTime(time_point).c_str(),
             ReadableTime(time_point + bucket_size).c_str(), bucket_counts[i]);
   }
-  fprintf(stdout, "Keys in range %s to %s : %lu\n",
+  fprintf(stdout, "Keys in range %s to %s : %llu\n",
           ReadableTime(time_point).c_str(),
           ReadableTime(ttl_end).c_str(), bucket_counts[num_buckets - 1]);
 }
@@ -1424,7 +1424,7 @@ void ApproxSizeCommand::DoCommand() {
   ranges[0] = Range(start_key_, end_key_);
   uint64_t sizes[1];
   db_->GetApproximateSizes(ranges, 1, sizes);
-  fprintf(stdout, "%ld\n", sizes[0]);
+  fprintf(stdout, "%llu\n", sizes[0]);
   /* Weird that GetApproximateSizes() returns void, although documentation
    * says that it returns a Status object.
   if (!st.ok()) {

@@ -17,7 +17,7 @@ struct Options;
 struct FileMetaData;
 
 class Env;
-class EnvOptions;
+struct EnvOptions;
 class Iterator;
 class TableCache;
 class VersionEdit;

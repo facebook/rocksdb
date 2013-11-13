@@ -1322,7 +1322,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       if (s.ok() && old_manifest_file_number < manifest_file_number_) {
         // delete old manifest file
         Log(options_->info_log,
-            "Deleting manifest %lu current manifest %lu\n",
+            "Deleting manifest %llu current manifest %llu\n",
             old_manifest_file_number, manifest_file_number_);
         // we don't care about an error here, PurgeObsoleteFiles will take care
         // of it later
@@ -1348,7 +1348,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     prev_log_number_ = edit->prev_log_number_;
 
   } else {
-    Log(options_->info_log, "Error in committing version %ld",
+    Log(options_->info_log, "Error in committing version %llu",
         v->GetVersionNumber());
     delete v;
     if (!new_manifest_file.empty()) {
@@ -1521,9 +1521,9 @@ Status VersionSet::Recover() {
     prev_log_number_ = prev_log_number;
 
     Log(options_->info_log, "Recovered from manifest file:%s succeeded,"
-        "manifest_file_number is %ld, next_file_number is %ld, "
-        "last_sequence is %ld, log_number is %ld,"
-        "prev_log_number is %ld\n",
+        "manifest_file_number is %llu, next_file_number is %llu, "
+        "last_sequence is %llu, log_number is %llu,"
+        "prev_log_number is %llu\n",
         current.c_str(), manifest_file_number_, next_file_number_,
         last_sequence_, log_number_, prev_log_number_);
   }
@@ -1647,7 +1647,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     log_number_ = log_number;
     prev_log_number_ = prev_log_number;
 
-    printf("manifest_file_number %ld next_file_number %ld last_sequence %ld log_number %ld  prev_log_number %ld\n",
+    printf("manifest_file_number %llu next_file_number %llu last_sequence "
+           "%llu log_number %llu  prev_log_number %llu\n",
            manifest_file_number_, next_file_number_,
            last_sequence, log_number, prev_log_number);
     printf("%s \n", v->DebugString(hex).c_str());
@@ -1863,7 +1864,7 @@ const char* VersionSet::LevelDataSizeSummary(
   int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files_size[");
   for (int i = 0; i < NumberLevels(); i++) {
     int sz = sizeof(scratch->buffer) - len;
-    int ret = snprintf(scratch->buffer + len, sz, "%ld ",
+    int ret = snprintf(scratch->buffer + len, sz, "%llu ",
         NumLevelBytes(i));
     if (ret < 0 || ret >= sz)
       break;
@@ -1879,7 +1880,8 @@ const char* VersionSet::LevelFileSummary(
   for (unsigned int i = 0; i < current_->files_[level].size(); i++) {
     FileMetaData* f = current_->files_[level][i];
     int sz = sizeof(scratch->buffer) - len;
-    int ret = snprintf(scratch->buffer + len, sz, "#%ld(seq=%ld,sz=%ld,%d) ",
+    int ret = snprintf(scratch->buffer + len, sz,
+                       "#%llu(seq=%llu,sz=%llu,%d) ",
                        f->number, f->smallest_seqno,
                        f->file_size, f->being_compacted);
     if (ret < 0 || ret >= sz)
@@ -2219,7 +2221,7 @@ Compaction* VersionSet::PickCompactionUniversalSizeAmp(
       start_index = loop;         // Consider this as the first candidate.
       break;
     }
-    Log(options_->info_log, "Universal: skipping file %ld[%d] compacted %s",
+    Log(options_->info_log, "Universal: skipping file %llu[%d] compacted %s",
         f->number, loop, " cannot be a candidate to reduce size amp.\n");
     f = nullptr;
   }
@@ -2227,7 +2229,7 @@ Compaction* VersionSet::PickCompactionUniversalSizeAmp(
     return nullptr;             // no candidate files
   }
 
-  Log(options_->info_log, "Universal: First candidate file %ld[%d] %s",
+  Log(options_->info_log, "Universal: First candidate file %llu[%d] %s",
       f->number, start_index, " to reduce size amp.\n");
 
   // keep adding up all the remaining files
@@ -2237,7 +2239,7 @@ Compaction* VersionSet::PickCompactionUniversalSizeAmp(
     f = current_->files_[level][index];
     if (f->being_compacted) {
       Log(options_->info_log,
-          "Universal: Possible candidate file %ld[%d] %s.", f->number, loop,
+          "Universal: Possible candidate file %llu[%d] %s.", f->number, loop,
           " is already being compacted. No size amp reduction possible.\n");
       return nullptr;
     }
@@ -2255,14 +2257,14 @@ Compaction* VersionSet::PickCompactionUniversalSizeAmp(
   // size amplification = percentage of additional size
   if (candidate_size * 100 < ratio * earliest_file_size) {
     Log(options_->info_log,
-        "Universal: size amp not needed. newer-files-total-size %ld "
-        "earliest-file-size %ld",
+        "Universal: size amp not needed. newer-files-total-size %llu "
+        "earliest-file-size %llu",
         candidate_size, earliest_file_size);
     return nullptr;
   } else {
     Log(options_->info_log,
-        "Universal: size amp needed. newer-files-total-size %ld "
-        "earliest-file-size %ld",
+        "Universal: size amp needed. newer-files-total-size %llu "
+        "earliest-file-size %llu",
         candidate_size, earliest_file_size);
   }
   assert(start_index >= 0 && start_index < file_by_time.size() - 1);
@@ -2278,7 +2280,7 @@ Compaction* VersionSet::PickCompactionUniversalSizeAmp(
     f = current_->files_[level][index];
     c->inputs_[0].push_back(f);
     Log(options_->info_log,
-        "Universal: size amp picking file %ld[%d] with size %ld",
+        "Universal: size amp picking file %llu[%d] with size %llu",
         f->number, index, f->file_size);
   }
   return c;
@@ -2325,7 +2327,7 @@ Compaction* VersionSet::PickCompactionUniversalReadAmp(
         break;
       }
       Log(options_->info_log,
-          "Universal: file %ld[%d] being compacted, skipping",
+          "Universal: file %llu[%d] being compacted, skipping",
           f->number, loop);
       f = nullptr;
     }
@@ -2334,7 +2336,7 @@ Compaction* VersionSet::PickCompactionUniversalReadAmp(
     // first candidate to be compacted.
     uint64_t candidate_size =  f != nullptr? f->file_size : 0;
     if (f != nullptr) {
-      Log(options_->info_log, "Universal: Possible candidate file %ld[%d].",
+      Log(options_->info_log, "Universal: Possible candidate file %llu[%d].",
           f->number, loop);
     }
 
@@ -2368,7 +2370,7 @@ Compaction* VersionSet::PickCompactionUniversalReadAmp(
        int index = file_by_time[i];
        FileMetaData* f = current_->files_[level][index];
        Log(options_->info_log,
-           "Universal: Skipping file %ld[%d] with size %ld %d\n",
+           "Universal: Skipping file %llu[%d] with size %llu %d\n",
            f->number, i, f->file_size, f->being_compacted);
       }
     }
@@ -2403,7 +2405,7 @@ Compaction* VersionSet::PickCompactionUniversalReadAmp(
     int index = file_by_time[i];
     FileMetaData* f = current_->files_[level][index];
     c->inputs_[0].push_back(f);
-    Log(options_->info_log, "Universal: Picking file %ld[%d] with size %ld\n",
+    Log(options_->info_log, "Universal: Picking file %llu[%d] with size %llu\n",
         f->number, i, f->file_size);
   }
   return c;
@@ -2790,14 +2792,16 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
       if (expanded1.size() == c->inputs_[1].size() &&
           !FilesInCompaction(expanded1)) {
         Log(options_->info_log,
-            "Expanding@%d %d+%d (%ld+%ld bytes) to %d+%d (%ld+%ld bytes)\n",
+            "Expanding@%d %d+%d (%llu+%llu bytes) to %d+%d (%llu+%llu bytes)\n",
             level,
             int(c->inputs_[0].size()),
             int(c->inputs_[1].size()),
-            long(inputs0_size), long(inputs1_size),
+            inputs0_size,
+            inputs1_size,
             int(expanded0.size()),
             int(expanded1.size()),
-            long(expanded0_size), long(inputs1_size));
+            expanded0_size,
+            inputs1_size);
         smallest = new_start;
         largest = new_limit;
         c->inputs_[0] = expanded0;
@@ -3087,7 +3091,7 @@ static void InputSummary(std::vector<FileMetaData*>& files,
   int write = 0;
   for (unsigned int i = 0; i < files.size(); i++) {
     int sz = len - write;
-    int ret = snprintf(output + write, sz, "%lu(%lu) ",
+    int ret = snprintf(output + write, sz, "%llu(%llu) ",
         files.at(i)->number,
         files.at(i)->file_size);
     if (ret < 0 || ret >= sz)
@@ -3098,7 +3102,7 @@ static void InputSummary(std::vector<FileMetaData*>& files,
 
 void Compaction::Summary(char* output, int len) {
   int write = snprintf(output, len,
-      "Base version %ld Base level %d, seek compaction:%d, inputs:",
+      "Base version %llu Base level %d, seek compaction:%d, inputs:",
       input_version_->GetVersionNumber(), level_, seek_compaction_);
   if (write < 0 || write > len) {
     return;
