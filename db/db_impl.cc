@@ -562,7 +562,8 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           // evict from cache
           table_cache_->Evict(number);
         }
-        std::string fname = dbname_ + "/" + state.all_files[i];
+        std::string fname = ((type == kLogFile) ? options_.wal_dir : dbname_) +
+            "/" + state.all_files[i];
         Log(options_.info_log,
             "Delete type=%d #%lu",
             int(type),
@@ -575,14 +576,14 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
                 ArchivedLogFileName(options_.wal_dir, number));
             if (!st.ok()) {
               Log(options_.info_log,
-                  "RenameFile logfile #%lu FAILED",
-                  (unsigned long)number);
+                  "RenameFile logfile #%lu FAILED -- %s\n",
+                  (unsigned long)number, st.ToString().c_str());
             }
         } else {
           st = env_->DeleteFile(fname);
           if (!st.ok()) {
-            Log(options_.info_log, "Delete type=%d #%lu FAILED\n",
-                int(type), (unsigned long)number);
+            Log(options_.info_log, "Delete type=%d #%lu FAILED -- %s\n",
+                int(type), (unsigned long)number, st.ToString().c_str());
           }
         }
       }
