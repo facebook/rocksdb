@@ -175,7 +175,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     assert(kTypeMerge == orig_ikey.type);
     assert(operands_.size() >= 1);
     assert(operands_.size() == keys_.size());
-    success_ = user_merge_operator_->FullMerge(ikey.user_key, nullptr,
+    success_ = user_merge_operator_->FullMerge(orig_ikey.user_key, nullptr,
                                                operands_, &merge_result,
                                                logger_);
 
