@@ -904,7 +904,10 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
 
   if (!iiter->Valid()) {
     // we're past end of file
-    may_match = false;
+    // if it's incomplete, it means that we avoided I/O
+    // and we're not really sure that we're past the end
+    // of the file
+    may_match = iiter->status().IsIncomplete();
   } else if (ExtractUserKey(iiter->key()).starts_with(
               ExtractUserKey(internal_prefix))) {
     // we need to check for this subtle case because our only
@@ -930,7 +933,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
     assert(s.ok());
     auto filter_entry = GetFilter(true /* no io */);
     may_match =
-      filter_entry.value != nullptr &&
+      filter_entry.value == nullptr ||
       filter_entry.value->PrefixMayMatch(handle.offset(), internal_prefix);
     filter_entry.Release(rep_->options.block_cache.get());
   }
