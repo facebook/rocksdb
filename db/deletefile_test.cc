@@ -40,6 +40,7 @@ class DeleteFileTest {
     options_.WAL_ttl_seconds = 300; // Used to test log files
     options_.WAL_size_limit_MB = 1024; // Used to test log files
     dbname_ = test::TmpDir() + "/deletefile_test";
+    options_.wal_dir = dbname_ + "/wal_files";
     DestroyDB(dbname_, options_);
     numlevels_ = 7;
     ASSERT_OK(ReopenDB(true));
@@ -107,6 +108,28 @@ class DeleteFileTest {
     ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
   }
 
+  void CheckFileTypeCounts(std::string& dir,
+                            int required_log,
+                            int required_sst,
+                            int required_manifest) {
+    std::vector<std::string> filenames;
+    env_->GetChildren(dir, &filenames);
+
+    int log_cnt = 0, sst_cnt = 0, manifest_cnt = 0;
+    for (auto file : filenames) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(file, &number, &type)) {
+        log_cnt += (type == kLogFile);
+        sst_cnt += (type == kTableFile);
+        manifest_cnt += (type == kDescriptorFile);
+      }
+    }
+    ASSERT_EQ(required_log, log_cnt);
+    ASSERT_EQ(required_sst, sst_cnt);
+    ASSERT_EQ(required_manifest, manifest_cnt);
+  }
+
 };
 
 TEST(DeleteFileTest, AddKeysAndQueryLevels) {
@@ -156,6 +179,34 @@ TEST(DeleteFileTest, AddKeysAndQueryLevels) {
   CloseDB();
 }
 
+TEST(DeleteFileTest, PurgeObsoleteFilesTest) {
+  CreateTwoLevels();
+  // there should be only one (empty) log file because CreateTwoLevels()
+  // flushes the memtables to disk
+  CheckFileTypeCounts(options_.wal_dir, 1, 0, 0);
+  // 2 ssts, 1 manifest
+  CheckFileTypeCounts(dbname_, 0, 2, 1);
+  std::string first("0"), last("999999");
+  Slice first_slice(first), last_slice(last);
+  db_->CompactRange(&first_slice, &last_slice, true, 2);
+  // 1 sst after compaction
+  CheckFileTypeCounts(dbname_, 0, 1, 1);
+
+  // this time, we keep an iterator alive
+  ReopenDB(true);
+  Iterator *itr = 0;
+  CreateTwoLevels();
+  itr = db_->NewIterator(ReadOptions());
+  db_->CompactRange(&first_slice, &last_slice, true, 2);
+  // 3 sst after compaction with live iterator
+  CheckFileTypeCounts(dbname_, 0, 3, 1);
+  delete itr;
+  // 1 sst after iterator deletion
+  CheckFileTypeCounts(dbname_, 0, 1, 1);
+
+  CloseDB();
+}
+
 TEST(DeleteFileTest, DeleteFileWithIterator) {
   CreateTwoLevels();
   ReadOptions options;
@@ -196,11 +247,11 @@ TEST(DeleteFileTest, DeleteLogFiles) {
   // Should not succeed because live logs are not allowed to be deleted
   std::unique_ptr<LogFile> alive_log = std::move(logfiles.back());
   ASSERT_EQ(alive_log->Type(), kAliveLogFile);
-  ASSERT_TRUE(env_->FileExists(dbname_ + "/" + alive_log->PathName()));
+  ASSERT_TRUE(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
   fprintf(stdout, "Deleting alive log file %s\n",
           alive_log->PathName().c_str());
   ASSERT_TRUE(!db_->DeleteFile(alive_log->PathName()).ok());
-  ASSERT_TRUE(env_->FileExists(dbname_ + "/" + alive_log->PathName()));
+  ASSERT_TRUE(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
   logfiles.clear();
 
   // Call Flush to bring about a new working log file and add more keys
@@ -214,11 +265,13 @@ TEST(DeleteFileTest, DeleteLogFiles) {
   ASSERT_GT(logfiles.size(), 0UL);
   std::unique_ptr<LogFile> archived_log = std::move(logfiles.front());
   ASSERT_EQ(archived_log->Type(), kArchivedLogFile);
-  ASSERT_TRUE(env_->FileExists(dbname_ + "/" + archived_log->PathName()));
+  ASSERT_TRUE(env_->FileExists(options_.wal_dir + "/" +
+        archived_log->PathName()));
   fprintf(stdout, "Deleting archived log file %s\n",
           archived_log->PathName().c_str());
   ASSERT_OK(db_->DeleteFile(archived_log->PathName()));
-  ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + archived_log->PathName()));
+  ASSERT_TRUE(!env_->FileExists(options_.wal_dir + "/" +
+        archived_log->PathName()));
   CloseDB();
 }
 

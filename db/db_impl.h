@@ -123,6 +123,54 @@ class DBImpl : public DB {
     default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
   }
 
+  // needed for CleanupIteratorState
+
+  struct DeletionState {
+    inline bool HaveSomethingToDelete() const {
+      return all_files.size() ||
+        sst_delete_files.size() ||
+        log_delete_files.size();
+    }
+    // a list of all files that we'll consider deleting
+    // (every once in a while this is filled up with all files
+    // in the DB directory)
+    std::vector<std::string> all_files;
+
+    // the list of all live sst files that cannot be deleted
+    std::vector<uint64_t> sst_live;
+
+    // a list of sst files that we need to delete
+    std::vector<FileMetaData*> sst_delete_files;
+
+    // a list of log files that we need to delete
+    std::vector<uint64_t> log_delete_files;
+
+    // the current manifest_file_number, log_number and prev_log_number
+    // that corresponds to the set of files in 'live'.
+    uint64_t manifest_file_number, log_number, prev_log_number;
+
+    DeletionState() {
+      manifest_file_number = 0;
+      log_number = 0;
+      prev_log_number = 0;
+    }
+  };
+
+  // Returns the list of live files in 'live' and the list
+  // of all files in the filesystem in 'all_files'.
+  // If force == false and the last call was less than
+  // options_.delete_obsolete_files_period_micros microseconds ago,
+  // it will not fill up the deletion_state
+  void FindObsoleteFiles(DeletionState& deletion_state,
+                         bool force,
+                         bool no_full_scan = false);
+
+  // Diffs the files listed in filenames and those that do not
+  // belong to live files are posibly removed. Also, removes all the
+  // files in sst_delete_files and log_delete_files.
+  // It is not necessary to hold the mutex when invoking this method.
+  void PurgeObsoleteFiles(DeletionState& deletion_state);
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -157,38 +205,6 @@ class DBImpl : public DB {
   void MaybeIgnoreError(Status* s) const;
 
   const Status CreateArchivalDirectory();
-
-  struct DeletionState {
-    inline bool HaveSomethingToDelete() const {
-      return all_files.size() ||
-        sst_delete_files.size() ||
-        log_delete_files.size();
-    }
-
-    // a list of all files that we'll consider deleting
-    // (every once in a while this is filled up with all files
-    // in the DB directory)
-    std::vector<std::string> all_files;
-
-    // the list of all live sst files that cannot be deleted
-    std::vector<uint64_t> sst_live;
-
-    // a list of sst files that we need to delete
-    std::vector<FileMetaData*> sst_delete_files;
-
-    // a list of log files that we need to delete
-    std::vector<uint64_t> log_delete_files;
-
-    // the current manifest_file_number, log_number and prev_log_number
-    // that corresponds to the set of files in 'live'.
-    uint64_t manifest_file_number, log_number, prev_log_number;
-
-    DeletionState() {
-      manifest_file_number = 0;
-      log_number = 0;
-      prev_log_number = 0;
-    }
-  };
 
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
@@ -242,19 +258,6 @@ class DBImpl : public DB {
   Status InstallCompactionResults(CompactionState* compact);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
-
-  // Returns the list of live files in 'live' and the list
-  // of all files in the filesystem in 'all_files'.
-  // If force == false and the last call was less than
-  // options_.delete_obsolete_files_period_micros microseconds ago,
-  // it will not fill up the deletion_state
-  void FindObsoleteFiles(DeletionState& deletion_state, bool force);
-
-  // Diffs the files listed in filenames and those that do not
-  // belong to live files are posibly removed. Also, removes all the
-  // files in sst_delete_files and log_delete_files.
-  // It is not necessary to hold the mutex when invoking this method.
-  void PurgeObsoleteFiles(DeletionState& deletion_state);
 
   void PurgeObsoleteWALFiles();
 

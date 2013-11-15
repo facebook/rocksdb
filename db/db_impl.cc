@@ -249,7 +249,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       manual_compaction_(nullptr),
       logger_(nullptr),
       disable_delete_obsolete_files_(false),
-      delete_obsolete_files_last_run_(0),
+      delete_obsolete_files_last_run_(options.env->NowMicros()),
       purge_wal_files_last_run_(0),
       last_stats_dump_time_microsec_(0),
       default_interval_to_delete_obsolete_WAL_(600),
@@ -437,7 +437,13 @@ void DBImpl::MaybeDumpStats() {
 
 // Returns the list of live files in 'sst_live' and the list
 // of all files in the filesystem in 'all_files'.
-void DBImpl::FindObsoleteFiles(DeletionState& deletion_state, bool force) {
+// no_full_scan = true -- never do the full scan using GetChildren()
+// force = false -- don't force the full scan, except every
+//  options_.delete_obsolete_files_period_micros
+// force = true -- force the full scan
+void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
+                               bool force,
+                               bool no_full_scan) {
   mutex_.AssertHeld();
 
   // if deletion is disabled, do nothing
@@ -445,14 +451,30 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state, bool force) {
     return;
   }
 
+  // get obsolete files
+  versions_->GetObsoleteFiles(&deletion_state.sst_delete_files);
+
   // store the current filenum, lognum, etc
   deletion_state.manifest_file_number = versions_->ManifestFileNumber();
   deletion_state.log_number = versions_->LogNumber();
   deletion_state.prev_log_number = versions_->PrevLogNumber();
 
-  // This method is costly when the number of files is large.
-  // Do not allow it to trigger more often than once in
-  // delete_obsolete_files_period_micros.
+  // TODO we should not be catching live files here,
+  // version_->GetObsoleteFiles() should tell us the truth, which
+  // files are to be deleted. However, it does not, so we do
+  // this to be safe, i.e. never delete files that could be
+  // live
+  deletion_state.sst_live.assign(pending_outputs_.begin(),
+                                 pending_outputs_.end());
+  versions_->AddLiveFiles(&deletion_state.sst_live);
+
+  // if no_full_scan, never do the full scan
+  if (no_full_scan) {
+    return;
+  }
+  // if force == true, always fall through and do the full scan
+  // if force == false, do the full scan only every
+  //    options_.delete_obsolete_files_period_micros
   if (!force && options_.delete_obsolete_files_period_micros != 0) {
     const uint64_t now_micros = env_->NowMicros();
     if (delete_obsolete_files_last_run_ +
@@ -461,12 +483,6 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state, bool force) {
     }
     delete_obsolete_files_last_run_ = now_micros;
   }
-
-  // Make a list of all of the live files; set is slow, should not
-  // be used.
-  deletion_state.sst_live.assign(pending_outputs_.begin(),
-                                 pending_outputs_.end());
-  versions_->AddLiveFiles(&deletion_state.sst_live);
 
   // set of all files in the directory
   env_->GetChildren(dbname_, &deletion_state.all_files); // Ignore errors
@@ -488,8 +504,10 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state, bool force) {
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
-  // if deletion is disabled, do nothing
-  if (disable_delete_obsolete_files_) {
+  // this checks if FindObsoleteFiles() was run before. If not, don't do
+  // PurgeObsoleteFiles(). If FindObsoleteFiles() was run, we need to also
+  // run PurgeObsoleteFiles(), even if disable_delete_obsolete_files_ is true
+  if (state.manifest_file_number == 0) {
     return;
   }
 
@@ -1791,7 +1809,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     CleanupCompaction(compact, status);
     versions_->ReleaseCompactionFiles(c.get(), status);
     c->ReleaseInputs();
-    versions_->GetObsoleteFiles(&deletion_state.sst_delete_files);
     *madeProgress = true;
   }
   c.reset();
@@ -2454,6 +2471,7 @@ struct IterState {
   port::Mutex* mu;
   Version* version;
   std::vector<MemTable*> mem; // includes both mem_ and imm_
+  DBImpl *db;
 };
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
@@ -2463,7 +2481,12 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
     state->mem[i]->Unref();
   }
   state->version->Unref();
+  // delete only the sst obsolete files
+  DBImpl::DeletionState deletion_state;
+  // fast path FindObsoleteFiles
+  state->db->FindObsoleteFiles(deletion_state, false, true);
   state->mu->Unlock();
+  state->db->PurgeObsoleteFiles(deletion_state);
   delete state;
 }
 }  // namespace
@@ -2498,6 +2521,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   versions_->current()->Ref();
 
   cleanup->mu = &mutex_;
+  cleanup->db = this;
   cleanup->version = versions_->current();
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
@@ -3375,9 +3399,6 @@ Status DBImpl::DeleteFile(std::string name) {
     }
     edit.DeleteFile(level, number);
     status = versions_->LogAndApply(&edit, &mutex_);
-    if (status.ok()) {
-      versions_->GetObsoleteFiles(&deletion_state.sst_delete_files);
-    }
     FindObsoleteFiles(deletion_state, false);
   } // lock released here
   LogFlush(options_.info_log);

@@ -387,7 +387,9 @@ struct Options {
   bool disable_seek_compaction;
 
   // The periodicity when obsolete files get deleted. The default
-  // value is 6 hours.
+  // value is 6 hours. The files that get out of scope by compaction
+  // process will still get automatically delete on every compaction,
+  // regardless of this setting
   uint64_t delete_obsolete_files_period_micros;
 
   // Maximum number of concurrent background jobs, submitted to
