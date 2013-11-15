@@ -451,6 +451,22 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
     return;
   }
 
+  bool doing_the_full_scan = false;
+
+  // logic for figurint out if we're doing the full scan
+  if (no_full_scan) {
+    doing_the_full_scan = false;
+  } else if (force || options_.delete_obsolete_files_period_micros == 0) {
+    doing_the_full_scan = true;
+  } else {
+    const uint64_t now_micros = env_->NowMicros();
+    if (delete_obsolete_files_last_run_ +
+        options_.delete_obsolete_files_period_micros < now_micros) {
+      doing_the_full_scan = true;
+      delete_obsolete_files_last_run_ = now_micros;
+    }
+  }
+
   // get obsolete files
   versions_->GetObsoleteFiles(&deletion_state.sst_delete_files);
 
@@ -459,43 +475,32 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
   deletion_state.log_number = versions_->LogNumber();
   deletion_state.prev_log_number = versions_->PrevLogNumber();
 
-  // TODO we should not be catching live files here,
-  // version_->GetObsoleteFiles() should tell us the truth, which
-  // files are to be deleted. However, it does not, so we do
-  // this to be safe, i.e. never delete files that could be
-  // live
+  if (!doing_the_full_scan && !deletion_state.HaveSomethingToDelete()) {
+    // avoid filling up sst_live if we're sure that we
+    // are not going to do the full scan and that we don't have
+    // anything to delete at the moment
+    return;
+  }
+
+  // don't delete live files
   deletion_state.sst_live.assign(pending_outputs_.begin(),
                                  pending_outputs_.end());
   versions_->AddLiveFiles(&deletion_state.sst_live);
 
-  // if no_full_scan, never do the full scan
-  if (no_full_scan) {
-    return;
-  }
-  // if force == true, always fall through and do the full scan
-  // if force == false, do the full scan only every
-  //    options_.delete_obsolete_files_period_micros
-  if (!force && options_.delete_obsolete_files_period_micros != 0) {
-    const uint64_t now_micros = env_->NowMicros();
-    if (delete_obsolete_files_last_run_ +
-        options_.delete_obsolete_files_period_micros > now_micros) {
-      return;
+  if (doing_the_full_scan) {
+    // set of all files in the directory
+    env_->GetChildren(dbname_, &deletion_state.all_files); // Ignore errors
+
+    //Add log files in wal_dir
+    if (options_.wal_dir != dbname_) {
+      std::vector<std::string> log_files;
+      env_->GetChildren(options_.wal_dir, &log_files); // Ignore errors
+      deletion_state.all_files.insert(
+        deletion_state.all_files.end(),
+        log_files.begin(),
+        log_files.end()
+      );
     }
-    delete_obsolete_files_last_run_ = now_micros;
-  }
-
-  // set of all files in the directory
-  env_->GetChildren(dbname_, &deletion_state.all_files); // Ignore errors
-
-  //Add log files in wal_dir
-  if (options_.wal_dir != dbname_) {
-    std::vector<std::string> log_files;
-    env_->GetChildren(options_.wal_dir, &log_files); // Ignore errors
-    deletion_state.all_files.insert(
-      deletion_state.all_files.end(),
-      log_files.begin(),
-      log_files.end()
-    );
   }
 }
 
