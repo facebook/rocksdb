@@ -1,0 +1,82 @@
+rocksdb: A persistent key-value store for flash storage
+Authors: * The Facebook Database Engineering Team
+         * Build on earlier work on leveldb by Sanjay Ghemawat
+           (sanjay@google.com) and Jeff Dean (jeff@google.com)
+
+This code is a library that forms the core building block for a fast
+key value server, especially suited for storing data on flash drives.
+It has an Log-Stuctured-Merge-Database (LSM) design with flexible tradeoffs
+between Write-Amplification-Factor(WAF), Read-Amplification-Factor (RAF)
+and Space-Amplification-Factor(SAF). It has multi-threaded compactions,
+making it specially suitable for storing multiple terabytes of data in a
+single database.
+
+The core of this code has been derived from open-source leveldb.
+
+The code under this directory implements a system for maintaining a
+persistent key/value store.
+
+See doc/index.html for more explanation.
+See doc/impl.html for a brief overview of the implementation.
+
+The public interface is in include/*.  Callers should not include or
+rely on the details of any other header files in this package.  Those
+internal APIs may be changed without warning.
+
+Guide to header files:
+
+include/rocksdb/db.h
+    Main interface to the DB: Start here
+
+include/rocksdb/options.h
+    Control over the behavior of an entire database, and also
+    control over the behavior of individual reads and writes.
+
+include/rocksdb/comparator.h
+    Abstraction for user-specified comparison function.  If you want
+    just bytewise comparison of keys, you can use the default comparator,
+    but clients can write their own comparator implementations if they
+    want custom ordering (e.g. to handle different character
+    encodings, etc.)
+
+include/rocksdb/iterator.h
+    Interface for iterating over data. You can get an iterator
+    from a DB object.
+
+include/rocksdb/write_batch.h
+    Interface for atomically applying multiple updates to a database.
+
+include/rocksdb/slice.h
+    A simple module for maintaining a pointer and a length into some
+    other byte array.
+
+include/rocksdb/status.h
+    Status is returned from many of the public interfaces and is used
+    to report success and various kinds of errors.
+
+include/rocksdb/env.h
+    Abstraction of the OS environment.  A posix implementation of
+    this interface is in util/env_posix.cc
+
+include/rocksdb/table_builder.h
+    Lower-level modules that most clients probably won't use directly
+
+include/rocksdb/cache.h
+    An API for the block cache.
+
+include/rocksdb/compaction_filter.h
+    An API for a application filter invoked on every compaction.
+
+include/rocksdb/filter_policy.h
+    An API for configuring a bloom filter.
+
+include/rocksdb/memtablerep.h
+    An API for implementing a memtable.
+
+include/rocksdb/statistics.h
+    An API to retrieve various database statistics.
+
+include/rocksdb/transaction_log.h
+    An API to retrieve transaction logs from a database.
+
+

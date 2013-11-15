@@ -1,0 +1,26 @@
+This directory contains the hdfs extensions needed to make rocksdb store
+files in HDFS.
+
+The hdfs.h file is copied from the Apache Hadoop 1.0 source code. 
+It defines the libhdfs library
+(http://hadoop.apache.org/common/docs/r0.20.2/libhdfs.html) to access 
+data in HDFS.  The libhdfs.a is copied from the Apache Hadoop 1.0 build. 
+It implements the API defined in hdfs.h. If your hadoop cluster is running
+a different hadoop release, then install these two files manually from your
+hadoop distribution and then recompile rocksdb.
+
+The env_hdfs.h file defines the rocksdb objects that are needed to talk to an
+underlying filesystem. 
+
+If you want to compile rocksdb with hdfs support, please set the following
+enviroment variables appropriately:
+   USE_HDFS=1
+   JAVA_HOME=/usr/local/jdk-6u22-64
+   LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/jdk-6u22-64/jre/lib/amd64/server:/usr/local/jdk-6u22-64/jre/lib/amd64/:./snappy/libs
+   make clean all db_bench
+
+To run dbbench,
+  set CLASSPATH to include your hadoop distribution
+  db_bench --hdfs="hdfs://hbaseudbperf001.snc1.facebook.com:9000"
+
+

@@ -1,0 +1,147 @@
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#ifndef STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
+#define STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
+
+#include <string>
+#include <deque>
+#include "rocksdb/slice.h"
+
+namespace rocksdb {
+
+class Slice;
+class Logger;
+
+// The Merge Operator
+//
+// Essentially, a MergeOperator specifies the SEMANTICS of a merge, which only
+// client knows. It could be numeric addition, list append, string
+// concatenation, edit data structure, ... , anything.
+// The library, on the other hand, is concerned with the exercise of this
+// interface, at the right time (during get, iteration, compaction...)
+//
+// To use merge, the client needs to provide an object implementing one of
+// the following interfaces:
+//  a) AssociativeMergeOperator - for most simple semantics (always take
+//    two values, and merge them into one value, which is then put back
+//    into rocksdb); numeric addition and string concatenation are examples;
+//
+//  b) MergeOperator - the generic class for all the more abstract / complex
+//    operations; one method (FullMerge) to merge a Put/Delete value with a
+//    merge operand; and another method (PartialMerge) that merges two
+//    operands together. this is especially useful if your key values have a
+//    complex structure but you would still like to support client-specific
+//    incremental updates.
+//
+// AssociativeMergeOperator is simpler to implement. MergeOperator is simply
+// more powerful.
+//
+// Refer to rocksdb-merge wiki for more details and example implementations.
+//
+class MergeOperator {
+ public:
+  virtual ~MergeOperator() {}
+
+  // Gives the client a way to express the read -> modify -> write semantics
+  // key:      (IN)    The key that's associated with this merge operation.
+  //                   Client could multiplex the merge operator based on it
+  //                   if the key space is partitioned and different subspaces
+  //                   refer to different types of data which have different
+  //                   merge operation semantics
+  // existing: (IN)    null indicates that the key does not exist before this op
+  // operand_list:(IN) the sequence of merge operations to apply, front() first.
+  // new_value:(OUT)   Client is responsible for filling the merge result here
+  // logger:   (IN)    Client could use this to log errors during merge.
+  //
+  // Return true on success.
+  // All values passed in will be client-specific values. So if this method
+  // returns false, it is because client specified bad data or there was
+  // internal corruption. This will be treated as an error by the library.
+  //
+  // Also make use of the *logger for error messages.
+  virtual bool FullMerge(const Slice& key,
+                         const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const = 0;
+
+  // This function performs merge(left_op, right_op)
+  // when both the operands are themselves merge operation types
+  // that you would have passed to a DB::Merge() call in the same order
+  // (i.e.: DB::Merge(key,left_op), followed by DB::Merge(key,right_op)).
+  //
+  // PartialMerge should combine them into a single merge operation that is
+  // saved into *new_value, and then it should return true.
+  // *new_value should be constructed such that a call to
+  // DB::Merge(key, *new_value) would yield the same result as a call
+  // to DB::Merge(key, left_op) followed by DB::Merge(key, right_op).
+  //
+  // If it is impossible or infeasible to combine the two operations,
+  // leave new_value unchanged and return false. The library will
+  // internally keep track of the operations, and apply them in the
+  // correct order once a base-value (a Put/Delete/End-of-Database) is seen.
+  //
+  // TODO: Presently there is no way to differentiate between error/corruption
+  // and simply "return false". For now, the client should simply return
+  // false in any case it cannot perform partial-merge, regardless of reason.
+  // If there is corruption in the data, handle it in the FullMerge() function,
+  // and return false there.
+  virtual bool PartialMerge(const Slice& key,
+                            const Slice& left_operand,
+                            const Slice& right_operand,
+                            std::string* new_value,
+                            Logger* logger) const = 0;
+
+  // The name of the MergeOperator. Used to check for MergeOperator
+  // mismatches (i.e., a DB created with one MergeOperator is
+  // accessed using a different MergeOperator)
+  // TODO: the name is currently not stored persistently and thus
+  //       no checking is enforced. Client is responsible for providing
+  //       consistent MergeOperator between DB opens.
+  virtual const char* Name() const = 0;
+};
+
+// The simpler, associative merge operator.
+class AssociativeMergeOperator : public MergeOperator {
+ public:
+  virtual ~AssociativeMergeOperator() {}
+
+  // Gives the client a way to express the read -> modify -> write semantics
+  // key:           (IN) The key that's associated with this merge operation.
+  // existing_value:(IN) null indicates the key does not exist before this op
+  // value:         (IN) the value to update/merge the existing_value with
+  // new_value:    (OUT) Client is responsible for filling the merge result here
+  // logger:        (IN) Client could use this to log errors during merge.
+  //
+  // Return true on success.
+  // All values passed in will be client-specific values. So if this method
+  // returns false, it is because client specified bad data or there was
+  // internal corruption. The client should assume that this will be treated
+  // as an error by the library.
+  virtual bool Merge(const Slice& key,
+                     const Slice* existing_value,
+                     const Slice& value,
+                     std::string* new_value,
+                     Logger* logger) const = 0;
+
+
+ private:
+  // Default implementations of the MergeOperator functions
+  virtual bool FullMerge(const Slice& key,
+                         const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const override;
+
+  virtual bool PartialMerge(const Slice& key,
+                            const Slice& left_operand,
+                            const Slice& right_operand,
+                            std::string* new_value,
+                            Logger* logger) const override;
+};
+
+}  // namespace rocksdb
+
+#endif  // STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_

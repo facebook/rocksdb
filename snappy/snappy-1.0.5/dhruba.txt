@@ -1,0 +1,12 @@
+# for fbcode compile, run leveldb/fbcode.sh
+
+autoconf
+./configure
+
+# for running fbcode, edit config.h and comment out the followng two lines:
+// #define HAVE_LIBLZO2 1
+// #define HAVE_LIBZ 1
+edit Makefile and change "UNITTEST_LIBS = -llzo2 -lz" to "UNITTEST_LIBS = -lz"
+
+make top_builddir="." LIBTOOL=libtool -e "CPPFLAGS=-DNDEBUG" clean all
+

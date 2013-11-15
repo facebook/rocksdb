@@ -1,0 +1,42 @@
+#!/bin/sh
+#
+# Record the version of the source that we are compiling.
+# We keep a record of the git revision in util/version.cc. This source file
+# is then built as a regular source file as part of the compilation process.
+# One can run "strings executable_filename | grep _build_" to find the version of
+# the source that we used to build the executable file.
+#
+
+# create git version file
+VFILE=$ROCKSDB_ROOT/util/build_version.cc.tmp
+trap "rm $VFILE" EXIT
+
+# check to see if git is in the path
+which git > /dev/null
+
+if [ "$?" = 0 ]; then
+  env -i git rev-parse HEAD |
+  awk '
+  BEGIN {
+    print "#include \"build_version.h\"\n"
+  }
+  { print "const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:" $0"\";" }
+  ' >  ${VFILE}
+else
+  echo "git not found" |
+  awk '
+    BEGIN {
+      print "#include \"build_version.h\""
+    }
+    { print "const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:git not found\";" }
+    ' > ${VFILE}
+fi
+
+echo "const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:$(date)\";" >> ${VFILE}
+echo "const char* rocksdb_build_compile_date = __DATE__;" >> ${VFILE}
+echo "const char* rocksdb_build_compile_time = __TIME__;" >> ${VFILE}
+
+OUTFILE=$ROCKSDB_ROOT/util/build_version.cc
+if [ ! -e $OUTFILE ] || ! cmp -s $VFILE $OUTFILE; then
+    cp $VFILE $OUTFILE
+fi

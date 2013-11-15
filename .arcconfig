@@ -1,0 +1,10 @@
+{
+  "project_id" : "leveldb",
+  "conduit_uri" : "https://reviews.facebook.net/",
+  "copyright_holder" : "",
+  "load" : [
+    "linters/src/"
+  ],
+  "lint.engine" : "FacebookFbcodeLintEngine",
+  "lint.engine.single.linter" : "FbcodeCppLinter"
+}

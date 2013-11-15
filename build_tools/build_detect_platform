@@ -1,0 +1,252 @@
+#!/bin/sh
+#
+# Detects OS we're compiling on and outputs a file specified by the first
+# argument, which in turn gets read while processing Makefile.
+#
+# The output will set the following variables:
+#   CC                          C Compiler path
+#   CXX                         C++ Compiler path
+#   PLATFORM_LDFLAGS            Linker flags
+#   PLATFORM_SHARED_EXT         Extension for shared libraries
+#   PLATFORM_SHARED_LDFLAGS     Flags for building shared library
+#   PLATFORM_SHARED_CFLAGS      Flags for compiling objects for shared library
+#   PLATFORM_CCFLAGS            C compiler flags
+#   PLATFORM_CXXFLAGS           C++ compiler flags.  Will contain:
+#   PLATFORM_SHARED_VERSIONED   Set to 'true' if platform supports versioned
+#                               shared libraries, empty otherwise.
+#
+# The PLATFORM_CCFLAGS and PLATFORM_CXXFLAGS might include the following:
+#
+#       -DLEVELDB_PLATFORM_POSIX if cstdatomic is present
+#       -DLEVELDB_PLATFORM_NOATOMIC if it is not
+#       -DSNAPPY                     if the Snappy library is present
+#
+
+OUTPUT=$1
+if test -z "$OUTPUT"; then
+  echo "usage: $0 <output-filename>" >&2
+  exit 1
+fi
+
+# Default to fbcode gcc on internal fb machines
+if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
+    if [ -z "$USE_CLANG" ]; then
+        source $PWD/build_tools/fbcode.gcc471.sh
+    else
+        source $PWD/build_tools/fbcode.clang31.sh
+    fi
+fi
+
+# Delete existing output, if it exists
+rm -f $OUTPUT
+touch $OUTPUT
+
+if test -z "$CC"; then
+   CC=cc
+fi
+
+if test -z "$CXX"; then
+    CXX=g++
+fi
+
+# Detect OS
+if test -z "$TARGET_OS"; then
+    TARGET_OS=`uname -s`
+fi
+
+COMMON_FLAGS="${CFLAGS}"
+CROSS_COMPILE=
+PLATFORM_CCFLAGS=
+PLATFORM_CXXFLAGS="${CXXFLAGS}"
+PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS"
+PLATFORM_SHARED_EXT="so"
+PLATFORM_SHARED_LDFLAGS="${EXEC_LDFLAGS_SHARED} -shared -Wl,-soname -Wl,"
+PLATFORM_SHARED_CFLAGS="-fPIC"
+PLATFORM_SHARED_VERSIONED=true
+
+# generic port files (working on all platform by #ifdef) go directly in /port
+GENERIC_PORT_FILES=`find $ROCKSDB_ROOT/port -name '*.cc' | tr "\n" " "`
+
+# On GCC, we pick libc's memcmp over GCC's memcmp via -fno-builtin-memcmp
+case "$TARGET_OS" in
+    Darwin)
+        PLATFORM=OS_MACOSX
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_MACOSX"
+        PLATFORM_SHARED_EXT=dylib
+        PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
+        # PORT_FILES=port/darwin/darwin_specific.cc
+        ;;
+    Linux)
+        PLATFORM=OS_LINUX
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_LINUX"
+        if [ -z "$USE_CLANG" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        fi
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        # PORT_FILES=port/linux/linux_specific.cc
+        ;;
+    SunOS)
+        PLATFORM=OS_SOLARIS
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_SOLARIS"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        # PORT_FILES=port/sunos/sunos_specific.cc
+        ;;
+    FreeBSD)
+        PLATFORM=OS_FREEBSD
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
+        # PORT_FILES=port/freebsd/freebsd_specific.cc
+        ;;
+    NetBSD)
+        PLATFORM=OS_NETBSD
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_NETBSD"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lgcc_s"
+        # PORT_FILES=port/netbsd/netbsd_specific.cc
+        ;;
+    OpenBSD)
+        PLATFORM=OS_OPENBSD
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_OPENBSD"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread"
+        # PORT_FILES=port/openbsd/openbsd_specific.cc
+        ;;
+    DragonFly)
+        PLATFORM=OS_DRAGONFLYBSD
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_DRAGONFLYBSD"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
+        # PORT_FILES=port/dragonfly/dragonfly_specific.cc
+        ;;
+    OS_ANDROID_CROSSCOMPILE)
+        PLATFORM=OS_ANDROID
+	COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_ANDROID -DLEVELDB_PLATFORM_POSIX"
+	PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS "  # All pthread features are in the Android C library
+        # PORT_FILES=port/android/android.cc
+        CROSS_COMPILE=true
+        ;;
+    *)
+        echo "Unknown platform!" >&2
+        exit 1
+esac
+
+$PWD/build_tools/build_detect_version
+
+# We want to make a list of all cc files within util, db, table, and helpers
+# except for the test and benchmark files. By default, find will output a list
+# of all files matching either rule, so we need to append -print to make the
+# prune take effect.
+DIRS="util db table utilities"
+
+set -f # temporarily disable globbing so that our patterns arent expanded
+PRUNE_TEST="-name *test*.cc -prune"
+PRUNE_BENCH="-name *_bench.cc -prune"
+PORTABLE_FILES=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
+PORTABLE_CPP=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
+set +f # re-enable globbing
+
+# The sources consist of the portable files, plus the platform-specific port
+# file.
+echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> $OUTPUT
+echo "SOURCESCPP=$PORTABLE_CPP" >> $OUTPUT
+echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> $OUTPUT
+
+if [ "$CROSS_COMPILE" = "true" ]; then
+    # Cross-compiling; do not try any compilation tests.
+    true
+else
+    # If -std=c++0x works, use <cstdatomic>.  Otherwise use port_posix.h.
+    $CXX $CFLAGS -std=c++0x -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <cstdatomic>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DLEVELDB_PLATFORM_POSIX -DLEVELDB_CSTDATOMIC_PRESENT"
+        PLATFORM_CXXFLAGS="-std=c++0x"
+    else
+        COMMON_FLAGS="$COMMON_FLAGS -DLEVELDB_PLATFORM_POSIX"
+    fi
+
+    # Test whether Snappy library is installed
+    # http://code.google.com/p/snappy/
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <snappy.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS ${SNAPPY_LDFLAGS:-./snappy/libs/libsnappy.a}"
+    fi
+
+
+    # Test whether gflags library is installed
+    # http://code.google.com/p/gflags/
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <gflags/gflags.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS"
+    fi
+
+    # Test whether zlib library is installed
+    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <zlib.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DZLIB"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lz"
+    fi
+
+    # Test whether bzip library is installed
+    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <bzlib.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DBZIP2"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbz2"
+    fi
+
+    # Test whether tcmalloc is available
+    $CXX $CFLAGS -x c++ - -o /dev/null -ltcmalloc 2>/dev/null  <<EOF
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
+    fi
+fi
+
+# shall we use HDFS?
+
+if test "$USE_HDFS"; then
+  if test -z "$JAVA_HOME"; then
+    echo "JAVA_HOME has to be set for HDFS usage."
+    exit 1
+  fi
+  HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
+  COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"
+  PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $HDFS_LDFLAGS"
+fi
+
+# if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 "
+COMMON_FLAGS="$COMMON_FLAGS $USE_SSE"
+
+PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
+PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
+
+VALGRIND_VER="$VALGRIND_VER"
+
+echo "CC=$CC" >> $OUTPUT
+echo "CXX=$CXX" >> $OUTPUT
+echo "PLATFORM=$PLATFORM" >> $OUTPUT
+echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> $OUTPUT
+echo "VALGRIND_VER=$VALGRIND_VER" >> $OUTPUT
+echo "PLATFORM_CCFLAGS=$PLATFORM_CCFLAGS" >> $OUTPUT
+echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> $OUTPUT
+echo "PLATFORM_SHARED_CFLAGS=$PLATFORM_SHARED_CFLAGS" >> $OUTPUT
+echo "PLATFORM_SHARED_EXT=$PLATFORM_SHARED_EXT" >> $OUTPUT
+echo "PLATFORM_SHARED_LDFLAGS=$PLATFORM_SHARED_LDFLAGS" >> $OUTPUT
+echo "PLATFORM_SHARED_VERSIONED=$PLATFORM_SHARED_VERSIONED" >> $OUTPUT
+echo "EXEC_LDFLAGS=$EXEC_LDFLAGS" >> $OUTPUT
