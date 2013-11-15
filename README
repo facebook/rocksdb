@@ -5,7 +5,7 @@ Authors: * The Facebook Database Engineering Team
 
 This code is a library that forms the core building block for a fast
 key value server, especially suited for storing data on flash drives.
-It has an Log-Stuctured-Merge-Database (LSM) design with flexible tradeoffs
+It has a Log-Structured-Merge-Database (LSM) design with flexible tradeoffs
 between Write-Amplification-Factor(WAF), Read-Amplification-Factor (RAF)
 and Space-Amplification-Factor(SAF). It has multi-threaded compactions,
 making it specially suitable for storing multiple terabytes of data in a
