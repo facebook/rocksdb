@@ -41,6 +41,18 @@ class DeleteFileTest {
     options_.WAL_size_limit_MB = 1024; // Used to test log files
     dbname_ = test::TmpDir() + "/deletefile_test";
     options_.wal_dir = dbname_ + "/wal_files";
+
+    // clean up all the files that might have been there before
+    std::vector<std::string> old_files;
+    env_->GetChildren(dbname_, &old_files);
+    for (auto file : old_files) {
+      env_->DeleteFile(dbname_ + "/" + file);
+    }
+    env_->GetChildren(options_.wal_dir, &old_files);
+    for (auto file : old_files) {
+      env_->DeleteFile(options_.wal_dir + "/" + file);
+    }
+
     DestroyDB(dbname_, options_);
     numlevels_ = 7;
     ASSERT_OK(ReopenDB(true));
