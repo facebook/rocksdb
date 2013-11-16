@@ -315,7 +315,7 @@ class TtlTest {
 
 // If TTL is non positive or not provided, the behaviour is TTL = infinity
 // This test opens the db 3 times with such default behavior and inserts a
-// bunch of kvs each time. All kvs should accummulate in the db till the end
+// bunch of kvs each time. All kvs should accumulate in the db till the end
 // Partitions the sample-size provided into 3 sets over boundary1 and boundary2
 TEST(TtlTest, NoEffect) {
   MakeKVMap(kSampleSize_);

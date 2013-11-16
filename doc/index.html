@@ -407,7 +407,7 @@ when 1 write buffer is being flushed to storage, new writes can continue
 to the other write buffer.
 <code>Options::min_write_buffer_number_to_merge</code> is the minimum number
 of write buffers that will be merged together before writing to storage.
-If set to 1, then all write buffers are fushed to L0 as individual files and
+If set to 1, then all write buffers are flushed to L0 as individual files and
 this increases read amplification because a get request has to check in all
 of these files. Also, an in-memory merge may result in writing lesser
 data to storage if there are duplicate records in each of these
@@ -661,7 +661,7 @@ that hold all the different options for that compaction. The exact definition is
 Here we give short overview of options in <code>CompactionOptionsUniversal</code>:
 <ul>
 <p>
-<li> <code>CompactionOptionsUniversal::size_ratio</code> - Percentage flexibilty while comparing file size. If the candidate file(s)
+<li> <code>CompactionOptionsUniversal::size_ratio</code> - Percentage flexibility while comparing file size. If the candidate file(s)
    size is 1% smaller than the next file's size, then include next file into
    this candidate set.  Default: 1
 <p>

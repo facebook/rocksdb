@@ -485,7 +485,7 @@ TEST(RedisListsTest, InsertPushSetTest) {
   // redis.Print("k1");   // manually check
 
   // Test Inserting before/after non-existent values
-  lengthCheck = redis.Length("k1"); // Ensure that the length doesnt change
+  lengthCheck = redis.Length("k1"); // Ensure that the length doesn't change
   ASSERT_EQ(lengthCheck, 10);
   ASSERT_EQ(redis.InsertBefore("k1", "non-exist", "randval"), lengthCheck);
   ASSERT_EQ(redis.InsertAfter("k1", "nothing", "a"), lengthCheck);
@@ -723,7 +723,7 @@ TEST(RedisListsTest, PersistenceMultiKeyTest) {
 
   // Block three: Verify the changes from block 2
   {
-    RedisLists redis(kDefaultDbName, options, false); // Presistent, non-destructive
+    RedisLists redis(kDefaultDbName, options, false); // Persistent, non-destructive
 
     // Check
     ASSERT_EQ(redis.Length("k1"), 7);

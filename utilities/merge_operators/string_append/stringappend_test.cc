@@ -83,7 +83,7 @@ class StringLists {
     }
 
     // Either key does not exist, or there is some error.
-    *result = "";       // Always return empty string (just for convenvtion)
+    *result = "";       // Always return empty string (just for convention)
 
     //NotFound is okay; just return empty (similar to std::map)
     //But network or db errors, etc, should fail the test (or at least yell)

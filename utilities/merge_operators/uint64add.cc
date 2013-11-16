@@ -10,7 +10,7 @@ using namespace rocksdb;
 namespace { // anonymous namespace
 
 // A 'model' merge operator with uint64 addition semantics
-// Implemented as an AssociativeMergeOperator for simplicty and example.
+// Implemented as an AssociativeMergeOperator for simplicity and example.
 class UInt64AddOperator : public AssociativeMergeOperator {
  public:
   virtual bool Merge(const Slice& key,
