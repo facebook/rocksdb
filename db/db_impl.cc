@@ -3808,13 +3808,13 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
     soptions.use_mmap_writes = false;
-    s = options.env->NewWritableFile(
+    s = impl->options_.env->NewWritableFile(
       LogFileName(impl->options_.wal_dir, new_log_number),
       &lfile,
       soptions
     );
     if (s.ok()) {
-      lfile->SetPreallocationBlockSize(1.1 * options.write_buffer_size);
+      lfile->SetPreallocationBlockSize(1.1 * impl->options_.write_buffer_size);
       edit.SetLogNumber(new_log_number);
       impl->logfile_number_ = new_log_number;
       impl->log_.reset(new log::Writer(std::move(lfile)));
@@ -3830,7 +3830,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   }
   impl->mutex_.Unlock();
 
-  if (options.compaction_style == kCompactionStyleUniversal) {
+  if (impl->options_.compaction_style == kCompactionStyleUniversal) {
     int num_files;
     for (int i = 1; i < impl->NumberLevels(); i++) {
       num_files = impl->versions_->NumLevelFiles(i);
