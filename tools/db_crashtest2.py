@@ -146,7 +146,7 @@ def main(argv):
         stdoutdata = stdoutdata.lower()
         errorcount = (stdoutdata.count('error') -
                       stdoutdata.count('got errors 0 times'))
-        print "#times error occured in output is " + str(errorcount) + "\n"
+        print "#times error occurred in output is " + str(errorcount) + "\n"
 
         if (errorcount > 0):
             print "TEST FAILED. Output has 'error'!!!\n"

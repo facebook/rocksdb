@@ -314,7 +314,7 @@ class LDBTestCase(unittest.TestCase):
         # Dump command fails because of typo in params
         dumpFilePath = os.path.join(self.TMP_DIR, "dump8")
         self.assertFalse(self.dumpDb(
-            "--db=%s --create_if_missin" % origDbPath, dumpFilePath))
+            "--db=%s --create_if_missing" % origDbPath, dumpFilePath))
 
     def testMiscAdminTask(self):
         print "Running testMiscAdminTask..."

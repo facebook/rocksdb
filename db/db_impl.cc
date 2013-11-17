@@ -2423,7 +2423,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   int num_output_files = compact->outputs.size();
   if (compact->builder != nullptr) {
-    // An error occured so ignore the last output.
+    // An error occurred so ignore the last output.
     assert(num_output_files > 0);
     --num_output_files;
   }
