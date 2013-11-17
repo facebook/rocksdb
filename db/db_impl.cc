@@ -2698,11 +2698,17 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
                          std::string* value,
                          bool* value_found) {
   if (value_found != nullptr) {
-    *value_found = true; // falsify later if key-may-exist but can't fetch value
+    // falsify later if key-may-exist but can't fetch value
+    *value_found = true;
   }
   ReadOptions roptions = options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
-  return GetImpl(roptions, key, value, value_found).ok();
+  auto s = GetImpl(roptions, key, value, value_found);
+
+  // If options.block_cache != nullptr and the index block of the table didn't
+  // not present in block_cache, the return value will be Status::Incomplete.
+  // In this case, key may still exist in the table.
+  return s.ok() || s.IsIncomplete();
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
