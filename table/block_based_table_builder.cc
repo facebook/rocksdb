@@ -77,7 +77,6 @@ void LogStatsCollectionError(
 
 struct BlockBasedTableBuilder::Rep {
   Options options;
-  Options index_block_options;
   WritableFile* file;
   uint64_t offset = 0;
   Status status;
@@ -105,10 +104,11 @@ struct BlockBasedTableBuilder::Rep {
 
   Rep(const Options& opt, WritableFile* f, CompressionType compression_type)
       : options(opt),
-        index_block_options(opt),
         file(f),
-        data_block(&options),
-        index_block(1, index_block_options.comparator),
+        data_block(options),
+        // To avoid linear scan, we make the block_restart_interval to be `1`
+        // in index block builder
+        index_block(1 /* block_restart_interval */, options.comparator),
         compression_type(compression_type),
         filter_block(opt.filter_policy == nullptr ? nullptr
                      : new FilterBlockBuilder(opt)) {

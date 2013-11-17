@@ -217,7 +217,7 @@ class BlockConstructor: public Constructor {
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     delete block_;
     block_ = nullptr;
-    BlockBuilder builder(&options);
+    BlockBuilder builder(options);
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -832,7 +832,7 @@ TEST(TableTest, BasicTableStats) {
   ASSERT_EQ("", stats.filter_policy_name);  // no filter policy is used
 
   // Verify data size.
-  BlockBuilder block_builder(&options);
+  BlockBuilder block_builder(options);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }

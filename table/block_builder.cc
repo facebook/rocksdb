@@ -51,8 +51,8 @@ BlockBuilder::BlockBuilder(int block_restart_interval,
   restarts_.push_back(0);       // First restart point is at offset 0
 }
 
-BlockBuilder::BlockBuilder(const Options* options)
-    : BlockBuilder(options->block_restart_interval, options->comparator) {
+BlockBuilder::BlockBuilder(const Options& options)
+    : BlockBuilder(options.block_restart_interval, options.comparator) {
 }
 
 void BlockBuilder::Reset() {

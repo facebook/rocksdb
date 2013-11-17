@@ -34,7 +34,7 @@ TEST(BlockTest, SimpleTest) {
   Options options = Options();
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(&options);
+  BlockBuilder builder(options);
   int num_records = 100000;
   char buf[10];
   char* p = &buf[0];
