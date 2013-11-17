@@ -500,7 +500,7 @@ class DBTest {
       result = "[ ";
       bool first = true;
       while (iter->Valid()) {
-        ParsedInternalKey ikey;
+        ParsedInternalKey ikey(Slice(), 0, kTypeValue);
         if (!ParseInternalKey(iter->key(), &ikey)) {
           result += "CORRUPTED";
         } else {
@@ -2487,7 +2487,7 @@ TEST(DBTest, InPlaceUpdate) {
     iter->SeekToFirst();
     ASSERT_EQ(iter->status().ok(), true);
     while (iter->Valid()) {
-      ParsedInternalKey ikey;
+      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
       ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       count++;
@@ -2514,7 +2514,7 @@ TEST(DBTest, InPlaceUpdate) {
     ASSERT_EQ(iter->status().ok(), true);
     int seq = numValues;
     while (iter->Valid()) {
-      ParsedInternalKey ikey;
+      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
       ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       count++;
@@ -2670,7 +2670,7 @@ TEST(DBTest, CompactionFilter) {
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   while (iter->Valid()) {
-    ParsedInternalKey ikey;
+    ParsedInternalKey ikey(Slice(), 0, kTypeValue);
     ikey.sequence = -1;
     ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
     total++;
@@ -2755,7 +2755,7 @@ TEST(DBTest, CompactionFilter) {
   iter->SeekToFirst();
   ASSERT_OK(iter->status());
   while (iter->Valid()) {
-    ParsedInternalKey ikey;
+    ParsedInternalKey ikey(Slice(), 0, kTypeValue);
     ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
     ASSERT_NE(ikey.sequence, (unsigned)0);
     count++;

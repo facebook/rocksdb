@@ -40,7 +40,7 @@ fi
 # Default to fbcode gcc on internal fb machines
 if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
     if [ -z "$USE_CLANG" ]; then
-        source $PWD/build_tools/fbcode.gcc471.sh
+        source $PWD/build_tools/fbcode.gcc481.sh
     else
         source $PWD/build_tools/fbcode.clang31.sh
     fi
