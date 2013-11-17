@@ -49,7 +49,10 @@ static const long KB = 1024;
 
 static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   if (value > std::numeric_limits<uint32_t>::max()) {
-    fprintf(stderr, "Invalid value for --%s: %lu, overflow\n", flagname, value);
+    fprintf(stderr,
+            "Invalid value for --%s: %lu, overflow\n",
+            flagname,
+            (unsigned long)value);
     return false;
   }
   return true;
@@ -1279,7 +1282,9 @@ class StressTest {
     fprintf(stdout, "LevelDB version     : %d.%d\n",
             kMajorVersion, kMinorVersion);
     fprintf(stdout, "Number of threads   : %d\n", FLAGS_threads);
-    fprintf(stdout, "Ops per thread      : %lu\n", FLAGS_ops_per_thread);
+    fprintf(stdout,
+            "Ops per thread      : %lu\n",
+            (unsigned long)FLAGS_ops_per_thread);
     std::string ttl_state("unused");
     if (FLAGS_ttl > 0) {
       ttl_state = NumberToString(FLAGS_ttl);
@@ -1291,8 +1296,12 @@ class StressTest {
     fprintf(stdout, "Delete percentage   : %d%%\n", FLAGS_delpercent);
     fprintf(stdout, "Iterate percentage  : %d%%\n", FLAGS_iterpercent);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
-    fprintf(stdout, "Iterations          : %lu\n", FLAGS_num_iterations);
-    fprintf(stdout, "Max key             : %ld\n", FLAGS_max_key);
+    fprintf(stdout,
+            "Iterations          : %lu\n",
+            (unsigned long)FLAGS_num_iterations);
+    fprintf(stdout,
+            "Max key             : %lu\n",
+            (unsigned long)FLAGS_max_key);
     fprintf(stdout, "Ratio #ops/#keys    : %f\n",
             (1.0 * FLAGS_ops_per_thread * FLAGS_threads)/FLAGS_max_key);
     fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
@@ -1519,9 +1528,11 @@ int main(int argc, char** argv) {
       exit(1);
   }
   if ((unsigned)FLAGS_reopen >= FLAGS_ops_per_thread) {
-      fprintf(stderr, "Error: #DB-reopens should be < ops_per_thread\n"
-        "Provided reopens = %d and ops_per_thread = %lu\n", FLAGS_reopen,
-        FLAGS_ops_per_thread);
+      fprintf(stderr,
+              "Error: #DB-reopens should be < ops_per_thread\n"
+              "Provided reopens = %d and ops_per_thread = %lu\n",
+              FLAGS_reopen,
+              (unsigned long)FLAGS_ops_per_thread);
       exit(1);
   }
 

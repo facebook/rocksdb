@@ -21,6 +21,15 @@
 #       -DLEVELDB_PLATFORM_NOATOMIC if it is not
 #       -DSNAPPY                     if the Snappy library is present
 #
+# Using gflags in rocksdb:
+# Our project depends on gflags, which requires users to take some extra steps
+# before they can compile the whole repository:
+#   1. Install gflags. You may download it from here:
+#      https://code.google.com/p/gflags/
+#   2. Once install, add the include path/lib path for gflags to CPATH and
+#      LIBRARY_PATH respectively. If installed with default mode, the
+#      lib and include path will be /usr/local/lib and /usr/local/include
+# Mac user can do this by running build_tools/mac-install-gflags.sh
 
 OUTPUT=$1
 if test -z "$OUTPUT"; then
@@ -63,6 +72,10 @@ PLATFORM_SHARED_EXT="so"
 PLATFORM_SHARED_LDFLAGS="${EXEC_LDFLAGS_SHARED} -shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=true
+
+if test -z "$GFLAGS_LIBS"; then
+  PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+fi
 
 # generic port files (working on all platform by #ifdef) go directly in /port
 GENERIC_PORT_FILES=`find $ROCKSDB_ROOT/port -name '*.cc' | tr "\n" " "`

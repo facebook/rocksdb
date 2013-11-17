@@ -190,6 +190,7 @@ bool IsSingleVarint(const std::string& s) {
   return slice.size() == 0;
 }
 
+#ifdef OS_LINUX
 bool IsUniqueIDValid(const std::string& s) {
   return !s.empty() && !IsSingleVarint(s);
 }
@@ -197,6 +198,7 @@ bool IsUniqueIDValid(const std::string& s) {
 const size_t MAX_ID_SIZE = 100;
 char temp_id[MAX_ID_SIZE];
 
+// Only works in linux platforms
 TEST(EnvPosixTest, RandomAccessUniqueID) {
   // Create file.
   const EnvOptions soptions;
@@ -251,6 +253,7 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
   return false;
 }
 
+// Only works in linux platforms
 TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Check whether a bunch of concurrently existing files have unique IDs.
   const EnvOptions soptions;
@@ -288,6 +291,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   ASSERT_TRUE(!HasPrefix(ids));
 }
 
+// Only works in linux platforms
 TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
   const EnvOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
@@ -322,6 +326,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
   ASSERT_TRUE(!HasPrefix(ids));
 }
 
+// Only works in linux platforms
 TEST(EnvPosixTest, InvalidateCache) {
   const EnvOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
@@ -361,6 +366,7 @@ TEST(EnvPosixTest, InvalidateCache) {
   // Delete the file
   ASSERT_OK(env_->DeleteFile(fname));
 }
+#endif
 
 TEST(EnvPosixTest, PosixRandomRWFileTest) {
   EnvOptions soptions;

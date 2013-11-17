@@ -273,7 +273,7 @@ Status BlockBasedTable::Open(const Options& options,
       auto err_msg =
         "[Warning] Encountered error while reading data from stats block " +
         s.ToString();
-      Log(rep->options.info_log, err_msg.c_str());
+      Log(rep->options.info_log, "%s", err_msg.c_str());
     }
   }
 

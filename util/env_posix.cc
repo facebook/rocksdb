@@ -19,10 +19,11 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#ifdef OS_LINUX
 #include <sys/statfs.h>
+#endif
 #include <sys/time.h>
 #include <sys/types.h>
-#include <sys/vfs.h>
 #include <time.h>
 #include <unistd.h>
 #if defined(OS_LINUX)
@@ -41,6 +42,12 @@
 #include "util/random.h"
 #include <signal.h>
 
+// Get nano time for mach systems
+#ifdef __MACH__
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif
+
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994
 #endif
@@ -51,14 +58,33 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
+// For non linux platform, the following macros are used only as place
+// holder.
+#ifndef OS_LINUX
+#define POSIX_FADV_NORMAL 0 /* [MC1] no further special treatment */
+#define POSIX_FADV_RANDOM 1 /* [MC1] expect random page refs */
+#define POSIX_FADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
+#define POSIX_FADV_WILLNEED 3 /* [MC1] will need these pages */
+#define POSIX_FADV_DONTNEED 4 /* [MC1] dont need these pages */
+#endif
+
 // This is only set from db_stress.cc and for testing only.
 // If non-zero, kill at various points in source code with probability 1/this
 int rocksdb_kill_odds = 0;
 
 namespace rocksdb {
 
-
 namespace {
+
+// A wrapper for fadvise, if the platform doesn't support fadvise,
+// it will simply return Status::NotSupport.
+int Fadvise(int fd, off_t offset, size_t len, int advice) {
+#ifdef OS_LINUX
+  return posix_fadvise(fd, offset, len, advice);
+#else
+  return 0;  // simply do nothing.
+#endif
+}
 
 // list of pathnames that are locked
 static std::set<std::string> lockedFiles;
@@ -161,7 +187,7 @@ class PosixSequentialFile: public SequentialFile {
     if (!use_os_buffer_) {
       // we need to fadvise away the entire range of pages because
       // we do not want readahead pages to be cached.
-      posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
+      Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
     }
     return s;
   }
@@ -174,12 +200,16 @@ class PosixSequentialFile: public SequentialFile {
   }
 
   virtual Status InvalidateCache(size_t offset, size_t length) {
+#ifndef OS_LINUX
+    return Status::OK();
+#else
     // free OS pages
-    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret == 0) {
       return Status::OK();
     }
     return IOError(filename_, errno);
+#endif
   }
 };
 
@@ -210,12 +240,12 @@ class PosixRandomAccessFile: public RandomAccessFile {
     if (!use_os_buffer_) {
       // we need to fadvise away the entire range of pages because
       // we do not want readahead pages to be cached.
-      posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
+      Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED); // free OS pages
     }
     return s;
   }
 
-#if defined(OS_LINUX)
+#ifdef OS_LINUX
   virtual size_t GetUniqueId(char* id, size_t max_size) const {
     return GetUniqueIdFromFile(fd_, id, max_size);
   }
@@ -224,19 +254,19 @@ class PosixRandomAccessFile: public RandomAccessFile {
   virtual void Hint(AccessPattern pattern) {
     switch(pattern) {
       case NORMAL:
-        posix_fadvise(fd_, 0, 0, POSIX_FADV_NORMAL);
+        Fadvise(fd_, 0, 0, POSIX_FADV_NORMAL);
         break;
       case RANDOM:
-        posix_fadvise(fd_, 0, 0, POSIX_FADV_RANDOM);
+        Fadvise(fd_, 0, 0, POSIX_FADV_RANDOM);
         break;
       case SEQUENTIAL:
-        posix_fadvise(fd_, 0, 0, POSIX_FADV_SEQUENTIAL);
+        Fadvise(fd_, 0, 0, POSIX_FADV_SEQUENTIAL);
         break;
       case WILLNEED:
-        posix_fadvise(fd_, 0, 0, POSIX_FADV_WILLNEED);
+        Fadvise(fd_, 0, 0, POSIX_FADV_WILLNEED);
         break;
       case DONTNEED:
-        posix_fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);
+        Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);
         break;
       default:
         assert(false);
@@ -245,12 +275,16 @@ class PosixRandomAccessFile: public RandomAccessFile {
   }
 
   virtual Status InvalidateCache(size_t offset, size_t length) {
+#ifndef OS_LINUX
+    return Status::OK();
+#else
     // free OS pages
-    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret == 0) {
       return Status::OK();
     }
     return IOError(filename_, errno);
+#endif
   }
 };
 
@@ -268,6 +302,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
                         void* base, size_t length,
                         const EnvOptions& options)
       : fd_(fd), filename_(fname), mmapped_region_(base), length_(length) {
+    fd_ = fd_ + 0;  // suppress the warning for used variables
     assert(options.use_mmap_reads);
     assert(options.use_os_buffer);
   }
@@ -285,12 +320,16 @@ class PosixMmapReadableFile: public RandomAccessFile {
     return s;
   }
   virtual Status InvalidateCache(size_t offset, size_t length) {
+#ifndef OS_LINUX
+    return Status::OK();
+#else
     // free OS pages
-    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret == 0) {
       return Status::OK();
     }
     return IOError(filename_, errno);
+#endif
   }
 };
 
@@ -350,6 +389,7 @@ class PosixMmapFile : public WritableFile {
   }
 
   Status MapNewRegion() {
+#ifdef OS_LINUX
     assert(base_ == nullptr);
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
@@ -373,6 +413,9 @@ class PosixMmapFile : public WritableFile {
     dst_ = base_;
     last_sync_ = base_;
     return Status::OK();
+#else
+    return Status::NotSupported("This platform doesn't support fallocate()");
+#endif
   }
 
  public:
@@ -520,12 +563,16 @@ class PosixMmapFile : public WritableFile {
   }
 
   virtual Status InvalidateCache(size_t offset, size_t length) {
+#ifndef OS_LINUX
+    return Status::OK();
+#else
     // free OS pages
-    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret == 0) {
       return Status::OK();
     }
     return IOError(filename_, errno);
+#endif
   }
 
 #ifdef OS_LINUX
@@ -693,12 +740,16 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status InvalidateCache(size_t offset, size_t length) {
+#ifndef OS_LINUX
+    return Status::OK();
+#else
     // free OS pages
-    int ret = posix_fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret == 0) {
       return Status::OK();
     }
     return IOError(filename_, errno);
+#endif
   }
 
 #ifdef OS_LINUX
@@ -956,7 +1007,13 @@ class PosixEnv : public Env {
       if (options.use_mmap_writes && !forceMmapOff) {
         result->reset(new PosixMmapFile(fname, fd, page_size_, options));
       } else {
-        result->reset(new PosixWritableFile(fname, fd, 65536, options));
+        // disable mmap writes
+        EnvOptions no_mmap_writes_options = options;
+        no_mmap_writes_options.use_mmap_writes = false;
+
+        result->reset(
+            new PosixWritableFile(fname, fd, 65536, no_mmap_writes_options)
+        );
       }
     }
     return s;
@@ -1138,13 +1195,23 @@ class PosixEnv : public Env {
 
   virtual uint64_t NowMicros() {
     struct timeval tv;
+    // TODO(kailiu) MAC DON'T HAVE THIS
     gettimeofday(&tv, nullptr);
     return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
   }
 
   virtual uint64_t NowNanos() {
+#ifdef OS_LINUX
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#elif __MACH__
+    clock_serv_t cclock;
+    mach_timespec_t ts;
+    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+    clock_get_time(cclock, &ts);
+    mach_port_deallocate(mach_task_self(), cclock);
+#endif
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
   }
 
@@ -1230,6 +1297,7 @@ class PosixEnv : public Env {
   }
 
   bool SupportsFastAllocate(const std::string& path) {
+#ifdef OS_LINUX
     struct statfs s;
     if (statfs(path.c_str(), &s)){
       return false;
@@ -1244,6 +1312,9 @@ class PosixEnv : public Env {
       default:
         return false;
     }
+#else
+    return false;
+#endif
   }
 
   size_t page_size_;
@@ -1322,7 +1393,9 @@ class PosixEnv : public Env {
                          nullptr,
                          &ThreadPool::BGThreadWrapper,
                          this));
-        fprintf(stdout, "Created bg thread 0x%lx\n", t);
+        fprintf(stdout,
+                "Created bg thread 0x%lx\n",
+                (unsigned long)t);
         bgthreads_.push_back(t);
       }
 
@@ -1411,7 +1484,11 @@ std::string Env::GenerateUniqueId() {
     r.Uniform(std::numeric_limits<uint64_t>::max());
   uint64_t nanos_uuid_portion = NowNanos();
   char uuid2[200];
-  snprintf(uuid2, 200, "%lx-%lx", nanos_uuid_portion, random_uuid_portion);
+  snprintf(uuid2,
+           200,
+           "%lx-%lx",
+           (unsigned long)nanos_uuid_portion,
+           (unsigned long)random_uuid_portion);
   return uuid2;
 }
 

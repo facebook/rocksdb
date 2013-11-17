@@ -143,8 +143,6 @@ static bool ValidateKeySize(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(key_size, 16, "size of each key");
-static const bool FLAGS_key_size_dummy =
-  google::RegisterFlagValidator(&FLAGS_key_size, &ValidateKeySize);
 
 DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
@@ -225,9 +223,6 @@ static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
 DEFINE_int32(cache_numshardbits, -1, "Number of shards for the block cache"
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
-static const bool FLAGS_cache_numshardbits_dummy =
-  google::RegisterFlagValidator(&FLAGS_cache_numshardbits,
-                                &ValidateCacheNumshardbits);
 
 DEFINE_int32(cache_remove_scan_count_limit, 32, "");
 
@@ -295,16 +290,12 @@ DEFINE_int32(readwritepercent, 90, "Ratio of reads to reads/writes (expressed"
              " as percentage) for the ReadRandomWriteRandom workload. The "
              "default value 90 means 90% operations out of all reads and writes"
              " operations are reads. In other words, 9 gets for every 1 put.");
-static const bool FLAGS_readwritepercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_readwritepercent, &ValidateInt32Percent);
 
 DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
              "deletes (used in RandomWithVerify only). RandomWithVerify "
              "calculates writepercent as (100 - FLAGS_readwritepercent - "
              "deletepercent), so deletepercent must be smaller than (100 - "
              "FLAGS_readwritepercent)");
-static const bool FLAGS_deletepercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_deletepercent, &ValidateInt32Percent);
 
 DEFINE_int32(disable_seek_compaction, false, "Option to disable compaction"
              " triggered by read.");
@@ -348,9 +339,6 @@ static bool ValidateTableCacheNumshardbits(const char* flagname,
   return true;
 }
 DEFINE_int32(table_cache_numshardbits, 4, "");
-static const bool FLAGS_table_cache_numshardbits_dummy =
-  google::RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
-                                &ValidateTableCacheNumshardbits);
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
 // posix or hdfs environment
@@ -372,14 +360,10 @@ static bool ValidateRateLimit(const char* flagname, double value) {
   return true;
 }
 DEFINE_double(soft_rate_limit, 0.0, "");
-static const bool FLAGS_soft_rate_limit_dummy =
-  google::RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
 
 DEFINE_double(hard_rate_limit, 0.0, "When not equal to 0 this make threads "
               "sleep at each stats reporting interval until the compaction"
               " score for all levels is less than or equal to this value.");
-static const bool FLAGS_hard_rate_limit_dummy =
-  google::RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
 
 DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
              "When hard_rate_limit is set then this is the max time a put will"
@@ -448,8 +432,6 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(prefix_size, 0, "Control the prefix size for PrefixHashRep");
-static const bool FLAGS_prefix_size_dummy =
-  google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 enum RepFactory {
   kSkipList,
@@ -479,6 +461,35 @@ DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
               " database The possible merge operators are defined in"
               " utilities/merge_operators.h");
+
+static const bool FLAGS_soft_rate_limit_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_soft_rate_limit,
+                                &ValidateRateLimit);
+
+static const bool FLAGS_hard_rate_limit_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
+
+static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
+
+static const bool FLAGS_key_size_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_key_size, &ValidateKeySize);
+
+static const bool FLAGS_cache_numshardbits_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_cache_numshardbits,
+                                &ValidateCacheNumshardbits);
+
+static const bool FLAGS_readwritepercent_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_readwritepercent,
+                                &ValidateInt32Percent);
+
+static const bool FLAGS_deletepercent_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_deletepercent,
+                                &ValidateInt32Percent);
+static const bool
+  FLAGS_table_cache_numshardbits_dummy __attribute__((unused)) =
+  google::RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
+                                &ValidateTableCacheNumshardbits);
 
 namespace rocksdb {
 
@@ -513,18 +524,6 @@ class RandomGenerator {
     return Slice(data_.data() + pos_ - len, len);
   }
 };
-
-static Slice TrimSpace(Slice s) {
-  unsigned int start = 0;
-  while (start < s.size() && isspace(s[start])) {
-    start++;
-  }
-  unsigned int limit = s.size();
-  while (limit > start && isspace(s[limit-1])) {
-    limit--;
-  }
-  return Slice(s.data() + start, limit - start);
-}
 
 static void AppendWithSpace(std::string* str, Slice msg) {
   if (msg.empty()) return;
@@ -866,6 +865,21 @@ class Benchmark {
       free(text);
     }
   }
+
+// Current the following isn't equivalent to OS_LINUX.
+#if defined(__linux)
+  static Slice TrimSpace(Slice s) {
+    unsigned int start = 0;
+    while (start < s.size() && isspace(s[start])) {
+      start++;
+    }
+    unsigned int limit = s.size();
+    while (limit > start && isspace(s[limit-1])) {
+      limit--;
+    }
+    return Slice(s.data() + start, limit - start);
+  }
+#endif
 
   void PrintEnvironment() {
     fprintf(stderr, "LevelDB:    version %d.%d\n",
@@ -2402,7 +2416,6 @@ class Benchmark {
 };
 
 }  // namespace rocksdb
-
 
 int main(int argc, char** argv) {
   rocksdb::InstallStackTraceHandler();

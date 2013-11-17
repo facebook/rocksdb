@@ -70,8 +70,10 @@ static void ReplicationThreadBody(void* arg) {
     for(;iter->Valid(); iter->Next(), t->no_read++, currentSeqNum++) {
       BatchResult res = iter->GetBatch();
       if (res.sequence != currentSeqNum) {
-        fprintf(stderr, "Missed a seq no. b/w %ld and %ld\n", currentSeqNum,
-                        res.sequence);
+        fprintf(stderr,
+                "Missed a seq no. b/w %ld and %ld\n",
+                (long)currentSeqNum,
+                (long)res.sequence);
         exit(1);
       }
     }
