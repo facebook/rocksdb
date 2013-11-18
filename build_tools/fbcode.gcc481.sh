@@ -24,6 +24,14 @@ if test "$USE_HDFS"; then
   HDFSLIB+=" -ldl -lverify -ljava -ljvm "
 fi
 
+# location of libgcc
+LIBGCC_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.8.1/8aac7fc/include"
+LIBGCC_LIBS=" -L $TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.8.1/8aac7fc/libs"
+
+# location of glibc
+GLIBC_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/glibc/glibc-2.17/99df8fc/include"
+GLIBC_LIBS=" -L $TOOLCHAIN_LIB_BASE/glibc/glibc-2.17/99df8fc/lib"
+
 # location of snappy headers and libraries
 SNAPPY_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/snappy/snappy-1.0.3/43d84e2/include"
 SNAPPY_LIBS=" $TOOLCHAIN_LIB_BASE/snappy/snappy-1.0.3/43d84e2/lib/libsnappy.a"
@@ -54,6 +62,7 @@ RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
 
 CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/gold -m64 -mtune=generic -fPIC"
 CFLAGS+=" -I $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/include -DHAVE_JEMALLOC -nostdlib"
+CFLAGS+=" $LIBGCC_INCLUDE $GLIBC_INCLUDE"
 CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_ATOMIC_PRESENT"
 CFLAGS+=" -DSNAPPY -DGFLAGS -DZLIB -DBZIP2"
 
@@ -62,7 +71,7 @@ EXEC_LDFLAGS+=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/
 EXEC_LDFLAGS+=" -Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-1.0.1/675d945/lib/libunwind.a"
 EXEC_LDFLAGS+=" $HDFSLIB $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LIBEVENT_LIBS $GFLAGS_LIBS"
 
-PLATFORM_LDFLAGS="-L$TOOLCHAIN_LIB_BASE/libgcc/libgcc-4.8.1/8aac7fc/lib -L$TOOLCHAIN_LIB_BASE/glibc/glibc-2.17/99df8fc/lib"
+PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS "
 
 EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $GFLAGS_LIBS"
 
