@@ -37,12 +37,16 @@ if test -z "$OUTPUT"; then
   exit 1
 fi
 
+# we depend on C++11
+PLATFORM_CXXFLAGS="-std=gnu++11"
+# we currently depend on POSIX platform
+COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
+
 # Default to fbcode gcc on internal fb machines
 if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
     FBCODE_BUILD="true"
-    PLATFORM_CXXFLAGS="-std=c++0x"
     if [ -z "$USE_CLANG" ]; then
-        source $PWD/build_tools/fbcode.gcc471.sh
+        source $PWD/build_tools/fbcode.gcc481.sh
     else
         source $PWD/build_tools/fbcode.clang31.sh
     fi
@@ -65,10 +69,10 @@ if test -z "$TARGET_OS"; then
     TARGET_OS=`uname -s`
 fi
 
-COMMON_FLAGS="${CFLAGS}"
+COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
 CROSS_COMPILE=
 PLATFORM_CCFLAGS=
-PLATFORM_CXXFLAGS="${CXXFLAGS}"
+PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS"
 PLATFORM_SHARED_EXT="so"
 PLATFORM_SHARED_LDFLAGS="${EXEC_LDFLAGS_SHARED} -shared -Wl,-soname -Wl,"
@@ -164,16 +168,13 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Also don't need any compilation tests if compiling on fbcode
     true
 else
-    # If -std=c++0x works, use <cstdatomic>.  Otherwise use port_posix.h.
+    # If -std=c++0x works, use <atomic>.  Otherwise use port_posix.h.
     $CXX $CFLAGS -std=c++0x -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <cstdatomic>
+      #include <atomic>
       int main() {}
 EOF
     if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DLEVELDB_PLATFORM_POSIX -DLEVELDB_CSTDATOMIC_PRESENT"
-        PLATFORM_CXXFLAGS="-std=c++0x"
-    else
-        COMMON_FLAGS="$COMMON_FLAGS -DLEVELDB_PLATFORM_POSIX"
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_ATOMIC_PRESENT"
     fi
 
     # Test whether Snappy library is installed

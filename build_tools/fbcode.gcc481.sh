@@ -5,7 +5,12 @@
 # uses jemalloc
 
 TOOLCHAIN_REV=53dc1fe83f84e9145b9ffb81b81aa7f6a49c87cc
-TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos6-native"
+CENTOS_VERSION=`rpm -q --qf "%{VERSION}" $(rpm -q --whatprovides redhat-release)`
+if [ "$CENTOS_VERSION" = "6" ]; then
+  TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos6-native"
+else
+  TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
+fi
 TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.8.1-glibc-2.17"
 TOOL_JEMALLOC=jemalloc-3.3.1/4d53c6f
 
@@ -49,7 +54,7 @@ RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
 
 CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/gold -m64 -mtune=generic -fPIC"
 CFLAGS+=" -I $TOOLCHAIN_LIB_BASE/jemalloc/$TOOL_JEMALLOC/include -DHAVE_JEMALLOC -nostdlib"
-CFLAGS+=" -DLEVELDB_PLATFORM_POSIX"
+CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_ATOMIC_PRESENT"
 CFLAGS+=" -DSNAPPY -DGFLAGS -DZLIB -DBZIP2"
 
 EXEC_LDFLAGS="-Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib/ld.so"

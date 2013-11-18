@@ -144,7 +144,7 @@ TEST(BlobStoreTest, CreateAndStoreTest) {
                        Env::Default());
   vector<pair<Blob, string>> ranges;
 
-  for (int i = 0; i < 20000; ++i) {
+  for (int i = 0; i < 2000; ++i) {
     int decision = rand() % 5;
     if (decision <= 2 || ranges.size() == 0) {
       string buf;
