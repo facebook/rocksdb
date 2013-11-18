@@ -42,7 +42,7 @@ if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
     FBCODE_BUILD="true"
     PLATFORM_CXXFLAGS="-std=c++0x"
     if [ -z "$USE_CLANG" ]; then
-        source $PWD/build_tools/fbcode.gcc481.sh
+        source $PWD/build_tools/fbcode.gcc471.sh
     else
         source $PWD/build_tools/fbcode.clang31.sh
     fi
