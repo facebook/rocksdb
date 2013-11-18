@@ -102,7 +102,8 @@ class DBIter: public Iterator {
   virtual void SeekToLast();
 
  private:
-  void FindNextUserEntry(bool skipping);
+  inline void FindNextUserEntry(bool skipping);
+  void FindNextUserEntryInternal(bool skipping);
   void FindPrevUserEntry();
   bool ParseKey(ParsedInternalKey* key);
   void MergeValuesNewToOld();
@@ -191,7 +192,15 @@ void DBIter::Next() {
 //
 // NOTE: In between, saved_key_ can point to a user key that has
 //       a delete marker
-void DBIter::FindNextUserEntry(bool skipping) {
+inline void DBIter::FindNextUserEntry(bool skipping) {
+  StopWatchNano timer(env_, false);
+  StartPerfTimer(&timer);
+  FindNextUserEntryInternal(skipping);
+  BumpPerfTime(&perf_context.find_next_user_entry_time, &timer);
+}
+
+// Actual implementation of DBIter::FindNextUserEntry()
+void DBIter::FindNextUserEntryInternal(bool skipping) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_->Valid());
   assert(direction_ == kForward);
@@ -431,7 +440,10 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.clear();
   AppendInternalKey(
       &saved_key_, ParsedInternalKey(target, sequence_, kValueTypeForSeek));
+  StopWatchNano internal_seek_timer(env_, false);
+  StartPerfTimer(&internal_seek_timer);
   iter_->Seek(saved_key_);
+  BumpPerfTime(&perf_context.seek_internal_seek_time, &internal_seek_timer);
   if (iter_->Valid()) {
     FindNextUserEntry(false /*not skipping */);
   } else {
@@ -442,7 +454,10 @@ void DBIter::Seek(const Slice& target) {
 void DBIter::SeekToFirst() {
   direction_ = kForward;
   ClearSavedValue();
+  StopWatchNano internal_seek_timer(env_, false);
+  StartPerfTimer(&internal_seek_timer);
   iter_->SeekToFirst();
+  BumpPerfTime(&perf_context.seek_internal_seek_time, &internal_seek_timer);
   if (iter_->Valid()) {
     FindNextUserEntry(false /* not skipping */);
   } else {
@@ -461,7 +476,10 @@ void DBIter::SeekToLast() {
 
   direction_ = kReverse;
   ClearSavedValue();
+  StopWatchNano internal_seek_timer(env_, false);
+  StartPerfTimer(&internal_seek_timer);
   iter_->SeekToLast();
+  BumpPerfTime(&perf_context.seek_internal_seek_time, &internal_seek_timer);
   FindPrevUserEntry();
 }
 

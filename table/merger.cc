@@ -11,8 +11,11 @@
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
+#include "util/stop_watch.h"
+#include "util/perf_context_imp.h"
 
 #include <vector>
 
@@ -22,10 +25,12 @@ namespace {
 
 class MergingIterator : public Iterator {
  public:
-  MergingIterator(const Comparator* comparator, Iterator** children, int n)
+  MergingIterator(Env* const env, const Comparator* comparator,
+                  Iterator** children, int n)
       : comparator_(comparator),
         children_(n),
         current_(nullptr),
+        env_(env),
         direction_(kForward),
         maxHeap_(NewMaxIterHeap(comparator_)),
         minHeap_ (NewMinIterHeap(comparator_)) {
@@ -71,14 +76,24 @@ class MergingIterator : public Iterator {
 
   virtual void Seek(const Slice& target) {
     ClearHeaps();
+    StopWatchNano child_seek_timer(env_, false);
+    StopWatchNano min_heap_timer(env_, false);
     for (auto& child : children_) {
+      StartPerfTimer(&child_seek_timer);
       child.Seek(target);
+      BumpPerfTime(&perf_context.seek_child_seek_time, &child_seek_timer);
+      BumpPerfCount(&perf_context.seek_child_seek_count);
+
       if (child.Valid()) {
+        StartPerfTimer(&min_heap_timer);
         minHeap_.push(&child);
+        BumpPerfTime(&perf_context.seek_min_heap_time, &child_seek_timer);
       }
     }
+    StartPerfTimer(&min_heap_timer);
     FindSmallest();
     direction_ = kForward;
+    BumpPerfTime(&perf_context.seek_min_heap_time, &child_seek_timer);
   }
 
   virtual void Next() {
@@ -178,6 +193,7 @@ class MergingIterator : public Iterator {
   const Comparator* comparator_;
   std::vector<IteratorWrapper> children_;
   IteratorWrapper* current_;
+  Env* const env_;
   // Which direction is the iterator moving?
   enum Direction {
     kForward,
@@ -214,14 +230,15 @@ void MergingIterator::ClearHeaps() {
 }
 }  // namespace
 
-Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n) {
+Iterator* NewMergingIterator(Env* const env, const Comparator* cmp,
+                             Iterator** list, int n) {
   assert(n >= 0);
   if (n == 0) {
     return NewEmptyIterator();
   } else if (n == 1) {
     return list[0];
   } else {
-    return new MergingIterator(cmp, list, n);
+    return new MergingIterator(env, cmp, list, n);
   }
 }
 
