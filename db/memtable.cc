@@ -19,6 +19,8 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/murmurhash.h"
+#include "util/perf_context_imp.h"
+#include "util/stop_watch.h"
 
 namespace std {
 template <>
@@ -161,6 +163,9 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    std::deque<std::string>* operands, const Options& options) {
+  StopWatchNano memtable_get_timer(options.env, false);
+  StartPerfTimer(&memtable_get_timer);
+
   Slice memkey = key.memtable_key();
   std::shared_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(key.user_key()));
@@ -174,7 +179,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   auto logger = options.info_log;
   std::string merge_result;
 
-  for (; iter->Valid(); iter->Next()) {
+  bool found_final_value = false;
+  for (; !found_final_value && iter->Valid(); iter->Next()) {
     // entry format is:
     //    klength  varint32
     //    userkey  char[klength-8]
@@ -211,7 +217,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           if (options.inplace_update_support) {
             GetLock(key.user_key())->Unlock();
           }
-          return true;
+          found_final_value = true;
+          break;
         }
         case kTypeDeletion: {
           if (merge_in_progress) {
@@ -225,7 +232,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           } else {
             *s = Status::NotFound(Slice());
           }
-          return true;
+          found_final_value = true;
+          break;
         }
         case kTypeMerge: {
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
@@ -259,10 +267,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
 
   // No change to value, since we have not yet found a Put/Delete
 
-  if (merge_in_progress) {
+  if (!found_final_value && merge_in_progress) {
     *s = Status::MergeInProgress("");
   }
-  return false;
+  BumpPerfTime(&perf_context.get_from_memtable_time, &memtable_get_timer);
+  BumpPerfCount(&perf_context.get_from_memtable_count);
+  return found_final_value;
 }
 
 bool MemTable::Update(SequenceNumber seq, ValueType type,

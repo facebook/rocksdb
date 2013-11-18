@@ -22,7 +22,20 @@ void PerfContext::Reset() {
   block_decompress_time = 0;
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
-  wal_write_time = 0;
+  write_wal_time = 0;
+
+  get_snapshot_time = 0;
+  get_from_memtable_time = 0;
+  get_from_memtable_count = 0;
+  get_post_process_time = 0;
+  get_from_output_files_time = 0;
+  seek_child_seek_time = 0;
+  seek_child_seek_count = 0;
+  seek_min_heap_time = 0;
+  seek_internal_seek_time = 0;
+  find_next_user_entry_time = 0;
+  write_pre_and_post_process_time = 0;
+  write_memtable_time = 0;
 }
 
 __thread PerfContext perf_context;
