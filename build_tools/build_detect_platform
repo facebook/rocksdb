@@ -39,6 +39,8 @@ fi
 
 # Default to fbcode gcc on internal fb machines
 if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
+    FBCODE_BUILD="true"
+    PLATFORM_CXXFLAGS="-std=c++0x"
     if [ -z "$USE_CLANG" ]; then
         source $PWD/build_tools/fbcode.gcc481.sh
     else
@@ -72,10 +74,6 @@ PLATFORM_SHARED_EXT="so"
 PLATFORM_SHARED_LDFLAGS="${EXEC_LDFLAGS_SHARED} -shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=true
-
-if test -z "$GFLAGS_LIBS"; then
-  PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-fi
 
 # generic port files (working on all platform by #ifdef) go directly in /port
 GENERIC_PORT_FILES=`find $ROCKSDB_ROOT/port -name '*.cc' | tr "\n" " "`
@@ -161,8 +159,9 @@ echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> $OUTPUT
 echo "SOURCESCPP=$PORTABLE_CPP" >> $OUTPUT
 echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> $OUTPUT
 
-if [ "$CROSS_COMPILE" = "true" ]; then
+if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
+    # Also don't need any compilation tests if compiling on fbcode
     true
 else
     # If -std=c++0x works, use <cstdatomic>.  Otherwise use port_posix.h.
@@ -185,7 +184,7 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS ${SNAPPY_LDFLAGS:-./snappy/libs/libsnappy.a}"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy"
     fi
 
 
@@ -197,6 +196,7 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
     fi
 
     # Test whether zlib library is installed
