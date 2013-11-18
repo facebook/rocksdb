@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <set>
+#include <unistd.h>
 
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
