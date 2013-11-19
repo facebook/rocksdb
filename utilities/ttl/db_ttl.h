@@ -100,7 +100,7 @@ class DBWithTTL : public StackableDB {
 
   static Status StripTS(std::string* str);
 
-  static Status GetCurrentTime(int32_t& curtime);
+  static Status GetCurrentTime(int64_t& curtime);
 
   static const uint32_t kTSLength = sizeof(int32_t); // size of timestamp
 
@@ -302,14 +302,14 @@ class TtlMergeOperator : public MergeOperator {
     }
 
     // Augment the *new_value with the ttl time-stamp
-    int32_t curtime;
+    int64_t curtime;
     if (!DBWithTTL::GetCurrentTime(curtime).ok()) {
       Log(logger, "Error: Could not get current time to be attached internally "
                   "to the new value.");
       return false;
     } else {
       char ts_string[ts_len];
-      EncodeFixed32(ts_string, curtime);
+      EncodeFixed32(ts_string, (int32_t)curtime);
       new_value->append(ts_string, ts_len);
       return true;
     }
@@ -337,14 +337,14 @@ class TtlMergeOperator : public MergeOperator {
     }
 
     // Augment the *new_value with the ttl time-stamp
-    int32_t curtime;
+    int64_t curtime;
     if (!DBWithTTL::GetCurrentTime(curtime).ok()) {
       Log(logger, "Error: Could not get current time to be attached internally "
                   "to the new value.");
       return false;
     } else {
       char ts_string[ts_len];
-      EncodeFixed32(ts_string, curtime);
+      EncodeFixed32(ts_string, (int32_t)curtime);
       new_value->append(ts_string, ts_len);
       return true;
     }

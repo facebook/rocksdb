@@ -61,8 +61,8 @@ Status UtilityDB::OpenTtlDB(
 }
 
 // Gives back the current time
-Status DBWithTTL::GetCurrentTime(int32_t& curtime) {
-  return Env::Default()->GetCurrentTime((int64_t*)&curtime);
+Status DBWithTTL::GetCurrentTime(int64_t& curtime) {
+  return Env::Default()->GetCurrentTime(&curtime);
 }
 
 // Appends the current timestamp to the string.
@@ -70,12 +70,12 @@ Status DBWithTTL::GetCurrentTime(int32_t& curtime) {
 Status DBWithTTL::AppendTS(const Slice& val, std::string& val_with_ts) {
   val_with_ts.reserve(kTSLength + val.size());
   char ts_string[kTSLength];
-  int32_t curtime;
+  int64_t curtime;
   Status st = GetCurrentTime(curtime);
   if (!st.ok()) {
     return st;
   }
-  EncodeFixed32(ts_string, curtime);
+  EncodeFixed32(ts_string, (int32_t)curtime);
   val_with_ts.append(val.data(), val.size());
   val_with_ts.append(ts_string, kTSLength);
   return st;
@@ -102,7 +102,7 @@ bool DBWithTTL::IsStale(const Slice& value, int32_t ttl) {
   if (ttl <= 0) { // Data is fresh if TTL is non-positive
     return false;
   }
-  int32_t curtime;
+  int64_t curtime;
   if (!GetCurrentTime(curtime).ok()) {
     return false; // Treat the data as fresh if could not get current time
   }
