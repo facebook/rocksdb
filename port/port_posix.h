@@ -339,7 +339,7 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
         _stream.next_out = (char *)&(*output)[old_sz];
         _stream.avail_out = new_sz - old_sz;
         break;
-      case Z_BUF_ERROR:
+      case BZ_SEQUENCE_ERROR:
       default:
         BZ2_bzCompressEnd(&_stream);
         return false;
@@ -383,7 +383,7 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
     switch (st) {
       case BZ_STREAM_END:
         break;
-      case Z_OK:
+      case BZ_OK:
         // No output space. Increase the output space by 20%.
         old_sz = output_len;
         output_len = (int)(output_len * 1.2);
