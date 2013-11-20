@@ -52,17 +52,20 @@ bool FilterBlockBuilder::SamePrefix(const Slice &key1,
 void FilterBlockBuilder::AddKey(const Slice& key) {
   // get slice for most recently added entry
   Slice prev;
-  if (start_.size() > 0) {
-    size_t prev_start = start_[start_.size() - 1];
-    const char* base = entries_.data() + prev_start;
-    size_t length = entries_.size() - prev_start;
-    prev = Slice(base, length);
-  }
+  size_t added_to_start = 0;
 
   // add key to filter if needed
   if (whole_key_filtering_) {
     start_.push_back(entries_.size());
+    ++added_to_start;
     entries_.append(key.data(), key.size());
+  }
+
+  if (start_.size() > added_to_start) {
+    size_t prev_start = start_[start_.size() - 1 - added_to_start];
+    const char* base = entries_.data() + prev_start;
+    size_t length = entries_.size() - prev_start;
+    prev = Slice(base, length);
   }
 
   // add prefix to filter if needed

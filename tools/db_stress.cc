@@ -1118,6 +1118,7 @@ class StressTest {
         } else {
           MultiPrefixScan(thread, read_opts, prefix);
         }
+        read_opts.prefix = nullptr;
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
         uint32_t value_base = thread->rand.Next();
@@ -1126,8 +1127,8 @@ class StressTest {
         if (!FLAGS_test_batches_snapshots) {
           MutexLock l(thread->shared->GetMutexForKey(rand_key));
           if (FLAGS_verify_before_write) {
-            std::string keystr = Key(rand_key);
-            Slice k = keystr;
+            std::string keystr2 = Key(rand_key);
+            Slice k = keystr2;
             Status s = db_->Get(read_opts, k, &from_db);
             VerifyValue(rand_key,
                         read_opts,
