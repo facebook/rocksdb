@@ -252,11 +252,14 @@ class BlockBasedTableConstructor: public Constructor {
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     Reset();
     sink_.reset(new StringSink());
+    std::unique_ptr<FlushBlockBySizePolicyFactory> flush_policy_factory(
+        new FlushBlockBySizePolicyFactory(options.block_size,
+                                          options.block_size_deviation));
+
     BlockBasedTableBuilder builder(
         options,
         sink_.get(),
-        new FlushBlockBySizePolicyFactory(
-          options.block_size, options.block_size_deviation),
+        flush_policy_factory.get(),
         options.compression);
 
     for (KVMap::const_iterator it = data.begin();
