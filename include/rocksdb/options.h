@@ -32,7 +32,6 @@ class CompactionFilterFactory;
 class Comparator;
 class Env;
 class FilterPolicy;
-class FlushBlockPolicyFactory;
 class Logger;
 class MergeOperator;
 class Snapshot;
@@ -491,13 +490,6 @@ struct Options {
   // from the database, because otherwise the read can be very slow.
   Options* PrepareForBulkLoad();
 
-  // Set up the default flush-block policy factory. By default, we'll use
-  // `FlushBlockBySizePolicyFactory` as the policy factory.
-  // Note: Please call this method after block_size and block_size_deviation
-  //       is set.
-  // REQUIRES: flush_block_policy_factory is not set.
-  Options* SetUpDefaultFlushBlockPolicyFactory();
-
   // Disable automatic compactions. Manual compactions can still
   // be issued on this database.
   bool disable_auto_compactions;
@@ -632,13 +624,6 @@ struct Options {
   // Number of locks used for inplace update
   // Default: 10000, if inplace_update_support = true, else 0.
   size_t inplace_update_num_locks;
-
-  // Creates the instances of flush block policy.
-  // A flush-block policy provides a configurable way to determine when to
-  // flush a block in the block based tables,
-  // Default: nullptr. User can call FlushBlockBySizePolicyFactory() to set
-  // up default policy factory (`FlushBlockBySizePolicyFactory`).
-  std::shared_ptr<FlushBlockPolicyFactory> flush_block_policy_factory;
 };
 
 //

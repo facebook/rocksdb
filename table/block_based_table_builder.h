@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -25,7 +26,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
-  BlockBasedTableBuilder(const Options& options, WritableFile* file,
+  BlockBasedTableBuilder(const Options& options,
+                         WritableFile* file,
+                         FlushBlockPolicyFactory* flush_block_policy_factory,
                          CompressionType compression_type);
 
   // REQUIRES: Either Finish() or Abandon() has been called.

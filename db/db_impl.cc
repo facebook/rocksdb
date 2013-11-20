@@ -44,6 +44,7 @@
 #include "rocksdb/table.h"
 #include "port/port.h"
 #include "table/block.h"
+#include "table/block_based_table_factory.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
 #include "util/auto_roll_logger.h"
@@ -197,10 +198,6 @@ Options SanitizeOptions(const std::string& dbname,
   collectors.push_back(
       std::make_shared<InternalKeyPropertiesCollector>()
   );
-
-  if (!result.flush_block_policy_factory) {
-    result.SetUpDefaultFlushBlockPolicyFactory();
-  }
 
   return result;
 }

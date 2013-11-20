@@ -29,6 +29,36 @@ Status BlockBasedTableFactory::GetTableReader(
 TableBuilder* BlockBasedTableFactory::GetTableBuilder(
     const Options& options, WritableFile* file,
     CompressionType compression_type) const {
-  return new BlockBasedTableBuilder(options, file, compression_type);
+  auto flush_block_policy_factory = flush_block_policy_factory_.get();
+
+  // if flush block policy factory is not set, we'll create the default one
+  // from the options.
+  //
+  // NOTE: we cannot pre-cache the "default block policy factory" because
+  // `FlushBlockBySizePolicyFactory` takes `options.block_size` and
+  // `options.block_size_deviation` as parameters, which may be different
+  // every time.
+  if (flush_block_policy_factory == nullptr) {
+    flush_block_policy_factory =
+        new FlushBlockBySizePolicyFactory(options.block_size,
+                                          options.block_size_deviation);
+  }
+
+  auto table_builder =  new BlockBasedTableBuilder(
+      options,
+      file,
+      flush_block_policy_factory,
+      compression_type);
+
+  // Delete flush_block_policy_factory only when it's just created from the
+  // options.
+  // We can safely delete flush_block_policy_factory since it will only be used
+  // during the construction of `BlockBasedTableBuilder`.
+  if (flush_block_policy_factory != flush_block_policy_factory_.get()) {
+    delete flush_block_policy_factory;
+  }
+
+  return table_builder;
 }
+
 }  // namespace rocksdb

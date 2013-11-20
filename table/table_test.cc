@@ -21,6 +21,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
 #include "table/block_based_table_builder.h"
+#include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/block.h"
@@ -42,12 +43,6 @@ static std::string Reverse(const Slice& key) {
     rev.push_back(*rit);
   }
   return rev;
-}
-
-static Options GetDefaultOptions() {
-  Options options;
-  options.SetUpDefaultFlushBlockPolicyFactory();
-  return options;
 }
 
 class ReverseKeyComparator : public Comparator {
@@ -257,7 +252,12 @@ class BlockBasedTableConstructor: public Constructor {
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     Reset();
     sink_.reset(new StringSink());
-    BlockBasedTableBuilder builder(options, sink_.get(), options.compression);
+    BlockBasedTableBuilder builder(
+        options,
+        sink_.get(),
+        new FlushBlockBySizePolicyFactory(
+          options.block_size, options.block_size_deviation),
+        options.compression);
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -430,7 +430,7 @@ class DBConstructor: public Constructor {
   void NewDB() {
     std::string name = test::TmpDir() + "/table_testdb";
 
-    Options options = GetDefaultOptions();
+    Options options;
     options.comparator = comparator_;
     Status status = DestroyDB(name, options);
     ASSERT_TRUE(status.ok()) << status.ToString();
@@ -449,7 +449,7 @@ class DBConstructor: public Constructor {
 static bool SnappyCompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Snappy_Compress(GetDefaultOptions().compression_opts,
+  return port::Snappy_Compress(Options().compression_opts,
                                in.data(), in.size(),
                                &out);
 }
@@ -457,7 +457,7 @@ static bool SnappyCompressionSupported() {
 static bool ZlibCompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Zlib_Compress(GetDefaultOptions().compression_opts,
+  return port::Zlib_Compress(Options().compression_opts,
                              in.data(), in.size(),
                              &out);
 }
@@ -466,7 +466,7 @@ static bool ZlibCompressionSupported() {
 static bool BZip2CompressionSupported() {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::BZip2_Compress(GetDefaultOptions().compression_opts,
+  return port::BZip2_Compress(Options().compression_opts,
                               in.data(), in.size(),
                               &out);
 }
@@ -487,7 +487,7 @@ struct TestArgs {
 };
 
 
-static std::vector<TestArgs> Generate_Arg_List() {
+static std::vector<TestArgs> GenerateArgList() {
   std::vector<TestArgs> ret;
   TestType test_type[4] = {TABLE_TEST, BLOCK_TEST, MEMTABLE_TEST, DB_TEST};
   int test_type_len = 4;
@@ -536,14 +536,13 @@ class Harness {
   void Init(const TestArgs& args) {
     delete constructor_;
     constructor_ = nullptr;
-    options_ = GetDefaultOptions();
+    options_ = Options();
 
     options_.block_restart_interval = args.restart_interval;
     options_.compression = args.compression;
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
     options_.block_size = 256;
-    options_.SetUpDefaultFlushBlockPolicyFactory();
     if (args.reverse_compare) {
       options_.comparator = &reverse_key_comparator;
     }
@@ -737,13 +736,13 @@ class Harness {
   DB* db() const { return constructor_->db(); }
 
  private:
-  Options options_ = GetDefaultOptions();
+  Options options_ = Options();
   Constructor* constructor_;
 };
 
 // Test the empty key
 TEST(Harness, SimpleEmptyKey) {
-  std::vector<TestArgs> args = Generate_Arg_List();
+  std::vector<TestArgs> args = GenerateArgList();
   for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 1);
@@ -753,7 +752,7 @@ TEST(Harness, SimpleEmptyKey) {
 }
 
 TEST(Harness, SimpleSingle) {
-  std::vector<TestArgs> args = Generate_Arg_List();
+  std::vector<TestArgs> args = GenerateArgList();
   for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 2);
@@ -763,7 +762,7 @@ TEST(Harness, SimpleSingle) {
 }
 
 TEST(Harness, SimpleMulti) {
-  std::vector<TestArgs> args = Generate_Arg_List();
+  std::vector<TestArgs> args = GenerateArgList();
   for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 3);
@@ -775,7 +774,7 @@ TEST(Harness, SimpleMulti) {
 }
 
 TEST(Harness, SimpleSpecialKey) {
-  std::vector<TestArgs> args = Generate_Arg_List();
+  std::vector<TestArgs> args = GenerateArgList();
   for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 4);
@@ -814,7 +813,7 @@ TEST(TableTest, BasicTableProperties) {
 
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options = GetDefaultOptions();
+  Options options;
   options.compression = kNoCompression;
   options.block_restart_interval = 1;
 
@@ -848,7 +847,7 @@ TEST(TableTest, FilterPolicyNameProperties) {
   c.Add("a1", "val1");
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options = GetDefaultOptions();
+  Options options;
   std::unique_ptr<const FilterPolicy> filter_policy(
     NewBloomFilterPolicy(10)
   );
@@ -891,7 +890,7 @@ TEST(TableTest, IndexSizeStat) {
 
     std::vector<std::string> ks;
     KVMap kvmap;
-    Options options = GetDefaultOptions();
+    Options options;
     options.compression = kNoCompression;
     options.block_restart_interval = 1;
 
@@ -910,11 +909,6 @@ TEST(TableTest, NumBlockStat) {
   options.compression = kNoCompression;
   options.block_restart_interval = 1;
   options.block_size = 1000;
-  options.SetUpDefaultFlushBlockPolicyFactory();
-
-  // Block Size changed, need to set up a new flush policy to reflect the
-  // change.
-  options.SetUpDefaultFlushBlockPolicyFactory();
 
   for (int i = 0; i < 10; ++i) {
     // the key/val are slightly smaller than block size, so that each block
@@ -979,7 +973,7 @@ class BlockCacheProperties {
 
 TEST(TableTest, BlockCacheTest) {
   // -- Table construction
-  Options options = GetDefaultOptions();
+  Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
   options.block_cache = NewLRUCache(1024);
@@ -1117,9 +1111,8 @@ TEST(TableTest, ApproximateOffsetOfPlain) {
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options = GetDefaultOptions();
+  Options options;
   options.block_size = 1024;
-  options.SetUpDefaultFlushBlockPolicyFactory();
   options.compression = kNoCompression;
   c.Finish(options, &keys, &kvmap);
 
@@ -1147,9 +1140,8 @@ static void Do_Compression_Test(CompressionType comp) {
   c.Add("k04", test::CompressibleString(&rnd, 0.25, 10000, &tmp));
   std::vector<std::string> keys;
   KVMap kvmap;
-  Options options = GetDefaultOptions();
+  Options options;
   options.block_size = 1024;
-  options.SetUpDefaultFlushBlockPolicyFactory();
   options.compression = comp;
   c.Finish(options, &keys, &kvmap);
 
@@ -1190,9 +1182,8 @@ TEST(TableTest, BlockCacheLeak) {
   // in the cache. This test checks whether the Table actually makes use of the
   // unique ID from the file.
 
-  Options opt = GetDefaultOptions();
+  Options opt;
   opt.block_size = 1024;
-  opt.SetUpDefaultFlushBlockPolicyFactory();
   opt.compression = kNoCompression;
   opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever
                                                // lose cached values.
@@ -1225,7 +1216,7 @@ TEST(TableTest, BlockCacheLeak) {
 }
 
 TEST(Harness, Randomized) {
-  std::vector<TestArgs> args = Generate_Arg_List();
+  std::vector<TestArgs> args = GenerateArgList();
   for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
     Random rnd(test::RandomSeed() + 5);
@@ -1277,7 +1268,7 @@ TEST(MemTableTest, Simple) {
   MemTable* memtable = new MemTable(cmp, table_factory);
   memtable->Ref();
   WriteBatch batch;
-  Options options = GetDefaultOptions();
+  Options options;
   WriteBatchInternal::SetSequence(&batch, 100);
   batch.Put(std::string("k1"), std::string("v1"));
   batch.Put(std::string("k2"), std::string("v2"));

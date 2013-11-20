@@ -12,6 +12,7 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/table.h"
+#include "table/block_based_table_factory.h"
 #include "util/coding.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -83,13 +84,10 @@ class DumbLogger : public Logger {
 
 // Utilities test functions
 void MakeBuilder(
-    Options options,
+    const Options& options,
     std::unique_ptr<FakeWritableFile>* writable,
     std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
-  if (!options.flush_block_policy_factory) {
-    options.SetUpDefaultFlushBlockPolicyFactory();
-  }
   builder->reset(
       options.table_factory->GetTableBuilder(options, writable->get(),
                                              options.compression));
@@ -99,6 +97,7 @@ void OpenTable(
     const Options& options,
     const std::string& contents,
     std::unique_ptr<TableReader>* table_reader) {
+
   std::unique_ptr<RandomAccessFile> file(new FakeRandomeAccessFile(contents));
   auto s = options.table_factory->GetTableReader(
       options,

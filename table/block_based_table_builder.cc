@@ -93,13 +93,15 @@ struct BlockBasedTableBuilder::Rep {
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
-
   BlockHandle pending_handle;  // Handle to add to index block
 
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
-  Rep(const Options& opt, WritableFile* f, CompressionType compression_type)
+  Rep(const Options& opt,
+      WritableFile* f,
+      FlushBlockPolicyFactory* flush_block_policy_factory,
+      CompressionType compression_type)
       : options(opt),
         file(f),
         data_block(options),
@@ -108,17 +110,19 @@ struct BlockBasedTableBuilder::Rep {
         index_block(1 /* block_restart_interval */, options.comparator),
         compression_type(compression_type),
         filter_block(opt.filter_policy == nullptr ? nullptr
-                     : new FilterBlockBuilder(opt)) {
-    assert(options.flush_block_policy_factory);
-    auto factory = options.flush_block_policy_factory;
-    flush_block_policy.reset(factory->NewFlushBlockPolicy(data_block));
+                     : new FilterBlockBuilder(opt)),
+        flush_block_policy(
+            flush_block_policy_factory->NewFlushBlockPolicy(data_block)) {
   }
 };
 
-BlockBasedTableBuilder::BlockBasedTableBuilder(const Options& options,
-                                               WritableFile* file,
-                                               CompressionType compression_type)
-    : rep_(new Rep(options, file, compression_type)) {
+BlockBasedTableBuilder::BlockBasedTableBuilder(
+    const Options& options,
+    WritableFile* file,
+    FlushBlockPolicyFactory* flush_block_policy_factory,
+    CompressionType compression_type)
+    : rep_(new Rep(options,
+                   file, flush_block_policy_factory, compression_type)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }

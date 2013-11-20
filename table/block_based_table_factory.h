@@ -11,6 +11,8 @@
 #include <memory>
 #include <stdint.h>
 
+#include "rocksdb/flush_block_policy.h"
+#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
 namespace rocksdb {
@@ -29,13 +31,23 @@ class BlockBasedTableBuilder;
 
 class BlockBasedTableFactory: public TableFactory {
 public:
+  // @flush_block_policy_factory creates the instances of flush block policy.
+  // which provides a configurable way to determine when to flush a block in
+  // the block based tables.  If not set, table builder will use the default
+  // block flush policy, which cut blocks by block size (please refer to
+  // `FlushBlockBySizePolicy`).
+  BlockBasedTableFactory(
+      FlushBlockPolicyFactory* flush_block_policy_factory = nullptr) :
+      flush_block_policy_factory_(flush_block_policy_factory) {
+  }
+
   ~BlockBasedTableFactory() {
   }
-  BlockBasedTableFactory() {
-  }
+
   const char* Name() const override {
     return "BlockBasedTable";
   }
+
   Status GetTableReader(const Options& options, const EnvOptions& soptions,
                         unique_ptr<RandomAccessFile> && file,
                         uint64_t file_size,
@@ -44,6 +56,9 @@ public:
   TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
                                 CompressionType compression_type) const
                                     override;
+
+ private:
+  std::unique_ptr<FlushBlockPolicyFactory> flush_block_policy_factory_;
 };
 
 }  // namespace rocksdb
