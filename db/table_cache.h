@@ -55,7 +55,7 @@ class TableCache {
              void (*mark_key_may_exist)(void*) = nullptr);
 
   // Determine whether the table may contain the specified prefix.  If
-  // the table index of blooms are not in memory, this may cause an I/O
+  // the table index or blooms are not in memory, this may cause an I/O
   bool PrefixMayMatch(const ReadOptions& options, uint64_t file_number,
                       uint64_t file_size, const Slice& internal_prefix,
                       bool* table_io);
