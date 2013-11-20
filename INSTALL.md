@@ -26,8 +26,9 @@ libraries. You are on your own.
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
 * **OS X**:
-    * Update your xcode to the latest version to get the compiler with
-      C++ 11 support.
+    * We encourage you to install latest C++ compiler via [homebrew](http://brew.sh/).
+        * If you're first time developer in MacOS, please run: `xcode-select --install` in your command line.
+        * run `brew tap homebrew/dupes; brew install gcc47 --use-llvm` to install gcc 4.7 (or higher).
     * Install zlib, bzip2 and snappy libraries for compression.
     * Install gflags. We have included a script
     `build_tools/mac-install-gflags.sh`, which should automatically install it.
