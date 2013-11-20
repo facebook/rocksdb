@@ -27,8 +27,8 @@ libraries. You are on your own.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
 * **OS X**:
     * Install latest C++ compiler that supports C++ 11:
-        # Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
-        # Install via [homebrew](http://brew.sh/).
+        * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
+        * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
             * run `brew tap homebrew/dupes; brew install gcc47 --use-llvm` to install gcc 4.7 (or higher).
     * Install zlib, bzip2 and snappy libraries for compression.
