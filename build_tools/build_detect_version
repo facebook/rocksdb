@@ -15,7 +15,7 @@ trap "rm $VFILE" EXIT
 which git > /dev/null
 
 if [ "$?" = 0 ]; then
-  env -i git rev-parse HEAD |
+  env -i git rev-parse HEAD 2>&1 |
   awk '
   BEGIN {
     print "#include \"build_version.h\"\n"
