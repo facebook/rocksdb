@@ -163,6 +163,10 @@ whitebox_crash_test: db_stress
 asan_check:
 	$(MAKE) clean
 	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+	$(MAKE) clean
+
+asan_crash_test:
+	$(MAKE) clean
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test -j32
 	$(MAKE) clean
 
