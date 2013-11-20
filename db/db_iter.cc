@@ -426,13 +426,13 @@ void DBIter::FindPrevUserEntry() {
 }
 
 void DBIter::Seek(const Slice& target) {
-  direction_ = kForward;
-  ClearSavedValue();
   saved_key_.clear();
   AppendInternalKey(
       &saved_key_, ParsedInternalKey(target, sequence_, kValueTypeForSeek));
   iter_->Seek(saved_key_);
   if (iter_->Valid()) {
+    direction_ = kForward;
+    ClearSavedValue();
     FindNextUserEntry(false /*not skipping */);
   } else {
     valid_ = false;
