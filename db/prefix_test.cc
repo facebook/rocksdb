@@ -41,26 +41,43 @@ inline Slice TestKeyToSlice(const TestKey& test_key) {
 }
 
 inline const TestKey* SliceToTestKey(const Slice& slice) {
-  assert(slice.size() == sizeof(TestKey));
   return (const TestKey*)slice.data();
 }
 
 class TestKeyComparator : public Comparator {
  public:
+
+  // Compare needs to be aware of the possibility of a and/or b is
+  // prefix only
   virtual int Compare(const Slice& a, const Slice& b) const {
     const TestKey* key_a = SliceToTestKey(a);
     const TestKey* key_b = SliceToTestKey(b);
     if (key_a->prefix != key_b->prefix) {
       if (key_a->prefix < key_b->prefix) return -1;
       if (key_a->prefix > key_b->prefix) return 1;
-      assert(false);
     } else {
-      if (key_a->sorted < key_b->sorted) return -1;
-      if (key_a->sorted > key_b->sorted) return 1;
-      if (key_a->sorted == key_b->sorted) return 0;
-      assert(false);
+      ASSERT_TRUE(key_a->prefix == key_b->prefix);
+      // note, both a and b could be prefix only
+      if (a.size() != b.size()) {
+        // one of them is prefix
+        ASSERT_TRUE(
+          (a.size() == sizeof(uint64_t) && b.size() == sizeof(TestKey)) ||
+          (b.size() == sizeof(uint64_t) && a.size() == sizeof(TestKey)));
+        if (a.size() < b.size()) return -1;
+        if (a.size() > b.size()) return 1;
+      } else {
+        // both a and b are prefix
+        if (a.size() == sizeof(uint64_t)) {
+          return 0;
+        }
+
+        // both a and b are whole key
+        ASSERT_TRUE(a.size() == sizeof(TestKey) && b.size() == sizeof(TestKey));
+        if (key_a->sorted < key_b->sorted) return -1;
+        if (key_a->sorted > key_b->sorted) return 1;
+        if (key_a->sorted == key_b->sorted) return 0;
+      }
     }
-    assert(false);
     return 0;
   }
 
