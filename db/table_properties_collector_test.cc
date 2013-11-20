@@ -9,8 +9,8 @@
 
 #include "db/dbformat.h"
 #include "db/db_impl.h"
-#include "db/table_stats_collector.h"
-#include "rocksdb/table_stats.h"
+#include "db/table_properties_collector.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/table.h"
 #include "util/coding.h"
 #include "util/testharness.h"
@@ -18,7 +18,7 @@
 
 namespace rocksdb {
 
-class TableStatsTest {
+class TablePropertiesTest {
  private:
   unique_ptr<TableReader> table_reader_;
 };
@@ -111,15 +111,15 @@ void OpenTable(
 }
 
 // Collects keys that starts with "A" in a table.
-class RegularKeysStartWithA: public TableStatsCollector {
+class RegularKeysStartWithA: public TablePropertiesCollector {
  public:
    const char* Name() const { return "RegularKeysStartWithA"; }
 
-   Status Finish(TableStats::UserCollectedStats* stats) {
+   Status Finish(TableProperties::UserCollectedProperties* properties) {
      std::string encoded;
      PutVarint32(&encoded, count_);
-     *stats = TableStats::UserCollectedStats {
-       { "TableStatsTest", "Rocksdb" },
+     *properties = TableProperties::UserCollectedProperties {
+       { "TablePropertiesTest", "Rocksdb" },
        { "Count", encoded }
      };
      return Status::OK();
@@ -133,11 +133,17 @@ class RegularKeysStartWithA: public TableStatsCollector {
      return Status::OK();
    }
 
+  virtual TableProperties::UserCollectedProperties
+    GetReadableProperties() const {
+      return {};
+  }
+
+
  private:
   uint32_t count_ = 0;
 };
 
-TEST(TableStatsTest, CustomizedTableStatsCollector) {
+TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   Options options;
 
   // make sure the entries will be inserted with order.
@@ -151,17 +157,17 @@ TEST(TableStatsTest, CustomizedTableStatsCollector) {
     {"Find",      "val6"},
   };
 
-  // Test stats collectors with internal keys or regular keys
+  // Test properties collectors with internal keys or regular keys
   for (bool encode_as_internal : { true, false }) {
     // -- Step 1: build table
     auto collector = new RegularKeysStartWithA();
     if (encode_as_internal) {
-      options.table_stats_collectors = {
-        std::make_shared<UserKeyTableStatsCollector>(collector)
+      options.table_properties_collectors = {
+        std::make_shared<UserKeyTablePropertiesCollector>(collector)
       };
     } else {
-      options.table_stats_collectors.resize(1);
-      options.table_stats_collectors[0].reset(collector);
+      options.table_properties_collectors.resize(1);
+      options.table_properties_collectors[0].reset(collector);
     }
     std::unique_ptr<TableBuilder> builder;
     std::unique_ptr<FakeWritableFile> writable;
@@ -180,18 +186,19 @@ TEST(TableStatsTest, CustomizedTableStatsCollector) {
     // -- Step 2: Open table
     std::unique_ptr<TableReader> table_reader;
     OpenTable(options, writable->contents(), &table_reader);
-    const auto& stats = table_reader->GetTableStats().user_collected_stats;
+    const auto& properties =
+      table_reader->GetTableProperties().user_collected_properties;
 
-    ASSERT_EQ("Rocksdb", stats.at("TableStatsTest"));
+    ASSERT_EQ("Rocksdb", properties.at("TablePropertiesTest"));
 
     uint32_t starts_with_A = 0;
-    Slice key(stats.at("Count"));
+    Slice key(properties.at("Count"));
     ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
     ASSERT_EQ(3u, starts_with_A);
   }
 }
 
-TEST(TableStatsTest, InternalKeyStatsCollector) {
+TEST(TablePropertiesTest, InternalKeyPropertiesCollector) {
   InternalKey keys[] = {
     InternalKey("A", 0, ValueType::kTypeValue),
     InternalKey("B", 0, ValueType::kTypeValue),
@@ -207,10 +214,10 @@ TEST(TableStatsTest, InternalKeyStatsCollector) {
     std::unique_ptr<FakeWritableFile> writable;
     Options options;
     if (sanitized) {
-      options.table_stats_collectors = {
+      options.table_properties_collectors = {
         std::make_shared<RegularKeysStartWithA>()
       };
-      // with sanitization, even regular stats collector will be able to
+      // with sanitization, even regular properties collector will be able to
       // handle internal keys.
       auto comparator = options.comparator;
       // HACK: Set options.info_log to avoid writing log in
@@ -224,8 +231,8 @@ TEST(TableStatsTest, InternalKeyStatsCollector) {
       );
       options.comparator = comparator;
     } else {
-      options.table_stats_collectors = {
-        std::make_shared<InternalKeyStatsCollector>()
+      options.table_properties_collectors = {
+        std::make_shared<InternalKeyPropertiesCollector>()
       };
     }
 
@@ -238,16 +245,15 @@ TEST(TableStatsTest, InternalKeyStatsCollector) {
 
     std::unique_ptr<TableReader> table_reader;
     OpenTable(options, writable->contents(), &table_reader);
-    const auto& stats = table_reader->GetTableStats().user_collected_stats;
+    const auto& properties =
+      table_reader->GetTableProperties().user_collected_properties;
 
-    uint64_t deleted = 0;
-    Slice key(stats.at(InternalKeyTableStatsNames::kDeletedKeys));
-    ASSERT_TRUE(GetVarint64(&key, &deleted));
+    uint64_t deleted = GetDeletedKeys(properties);
     ASSERT_EQ(4u, deleted);
 
     if (sanitized) {
       uint32_t starts_with_A = 0;
-      Slice key(stats.at("Count"));
+      Slice key(properties.at("Count"));
       ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
       ASSERT_EQ(1u, starts_with_A);
     }

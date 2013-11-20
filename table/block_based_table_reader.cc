@@ -58,7 +58,7 @@ struct BlockBasedTable::Rep {
   unique_ptr<Block> index_block;
   unique_ptr<FilterBlockReader> filter;
 
-  TableStats table_stats;
+  TableProperties table_properties;
 };
 
 BlockBasedTable::~BlockBasedTable() {
@@ -261,18 +261,18 @@ Status BlockBasedTable::Open(const Options& options,
   std::unique_ptr<Iterator> meta_iter;
   s = ReadMetaBlock(rep, &meta, &meta_iter);
 
-  // Read the stats
-  meta_iter->Seek(kStatsBlock);
-  if (meta_iter->Valid() && meta_iter->key() == Slice(kStatsBlock)) {
+  // Read the properties
+  meta_iter->Seek(kPropertiesBlock);
+  if (meta_iter->Valid() && meta_iter->key() == Slice(kPropertiesBlock)) {
     s = meta_iter->status();
     if (s.ok()) {
-      s = ReadStats(meta_iter->value(), rep, &rep->table_stats);
+      s = ReadProperties(meta_iter->value(), rep, &rep->table_properties);
     }
 
     if (!s.ok()) {
       auto err_msg =
-        "[Warning] Encountered error while reading data from stats block " +
-        s.ToString();
+        "[Warning] Encountered error while reading data from properties "
+        "block " + s.ToString();
       Log(rep->options.info_log, "%s", err_msg.c_str());
     }
   }
@@ -349,8 +349,8 @@ void BlockBasedTable::SetupForCompaction() {
   compaction_optimized_ = true;
 }
 
-TableStats& BlockBasedTable::GetTableStats() {
-  return rep_->table_stats;
+TableProperties& BlockBasedTable::GetTableProperties() {
+  return rep_->table_properties;
 }
 
 // Load the meta-block from the file. On success, return the loaded meta block
@@ -372,8 +372,8 @@ Status BlockBasedTable::ReadMetaBlock(
 
     if (!s.ok()) {
       auto err_msg =
-        "[Warning] Encountered error while reading data from stats block " +
-        s.ToString();
+        "[Warning] Encountered error while reading data from properties"
+        "block " + s.ToString();
       Log(rep->options.info_log, "%s", err_msg.c_str());
     }
   if (!s.ok()) {
@@ -414,14 +414,14 @@ FilterBlockReader* BlockBasedTable::ReadFilter (
        rep->options, block.data, block.heap_allocated);
 }
 
-Status BlockBasedTable::ReadStats(
-    const Slice& handle_value, Rep* rep, TableStats* table_stats) {
-  assert(table_stats);
+Status BlockBasedTable::ReadProperties(
+    const Slice& handle_value, Rep* rep, TableProperties* table_properties) {
+  assert(table_properties);
 
   Slice v = handle_value;
   BlockHandle handle;
   if (!handle.DecodeFrom(&v).ok()) {
-    return Status::InvalidArgument("Failed to decode stats block handle");
+    return Status::InvalidArgument("Failed to decode properties block handle");
   }
 
   BlockContents block_contents;
@@ -438,20 +438,27 @@ Status BlockBasedTable::ReadStats(
     return s;
   }
 
-  Block stats_block(block_contents);
+  Block properties_block(block_contents);
   std::unique_ptr<Iterator> iter(
-      stats_block.NewIterator(BytewiseComparator())
+      properties_block.NewIterator(BytewiseComparator())
   );
 
-  // All pre-defined stats of type uint64_t
-  std::unordered_map<std::string, uint64_t*> predefined_uint64_stats = {
-    { BlockBasedTableStatsNames::kDataSize, &table_stats->data_size },
-    { BlockBasedTableStatsNames::kIndexSize, &table_stats->index_size },
-    { BlockBasedTableStatsNames::kRawKeySize, &table_stats->raw_key_size },
-    { BlockBasedTableStatsNames::kRawValueSize, &table_stats->raw_value_size },
-    { BlockBasedTableStatsNames::kNumDataBlocks,
-      &table_stats->num_data_blocks },
-    { BlockBasedTableStatsNames::kNumEntries, &table_stats->num_entries },
+  // All pre-defined properties of type uint64_t
+  std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
+    { BlockBasedTablePropertiesNames::kDataSize,
+      &table_properties->data_size },
+    { BlockBasedTablePropertiesNames::kIndexSize,
+      &table_properties->index_size },
+    { BlockBasedTablePropertiesNames::kFilterSize,
+      &table_properties->filter_size },
+    { BlockBasedTablePropertiesNames::kRawKeySize,
+      &table_properties->raw_key_size },
+    { BlockBasedTablePropertiesNames::kRawValueSize,
+      &table_properties->raw_value_size },
+    { BlockBasedTablePropertiesNames::kNumDataBlocks,
+      &table_properties->num_data_blocks },
+    { BlockBasedTablePropertiesNames::kNumEntries,
+      &table_properties->num_entries },
   };
 
   std::string last_key;
@@ -462,7 +469,7 @@ Status BlockBasedTable::ReadStats(
     }
 
     auto key = iter->key().ToString();
-    // stats block is strictly sorted with no duplicate key.
+    // properties block is strictly sorted with no duplicate key.
     assert(
         last_key.empty() ||
         BytewiseComparator()->Compare(key, last_key) > 0
@@ -470,25 +477,25 @@ Status BlockBasedTable::ReadStats(
     last_key = key;
 
     auto raw_val = iter->value();
-    auto pos = predefined_uint64_stats.find(key);
+    auto pos = predefined_uint64_properties.find(key);
 
-    if (pos != predefined_uint64_stats.end()) {
-      // handle predefined rocksdb stats
+    if (pos != predefined_uint64_properties.end()) {
+      // handle predefined rocksdb properties
       uint64_t val;
       if (!GetVarint64(&raw_val, &val)) {
         // skip malformed value
         auto error_msg =
-          "[Warning] detect malformed value in stats meta-block:"
+          "[Warning] detect malformed value in properties meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
         Log(rep->options.info_log, "%s", error_msg.c_str());
         continue;
       }
       *(pos->second) = val;
-    } else if (key == BlockBasedTableStatsNames::kFilterPolicy) {
-      table_stats->filter_policy_name = raw_val.ToString();
+    } else if (key == BlockBasedTablePropertiesNames::kFilterPolicy) {
+      table_properties->filter_policy_name = raw_val.ToString();
     } else {
       // handle user-collected
-      table_stats->user_collected_stats.insert(
+      table_properties->user_collected_properties.insert(
           std::make_pair(key, raw_val.ToString())
       );
     }
@@ -1066,20 +1073,25 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
   return result;
 }
 
-const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
-const std::string BlockBasedTable::kStatsBlock = "rocksdb.stats";
-
-const std::string BlockBasedTableStatsNames::kDataSize  = "rocksdb.data.size";
-const std::string BlockBasedTableStatsNames::kIndexSize = "rocksdb.index.size";
-const std::string BlockBasedTableStatsNames::kRawKeySize =
+const std::string BlockBasedTable::kFilterBlockPrefix =
+    "filter.";
+const std::string BlockBasedTable::kPropertiesBlock =
+    "rocksdb.properties";
+const std::string BlockBasedTablePropertiesNames::kDataSize  =
+    "rocksdb.data.size";
+const std::string BlockBasedTablePropertiesNames::kIndexSize =
+    "rocksdb.index.size";
+const std::string BlockBasedTablePropertiesNames::kFilterSize =
+    "rocksdb.filter.size";
+const std::string BlockBasedTablePropertiesNames::kRawKeySize =
     "rocksdb.raw.key.size";
-const std::string BlockBasedTableStatsNames::kRawValueSize =
+const std::string BlockBasedTablePropertiesNames::kRawValueSize =
     "rocksdb.raw.value.size";
-const std::string BlockBasedTableStatsNames::kNumDataBlocks =
+const std::string BlockBasedTablePropertiesNames::kNumDataBlocks =
     "rocksdb.num.data.blocks";
-const std::string BlockBasedTableStatsNames::kNumEntries =
+const std::string BlockBasedTablePropertiesNames::kNumEntries =
     "rocksdb.num.entries";
-const std::string BlockBasedTableStatsNames::kFilterPolicy =
+const std::string BlockBasedTablePropertiesNames::kFilterPolicy =
     "rocksdb.filter.policy";
 
 }  // namespace rocksdb

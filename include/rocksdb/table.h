@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/table_stats.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/options.h"
 
 namespace rocksdb {
@@ -98,7 +98,7 @@ class TableReader {
   // posix_fadvise
   virtual void SetupForCompaction() = 0;
 
-  virtual TableStats& GetTableStats() = 0;
+  virtual TableProperties& GetTableProperties() = 0;
 
   // Calls (*result_handler)(handle_context, ...) repeatedly, starting with
   // the entry found after a call to Seek(key), until result_handler returns

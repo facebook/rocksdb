@@ -95,7 +95,7 @@ public:
 
   void SetupForCompaction() override;
 
-  TableStats& GetTableStats() override;
+  TableProperties& GetTableProperties() override;
 
   ~SimpleTableReader();
 
@@ -171,7 +171,7 @@ struct SimpleTableReader::Rep {
   unique_ptr<RandomAccessFile> file;
   uint64_t index_start_offset;
   int num_entries;
-  TableStats table_stats;
+  TableProperties table_properties;
 
   const static int user_key_size = 16;
   const static int offset_length = 8;
@@ -214,8 +214,8 @@ Status SimpleTableReader::Open(const Options& options,
 void SimpleTableReader::SetupForCompaction() {
 }
 
-TableStats& SimpleTableReader::GetTableStats() {
-  return rep_->table_stats;
+TableProperties& SimpleTableReader::GetTableProperties() {
+  return rep_->table_properties;
 }
 
 bool SimpleTableReader::PrefixMayMatch(const Slice& internal_prefix) {

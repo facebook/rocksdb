@@ -14,7 +14,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/table_stats.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/table.h"
 #include "util/coding.h"
 
@@ -38,7 +38,7 @@ using std::unique_ptr;
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
-  static const std::string kStatsBlock;
+  static const std::string kPropertiesBlock;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -88,7 +88,7 @@ class BlockBasedTable : public TableReader {
   // posix_fadvise
   void SetupForCompaction() override;
 
-  TableStats& GetTableStats() override;
+  TableProperties& GetTableProperties() override;
 
   ~BlockBasedTable();
 
@@ -142,7 +142,7 @@ class BlockBasedTable : public TableReader {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
-  static Status ReadStats(const Slice& handle_value, Rep* rep);
+  static Status ReadProperties(const Slice& handle_value, Rep* rep);
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(
@@ -156,9 +156,9 @@ class BlockBasedTable : public TableReader {
       Rep* rep,
       size_t* filter_size = nullptr);
 
-  // Read the table stats from stats block.
-  static Status ReadStats(
-      const Slice& handle_value, Rep* rep, TableStats* stats);
+  // Read the table properties from properties block.
+  static Status ReadProperties(
+      const Slice& handle_value, Rep* rep, TableProperties* properties);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 
@@ -181,9 +181,10 @@ class BlockBasedTable : public TableReader {
   void operator=(const TableReader&) = delete;
 };
 
-struct BlockBasedTableStatsNames {
+struct BlockBasedTablePropertiesNames {
   static const std::string kDataSize;
   static const std::string kIndexSize;
+  static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;

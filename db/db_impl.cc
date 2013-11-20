@@ -30,7 +30,7 @@
 #include "db/merge_helper.h"
 #include "db/prefix_filter_iterator.h"
 #include "db/table_cache.h"
-#include "db/table_stats_collector.h"
+#include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -182,20 +182,20 @@ Options SanitizeOptions(const std::string& dbname,
     result.wal_dir = dbname;
   }
 
-  // -- Sanitize the table stats collector
-  // All user defined stats collectors will be wrapped by
-  // UserKeyTableStatsCollector since for them they only have the knowledge of
-  // the user keys; internal keys are invisible to them.
-  auto& collectors = result.table_stats_collectors;
-  for (size_t i = 0; i < result.table_stats_collectors.size(); ++i) {
+  // -- Sanitize the table properties collector
+  // All user defined properties collectors will be wrapped by
+  // UserKeyTablePropertiesCollector since for them they only have the
+  // knowledge of the user keys; internal keys are invisible to them.
+  auto& collectors = result.table_properties_collectors;
+  for (size_t i = 0; i < result.table_properties_collectors.size(); ++i) {
     assert(collectors[i]);
     collectors[i] =
-      std::make_shared<UserKeyTableStatsCollector>(collectors[i]);
+      std::make_shared<UserKeyTablePropertiesCollector>(collectors[i]);
   }
 
   // Add collector to collect internal key statistics
   collectors.push_back(
-      std::make_shared<InternalKeyStatsCollector>()
+      std::make_shared<InternalKeyPropertiesCollector>()
   );
 
   if (!result.flush_block_policy_factory) {

@@ -36,7 +36,7 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
-	table_stats_collector_test \
+	table_properties_collector_test \
 	arena_test \
 	auto_roll_logger_test \
 	block_test \
@@ -46,7 +46,6 @@ TESTS = \
 	coding_test \
 	corruption_test \
 	crc32c_test \
-	db_test \
 	dbformat_test \
 	env_test \
 	blob_store_test \
@@ -63,12 +62,13 @@ TESTS = \
 	simple_table_db_test \
 	skiplist_test \
 	stringappend_test \
-	table_test \
 	ttl_test \
 	version_edit_test \
 	version_set_test \
 	write_batch_test\
-	deletefile_test
+	deletefile_test \
+	table_test \
+	db_test
 
 TOOLS = \
         sst_dump \
@@ -201,8 +201,8 @@ signal_test: util/signal_test.o $(LIBOBJECTS)
 arena_test: util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-table_stats_collector_test: db/table_stats_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) db/table_stats_collector_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+table_properties_collector_test: db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 bloom_test: util/bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/bloom_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

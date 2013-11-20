@@ -10,7 +10,9 @@
 #include "table/block_based_table_builder.h"
 
 #include <assert.h>
+#include <inttypes.h>
 #include <map>
+#include <stdio.h>
 
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/cache.h"
@@ -45,13 +47,13 @@ struct BytewiseLessThan {
 // before writng to store.
 typedef std::map<std::string, std::string, BytewiseLessThan> BytewiseSortedMap;
 
-void AddStats(BytewiseSortedMap& stats, std::string name, uint64_t val) {
-  assert(stats.find(name) == stats.end());
+void AddProperties(BytewiseSortedMap& props, std::string name, uint64_t val) {
+  assert(props.find(name) == props.end());
 
   std::string dst;
   PutVarint64(&dst, val);
 
-  stats.insert(
+  props.insert(
       std::make_pair(name, dst)
   );
 }
@@ -63,12 +65,12 @@ static bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
 
 // Were we encounter any error occurs during user-defined statistics collection,
 // we'll write the warning message to info log.
-void LogStatsCollectionError(
+void LogPropertiesCollectionError(
     Logger* info_log, const std::string& method, const std::string& name) {
   assert(method == "Add" || method == "Finish");
 
   std::string msg =
-    "[Warning] encountered error when calling TableStatsCollector::" +
+    "[Warning] encountered error when calling TablePropertiesCollector::" +
     method + "() with collector name: " + name;
   Log(info_log, "%s", msg.c_str());
 }
@@ -84,12 +86,7 @@ struct BlockBasedTableBuilder::Rep {
   BlockBuilder index_block;
   std::string last_key;
   CompressionType compression_type;
-
-  uint64_t num_entries = 0;
-  uint64_t num_data_blocks = 0;
-  uint64_t raw_key_size = 0;
-  uint64_t raw_value_size = 0;
-  uint64_t data_size = 0;
+  TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
   FilterBlockBuilder* filter_block;
@@ -142,7 +139,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
-  if (r->num_entries > 0) {
+  if (r->props.num_entries > 0) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
@@ -173,14 +170,14 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   r->last_key.assign(key.data(), key.size());
   r->data_block.Add(key, value);
-  r->num_entries++;
-  r->raw_key_size += key.size();
-  r->raw_value_size += value.size();
+  r->props.num_entries++;
+  r->props.raw_key_size += key.size();
+  r->props.raw_value_size += value.size();
 
-  for (auto collector : r->options.table_stats_collectors) {
+  for (auto collector : r->options.table_properties_collectors) {
     Status s = collector->Add(key, value);
     if (!s.ok()) {
-      LogStatsCollectionError(
+      LogPropertiesCollectionError(
           r->options.info_log.get(),
           "Add", /* method */
           collector->Name()
@@ -201,8 +198,8 @@ void BlockBasedTableBuilder::Flush() {
   if (r->filter_block != nullptr) {
     r->filter_block->StartBlock(r->offset);
   }
-  r->data_size = r->offset;
-  ++r->num_data_blocks;
+  r->props.data_size = r->offset;
+  ++r->props.num_data_blocks;
 }
 
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
@@ -358,11 +355,12 @@ Status BlockBasedTableBuilder::Finish() {
 
   // Write filter block
   if (ok() && r->filter_block != nullptr) {
-    WriteRawBlock(r->filter_block->Finish(), kNoCompression,
-                  &filter_block_handle);
+    auto filter_contents = r->filter_block->Finish();
+    r->props.filter_size = filter_contents.size();
+    WriteRawBlock(filter_contents, kNoCompression, &filter_block_handle);
   }
 
-  // To make sure stats block is able to keep the accurate size of index
+  // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries here and flush them
   // to storage after metaindex block is written.
   if (ok() && !empty_data_block) {
@@ -375,7 +373,7 @@ Status BlockBasedTableBuilder::Finish() {
 
   // Write meta blocks and metaindex block with the following order.
   //    1. [meta block: filter]
-  //    2. [meta block: stats]
+  //    2. [meta block: properties]
   //    3. [metaindex block]
   if (ok()) {
     // We use `BytewiseComparator` as the comparator for meta block.
@@ -400,67 +398,91 @@ Status BlockBasedTableBuilder::Finish() {
       );
     }
 
-    // Write stats block.
+    // Write properties block.
     {
-      BlockBuilder stats_block(
+      BlockBuilder properties_block(
           r->options.block_restart_interval,
           BytewiseComparator()
       );
 
-      BytewiseSortedMap stats;
+      BytewiseSortedMap properties;
 
-      // Add basic stats
-      AddStats(stats, BlockBasedTableStatsNames::kRawKeySize, r->raw_key_size);
-      AddStats(stats, BlockBasedTableStatsNames::kRawValueSize,
-               r->raw_value_size);
-      AddStats(stats, BlockBasedTableStatsNames::kDataSize, r->data_size);
-      AddStats(
-          stats,
-          BlockBasedTableStatsNames::kIndexSize,
-          r->index_block.CurrentSizeEstimate() + kBlockTrailerSize
+      // Add basic properties
+      AddProperties(
+          properties,
+          BlockBasedTablePropertiesNames::kRawKeySize,
+          r->props.raw_key_size
       );
-      AddStats(stats, BlockBasedTableStatsNames::kNumEntries, r->num_entries);
-      AddStats(stats, BlockBasedTableStatsNames::kNumDataBlocks,
-               r->num_data_blocks);
+      AddProperties(
+          properties,
+          BlockBasedTablePropertiesNames::kRawValueSize,
+          r->props.raw_value_size
+      );
+      AddProperties(
+          properties,
+          BlockBasedTablePropertiesNames::kDataSize,
+          r->props.data_size
+      );
+      r->props.index_size =
+        r->index_block.CurrentSizeEstimate() + kBlockTrailerSize;
+      AddProperties(
+          properties,
+          BlockBasedTablePropertiesNames::kIndexSize,
+          r->props.index_size
+      );
+      AddProperties(
+          properties,
+          BlockBasedTablePropertiesNames::kNumEntries,
+          r->props.num_entries
+      );
+      AddProperties(
+          properties,
+          BlockBasedTablePropertiesNames::kNumDataBlocks,
+          r->props.num_data_blocks);
       if (r->filter_block != nullptr) {
-        stats.insert(std::make_pair(
-              BlockBasedTableStatsNames::kFilterPolicy,
+        properties.insert({
+              BlockBasedTablePropertiesNames::kFilterPolicy,
               r->options.filter_policy->Name()
-        ));
+        });
       }
+      AddProperties(
+          properties,
+          BlockBasedTablePropertiesNames::kFilterSize,
+          r->props.filter_size
+      );
 
-      for (auto collector : r->options.table_stats_collectors) {
-        TableStats::UserCollectedStats user_collected_stats;
+      for (auto collector : r->options.table_properties_collectors) {
+        TableProperties::UserCollectedProperties user_collected_properties;
         Status s =
-          collector->Finish(&user_collected_stats);
+          collector->Finish(&user_collected_properties);
 
         if (!s.ok()) {
-          LogStatsCollectionError(
+          LogPropertiesCollectionError(
               r->options.info_log.get(),
               "Finish", /* method */
               collector->Name()
           );
         } else {
-          stats.insert(
-              user_collected_stats.begin(),
-              user_collected_stats.end()
+          properties.insert(
+              user_collected_properties.begin(),
+              user_collected_properties.end()
           );
         }
       }
 
-      for (const auto& stat : stats) {
-        stats_block.Add(stat.first, stat.second);
+      for (const auto& stat : properties) {
+        properties_block.Add(stat.first, stat.second);
       }
 
-      BlockHandle stats_block_handle;
-      WriteBlock(&stats_block, &stats_block_handle);
+      BlockHandle properties_block_handle;
+      WriteBlock(&properties_block, &properties_block_handle);
 
       std::string handle_encoding;
-      stats_block_handle.EncodeTo(&handle_encoding);
+      properties_block_handle.EncodeTo(&handle_encoding);
       meta_block_handles.insert(
-          std::make_pair(BlockBasedTable::kStatsBlock, handle_encoding)
+          { BlockBasedTable::kPropertiesBlock, handle_encoding }
       );
-    }  // end of stats block writing
+    }  // end of properties block writing
 
     for (const auto& metablock : meta_block_handles) {
       meta_index_block.Add(metablock.first, metablock.second);
@@ -486,6 +508,31 @@ Status BlockBasedTableBuilder::Finish() {
       r->offset += footer_encoding.size();
     }
   }
+
+  // Print out the table stats
+  if (ok()) {
+    // user collected properties
+    std::string user_collected;
+    user_collected.reserve(1024);
+    for (auto collector : r->options.table_properties_collectors) {
+      for (const auto& prop : collector->GetReadableProperties()) {
+        user_collected.append(prop.first);
+        user_collected.append("=");
+        user_collected.append(prop.second);
+        user_collected.append("; ");
+      }
+    }
+
+    Log(
+        r->options.info_log,
+        "Table was constructed:\n"
+        "  basic properties: %s\n"
+        "  user collected properties: %s",
+        r->props.ToString().c_str(),
+        user_collected.c_str()
+    );
+  }
+
   return r->status;
 }
 
@@ -496,7 +543,7 @@ void BlockBasedTableBuilder::Abandon() {
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {
-  return rep_->num_entries;
+  return rep_->props.num_entries;
 }
 
 uint64_t BlockBasedTableBuilder::FileSize() const {

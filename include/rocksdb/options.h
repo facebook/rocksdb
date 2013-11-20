@@ -21,7 +21,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/table_stats.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
@@ -619,7 +619,8 @@ struct Options {
   // the tables.
   // Default: emtpy vector -- no user-defined statistics collection will be
   // performed.
-  std::vector<std::shared_ptr<TableStatsCollector>> table_stats_collectors;
+  std::vector<std::shared_ptr<TablePropertiesCollector>>
+    table_properties_collectors;
 
   // Allows thread-safe inplace updates. Requires Updates iff
   // * key exists in current memtable

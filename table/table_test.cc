@@ -799,7 +799,7 @@ class TableTest { };
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
-TEST(TableTest, BasicTableStats) {
+TEST(TableTest, BasicTableProperties) {
   BlockBasedTableConstructor c(BytewiseComparator());
 
   c.Add("a1", "val1");
@@ -820,16 +820,16 @@ TEST(TableTest, BasicTableStats) {
 
   c.Finish(options, &keys, &kvmap);
 
-  auto& stats = c.table_reader()->GetTableStats();
-  ASSERT_EQ(kvmap.size(), stats.num_entries);
+  auto& props = c.table_reader()->GetTableProperties();
+  ASSERT_EQ(kvmap.size(), props.num_entries);
 
   auto raw_key_size = kvmap.size() * 2ul;
   auto raw_value_size = kvmap.size() * 4ul;
 
-  ASSERT_EQ(raw_key_size, stats.raw_key_size);
-  ASSERT_EQ(raw_value_size, stats.raw_value_size);
-  ASSERT_EQ(1ul, stats.num_data_blocks);
-  ASSERT_EQ("", stats.filter_policy_name);  // no filter policy is used
+  ASSERT_EQ(raw_key_size, props.raw_key_size);
+  ASSERT_EQ(raw_value_size, props.raw_value_size);
+  ASSERT_EQ(1ul, props.num_data_blocks);
+  ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
 
   // Verify data size.
   BlockBuilder block_builder(options);
@@ -839,11 +839,11 @@ TEST(TableTest, BasicTableStats) {
   Slice content = block_builder.Finish();
   ASSERT_EQ(
       content.size() + kBlockTrailerSize,
-      stats.data_size
+      props.data_size
   );
 }
 
-TEST(TableTest, FilterPolicyNameStats) {
+TEST(TableTest, FilterPolicyNameProperties) {
   BlockBasedTableConstructor c(BytewiseComparator());
   c.Add("a1", "val1");
   std::vector<std::string> keys;
@@ -855,8 +855,8 @@ TEST(TableTest, FilterPolicyNameStats) {
   options.filter_policy = filter_policy.get();
 
   c.Finish(options, &keys, &kvmap);
-  auto& stats = c.table_reader()->GetTableStats();
-  ASSERT_EQ("rocksdb.BuiltinBloomFilter", stats.filter_policy_name);
+  auto& props = c.table_reader()->GetTableProperties();
+  ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
 }
 
 static std::string RandomString(Random* rnd, int len) {
@@ -897,7 +897,7 @@ TEST(TableTest, IndexSizeStat) {
 
     c.Finish(options, &ks, &kvmap);
     auto index_size =
-      c.table_reader()->GetTableStats().index_size;
+      c.table_reader()->GetTableProperties().index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
   }
@@ -927,13 +927,13 @@ TEST(TableTest, NumBlockStat) {
   c.Finish(options, &ks, &kvmap);
   ASSERT_EQ(
       kvmap.size(),
-      c.table_reader()->GetTableStats().num_data_blocks
+      c.table_reader()->GetTableProperties().num_data_blocks
   );
 }
 
-class BlockCacheStats {
+class BlockCacheProperties {
  public:
-  explicit BlockCacheStats(std::shared_ptr<Statistics> statistics) {
+  explicit BlockCacheProperties(std::shared_ptr<Statistics> statistics) {
     block_cache_miss =
       statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
     block_cache_hit =
@@ -948,7 +948,7 @@ class BlockCacheStats {
       statistics.get()->getTickerCount(BLOCK_CACHE_DATA_HIT);
   }
 
-  // Check if the fetched stats matches the expected ones.
+  // Check if the fetched props matches the expected ones.
   void AssertEqual(
       long index_block_cache_miss,
       long index_block_cache_hit,
@@ -996,9 +996,9 @@ TEST(TableTest, BlockCacheTest) {
 
   // At first, no block will be accessed.
   {
-    BlockCacheStats stats(options.statistics);
+    BlockCacheProperties props(options.statistics);
     // index will be added to block cache.
-    stats.AssertEqual(
+    props.AssertEqual(
         1,  // index block miss
         0,
         0,
@@ -1009,11 +1009,11 @@ TEST(TableTest, BlockCacheTest) {
   // Only index block will be accessed
   {
     iter.reset(c.NewIterator());
-    BlockCacheStats stats(options.statistics);
+    BlockCacheProperties props(options.statistics);
     // NOTE: to help better highlight the "detla" of each ticker, I use
     // <last_value> + <added_value> to indicate the increment of changed
     // value; other numbers remain the same.
-    stats.AssertEqual(
+    props.AssertEqual(
         1,
         0 + 1,  // index block hit
         0,
@@ -1024,8 +1024,8 @@ TEST(TableTest, BlockCacheTest) {
   // Only data block will be accessed
   {
     iter->SeekToFirst();
-    BlockCacheStats stats(options.statistics);
-    stats.AssertEqual(
+    BlockCacheProperties props(options.statistics);
+    props.AssertEqual(
         1,
         1,
         0 + 1,  // data block miss
@@ -1037,8 +1037,8 @@ TEST(TableTest, BlockCacheTest) {
   {
     iter.reset(c.NewIterator());
     iter->SeekToFirst();
-    BlockCacheStats stats(options.statistics);
-    stats.AssertEqual(
+    BlockCacheProperties props(options.statistics);
+    props.AssertEqual(
         1,
         1 + 1,  // index block hit
         1,
@@ -1050,16 +1050,16 @@ TEST(TableTest, BlockCacheTest) {
 
   // -- PART 2: Open without block cache
   options.block_cache.reset();
-  options.statistics = CreateDBStatistics();  // reset the stats
+  options.statistics = CreateDBStatistics();  // reset the props
   c.Reopen(options);
 
   {
     iter.reset(c.NewIterator());
     iter->SeekToFirst();
     ASSERT_EQ("key", iter->key().ToString());
-    BlockCacheStats stats(options.statistics);
+    BlockCacheProperties props(options.statistics);
     // Nothing is affected at all
-    stats.AssertEqual(0, 0, 0, 0);
+    props.AssertEqual(0, 0, 0, 0);
   }
 
   // -- PART 3: Open with very small block cache
@@ -1068,8 +1068,8 @@ TEST(TableTest, BlockCacheTest) {
   options.block_cache = NewLRUCache(1);
   c.Reopen(options);
   {
-    BlockCacheStats stats(options.statistics);
-    stats.AssertEqual(
+    BlockCacheProperties props(options.statistics);
+    props.AssertEqual(
         1,  // index block miss
         0,
         0,
@@ -1083,8 +1083,8 @@ TEST(TableTest, BlockCacheTest) {
     // It first cache index block then data block. But since the cache size
     // is only 1, index block will be purged after data block is inserted.
     iter.reset(c.NewIterator());
-    BlockCacheStats stats(options.statistics);
-    stats.AssertEqual(
+    BlockCacheProperties props(options.statistics);
+    props.AssertEqual(
         1 + 1,  // index block miss
         0,
         0,  // data block miss
@@ -1096,8 +1096,8 @@ TEST(TableTest, BlockCacheTest) {
     // SeekToFirst() accesses data block. With similar reason, we expect data
     // block's cache miss.
     iter->SeekToFirst();
-    BlockCacheStats stats(options.statistics);
-    stats.AssertEqual(
+    BlockCacheProperties props(options.statistics);
+    props.AssertEqual(
         2,
         0,
         0 + 1,  // data block miss
