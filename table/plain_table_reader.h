@@ -25,7 +25,9 @@ using std::unique_ptr;
 using std::unordered_map;
 
 // Based on following output file format:
-// +--------------------------------------------+  <= key1_data_offset
+// +-------------+
+// | version     |
+// +-------------+------------------------------+  <= key1_data_offset
 // | key1            | value_size (4 bytes) |   |
 // +----------------------------------------+   |
 // | value1                                     |
@@ -85,7 +87,7 @@ public:
   ~PlainTableReader();
 
 private:
-  char* hash_table_;
+  uint32_t* hash_table_;
   int hash_table_size_;
   std::string sub_index_;
 
@@ -94,7 +96,11 @@ private:
   Status status_;
   unique_ptr<RandomAccessFile> file_;
 
-  uint64_t file_size_;
+  Slice file_data_;
+  uint32_t version_;
+  uint32_t file_size_;
+  uint32_t data_start_offset_;
+  uint32_t data_end_offset_;
   const size_t user_key_size_;
   const size_t key_prefix_len_;
   const double hash_table_ratio_;
@@ -105,31 +111,33 @@ private:
   TableProperties tbl_props;
 
   static const size_t kNumInternalBytes = 8;
-  static const uint64_t kSubIndexMask = 0x8000000000000000;
-  static const size_t kOffsetLen = sizeof(uint64_t);
+  static const uint32_t kSubIndexMask = 0x80000000;
+  static const size_t kOffsetLen = sizeof(uint32_t);
 
-  inline int GetHashTableBucket(Slice key);
   inline size_t GetInternalKeyLength() {
     return user_key_size_ + kNumInternalBytes;
   }
-  inline size_t GetHashTableRecordLen() {
-    return key_prefix_len_ + kOffsetLen;
-  }
-  inline char* GetHashTableBucketPtr(int bucket) {
-    return hash_table_ + GetHashTableRecordLen() * bucket;
-  }
-  inline void GetHashKey(int bucket, Slice* slice) {
-    *slice = Slice(GetHashTableBucketPtr(bucket), key_prefix_len_);
-  }
-  inline void GetHashValue(int bucket, uint64_t** ret_value);
 
   friend class TableCache;
   friend class PlainTableIterator;
 
+  // Populate the internal indexes. It must be called before
+  // any query to the table.
+  // This query will populate the hash table hash_table_, the second
+  // level of indexes sub_index_ and bloom filter filter_slice_ if enabled.
   Status PopulateIndex(uint64_t file_size);
-  uint64_t Next(uint64_t offset, Slice* key, Slice* value, Slice* tmp_slice);
-  Status GetOffset(const Slice& target, uint64_t* offset);
+
+  // Check bloom filter to see whether it might contain this prefix
   bool MayHavePrefix(const Slice& target_prefix);
+
+  // Read the key and value at offset to key and value.
+  // tmp_slice is a tmp slice.
+  // return next_offset as the offset for the next key.
+  Status Next(uint32_t offset, Slice* key, Slice* value, uint32_t& next_offset);
+  // Get file offset for key target.
+  // return value prefix_matched is set to true if the offset is confirmed
+  // for a key with the same prefix as target.
+  uint32_t GetOffset(const Slice& target, bool& prefix_matched);
 
   // No copying allowed
   explicit PlainTableReader(const TableReader&) = delete;
@@ -162,8 +170,8 @@ public:
 
 private:
   PlainTableReader* table_;
-  uint64_t offset_;
-  uint64_t next_offset_;
+  uint32_t offset_;
+  uint32_t next_offset_;
   Slice key_;
   Slice value_;
   Status status_;

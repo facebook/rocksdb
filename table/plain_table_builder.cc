@@ -25,6 +25,10 @@ PlainTableBuilder::PlainTableBuilder(const Options& options,
                                      int user_key_size, int key_prefix_len) :
     options_(options), file_(file), user_key_size_(user_key_size),
     key_prefix_len_(key_prefix_len) {
+  std::string version;
+  PutFixed32(&version, 1 | 0x80000000);
+  file_->Append(Slice(version));
+  offset_ = 4;
 }
 
 PlainTableBuilder::~PlainTableBuilder() {
@@ -43,11 +47,11 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   std::string size;
   int value_size = value.size();
-  PutFixed32(&size, value_size);
+  PutVarint32(&size, value_size);
   Slice sizeSlice(size);
   file_->Append(sizeSlice);
   file_->Append(value);
-  offset_ += value_size + 4;
+  offset_ += value_size + size.length();
 
   num_entries_++;
 }

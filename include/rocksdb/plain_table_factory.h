@@ -23,7 +23,9 @@ class TableBuilder;
 
 // IndexedTable requires fixed length key, configured as a constructor
 // parameter of the factory class. Output file format:
-// +--------------------------------------------+  <= key1 offset
+// +-------------+
+// | version     |
+// +-------------+------------------------------+  <= key1 offset
 // | key1            | value_size (4 bytes) |   |
 // +----------------------------------------+   |
 // | value1                                     |
