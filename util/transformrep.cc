@@ -13,6 +13,7 @@
 #include "rocksdb/arena.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "db/memtable.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
 #include "util/murmurhash.h"
@@ -110,7 +111,7 @@ class TransformRep : public MemTableRep {
     virtual void Prev();
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target);
+    virtual void Seek(const Slice& user_key, const char* memtable_key);
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -122,6 +123,7 @@ class TransformRep : public MemTableRep {
    private:
     std::shared_ptr<Bucket> items_;
     Bucket::const_iterator cit_;
+    std::string tmp_;       // For passing to EncodeKey
   };
 
   class EmptyIterator : public MemTableRep::Iterator {
@@ -137,7 +139,7 @@ class TransformRep : public MemTableRep {
     }
     virtual void Next() { }
     virtual void Prev() { }
-    virtual void Seek(const char* target) { }
+    virtual void Seek(const Slice& user_key, const char* memtable_key) { }
     virtual void SeekToFirst() { }
     virtual void SeekToLast() { }
     static std::shared_ptr<EmptyIterator> GetInstance();
@@ -197,9 +199,8 @@ class TransformRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target within the
     // same bucket as target
-    virtual void Seek(const char* target) {
-      Slice prefix = memtable_rep_.transform_->Transform(
-        memtable_rep_.UserKey(target));
+    virtual void Seek(const Slice& user_key, const char* memtable_key) {
+      Slice prefix = memtable_rep_.transform_->Transform(user_key);
 
       ReadLock l(&memtable_rep_.rwlock_);
       auto bucket = memtable_rep_.buckets_.find(prefix);
@@ -208,7 +209,7 @@ class TransformRep : public MemTableRep {
       } else {
         bucket_iterator_.reset(
           new TransformIterator(bucket->second, memtable_rep_.GetLock(prefix)));
-        bucket_iterator_->Seek(target);
+        bucket_iterator_->Seek(user_key, memtable_key);
       }
     }
 
@@ -343,8 +344,11 @@ void TransformRep::Iterator::Prev() {
 }
 
 // Advance to the first entry with a key >= target
-void TransformRep::Iterator::Seek(const char* target) {
-  cit_ = items_->lower_bound(target);
+void TransformRep::Iterator::Seek(const Slice& user_key,
+                                  const char* memtable_key) {
+  const char* encoded_key =
+    (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
+  cit_ = items_->lower_bound(encoded_key);
 }
 
 // Position at the first entry in collection.

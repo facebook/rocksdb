@@ -169,4 +169,6 @@ class MemTable {
   port::RWMutex* GetLock(const Slice& key);
 };
 
+extern const char* EncodeKey(std::string* scratch, const Slice& target);
+
 }  // namespace rocksdb

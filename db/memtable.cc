@@ -75,7 +75,7 @@ Slice MemTableRep::UserKey(const char* key) const {
 // Encode a suitable internal key target for "target" and return it.
 // Uses *scratch as scratch space, and the returned pointer will point
 // into this scratch space.
-static const char* EncodeKey(std::string* scratch, const Slice& target) {
+const char* EncodeKey(std::string* scratch, const Slice& target) {
   scratch->clear();
   PutVarint32(scratch, target.size());
   scratch->append(target.data(), target.size());
@@ -96,7 +96,7 @@ class MemTableIterator: public Iterator {
   }
 
   virtual bool Valid() const { return iter_->Valid(); }
-  virtual void Seek(const Slice& k) { iter_->Seek(EncodeKey(&tmp_, k)); }
+  virtual void Seek(const Slice& k) { iter_->Seek(k, nullptr); }
   virtual void SeekToFirst() { iter_->SeekToFirst(); }
   virtual void SeekToLast() { iter_->SeekToLast(); }
   virtual void Next() { iter_->Next(); }
@@ -113,7 +113,6 @@ class MemTableIterator: public Iterator {
 
  private:
   std::shared_ptr<MemTableRep::Iterator> iter_;
-  std::string tmp_;       // For passing to EncodeKey
 
   // No copying allowed
   MemTableIterator(const MemTableIterator&);
@@ -165,7 +164,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   Slice memkey = key.memtable_key();
   std::shared_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(key.user_key()));
-  iter->Seek(memkey.data());
+  iter->Seek(key.user_key(), memkey.data());
 
   // It is the caller's responsibility to allocate/delete operands list
   assert(operands != nullptr);
@@ -274,7 +273,7 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
 
   std::shared_ptr<MemTableRep::Iterator> iter(
     table_.get()->GetIterator(lkey.user_key()));
-  iter->Seek(memkey.data());
+  iter->Seek(key, memkey.data());
 
   if (iter->Valid()) {
     // entry format is:

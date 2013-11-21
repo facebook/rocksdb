@@ -11,6 +11,7 @@
 #include "port/port.h"
 #include "port/atomic_pointer.h"
 #include "util/murmurhash.h"
+#include "db/memtable.h"
 #include "db/skiplist.h"
 
 namespace rocksdb {
@@ -112,9 +113,12 @@ class HashSkipListRep : public MemTableRep {
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) {
+    virtual void Seek(const Slice& user_key, const char* memtable_key) {
       if (list_ != nullptr) {
-        iter_.Seek(target);
+        const char* encoded_key =
+            (memtable_key != nullptr) ?
+                memtable_key : EncodeKey(&tmp_, user_key);
+        iter_.Seek(encoded_key);
       }
     }
 
@@ -151,6 +155,7 @@ class HashSkipListRep : public MemTableRep {
     // here we track if we own list_. If we own it, we are also
     // responsible for it's cleaning. This is a poor man's shared_ptr
     bool own_list_;
+    std::string tmp_;       // For passing to EncodeKey
   };
 
   class DynamicIterator : public HashSkipListRep::Iterator {
@@ -160,11 +165,10 @@ class HashSkipListRep : public MemTableRep {
         memtable_rep_(memtable_rep) {}
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) {
-      auto transformed = memtable_rep_.transform_->Transform(
-        memtable_rep_.UserKey(target));
+    virtual void Seek(const Slice& k, const char* memtable_key) {
+      auto transformed = memtable_rep_.transform_->Transform(k);
       Reset(memtable_rep_.GetBucket(transformed));
-      HashSkipListRep::Iterator::Seek(target);
+      HashSkipListRep::Iterator::Seek(k, memtable_key);
     }
 
     // Position at the first entry in collection.
@@ -201,7 +205,7 @@ class HashSkipListRep : public MemTableRep {
     }
     virtual void Next() { }
     virtual void Prev() { }
-    virtual void Seek(const char* target) { }
+    virtual void Seek(const Slice& user_key, const char* memtable_key) { }
     virtual void SeekToFirst() { }
     virtual void SeekToLast() { }
    private:

@@ -107,7 +107,7 @@ class MemTableRep {
     virtual void Prev() = 0;
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) = 0;
+    virtual void Seek(const Slice& user_key, const char* memtable_key) = 0;
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
