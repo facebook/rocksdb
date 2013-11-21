@@ -57,7 +57,8 @@ public:
   static Status Open(const Options& options, const EnvOptions& soptions,
                      unique_ptr<RandomAccessFile> && file, uint64_t file_size,
                      unique_ptr<TableReader>* table, const int user_key_size,
-                     const int key_prefix_len);
+                     const int key_prefix_len, const int bloom_num_bits,
+                     double hash_table_ratio);
 
   bool PrefixMayMatch(const Slice& internal_prefix);
 
@@ -79,7 +80,8 @@ public:
   }
 
   PlainTableReader(const EnvOptions& storage_options, uint64_t file_size,
-                   int user_key_size, int key_prefix_len);
+                   int user_key_size, int key_prefix_len, int bloom_num_bits,
+                   double hash_table_ratio);
   ~PlainTableReader();
 
 private:
@@ -95,6 +97,10 @@ private:
   uint64_t file_size_;
   const size_t user_key_size_;
   const size_t key_prefix_len_;
+  const double hash_table_ratio_;
+  const FilterPolicy* filter_policy_;
+  std::string filter_str_;
+  Slice filter_slice_;
 
   TableProperties tbl_props;
 
@@ -123,6 +129,7 @@ private:
   Status PopulateIndex(uint64_t file_size);
   uint64_t Next(uint64_t offset, Slice* key, Slice* value, Slice* tmp_slice);
   Status GetOffset(const Slice& target, uint64_t* offset);
+  bool MayHavePrefix(const Slice& target_prefix);
 
   // No copying allowed
   explicit PlainTableReader(const TableReader&) = delete;

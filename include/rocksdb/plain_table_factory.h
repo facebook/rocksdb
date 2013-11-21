@@ -47,8 +47,15 @@ class PlainTableFactory: public TableFactory {
 public:
   ~PlainTableFactory() {
   }
-  PlainTableFactory(int user_key_size, int key_prefix_len) :
-      user_key_size_(user_key_size), key_prefix_len_(key_prefix_len) {
+  // user_key_size is the length of the user key. key_prefix_len is the
+  // length of the prefix used for im-memory indexes. bloom_num_bits is
+  // number of bits is used for bloom filer per key. hash_table_ratio is
+  // the desired ultilization of the hash table used for prefix hashing.
+  // hash_table_ratio = number of prefixes / #buckets in the hash table
+  PlainTableFactory(int user_key_size, int key_prefix_len,
+                    int bloom_num_bits = 0, double hash_table_ratio = 0.75) :
+      user_key_size_(user_key_size), key_prefix_len_(key_prefix_len),
+      bloom_num_bits_(bloom_num_bits), hash_table_ratio_(hash_table_ratio) {
   }
   const char* Name() const override {
     return "PlainTable";
@@ -64,6 +71,8 @@ public:
 private:
   int user_key_size_;
   int key_prefix_len_;
+  int bloom_num_bits_;
+  double hash_table_ratio_;
 };
 
 }  // namespace rocksdb

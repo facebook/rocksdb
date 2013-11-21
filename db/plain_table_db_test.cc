@@ -59,7 +59,7 @@ public:
   // Return the current option configuration.
   Options CurrentOptions() {
     Options options;
-    options.table_factory.reset(new PlainTableFactory(16, 8));
+    options.table_factory.reset(new PlainTableFactory(16, 8, 2, 0.8));
     options.allow_mmap_reads = true;
     return options;
   }

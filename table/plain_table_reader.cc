@@ -40,15 +40,25 @@ namespace rocksdb {
 
 PlainTableReader::PlainTableReader(const EnvOptions& storage_options,
                                    uint64_t file_size, int user_key_size,
-                                   int key_prefix_len) :
-    soptions_(storage_options), file_size_(file_size),
-    user_key_size_(user_key_size), key_prefix_len_(key_prefix_len) {
+                                   int key_prefix_len, int bloom_bits_per_key,
+                                   double hash_table_ratio) :
+    hash_table_size_(0), soptions_(storage_options), file_size_(file_size),
+    user_key_size_(user_key_size), key_prefix_len_(key_prefix_len),
+    hash_table_ratio_(hash_table_ratio) {
+  if (bloom_bits_per_key > 0) {
+    filter_policy_ = NewBloomFilterPolicy(bloom_bits_per_key);
+  } else {
+    filter_policy_ = nullptr;
+  }
   hash_table_ = nullptr;
 }
 
 PlainTableReader::~PlainTableReader() {
   if (hash_table_ != nullptr) {
     delete[] hash_table_;
+  }
+  if (filter_policy_ != nullptr) {
+    delete filter_policy_;
   }
 }
 
@@ -58,12 +68,16 @@ Status PlainTableReader::Open(const Options& options,
                               uint64_t file_size,
                               unique_ptr<TableReader>* table_reader,
                               const int user_key_size,
-                              const int key_prefix_len) {
+                              const int key_prefix_len,
+                              const int bloom_num_bits,
+                              double hash_table_ratio) {
   assert(options.allow_mmap_reads);
 
   PlainTableReader* t = new PlainTableReader(soptions, file_size,
                                              user_key_size,
-                                             key_prefix_len);
+                                             key_prefix_len,
+                                             bloom_num_bits,
+                                             hash_table_ratio);
   t->file_ = std::move(file);
   t->options_ = options;
   Status s = t->PopulateIndex(file_size);
@@ -146,14 +160,25 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
     delete[] hash_table_;
   }
   // Make the hash table 3/5 full
-  hash_table_size_ = tmp_index.size() * 1.66;
+  std::vector<Slice> filter_entries(0); // for creating bloom filter;
+  if (filter_policy_ != nullptr) {
+    filter_entries.resize(tmp_index.size());
+  }
+  double hash_table_size_multipier =
+      (hash_table_ratio_ < 1.0) ? 1.0 : 1.0 / hash_table_ratio_;
+  hash_table_size_ = tmp_index.size() * hash_table_size_multipier + 1;
   hash_table_ = new char[GetHashTableRecordLen() * hash_table_size_];
   for (int i = 0; i < hash_table_size_; i++) {
     memcpy(GetHashTableBucketPtr(i) + key_prefix_len_, &file_size_,
            kOffsetLen);
   }
 
+  size_t count = 0;
   for (auto it = tmp_index.begin(); it != tmp_index.end(); ++it) {
+    if (filter_policy_ != nullptr) {
+      filter_entries[count++] = it->first;
+    }
+
     int bucket = GetHashTableBucket(it->first);
     uint64_t* hash_value;
     while (true) {
@@ -167,6 +192,10 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
     char* bucket_ptr = GetHashTableBucketPtr(bucket);
     memcpy(bucket_ptr, it->first.data(), key_prefix_len_);
     memcpy(bucket_ptr + key_prefix_len_, &it->second, kOffsetLen);
+  }
+  if (filter_policy_ != nullptr) {
+    filter_policy_->CreateFilter(&filter_entries[0], count, &filter_str_);
+    filter_slice_ = Slice(filter_str_.data(), filter_str_.size());
   }
 
   Log(options_.info_log, "Number of prefixes: %d, suffix_map length %ld",
@@ -187,7 +216,6 @@ inline void PlainTableReader::GetHashValue(int bucket, uint64_t** ret_value) {
 
 Status PlainTableReader::GetOffset(const Slice& target, uint64_t* offset) {
   Status s;
-
   int bucket = GetHashTableBucket(target);
   uint64_t* found_value;
   Slice hash_key;
@@ -247,6 +275,12 @@ Status PlainTableReader::GetOffset(const Slice& target, uint64_t* offset) {
   delete[] mid_key_str;
   return s;
 }
+
+bool PlainTableReader::MayHavePrefix(const Slice& target_prefix) {
+  return filter_policy_ == nullptr
+      || filter_policy_->KeyMayMatch(target_prefix, filter_slice_);
+}
+
 
 uint64_t PlainTableReader::Next(uint64_t offset, Slice* key, Slice* value,
                                 Slice* tmp_slice) {
@@ -321,6 +355,11 @@ void PlainTableIterator::SeekToLast() {
 }
 
 void PlainTableIterator::Seek(const Slice& target) {
+  if (!table_->MayHavePrefix(Slice(target.data(), table_->key_prefix_len_))) {
+    offset_ = next_offset_ = table_->file_size_;
+    return;
+  }
+
   Status s = table_->GetOffset(target, &next_offset_);
   if (!s.ok()) {
     status_ = s;

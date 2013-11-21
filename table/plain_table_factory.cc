@@ -19,13 +19,13 @@ Status PlainTableFactory::GetTableReader(const Options& options,
                                          unique_ptr<TableReader>* table)
      const {
   return PlainTableReader::Open(options, soptions, std::move(file), file_size,
-                                  table, user_key_size_, key_prefix_len_);
+                                  table, user_key_size_, key_prefix_len_,
+                                  bloom_num_bits_, hash_table_ratio_);
 }
 
 TableBuilder* PlainTableFactory::GetTableBuilder(
     const Options& options, WritableFile* file,
     CompressionType compression_type) const {
-  return new PlainTableBuilder(options, file, user_key_size_,
-                                 key_prefix_len_);
+  return new PlainTableBuilder(options, file, user_key_size_, key_prefix_len_);
 }
 }  // namespace rocksdb
