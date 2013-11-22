@@ -112,6 +112,7 @@ Status BuildTable(const std::string& dbname,
 
           if (this_ikey.type == kTypeMerge) {
             // Handle merge-type keys using the MergeHelper
+            // TODO: pass statistics to MergeUntil
             merge.MergeUntil(iter, 0 /* don't worry about snapshot */);
             iterator_at_next = true;
             if (merge.IsSuccess()) {
@@ -188,10 +189,10 @@ Status BuildTable(const std::string& dbname,
     // Finish and check for file errors
     if (s.ok() && !options.disableDataSync) {
       if (options.use_fsync) {
-        StopWatch sw(env, options.statistics, TABLE_SYNC_MICROS);
+        StopWatch sw(env, options.statistics.get(), TABLE_SYNC_MICROS);
         s = file->Fsync();
       } else {
-        StopWatch sw(env, options.statistics, TABLE_SYNC_MICROS);
+        StopWatch sw(env, options.statistics.get(), TABLE_SYNC_MICROS);
         s = file->Sync();
       }
     }

@@ -65,12 +65,12 @@ Status TableCache::FindTable(const EnvOptions& toptions,
     unique_ptr<RandomAccessFile> file;
     unique_ptr<TableReader> table_reader;
     s = env_->NewRandomAccessFile(fname, &file, toptions);
-    RecordTick(options_->statistics, NO_FILE_OPENS);
+    RecordTick(options_->statistics.get(), NO_FILE_OPENS);
     if (s.ok()) {
       if (options_->advise_random_on_open) {
         file->Hint(RandomAccessFile::RANDOM);
       }
-      StopWatch sw(env_, options_->statistics, TABLE_OPEN_IO_MICROS);
+      StopWatch sw(env_, options_->statistics.get(), TABLE_OPEN_IO_MICROS);
       s = options_->table_factory->GetTableReader(*options_, toptions,
                                                   std::move(file), file_size,
                                                   &table_reader);
@@ -78,7 +78,7 @@ Status TableCache::FindTable(const EnvOptions& toptions,
 
     if (!s.ok()) {
       assert(table_reader == nullptr);
-      RecordTick(options_->statistics, NO_FILE_ERRORS);
+      RecordTick(options_->statistics.get(), NO_FILE_ERRORS);
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {

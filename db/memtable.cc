@@ -19,6 +19,7 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/murmurhash.h"
+#include "util/statistics_imp.h"
 
 namespace std {
 template <>
@@ -203,7 +204,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
             assert(merge_operator);
             if (!merge_operator->FullMerge(key.user_key(), &v, *operands,
                                            value, logger.get())) {
-              RecordTick(options.statistics, NUMBER_MERGE_FAILURES);
+              RecordTick(options.statistics.get(), NUMBER_MERGE_FAILURES);
               *s = Status::Corruption("Error: Could not perform merge.");
             }
           } else {
@@ -220,7 +221,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
             *s = Status::OK();
             if (!merge_operator->FullMerge(key.user_key(), nullptr, *operands,
                                            value, logger.get())) {
-              RecordTick(options.statistics, NUMBER_MERGE_FAILURES);
+              RecordTick(options.statistics.get(), NUMBER_MERGE_FAILURES);
               *s = Status::Corruption("Error: Could not perform merge.");
             }
           } else {
