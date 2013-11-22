@@ -3077,27 +3077,40 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       }
       allow_soft_rate_limit_delay = false;
       mutex_.Lock();
+
     } else {
-      // Attempt to switch to a new memtable and trigger compaction of old
-      DelayLoggingAndReset();
+      unique_ptr<WritableFile> lfile;
+      MemTable* memtmp = nullptr;
+
+      // Attempt to switch to a new memtable and trigger compaction of old.
+      // Do this without holding the dbmutex lock.
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
-      unique_ptr<WritableFile> lfile;
-      EnvOptions soptions(storage_options_);
-      soptions.use_mmap_writes = false;
-      s = env_->NewWritableFile(
+      mutex_.Unlock();
+      {
+        EnvOptions soptions(storage_options_);
+        soptions.use_mmap_writes = false;
+        DelayLoggingAndReset();
+        s = env_->NewWritableFile(
             LogFileName(options_.wal_dir, new_log_number),
             &lfile,
             soptions
           );
+        if (s.ok()) {
+          // Our final size should be less than write_buffer_size
+          // (compression, etc) but err on the side of caution.
+          lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
+          memtmp = new MemTable(
+            internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
+        }
+      }
+      mutex_.Lock();
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
+        assert (!memtmp);
         break;
       }
-      // Our final size should be less than write_buffer_size
-      // (compression, etc) but err on the side of caution.
-      lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
       logfile_number_ = new_log_number;
       log_.reset(new log::Writer(std::move(lfile)));
       mem_->SetNextLogNumber(logfile_number_);
@@ -3105,8 +3118,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       if (force) {
         imm_.FlushRequested();
       }
-      mem_ = new MemTable(
-          internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
+      mem_ = memtmp;
       mem_->Ref();
       Log(options_.info_log,
           "New memtable created with log file: #%lu\n",
