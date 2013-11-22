@@ -162,10 +162,10 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
   // Make the hash table 3/5 full
   std::vector<Slice> filter_entries(0); // for creating bloom filter;
   if (filter_policy_ != nullptr) {
-    filter_entries.resize(tmp_index.size());
+    filter_entries.reserve(tmp_index.size());
   }
   double hash_table_size_multipier =
-      (hash_table_ratio_ < 1.0) ? 1.0 : 1.0 / hash_table_ratio_;
+      (hash_table_ratio_ > 1.0) ? 1.0 : 1.0 / hash_table_ratio_;
   hash_table_size_ = tmp_index.size() * hash_table_size_multipier + 1;
   hash_table_ = new char[GetHashTableRecordLen() * hash_table_size_];
   for (int i = 0; i < hash_table_size_; i++) {
@@ -173,10 +173,9 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
            kOffsetLen);
   }
 
-  size_t count = 0;
   for (auto it = tmp_index.begin(); it != tmp_index.end(); ++it) {
     if (filter_policy_ != nullptr) {
-      filter_entries[count++] = it->first;
+      filter_entries.push_back(it->first);
     }
 
     int bucket = GetHashTableBucket(it->first);
@@ -194,7 +193,8 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
     memcpy(bucket_ptr + key_prefix_len_, &it->second, kOffsetLen);
   }
   if (filter_policy_ != nullptr) {
-    filter_policy_->CreateFilter(&filter_entries[0], count, &filter_str_);
+    filter_policy_->CreateFilter(&filter_entries[0], filter_entries.size(),
+                                 &filter_str_);
     filter_slice_ = Slice(filter_str_.data(), filter_str_.size());
   }
 

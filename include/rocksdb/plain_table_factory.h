@@ -48,8 +48,8 @@ public:
   ~PlainTableFactory() {
   }
   // user_key_size is the length of the user key. key_prefix_len is the
-  // length of the prefix used for im-memory indexes. bloom_num_bits is
-  // number of bits is used for bloom filer per key. hash_table_ratio is
+  // length of the prefix used for in-memory indexes. bloom_num_bits is
+  // number of bits used for bloom filer per key. hash_table_ratio is
   // the desired ultilization of the hash table used for prefix hashing.
   // hash_table_ratio = number of prefixes / #buckets in the hash table
   PlainTableFactory(int user_key_size, int key_prefix_len,

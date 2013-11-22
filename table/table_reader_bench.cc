@@ -242,7 +242,9 @@ int main(int argc, char** argv) {
   if (FLAGS_plain_table) {
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
-    tf = new rocksdb::PlainTableFactory(16, FLAGS_prefix_len, FLAGS_prefix_len);
+    tf = new rocksdb::PlainTableFactory(16, FLAGS_prefix_len,
+                                        (FLAGS_prefix_len == 16) ? 0 : 8,
+                                        0.75);
   } else {
     tf = new rocksdb::BlockBasedTableFactory();
   }
