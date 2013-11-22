@@ -22,6 +22,7 @@ DEFINE_uint64(items_per_prefix, 10, "total number of values per prefix");
 DEFINE_int64(write_buffer_size, 1000000000, "");
 DEFINE_int64(max_write_buffer_number, 8, "");
 DEFINE_int64(min_write_buffer_number_to_merge, 7, "");
+DEFINE_int32(skiplist_height, 4, "");
 
 // Path to the database on file system
 const std::string kDbName = rocksdb::test::TmpDir() + "/prefix_test";
@@ -111,7 +112,8 @@ class PrefixTest {
       options.prefix_extractor = prefix_extractor;
       if (FLAGS_use_nolock_version) {
         options.memtable_factory.reset(NewHashSkipListRepFactory(
-            prefix_extractor, FLAGS_bucket_count));
+                                         prefix_extractor, FLAGS_bucket_count,
+                                         FLAGS_skiplist_height));
       } else {
         options.memtable_factory =
           std::make_shared<rocksdb::PrefixHashRepFactory>(
@@ -152,7 +154,7 @@ TEST(PrefixTest, DynamicPrefixIterator) {
       TestKey test_key(prefix, sorted);
 
       Slice key = TestKeyToSlice(test_key);
-      std::string value = "v" + std::to_string(sorted);
+      std::string value(40, 0);
 
       ASSERT_OK(db->Put(write_options, key, value));
     }

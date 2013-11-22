@@ -47,7 +47,8 @@ class SkipList {
   // Create a new SkipList object that will use "cmp" for comparing keys,
   // and will allocate memory using "*arena".  Objects allocated in the arena
   // must remain allocated for the lifetime of the skiplist object.
-  explicit SkipList(Comparator cmp, Arena* arena);
+  explicit SkipList(Comparator cmp, Arena* arena,
+                    int32_t max_height = 12, int32_t branching_factor = 4);
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
@@ -101,7 +102,8 @@ class SkipList {
   };
 
  private:
-  enum { kMaxHeight = 12 };
+  const int32_t kMaxHeight_;
+  const int32_t kBranching_;
 
   // Immutable after construction
   Comparator const compare_;
@@ -114,8 +116,8 @@ class SkipList {
   port::AtomicPointer max_height_;   // Height of the entire list
 
   // Used for optimizing sequential insert patterns
-  Node* prev_[kMaxHeight];
-  int   prev_height_;
+  Node** prev_;
+  int32_t prev_height_;
 
   inline int GetMaxHeight() const {
     return static_cast<int>(
@@ -257,13 +259,12 @@ inline void SkipList<Key,Comparator>::Iterator::SeekToLast() {
 template<typename Key, class Comparator>
 int SkipList<Key,Comparator>::RandomHeight() {
   // Increase height with probability 1 in kBranching
-  static const unsigned int kBranching = 4;
   int height = 1;
-  while (height < kMaxHeight && ((rnd_.Next() % kBranching) == 0)) {
+  while (height < kMaxHeight_ && ((rnd_.Next() % kBranching_) == 0)) {
     height++;
   }
   assert(height > 0);
-  assert(height <= kMaxHeight);
+  assert(height <= kMaxHeight_);
   return height;
 }
 
@@ -353,14 +354,24 @@ typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindLast()
 }
 
 template<typename Key, class Comparator>
-SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena)
-    : compare_(cmp),
+SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena,
+                                   int32_t max_height,
+                                   int32_t branching_factor)
+    : kMaxHeight_(max_height),
+      kBranching_(branching_factor),
+      compare_(cmp),
       arena_(arena),
-      head_(NewNode(0 /* any key will do */, kMaxHeight)),
+      head_(NewNode(0 /* any key will do */, max_height)),
       max_height_(reinterpret_cast<void*>(1)),
       prev_height_(1),
       rnd_(0xdeadbeef) {
-  for (int i = 0; i < kMaxHeight; i++) {
+  assert(kMaxHeight_ > 0);
+  assert(kBranching_ > 0);
+  // Allocate the prev_ Node* array, directly from the passed-in arena.
+  // prev_ does not need to be freed, as its life cycle is tied up with
+  // the arena as a whole.
+  prev_ = (Node**) arena_->AllocateAligned(sizeof(Node*) * kMaxHeight_);
+  for (int i = 0; i < kMaxHeight_; i++) {
     head_->SetNext(i, nullptr);
     prev_[i] = head_;
   }

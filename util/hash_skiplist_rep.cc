@@ -20,7 +20,8 @@ namespace {
 class HashSkipListRep : public MemTableRep {
  public:
   HashSkipListRep(MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform* transform, size_t bucket_size);
+                  const SliceTransform* transform, size_t bucket_size,
+                  int32_t skiplist_height, int32_t skiplist_branching_factor);
 
   virtual void Insert(const char* key) override;
 
@@ -46,6 +47,9 @@ class HashSkipListRep : public MemTableRep {
   typedef SkipList<const char*, MemTableRep::KeyComparator&> Bucket;
 
   size_t bucket_size_;
+
+  const int32_t skiplist_height_;
+  const int32_t skiplist_branching_factor_;
 
   // Maps slices (which are transformed user keys) to buckets of keys sharing
   // the same transform.
@@ -215,8 +219,12 @@ class HashSkipListRep : public MemTableRep {
 };
 
 HashSkipListRep::HashSkipListRep(MemTableRep::KeyComparator& compare,
-    Arena* arena, const SliceTransform* transform, size_t bucket_size)
+                                 Arena* arena, const SliceTransform* transform,
+                                 size_t bucket_size, int32_t skiplist_height,
+                                 int32_t skiplist_branching_factor)
   : bucket_size_(bucket_size),
+    skiplist_height_(skiplist_height),
+    skiplist_branching_factor_(skiplist_branching_factor),
     transform_(transform),
     compare_(compare),
     arena_(arena),
@@ -239,7 +247,8 @@ HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
   auto bucket = GetBucket(hash);
   if (bucket == nullptr) {
     auto addr = arena_->AllocateAligned(sizeof(Bucket));
-    bucket = new (addr) Bucket(compare_, arena_);
+    bucket = new (addr) Bucket(compare_, arena_, skiplist_height_,
+                               skiplist_branching_factor_);
     buckets_[hash].Release_Store(static_cast<void*>(bucket));
   }
   return bucket;
@@ -302,17 +311,23 @@ std::shared_ptr<MemTableRep::Iterator>
 
 class HashSkipListRepFactory : public MemTableRepFactory {
  public:
-  explicit HashSkipListRepFactory(const SliceTransform* transform,
-      size_t bucket_count = 1000000)
-    : transform_(transform),
-      bucket_count_(bucket_count) { }
+  explicit HashSkipListRepFactory(
+    const SliceTransform* transform,
+    size_t bucket_count,
+    int32_t skiplist_height,
+    int32_t skiplist_branching_factor)
+      : transform_(transform),
+        bucket_count_(bucket_count),
+        skiplist_height_(skiplist_height),
+        skiplist_branching_factor_(skiplist_branching_factor) { }
 
   virtual ~HashSkipListRepFactory() { delete transform_; }
 
   virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
       MemTableRep::KeyComparator& compare, Arena* arena) override {
     return std::make_shared<HashSkipListRep>(compare, arena, transform_,
-        bucket_count_);
+                                             bucket_count_, skiplist_height_,
+                                             skiplist_branching_factor_);
   }
 
   virtual const char* Name() const override {
@@ -324,11 +339,15 @@ class HashSkipListRepFactory : public MemTableRepFactory {
  private:
   const SliceTransform* transform_;
   const size_t bucket_count_;
+  const int32_t skiplist_height_;
+  const int32_t skiplist_branching_factor_;
 };
 
 MemTableRepFactory* NewHashSkipListRepFactory(
-    const SliceTransform* transform, size_t bucket_count) {
-  return new HashSkipListRepFactory(transform, bucket_count);
+    const SliceTransform* transform, size_t bucket_count,
+    int32_t skiplist_height, int32_t skiplist_branching_factor) {
+  return new HashSkipListRepFactory(transform, bucket_count,
+                                    skiplist_height, skiplist_branching_factor);
 }
 
 } // namespace rocksdb
