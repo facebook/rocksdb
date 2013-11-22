@@ -530,8 +530,8 @@ Status BlockBasedTableBuilder::Finish() {
     Log(
         r->options.info_log,
         "Table was constructed:\n"
-        "  basic properties: %s\n"
-        "  user collected properties: %s",
+        "  [basic properties]: %s\n"
+        "  [user collected properties]: %s",
         r->props.ToString().c_str(),
         user_collected.c_str()
     );

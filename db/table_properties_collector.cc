@@ -74,7 +74,7 @@ std::string TableProperties::ToString(
   );
   AppendProperty(
       result,
-      "(estimated) table size=",
+      "(estimated) table size",
       data_size + index_size + filter_size,
       prop_delim,
       kv_delim
