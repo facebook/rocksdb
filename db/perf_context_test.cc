@@ -174,13 +174,6 @@ void ProfileKeyComparison() {
 
   HistogramImpl hist_put;
   HistogramImpl hist_get;
-  HistogramImpl hist_get_snapshot;
-  HistogramImpl hist_get_memtable;
-  HistogramImpl hist_get_post_process;
-  HistogramImpl hist_num_memtable_checked;
-  HistogramImpl hist_write_pre_post;
-  HistogramImpl hist_write_wal_time;
-  HistogramImpl hist_write_memtable_time;
 
   std::cout << "Inserting " << FLAGS_total_keys << " key/value pairs\n...\n";
 
@@ -199,37 +192,16 @@ void ProfileKeyComparison() {
 
     perf_context.Reset();
     db->Put(write_options, key, value);
-    hist_write_pre_post.Add(perf_context.write_pre_and_post_process_time);
-    hist_write_wal_time.Add(perf_context.write_wal_time);
-    hist_write_memtable_time.Add(perf_context.write_memtable_time);
     hist_put.Add(perf_context.user_key_comparison_count);
 
     perf_context.Reset();
     db->Get(read_options, key, &value);
-    hist_get_snapshot.Add(perf_context.get_snapshot_time);
-    hist_get_memtable.Add(perf_context.get_from_memtable_time);
-    hist_num_memtable_checked.Add(perf_context.get_from_memtable_count);
-    hist_get_post_process.Add(perf_context.get_post_process_time);
     hist_get.Add(perf_context.user_key_comparison_count);
   }
 
   std::cout << "Put uesr key comparison: \n" << hist_put.ToString()
             << "Get uesr key comparison: \n" << hist_get.ToString();
-  std::cout << "Put(): Pre and Post Process Time: \n"
-            << hist_write_pre_post.ToString()
-            << " Writing WAL time: \n"
-            << hist_write_wal_time.ToString() << "\n"
-            << " Writing Mem Table time: \n"
-            << hist_write_memtable_time.ToString() << "\n";
 
-  std::cout << "Get(): Time to get snapshot: \n"
-            << hist_get_snapshot.ToString()
-            << " Time to get value from memtables: \n"
-            << hist_get_memtable.ToString() << "\n"
-            << " Number of memtables checked: \n"
-            << hist_num_memtable_checked.ToString() << "\n"
-            << " Time to post process: \n"
-            << hist_get_post_process.ToString() << "\n";
 }
 
 TEST(PerfContextTest, KeyComparisonCount) {
@@ -287,8 +259,8 @@ TEST(PerfContextTest, SeekKeyComparison) {
     db->Put(write_options, key, value);
     auto put_time = timer.ElapsedNanos();
     hist_put_time.Add(put_time);
-    hist_wal_time.Add(perf_context.write_wal_time);
-    hist_time_diff.Add(put_time - perf_context.write_wal_time);
+    hist_wal_time.Add(perf_context.wal_write_time);
+    hist_time_diff.Add(put_time - perf_context.wal_write_time);
   }
 
   std::cout << "Put time:\n" << hist_put_time.ToString()

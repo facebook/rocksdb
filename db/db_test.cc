@@ -22,7 +22,6 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
-#include "rocksdb/perf_context.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -1216,13 +1215,7 @@ TEST(DBTest, IterMulti) {
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Seek("ax");
     ASSERT_EQ(IterStatus(iter), "b->vb");
-
-    SetPerfLevel(kEnableTime);
-    perf_context.Reset();
     iter->Seek("b");
-    ASSERT_TRUE((int) perf_context.seek_internal_seek_time > 0);
-    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
-    SetPerfLevel(kDisable);
     ASSERT_EQ(IterStatus(iter), "b->vb");
     iter->Seek("z");
     ASSERT_EQ(IterStatus(iter), "(invalid)");
@@ -1237,12 +1230,7 @@ TEST(DBTest, IterMulti) {
     // Switch from forward to reverse
     iter->SeekToFirst();
     iter->Next();
-    SetPerfLevel(kEnableTime);
-    perf_context.Reset();
     iter->Next();
-    ASSERT_EQ(0, (int) perf_context.seek_internal_seek_time);
-    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
-    SetPerfLevel(kDisable);
     iter->Prev();
     ASSERT_EQ(IterStatus(iter), "b->vb");
 
@@ -1602,42 +1590,22 @@ TEST(DBTest, NumImmutableMemTable) {
 
     std::string big_value(1000000, 'x');
     std::string num;
-    SetPerfLevel(kEnableTime);;
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
-    perf_context.Reset();
-    Get("k1");
-    ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "1");
-    perf_context.Reset();
-    Get("k1");
-    ASSERT_EQ(2, (int) perf_context.get_from_memtable_count);
-    perf_context.Reset();
-    Get("k2");
-    ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "2");
-    perf_context.Reset();
-    Get("k2");
-    ASSERT_EQ(2, (int) perf_context.get_from_memtable_count);
-    perf_context.Reset();
-    Get("k3");
-    ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
-    perf_context.Reset();
-    Get("k1");
-    ASSERT_EQ(3, (int) perf_context.get_from_memtable_count);
 
     dbfull()->Flush(FlushOptions());
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
-    SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
 
@@ -1646,15 +1614,10 @@ TEST(DBTest, FLUSH) {
     Options options = CurrentOptions();
     WriteOptions writeOpt = WriteOptions();
     writeOpt.disableWAL = true;
-    SetPerfLevel(kEnableTime);;
     ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
     // this will now also flush the last 2 writes
     dbfull()->Flush(FlushOptions());
     ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
-
-    perf_context.Reset();
-    Get("foo");
-    ASSERT_TRUE((int) perf_context.get_from_output_files_time > 0);
 
     Reopen();
     ASSERT_EQ("v1", Get("foo"));
@@ -1667,9 +1630,7 @@ TEST(DBTest, FLUSH) {
 
     Reopen();
     ASSERT_EQ("v2", Get("bar"));
-    perf_context.Reset();
     ASSERT_EQ("v2", Get("foo"));
-    ASSERT_TRUE((int) perf_context.get_from_output_files_time > 0);
 
     writeOpt.disableWAL = false;
     ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v3"));
@@ -1681,8 +1642,6 @@ TEST(DBTest, FLUSH) {
     // has WAL enabled.
     ASSERT_EQ("v3", Get("foo"));
     ASSERT_EQ("v3", Get("bar"));
-
-    SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
 

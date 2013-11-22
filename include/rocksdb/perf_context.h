@@ -38,27 +38,7 @@ struct PerfContext {
   uint64_t internal_key_skipped_count;
   // total number of deletes skipped over during iteration
   uint64_t internal_delete_skipped_count;
-
-  uint64_t get_snapshot_time;          // total time spent on getting snapshot
-  uint64_t get_from_memtable_time;     // total time spent on querying memtables
-  uint64_t get_from_memtable_count;    // number of mem tables queried
-  // total time spent after Get() finds a key
-  uint64_t get_post_process_time;
-  uint64_t get_from_output_files_time; // total time reading from output files
-  // total time spent on seeking child iters
-  uint64_t seek_child_seek_time;
-  // number of seek issued in child iterators
-  uint64_t seek_child_seek_count;
-  uint64_t seek_min_heap_time;         // total time spent on the merge heap
-  // total time spent on seeking the internal entries
-  uint64_t seek_internal_seek_time;
-  // total time spent on iterating internal entries to find the next user entry
-  uint64_t find_next_user_entry_time;
-  // total time spent on pre or post processing when writing a record
-  uint64_t write_pre_and_post_process_time;
-  uint64_t write_wal_time;            // total time spent on writing to WAL
-  // total time spent on writing to mem tables
-  uint64_t write_memtable_time;
+  uint64_t wal_write_time;            // total time spent on writing to WAL
 };
 
 extern __thread PerfContext perf_context;

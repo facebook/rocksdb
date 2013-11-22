@@ -2091,7 +2091,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     }
   }
   assert(num <= space);
-  Iterator* result = NewMergingIterator(env_, &icmp_, list, num);
+  Iterator* result = NewMergingIterator(&icmp_, list, num);
   delete[] list;
   return result;
 }

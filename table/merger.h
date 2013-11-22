@@ -13,7 +13,6 @@ namespace rocksdb {
 
 class Comparator;
 class Iterator;
-class Env;
 
 // Return an iterator that provided the union of the data in
 // children[0,n-1].  Takes ownership of the child iterators and
@@ -24,6 +23,6 @@ class Env;
 //
 // REQUIRES: n >= 0
 extern Iterator* NewMergingIterator(
-    Env* const env, const Comparator* comparator, Iterator** children, int n);
+    const Comparator* comparator, Iterator** children, int n);
 
 }  // namespace rocksdb
