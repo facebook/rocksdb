@@ -148,6 +148,12 @@ case "$TARGET_OS" in
         exit 1
 esac
 
+# Enable position independent code on x64
+case "$TARGET_OS" in
+	x86_64)
+		PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -fPIC"	
+esac
+
 $PWD/build_tools/build_detect_version
 
 # We want to make a list of all cc files within util, db, table, and helpers
