@@ -22,6 +22,7 @@ function cleanup {
   rm -f $STAT_FILE.fillseq
   rm -f $STAT_FILE.readrandom
   rm -f $STAT_FILE.overwrite
+  rm -f $STAT_FILE.memtablefillreadrandom
 }
 
 trap cleanup EXIT
@@ -39,7 +40,7 @@ function send_to_ods {
 }
 
 make clean
-make db_bench -j$(nproc)
+OPT=-DNDEBUG make db_bench -j$(nproc)
 
 ./db_bench \
     --benchmarks=fillseq \
@@ -80,7 +81,7 @@ make db_bench -j$(nproc)
     --use_existing_db=1 \
     --bloom_bits=10 \
     --num=$NUM \
-    --reads=$((NUM / 100)) \
+    --reads=$NUM \
     --cache_size=6442450944 \
     --cache_numshardbits=6 \
     --open_files=55000 \
@@ -91,10 +92,33 @@ make db_bench -j$(nproc)
     --sync=0 \
     --threads=128 > ${STAT_FILE}.readrandom
 
+./db_bench \
+    --benchmarks=fillrandom,readrandom, \
+    --db=$DATA_DIR \
+    --use_existing_db=0 \
+    --num=$((NUM / 10)) \
+    --reads=$NUM \
+    --cache_size=6442450944 \
+    --cache_numshardbits=6 \
+    --write_buffer_size=1000000000 \
+    --open_files=55000 \
+    --disable_seek_compaction=1 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0 \
+    --value_size=10 \
+    --threads=32 > ${STAT_FILE}.memtablefillreadrandom
+
 OVERWRITE_OPS=$(awk '/overwrite/ {print $5}' $STAT_FILE.overwrite)
 FILLSEQ_OPS=$(awk '/fillseq/ {print $5}' $STAT_FILE.fillseq)
 READRANDOM_OPS=$(awk '/readrandom/ {print $5}' $STAT_FILE.readrandom)
+MEMTABLE_FILLRANDOM_OPS=$(awk '/fillrandom/ {print $5}' $STAT_FILE.memtablefillreadrandom)
+MEMTABLE_READRANDOM_OPS=$(awk '/readrandom/ {print $5}' $STAT_FILE.memtablefillreadrandom)
 
 send_to_ods rocksdb.build.overwrite.qps $OVERWRITE_OPS
 send_to_ods rocksdb.build.fillseq.qps $FILLSEQ_OPS
 send_to_ods rocksdb.build.readrandom.qps $READRANDOM_OPS
+send_to_ods rocksdb.build.memtablefillrandom.qps $MEMTABLE_FILLRANDOM_OPS
+send_to_ods rocksdb.build.memtablereadrandom.qps $MEMTABLE_READRANDOM_OPS
