@@ -3131,6 +3131,10 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   return s;
 }
 
+Env* DBImpl::GetEnv() const {
+  return env_;
+}
+
 bool DBImpl::GetProperty(const Slice& property, std::string* value) {
   value->clear();
 

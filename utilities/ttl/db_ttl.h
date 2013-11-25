@@ -67,6 +67,8 @@ class DBWithTTL : public StackableDB {
 
   virtual int Level0StopWriteTrigger();
 
+  virtual Env* GetEnv() const;
+
   virtual Status Flush(const FlushOptions& fopts);
 
   virtual Status DisableFileDeletions();
@@ -88,7 +90,7 @@ class DBWithTTL : public StackableDB {
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBWithTtl();
 
-  virtual DB* GetRawDB() {
+  virtual DB* GetBaseDB() {
     return db_;
   }
 

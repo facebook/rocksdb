@@ -254,6 +254,10 @@ int DBWithTTL::Level0StopWriteTrigger() {
   return db_->Level0StopWriteTrigger();
 }
 
+Env* DBWithTTL::GetEnv() const {
+  return db_->GetEnv();
+}
+
 Status DBWithTTL::Flush(const FlushOptions& fopts) {
   return db_->Flush(fopts);
 }

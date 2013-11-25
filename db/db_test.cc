@@ -4462,6 +4462,10 @@ class ModelDB: public DB {
   return -1;
   }
 
+  virtual Env* GetEnv() const {
+    return nullptr;
+  }
+
   virtual Status Flush(const rocksdb::FlushOptions& options) {
     Status ret;
     return ret;

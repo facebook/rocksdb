@@ -228,6 +228,9 @@ class DB {
   // Number of files in level-0 that would stop writes.
   virtual int Level0StopWriteTrigger() = 0;
 
+  // Get Env object from the DB
+  virtual Env* GetEnv() const = 0;
+
   // Flush all mem-table data.
   virtual Status Flush(const FlushOptions& options) = 0;
 
