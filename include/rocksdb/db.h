@@ -231,6 +231,9 @@ class DB {
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
 
+  // Get DB Options that we use
+  virtual const Options& GetOptions() const = 0;
+
   // Flush all mem-table data.
   virtual Status Flush(const FlushOptions& options) = 0;
 

@@ -107,6 +107,10 @@ class StackableDB : public DB {
     return db_->GetEnv();
   }
 
+  virtual const Options& GetOptions() const override {
+    return db_->GetOptions();
+  }
+
   virtual Status Flush(const FlushOptions& fopts) override {
     return db_->Flush(fopts);
   }

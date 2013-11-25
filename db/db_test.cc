@@ -4466,6 +4466,10 @@ class ModelDB: public DB {
     return nullptr;
   }
 
+  virtual const Options& GetOptions() const {
+    return options_;
+  }
+
   virtual Status Flush(const rocksdb::FlushOptions& options) {
     Status ret;
     return ret;

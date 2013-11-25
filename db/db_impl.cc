@@ -3135,6 +3135,10 @@ Env* DBImpl::GetEnv() const {
   return env_;
 }
 
+const Options& DBImpl::GetOptions() const {
+  return options_;
+}
+
 bool DBImpl::GetProperty(const Slice& property, std::string* value) {
   value->clear();
 

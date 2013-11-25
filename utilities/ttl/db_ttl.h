@@ -69,6 +69,8 @@ class DBWithTTL : public StackableDB {
 
   virtual Env* GetEnv() const;
 
+  virtual const Options& GetOptions() const;
+
   virtual Status Flush(const FlushOptions& fopts);
 
   virtual Status DisableFileDeletions();
