@@ -39,16 +39,20 @@ class MemTable {
     int numlevel = 7,
     const Options& options = Options());
 
+  ~MemTable();
+
   // Increase reference count.
   void Ref() { ++refs_; }
 
-  // Drop reference count.  Delete if no more references exist.
-  void Unref() {
+  // Drop reference count.
+  // If the refcount goes to zero return this memtable, otherwise return null
+  MemTable* Unref() {
     --refs_;
     assert(refs_ >= 0);
     if (refs_ <= 0) {
-      delete this;
+      return this;
     }
+    return nullptr;
   }
 
   // Returns an estimate of the number of bytes of data in use by this
@@ -129,7 +133,6 @@ class MemTable {
   void MarkImmutable() { table_->MarkReadOnly(); }
 
  private:
-  ~MemTable();  // Private since only Unref() should be used to delete it
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
   friend class MemTableList;

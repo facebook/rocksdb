@@ -44,8 +44,10 @@ class MemTableList {
   // Increase reference count on all underling memtables
   void RefAll();
 
-  // Drop reference count on all underling memtables
-  void UnrefAll();
+  // Drop reference count on all underling memtables. If the refcount
+  // on an underlying memtable drops to zero, then return it in
+  // to_delete vector.
+  void UnrefAll(std::vector<MemTable*>* to_delete);
 
   // Returns the total number of memtables in the list
   int size();

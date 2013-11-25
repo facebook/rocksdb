@@ -28,10 +28,15 @@ void MemTableList::RefAll() {
   }
 }
 
-// Drop reference count on all underling memtables
-void MemTableList::UnrefAll() {
+// Drop reference count on all underling memtables. If the
+// refcount of an underlying memtable drops to zero, then
+// return it in to_delete vector.
+void MemTableList::UnrefAll(std::vector<MemTable*>* to_delete) {
   for (auto &memtable : memlist_) {
-    memtable->Unref();
+    MemTable* m = memtable->Unref();
+    if (m != nullptr) {
+      to_delete->push_back(m);
+    }
   }
 }
 
