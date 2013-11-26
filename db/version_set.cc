@@ -458,7 +458,9 @@ void Version::Get(const ReadOptions& options,
     // Get the list of files to search in this level
     FileMetaData* const* files = &files_[level][0];
     important_files.clear();
-    important_files.reserve(num_files);
+    if (level == 0) {
+      important_files.reserve(num_files);
+    }
 
     // Some files may overlap each other. We find
     // all files that overlap user_key and process them in order from
