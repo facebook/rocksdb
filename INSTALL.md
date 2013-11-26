@@ -25,6 +25,7 @@ libraries. You are on your own.
       `sudo apt-get install libsnappy-dev`.
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
+    * Install gflags: `sudo apt-get install libgflags-dev`.
 * **OS X**:
     * Install latest C++ compiler that supports C++ 11:
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
