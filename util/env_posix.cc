@@ -307,7 +307,11 @@ class PosixMmapReadableFile: public RandomAccessFile {
     assert(options.use_os_buffer);
   }
   virtual ~PosixMmapReadableFile() {
-    assert(munmap(mmapped_region_, length_) == 0);
+    int ret = munmap(mmapped_region_, length_);
+    if (ret != 0) {
+      fprintf(stdout, "failed to munmap %p length %zu \n",
+              mmapped_region_, length_);
+    }
   }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
