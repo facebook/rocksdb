@@ -119,11 +119,11 @@ class HashSkipListRep : public MemTableRep {
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const Slice& user_key, const char* memtable_key) {
+    virtual void Seek(const Slice& internal_key, const char* memtable_key) {
       if (list_ != nullptr) {
         const char* encoded_key =
             (memtable_key != nullptr) ?
-                memtable_key : EncodeKey(&tmp_, user_key);
+                memtable_key : EncodeKey(&tmp_, internal_key);
         iter_.Seek(encoded_key);
       }
     }

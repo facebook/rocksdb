@@ -50,6 +50,7 @@ TESTS = \
 	auto_roll_logger_test \
 	block_test \
 	bloom_test \
+	dynamic_bloom_test \
 	c_test \
 	cache_test \
 	coding_test \
@@ -227,6 +228,9 @@ table_properties_collector_test: db/table_properties_collector_test.o $(LIBOBJEC
 
 bloom_test: util/bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/bloom_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+dynamic_bloom_test: util/dynamic_bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/dynamic_bloom_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 c_test: db/c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/c_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

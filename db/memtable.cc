@@ -52,7 +52,14 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       mem_logfile_number_(0),
       locks_(options.inplace_update_support
              ? options.inplace_update_num_locks
-             : 0) { }
+             : 0),
+      prefix_extractor_(options.prefix_extractor) {
+
+  if (prefix_extractor_ && options.memtable_prefix_bloom_bits > 0)  {
+    prefix_bloom_.reset(new DynamicBloom(options.memtable_prefix_bloom_bits,
+                                         options.memtable_prefix_bloom_probes));
+  }
+}
 
 MemTable::~MemTable() {
   assert(refs_ == 0);
@@ -88,27 +95,53 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator: public Iterator {
  public:
-  MemTableIterator(MemTableRep* table, const ReadOptions& options)
-    : iter_() {
+  MemTableIterator(const MemTable& mem, const ReadOptions& options)
+      : mem_(mem), iter_(), dynamic_prefix_seek_(false), valid_(false) {
     if (options.prefix) {
-      iter_ = table->GetPrefixIterator(*options.prefix);
+      iter_ = mem_.table_->GetPrefixIterator(*options.prefix);
     } else if (options.prefix_seek) {
-      iter_ = table->GetDynamicPrefixIterator();
+      dynamic_prefix_seek_ = true;
+      iter_ = mem_.table_->GetDynamicPrefixIterator();
     } else {
-      iter_ = table->GetIterator();
+      iter_ = mem_.table_->GetIterator();
     }
   }
 
-  virtual bool Valid() const { return iter_->Valid(); }
-  virtual void Seek(const Slice& k) { iter_->Seek(k, nullptr); }
-  virtual void SeekToFirst() { iter_->SeekToFirst(); }
-  virtual void SeekToLast() { iter_->SeekToLast(); }
-  virtual void Next() { iter_->Next(); }
-  virtual void Prev() { iter_->Prev(); }
+  virtual bool Valid() const { return valid_; }
+  virtual void Seek(const Slice& k) {
+    if (dynamic_prefix_seek_ && mem_.prefix_bloom_ &&
+        !mem_.prefix_bloom_->MayContain(
+          mem_.prefix_extractor_->Transform(ExtractUserKey(k)))) {
+      valid_ = false;
+      return;
+    }
+    iter_->Seek(k, nullptr);
+    valid_ = iter_->Valid();
+  }
+  virtual void SeekToFirst() {
+    iter_->SeekToFirst();
+    valid_ = iter_->Valid();
+  }
+  virtual void SeekToLast() {
+    iter_->SeekToLast();
+    valid_ = iter_->Valid();
+  }
+  virtual void Next() {
+    assert(Valid());
+    iter_->Next();
+    valid_ = iter_->Valid();
+  }
+  virtual void Prev() {
+    assert(Valid());
+    iter_->Prev();
+    valid_ = iter_->Valid();
+  }
   virtual Slice key() const {
+    assert(Valid());
     return GetLengthPrefixedSlice(iter_->key());
   }
   virtual Slice value() const {
+    assert(Valid());
     Slice key_slice = GetLengthPrefixedSlice(iter_->key());
     return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
   }
@@ -116,7 +149,10 @@ class MemTableIterator: public Iterator {
   virtual Status status() const { return Status::OK(); }
 
  private:
+  const MemTable& mem_;
   std::shared_ptr<MemTableRep::Iterator> iter_;
+  bool dynamic_prefix_seek_;
+  bool valid_;
 
   // No copying allowed
   MemTableIterator(const MemTableIterator&);
@@ -124,7 +160,7 @@ class MemTableIterator: public Iterator {
 };
 
 Iterator* MemTable::NewIterator(const ReadOptions& options) {
-  return new MemTableIterator(table_.get(), options);
+  return new MemTableIterator(*this, options);
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
@@ -132,7 +168,7 @@ port::RWMutex* MemTable::GetLock(const Slice& key) {
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,
-                   const Slice& key,
+                   const Slice& key, /* user key */
                    const Slice& value) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
@@ -156,6 +192,11 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   assert((p + val_size) - buf == (unsigned)encoded_len);
   table_->Insert(buf);
 
+  if (prefix_bloom_) {
+    assert(prefix_extractor_);
+    prefix_bloom_->Add(prefix_extractor_->Transform(key));
+  }
+
   // The first sequence number inserted into the memtable
   assert(first_seqno_ == 0 || s > first_seqno_);
   if (first_seqno_ == 0) {
@@ -168,10 +209,17 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   StopWatchNano memtable_get_timer(options.env, false);
   StartPerfTimer(&memtable_get_timer);
 
-  Slice memkey = key.memtable_key();
-  std::shared_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(key.user_key()));
-  iter->Seek(key.user_key(), memkey.data());
+  Slice mem_key = key.memtable_key();
+  Slice user_key = key.user_key();
+
+  std::shared_ptr<MemTableRep::Iterator> iter;
+  if (prefix_bloom_ &&
+      !prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
+    // iter is null if prefix bloom says the key does not exist
+  } else {
+    iter = table_->GetIterator(user_key);
+    iter->Seek(user_key, mem_key.data());
+  }
 
   bool merge_in_progress = s->IsMergeInProgress();
   auto merge_operator = options.merge_operator.get();
@@ -179,7 +227,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   std::string merge_result;
 
   bool found_final_value = false;
-  for (; !found_final_value && iter->Valid(); iter->Next()) {
+  for (; !found_final_value && iter && iter->Valid(); iter->Next()) {
     // entry format is:
     //    klength  varint32
     //    userkey  char[klength-8]
@@ -278,11 +326,12 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
                       const Slice& key,
                       const Slice& value) {
   LookupKey lkey(key, seq);
-  Slice memkey = lkey.memtable_key();
+  Slice mem_key = lkey.memtable_key();
 
   std::shared_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(lkey.user_key()));
-  iter->Seek(key, memkey.data());
+  iter->Seek(key, mem_key.data());
+
 
   if (iter->Valid()) {
     // entry format is:
@@ -319,6 +368,7 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
                           VarintLength(value.size()) +
                           value.size())
             );
+            // no need to update bloom, as user key does not change.
             return true;
           }
         }

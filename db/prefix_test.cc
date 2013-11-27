@@ -16,12 +16,15 @@ DEFINE_bool(trigger_deadlock, false,
 DEFINE_uint64(bucket_count, 100000, "number of buckets");
 DEFINE_uint64(num_locks, 10001, "number of locks");
 DEFINE_bool(random_prefix, false, "randomize prefix");
-DEFINE_uint64(total_prefixes, 1000, "total number of prefixes");
-DEFINE_uint64(items_per_prefix, 10, "total number of values per prefix");
-DEFINE_int64(write_buffer_size, 1000000000, "");
-DEFINE_int64(max_write_buffer_number, 8, "");
-DEFINE_int64(min_write_buffer_number_to_merge, 7, "");
+DEFINE_uint64(total_prefixes, 100000, "total number of prefixes");
+DEFINE_uint64(items_per_prefix, 1, "total number of values per prefix");
+DEFINE_int64(write_buffer_size, 33554432, "");
+DEFINE_int64(max_write_buffer_number, 2, "");
+DEFINE_int64(min_write_buffer_number_to_merge, 1, "");
 DEFINE_int32(skiplist_height, 4, "");
+DEFINE_int32(memtable_prefix_bloom_bits, 10000000, "");
+DEFINE_int32(memtable_prefix_bloom_probes, 10, "");
+DEFINE_int32(value_size, 40, "");
 
 // Path to the database on file system
 const std::string kDbName = rocksdb::test::TmpDir() + "/prefix_test";
@@ -120,6 +123,9 @@ class PrefixTest {
       }
     }
 
+    options.memtable_prefix_bloom_bits = FLAGS_memtable_prefix_bloom_bits;
+    options.memtable_prefix_bloom_probes = FLAGS_memtable_prefix_bloom_probes;
+
     Status s = DB::Open(options, kDbName,  &db);
     ASSERT_OK(s);
     return std::shared_ptr<DB>(db);
@@ -147,17 +153,27 @@ TEST(PrefixTest, DynamicPrefixIterator) {
     std::random_shuffle(prefixes.begin(), prefixes.end());
   }
 
+  HistogramImpl hist_put_time;
+  HistogramImpl hist_put_comparison;
+
   // insert x random prefix, each with y continuous element.
   for (auto prefix : prefixes) {
      for (uint64_t sorted = 0; sorted < FLAGS_items_per_prefix; sorted++) {
       TestKey test_key(prefix, sorted);
 
       Slice key = TestKeyToSlice(test_key);
-      std::string value(40, 0);
+      std::string value(FLAGS_value_size, 0);
 
+      perf_context.Reset();
+      StopWatchNano timer(Env::Default(), true);
       ASSERT_OK(db->Put(write_options, key, value));
+      hist_put_time.Add(timer.ElapsedNanos());
+      hist_put_comparison.Add(perf_context.user_key_comparison_count);
     }
   }
+
+  std::cout << "Put key comparison: \n" << hist_put_comparison.ToString()
+            << "Put time: \n" << hist_put_time.ToString();
 
   // test seek existing keys
   HistogramImpl hist_seek_time;
@@ -200,7 +216,7 @@ TEST(PrefixTest, DynamicPrefixIterator) {
   HistogramImpl hist_no_seek_comparison;
 
   for (auto prefix = FLAGS_total_prefixes;
-       prefix < FLAGS_total_prefixes + 100;
+       prefix < FLAGS_total_prefixes + 10000;
        prefix++) {
     TestKey test_key(prefix, 0);
     Slice key = TestKeyToSlice(test_key);

@@ -635,6 +635,14 @@ struct Options {
   // Number of locks used for inplace update
   // Default: 10000, if inplace_update_support = true, else 0.
   size_t inplace_update_num_locks;
+
+  // if prefix_extractor is set and bloom_bits is not 0, create prefix bloom
+  // for memtable
+  uint32_t memtable_prefix_bloom_bits;
+
+  // number of hash probes per key
+  uint32_t memtable_prefix_bloom_probes;
+
 };
 
 //

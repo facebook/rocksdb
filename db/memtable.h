@@ -17,6 +17,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "util/arena_impl.h"
+#include "util/dynamic_bloom.h"
 
 namespace rocksdb {
 
@@ -171,6 +172,9 @@ class MemTable {
 
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
+
+  const SliceTransform* const prefix_extractor_;
+  std::unique_ptr<DynamicBloom> prefix_bloom_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

@@ -101,7 +101,9 @@ Options::Options()
       table_factory(
         std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       inplace_update_support(false),
-      inplace_update_num_locks(10000) {
+      inplace_update_num_locks(10000),
+      memtable_prefix_bloom_bits(0),
+      memtable_prefix_bloom_probes(6) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -292,6 +294,11 @@ Options::Dump(Logger* log) const
         inplace_update_support);
     Log(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
+    // TODO: easier config for bloom (maybe based on avg key/value size)
+    Log(log, "              Options.memtable_prefix_bloom_bits: %d",
+        memtable_prefix_bloom_bits);
+    Log(log, "            Options.memtable_prefix_bloom_probes: %d",
+        memtable_prefix_bloom_probes);
 }   // Options::Dump
 
 //
