@@ -515,6 +515,19 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
+
+  // free pending memtables
+  for (auto m : state.memtables_to_free) {
+    delete m;
+  }
+
+  // check if there is anything to do
+  if (!state.all_files.size() &&
+      !state.sst_delete_files.size() &&
+      !state.log_delete_files.size()) {
+    return;
+  }
+
   // this checks if FindObsoleteFiles() was run before. If not, don't do
   // PurgeObsoleteFiles(). If FindObsoleteFiles() was run, we need to also
   // run PurgeObsoleteFiles(), even if disable_delete_obsolete_files_ is true
@@ -1169,7 +1182,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   // Replace immutable memtable with the generated Table
   s = imm_.InstallMemtableFlushResults(
     mems, versions_.get(), s, &mutex_, options_.info_log.get(),
-    file_number, pending_outputs_);
+    file_number, pending_outputs_, &deletion_state.memtables_to_free);
 
   if (s.ok()) {
     if (madeProgress) {
@@ -1655,7 +1668,7 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
 
 void DBImpl::BackgroundCallFlush() {
   bool madeProgress = false;
-  DeletionState deletion_state;
+  DeletionState deletion_state(options_.max_write_buffer_number);
   assert(bg_flush_scheduled_);
   MutexLock l(&mutex_);
 
@@ -1701,7 +1714,7 @@ void DBImpl::TEST_PurgeObsoleteteWAL() {
 
 void DBImpl::BackgroundCallCompaction() {
   bool madeProgress = false;
-  DeletionState deletion_state;
+  DeletionState deletion_state(options_.max_write_buffer_number);
 
   MaybeDumpStats();
 
@@ -1731,6 +1744,7 @@ void DBImpl::BackgroundCallCompaction() {
   // FindObsoleteFiles(). This is because deletion_state does not catch
   // all created files if compaction failed.
   FindObsoleteFiles(deletion_state, !s.ok());
+
   // delete unnecessary files if any, this is done outside the mutex
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
@@ -2491,25 +2505,20 @@ struct IterState {
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
-  std::vector<MemTable*> to_delete;
-  to_delete.reserve(state->mem.size());
+  DBImpl::DeletionState deletion_state(state->db->GetOptions().
+                                       max_write_buffer_number);
   state->mu->Lock();
   for (unsigned int i = 0; i < state->mem.size(); i++) {
     MemTable* m = state->mem[i]->Unref();
     if (m != nullptr) {
-      to_delete.push_back(m);
+      deletion_state.memtables_to_free.push_back(m);
     }
   }
   state->version->Unref();
-  // delete only the sst obsolete files
-  DBImpl::DeletionState deletion_state;
   // fast path FindObsoleteFiles
   state->db->FindObsoleteFiles(deletion_state, false, true);
   state->mu->Unlock();
   state->db->PurgeObsoleteFiles(deletion_state);
-
-  // delete obsolete memtables outside the db-mutex
-  for (MemTable* m : to_delete) delete m;
   delete state;
 }
 }  // namespace

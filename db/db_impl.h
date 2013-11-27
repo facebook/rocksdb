@@ -129,10 +129,12 @@ class DBImpl : public DB {
 
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
-      return all_files.size() ||
+      return  memtables_to_free.size() ||
+        all_files.size() ||
         sst_delete_files.size() ||
         log_delete_files.size();
     }
+
     // a list of all files that we'll consider deleting
     // (every once in a while this is filled up with all files
     // in the DB directory)
@@ -147,14 +149,18 @@ class DBImpl : public DB {
     // a list of log files that we need to delete
     std::vector<uint64_t> log_delete_files;
 
+    // a list of memtables to be free
+    std::vector<MemTable *> memtables_to_free;
+
     // the current manifest_file_number, log_number and prev_log_number
     // that corresponds to the set of files in 'live'.
     uint64_t manifest_file_number, log_number, prev_log_number;
 
-    DeletionState() {
+    explicit DeletionState(const int num_memtables = 0) {
       manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
+      memtables_to_free.reserve(num_memtables);
     }
   };
 

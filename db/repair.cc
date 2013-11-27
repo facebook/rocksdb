@@ -227,7 +227,7 @@ class Repairer {
                         table_cache_, iter, &meta,
                         icmp_.user_comparator(), 0, 0, true);
     delete iter;
-    mem->Unref();
+    delete mem->Unref();
     mem = nullptr;
     if (status.ok()) {
       if (meta.file_size > 0) {

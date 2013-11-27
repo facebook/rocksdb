@@ -80,7 +80,8 @@ Status MemTableList::InstallMemtableFlushResults(
                       VersionSet* vset, Status flushStatus,
                       port::Mutex* mu, Logger* info_log,
                       uint64_t file_number,
-                      std::set<uint64_t>& pending_outputs) {
+                      std::set<uint64_t>& pending_outputs,
+                      std::vector<MemTable*>* to_delete) {
   mu->AssertHeld();
 
   // If the flush was not successful, then just reset state.
@@ -151,7 +152,9 @@ Status MemTableList::InstallMemtableFlushResults(
         // executing compaction threads do not mistakenly assume that this
         // file is not live.
         pending_outputs.erase(m->file_number_);
-        m->Unref();
+        if (m->Unref() != nullptr) {
+          to_delete->push_back(m);
+        }
         size_--;
       } else {
         //commit failed. setup state so that we can flush again.
