@@ -27,21 +27,10 @@ function cleanup {
 
 trap cleanup EXIT
 
-function send_to_ods {
-  key="$1"
-  value="$2"
-
-  if [ -z "$value" ];then
-    echo >&2 "ERROR: Key $key doesn't have a value."
-    return
-  fi
-  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=$key&value=$value" \
-    --connect-timeout 60
-}
-
 make clean
 OPT=-DNDEBUG make db_bench -j$(nproc)
 
+# measure fillseq + fill up the DB for overwrite benchmark
 ./db_bench \
     --benchmarks=fillseq \
     --db=$DATA_DIR \
@@ -58,6 +47,7 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --disable_wal=1 \
     --sync=0  > ${STAT_FILE}.fillseq
 
+# measure overwrite performance
 ./db_bench \
     --benchmarks=overwrite \
     --db=$DATA_DIR \
@@ -75,13 +65,14 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --sync=0 \
     --threads=8 > ${STAT_FILE}.overwrite
 
+# fill up the db for readrandom benchmark
 ./db_bench \
-    --benchmarks=readrandom \
+    --benchmarks=fillseq \
     --db=$DATA_DIR \
-    --use_existing_db=1 \
+    --use_existing_db=0 \
     --bloom_bits=10 \
     --num=$NUM \
-    --reads=$NUM \
+    --writes=$NUM \
     --cache_size=6442450944 \
     --cache_numshardbits=6 \
     --open_files=55000 \
@@ -90,8 +81,28 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --disable_data_sync=1 \
     --disable_wal=1 \
     --sync=0 \
-    --threads=128 > ${STAT_FILE}.readrandom
+    --threads=1 > /dev/null
 
+# measure readrandom
+./db_bench \
+    --benchmarks=readrandom \
+    --db=$DATA_DIR \
+    --use_existing_db=1 \
+    --bloom_bits=10 \
+    --num=$NUM \
+    --reads=$NUM \
+    --cache_size=6442450944 \
+    --cache_numshardbits=8 \
+    --open_files=55000 \
+    --disable_seek_compaction=1 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0 \
+    --threads=32 > ${STAT_FILE}.readrandom
+
+# measure memtable performance -- none of the data gets flushed to disk
 ./db_bench \
     --benchmarks=fillrandom,readrandom, \
     --db=$DATA_DIR \
@@ -99,7 +110,7 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --num=$((NUM / 10)) \
     --reads=$NUM \
     --cache_size=6442450944 \
-    --cache_numshardbits=6 \
+    --cache_numshardbits=8 \
     --write_buffer_size=1000000000 \
     --open_files=55000 \
     --disable_seek_compaction=1 \
@@ -111,14 +122,37 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --value_size=10 \
     --threads=32 > ${STAT_FILE}.memtablefillreadrandom
 
-OVERWRITE_OPS=$(awk '/overwrite/ {print $5}' $STAT_FILE.overwrite)
-FILLSEQ_OPS=$(awk '/fillseq/ {print $5}' $STAT_FILE.fillseq)
-READRANDOM_OPS=$(awk '/readrandom/ {print $5}' $STAT_FILE.readrandom)
-MEMTABLE_FILLRANDOM_OPS=$(awk '/fillrandom/ {print $5}' $STAT_FILE.memtablefillreadrandom)
-MEMTABLE_READRANDOM_OPS=$(awk '/readrandom/ {print $5}' $STAT_FILE.memtablefillreadrandom)
+# send data to ods
+function send_to_ods {
+  key="$1"
+  value="$2"
 
-send_to_ods rocksdb.build.overwrite.qps $OVERWRITE_OPS
-send_to_ods rocksdb.build.fillseq.qps $FILLSEQ_OPS
-send_to_ods rocksdb.build.readrandom.qps $READRANDOM_OPS
-send_to_ods rocksdb.build.memtablefillrandom.qps $MEMTABLE_FILLRANDOM_OPS
-send_to_ods rocksdb.build.memtablereadrandom.qps $MEMTABLE_READRANDOM_OPS
+  if [ -z "$value" ];then
+    echo >&2 "ERROR: Key $key doesn't have a value."
+    return
+  fi
+  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=$key&value=$value" \
+    --connect-timeout 60
+}
+
+function send_benchmark_to_ods {
+  bench="$1"
+  bench_key="$2"
+  file="$3"
+
+  QPS=$(grep $bench $file | awk '{print $5}')
+  P50_MICROS=$(grep $bench $file -A 4 | tail -n1 | awk '{print $3}' )
+  P75_MICROS=$(grep $bench $file -A 4 | tail -n1 | awk '{print $5}' )
+  P99_MICROS=$(grep $bench $file -A 4 | tail -n1 | awk '{print $7}' )
+
+  send_to_ods rocksdb.build.$bench_key.qps $QPS
+  send_to_ods rocksdb.build.$bench_key.p50_micros $P50_MICROS
+  send_to_ods rocksdb.build.$bench_key.p75_micros $P75_MICROS
+  send_to_ods rocksdb.build.$bench_key.p99_micros $P99_MICROS
+}
+
+send_benchmark_to_ods overwrite overwrite $STAT_FILE.overwrite
+send_benchmark_to_ods fillseq fillseq $STAT_FILE.fillseq
+send_benchmark_to_ods readrandom readrandom $STAT_FILE.readrandom
+send_benchmark_to_ods fillrandom memtablefillrandom $STAT_FILE.memtablefillreadrandom
+send_benchmark_to_ods readrandom memtablereadrandom $STAT_FILE.memtablefillreadrandom
