@@ -272,7 +272,8 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle) {
   Rep* r = rep_;
-  StopWatch sw(r->options.env, r->options.statistics, WRITE_RAW_BLOCK_MICROS);
+  StopWatch sw(r->options.env, r->options.statistics.get(),
+               WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
   r->status = r->file->Append(block_contents);
@@ -530,8 +531,8 @@ Status BlockBasedTableBuilder::Finish() {
     Log(
         r->options.info_log,
         "Table was constructed:\n"
-        "  basic properties: %s\n"
-        "  user collected properties: %s",
+        "  [basic properties]: %s\n"
+        "  [user collected properties]: %s",
         r->props.ToString().c_str(),
         user_collected.c_str()
     );

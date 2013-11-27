@@ -20,15 +20,14 @@
 //    data: uint8[len]
 
 #include "rocksdb/write_batch.h"
-
 #include "rocksdb/options.h"
-#include "rocksdb/statistics.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/memtable.h"
 #include "db/snapshot.h"
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
+#include "util/statistics_imp.h"
 #include <stdexcept>
 
 namespace rocksdb {
@@ -197,7 +196,7 @@ class MemTableInserter : public WriteBatch::Handler {
   virtual void Put(const Slice& key, const Slice& value) {
     if (options_->inplace_update_support
         && mem_->Update(sequence_, kTypeValue, key, value)) {
-      RecordTick(options_->statistics, NUMBER_KEYS_UPDATED);
+      RecordTick(options_->statistics.get(), NUMBER_KEYS_UPDATED);
     } else {
       mem_->Add(sequence_, kTypeValue, key, value);
     }
@@ -215,7 +214,7 @@ class MemTableInserter : public WriteBatch::Handler {
       ropts.snapshot = &read_from_snapshot;
       std::string value;
       if (!db_->KeyMayExist(ropts, key, &value)) {
-        RecordTick(options_->statistics, NUMBER_FILTERED_DELETES);
+        RecordTick(options_->statistics.get(), NUMBER_FILTERED_DELETES);
         return;
       }
     }

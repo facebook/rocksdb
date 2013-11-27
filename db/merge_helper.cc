@@ -8,6 +8,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
+#include "util/statistics_imp.h"
 #include <string>
 #include <stdio.h>
 
@@ -20,7 +21,7 @@ namespace rocksdb {
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
 void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
-                             bool at_bottom, shared_ptr<Statistics> stats) {
+                             bool at_bottom, Statistics* stats) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   keys_.clear();

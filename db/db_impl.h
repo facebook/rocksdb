@@ -67,6 +67,8 @@ class DBImpl : public DB {
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
+  virtual Env* GetEnv() const;
+  virtual const Options& GetOptions() const;
   virtual Status Flush(const FlushOptions& options);
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions();

@@ -200,7 +200,7 @@ Cache::Handle* GetFromBlockCache(
     const Slice& key,
     Tickers block_cache_miss_ticker,
     Tickers block_cache_hit_ticker,
-    std::shared_ptr<Statistics> statistics) {
+    Statistics* statistics) {
   auto cache_handle = block_cache->Lookup(key);
   if (cache_handle != nullptr) {
     BumpPerfCount(&perf_context.block_cache_hit_count);
@@ -515,7 +515,7 @@ Status BlockBasedTable::GetBlock(
     CachableEntry<Block>* entry) {
   bool no_io = options.read_tier == kBlockCacheTier;
   Cache* block_cache = table->rep_->options.block_cache.get();
-  auto statistics = table->rep_->options.statistics;
+  Statistics* statistics = table->rep_->options.statistics.get();
   Status s;
 
   if (block_cache != nullptr) {
@@ -532,7 +532,7 @@ Status BlockBasedTable::GetBlock(
         key,
         block_cache_miss_ticker,
         block_cache_hit_ticker,
-        table->rep_->options.statistics
+        statistics
     );
 
     if (entry->cache_handle != nullptr) {
@@ -593,7 +593,7 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
   Cache* block_cache = table->rep_->options.block_cache.get();
   Cache* block_cache_compressed = table->rep_->options.
                                     block_cache_compressed.get();
-  std::shared_ptr<Statistics> statistics = table->rep_->options.statistics;
+  Statistics* statistics = table->rep_->options.statistics.get();
   Block* block = nullptr;
   Block* cblock = nullptr;
   Cache::Handle* cache_handle = nullptr;
@@ -791,12 +791,13 @@ BlockBasedTable::GetFilter(bool no_io) const {
       cache_key
   );
 
+  Statistics* statistics = rep_->options.statistics.get();
   auto cache_handle = GetFromBlockCache(
     block_cache,
     key,
     BLOCK_CACHE_FILTER_MISS,
     BLOCK_CACHE_FILTER_HIT,
-    rep_->options.statistics
+    statistics
   );
 
   FilterBlockReader* filter = nullptr;
@@ -824,7 +825,7 @@ BlockBasedTable::GetFilter(bool no_io) const {
 
         cache_handle = block_cache->Insert(
           key, filter, filter_size, &DeleteCachedFilter);
-        RecordTick(rep_->options.statistics, BLOCK_CACHE_ADD);
+        RecordTick(statistics, BLOCK_CACHE_ADD);
       }
     }
   }
@@ -945,9 +946,10 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
     filter_entry.Release(rep_->options.block_cache.get());
   }
 
-  RecordTick(rep_->options.statistics, BLOOM_FILTER_PREFIX_CHECKED);
+  Statistics* statistics = rep_->options.statistics.get();
+  RecordTick(statistics, BLOOM_FILTER_PREFIX_CHECKED);
   if (!may_match) {
-    RecordTick(rep_->options.statistics, BLOOM_FILTER_PREFIX_USEFUL);
+    RecordTick(statistics, BLOOM_FILTER_PREFIX_USEFUL);
   }
 
   return may_match;
@@ -997,7 +999,7 @@ Status BlockBasedTable::Get(
       // Not found
       // TODO: think about interaction with Merge. If a user key cannot
       // cross one data block, we should be fine.
-      RecordTick(rep_->options.statistics, BLOOM_FILTER_USEFUL);
+      RecordTick(rep_->options.statistics.get(), BLOOM_FILTER_USEFUL);
       break;
     } else {
       bool didIO = false;

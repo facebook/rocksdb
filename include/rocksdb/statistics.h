@@ -276,27 +276,6 @@ class Statistics {
 // Create a concrete DBStatistics object
 std::shared_ptr<Statistics> CreateDBStatistics();
 
-// Ease of Use functions
-inline void RecordTick(std::shared_ptr<Statistics> statistics,
-                       Tickers ticker,
-                       uint64_t count = 1) {
-  assert(HistogramsNameMap.size() == HISTOGRAM_ENUM_MAX);
-  assert(TickersNameMap.size() == TICKER_ENUM_MAX);
-  if (statistics) {
-    statistics->recordTick(ticker, count);
-  }
-}
-
-inline void SetTickerCount(std::shared_ptr<Statistics> statistics,
-                           Tickers ticker,
-                           uint64_t count) {
-  assert(HistogramsNameMap.size() == HISTOGRAM_ENUM_MAX);
-  assert(TickersNameMap.size() == TICKER_ENUM_MAX);
-  if (statistics) {
-    statistics->setTickerCount(ticker, count);
-  }
-}
-
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_

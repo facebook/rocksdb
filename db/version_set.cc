@@ -290,7 +290,7 @@ struct Saver {
   std::deque<std::string>* merge_operands;  // the merge operations encountered
   Logger* logger;
   bool didIO;    // did we do any disk io?
-  shared_ptr<Statistics> statistics;
+  Statistics* statistics;
 };
 }
 
@@ -439,7 +439,7 @@ void Version::Get(const ReadOptions& options,
   saver.merge_operands = operands;
   saver.logger = logger.get();
   saver.didIO = false;
-  saver.statistics = db_options.statistics;
+  saver.statistics = db_options.statistics.get();
 
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
@@ -458,7 +458,9 @@ void Version::Get(const ReadOptions& options,
     // Get the list of files to search in this level
     FileMetaData* const* files = &files_[level][0];
     important_files.clear();
-    important_files.reserve(num_files);
+    if (level == 0) {
+      important_files.reserve(num_files);
+    }
 
     // Some files may overlap each other. We find
     // all files that overlap user_key and process them in order from
@@ -566,7 +568,7 @@ void Version::Get(const ReadOptions& options,
                                   value, logger.get())) {
       *status = Status::OK();
     } else {
-      RecordTick(db_options.statistics, NUMBER_MERGE_FAILURES);
+      RecordTick(db_options.statistics.get(), NUMBER_MERGE_FAILURES);
       *status = Status::Corruption("could not perform end-of-key merge for ",
                                    user_key);
     }
@@ -1296,10 +1298,12 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       }
       if (s.ok()) {
         if (options_->use_fsync) {
-          StopWatch sw(env_, options_->statistics, MANIFEST_FILE_SYNC_MICROS);
+          StopWatch sw(env_, options_->statistics.get(),
+                       MANIFEST_FILE_SYNC_MICROS);
           s = descriptor_log_->file()->Fsync();
         } else {
-          StopWatch sw(env_, options_->statistics, MANIFEST_FILE_SYNC_MICROS);
+          StopWatch sw(env_, options_->statistics.get(),
+                       MANIFEST_FILE_SYNC_MICROS);
           s = descriptor_log_->file()->Sync();
         }
       }

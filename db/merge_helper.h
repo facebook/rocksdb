@@ -8,7 +8,6 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
 #include <string>
 #include <deque>
 
@@ -18,6 +17,7 @@ class Comparator;
 class Iterator;
 class Logger;
 class MergeOperator;
+class Statistics;
 
 class MergeHelper {
  public:
@@ -46,7 +46,7 @@ class MergeHelper {
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
   void MergeUntil(Iterator* iter, SequenceNumber stop_before = 0,
-                  bool at_bottom = false, shared_ptr<Statistics> stats=nullptr);
+                  bool at_bottom = false, Statistics* stats = nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call

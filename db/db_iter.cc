@@ -69,7 +69,7 @@ class DBIter: public Iterator {
         direction_(kForward),
         valid_(false),
         current_entry_is_merged_(false),
-        statistics_(options.statistics) {
+        statistics_(options.statistics.get()) {
     RecordTick(statistics_, NO_ITERATORS, 1);
     max_skip_ = options.max_sequential_skip_in_iterations;
   }
@@ -136,7 +136,7 @@ class DBIter: public Iterator {
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
-  std::shared_ptr<Statistics> statistics_;
+  Statistics* statistics_;
   uint64_t max_skip_;
 
   // No copying allowed

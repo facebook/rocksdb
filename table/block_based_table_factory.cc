@@ -29,7 +29,8 @@ Status BlockBasedTableFactory::GetTableReader(
 TableBuilder* BlockBasedTableFactory::GetTableBuilder(
     const Options& options, WritableFile* file,
     CompressionType compression_type) const {
-  auto flush_block_policy_factory = flush_block_policy_factory_.get();
+  auto flush_block_policy_factory = 
+    table_options_.flush_block_policy_factory.get();
 
   // if flush block policy factory is not set, we'll create the default one
   // from the options.
@@ -54,7 +55,8 @@ TableBuilder* BlockBasedTableFactory::GetTableBuilder(
   // options.
   // We can safely delete flush_block_policy_factory since it will only be used
   // during the construction of `BlockBasedTableBuilder`.
-  if (flush_block_policy_factory != flush_block_policy_factory_.get()) {
+  if (flush_block_policy_factory != 
+      table_options_.flush_block_policy_factory.get()) {
     delete flush_block_policy_factory;
   }
 

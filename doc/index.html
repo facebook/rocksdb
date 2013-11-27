@@ -80,7 +80,7 @@ Such problems can be avoided by using the <code>WriteBatch</code> class to
 atomically apply a set of updates:
 <p>
 <pre>
-  #include "leveldb/write_batch.h"
+  #include "rocksdb/write_batch.h"
   ...
   std::string value;
   rocksdb::Status s = db-&gt;Get(rocksdb::ReadOptions(), key1, &amp;value);
