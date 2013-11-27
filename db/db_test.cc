@@ -1815,94 +1815,6 @@ TEST(DBTest, CompactionsGenerateMultipleFiles) {
   }
 }
 
-// TODO(kailiu) disable the in non-linux platforms to temporarily solve
-// the unit test failure.
-#ifdef OS_LINUX
-TEST(DBTest, CompressedCache) {
-  int num_iter = 80;
-
-  // Run this test three iterations.
-  // Iteration 1: only a uncompressed block cache
-  // Iteration 2: only a compressed block cache
-  // Iteration 3: both block cache and compressed cache
-  for (int iter = 0; iter < 3; iter++) {
-    Options options = CurrentOptions();
-    options.write_buffer_size = 64*1024;        // small write buffer
-    options.statistics = rocksdb::CreateDBStatistics();
-
-    switch (iter) {
-      case 0:
-        // only uncompressed block cache
-        options.block_cache = NewLRUCache(8*1024);
-        options.block_cache_compressed = nullptr;
-        break;
-      case 1:
-        // no block cache, only compressed cache
-        options.no_block_cache = true;
-        options.block_cache = nullptr;
-        options.block_cache_compressed = NewLRUCache(8*1024);
-        break;
-      case 2:
-        // both compressed and uncompressed block cache
-        options.block_cache = NewLRUCache(1024);
-        options.block_cache_compressed = NewLRUCache(8*1024);
-        break;
-      default:
-        ASSERT_TRUE(false);
-    }
-    Reopen(&options);
-
-    Random rnd(301);
-
-    // Write 8MB (80 values, each 100K)
-    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-    std::vector<std::string> values;
-    std::string str;
-    for (int i = 0; i < num_iter; i++) {
-      if (i % 4 == 0) {        // high compression ratio
-        str = RandomString(&rnd, 1000);
-      }
-      values.push_back(str);
-      ASSERT_OK(Put(Key(i), values[i]));
-    }
-
-    // flush all data from memtable so that reads are from block cache
-    dbfull()->Flush(FlushOptions());
-
-    for (int i = 0; i < num_iter; i++) {
-      ASSERT_EQ(Get(Key(i)), values[i]);
-    }
-
-    // check that we triggered the appropriate code paths in the cache
-    switch (iter) {
-      case 0:
-        // only uncompressed block cache
-        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_EQ(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      case 1:
-        // no block cache, only compressed cache
-        ASSERT_EQ(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_GT(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      case 2:
-        // both compressed and uncompressed block cache
-        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_GT(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      default:
-        ASSERT_TRUE(false);
-    }
-  }
-}
-#endif
-
 TEST(DBTest, CompactionTrigger) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100<<10; //100KB
@@ -2144,9 +2056,91 @@ TEST(DBTest, UniversalCompactionOptions) {
   }
 }
 
-// TODO(kailiu) disable the in non-linux platforms to temporarily solve
-// the unit test failure.
-#ifdef OS_LINUX
+#if defined(SNAPPY) && defined(ZLIB) && defined(BZIP2)
+TEST(DBTest, CompressedCache) {
+  int num_iter = 80;
+
+  // Run this test three iterations.
+  // Iteration 1: only a uncompressed block cache
+  // Iteration 2: only a compressed block cache
+  // Iteration 3: both block cache and compressed cache
+  for (int iter = 0; iter < 3; iter++) {
+    Options options = CurrentOptions();
+    options.write_buffer_size = 64*1024;        // small write buffer
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        options.block_cache = NewLRUCache(8*1024);
+        options.block_cache_compressed = nullptr;
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        options.no_block_cache = true;
+        options.block_cache = nullptr;
+        options.block_cache_compressed = NewLRUCache(8*1024);
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        options.block_cache = NewLRUCache(1024);
+        options.block_cache_compressed = NewLRUCache(8*1024);
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
+    Reopen(&options);
+
+    Random rnd(301);
+
+    // Write 8MB (80 values, each 100K)
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+    std::vector<std::string> values;
+    std::string str;
+    for (int i = 0; i < num_iter; i++) {
+      if (i % 4 == 0) {        // high compression ratio
+        str = RandomString(&rnd, 1000);
+      }
+      values.push_back(str);
+      ASSERT_OK(Put(Key(i), values[i]));
+    }
+
+    // flush all data from memtable so that reads are from block cache
+    dbfull()->Flush(FlushOptions());
+
+    for (int i = 0; i < num_iter; i++) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    }
+
+    // check that we triggered the appropriate code paths in the cache
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_EQ(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        ASSERT_EQ(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_GT(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_GT(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
+  }
+}
+
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
   test::CompressibleString(rnd, 0.8, len, &r);
