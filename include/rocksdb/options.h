@@ -16,9 +16,7 @@
 #include <stdint.h>
 
 #include "rocksdb/memtablerep.h"
-#include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table_properties.h"
