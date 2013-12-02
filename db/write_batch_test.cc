@@ -69,7 +69,7 @@ static std::string PrintContents(WriteBatch* b) {
   } else if (count != WriteBatchInternal::Count(b)) {
     state.append("CountMismatch()");
   }
-  mem->Unref();
+  delete mem->Unref();
   return state;
 }
 

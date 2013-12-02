@@ -374,10 +374,10 @@ class MemTableConstructor: public Constructor {
     memtable_->Ref();
   }
   ~MemTableConstructor() {
-    memtable_->Unref();
+    delete memtable_->Unref();
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
-    memtable_->Unref();
+    delete memtable_->Unref();
     memtable_ = new MemTable(internal_comparator_, table_factory_);
     memtable_->Ref();
     int seq = 1;
@@ -1289,7 +1289,7 @@ TEST(MemTableTest, Simple) {
   }
 
   delete iter;
-  memtable->Unref();
+  delete memtable->Unref();
 }
 
 
