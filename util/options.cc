@@ -25,6 +25,9 @@ Options::Options()
     : comparator(BytewiseComparator()),
       merge_operator(nullptr),
       compaction_filter(nullptr),
+      compaction_filter_factory(
+          std::shared_ptr<CompactionFilterFactory>(
+            new DefaultCompactionFilterFactory())),
       create_if_missing(false),
       error_if_exists(false),
       paranoid_checks(false),
@@ -97,9 +100,6 @@ Options::Options()
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
       table_factory(
         std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
-      compaction_filter_factory(
-          std::shared_ptr<CompactionFilterFactory>(
-            new DefaultCompactionFilterFactory())),
       inplace_update_support(false),
       inplace_update_num_locks(10000) {
   assert(memtable_factory.get() != nullptr);
