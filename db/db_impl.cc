@@ -3497,6 +3497,33 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata) {
   return versions_->GetLiveFilesMetaData(metadata);
 }
 
+Status DBImpl::GetDbIdentity(std::string& identity) {
+  std::string idfilename = IdentityFileName(dbname_);
+  unique_ptr<SequentialFile> idfile;
+  const EnvOptions soptions;
+  Status s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+  if (!s.ok()) {
+    return s;
+  }
+  uint64_t file_size;
+  s = env_->GetFileSize(idfilename, &file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  char buffer[file_size];
+  Slice id;
+  s = idfile->Read(file_size, &id, buffer);
+  if (!s.ok()) {
+    return s;
+  }
+  identity.assign(id.ToString());
+  // If last character is '\n' remove it from identity
+  if (identity.size() > 0 && identity.back() == '\n') {
+    identity.pop_back();
+  }
+  return s;
+}
+
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {

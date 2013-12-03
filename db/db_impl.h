@@ -85,6 +85,8 @@ class DBImpl : public DB {
   virtual void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);
 
+  virtual Status GetDbIdentity(std::string& identity);
+
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]

@@ -1731,31 +1731,23 @@ TEST(DBTest, ManifestRollOver) {
 
 TEST(DBTest, IdentityAcrossRestarts) {
   do {
-    std::string idfilename = IdentityFileName(dbname_);
-    unique_ptr<SequentialFile> idfile;
-    const EnvOptions soptions;
-    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
-    char buffer1[100];
-    Slice id1;
-    ASSERT_OK(idfile->Read(100, &id1, buffer1));
+    std::string id1;
+    ASSERT_OK(db_->GetDbIdentity(id1));
 
     Options options = CurrentOptions();
     Reopen(&options);
-    char buffer2[100];
-    Slice id2;
-    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
-    ASSERT_OK(idfile->Read(100, &id2, buffer2));
+    std::string id2;
+    ASSERT_OK(db_->GetDbIdentity(id2));
     // id1 should match id2 because identity was not regenerated
-    ASSERT_EQ(id1.ToString(), id2.ToString());
+    ASSERT_EQ(id1.compare(id2), 0);
 
+    std::string idfilename = IdentityFileName(dbname_);
     ASSERT_OK(env_->DeleteFile(idfilename));
     Reopen(&options);
-    char buffer3[100];
-    Slice id3;
-    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
-    ASSERT_OK(idfile->Read(100, &id3, buffer3));
-    // id1 should NOT match id2 because identity was regenerated
-    ASSERT_NE(id1.ToString(0), id3.ToString());
+    std::string id3;
+    ASSERT_OK(db_->GetDbIdentity(id3));
+    // id1 should NOT match id3 because identity was regenerated
+    ASSERT_NE(id1.compare(id3), 0);
   } while (ChangeCompactOptions());
 }
 

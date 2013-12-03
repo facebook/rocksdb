@@ -273,7 +273,7 @@ class DB {
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
   // at the first available seq_no after the requested seq_no
-  // Returns Status::Ok if iterator is valid
+  // Returns Status::OK if iterator is valid
   // Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
   // use this api, else the WAL files will get
   // cleared aggressively and the iterator might keep getting invalid before
@@ -290,6 +290,14 @@ class DB {
   // and end key
   virtual void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata) {
+  }
+
+  // Sets the globally unique ID created at database creation time by invoking
+  // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
+  // be set properly
+  virtual Status GetDbIdentity(std::string& identity) {
+    identity.clear();
+    return Status::OK();
   }
 
  private:
