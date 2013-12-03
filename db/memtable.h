@@ -22,6 +22,7 @@ namespace rocksdb {
 
 class Mutex;
 class MemTableIterator;
+class MergeContext;
 
 class MemTable {
  public:
@@ -94,7 +95,7 @@ class MemTable {
   //   store MergeInProgress in s, and return false.
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           std::deque<std::string>* operands, const Options& options);
+           MergeContext& merge_context, const Options& options);
 
   // Update the value and return status ok,
   //   if key exists in current memtable
