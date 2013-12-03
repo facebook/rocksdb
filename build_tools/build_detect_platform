@@ -184,6 +184,7 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
     fi
 
     # Test whether zlib library is installed
