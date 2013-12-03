@@ -278,6 +278,9 @@ Options::Dump(Logger* log) const
     Log(log,"Options.compaction_options_universal."
             "max_size_amplification_percent: %u",
         compaction_options_universal.max_size_amplification_percent);
+    Log(log,
+        "Options.compaction_options_universal.compression_size_percent: %u",
+        compaction_options_universal.compression_size_percent);
     std::string collector_names;
     for (auto collector : table_properties_collectors) {
       collector_names.append(collector->Name());

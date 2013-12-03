@@ -190,6 +190,10 @@ DEFINE_int32(universal_max_merge_width, 0, "The max number of files to compact"
 DEFINE_int32(universal_max_size_amplification_percent, 0,
              "The max size amplification for universal style compaction");
 
+DEFINE_int32(universal_compression_size_percent, -1,
+             "The percentage of the database to compress for universal "
+             "compaction. -1 means compress everything.");
+
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
 
@@ -323,6 +327,23 @@ DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
+
+DEFINE_int32(compression_level, -1,
+             "Compression level. For zlib this should be -1 for the "
+             "default level, or between 0 and 9.");
+
+static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
+  if (value < -1 || value > 9) {
+    fprintf(stderr, "Invalid value for --%s: %d, must be between -1 and 9\n",
+            flagname, value);
+    return false;
+  }
+  return true;
+}
+
+static const bool FLAGS_compression_level_dummy =
+  google::RegisterFlagValidator(&FLAGS_compression_level,
+                                &ValidateCompressionLevel);
 
 DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " from this level. Levels with number < min_level_to_compress are"
@@ -1350,6 +1371,7 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
+    options.compression_opts.level = FLAGS_compression_level;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
     if (FLAGS_min_level_to_compress >= 0) {
@@ -1410,6 +1432,10 @@ class Benchmark {
     if (FLAGS_universal_max_size_amplification_percent != 0) {
       options.compaction_options_universal.max_size_amplification_percent =
         FLAGS_universal_max_size_amplification_percent;
+    }
+    if (FLAGS_universal_compression_size_percent != -1) {
+      options.compaction_options_universal.compression_size_percent =
+        FLAGS_universal_compression_size_percent;
     }
 
     Status s;
