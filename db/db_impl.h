@@ -315,7 +315,7 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   port::AtomicPointer shutting_down_;
   port::CondVar bg_cv_;          // Signalled when background work finishes
-  std::shared_ptr<MemTableRepFactory> mem_rep_factory_;
+  MemTableRepFactory* mem_rep_factory_;
   MemTable* mem_;
   MemTableList imm_;             // Memtable that are not changing
   uint64_t logfile_number_;

@@ -235,7 +235,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
-      mem_rep_factory_(options_.memtable_factory),
+      mem_rep_factory_(options_.memtable_factory.get()),
       mem_(new MemTable(internal_comparator_, mem_rep_factory_,
         NumberLevels(), options_)),
       logfile_number_(0),

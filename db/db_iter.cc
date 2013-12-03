@@ -61,7 +61,7 @@ class DBIter: public Iterator {
          const Comparator* cmp, Iterator* iter, SequenceNumber s)
       : dbname_(dbname),
         env_(env),
-        logger_(options.info_log),
+        logger_(options.info_log.get()),
         user_comparator_(cmp),
         user_merge_operator_(options.merge_operator.get()),
         iter_(iter),
@@ -122,7 +122,7 @@ class DBIter: public Iterator {
 
   const std::string* const dbname_;
   Env* const env_;
-  shared_ptr<Logger> logger_;
+  Logger* logger_;
   const Comparator* const user_comparator_;
   const MergeOperator* const user_merge_operator_;
   Iterator* const iter_;
@@ -293,7 +293,7 @@ void DBIter::MergeValuesNewToOld() {
       // ignore corruption if there is any.
       const Slice value = iter_->value();
       user_merge_operator_->FullMerge(ikey.user_key, &value, operands,
-                                      &saved_value_, logger_.get());
+                                      &saved_value_, logger_);
       // iter_ is positioned after put
       iter_->Next();
       return;
@@ -310,7 +310,7 @@ void DBIter::MergeValuesNewToOld() {
                                                Slice(operands[0]),
                                                Slice(operands[1]),
                                                &merge_result,
-                                               logger_.get())) {
+                                               logger_)) {
           operands.pop_front();
           swap(operands.front(), merge_result);
         } else {
@@ -327,7 +327,7 @@ void DBIter::MergeValuesNewToOld() {
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
   user_merge_operator_->FullMerge(saved_key_, nullptr, operands,
-                                  &saved_value_, logger_.get());
+                                  &saved_value_, logger_);
 }
 
 void DBIter::Prev() {

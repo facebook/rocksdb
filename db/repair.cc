@@ -196,7 +196,7 @@ class Repairer {
     std::string scratch;
     Slice record;
     WriteBatch batch;
-    MemTable* mem = new MemTable(icmp_, options_.memtable_factory,
+    MemTable* mem = new MemTable(icmp_, options_.memtable_factory.get(),
       options_.num_levels);
     mem->Ref();
     int counter = 0;

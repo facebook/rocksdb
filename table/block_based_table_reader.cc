@@ -95,18 +95,18 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
   if (rep->options.block_cache != nullptr) {
-    GenerateCachePrefix(rep->options.block_cache, rep->file.get(),
+    GenerateCachePrefix(rep->options.block_cache.get(), rep->file.get(),
                         &rep->cache_key_prefix[0],
                         &rep->cache_key_prefix_size);
   }
   if (rep->options.block_cache_compressed != nullptr) {
-    GenerateCachePrefix(rep->options.block_cache_compressed, rep->file.get(),
-                        &rep->compressed_cache_key_prefix[0],
+    GenerateCachePrefix(rep->options.block_cache_compressed.get(),
+                        rep->file.get(), &rep->compressed_cache_key_prefix[0],
                         &rep->compressed_cache_key_prefix_size);
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(shared_ptr<Cache> cc,
+void BlockBasedTable::GenerateCachePrefix(Cache* cc,
     RandomAccessFile* file, char* buffer, size_t* size) {
 
   // generate an id from the file
@@ -120,7 +120,7 @@ void BlockBasedTable::GenerateCachePrefix(shared_ptr<Cache> cc,
   }
 }
 
-void BlockBasedTable::GenerateCachePrefix(shared_ptr<Cache> cc,
+void BlockBasedTable::GenerateCachePrefix(Cache* cc,
     WritableFile* file, char* buffer, size_t* size) {
 
   // generate an id from the file
