@@ -44,7 +44,9 @@ class DummyDB : public StackableDB {
     return options_.env;
   }
 
-  virtual const Options& GetOptions() const override {
+  using DB::GetOptions;
+  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
+      const override {
     return options_;
   }
 

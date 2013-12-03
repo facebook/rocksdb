@@ -37,40 +37,73 @@ class DBImpl : public DB {
   virtual ~DBImpl();
 
   // Implementations of the DB interface
-  virtual Status Put(const WriteOptions&, const Slice& key, const Slice& value);
-  virtual Status Merge(const WriteOptions&, const Slice& key,
-                       const Slice& value);
-  virtual Status Delete(const WriteOptions&, const Slice& key);
+  using DB::Put;
+  virtual Status Put(const WriteOptions& options,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     const Slice& value);
+  using DB::Merge;
+  virtual Status Merge(const WriteOptions& options,
+                       const ColumnFamilyHandle& column_family,
+                       const Slice& key, const Slice& value);
+  using DB::Delete;
+  virtual Status Delete(const WriteOptions& options,
+                        const ColumnFamilyHandle& column_family,
+                        const Slice& key);
+  using DB::Write;
   virtual Status Write(const WriteOptions& options, WriteBatch* updates);
+  using DB::Get;
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
                      std::string* value);
-  virtual std::vector<Status> MultiGet(const ReadOptions& options,
-                                       const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values);
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<Slice>& keys, std::vector<std::string>* values);
 
   // Returns false if key doesn't exist in the database and true if it may.
   // If value_found is not passed in as null, then return the value if found in
   // memory. On return, if value was found, then value_found will be set to true
   // , otherwise false.
+  using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const Slice& key,
-                           std::string* value,
+                           const ColumnFamilyHandle& column_family,
+                           const Slice& key, std::string* value,
                            bool* value_found = nullptr);
-  virtual Iterator* NewIterator(const ReadOptions&);
+  using DB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& options,
+                                const ColumnFamilyHandle& column_family);
+  virtual Status NewIterators(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      std::vector<Iterator*>* iterators);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
-  virtual bool GetProperty(const Slice& property, std::string* value);
-  virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
-  virtual void CompactRange(const Slice* begin, const Slice* end,
+  using DB::GetProperty;
+  virtual bool GetProperty(const ColumnFamilyHandle& column_family,
+                           const Slice& property, std::string* value);
+  using DB::GetApproximateSizes;
+  virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
+                                   const Range* range, int n, uint64_t* sizes);
+  using DB::CompactRange;
+  virtual void CompactRange(const ColumnFamilyHandle& column_family,
+                            const Slice* begin, const Slice* end,
                             bool reduce_level = false, int target_level = -1);
-  virtual int NumberLevels();
-  virtual int MaxMemCompactionLevel();
-  virtual int Level0StopWriteTrigger();
+
+  using DB::NumberLevels;
+  virtual int NumberLevels(const ColumnFamilyHandle& column_family);
+  using DB::MaxMemCompactionLevel;
+  virtual int MaxMemCompactionLevel(const ColumnFamilyHandle& column_family);
+  using DB::Level0StopWriteTrigger;
+  virtual int Level0StopWriteTrigger(const ColumnFamilyHandle& column_family);
   virtual const std::string& GetName() const;
   virtual Env* GetEnv() const;
-  virtual const Options& GetOptions() const;
-  virtual Status Flush(const FlushOptions& options);
+  using DB::GetOptions;
+  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
+      const;
+  using DB::Flush;
+  virtual Status Flush(const FlushOptions& options,
+                       const ColumnFamilyHandle& column_family);
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions();
   // All the returned filenames start with "/"
@@ -83,8 +116,7 @@ class DBImpl : public DB {
                                  unique_ptr<TransactionLogIterator>* iter);
   virtual Status DeleteFile(std::string name);
 
-  virtual void GetLiveFilesMetaData(
-    std::vector<LiveFileMetaData> *metadata);
+  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   virtual Status GetDbIdentity(std::string& identity);
 

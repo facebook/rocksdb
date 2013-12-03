@@ -119,15 +119,16 @@ Status DBWithTTL::StripTS(std::string* str) {
   return st;
 }
 
-Status DBWithTTL::Put(const WriteOptions& opt, const Slice& key,
+Status DBWithTTL::Put(const WriteOptions& options,
+                      const ColumnFamilyHandle& column_family, const Slice& key,
                       const Slice& val) {
   WriteBatch batch;
   batch.Put(key, val);
-  return Write(opt, &batch);
+  return Write(options, &batch);
 }
 
 Status DBWithTTL::Get(const ReadOptions& options,
-                      const Slice& key,
+                      const ColumnFamilyHandle& column_family, const Slice& key,
                       std::string* value) {
   Status st = db_->Get(options, key, value);
   if (!st.ok()) {
@@ -140,17 +141,18 @@ Status DBWithTTL::Get(const ReadOptions& options,
   return StripTS(value);
 }
 
-std::vector<Status> DBWithTTL::MultiGet(const ReadOptions& options,
-                                        const std::vector<Slice>& keys,
-                                        std::vector<std::string>* values) {
+std::vector<Status> DBWithTTL::MultiGet(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values) {
   return std::vector<Status>(keys.size(),
                              Status::NotSupported("MultiGet not\
                                supported with TTL"));
 }
 
 bool DBWithTTL::KeyMayExist(const ReadOptions& options,
-                            const Slice& key,
-                            std::string* value,
+                            const ColumnFamilyHandle& column_family,
+                            const Slice& key, std::string* value,
                             bool* value_found) {
   bool ret = db_->KeyMayExist(options, key, value, value_found);
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
@@ -161,12 +163,12 @@ bool DBWithTTL::KeyMayExist(const ReadOptions& options,
   return ret;
 }
 
-Status DBWithTTL::Merge(const WriteOptions& opt,
-                        const Slice& key,
-                        const Slice& value) {
+Status DBWithTTL::Merge(const WriteOptions& options,
+                        const ColumnFamilyHandle& column_family,
+                        const Slice& key, const Slice& value) {
   WriteBatch batch;
   batch.Merge(key, value);
-  return Write(opt, &batch);
+  return Write(options, &batch);
 }
 
 Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
@@ -208,8 +210,9 @@ Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
   }
 }
 
-Iterator* DBWithTTL::NewIterator(const ReadOptions& opts) {
-  return new TtlIterator(db_->NewIterator(opts));
+Iterator* DBWithTTL::NewIterator(const ReadOptions& opts,
+                                 const ColumnFamilyHandle& column_family) {
+  return new TtlIterator(db_->NewIterator(opts, column_family));
 }
 
 void DBWithTTL::TEST_Destroy_DBWithTtl() {

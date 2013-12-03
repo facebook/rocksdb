@@ -52,9 +52,8 @@ DBImplReadOnly::~DBImplReadOnly() {
 }
 
 // Implementations of the DB interface
-Status DBImplReadOnly::Get(const ReadOptions& options,
-                   const Slice& key,
-                   std::string* value) {
+Status DBImplReadOnly::Get(const ReadOptions& options, const Slice& key,
+                           std::string* value) {
   Status s;
   MemTable* mem = GetMemTable();
   Version* current = versions_->current();
@@ -79,9 +78,8 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options) {
       : latest_snapshot));
 }
 
-
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                DB** dbptr, bool error_if_log_file_exist) {
+                           DB** dbptr, bool error_if_log_file_exist) {
   *dbptr = nullptr;
 
   DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);

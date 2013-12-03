@@ -22,6 +22,14 @@ namespace rocksdb {
 
 using std::unique_ptr;
 
+struct ColumnFamilyHandle;
+extern const ColumnFamilyHandle default_column_family;
+
+struct ColumnFamilyDescriptor {
+  Slice name;
+  ColumnFamilyOptions options;
+};
+
 // Update Makefile if you change these
 static const int kMajorVersion = 2;
 static const int kMinorVersion = 0;
@@ -82,29 +90,79 @@ class DB {
       const std::string& name, DB** dbptr,
       bool error_if_log_file_exist = false);
 
+  // Open DB with column families.
+  // db_options specify database specific options
+  // column_families is the vector of all column families you'd like to open,
+  // containing column family name and options. The default column family name
+  // is 'default'.
+  // If everything is OK, handles will on return be the same size
+  // as column_families --- handles[i] will be a handle that you
+  // will use to operate on column family column_family[i]
+  static Status OpenWithColumnFamilies(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle>* handles, DB** dbptr);
+
+  // ListColumnFamilies will open the DB specified by argument name
+  // and return the list of all column families in that DB
+  // through column_families argument. The ordering of
+  // column families in column_families is unspecified.
+  static Status ListColumnFamilies(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<std::string>* column_families);
+
   DB() { }
   virtual ~DB();
+
+  // Open a column_family and return the handle of column family
+  // through the argument handle
+  // If the column family already exists in the Database,
+  // it will open it and make it available for the client to query.
+  // If the column family does not exist, the function will create
+  // and persist it.
+  Status OpenColumnFamily(const ColumnFamilyOptions& options,
+                          const Slice& column_family,
+                          ColumnFamilyHandle* handle);
+
+  // Drop a column family specified by column_family handle.
+  // All data related to the column family will be deleted before
+  // the function returns.
+  // Calls referring to the dropped column family will fail.
+  Status DropColumnFamily(const ColumnFamilyHandle& column_family);
 
   // Set the database entry for "key" to "value".
   // Returns OK on success, and a non-OK status on error.
   // Note: consider setting options.sync = true.
   virtual Status Put(const WriteOptions& options,
-                     const Slice& key,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
                      const Slice& value) = 0;
+  Status Put(const WriteOptions& options, const Slice& key,
+             const Slice& value) {
+    return Put(options, default_column_family, key, value);
+  }
 
   // Remove the database entry (if any) for "key".  Returns OK on
   // success, and a non-OK status on error.  It is not an error if "key"
   // did not exist in the database.
   // Note: consider setting options.sync = true.
-  virtual Status Delete(const WriteOptions& options, const Slice& key) = 0;
+  virtual Status Delete(const WriteOptions& options,
+                        const ColumnFamilyHandle& column_family,
+                        const Slice& key) = 0;
+  Status Delete(const WriteOptions& options, const Slice& key) {
+    return Delete(options, default_column_family, key);
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
   // determined by the user provided merge_operator when opening DB.
   // Note: consider setting options.sync = true.
   virtual Status Merge(const WriteOptions& options,
-                       const Slice& key,
-                       const Slice& value) = 0;
+                       const ColumnFamilyHandle& column_family,
+                       const Slice& key, const Slice& value) = 0;
+  Status Merge(const WriteOptions& options, const Slice& key,
+               const Slice& value) {
+    return Merge(options, default_column_family, key, value);
+  }
 
   // Apply the specified updates to the database.
   // Returns OK on success, non-OK on failure.
@@ -119,8 +177,11 @@ class DB {
   //
   // May return some other Status on an error.
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
                      std::string* value) = 0;
+  Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
+    return Get(options, default_column_family, key, value);
+  }
 
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
@@ -132,9 +193,17 @@ class DB {
   // Similarly, the number of returned statuses will be the number of keys.
   // Note: keys will not be "de-duplicated". Duplicate keys will return
   // duplicate values in order.
-  virtual std::vector<Status> MultiGet(const ReadOptions& options,
-                                       const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values) = 0;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<Slice>& keys, std::vector<std::string>* values) = 0;
+  std::vector<Status> MultiGet(const ReadOptions& options,
+                               const std::vector<Slice>& keys,
+                               std::vector<std::string>* values) {
+    return MultiGet(options, std::vector<ColumnFamilyHandle>(
+                                 keys.size(), default_column_family),
+                    keys, values);
+  }
 
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key
@@ -144,13 +213,17 @@ class DB {
   // to make this lighter weight is to avoid doing any IOs.
   // Default implementation here returns true and sets 'value_found' to false
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const Slice& key,
-                           std::string* value,
+                           const ColumnFamilyHandle& column_family,
+                           const Slice& key, std::string* value,
                            bool* value_found = nullptr) {
     if (value_found != nullptr) {
       *value_found = false;
     }
     return true;
+  }
+  bool KeyMayExist(const ReadOptions& options, const Slice& key,
+                   std::string* value, bool* value_found = nullptr) {
+    return KeyMayExist(options, default_column_family, key, value, value_found);
   }
 
   // Return a heap-allocated iterator over the contents of the database.
@@ -159,7 +232,18 @@ class DB {
   //
   // Caller should delete the iterator when it is no longer needed.
   // The returned iterator should be deleted before this db is deleted.
-  virtual Iterator* NewIterator(const ReadOptions& options) = 0;
+  virtual Iterator* NewIterator(const ReadOptions& options,
+                                const ColumnFamilyHandle& column_family) = 0;
+  Iterator* NewIterator(const ReadOptions& options) {
+    return NewIterator(options, default_column_family);
+  }
+  // Returns iterators from a consistent database state across multiple
+  // column families. Iterators are heap allocated and need to be deleted
+  // before the db is deleted
+  virtual Status NewIterators(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      std::vector<Iterator*>* iterators) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
   // this handle will all observe a stable snapshot of the current DB
@@ -185,7 +269,11 @@ class DB {
   //     about the internal operation of the DB.
   //  "rocksdb.sstables" - returns a multi-line string that describes all
   //     of the sstables that make up the db contents.
-  virtual bool GetProperty(const Slice& property, std::string* value) = 0;
+  virtual bool GetProperty(const ColumnFamilyHandle& column_family,
+                           const Slice& property, std::string* value) = 0;
+  bool GetProperty(const Slice& property, std::string* value) {
+    return GetProperty(default_column_family, property, value);
+  }
 
   // For each i in [0,n-1], store in "sizes[i]", the approximate
   // file system space used by keys in "[range[i].start .. range[i].limit)".
@@ -195,8 +283,12 @@ class DB {
   // sizes will be one-tenth the size of the corresponding user data size.
   //
   // The results may not include the sizes of recently written data.
-  virtual void GetApproximateSizes(const Range* range, int n,
+  virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
+                                   const Range* range, int n,
                                    uint64_t* sizes) = 0;
+  void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
+    GetApproximateSizes(default_column_family, range, n, sizes);
+  }
 
   // Compact the underlying storage for the key range [*begin,*end].
   // In particular, deleted and overwritten versions are discarded,
@@ -214,19 +306,35 @@ class DB {
   // hosting all the files. In this case, client could set reduce_level
   // to true, to move the files back to the minimum level capable of holding
   // the data set or a given level (specified by non-negative target_level).
-  virtual void CompactRange(const Slice* begin, const Slice* end,
+  virtual void CompactRange(const ColumnFamilyHandle& column_family,
+                            const Slice* begin, const Slice* end,
                             bool reduce_level = false,
                             int target_level = -1) = 0;
+  void CompactRange(const Slice* begin, const Slice* end,
+                    bool reduce_level = false, int target_level = -1) {
+    CompactRange(default_column_family, begin, end, reduce_level, target_level);
+  }
 
   // Number of levels used for this DB.
-  virtual int NumberLevels() = 0;
+  virtual int NumberLevels(const ColumnFamilyHandle& column_family) = 0;
+  int NumberLevels() {
+    return NumberLevels(default_column_family);
+  }
 
   // Maximum level to which a new compacted memtable is pushed if it
   // does not create overlap.
-  virtual int MaxMemCompactionLevel() = 0;
+  virtual int MaxMemCompactionLevel(
+      const ColumnFamilyHandle& column_family) = 0;
+  int MaxMemCompactionLevel() {
+    return MaxMemCompactionLevel(default_column_family);
+  }
 
   // Number of files in level-0 that would stop writes.
-  virtual int Level0StopWriteTrigger() = 0;
+  virtual int Level0StopWriteTrigger(
+      const ColumnFamilyHandle& column_family) = 0;
+  int Level0StopWriteTrigger() {
+    return Level0StopWriteTrigger(default_column_family);
+  }
 
   // Get DB name -- the exact same name that was provided as an argument to
   // DB::Open()
@@ -236,10 +344,18 @@ class DB {
   virtual Env* GetEnv() const = 0;
 
   // Get DB Options that we use
-  virtual const Options& GetOptions() const = 0;
+  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
+      const = 0;
+  const Options& GetOptions() const {
+    return GetOptions(default_column_family);
+  }
 
   // Flush all mem-table data.
-  virtual Status Flush(const FlushOptions& options) = 0;
+  virtual Status Flush(const FlushOptions& options,
+                       const ColumnFamilyHandle& column_family) = 0;
+  Status Flush(const FlushOptions& options) {
+    return Flush(options, default_column_family);
+  }
 
   // Prevent file deletions. Compactions will continue to occur,
   // but no obsolete files will be deleted. Calling this multiple
@@ -292,9 +408,7 @@ class DB {
 
   // Returns a list of all table files with their level, start key
   // and end key
-  virtual void GetLiveFilesMetaData(
-    std::vector<LiveFileMetaData> *metadata) {
-  }
+  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {}
 
   // Sets the globally unique ID created at database creation time by invoking
   // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could

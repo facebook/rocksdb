@@ -20,27 +20,40 @@ class DBWithTTL : public StackableDB {
 
   virtual ~DBWithTTL();
 
-  virtual Status Put(const WriteOptions& o, const Slice& key,
+  using StackableDB::Put;
+  virtual Status Put(const WriteOptions& options,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
                      const Slice& val) override;
 
-  virtual Status Get(const ReadOptions& options, const Slice& key,
+  using StackableDB::Get;
+  virtual Status Get(const ReadOptions& options,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
                      std::string* value) override;
 
+  using StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& options, const std::vector<Slice>& keys,
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
+  using StackableDB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const Slice& key,
-                           std::string* value,
+                           const ColumnFamilyHandle& column_family,
+                           const Slice& key, std::string* value,
                            bool* value_found = nullptr) override;
 
-  virtual Status Merge(const WriteOptions& options, const Slice& key,
-                       const Slice& value) override;
+  using StackableDB::Merge;
+  virtual Status Merge(const WriteOptions& options,
+                       const ColumnFamilyHandle& column_family,
+                       const Slice& key, const Slice& value) override;
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
-  virtual Iterator* NewIterator(const ReadOptions& opts) override;
+  using StackableDB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& opts,
+                                const ColumnFamilyHandle& column_family)
+      override;
 
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBWithTtl();

@@ -43,8 +43,18 @@ WriteBatch::~WriteBatch() { }
 
 WriteBatch::Handler::~Handler() { }
 
+void WriteBatch::Handler::Put(const Slice& key, const Slice& value) {
+  // you need to either implement Put or PutCF
+  throw std::runtime_error("Handler::Put not implemented!");
+}
+
 void WriteBatch::Handler::Merge(const Slice& key, const Slice& value) {
   throw std::runtime_error("Handler::Merge not implemented!");
+}
+
+void WriteBatch::Handler::Delete(const Slice& key) {
+  // you need to either implement Delete or DeleteCF
+  throw std::runtime_error("Handler::Delete not implemented!");
 }
 
 void WriteBatch::Handler::LogData(const Slice& blob) {
@@ -81,7 +91,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
       case kTypeValue:
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
-          handler->Put(key, value);
+          handler->PutCF(default_column_family, key, value);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Put");
@@ -89,7 +99,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeDeletion:
         if (GetLengthPrefixedSlice(&input, &key)) {
-          handler->Delete(key);
+          handler->DeleteCF(default_column_family, key);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Delete");
@@ -98,7 +108,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
       case kTypeMerge:
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
-          handler->Merge(key, value);
+          handler->MergeCF(default_column_family, key, value);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Merge");
@@ -138,27 +148,31 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
-void WriteBatch::Put(const Slice& key, const Slice& value) {
+void WriteBatch::Put(const ColumnFamilyHandle& column_family, const Slice& key,
+                     const Slice& value) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   rep_.push_back(static_cast<char>(kTypeValue));
   PutLengthPrefixedSlice(&rep_, key);
   PutLengthPrefixedSlice(&rep_, value);
 }
 
-void WriteBatch::Put(const SliceParts& key, const SliceParts& value) {
+void WriteBatch::Put(const ColumnFamilyHandle& column_family,
+                     const SliceParts& key, const SliceParts& value) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   rep_.push_back(static_cast<char>(kTypeValue));
   PutLengthPrefixedSliceParts(&rep_, key);
   PutLengthPrefixedSliceParts(&rep_, value);
 }
 
-void WriteBatch::Delete(const Slice& key) {
+void WriteBatch::Delete(const ColumnFamilyHandle& column_family,
+                        const Slice& key) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   rep_.push_back(static_cast<char>(kTypeDeletion));
   PutLengthPrefixedSlice(&rep_, key);
 }
 
-void WriteBatch::Merge(const Slice& key, const Slice& value) {
+void WriteBatch::Merge(const ColumnFamilyHandle& column_family,
+                       const Slice& key, const Slice& value) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   rep_.push_back(static_cast<char>(kTypeMerge));
   PutLengthPrefixedSlice(&rep_, key);
@@ -193,7 +207,8 @@ class MemTableInserter : public WriteBatch::Handler {
     }
   }
 
-  virtual void Put(const Slice& key, const Slice& value) {
+  virtual void PutCF(const ColumnFamilyHandle& column_family, const Slice& key,
+                     const Slice& value) {
     if (options_->inplace_update_support
         && mem_->Update(sequence_, kTypeValue, key, value)) {
       RecordTick(options_->statistics.get(), NUMBER_KEYS_UPDATED);
@@ -202,11 +217,13 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     sequence_++;
   }
-  virtual void Merge(const Slice& key, const Slice& value) {
+  virtual void MergeCF(const ColumnFamilyHandle& column_family,
+                       const Slice& key, const Slice& value) {
     mem_->Add(sequence_, kTypeMerge, key, value);
     sequence_++;
   }
-  virtual void Delete(const Slice& key) {
+  virtual void DeleteCF(const ColumnFamilyHandle& column_family,
+                        const Slice& key) {
     if (filter_deletes_) {
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;

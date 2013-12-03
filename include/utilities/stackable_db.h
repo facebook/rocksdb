@@ -21,40 +21,49 @@ class StackableDB : public DB {
     return db_;
   }
 
+  using DB::Put;
   virtual Status Put(const WriteOptions& options,
-                     const Slice& key,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
                      const Slice& val) override {
-    return db_->Put(options, key, val);
+    return db_->Put(options, column_family, key, val);
   }
 
+  using DB::Get;
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
                      std::string* value) override {
-    return db_->Get(options, key, value);
+    return db_->Get(options, column_family, key, value);
   }
 
-  virtual std::vector<Status> MultiGet(const ReadOptions& options,
-                                       const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values)
-    override {
-      return db_->MultiGet(options, keys, values);
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override {
+    return db_->MultiGet(options, column_family, keys, values);
   }
 
+  using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const Slice& key,
-                           std::string* value,
+                           const ColumnFamilyHandle& column_family,
+                           const Slice& key, std::string* value,
                            bool* value_found = nullptr) override {
-    return db_->KeyMayExist(options, key, value, value_found);
+    return db_->KeyMayExist(options, column_family, key, value, value_found);
   }
 
-  virtual Status Delete(const WriteOptions& wopts, const Slice& key) override {
-    return db_->Delete(wopts, key);
+  using DB::Delete;
+  virtual Status Delete(const WriteOptions& wopts,
+                        const ColumnFamilyHandle& column_family,
+                        const Slice& key) override {
+    return db_->Delete(wopts, column_family, key);
   }
 
+  using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
-                       const Slice& key,
-                       const Slice& value) override {
-    return db_->Merge(options, key, value);
+                       const ColumnFamilyHandle& column_family,
+                       const Slice& key, const Slice& value) override {
+    return db_->Merge(options, column_family, key, value);
   }
 
 
@@ -63,9 +72,20 @@ class StackableDB : public DB {
       return db_->Write(opts, updates);
   }
 
-  virtual Iterator* NewIterator(const ReadOptions& opts) override {
-    return db_->NewIterator(opts);
+  using DB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& opts,
+                                const ColumnFamilyHandle& column_family)
+      override {
+    return db_->NewIterator(opts, column_family);
   }
+
+  virtual Status NewIterators(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      std::vector<Iterator*>* iterators) {
+    return db_->NewIterators(options, column_family, iterators);
+  }
+
 
   virtual const Snapshot* GetSnapshot() override {
     return db_->GetSnapshot();
@@ -75,32 +95,43 @@ class StackableDB : public DB {
     return db_->ReleaseSnapshot(snapshot);
   }
 
-  virtual bool GetProperty(const Slice& property, std::string* value)
-    override {
-      return db_->GetProperty(property, value);
+  using DB::GetProperty;
+  virtual bool GetProperty(const ColumnFamilyHandle& column_family,
+                           const Slice& property, std::string* value) override {
+      return db_->GetProperty(column_family, property, value);
   }
 
-  virtual void GetApproximateSizes(const Range* r, int n, uint64_t* sizes)
-    override {
-      return db_->GetApproximateSizes(r, n, sizes);
+  using DB::GetApproximateSizes;
+  virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
+                                   const Range* r, int n,
+                                   uint64_t* sizes) override {
+      return db_->GetApproximateSizes(column_family, r, n, sizes);
   }
 
-  virtual void CompactRange(const Slice* begin, const Slice* end,
+  using DB::CompactRange;
+  virtual void CompactRange(const ColumnFamilyHandle& column_family,
+                            const Slice* begin, const Slice* end,
                             bool reduce_level = false,
                             int target_level = -1) override {
-    return db_->CompactRange(begin, end, reduce_level, target_level);
+    return db_->CompactRange(column_family, begin, end, reduce_level,
+                             target_level);
   }
 
-  virtual int NumberLevels() override {
-    return db_->NumberLevels();
+  using DB::NumberLevels;
+  virtual int NumberLevels(const ColumnFamilyHandle& column_family) override {
+    return db_->NumberLevels(column_family);
   }
 
-  virtual int MaxMemCompactionLevel() override {
-    return db_->MaxMemCompactionLevel();
+  using DB::MaxMemCompactionLevel;
+  virtual int MaxMemCompactionLevel(const ColumnFamilyHandle& column_family)
+      override {
+    return db_->MaxMemCompactionLevel(column_family);
   }
 
-  virtual int Level0StopWriteTrigger() override {
-    return db_->Level0StopWriteTrigger();
+  using DB::Level0StopWriteTrigger;
+  virtual int Level0StopWriteTrigger(const ColumnFamilyHandle& column_family)
+      override {
+    return db_->Level0StopWriteTrigger(column_family);
   }
 
   virtual const std::string& GetName() const override {
@@ -111,12 +142,16 @@ class StackableDB : public DB {
     return db_->GetEnv();
   }
 
-  virtual const Options& GetOptions() const override {
-    return db_->GetOptions();
+  using DB::GetOptions;
+  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
+      const override {
+    return db_->GetOptions(column_family);
   }
 
-  virtual Status Flush(const FlushOptions& fopts) override {
-    return db_->Flush(fopts);
+  using DB::Flush;
+  virtual Status Flush(const FlushOptions& fopts,
+                       const ColumnFamilyHandle& column_family) override {
+    return db_->Flush(fopts, column_family);
   }
 
   virtual Status DisableFileDeletions() override {
