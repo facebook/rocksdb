@@ -244,7 +244,6 @@ class DBTest {
   enum OptionConfig {
     kDefault,
     kVectorRep,
-    kUnsortedRep,
     kMergePut,
     kFilter,
     kUncompressed,
@@ -255,7 +254,7 @@ class DBTest {
     kCompactOnFlush,
     kPerfOptions,
     kDeletesFilterFirst,
-    kPrefixHashRep,
+    kHashSkipList,
     kUniversalCompaction,
     kCompressedBlockCache,
     kEnd
@@ -339,9 +338,9 @@ class DBTest {
   Options CurrentOptions() {
     Options options;
     switch (option_config_) {
-      case kPrefixHashRep:
-        options.memtable_factory.reset(new
-          PrefixHashRepFactory(NewFixedPrefixTransform(1)));
+      case kHashSkipList:
+        options.memtable_factory.reset(
+            NewHashSkipListRepFactory(NewFixedPrefixTransform(1)));
         break;
       case kMergePut:
         options.merge_operator = MergeOperators::CreatePutOperator();
@@ -374,9 +373,6 @@ class DBTest {
         break;
       case kDeletesFilterFirst:
         options.filter_deletes = true;
-        break;
-      case kUnsortedRep:
-        options.memtable_factory.reset(new UnsortedRepFactory);
         break;
       case kVectorRep:
         options.memtable_factory.reset(new VectorRepFactory(100));
@@ -4600,7 +4596,7 @@ TEST(DBTest, Randomized) {
       // TODO(sanjay): Test Get() works
       int p = rnd.Uniform(100);
       int minimum = 0;
-      if (option_config_ == kPrefixHashRep) {
+      if (option_config_ == kHashSkipList) {
         minimum = 1;
       }
       if (p < 45) {                               // Put
@@ -4770,90 +4766,82 @@ void PrefixScanInit(DBTest *dbtest) {
 }
 
 TEST(DBTest, PrefixScan) {
-  for (int it = 0; it < 2; ++it) {
-    ReadOptions ro = ReadOptions();
-    int count;
-    Slice prefix;
-    Slice key;
-    char buf[100];
-    Iterator* iter;
-    snprintf(buf, sizeof(buf), "03______:");
-    prefix = Slice(buf, 8);
-    key = Slice(buf, 9);
-    auto prefix_extractor = NewFixedPrefixTransform(8);
-    // db configs
-    env_->count_random_reads_ = true;
-    Options options = CurrentOptions();
-    options.env = env_;
-    options.no_block_cache = true;
-    options.filter_policy =  NewBloomFilterPolicy(10);
-    options.prefix_extractor = prefix_extractor;
-    options.whole_key_filtering = false;
-    options.disable_auto_compactions = true;
-    options.max_background_compactions = 2;
-    options.create_if_missing = true;
-    options.disable_seek_compaction = true;
-    if (it == 0) {
-      options.memtable_factory.reset(NewHashSkipListRepFactory(
-            prefix_extractor));
-    } else {
-      options.memtable_factory = std::make_shared<PrefixHashRepFactory>(
-          prefix_extractor);
-    }
+  ReadOptions ro = ReadOptions();
+  int count;
+  Slice prefix;
+  Slice key;
+  char buf[100];
+  Iterator* iter;
+  snprintf(buf, sizeof(buf), "03______:");
+  prefix = Slice(buf, 8);
+  key = Slice(buf, 9);
+  auto prefix_extractor = NewFixedPrefixTransform(8);
+  // db configs
+  env_->count_random_reads_ = true;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.no_block_cache = true;
+  options.filter_policy =  NewBloomFilterPolicy(10);
+  options.prefix_extractor = prefix_extractor;
+  options.whole_key_filtering = false;
+  options.disable_auto_compactions = true;
+  options.max_background_compactions = 2;
+  options.create_if_missing = true;
+  options.disable_seek_compaction = true;
+  options.memtable_factory.reset(NewHashSkipListRepFactory(prefix_extractor));
 
-    // prefix specified, with blooms: 2 RAND I/Os
-    // SeekToFirst
-    DestroyAndReopen(&options);
-    PrefixScanInit(this);
-    count = 0;
-    env_->random_read_counter_.Reset();
-    ro.prefix = &prefix;
-    iter = db_->NewIterator(ro);
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      assert(iter->key().starts_with(prefix));
-      count++;
-    }
-    ASSERT_OK(iter->status());
-    delete iter;
-    ASSERT_EQ(count, 2);
-    ASSERT_EQ(env_->random_read_counter_.Read(), 2);
-
-    // prefix specified, with blooms: 2 RAND I/Os
-    // Seek
-    DestroyAndReopen(&options);
-    PrefixScanInit(this);
-    count = 0;
-    env_->random_read_counter_.Reset();
-    ro.prefix = &prefix;
-    iter = db_->NewIterator(ro);
-    for (iter->Seek(key); iter->Valid(); iter->Next()) {
-      assert(iter->key().starts_with(prefix));
-      count++;
-    }
-    ASSERT_OK(iter->status());
-    delete iter;
-    ASSERT_EQ(count, 2);
-    ASSERT_EQ(env_->random_read_counter_.Read(), 2);
-
-    // no prefix specified: 11 RAND I/Os
-    DestroyAndReopen(&options);
-    PrefixScanInit(this);
-    count = 0;
-    env_->random_read_counter_.Reset();
-    iter = db_->NewIterator(ReadOptions());
-    for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
-      if (! iter->key().starts_with(prefix)) {
-        break;
-      }
-      count++;
-    }
-    ASSERT_OK(iter->status());
-    delete iter;
-    ASSERT_EQ(count, 2);
-    ASSERT_EQ(env_->random_read_counter_.Read(), 11);
-    Close();
-    delete options.filter_policy;
+  // prefix specified, with blooms: 2 RAND I/Os
+  // SeekToFirst
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  ro.prefix = &prefix;
+  iter = db_->NewIterator(ro);
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    assert(iter->key().starts_with(prefix));
+    count++;
   }
+  ASSERT_OK(iter->status());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
+
+  // prefix specified, with blooms: 2 RAND I/Os
+  // Seek
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  ro.prefix = &prefix;
+  iter = db_->NewIterator(ro);
+  for (iter->Seek(key); iter->Valid(); iter->Next()) {
+    assert(iter->key().starts_with(prefix));
+    count++;
+  }
+  ASSERT_OK(iter->status());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
+
+  // no prefix specified: 11 RAND I/Os
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  iter = db_->NewIterator(ReadOptions());
+  for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+    if (! iter->key().starts_with(prefix)) {
+      break;
+    }
+    count++;
+  }
+  ASSERT_OK(iter->status());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 11);
+  Close();
+  delete options.filter_policy;
 }
 
 std::string MakeKey(unsigned int num) {

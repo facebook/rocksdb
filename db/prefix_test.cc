@@ -11,7 +11,6 @@
 #include "util/testharness.h"
 
 DEFINE_bool(use_prefix_hash_memtable, true, "");
-DEFINE_bool(use_nolock_version, true, "");
 DEFINE_bool(trigger_deadlock, false,
             "issue delete in range scan to trigger PrefixHashMap deadlock");
 DEFINE_uint64(bucket_count, 100000, "number of buckets");
@@ -109,14 +108,8 @@ class PrefixTest {
     if (FLAGS_use_prefix_hash_memtable) {
       auto prefix_extractor = NewFixedPrefixTransform(8);
       options.prefix_extractor = prefix_extractor;
-      if (FLAGS_use_nolock_version) {
-        options.memtable_factory.reset(NewHashSkipListRepFactory(
-            prefix_extractor, FLAGS_bucket_count));
-      } else {
-        options.memtable_factory =
-          std::make_shared<rocksdb::PrefixHashRepFactory>(
-            prefix_extractor, FLAGS_bucket_count, FLAGS_num_locks);
-      }
+      options.memtable_factory.reset(NewHashSkipListRepFactory(
+          prefix_extractor, FLAGS_bucket_count));
     }
 
     Status s = DB::Open(options, kDbName,  &db);

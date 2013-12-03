@@ -17,21 +17,13 @@
 // The factory will be passed an Arena object when a new MemTableRep is
 // requested. The API for this object is in rocksdb/arena.h.
 //
-// Users can implement their own memtable representations. We include four
+// Users can implement their own memtable representations. We include three
 // types built in:
 //  - SkipListRep: This is the default; it is backed by a skip list.
-//  - TransformRep: This is backed by an custom hash map.
-// On construction, they are given a SliceTransform object. This
-// object is applied to the user key of stored items which indexes into the
-// hash map to yield a skiplist containing all records that share the same
-// user key under the transform function.
-//  - UnsortedRep: A subclass of TransformRep where the transform function is
-// the identity function. Optimized for point lookups.
-//  - PrefixHashRep: A subclass of TransformRep where the transform function is
-// a fixed-size prefix extractor. If you use PrefixHashRepFactory, the transform
-// must be identical to options.prefix_extractor, otherwise it will be discarded
-// and the default will be used. It is optimized for ranged scans over a
-// prefix.
+//  - HashSkipListRep: The memtable rep that is best used for keys that are
+//  structured like "prefix:suffix" where iteration withing a prefix is
+//  common and iteration across different prefixes is rare. It is backed by
+//  a hash map where each bucket is a skip list.
 //  - VectorRep: This is backed by an unordered std::vector. On iteration, the
 // vector is sorted. It is intelligent about sorting; once the MarkReadOnly()
 // has been called, the vector will only be sorted once. It is optimized for
@@ -186,88 +178,23 @@ public:
   }
 };
 
-// TransformReps are backed by an unordered map of buffers to buckets. When
-// looking up a key, the user key is extracted and a user-supplied transform
-// function (see rocksdb/slice_transform.h) is applied to get the key into the
-// unordered map. This allows the user to bin user keys based on arbitrary
-// criteria. Two example implementations are UnsortedRepFactory and
-// PrefixHashRepFactory.
+// HashSkipListRep is backed by hash map of buckets. Each bucket is a skip
+// list. All the keys with the same prefix will be in the same bucket.
+// The prefix is determined using user supplied SliceTransform. It has
+// to match prefix_extractor in options.prefix_extractor.
 //
 // Iteration over the entire collection is implemented by dumping all the keys
-// into an std::set. Thus, these data structures are best used when iteration
-// over the entire collection is rare.
+// into a separate skip list. Thus, these data structures are best used when
+// iteration over the entire collection is rare.
 //
 // Parameters:
-//   transform: The SliceTransform to bucket user keys on. TransformRepFactory
-//     owns the pointer.
-//   bucket_count: Passed to the constructor of the underlying
-//     std::unordered_map of each TransformRep. On initialization, the
-//     underlying array will be at least bucket_count size.
-//   num_locks: Number of read-write locks to have for the rep. Each bucket is
-//     hashed onto a read-write lock which controls access to that lock. More
-//     locks means finer-grained concurrency but more memory overhead.
-class TransformRepFactory : public MemTableRepFactory {
- public:
-  explicit TransformRepFactory(const SliceTransform* transform,
-    size_t bucket_count, size_t num_locks = 1000)
-    : transform_(transform),
-      bucket_count_(bucket_count),
-      num_locks_(num_locks) { }
-
-  virtual ~TransformRepFactory() { delete transform_; }
-
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena*) override;
-
-  virtual const char* Name() const override {
-    return "TransformRepFactory";
-  }
-
-  const SliceTransform* GetTransform() { return transform_; }
-
- protected:
-  const SliceTransform* transform_;
-  const size_t bucket_count_;
-  const size_t num_locks_;
-};
-
-// UnsortedReps bin user keys based on an identity function transform -- that
-// is, transform(key) = key. This optimizes for point look-ups.
-//
-// Parameters: See TransformRepFactory.
-class UnsortedRepFactory : public TransformRepFactory {
-public:
-  explicit UnsortedRepFactory(size_t bucket_count = 0, size_t num_locks = 1000)
-    : TransformRepFactory(NewNoopTransform(),
-                          bucket_count,
-                          num_locks) { }
-  virtual const char* Name() const override {
-    return "UnsortedRepFactory";
-  }
-};
-
-// PrefixHashReps bin user keys based on a fixed-size prefix. This optimizes for
-// short ranged scans over a given prefix.
-//
-// Parameters: See TransformRepFactory.
-class PrefixHashRepFactory : public TransformRepFactory {
-public:
-  explicit PrefixHashRepFactory(const SliceTransform* prefix_extractor,
-    size_t bucket_count = 0, size_t num_locks = 1000)
-    : TransformRepFactory(prefix_extractor, bucket_count, num_locks)
-    { }
-
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena*) override;
-
-  virtual const char* Name() const override {
-    return "PrefixHashRepFactory";
-  }
-};
-
-// The same as TransformRepFactory except it doesn't use locks.
-// Experimental, will replace TransformRepFactory once we are sure
-// it performs better
+//   transform: The prefix extractor that returns prefix when supplied a user
+//     key. Has to match options.prefix_extractor
+//   bucket_count: Number of buckets in a hash_map. Each bucket needs
+//     8 bytes. By default, we set buckets to one million, which
+//     will take 8MB of memory. If you know the number of keys you'll
+//     keep in hash map, set bucket count to be approximately twice
+//     the number of keys
 extern MemTableRepFactory* NewHashSkipListRepFactory(
     const SliceTransform* transform, size_t bucket_count = 1000000);
 

@@ -38,8 +38,8 @@ std::shared_ptr<DB> OpenDb() {
 
     if (FLAGS_use_set_based_memetable) {
       auto prefix_extractor = rocksdb::NewFixedPrefixTransform(0);
-      options.memtable_factory =
-        std::make_shared<rocksdb::PrefixHashRepFactory>(prefix_extractor);
+      options.memtable_factory.reset(
+          NewHashSkipListRepFactory(prefix_extractor));
     }
 
     Status s = DB::Open(options, kDbName,  &db);

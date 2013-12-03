@@ -50,6 +50,7 @@
 #include "util/auto_roll_logger.h"
 #include "util/build_version.h"
 #include "util/coding.h"
+#include "util/hash_skiplist_rep.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
@@ -162,10 +163,10 @@ Options SanitizeOptions(const std::string& dbname,
     Log(result.info_log, "Compaction filter specified, ignore factory");
   }
   if (result.prefix_extractor) {
-    // If a prefix extractor has been supplied and a PrefixHashRepFactory is
+    // If a prefix extractor has been supplied and a HashSkipListRepFactory is
     // being used, make sure that the latter uses the former as its transform
     // function.
-    auto factory = dynamic_cast<PrefixHashRepFactory*>(
+    auto factory = dynamic_cast<HashSkipListRepFactory*>(
       result.memtable_factory.get());
     if (factory &&
         factory->GetTransform() != result.prefix_extractor) {

@@ -431,12 +431,11 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(prefix_size, 0, "Control the prefix size for PrefixHashRep");
+DEFINE_int32(prefix_size, 0, "Control the prefix size for HashSkipList");
 
 enum RepFactory {
   kSkipList,
   kPrefixHash,
-  kUnsorted,
   kVectorRep
 };
 enum RepFactory StringToRepFactory(const char* ctype) {
@@ -446,8 +445,6 @@ enum RepFactory StringToRepFactory(const char* ctype) {
     return kSkipList;
   else if (!strcasecmp(ctype, "prefix_hash"))
     return kPrefixHash;
-  else if (!strcasecmp(ctype, "unsorted"))
-    return kUnsorted;
   else if (!strcasecmp(ctype, "vector"))
     return kVectorRep;
 
@@ -802,9 +799,6 @@ class Benchmark {
         break;
       case kSkipList:
         fprintf(stdout, "Memtablerep: skip_list\n");
-        break;
-      case kUnsorted:
-        fprintf(stdout, "Memtablerep: unsorted\n");
         break;
       case kVectorRep:
         fprintf(stdout, "Memtablerep: vector\n");
@@ -1328,14 +1322,8 @@ class Benchmark {
     }
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
-        options.memtable_factory.reset(
-          new PrefixHashRepFactory(NewFixedPrefixTransform(FLAGS_prefix_size))
-        );
-        break;
-      case kUnsorted:
-        options.memtable_factory.reset(
-          new UnsortedRepFactory
-        );
+        options.memtable_factory.reset(NewHashSkipListRepFactory(
+            NewFixedPrefixTransform(FLAGS_prefix_size)));
         break;
       case kSkipList:
         // no need to do anything

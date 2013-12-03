@@ -305,8 +305,7 @@ DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
 
 enum RepFactory {
   kSkipList,
-  kPrefixHash,
-  kUnsorted,
+  kHashSkipList,
   kVectorRep
 };
 enum RepFactory StringToRepFactory(const char* ctype) {
@@ -315,9 +314,7 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   if (!strcasecmp(ctype, "skip_list"))
     return kSkipList;
   else if (!strcasecmp(ctype, "prefix_hash"))
-    return kPrefixHash;
-  else if (!strcasecmp(ctype, "unsorted"))
-    return kUnsorted;
+    return kHashSkipList;
   else if (!strcasecmp(ctype, "vector"))
     return kVectorRep;
 
@@ -335,7 +332,7 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(prefix_size, 0, "Control the prefix size for PrefixHashRep");
+DEFINE_int32(prefix_size, 0, "Control the prefix size for HashSkipListRep");
 static const bool FLAGS_prefix_size_dummy =
   google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
@@ -1338,11 +1335,8 @@ class StressTest {
       case kSkipList:
         memtablerep = "skip_list";
         break;
-      case kPrefixHash:
+      case kHashSkipList:
         memtablerep = "prefix_hash";
-        break;
-      case kUnsorted:
-        memtablerep = "unsorted";
         break;
       case kVectorRep:
         memtablerep = "vector";
@@ -1393,21 +1387,15 @@ class StressTest {
       FLAGS_delete_obsolete_files_period_micros;
     options.max_manifest_file_size = 1024;
     options.filter_deletes = FLAGS_filter_deletes;
-    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kPrefixHash)) {
+    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
       exit(1);
     }
     switch (FLAGS_rep_factory) {
-      case kPrefixHash:
-        options.memtable_factory.reset(
-          new PrefixHashRepFactory(NewFixedPrefixTransform(FLAGS_prefix_size))
-        );
-        break;
-      case kUnsorted:
-        options.memtable_factory.reset(
-          new UnsortedRepFactory()
-        );
+      case kHashSkipList:
+        options.memtable_factory.reset(NewHashSkipListRepFactory(
+            NewFixedPrefixTransform(FLAGS_prefix_size)));
         break;
       case kSkipList:
         // no need to do anything
