@@ -6,11 +6,7 @@
 INSTALL_PATH ?= $(CURDIR)
 
 #-----------------------------------------------
-# Uncomment exactly one of the lines labelled (A), (B), and (C) below
-# to switch between compilation modes.
-
-# OPT ?= -DNDEBUG     # (A) Production use (optimized mode)
-OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
+OPT += -fno-omit-frame-pointer -momit-leaf-frame-pointer
 #-----------------------------------------------
 
 # detect what platform we're building on
@@ -139,7 +135,7 @@ all: $(LIBRARY) $(PROGRAMS)
 
 release:
 	$(MAKE) clean
-	OPT=-DNDEBUG $(MAKE) -j32
+	OPT="-DNDEBUG -O2" $(MAKE) -j32
 
 coverage:
 	$(MAKE) clean
