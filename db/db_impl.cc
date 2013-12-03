@@ -2618,12 +2618,15 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   LookupKey lkey(key, snapshot);
   if (mem->Get(lkey, value, &s, &merge_operands, options_)) {
     // Done
+    RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else if (imm.Get(lkey, value, &s, &merge_operands, options_)) {
     // Done
+    RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
     current->Get(options, lkey, value, &s, &merge_operands, &stats,
                  options_, value_found);
     have_stat_update = true;
+    RecordTick(options_.statistics.get(), MEMTABLE_MISS);
   }
   mutex_.Lock();
 
