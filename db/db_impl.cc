@@ -27,6 +27,7 @@
 #include "db/log_writer.h"
 #include "db/memtable.h"
 #include "db/memtablelist.h"
+#include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/prefix_filter_iterator.h"
 #include "db/table_cache.h"
@@ -2608,20 +2609,20 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
 
   // Prepare to store a list of merge operations if merge occurs.
-  std::deque<std::string> merge_operands;
+  MergeContext merge_context;
 
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, &merge_operands, options_)) {
+  if (mem->Get(lkey, value, &s, merge_context, options_)) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
-  } else if (imm.Get(lkey, value, &s, &merge_operands, options_)) {
+  } else if (imm.Get(lkey, value, &s, merge_context, options_)) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
-    current->Get(options, lkey, value, &s, &merge_operands, &stats,
+    current->Get(options, lkey, value, &s, &merge_context, &stats,
                  options_, value_found);
     have_stat_update = true;
     RecordTick(options_.statistics.get(), MEMTABLE_MISS);
@@ -2676,8 +2677,8 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   bool have_stat_update = false;
   Version::GetStats stats;
 
-  // Prepare to store a list of merge operations if merge occurs.
-  std::deque<std::string> merge_operands;
+  // Contain a list of merge operations if merge occurs.
+  MergeContext merge_context;
 
   // Note: this always resizes the values array
   int numKeys = keys.size();
@@ -2692,17 +2693,17 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   for (int i=0; i<numKeys; ++i) {
-    merge_operands.clear();
+    merge_context.Clear();
     Status& s = statList[i];
     std::string* value = &(*values)[i];
 
     LookupKey lkey(keys[i], snapshot);
-    if (mem->Get(lkey, value, &s, &merge_operands, options_)) {
+    if (mem->Get(lkey, value, &s, merge_context, options_)) {
       // Done
-    } else if (imm.Get(lkey, value, &s, &merge_operands, options_)) {
+    } else if (imm.Get(lkey, value, &s, merge_context, options_)) {
       // Done
     } else {
-      current->Get(options, lkey, value, &s, &merge_operands, &stats, options_);
+      current->Get(options, lkey, value, &s, &merge_context, &stats, options_);
       have_stat_update = true;
     }
 

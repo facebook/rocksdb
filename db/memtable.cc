@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "db/dbformat.h"
+#include "db/merge_context.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -162,14 +163,11 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   std::deque<std::string>* operands, const Options& options) {
+                   MergeContext& merge_context, const Options& options) {
   Slice memkey = key.memtable_key();
   std::shared_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(key.user_key()));
   iter->Seek(memkey.data());
-
-  // It is the caller's responsibility to allocate/delete operands list
-  assert(operands != nullptr);
 
   bool merge_in_progress = s->IsMergeInProgress();
   auto merge_operator = options.merge_operator.get();
@@ -202,8 +200,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           *s = Status::OK();
           if (merge_in_progress) {
             assert(merge_operator);
-            if (!merge_operator->FullMerge(key.user_key(), &v, *operands,
-                                           value, logger.get())) {
+          if (!merge_operator->FullMerge(key.user_key(), &v,
+                                         merge_context.GetOperands(), value,
+                                         logger.get())) {
               RecordTick(options.statistics.get(), NUMBER_MERGE_FAILURES);
               *s = Status::Corruption("Error: Could not perform merge.");
             }
@@ -219,8 +218,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           if (merge_in_progress) {
             assert(merge_operator);
             *s = Status::OK();
-            if (!merge_operator->FullMerge(key.user_key(), nullptr, *operands,
-                                           value, logger.get())) {
+          if (!merge_operator->FullMerge(key.user_key(), nullptr,
+                                         merge_context.GetOperands(), value,
+                                         logger.get())) {
               RecordTick(options.statistics.get(), NUMBER_MERGE_FAILURES);
               *s = Status::Corruption("Error: Could not perform merge.");
             }
@@ -232,16 +232,14 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
         case kTypeMerge: {
           Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
           merge_in_progress = true;
-          operands->push_front(v.ToString());
-          while(operands->size() >= 2) {
+          merge_context.PushOperand(v);
+          while(merge_context.GetNumOperands() >= 2) {
             // Attempt to associative merge. (Returns true if successful)
-            if (merge_operator->PartialMerge(key.user_key(),
-                                             Slice((*operands)[0]),
-                                             Slice((*operands)[1]),
-                                             &merge_result,
-                                             logger.get())) {
-              operands->pop_front();
-              swap(operands->front(), merge_result);
+          if (merge_operator->PartialMerge(key.user_key(),
+                                           merge_context.GetOperand(0),
+                                           merge_context.GetOperand(1),
+                                           &merge_result, logger.get())) {
+              merge_context.PushPartialMergeResult(merge_result);
             } else {
               // Stack them because user can't associative merge
               break;

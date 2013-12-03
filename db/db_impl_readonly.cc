@@ -23,6 +23,7 @@
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/memtable.h"
+#include "db/merge_context.h"
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -30,6 +31,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/merge_operator.h"
 #include "port/port.h"
 #include "table/block.h"
 #include "table/merger.h"
@@ -57,12 +59,12 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   MemTable* mem = GetMemTable();
   Version* current = versions_->current();
   SequenceNumber snapshot = versions_->LastSequence();
-  std::deque<std::string> merge_operands;
+  MergeContext merge_context;
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, &merge_operands, options_)) {
+  if (mem->Get(lkey, value, &s, merge_context, options_)) {
   } else {
     Version::GetStats stats;
-    current->Get(options, lkey, value, &s, &merge_operands, &stats, options_);
+    current->Get(options, lkey, value, &s, &merge_context, &stats, options_);
   }
   return s;
 }

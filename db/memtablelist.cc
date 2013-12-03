@@ -204,10 +204,9 @@ size_t MemTableList::ApproximateMemoryUsage() {
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableList::Get(const LookupKey& key, std::string* value, Status* s,
-                       std::deque<std::string>* operands,
-                       const Options& options) {
+                       MergeContext& merge_context, const Options& options) {
   for (auto &memtable : memlist_) {
-    if (memtable->Get(key, value, s, operands, options)) {
+    if (memtable->Get(key, value, s, merge_context, options)) {
       return true;
     }
   }

@@ -38,6 +38,7 @@ class MemTable;
 class TableCache;
 class Version;
 class VersionSet;
+class MergeContext;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.
@@ -76,9 +77,9 @@ class Version {
     int seek_file_level;
   };
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
-           Status* status, std::deque<std::string>* operands, GetStats* stats,
-           const Options& db_option,
-           bool* value_found = nullptr);
+           Status* status, MergeContext* merge_context,
+           GetStats* stats, const Options& db_option, bool* value_found =
+               nullptr);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
