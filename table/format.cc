@@ -34,6 +34,7 @@ Status BlockHandle::DecodeFrom(Slice* input) {
     return Status::Corruption("bad block handle");
   }
 }
+const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 
 void Footer::EncodeTo(std::string* dst) const {
 #ifndef NDEBUG

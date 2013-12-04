@@ -26,6 +26,7 @@ struct ReadOptions;
 class BlockHandle {
  public:
   BlockHandle();
+  BlockHandle(uint64_t offset, uint64_t size);
 
   // The offset of the block in the file.
   uint64_t offset() const { return offset_; }
@@ -38,12 +39,24 @@ class BlockHandle {
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
 
+  // if the block handle's offset and size are both "0", we will view it
+  // as a null block handle that points to no where.
+  bool IsNull() const {
+    return offset_ == 0 && size_ == 0;
+  }
+
+  static const BlockHandle& NullBlockHandle() {
+    return kNullBlockHandle;
+  }
+
   // Maximum encoding length of a BlockHandle
   enum { kMaxEncodedLength = 10 + 10 };
 
  private:
-  uint64_t offset_;
-  uint64_t size_;
+  uint64_t offset_ = 0;
+  uint64_t size_ = 0;
+
+  static const BlockHandle kNullBlockHandle;
 };
 
 // Footer encapsulates the fixed information stored at the tail
@@ -116,8 +129,13 @@ extern Status UncompressBlockContents(const char* data,
 // Implementation details follow.  Clients should ignore,
 
 inline BlockHandle::BlockHandle()
-    : offset_(~static_cast<uint64_t>(0)),
-      size_(~static_cast<uint64_t>(0)) {
+    : BlockHandle(~static_cast<uint64_t>(0),
+                  ~static_cast<uint64_t>(0)) {
+}
+
+inline BlockHandle::BlockHandle(uint64_t offset, uint64_t size)
+    : offset_(offset),
+      size_(size) {
 }
 
 }  // namespace rocksdb
