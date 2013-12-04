@@ -50,7 +50,12 @@ class BlockHandle {
 // end of every table file.
 class Footer {
  public:
-  Footer() { }
+  // @table_magic_number serves two purposes:
+  //  1. Identify different types of the tables.
+  //  2. Help us to identify if a given file is a valid sst.
+  Footer(uint64_t table_magic_number) :
+      kTableMagicNumber(table_magic_number) {
+  }
 
   // The block handle for the metaindex block of the table
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
@@ -77,12 +82,8 @@ class Footer {
  private:
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
+  const uint64_t kTableMagicNumber;
 };
-
-// kTableMagicNumber was picked by running
-//    echo http://code.google.com/p/leveldb/ | sha1sum
-// and taking the leading 64 bits.
-static const uint64_t kTableMagicNumber = 0xdb4775248b80fb57ull;
 
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;

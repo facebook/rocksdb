@@ -77,6 +77,14 @@ void LogPropertiesCollectionError(
 
 }  // anonymous namespace
 
+// kBlockedBasedTableMagicNumber was picked by running
+//    echo http://code.google.com/p/leveldb/ | sha1sum
+// and taking the leading 64 bits.
+// Please note that kBlockedBasedTableMagicNumber may also be accessed by
+// other .cc files so it have to be explicitly declared with "extern".
+extern const uint64_t kBlockedBasedTableMagicNumber
+    = 0xdb4775248b80fb57ull;
+
 struct BlockBasedTableBuilder::Rep {
   Options options;
   WritableFile* file;
@@ -503,7 +511,7 @@ Status BlockBasedTableBuilder::Finish() {
 
   // Write footer
   if (ok()) {
-    Footer footer;
+    Footer footer(kBlockedBasedTableMagicNumber);
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
     std::string footer_encoding;

@@ -29,6 +29,8 @@
 
 namespace rocksdb {
 
+extern uint64_t kBlockedBasedTableMagicNumber;
+
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
 // varints.
@@ -242,7 +244,7 @@ Status BlockBasedTable::Open(const Options& options,
     return Status::InvalidArgument("file is too short to be an sstable");
   }
 
-  Footer footer;
+  Footer footer(kBlockedBasedTableMagicNumber);
   s = footer.DecodeFrom(&footer_input);
   if (!s.ok()) return s;
 

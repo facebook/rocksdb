@@ -20,7 +20,6 @@ class BlockBuilder;
 class BlockHandle;
 class WritableFile;
 
-
 class BlockBasedTableBuilder : public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
