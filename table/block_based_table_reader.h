@@ -181,15 +181,4 @@ class BlockBasedTable : public TableReader {
   void operator=(const TableReader&) = delete;
 };
 
-struct BlockBasedTablePropertiesNames {
-  static const std::string kDataSize;
-  static const std::string kIndexSize;
-  static const std::string kFilterSize;
-  static const std::string kRawKeySize;
-  static const std::string kRawValueSize;
-  static const std::string kNumDataBlocks;
-  static const std::string kNumEntries;
-  static const std::string kFilterPolicy;
-};
-
 }  // namespace rocksdb

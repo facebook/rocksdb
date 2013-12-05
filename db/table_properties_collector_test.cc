@@ -114,10 +114,10 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
  public:
    const char* Name() const { return "RegularKeysStartWithA"; }
 
-   Status Finish(TableProperties::UserCollectedProperties* properties) {
+   Status Finish(UserCollectedProperties* properties) {
      std::string encoded;
      PutVarint32(&encoded, count_);
-     *properties = TableProperties::UserCollectedProperties {
+     *properties = UserCollectedProperties {
        { "TablePropertiesTest", "Rocksdb" },
        { "Count", encoded }
      };
@@ -132,8 +132,7 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
      return Status::OK();
    }
 
-  virtual TableProperties::UserCollectedProperties
-    GetReadableProperties() const {
+  virtual UserCollectedProperties GetReadableProperties() const {
       return {};
   }
 

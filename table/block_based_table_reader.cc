@@ -432,19 +432,19 @@ Status BlockBasedTable::ReadProperties(
 
   // All pre-defined properties of type uint64_t
   std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
-    { BlockBasedTablePropertiesNames::kDataSize,
+    { TablePropertiesNames::kDataSize,
       &table_properties->data_size },
-    { BlockBasedTablePropertiesNames::kIndexSize,
+    { TablePropertiesNames::kIndexSize,
       &table_properties->index_size },
-    { BlockBasedTablePropertiesNames::kFilterSize,
+    { TablePropertiesNames::kFilterSize,
       &table_properties->filter_size },
-    { BlockBasedTablePropertiesNames::kRawKeySize,
+    { TablePropertiesNames::kRawKeySize,
       &table_properties->raw_key_size },
-    { BlockBasedTablePropertiesNames::kRawValueSize,
+    { TablePropertiesNames::kRawValueSize,
       &table_properties->raw_value_size },
-    { BlockBasedTablePropertiesNames::kNumDataBlocks,
+    { TablePropertiesNames::kNumDataBlocks,
       &table_properties->num_data_blocks },
-    { BlockBasedTablePropertiesNames::kNumEntries,
+    { TablePropertiesNames::kNumEntries,
       &table_properties->num_entries },
   };
 
@@ -478,7 +478,7 @@ Status BlockBasedTable::ReadProperties(
         continue;
       }
       *(pos->second) = val;
-    } else if (key == BlockBasedTablePropertiesNames::kFilterPolicy) {
+    } else if (key == TablePropertiesNames::kFilterPolicy) {
       table_properties->filter_policy_name = raw_val.ToString();
     } else {
       // handle user-collected
@@ -1061,26 +1061,5 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
   delete index_iter;
   return result;
 }
-
-const std::string BlockBasedTable::kFilterBlockPrefix =
-    "filter.";
-const std::string BlockBasedTable::kPropertiesBlock =
-    "rocksdb.properties";
-const std::string BlockBasedTablePropertiesNames::kDataSize  =
-    "rocksdb.data.size";
-const std::string BlockBasedTablePropertiesNames::kIndexSize =
-    "rocksdb.index.size";
-const std::string BlockBasedTablePropertiesNames::kFilterSize =
-    "rocksdb.filter.size";
-const std::string BlockBasedTablePropertiesNames::kRawKeySize =
-    "rocksdb.raw.key.size";
-const std::string BlockBasedTablePropertiesNames::kRawValueSize =
-    "rocksdb.raw.value.size";
-const std::string BlockBasedTablePropertiesNames::kNumDataBlocks =
-    "rocksdb.num.data.blocks";
-const std::string BlockBasedTablePropertiesNames::kNumEntries =
-    "rocksdb.num.entries";
-const std::string BlockBasedTablePropertiesNames::kFilterPolicy =
-    "rocksdb.filter.policy";
 
 }  // namespace rocksdb

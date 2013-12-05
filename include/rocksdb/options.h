@@ -611,8 +611,9 @@ struct Options {
   // the tables.
   // Default: emtpy vector -- no user-defined statistics collection will be
   // performed.
-  std::vector<std::shared_ptr<TablePropertiesCollector>>
-    table_properties_collectors;
+  typedef std::vector<std::shared_ptr<TablePropertiesCollector>>
+          TablePropertiesCollectors;
+  TablePropertiesCollectors table_properties_collectors;
 
   // Allows thread-safe inplace updates. Requires Updates iff
   // * key exists in current memtable

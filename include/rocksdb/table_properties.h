@@ -11,18 +11,18 @@
 
 namespace rocksdb {
 
+// Other than basic table properties, each table may also have the user
+// collected properties.
+// The value of the user-collected properties are encoded as raw bytes --
+// users have to interprete these values by themselves.
+typedef
+  std::unordered_map<std::string, std::string>
+  UserCollectedProperties;
+
 // TableProperties contains a bunch of read-only properties of its associated
 // table.
 struct TableProperties {
  public:
-  // Other than basic table properties, each table may also have the user
-  // collected properties.
-  // The value of the user-collected properties are encoded as raw bytes --
-  // users have to interprete these values by themselves.
-  typedef
-    std::unordered_map<std::string, std::string>
-    UserCollectedProperties;
-
   // the total size of all data blocks.
   uint64_t data_size = 0;
   // the size of index block.
@@ -52,6 +52,19 @@ struct TableProperties {
       const std::string& kv_delim = "=") const;
 };
 
+// table properties' human-readable names in the property block.
+struct TablePropertiesNames {
+  static const std::string kDataSize;
+  static const std::string kIndexSize;
+  static const std::string kFilterSize;
+  static const std::string kRawKeySize;
+  static const std::string kRawValueSize;
+  static const std::string kNumDataBlocks;
+  static const std::string kNumEntries;
+  static const std::string kFilterPolicy;
+};
+
+
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own interested properties. This class is essentially a collection
 //  of callback functions that will be invoked during table building.
@@ -68,23 +81,20 @@ class TablePropertiesCollector {
   // for writing the properties block.
   // @params properties  User will add their collected statistics to
   // `properties`.
-  virtual Status Finish(
-      TableProperties::UserCollectedProperties* properties) = 0;
+  virtual Status Finish(UserCollectedProperties* properties) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
 
   // Return the human-readable properties, where the key is property name and
   // the value is the human-readable form of value.
-  virtual TableProperties::UserCollectedProperties
-    GetReadableProperties() const = 0;
+  virtual UserCollectedProperties GetReadableProperties() const = 0;
 };
 
 // Extra properties
 // Below is a list of non-basic properties that are collected by database
 // itself. Especially some properties regarding to the internal keys (which
 // is unknown to `table`).
-extern uint64_t GetDeletedKeys(
-    const TableProperties::UserCollectedProperties& props);
+extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
 
 }  // namespace rocksdb
