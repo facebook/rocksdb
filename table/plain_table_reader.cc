@@ -40,7 +40,8 @@ public:
 
 class slice_comparator {
 public:
-  bool operator()(rocksdb::Slice const& s1, rocksdb::Slice const& s2) {
+  bool operator()(rocksdb::Slice const& s1,
+                  rocksdb::Slice const& s2) const {
     return s1.compare(s2) < 0;
   }
 };

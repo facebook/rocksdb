@@ -75,7 +75,6 @@ private:
   uint64_t num_entries_ = 0;
 
   const size_t user_key_size_;
-  const size_t key_prefix_len_;
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
   int GetInternalKeyLength() {

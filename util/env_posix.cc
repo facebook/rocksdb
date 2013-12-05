@@ -1404,11 +1404,13 @@ class PosixEnv : public Env {
                 (unsigned long)t);
 
         // Set the thread name to aid debugging
-#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ) && (__GLIBC_PREREQ(2, 12))
+#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 12)
         char name_buf[16];
         snprintf(name_buf, sizeof name_buf, "rocksdb:bg%zu", bgthreads_.size());
         name_buf[sizeof name_buf - 1] = '\0';
         pthread_setname_np(t, name_buf);
+#endif
 #endif
 
         bgthreads_.push_back(t);

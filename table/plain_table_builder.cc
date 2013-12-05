@@ -23,8 +23,7 @@ namespace rocksdb {
 PlainTableBuilder::PlainTableBuilder(const Options& options,
                                      WritableFile* file,
                                      int user_key_size, int key_prefix_len) :
-    options_(options), file_(file), user_key_size_(user_key_size),
-    key_prefix_len_(key_prefix_len) {
+    options_(options), file_(file), user_key_size_(user_key_size) {
   std::string version;
   PutFixed32(&version, 1 | 0x80000000);
   file_->Append(Slice(version));
