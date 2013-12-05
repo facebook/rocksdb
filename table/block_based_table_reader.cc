@@ -29,7 +29,7 @@
 
 namespace rocksdb {
 
-extern uint64_t kBlockedBasedTableMagicNumber;
+extern uint64_t kBlockBasedTableMagicNumber;
 
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
@@ -228,24 +228,9 @@ Status BlockBasedTable::Open(const Options& options,
                              uint64_t size,
                              unique_ptr<TableReader>* table_reader) {
   table_reader->reset();
-  if (size < Footer::kEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
-  }
 
-  char footer_space[Footer::kEncodedLength];
-  Slice footer_input;
-  Status s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
-                        &footer_input, footer_space);
-  if (!s.ok()) return s;
-
-  // Check that we actually read the whole footer from the file. It may be
-  // that size isn't correct.
-  if (footer_input.size() != Footer::kEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
-  }
-
-  Footer footer(kBlockedBasedTableMagicNumber);
-  s = footer.DecodeFrom(&footer_input);
+  Footer footer(kBlockBasedTableMagicNumber);
+  auto s = ReadFooterFromFile(file.get(), size, &footer);
   if (!s.ok()) return s;
 
   // We've successfully read the footer and the index block: we're

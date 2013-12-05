@@ -98,6 +98,11 @@ class Footer {
   const uint64_t kTableMagicNumber;
 };
 
+// Read the footer from file
+Status ReadFooterFromFile(RandomAccessFile* file,
+                          uint64_t file_size,
+                          Footer* footer);
+
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
 

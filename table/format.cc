@@ -73,6 +73,30 @@ Status Footer::DecodeFrom(Slice* input) {
   return result;
 }
 
+Status ReadFooterFromFile(RandomAccessFile* file,
+                          uint64_t file_size,
+                          Footer* footer) {
+  if (file_size < Footer::kEncodedLength) {
+    return Status::InvalidArgument("file is too short to be an sstable");
+  }
+
+  char footer_space[Footer::kEncodedLength];
+  Slice footer_input;
+  Status s = file->Read(file_size - Footer::kEncodedLength,
+                        Footer::kEncodedLength,
+                        &footer_input,
+                        footer_space);
+  if (!s.ok()) return s;
+
+  // Check that we actually read the whole footer from the file. It may be
+  // that size isn't correct.
+  if (footer_input.size() != Footer::kEncodedLength) {
+    return Status::InvalidArgument("file is too short to be an sstable");
+  }
+
+  return footer->DecodeFrom(&footer_input);
+}
+
 Status ReadBlockContents(RandomAccessFile* file,
                          const ReadOptions& options,
                          const BlockHandle& handle,
