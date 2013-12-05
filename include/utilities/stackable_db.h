@@ -140,6 +140,10 @@ class StackableDB : public DB {
     return db_->DeleteFile(name);
   }
 
+  virtual Status GetDbIdentity(std::string& identity) {
+    return db_->GetDbIdentity(identity);
+  }
+
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
                                  unique_ptr<TransactionLogIterator>* iter)
     override {

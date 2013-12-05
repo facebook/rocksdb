@@ -84,6 +84,8 @@ class DBWithTTL : public StackableDB {
 
   virtual Status DeleteFile(std::string name);
 
+  virtual Status GetDbIdentity(std::string& identity);
+
   virtual SequenceNumber GetLatestSequenceNumber() const;
 
   virtual Status GetUpdatesSince(SequenceNumber seq_number,

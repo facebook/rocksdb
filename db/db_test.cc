@@ -4476,6 +4476,10 @@ class ModelDB: public DB {
     return Status::OK();
   }
 
+  virtual Status GetDbIdentity(std::string& identity) {
+    return Status::OK();
+  }
+
   virtual SequenceNumber GetLatestSequenceNumber() const {
     return 0;
   }

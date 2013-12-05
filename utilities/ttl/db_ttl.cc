@@ -291,6 +291,10 @@ Status DBWithTTL::DeleteFile(std::string name) {
   return db_->DeleteFile(name);
 }
 
+Status DBWithTTL::GetDbIdentity(std::string& identity) {
+  return db_->GetDbIdentity(identity);
+}
+
 Status DBWithTTL::GetUpdatesSince(
     SequenceNumber seq_number,
     unique_ptr<TransactionLogIterator>* iter) {

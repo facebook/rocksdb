@@ -295,10 +295,7 @@ class DB {
   // Sets the globally unique ID created at database creation time by invoking
   // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
   // be set properly
-  virtual Status GetDbIdentity(std::string& identity) {
-    identity.clear();
-    return Status::OK();
-  }
+  virtual Status GetDbIdentity(std::string& identity) = 0;
 
  private:
   // No copying allowed
