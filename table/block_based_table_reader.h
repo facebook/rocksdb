@@ -167,9 +167,9 @@ class BlockBasedTable : public TableReader {
     rep_ = rep;
   }
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(shared_ptr<Cache> cc,
+  static void GenerateCachePrefix(Cache* cc,
     RandomAccessFile* file, char* buffer, size_t* size);
-  static void GenerateCachePrefix(shared_ptr<Cache> cc,
+  static void GenerateCachePrefix(Cache* cc,
     WritableFile* file, char* buffer, size_t* size);
 
   // The longest prefix of the cache key used to identify blocks.

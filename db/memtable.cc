@@ -36,7 +36,7 @@ struct hash<rocksdb::Slice> {
 namespace rocksdb {
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
-                   std::shared_ptr<MemTableRepFactory> table_factory,
+                   MemTableRepFactory* table_factory,
                    int numlevel,
                    const Options& options)
     : comparator_(cmp),
@@ -281,7 +281,7 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
   Slice memkey = lkey.memtable_key();
 
   std::shared_ptr<MemTableRep::Iterator> iter(
-    table_.get()->GetIterator(lkey.user_key()));
+    table_->GetIterator(lkey.user_key()));
   iter->Seek(key, memkey.data());
 
   if (iter->Valid()) {

@@ -40,6 +40,16 @@ class CompactionFilter {
   // When the value is to be preserved, the application has the option
   // to modify the existing_value and pass it back through new_value.
   // value_changed needs to be set to true in this case.
+  //
+  // If multithreaded compaction is being used *and* a single CompactionFilter
+  // instance was supplied via Options::compaction_filter, this method may be
+  // called from different threads concurrently.  The application must ensure
+  // that the call is thread-safe.
+  //
+  // If the CompactionFilter was created by a factory, then it will only ever
+  // be used by a single thread that is doing the compaction run, and this
+  // call does not need to be thread-safe.  However, multiple filters may be
+  // in existence and operating concurrently.
   virtual bool Filter(int level,
                       const Slice& key,
                       const Slice& existing_value,

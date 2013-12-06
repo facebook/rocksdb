@@ -16,8 +16,8 @@ The core of this code has been derived from open-source leveldb.
 The code under this directory implements a system for maintaining a
 persistent key/value store.
 
-See doc/index.html for more explanation.
-See doc/impl.html for a brief overview of the implementation.
+See doc/index.html and github wiki (https://github.com/facebook/rocksdb/wiki)
+for more explanation.
 
 The public interface is in include/*.  Callers should not include or
 rely on the details of any other header files in this package.  Those

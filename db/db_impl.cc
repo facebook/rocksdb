@@ -51,6 +51,7 @@
 #include "util/auto_roll_logger.h"
 #include "util/build_version.h"
 #include "util/coding.h"
+#include "util/hash_skiplist_rep.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
@@ -163,10 +164,10 @@ Options SanitizeOptions(const std::string& dbname,
     Log(result.info_log, "Compaction filter specified, ignore factory");
   }
   if (result.prefix_extractor) {
-    // If a prefix extractor has been supplied and a PrefixHashRepFactory is
+    // If a prefix extractor has been supplied and a HashSkipListRepFactory is
     // being used, make sure that the latter uses the former as its transform
     // function.
-    auto factory = dynamic_cast<PrefixHashRepFactory*>(
+    auto factory = dynamic_cast<HashSkipListRepFactory*>(
       result.memtable_factory.get());
     if (factory &&
         factory->GetTransform() != result.prefix_extractor) {
@@ -236,7 +237,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
-      mem_rep_factory_(options_.memtable_factory),
+      mem_rep_factory_(options_.memtable_factory.get()),
       mem_(new MemTable(internal_comparator_, mem_rep_factory_,
         NumberLevels(), options_)),
       logfile_number_(0),
@@ -516,6 +517,19 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
+
+  // free pending memtables
+  for (auto m : state.memtables_to_free) {
+    delete m;
+  }
+
+  // check if there is anything to do
+  if (!state.all_files.size() &&
+      !state.sst_delete_files.size() &&
+      !state.log_delete_files.size()) {
+    return;
+  }
+
   // this checks if FindObsoleteFiles() was run before. If not, don't do
   // PurgeObsoleteFiles(). If FindObsoleteFiles() was run, we need to also
   // run PurgeObsoleteFiles(), even if disable_delete_obsolete_files_ is true
@@ -1170,7 +1184,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   // Replace immutable memtable with the generated Table
   s = imm_.InstallMemtableFlushResults(
     mems, versions_.get(), s, &mutex_, options_.info_log.get(),
-    file_number, pending_outputs_);
+    file_number, pending_outputs_, &deletion_state.memtables_to_free);
 
   if (s.ok()) {
     if (madeProgress) {
@@ -1656,7 +1670,7 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
 
 void DBImpl::BackgroundCallFlush() {
   bool madeProgress = false;
-  DeletionState deletion_state;
+  DeletionState deletion_state(options_.max_write_buffer_number);
   assert(bg_flush_scheduled_);
   MutexLock l(&mutex_);
 
@@ -1702,7 +1716,7 @@ void DBImpl::TEST_PurgeObsoleteteWAL() {
 
 void DBImpl::BackgroundCallCompaction() {
   bool madeProgress = false;
-  DeletionState deletion_state;
+  DeletionState deletion_state(options_.max_write_buffer_number);
 
   MaybeDumpStats();
 
@@ -1732,6 +1746,7 @@ void DBImpl::BackgroundCallCompaction() {
   // FindObsoleteFiles(). This is because deletion_state does not catch
   // all created files if compaction failed.
   FindObsoleteFiles(deletion_state, !s.ok());
+
   // delete unnecessary files if any, this is done outside the mutex
   if (deletion_state.HaveSomethingToDelete()) {
     mutex_.Unlock();
@@ -2492,25 +2507,20 @@ struct IterState {
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
-  std::vector<MemTable*> to_delete;
-  to_delete.reserve(state->mem.size());
+  DBImpl::DeletionState deletion_state(state->db->GetOptions().
+                                       max_write_buffer_number);
   state->mu->Lock();
   for (unsigned int i = 0; i < state->mem.size(); i++) {
     MemTable* m = state->mem[i]->Unref();
     if (m != nullptr) {
-      to_delete.push_back(m);
+      deletion_state.memtables_to_free.push_back(m);
     }
   }
   state->version->Unref();
-  // delete only the sst obsolete files
-  DBImpl::DeletionState deletion_state;
   // fast path FindObsoleteFiles
   state->db->FindObsoleteFiles(deletion_state, false, true);
   state->mu->Unlock();
   state->db->PurgeObsoleteFiles(deletion_state);
-
-  // delete obsolete memtables outside the db-mutex
-  for (MemTable* m : to_delete) delete m;
   delete state;
 }
 }  // namespace
@@ -2612,8 +2622,10 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   BumpPerfTime(&perf_context.get_snapshot_time, &snapshot_timer);
   if (mem->Get(lkey, value, &s, merge_context, options_)) {
     // Done
+    RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else if (imm.Get(lkey, value, &s, merge_context, options_)) {
     // Done
+    RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
     StopWatchNano from_files_timer(env_, false);
     StartPerfTimer(&from_files_timer);
@@ -2622,6 +2634,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
                  options_, value_found);
     have_stat_update = true;
     BumpPerfTime(&perf_context.get_from_output_files_time, &from_files_timer);
+    RecordTick(options_.statistics.get(), MEMTABLE_MISS);
   }
 
   StopWatchNano post_process_timer(env_, false);
@@ -3512,6 +3525,33 @@ Status DBImpl::DeleteFile(std::string name) {
 void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata) {
   MutexLock l(&mutex_);
   return versions_->GetLiveFilesMetaData(metadata);
+}
+
+Status DBImpl::GetDbIdentity(std::string& identity) {
+  std::string idfilename = IdentityFileName(dbname_);
+  unique_ptr<SequentialFile> idfile;
+  const EnvOptions soptions;
+  Status s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+  if (!s.ok()) {
+    return s;
+  }
+  uint64_t file_size;
+  s = env_->GetFileSize(idfilename, &file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  char buffer[file_size];
+  Slice id;
+  s = idfile->Read(file_size, &id, buffer);
+  if (!s.ok()) {
+    return s;
+  }
+  identity.assign(id.ToString());
+  // If last character is '\n' remove it from identity
+  if (identity.size() > 0 && identity.back() == '\n') {
+    identity.pop_back();
+  }
+  return s;
 }
 
 // Default implementations of convenience methods that subclasses of DB

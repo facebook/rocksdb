@@ -4,6 +4,8 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#include "util/hash_skiplist_rep.h"
+
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/arena.h"
 #include "rocksdb/slice.h"
@@ -309,39 +311,12 @@ std::shared_ptr<MemTableRep::Iterator>
 
 } // anon namespace
 
-class HashSkipListRepFactory : public MemTableRepFactory {
- public:
-  explicit HashSkipListRepFactory(
-    const SliceTransform* transform,
-    size_t bucket_count,
-    int32_t skiplist_height,
-    int32_t skiplist_branching_factor)
-      : transform_(transform),
-        bucket_count_(bucket_count),
-        skiplist_height_(skiplist_height),
-        skiplist_branching_factor_(skiplist_branching_factor) { }
-
-  virtual ~HashSkipListRepFactory() { delete transform_; }
-
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-      MemTableRep::KeyComparator& compare, Arena* arena) override {
-    return std::make_shared<HashSkipListRep>(compare, arena, transform_,
-                                             bucket_count_, skiplist_height_,
-                                             skiplist_branching_factor_);
-  }
-
-  virtual const char* Name() const override {
-    return "HashSkipListRepFactory";
-  }
-
-  const SliceTransform* GetTransform() { return transform_; }
-
- private:
-  const SliceTransform* transform_;
-  const size_t bucket_count_;
-  const int32_t skiplist_height_;
-  const int32_t skiplist_branching_factor_;
-};
+std::shared_ptr<MemTableRep> HashSkipListRepFactory::CreateMemTableRep(
+    MemTableRep::KeyComparator& compare, Arena* arena) {
+  return std::make_shared<HashSkipListRep>(compare, arena, transform_,
+                                           bucket_count_, skiplist_height_,
+                                           skiplist_branching_factor_);
+}
 
 MemTableRepFactory* NewHashSkipListRepFactory(
     const SliceTransform* transform, size_t bucket_count,

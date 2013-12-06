@@ -370,15 +370,15 @@ class MemTableConstructor: public Constructor {
       : Constructor(cmp),
         internal_comparator_(cmp),
         table_factory_(new SkipListFactory) {
-    memtable_ = new MemTable(internal_comparator_, table_factory_);
+    memtable_ = new MemTable(internal_comparator_, table_factory_.get());
     memtable_->Ref();
   }
   ~MemTableConstructor() {
-    memtable_->Unref();
+    delete memtable_->Unref();
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
-    memtable_->Unref();
-    memtable_ = new MemTable(internal_comparator_, table_factory_);
+    delete memtable_->Unref();
+    memtable_ = new MemTable(internal_comparator_, table_factory_.get());
     memtable_->Ref();
     int seq = 1;
     for (KVMap::const_iterator it = data.begin();
@@ -930,19 +930,19 @@ TEST(TableTest, NumBlockStat) {
 
 class BlockCacheProperties {
  public:
-  explicit BlockCacheProperties(std::shared_ptr<Statistics> statistics) {
+  explicit BlockCacheProperties(Statistics* statistics) {
     block_cache_miss =
-      statistics.get()->getTickerCount(BLOCK_CACHE_MISS);
+      statistics->getTickerCount(BLOCK_CACHE_MISS);
     block_cache_hit =
-      statistics.get()->getTickerCount(BLOCK_CACHE_HIT);
+      statistics->getTickerCount(BLOCK_CACHE_HIT);
     index_block_cache_miss =
-      statistics.get()->getTickerCount(BLOCK_CACHE_INDEX_MISS);
+      statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS);
     index_block_cache_hit =
-      statistics.get()->getTickerCount(BLOCK_CACHE_INDEX_HIT);
+      statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT);
     data_block_cache_miss =
-      statistics.get()->getTickerCount(BLOCK_CACHE_DATA_MISS);
+      statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
     data_block_cache_hit =
-      statistics.get()->getTickerCount(BLOCK_CACHE_DATA_HIT);
+      statistics->getTickerCount(BLOCK_CACHE_DATA_HIT);
   }
 
   // Check if the fetched props matches the expected ones.
@@ -993,7 +993,7 @@ TEST(TableTest, BlockCacheTest) {
 
   // At first, no block will be accessed.
   {
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     // index will be added to block cache.
     props.AssertEqual(
         1,  // index block miss
@@ -1006,7 +1006,7 @@ TEST(TableTest, BlockCacheTest) {
   // Only index block will be accessed
   {
     iter.reset(c.NewIterator());
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     // NOTE: to help better highlight the "detla" of each ticker, I use
     // <last_value> + <added_value> to indicate the increment of changed
     // value; other numbers remain the same.
@@ -1021,7 +1021,7 @@ TEST(TableTest, BlockCacheTest) {
   // Only data block will be accessed
   {
     iter->SeekToFirst();
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     props.AssertEqual(
         1,
         1,
@@ -1034,7 +1034,7 @@ TEST(TableTest, BlockCacheTest) {
   {
     iter.reset(c.NewIterator());
     iter->SeekToFirst();
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     props.AssertEqual(
         1,
         1 + 1,  // index block hit
@@ -1047,14 +1047,14 @@ TEST(TableTest, BlockCacheTest) {
 
   // -- PART 2: Open without block cache
   options.block_cache.reset();
-  options.statistics = CreateDBStatistics();  // reset the props
+  options.statistics = CreateDBStatistics();  // reset the stats
   c.Reopen(options);
 
   {
     iter.reset(c.NewIterator());
     iter->SeekToFirst();
     ASSERT_EQ("key", iter->key().ToString());
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     // Nothing is affected at all
     props.AssertEqual(0, 0, 0, 0);
   }
@@ -1065,7 +1065,7 @@ TEST(TableTest, BlockCacheTest) {
   options.block_cache = NewLRUCache(1);
   c.Reopen(options);
   {
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     props.AssertEqual(
         1,  // index block miss
         0,
@@ -1080,7 +1080,7 @@ TEST(TableTest, BlockCacheTest) {
     // It first cache index block then data block. But since the cache size
     // is only 1, index block will be purged after data block is inserted.
     iter.reset(c.NewIterator());
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     props.AssertEqual(
         1 + 1,  // index block miss
         0,
@@ -1093,7 +1093,7 @@ TEST(TableTest, BlockCacheTest) {
     // SeekToFirst() accesses data block. With similar reason, we expect data
     // block's cache miss.
     iter->SeekToFirst();
-    BlockCacheProperties props(options.statistics);
+    BlockCacheProperties props(options.statistics.get());
     props.AssertEqual(
         2,
         0,
@@ -1268,7 +1268,7 @@ class MemTableTest { };
 TEST(MemTableTest, Simple) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto table_factory = std::make_shared<SkipListFactory>();
-  MemTable* memtable = new MemTable(cmp, table_factory);
+  MemTable* memtable = new MemTable(cmp, table_factory.get());
   memtable->Ref();
   WriteBatch batch;
   Options options;
@@ -1289,7 +1289,7 @@ TEST(MemTableTest, Simple) {
   }
 
   delete iter;
-  memtable->Unref();
+  delete memtable->Unref();
 }
 
 

@@ -17,21 +17,13 @@
 // The factory will be passed an Arena object when a new MemTableRep is
 // requested. The API for this object is in rocksdb/arena.h.
 //
-// Users can implement their own memtable representations. We include four
+// Users can implement their own memtable representations. We include three
 // types built in:
 //  - SkipListRep: This is the default; it is backed by a skip list.
-//  - TransformRep: This is backed by an custom hash map.
-// On construction, they are given a SliceTransform object. This
-// object is applied to the user key of stored items which indexes into the
-// hash map to yield a skiplist containing all records that share the same
-// user key under the transform function.
-//  - UnsortedRep: A subclass of TransformRep where the transform function is
-// the identity function. Optimized for point lookups.
-//  - PrefixHashRep: A subclass of TransformRep where the transform function is
-// a fixed-size prefix extractor. If you use PrefixHashRepFactory, the transform
-// must be identical to options.prefix_extractor, otherwise it will be discarded
-// and the default will be used. It is optimized for ranged scans over a
-// prefix.
+//  - HashSkipListRep: The memtable rep that is best used for keys that are
+//  structured like "prefix:suffix" where iteration withing a prefix is
+//  common and iteration across different prefixes is rare. It is backed by
+//  a hash map where each bucket is a skip list.
 //  - VectorRep: This is backed by an unordered std::vector. On iteration, the
 // vector is sorted. It is intelligent about sorting; once the MarkReadOnly()
 // has been called, the vector will only be sorted once. It is optimized for
@@ -186,16 +178,14 @@ public:
   }
 };
 
-// TransformReps are backed by an unordered map of buffers to buckets. When
-// looking up a key, the user key is extracted and a user-supplied transform
-// function (see rocksdb/slice_transform.h) is applied to get the key into the
-// unordered map. This allows the user to bin user keys based on arbitrary
-// criteria. Two example implementations are UnsortedRepFactory and
-// PrefixHashRepFactory.
+// HashSkipListRep is backed by hash map of buckets. Each bucket is a skip
+// list. All the keys with the same prefix will be in the same bucket.
+// The prefix is determined using user supplied SliceTransform. It has
+// to match prefix_extractor in options.prefix_extractor.
 //
 // Iteration over the entire collection is implemented by dumping all the keys
-// into an std::set. Thus, these data structures are best used when iteration
-// over the entire collection is rare.
+// into a separate skip list. Thus, these data structures are best used when
+// iteration over the entire collection is rare.
 //
 // Parameters:
 //   transform: The SliceTransform to bucket user keys on. TransformRepFactory

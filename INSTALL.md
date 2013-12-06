@@ -19,13 +19,13 @@ libraries. You are on your own.
 
 * **Linux**
     * Upgrade your gcc to version at least 4.7 to get C++11 support.
-    * Install gflags. If you're on Ubuntu, here's a nice tutorial:
+    * Install gflags. First, try: `sudo apt-get install libgflags-dev`.
+      If this doesn't work and you're using Ubuntu, here's a nice tutorial:
       (http://askubuntu.com/questions/312173/installing-gflags-12-04)
     * Install snappy. This is usually as easy as:
       `sudo apt-get install libsnappy-dev`.
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
-    * Install gflags: `sudo apt-get install libgflags-dev`.
 * **OS X**:
     * Install latest C++ compiler that supports C++ 11:
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).

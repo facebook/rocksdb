@@ -245,7 +245,6 @@ class DBTest {
   enum OptionConfig {
     kDefault,
     kVectorRep,
-    kUnsortedRep,
     kMergePut,
     kFilter,
     kUncompressed,
@@ -256,7 +255,7 @@ class DBTest {
     kCompactOnFlush,
     kPerfOptions,
     kDeletesFilterFirst,
-    kPrefixHashRep,
+    kHashSkipList,
     kUniversalCompaction,
     kCompressedBlockCache,
     kEnd
@@ -340,9 +339,9 @@ class DBTest {
   Options CurrentOptions() {
     Options options;
     switch (option_config_) {
-      case kPrefixHashRep:
-        options.memtable_factory.reset(new
-          PrefixHashRepFactory(NewFixedPrefixTransform(1)));
+      case kHashSkipList:
+        options.memtable_factory.reset(
+            NewHashSkipListRepFactory(NewFixedPrefixTransform(1)));
         break;
       case kMergePut:
         options.merge_operator = MergeOperators::CreatePutOperator();
@@ -375,9 +374,6 @@ class DBTest {
         break;
       case kDeletesFilterFirst:
         options.filter_deletes = true;
-        break;
-      case kUnsortedRep:
-        options.memtable_factory.reset(new UnsortedRepFactory);
         break;
       case kVectorRep:
         options.memtable_factory.reset(new VectorRepFactory(100));
@@ -1776,31 +1772,23 @@ TEST(DBTest, ManifestRollOver) {
 
 TEST(DBTest, IdentityAcrossRestarts) {
   do {
-    std::string idfilename = IdentityFileName(dbname_);
-    unique_ptr<SequentialFile> idfile;
-    const EnvOptions soptions;
-    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
-    char buffer1[100];
-    Slice id1;
-    ASSERT_OK(idfile->Read(100, &id1, buffer1));
+    std::string id1;
+    ASSERT_OK(db_->GetDbIdentity(id1));
 
     Options options = CurrentOptions();
     Reopen(&options);
-    char buffer2[100];
-    Slice id2;
-    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
-    ASSERT_OK(idfile->Read(100, &id2, buffer2));
+    std::string id2;
+    ASSERT_OK(db_->GetDbIdentity(id2));
     // id1 should match id2 because identity was not regenerated
-    ASSERT_EQ(id1.ToString(), id2.ToString());
+    ASSERT_EQ(id1.compare(id2), 0);
 
+    std::string idfilename = IdentityFileName(dbname_);
     ASSERT_OK(env_->DeleteFile(idfilename));
     Reopen(&options);
-    char buffer3[100];
-    Slice id3;
-    ASSERT_OK(env_->NewSequentialFile(idfilename, &idfile, soptions));
-    ASSERT_OK(idfile->Read(100, &id3, buffer3));
-    // id1 should NOT match id2 because identity was regenerated
-    ASSERT_NE(id1.ToString(0), id3.ToString());
+    std::string id3;
+    ASSERT_OK(db_->GetDbIdentity(id3));
+    // id1 should NOT match id3 because identity was regenerated
+    ASSERT_NE(id1.compare(id3), 0);
   } while (ChangeCompactOptions());
 }
 
@@ -1855,94 +1843,6 @@ TEST(DBTest, CompactionsGenerateMultipleFiles) {
     ASSERT_EQ(Get(Key(i)), values[i]);
   }
 }
-
-// TODO(kailiu) disable the in non-linux platforms to temporarily solve
-// the unit test failure.
-#ifdef OS_LINUX
-TEST(DBTest, CompressedCache) {
-  int num_iter = 80;
-
-  // Run this test three iterations.
-  // Iteration 1: only a uncompressed block cache
-  // Iteration 2: only a compressed block cache
-  // Iteration 3: both block cache and compressed cache
-  for (int iter = 0; iter < 3; iter++) {
-    Options options = CurrentOptions();
-    options.write_buffer_size = 64*1024;        // small write buffer
-    options.statistics = rocksdb::CreateDBStatistics();
-
-    switch (iter) {
-      case 0:
-        // only uncompressed block cache
-        options.block_cache = NewLRUCache(8*1024);
-        options.block_cache_compressed = nullptr;
-        break;
-      case 1:
-        // no block cache, only compressed cache
-        options.no_block_cache = true;
-        options.block_cache = nullptr;
-        options.block_cache_compressed = NewLRUCache(8*1024);
-        break;
-      case 2:
-        // both compressed and uncompressed block cache
-        options.block_cache = NewLRUCache(1024);
-        options.block_cache_compressed = NewLRUCache(8*1024);
-        break;
-      default:
-        ASSERT_TRUE(false);
-    }
-    Reopen(&options);
-
-    Random rnd(301);
-
-    // Write 8MB (80 values, each 100K)
-    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-    std::vector<std::string> values;
-    std::string str;
-    for (int i = 0; i < num_iter; i++) {
-      if (i % 4 == 0) {        // high compression ratio
-        str = RandomString(&rnd, 1000);
-      }
-      values.push_back(str);
-      ASSERT_OK(Put(Key(i), values[i]));
-    }
-
-    // flush all data from memtable so that reads are from block cache
-    dbfull()->Flush(FlushOptions());
-
-    for (int i = 0; i < num_iter; i++) {
-      ASSERT_EQ(Get(Key(i)), values[i]);
-    }
-
-    // check that we triggered the appropriate code paths in the cache
-    switch (iter) {
-      case 0:
-        // only uncompressed block cache
-        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_EQ(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      case 1:
-        // no block cache, only compressed cache
-        ASSERT_EQ(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_GT(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      case 2:
-        // both compressed and uncompressed block cache
-        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_GT(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
-        break;
-      default:
-        ASSERT_TRUE(false);
-    }
-  }
-}
-#endif
 
 TEST(DBTest, CompactionTrigger) {
   Options options = CurrentOptions();
@@ -2185,9 +2085,91 @@ TEST(DBTest, UniversalCompactionOptions) {
   }
 }
 
-// TODO(kailiu) disable the in non-linux platforms to temporarily solve
-// the unit test failure.
-#ifdef OS_LINUX
+#if defined(SNAPPY) && defined(ZLIB) && defined(BZIP2)
+TEST(DBTest, CompressedCache) {
+  int num_iter = 80;
+
+  // Run this test three iterations.
+  // Iteration 1: only a uncompressed block cache
+  // Iteration 2: only a compressed block cache
+  // Iteration 3: both block cache and compressed cache
+  for (int iter = 0; iter < 3; iter++) {
+    Options options = CurrentOptions();
+    options.write_buffer_size = 64*1024;        // small write buffer
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        options.block_cache = NewLRUCache(8*1024);
+        options.block_cache_compressed = nullptr;
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        options.no_block_cache = true;
+        options.block_cache = nullptr;
+        options.block_cache_compressed = NewLRUCache(8*1024);
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        options.block_cache = NewLRUCache(1024);
+        options.block_cache_compressed = NewLRUCache(8*1024);
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
+    Reopen(&options);
+
+    Random rnd(301);
+
+    // Write 8MB (80 values, each 100K)
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+    std::vector<std::string> values;
+    std::string str;
+    for (int i = 0; i < num_iter; i++) {
+      if (i % 4 == 0) {        // high compression ratio
+        str = RandomString(&rnd, 1000);
+      }
+      values.push_back(str);
+      ASSERT_OK(Put(Key(i), values[i]));
+    }
+
+    // flush all data from memtable so that reads are from block cache
+    dbfull()->Flush(FlushOptions());
+
+    for (int i = 0; i < num_iter; i++) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    }
+
+    // check that we triggered the appropriate code paths in the cache
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_EQ(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        ASSERT_EQ(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_GT(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
+                  0);
+        ASSERT_GT(options.statistics.get()->getTickerCount
+                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
+  }
+}
+
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
   test::CompressibleString(rnd, 0.8, len, &r);
@@ -4535,6 +4517,10 @@ class ModelDB: public DB {
     return Status::OK();
   }
 
+  virtual Status GetDbIdentity(std::string& identity) {
+    return Status::OK();
+  }
+
   virtual SequenceNumber GetLatestSequenceNumber() const {
     return 0;
   }
@@ -4647,7 +4633,7 @@ TEST(DBTest, Randomized) {
       // TODO(sanjay): Test Get() works
       int p = rnd.Uniform(100);
       int minimum = 0;
-      if (option_config_ == kPrefixHashRep) {
+      if (option_config_ == kHashSkipList) {
         minimum = 1;
       }
       if (p < 45) {                               // Put
@@ -4817,90 +4803,82 @@ void PrefixScanInit(DBTest *dbtest) {
 }
 
 TEST(DBTest, PrefixScan) {
-  for (int it = 0; it < 2; ++it) {
-    ReadOptions ro = ReadOptions();
-    int count;
-    Slice prefix;
-    Slice key;
-    char buf[100];
-    Iterator* iter;
-    snprintf(buf, sizeof(buf), "03______:");
-    prefix = Slice(buf, 8);
-    key = Slice(buf, 9);
-    auto prefix_extractor = NewFixedPrefixTransform(8);
-    // db configs
-    env_->count_random_reads_ = true;
-    Options options = CurrentOptions();
-    options.env = env_;
-    options.no_block_cache = true;
-    options.filter_policy =  NewBloomFilterPolicy(10);
-    options.prefix_extractor = prefix_extractor;
-    options.whole_key_filtering = false;
-    options.disable_auto_compactions = true;
-    options.max_background_compactions = 2;
-    options.create_if_missing = true;
-    options.disable_seek_compaction = true;
-    if (it == 0) {
-      options.memtable_factory.reset(NewHashSkipListRepFactory(
-            prefix_extractor));
-    } else {
-      options.memtable_factory = std::make_shared<PrefixHashRepFactory>(
-          prefix_extractor);
-    }
+  ReadOptions ro = ReadOptions();
+  int count;
+  Slice prefix;
+  Slice key;
+  char buf[100];
+  Iterator* iter;
+  snprintf(buf, sizeof(buf), "03______:");
+  prefix = Slice(buf, 8);
+  key = Slice(buf, 9);
+  auto prefix_extractor = NewFixedPrefixTransform(8);
+  // db configs
+  env_->count_random_reads_ = true;
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.no_block_cache = true;
+  options.filter_policy =  NewBloomFilterPolicy(10);
+  options.prefix_extractor = prefix_extractor;
+  options.whole_key_filtering = false;
+  options.disable_auto_compactions = true;
+  options.max_background_compactions = 2;
+  options.create_if_missing = true;
+  options.disable_seek_compaction = true;
+  options.memtable_factory.reset(NewHashSkipListRepFactory(prefix_extractor));
 
-    // prefix specified, with blooms: 2 RAND I/Os
-    // SeekToFirst
-    DestroyAndReopen(&options);
-    PrefixScanInit(this);
-    count = 0;
-    env_->random_read_counter_.Reset();
-    ro.prefix = &prefix;
-    iter = db_->NewIterator(ro);
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      assert(iter->key().starts_with(prefix));
-      count++;
-    }
-    ASSERT_OK(iter->status());
-    delete iter;
-    ASSERT_EQ(count, 2);
-    ASSERT_EQ(env_->random_read_counter_.Read(), 2);
-
-    // prefix specified, with blooms: 2 RAND I/Os
-    // Seek
-    DestroyAndReopen(&options);
-    PrefixScanInit(this);
-    count = 0;
-    env_->random_read_counter_.Reset();
-    ro.prefix = &prefix;
-    iter = db_->NewIterator(ro);
-    for (iter->Seek(key); iter->Valid(); iter->Next()) {
-      assert(iter->key().starts_with(prefix));
-      count++;
-    }
-    ASSERT_OK(iter->status());
-    delete iter;
-    ASSERT_EQ(count, 2);
-    ASSERT_EQ(env_->random_read_counter_.Read(), 2);
-
-    // no prefix specified: 11 RAND I/Os
-    DestroyAndReopen(&options);
-    PrefixScanInit(this);
-    count = 0;
-    env_->random_read_counter_.Reset();
-    iter = db_->NewIterator(ReadOptions());
-    for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
-      if (! iter->key().starts_with(prefix)) {
-        break;
-      }
-      count++;
-    }
-    ASSERT_OK(iter->status());
-    delete iter;
-    ASSERT_EQ(count, 2);
-    ASSERT_EQ(env_->random_read_counter_.Read(), 11);
-    Close();
-    delete options.filter_policy;
+  // prefix specified, with blooms: 2 RAND I/Os
+  // SeekToFirst
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  ro.prefix = &prefix;
+  iter = db_->NewIterator(ro);
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    assert(iter->key().starts_with(prefix));
+    count++;
   }
+  ASSERT_OK(iter->status());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
+
+  // prefix specified, with blooms: 2 RAND I/Os
+  // Seek
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  ro.prefix = &prefix;
+  iter = db_->NewIterator(ro);
+  for (iter->Seek(key); iter->Valid(); iter->Next()) {
+    assert(iter->key().starts_with(prefix));
+    count++;
+  }
+  ASSERT_OK(iter->status());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
+
+  // no prefix specified: 11 RAND I/Os
+  DestroyAndReopen(&options);
+  PrefixScanInit(this);
+  count = 0;
+  env_->random_read_counter_.Reset();
+  iter = db_->NewIterator(ReadOptions());
+  for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+    if (! iter->key().starts_with(prefix)) {
+      break;
+    }
+    count++;
+  }
+  ASSERT_OK(iter->status());
+  delete iter;
+  ASSERT_EQ(count, 2);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 11);
+  Close();
+  delete options.filter_policy;
 }
 
 std::string MakeKey(unsigned int num) {

@@ -22,7 +22,7 @@ namespace rocksdb {
 static std::string PrintContents(WriteBatch* b) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
-  MemTable* mem = new MemTable(cmp, factory);
+  MemTable* mem = new MemTable(cmp, factory.get());
   mem->Ref();
   std::string state;
   Options options;
@@ -69,7 +69,7 @@ static std::string PrintContents(WriteBatch* b) {
   } else if (count != WriteBatchInternal::Count(b)) {
     state.append("CountMismatch()");
   }
-  mem->Unref();
+  delete mem->Unref();
   return state;
 }
 

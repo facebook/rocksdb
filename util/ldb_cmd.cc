@@ -1226,25 +1226,41 @@ void ChangeCompactionStyleCommand::DoCommand() {
 
 class InMemoryHandler : public WriteBatch::Handler {
  public:
+  InMemoryHandler(stringstream& row, bool print_values) : Handler(),row_(row) {
+    print_values_ = print_values;
+  }
+
+  void commonPutMerge(const Slice& key, const Slice& value) {
+    string k = LDBCommand::StringToHex(key.ToString());
+    if (print_values_) {
+      string v = LDBCommand::StringToHex(value.ToString());
+      row_ << k << " : ";
+      row_ << v << " ";
+    } else {
+      row_ << k << " ";
+    }
+  }
 
   virtual void Put(const Slice& key, const Slice& value) {
-    putMap_[key.ToString()] = value.ToString();
+    row_ << "PUT : ";
+    commonPutMerge(key, value);
   }
+
+  virtual void Merge(const Slice& key, const Slice& value) {
+    row_ << "MERGE : ";
+    commonPutMerge(key, value);
+  }
+
   virtual void Delete(const Slice& key) {
-    deleteList_.push_back(key.ToString(true));
+    row_ <<",DELETE : ";
+    row_ << LDBCommand::StringToHex(key.ToString()) << " ";
   }
+
   virtual ~InMemoryHandler() { };
 
-  map<string, string> PutMap() {
-    return putMap_;
-  }
-  vector<string> DeleteList() {
-    return deleteList_;
-  }
-
  private:
-  map<string, string> putMap_;
-  vector<string> deleteList_;
+  stringstream & row_;
+  bool print_values_;
 };
 
 const string WALDumperCommand::ARG_WAL_FILE = "walfile";
@@ -1322,26 +1338,8 @@ void WALDumperCommand::DoCommand() {
         row<<WriteBatchInternal::Count(&batch)<<",";
         row<<WriteBatchInternal::ByteSize(&batch)<<",";
         row<<reader.LastRecordOffset()<<",";
-        InMemoryHandler handler;
+        InMemoryHandler handler(row, print_values_);
         batch.Iterate(&handler);
-        row << "PUT : ";
-        if (print_values_) {
-          for (auto& kv : handler.PutMap()) {
-            string k = StringToHex(kv.first);
-            string v = StringToHex(kv.second);
-            row << k << " : ";
-            row << v << " ";
-          }
-        }
-        else {
-          for(auto& kv : handler.PutMap()) {
-            row << StringToHex(kv.first) << " ";
-          }
-        }
-        row<<",DELETE : ";
-        for(string& s : handler.DeleteList()) {
-          row << StringToHex(s) << " ";
-        }
         row<<"\n";
       }
       cout<<row.str();

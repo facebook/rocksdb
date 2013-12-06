@@ -16,9 +16,7 @@
 #include <stdint.h>
 
 #include "rocksdb/memtablerep.h"
-#include "rocksdb/memtablerep.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/slice_transform.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table_properties.h"
@@ -95,15 +93,32 @@ struct Options {
   // Default: nullptr
   shared_ptr<MergeOperator> merge_operator;
 
-  // The client must provide compaction_filter_factory if it requires a new
-  // compaction filter to be used for different compaction processes
+  // A single CompactionFilter instance to call into during compaction.
   // Allows an application to modify/delete a key-value during background
   // compaction.
-  // Ideally, client should specify only one of filter or factory.
+  //
+  // If the client requires a new compaction filter to be used for different
+  // compaction runs, it can specify compaction_filter_factory instead of this
+  // option.  The client should specify only one of the two.
   // compaction_filter takes precedence over compaction_filter_factory if
   // client specifies both.
+  //
+  // If multithreaded compaction is being used, the supplied CompactionFilter
+  // instance may be used from different threads concurrently and so should be
+  // thread-safe.
+  //
   // Default: nullptr
   const CompactionFilter* compaction_filter;
+
+  // This is a factory that provides compaction filter objects which allow
+  // an application to modify/delete a key-value during background compaction.
+  //
+  // A new filter will be created on each compaction run.  If multithreaded
+  // compaction is being used, each created CompactionFilter will only be used
+  // from a single thread and so does not need to be thread-safe.
+  //
+  // Default: a factory that doesn't provide any object
+  std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 
   // If true, the database will be created if it is missing.
   // Default: false
@@ -601,11 +616,6 @@ struct Options {
   // Default: a factory that provides a default implementation of
   // Table and TableBuilder.
   std::shared_ptr<TableFactory> table_factory;
-
-  // This is a factory that provides compaction filter objects which allow
-  // an application to modify/delete a key-value during background compaction.
-  // Default: a factory that doesn't provide any object
-  std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 
   // This option allows user to to collect their own interested statistics of
   // the tables.

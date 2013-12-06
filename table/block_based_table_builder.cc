@@ -100,9 +100,10 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     rep_->filter_block->StartBlock(0);
   }
   if (options.block_cache_compressed.get() != nullptr) {
-    BlockBasedTable::GenerateCachePrefix(options.block_cache_compressed, file,
-                               &rep_->compressed_cache_key_prefix[0],
-                               &rep_->compressed_cache_key_prefix_size);
+    BlockBasedTable::GenerateCachePrefix(
+        options.block_cache_compressed.get(), file,
+        &rep_->compressed_cache_key_prefix[0],
+        &rep_->compressed_cache_key_prefix_size);
   }
 }
 

@@ -11,7 +11,6 @@
 #include "util/testharness.h"
 
 DEFINE_bool(use_prefix_hash_memtable, true, "");
-DEFINE_bool(use_nolock_version, true, "");
 DEFINE_bool(trigger_deadlock, false,
             "issue delete in range scan to trigger PrefixHashMap deadlock");
 DEFINE_uint64(bucket_count, 100000, "number of buckets");

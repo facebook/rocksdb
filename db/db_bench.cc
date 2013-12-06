@@ -191,6 +191,10 @@ DEFINE_int32(universal_max_merge_width, 0, "The max number of files to compact"
 DEFINE_int32(universal_max_size_amplification_percent, 0,
              "The max size amplification for universal style compaction");
 
+DEFINE_int32(universal_compression_size_percent, -1,
+             "The percentage of the database to compress for universal "
+             "compaction. -1 means compress everything.");
+
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
 
@@ -325,6 +329,23 @@ DEFINE_string(compression_type, "snappy",
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
 
+DEFINE_int32(compression_level, -1,
+             "Compression level. For zlib this should be -1 for the "
+             "default level, or between 0 and 9.");
+
+static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
+  if (value < -1 || value > 9) {
+    fprintf(stderr, "Invalid value for --%s: %d, must be between -1 and 9\n",
+            flagname, value);
+    return false;
+  }
+  return true;
+}
+
+static const bool FLAGS_compression_level_dummy =
+  google::RegisterFlagValidator(&FLAGS_compression_level,
+                                &ValidateCompressionLevel);
+
 DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " from this level. Levels with number < min_level_to_compress are"
              " not compressed. Otherwise, apply compression_type to "
@@ -434,12 +455,11 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(prefix_size, 0, "Control the prefix size for PrefixHashRep");
+DEFINE_int32(prefix_size, 0, "Control the prefix size for HashSkipList");
 
 enum RepFactory {
   kSkipList,
   kPrefixHash,
-  kUnsorted,
   kVectorRep
 };
 enum RepFactory StringToRepFactory(const char* ctype) {
@@ -449,8 +469,6 @@ enum RepFactory StringToRepFactory(const char* ctype) {
     return kSkipList;
   else if (!strcasecmp(ctype, "prefix_hash"))
     return kPrefixHash;
-  else if (!strcasecmp(ctype, "unsorted"))
-    return kUnsorted;
   else if (!strcasecmp(ctype, "vector"))
     return kVectorRep;
 
@@ -806,9 +824,6 @@ class Benchmark {
         break;
       case kSkipList:
         fprintf(stdout, "Memtablerep: skip_list\n");
-        break;
-      case kUnsorted:
-        fprintf(stdout, "Memtablerep: unsorted\n");
         break;
       case kVectorRep:
         fprintf(stdout, "Memtablerep: vector\n");
@@ -1334,14 +1349,8 @@ class Benchmark {
     }
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
-        options.memtable_factory.reset(
-          new PrefixHashRepFactory(NewFixedPrefixTransform(FLAGS_prefix_size))
-        );
-        break;
-      case kUnsorted:
-        options.memtable_factory.reset(
-          new UnsortedRepFactory
-        );
+        options.memtable_factory.reset(NewHashSkipListRepFactory(
+            NewFixedPrefixTransform(FLAGS_prefix_size)));
         break;
       case kSkipList:
         // no need to do anything
@@ -1368,6 +1377,7 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
+    options.compression_opts.level = FLAGS_compression_level;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
     if (FLAGS_min_level_to_compress >= 0) {
@@ -1428,6 +1438,10 @@ class Benchmark {
     if (FLAGS_universal_max_size_amplification_percent != 0) {
       options.compaction_options_universal.max_size_amplification_percent =
         FLAGS_universal_max_size_amplification_percent;
+    }
+    if (FLAGS_universal_compression_size_percent != -1) {
+      options.compaction_options_universal.compression_size_percent =
+        FLAGS_universal_compression_size_percent;
     }
 
     Status s;

@@ -58,8 +58,6 @@ class DBStatistics: public Statistics {
   std::vector<HistogramImpl> allHistograms_;
 };
 
-std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<DBStatistics>();
-}
+std::shared_ptr<Statistics> CreateDBStatistics();
 
 } // namespace rocksdb

@@ -51,6 +51,11 @@ enum Tickers {
   // # of times bloom filter has avoided file reads.
   BLOOM_FILTER_USEFUL,
 
+  // # of memtable hits.
+  MEMTABLE_HIT,
+  // # of memtable misses.
+  MEMTABLE_MISS,
+
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
    * There are 3 reasons currently.
@@ -125,6 +130,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss" },
   { BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit" },
   { BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful" },
+  { MEMTABLE_HIT, "rocksdb.memtable.hit" },
+  { MEMTABLE_MISS, "rocksdb.memtable.miss" },
   { COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new" },
   { COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete" },
   { COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user" },

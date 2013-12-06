@@ -36,7 +36,7 @@ class MemTable {
   // is zero and the caller must call Ref() at least once.
   explicit MemTable(
     const InternalKeyComparator& comparator,
-    std::shared_ptr<MemTableRepFactory> table_factory,
+    MemTableRepFactory* table_factory,
     int numlevel = 7,
     const Options& options = Options());
 

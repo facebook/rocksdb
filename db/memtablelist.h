@@ -65,7 +65,8 @@ class MemTableList {
                       VersionSet* vset, Status flushStatus,
                       port::Mutex* mu, Logger* info_log,
                       uint64_t file_number,
-                      std::set<uint64_t>& pending_outputs);
+                      std::set<uint64_t>& pending_outputs,
+                      std::vector<MemTable*>* to_delete);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().

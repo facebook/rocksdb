@@ -25,6 +25,9 @@ Options::Options()
     : comparator(BytewiseComparator()),
       merge_operator(nullptr),
       compaction_filter(nullptr),
+      compaction_filter_factory(
+          std::shared_ptr<CompactionFilterFactory>(
+            new DefaultCompactionFilterFactory())),
       create_if_missing(false),
       error_if_exists(false),
       paranoid_checks(false),
@@ -97,9 +100,6 @@ Options::Options()
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
       table_factory(
         std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
-      compaction_filter_factory(
-          std::shared_ptr<CompactionFilterFactory>(
-            new DefaultCompactionFilterFactory())),
       inplace_update_support(false),
       inplace_update_num_locks(10000) {
   assert(memtable_factory.get() != nullptr);
@@ -278,6 +278,9 @@ Options::Dump(Logger* log) const
     Log(log,"Options.compaction_options_universal."
             "max_size_amplification_percent: %u",
         compaction_options_universal.max_size_amplification_percent);
+    Log(log,
+        "Options.compaction_options_universal.compression_size_percent: %u",
+        compaction_options_universal.compression_size_percent);
     std::string collector_names;
     for (auto collector : table_properties_collectors) {
       collector_names.append(collector->Name());

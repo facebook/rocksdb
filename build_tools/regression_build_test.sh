@@ -65,7 +65,7 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --sync=0 \
     --threads=8 > ${STAT_FILE}.overwrite
 
-# fill up the db for readrandom benchmark
+# fill up the db for readrandom benchmark (1GB total size)
 ./db_bench \
     --benchmarks=fillseq \
     --db=$DATA_DIR \
@@ -83,7 +83,7 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --sync=0 \
     --threads=1 > /dev/null
 
-# measure readrandom
+# measure readrandom with 6GB block cache
 ./db_bench \
     --benchmarks=readrandom \
     --db=$DATA_DIR \
@@ -101,6 +101,25 @@ OPT=-DNDEBUG make db_bench -j$(nproc)
     --disable_wal=1 \
     --sync=0 \
     --threads=32 > ${STAT_FILE}.readrandom
+
+# measure readrandom with 300MB block cache
+./db_bench \
+    --benchmarks=readrandom \
+    --db=$DATA_DIR \
+    --use_existing_db=1 \
+    --bloom_bits=10 \
+    --num=$NUM \
+    --reads=$NUM \
+    --cache_size=314572800 \
+    --cache_numshardbits=8 \
+    --open_files=55000 \
+    --disable_seek_compaction=1 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0 \
+    --threads=32 > ${STAT_FILE}.readrandomsmallblockcache
 
 # measure memtable performance -- none of the data gets flushed to disk
 ./db_bench \
@@ -154,5 +173,6 @@ function send_benchmark_to_ods {
 send_benchmark_to_ods overwrite overwrite $STAT_FILE.overwrite
 send_benchmark_to_ods fillseq fillseq $STAT_FILE.fillseq
 send_benchmark_to_ods readrandom readrandom $STAT_FILE.readrandom
+send_benchmark_to_ods readrandom readrandom_smallblockcache $STAT_FILE.readrandomsmallblockcache
 send_benchmark_to_ods fillrandom memtablefillrandom $STAT_FILE.memtablefillreadrandom
 send_benchmark_to_ods readrandom memtablereadrandom $STAT_FILE.memtablefillreadrandom
