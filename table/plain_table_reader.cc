@@ -19,6 +19,7 @@
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
 
 #include "util/coding.h"
@@ -41,6 +42,7 @@ public:
 
 namespace rocksdb {
 
+extern const uint64_t kPlainTableMagicNumber;
 static uint32_t getBucketId(Slice const& s, size_t prefix_len,
                             uint32_t num_buckets) {
   return MurmurHash(s.data(), prefix_len, 397) % num_buckets;
@@ -49,18 +51,16 @@ static uint32_t getBucketId(Slice const& s, size_t prefix_len,
 PlainTableReader::PlainTableReader(const EnvOptions& storage_options,
                                    uint64_t file_size, int user_key_size,
                                    int key_prefix_len, int bloom_bits_per_key,
-                                   double hash_table_ratio) :
+                                   double hash_table_ratio,
+                                   const TableProperties& table_properties) :
     hash_table_size_(0), soptions_(storage_options), file_size_(file_size),
     user_key_size_(user_key_size), key_prefix_len_(key_prefix_len),
-    hash_table_ratio_(hash_table_ratio) {
-  if (bloom_bits_per_key > 0) {
-    filter_policy_ = NewBloomFilterPolicy(bloom_bits_per_key);
-  } else {
-    filter_policy_ = nullptr;
-  }
-  hash_table_ = nullptr;
-  data_start_offset_ = 0;
-  data_end_offset_ = file_size;
+    hash_table_ratio_(hash_table_ratio),
+    filter_policy_(bloom_bits_per_key > 0 ?
+                     NewBloomFilterPolicy(bloom_bits_per_key) : nullptr),
+    table_properties_(table_properties),
+    data_start_offset_(0),
+    data_end_offset_(table_properties_.data_size) {
 }
 
 PlainTableReader::~PlainTableReader() {
@@ -87,19 +87,38 @@ Status PlainTableReader::Open(const Options& options,
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
-  PlainTableReader* t = new PlainTableReader(soptions, file_size,
-                                             user_key_size,
-                                             key_prefix_len,
-                                             bloom_num_bits,
-                                             hash_table_ratio);
-  t->file_ = std::move(file);
-  t->options_ = options;
-  Status s = t->PopulateIndex(file_size);
+  TableProperties table_properties;
+  auto s = ReadTableProperties(
+      file.get(),
+      file_size,
+      kPlainTableMagicNumber,
+      options.env,
+      options.info_log.get(),
+      &table_properties
+  );
   if (!s.ok()) {
-    delete t;
     return s;
   }
-  table_reader->reset(t);
+
+  std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
+      soptions,
+      file_size,
+      user_key_size,
+      key_prefix_len,
+      bloom_num_bits,
+      hash_table_ratio,
+      table_properties
+  ));
+  new_reader->file_ = std::move(file);
+  new_reader->options_ = options;
+
+  // -- Populate Index
+  s = new_reader->PopulateIndex();
+  if (!s.ok()) {
+    return s;
+  }
+
+  *table_reader = std::move(new_reader);
   return s;
 }
 
@@ -114,7 +133,7 @@ Iterator* PlainTableReader::NewIterator(const ReadOptions& options) {
   return new PlainTableIterator(this);
 }
 
-Status PlainTableReader::PopulateIndex(uint64_t file_size) {
+Status PlainTableReader::PopulateIndex() {
   // Get mmapped memory to file_data_.
   Status s = file_->Read(0, file_size_, &file_data_, nullptr);
   if (!s.ok()) {
@@ -124,7 +143,6 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
   version_ ^= 0x80000000;
   assert(version_ == 1);
   data_start_offset_ = 4;
-  data_end_offset_ = file_size;
 
   Slice key_slice;
   Slice key_prefix_slice;
@@ -140,7 +158,7 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
   // are in order.
   std::vector<std::pair<Slice, std::string>> prefix_index_pairs;
   std::string current_prefix_index;
-  while (pos < file_size) {
+  while (pos < data_end_offset_) {
     uint32_t key_offset = pos;
     status_ = Next(pos, &key_slice, &value_slice, pos);
     key_prefix_slice = Slice(key_slice.data(), key_prefix_len_);

@@ -21,6 +21,7 @@
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
 
 #include "util/coding.h"
@@ -250,10 +251,16 @@ Status BlockBasedTable::Open(const Options& options,
 
   // Read the properties
   meta_iter->Seek(kPropertiesBlock);
-  if (meta_iter->Valid() && meta_iter->key() == Slice(kPropertiesBlock)) {
+  if (meta_iter->Valid() && meta_iter->key() == kPropertiesBlock) {
     s = meta_iter->status();
     if (s.ok()) {
-      s = ReadProperties(meta_iter->value(), rep, &rep->table_properties);
+      s = ReadProperties(
+          meta_iter->value(),
+          rep->file.get(),
+          rep->options.env,
+          rep->options.info_log.get(),
+          &rep->table_properties
+      );
     }
 
     if (!s.ok()) {
@@ -399,96 +406,6 @@ FilterBlockReader* BlockBasedTable::ReadFilter (
 
   return new FilterBlockReader(
        rep->options, block.data, block.heap_allocated);
-}
-
-Status BlockBasedTable::ReadProperties(
-    const Slice& handle_value, Rep* rep, TableProperties* table_properties) {
-  assert(table_properties);
-
-  Slice v = handle_value;
-  BlockHandle handle;
-  if (!handle.DecodeFrom(&v).ok()) {
-    return Status::InvalidArgument("Failed to decode properties block handle");
-  }
-
-  BlockContents block_contents;
-  Status s = ReadBlockContents(
-      rep->file.get(),
-      ReadOptions(),
-      handle,
-      &block_contents,
-      rep->options.env,
-      false
-  );
-
-  if (!s.ok()) {
-    return s;
-  }
-
-  Block properties_block(block_contents);
-  std::unique_ptr<Iterator> iter(
-      properties_block.NewIterator(BytewiseComparator())
-  );
-
-  // All pre-defined properties of type uint64_t
-  std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
-    { TablePropertiesNames::kDataSize,
-      &table_properties->data_size },
-    { TablePropertiesNames::kIndexSize,
-      &table_properties->index_size },
-    { TablePropertiesNames::kFilterSize,
-      &table_properties->filter_size },
-    { TablePropertiesNames::kRawKeySize,
-      &table_properties->raw_key_size },
-    { TablePropertiesNames::kRawValueSize,
-      &table_properties->raw_value_size },
-    { TablePropertiesNames::kNumDataBlocks,
-      &table_properties->num_data_blocks },
-    { TablePropertiesNames::kNumEntries,
-      &table_properties->num_entries },
-  };
-
-  std::string last_key;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    s = iter->status();
-    if (!s.ok()) {
-      break;
-    }
-
-    auto key = iter->key().ToString();
-    // properties block is strictly sorted with no duplicate key.
-    assert(
-        last_key.empty() ||
-        BytewiseComparator()->Compare(key, last_key) > 0
-    );
-    last_key = key;
-
-    auto raw_val = iter->value();
-    auto pos = predefined_uint64_properties.find(key);
-
-    if (pos != predefined_uint64_properties.end()) {
-      // handle predefined rocksdb properties
-      uint64_t val;
-      if (!GetVarint64(&raw_val, &val)) {
-        // skip malformed value
-        auto error_msg =
-          "[Warning] detect malformed value in properties meta-block:"
-          "\tkey: " + key + "\tval: " + raw_val.ToString();
-        Log(rep->options.info_log, "%s", error_msg.c_str());
-        continue;
-      }
-      *(pos->second) = val;
-    } else if (key == TablePropertiesNames::kFilterPolicy) {
-      table_properties->filter_policy_name = raw_val.ToString();
-    } else {
-      // handle user-collected
-      table_properties->user_collected_properties.insert(
-          std::make_pair(key, raw_val.ToString())
-      );
-    }
-  }
-
-  return s;
 }
 
 Status BlockBasedTable::GetBlock(

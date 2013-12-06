@@ -78,16 +78,21 @@ public:
   void SetupForCompaction();
 
   TableProperties& GetTableProperties() {
-    return tbl_props;
+    return table_properties_;
   }
 
-  PlainTableReader(const EnvOptions& storage_options, uint64_t file_size,
-                   int user_key_size, int key_prefix_len, int bloom_num_bits,
-                   double hash_table_ratio);
+  PlainTableReader(
+      const EnvOptions& storage_options,
+      uint64_t file_size,
+      int user_key_size,
+      int key_prefix_len,
+      int bloom_num_bits,
+      double hash_table_ratio,
+      const TableProperties& table_properties);
   ~PlainTableReader();
 
 private:
-  uint32_t* hash_table_;
+  uint32_t* hash_table_ = nullptr;
   int hash_table_size_;
   std::string sub_index_;
 
@@ -99,8 +104,6 @@ private:
   Slice file_data_;
   uint32_t version_;
   uint32_t file_size_;
-  uint32_t data_start_offset_;
-  uint32_t data_end_offset_;
   const size_t user_key_size_;
   const size_t key_prefix_len_;
   const double hash_table_ratio_;
@@ -108,7 +111,9 @@ private:
   std::string filter_str_;
   Slice filter_slice_;
 
-  TableProperties tbl_props;
+  TableProperties table_properties_;
+  uint32_t data_start_offset_;
+  uint32_t data_end_offset_;
 
   static const size_t kNumInternalBytes = 8;
   static const uint32_t kSubIndexMask = 0x80000000;
@@ -125,7 +130,7 @@ private:
   // any query to the table.
   // This query will populate the hash table hash_table_, the second
   // level of indexes sub_index_ and bloom filter filter_slice_ if enabled.
-  Status PopulateIndex(uint64_t file_size);
+  Status PopulateIndex();
 
   // Check bloom filter to see whether it might contain this prefix
   bool MayHavePrefix(const Slice& target_prefix);

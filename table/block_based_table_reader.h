@@ -38,7 +38,6 @@ using std::unique_ptr;
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
-  static const std::string kPropertiesBlock;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -142,7 +141,6 @@ class BlockBasedTable : public TableReader {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
-  static Status ReadProperties(const Slice& handle_value, Rep* rep);
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(
@@ -155,10 +153,6 @@ class BlockBasedTable : public TableReader {
       const Slice& filter_handle_value,
       Rep* rep,
       size_t* filter_size = nullptr);
-
-  // Read the table properties from properties block.
-  static Status ReadProperties(
-      const Slice& handle_value, Rep* rep, TableProperties* properties);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 

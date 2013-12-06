@@ -64,6 +64,7 @@ struct TablePropertiesNames {
   static const std::string kFilterPolicy;
 };
 
+extern const std::string kPropertiesBlock;
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own interested properties. This class is essentially a collection

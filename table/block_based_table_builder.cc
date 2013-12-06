@@ -387,7 +387,7 @@ Status BlockBasedTableBuilder::Finish() {
           &properties_block_handle
       );
 
-      meta_index_builer.Add(BlockBasedTable::kPropertiesBlock,
+      meta_index_builer.Add(kPropertiesBlock,
                             properties_block_handle);
     }  // end of properties block writing
 
@@ -459,7 +459,5 @@ uint64_t BlockBasedTableBuilder::FileSize() const {
 
 const std::string BlockBasedTable::kFilterBlockPrefix =
     "filter.";
-const std::string BlockBasedTable::kPropertiesBlock =
-    "rocksdb.properties";
 
 }  // namespace rocksdb

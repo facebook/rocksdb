@@ -105,4 +105,6 @@ const std::string TablePropertiesNames::kNumEntries =
 const std::string TablePropertiesNames::kFilterPolicy =
     "rocksdb.filter.policy";
 
+extern const std::string kPropertiesBlock = "rocksdb.properties";
+
 }  // namespace rocksdb

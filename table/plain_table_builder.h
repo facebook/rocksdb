@@ -32,14 +32,6 @@ public:
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder();
 
-  // Change the options used by this builder.  Note: only some of the
-  // option fields can be changed after construction.  If a field is
-  // not allowed to change dynamically and its value in the structure
-  // passed to the constructor is different from its value in the
-  // structure passed to this method, this method will return an error
-  // without changing any fields.
-  Status ChangeOptions(const Options& options);
-
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
   // REQUIRES: Finish(), Abandon() have not been called
@@ -72,7 +64,7 @@ private:
   WritableFile* file_;
   uint64_t offset_ = 0;
   Status status_;
-  uint64_t num_entries_ = 0;
+  TableProperties properties_;
 
   const size_t user_key_size_;
   bool closed_ = false;  // Either Finish() or Abandon() has been called.

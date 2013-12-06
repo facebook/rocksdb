@@ -15,17 +15,22 @@
 #include "db/db_statistics.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
+#include "rocksdb/plain_table_factory.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
+
+#include "table/meta_blocks.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/block.h"
 #include "table/format.h"
+
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -743,49 +748,6 @@ class Harness {
   Constructor* constructor_;
 };
 
-// Test the empty key
-TEST(Harness, SimpleEmptyKey) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
-    Random rnd(test::RandomSeed() + 1);
-    Add("", "v");
-    Test(&rnd);
-  }
-}
-
-TEST(Harness, SimpleSingle) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
-    Random rnd(test::RandomSeed() + 2);
-    Add("abc", "v");
-    Test(&rnd);
-  }
-}
-
-TEST(Harness, SimpleMulti) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
-    Random rnd(test::RandomSeed() + 3);
-    Add("abc", "v");
-    Add("abcd", "v");
-    Add("ac", "v2");
-    Test(&rnd);
-  }
-}
-
-TEST(Harness, SimpleSpecialKey) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
-    Random rnd(test::RandomSeed() + 4);
-    Add("\xff\xff", "v3");
-    Test(&rnd);
-  }
-}
-
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   bool result = (val >= low) && (val <= high);
   if (!result) {
@@ -801,7 +763,7 @@ class TableTest { };
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
-TEST(TableTest, BasicTableProperties) {
+TEST(TableTest, BasicBlockedBasedTableProperties) {
   BlockBasedTableConstructor c(BytewiseComparator());
 
   c.Add("a1", "val1");
@@ -843,6 +805,47 @@ TEST(TableTest, BasicTableProperties) {
       content.size() + kBlockTrailerSize,
       props.data_size
   );
+}
+
+extern const uint64_t kPlainTableMagicNumber;
+TEST(TableTest, BasicPlainTableProperties) {
+  PlainTableFactory factory(8, 8, 0);
+  StringSink sink;
+  std::unique_ptr<TableBuilder> builder(factory.GetTableBuilder(
+      Options(),
+      &sink,
+      kNoCompression
+  ));
+
+  for (char c = 'a'; c <= 'z'; ++c) {
+    std::string key(16, c);
+    std::string value(28, c + 42);
+    builder->Add(key, value);
+  }
+  ASSERT_OK(builder->Finish());
+
+  StringSource source(sink.contents(), 72242);
+
+  TableProperties props;
+  auto s = ReadTableProperties(
+      &source,
+      sink.contents().size(),
+      kPlainTableMagicNumber,
+      Env::Default(),
+      nullptr,
+      &props
+  );
+  ASSERT_OK(s);
+
+  ASSERT_EQ(0ul, props.index_size);
+  ASSERT_EQ(0ul, props.filter_size);
+  ASSERT_EQ(16ul * 26, props.raw_key_size);
+  ASSERT_EQ(28ul * 26, props.raw_value_size);
+  ASSERT_EQ(26ul, props.num_entries);
+  ASSERT_EQ(1ul, props.num_data_blocks);
+
+  // User collected keys
+  // internal keys
 }
 
 TEST(TableTest, FilterPolicyNameProperties) {
@@ -1292,6 +1295,48 @@ TEST(MemTableTest, Simple) {
   delete memtable->Unref();
 }
 
+// Test the empty key
+TEST(Harness, SimpleEmptyKey) {
+  std::vector<TestArgs> args = GenerateArgList();
+  for (unsigned int i = 0; i < args.size(); i++) {
+    Init(args[i]);
+    Random rnd(test::RandomSeed() + 1);
+    Add("", "v");
+    Test(&rnd);
+  }
+}
+
+TEST(Harness, SimpleSingle) {
+  std::vector<TestArgs> args = GenerateArgList();
+  for (unsigned int i = 0; i < args.size(); i++) {
+    Init(args[i]);
+    Random rnd(test::RandomSeed() + 2);
+    Add("abc", "v");
+    Test(&rnd);
+  }
+}
+
+TEST(Harness, SimpleMulti) {
+  std::vector<TestArgs> args = GenerateArgList();
+  for (unsigned int i = 0; i < args.size(); i++) {
+    Init(args[i]);
+    Random rnd(test::RandomSeed() + 3);
+    Add("abc", "v");
+    Add("abcd", "v");
+    Add("ac", "v2");
+    Test(&rnd);
+  }
+}
+
+TEST(Harness, SimpleSpecialKey) {
+  std::vector<TestArgs> args = GenerateArgList();
+  for (unsigned int i = 0; i < args.size(); i++) {
+    Init(args[i]);
+    Random rnd(test::RandomSeed() + 4);
+    Add("\xff\xff", "v3");
+    Test(&rnd);
+  }
+}
 
 }  // namespace rocksdb
 

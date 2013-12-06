@@ -12,7 +12,9 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/table.h"
+#include "rocksdb/plain_table_factory.h"
 #include "table/block_based_table_factory.h"
+#include "table/meta_blocks.h"
 #include "util/coding.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -20,8 +22,6 @@
 namespace rocksdb {
 
 class TablePropertiesTest {
- private:
-  unique_ptr<TableReader> table_reader_;
 };
 
 // TODO(kailiu) the following classes should be moved to some more general
@@ -93,22 +93,6 @@ void MakeBuilder(
                                              options.compression));
 }
 
-void OpenTable(
-    const Options& options,
-    const std::string& contents,
-    std::unique_ptr<TableReader>* table_reader) {
-
-  std::unique_ptr<RandomAccessFile> file(new FakeRandomeAccessFile(contents));
-  auto s = options.table_factory->GetTableReader(
-      options,
-      EnvOptions(),
-      std::move(file),
-      contents.size(),
-      table_reader
-  );
-  ASSERT_OK(s);
-}
-
 // Collects keys that starts with "A" in a table.
 class RegularKeysStartWithA: public TablePropertiesCollector {
  public:
@@ -141,23 +125,66 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
   uint32_t count_ = 0;
 };
 
-TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
-  Options options;
-
+extern uint64_t kBlockBasedTableMagicNumber;
+extern uint64_t kPlainTableMagicNumber;
+void TestCustomizedTablePropertiesCollector(
+    uint64_t magic_number,
+    bool encode_as_internal,
+    const Options& options) {
   // make sure the entries will be inserted with order.
   std::map<std::string, std::string> kvs = {
-    {"About",     "val5"},  // starts with 'A'
-    {"Abstract",  "val2"},  // starts with 'A'
-    {"Around",    "val7"},  // starts with 'A'
-    {"Beyond",    "val3"},
-    {"Builder",   "val1"},
-    {"Cancel",    "val4"},
-    {"Find",      "val6"},
+    {"About   ", "val5"},  // starts with 'A'
+    {"Abstract", "val2"},  // starts with 'A'
+    {"Around  ", "val7"},  // starts with 'A'
+    {"Beyond  ", "val3"},
+    {"Builder ", "val1"},
+    {"Cancel  ", "val4"},
+    {"Find    ", "val6"},
   };
 
+  // -- Step 1: build table
+  std::unique_ptr<TableBuilder> builder;
+  std::unique_ptr<FakeWritableFile> writable;
+  MakeBuilder(options, &writable, &builder);
+
+  for (const auto& kv : kvs) {
+    if (encode_as_internal) {
+      InternalKey ikey(kv.first, 0, ValueType::kTypeValue);
+      builder->Add(ikey.Encode(), kv.second);
+    } else {
+      builder->Add(kv.first, kv.second);
+    }
+  }
+  ASSERT_OK(builder->Finish());
+
+  // -- Step 2: Read properties
+  FakeRandomeAccessFile readable(writable->contents());
+  TableProperties props;
+  Status s = ReadTableProperties(
+      &readable,
+      writable->contents().size(),
+      magic_number,
+      Env::Default(),
+      nullptr,
+      &props
+  );
+  ASSERT_OK(s);
+
+  auto user_collected = props.user_collected_properties;
+
+  ASSERT_EQ("Rocksdb", user_collected.at("TablePropertiesTest"));
+
+  uint32_t starts_with_A = 0;
+  Slice key(user_collected.at("Count"));
+  ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
+  ASSERT_EQ(3u, starts_with_A);
+}
+
+TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
+  // for block based table
   for (bool encode_as_internal : { true, false }) {
-    // -- Step 1: build table
+    Options options;
     auto collector = new RegularKeysStartWithA();
     if (encode_as_internal) {
       options.table_properties_collectors = {
@@ -167,95 +194,112 @@ TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
       options.table_properties_collectors.resize(1);
       options.table_properties_collectors[0].reset(collector);
     }
-    std::unique_ptr<TableBuilder> builder;
-    std::unique_ptr<FakeWritableFile> writable;
-    MakeBuilder(options, &writable, &builder);
+    TestCustomizedTablePropertiesCollector(
+        kBlockBasedTableMagicNumber,
+        encode_as_internal,
+        options
+    );
+  }
 
-    for (const auto& kv : kvs) {
-      if (encode_as_internal) {
-        InternalKey ikey(kv.first, 0, ValueType::kTypeValue);
-        builder->Add(ikey.Encode(), kv.second);
-      } else {
-        builder->Add(kv.first, kv.second);
-      }
-    }
-    ASSERT_OK(builder->Finish());
+  // test plain table
+  Options options;
+  options.table_properties_collectors.push_back(
+      std::make_shared<RegularKeysStartWithA>()
+  );
+  options.table_factory = std::make_shared<PlainTableFactory>(8, 8, 0);
+  TestCustomizedTablePropertiesCollector(
+      kPlainTableMagicNumber, true, options
+  );
+}
 
-    // -- Step 2: Open table
-    std::unique_ptr<TableReader> table_reader;
-    OpenTable(options, writable->contents(), &table_reader);
-    const auto& properties =
-      table_reader->GetTableProperties().user_collected_properties;
+void TestInternalKeyPropertiesCollector(
+    uint64_t magic_number,
+    bool sanitized,
+    std::shared_ptr<TableFactory> table_factory) {
+  InternalKey keys[] = {
+    InternalKey("A       ", 0, ValueType::kTypeValue),
+    InternalKey("B       ", 0, ValueType::kTypeValue),
+    InternalKey("C       ", 0, ValueType::kTypeValue),
+    InternalKey("W       ", 0, ValueType::kTypeDeletion),
+    InternalKey("X       ", 0, ValueType::kTypeDeletion),
+    InternalKey("Y       ", 0, ValueType::kTypeDeletion),
+    InternalKey("Z       ", 0, ValueType::kTypeDeletion),
+  };
 
-    ASSERT_EQ("Rocksdb", properties.at("TablePropertiesTest"));
+  std::unique_ptr<TableBuilder> builder;
+  std::unique_ptr<FakeWritableFile> writable;
+  Options options;
+  options.table_factory = table_factory;
+  if (sanitized) {
+    options.table_properties_collectors = {
+      std::make_shared<RegularKeysStartWithA>()
+    };
+    // with sanitization, even regular properties collector will be able to
+    // handle internal keys.
+    auto comparator = options.comparator;
+    // HACK: Set options.info_log to avoid writing log in
+    // SanitizeOptions().
+    options.info_log = std::make_shared<DumbLogger>();
+    options = SanitizeOptions(
+        "db",  // just a place holder
+        nullptr,  // with skip internal key comparator
+        nullptr,  // don't care filter policy
+        options
+    );
+    options.comparator = comparator;
+  } else {
+    options.table_properties_collectors = {
+      std::make_shared<InternalKeyPropertiesCollector>()
+    };
+  }
 
+  MakeBuilder(options, &writable, &builder);
+  for (const auto& k : keys) {
+    builder->Add(k.Encode(), "val");
+  }
+
+  ASSERT_OK(builder->Finish());
+
+  FakeRandomeAccessFile readable(writable->contents());
+  TableProperties props;
+  Status s = ReadTableProperties(
+      &readable,
+      writable->contents().size(),
+      magic_number,
+      Env::Default(),
+      nullptr,
+      &props
+  );
+  ASSERT_OK(s);
+
+  auto user_collected = props.user_collected_properties;
+  uint64_t deleted = GetDeletedKeys(user_collected);
+  ASSERT_EQ(4u, deleted);
+
+  if (sanitized) {
     uint32_t starts_with_A = 0;
-    Slice key(properties.at("Count"));
+    Slice key(user_collected.at("Count"));
     ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
-    ASSERT_EQ(3u, starts_with_A);
+    ASSERT_EQ(1u, starts_with_A);
   }
 }
 
 TEST(TablePropertiesTest, InternalKeyPropertiesCollector) {
-  InternalKey keys[] = {
-    InternalKey("A", 0, ValueType::kTypeValue),
-    InternalKey("B", 0, ValueType::kTypeValue),
-    InternalKey("C", 0, ValueType::kTypeValue),
-    InternalKey("W", 0, ValueType::kTypeDeletion),
-    InternalKey("X", 0, ValueType::kTypeDeletion),
-    InternalKey("Y", 0, ValueType::kTypeDeletion),
-    InternalKey("Z", 0, ValueType::kTypeDeletion),
-  };
-
-  for (bool sanitized : { false, true }) {
-    std::unique_ptr<TableBuilder> builder;
-    std::unique_ptr<FakeWritableFile> writable;
-    Options options;
-    if (sanitized) {
-      options.table_properties_collectors = {
-        std::make_shared<RegularKeysStartWithA>()
-      };
-      // with sanitization, even regular properties collector will be able to
-      // handle internal keys.
-      auto comparator = options.comparator;
-      // HACK: Set options.info_log to avoid writing log in
-      // SanitizeOptions().
-      options.info_log = std::make_shared<DumbLogger>();
-      options = SanitizeOptions(
-          "db",  // just a place holder
-          nullptr,  // with skip internal key comparator
-          nullptr,  // don't care filter policy
-          options
-      );
-      options.comparator = comparator;
-    } else {
-      options.table_properties_collectors = {
-        std::make_shared<InternalKeyPropertiesCollector>()
-      };
-    }
-
-    MakeBuilder(options, &writable, &builder);
-    for (const auto& k : keys) {
-      builder->Add(k.Encode(), "val");
-    }
-
-    ASSERT_OK(builder->Finish());
-
-    std::unique_ptr<TableReader> table_reader;
-    OpenTable(options, writable->contents(), &table_reader);
-    const auto& properties =
-      table_reader->GetTableProperties().user_collected_properties;
-
-    uint64_t deleted = GetDeletedKeys(properties);
-    ASSERT_EQ(4u, deleted);
-
-    if (sanitized) {
-      uint32_t starts_with_A = 0;
-      Slice key(properties.at("Count"));
-      ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
-      ASSERT_EQ(1u, starts_with_A);
-    }
-  }
+  TestInternalKeyPropertiesCollector(
+      kBlockBasedTableMagicNumber,
+      true /* sanitize */,
+      std::make_shared<BlockBasedTableFactory>()
+  );
+  TestInternalKeyPropertiesCollector(
+      kBlockBasedTableMagicNumber,
+      true /* not sanitize */,
+      std::make_shared<BlockBasedTableFactory>()
+  );
+  TestInternalKeyPropertiesCollector(
+      kPlainTableMagicNumber,
+      false /* not sanitize */,
+      std::make_shared<PlainTableFactory>(8, 8, 0)
+  );
 }
 
 }  // namespace rocksdb

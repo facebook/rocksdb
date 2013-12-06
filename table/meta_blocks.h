@@ -15,9 +15,11 @@
 
 namespace rocksdb {
 
-class BlockHandle;
 class BlockBuilder;
+class BlockHandle;
+class Env;
 class Logger;
+class RandomAccessFile;
 struct TableProperties;
 
 // An STL style comparator that does the bytewise comparator comparasion
@@ -49,11 +51,6 @@ class MetaIndexBuilder {
   Slice Finish();
 
  private:
-  //   * Key: meta block name
-  //   * Value: block handle to that meta block
-  struct Rep;
-  Rep* rep_;
-
   // store the sorted key/handle of the metablocks.
   BytewiseSortedMap meta_block_handles_;
   std::unique_ptr<BlockBuilder> meta_index_block_;
@@ -102,5 +99,22 @@ bool NotifyCollectTableCollectorsOnFinish(
     const Options::TablePropertiesCollectors& collectors,
     Logger* info_log,
     PropertyBlockBuilder* builder);
+
+// Read the properties from the table.
+Status ReadProperties(
+    const Slice& handle_value,
+    RandomAccessFile* file,
+    Env* env,
+    Logger* logger,
+    TableProperties* table_properties);
+
+// Directly read the properties from the properties block of a plain table.
+Status ReadTableProperties(
+    RandomAccessFile* file,
+    uint64_t file_size,
+    uint64_t table_magic_number,
+    Env* env,
+    Logger* info_log,
+    TableProperties* properties);
 
 }  // namespace rocksdb
