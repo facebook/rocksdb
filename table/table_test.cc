@@ -1047,7 +1047,7 @@ TEST(TableTest, BlockCacheTest) {
 
   // -- PART 2: Open without block cache
   options.block_cache.reset();
-  options.statistics = CreateDBStatistics();  // reset the props
+  options.statistics = CreateDBStatistics();  // reset the stats
   c.Reopen(options);
 
   {
