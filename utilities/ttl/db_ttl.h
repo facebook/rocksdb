@@ -14,82 +14,33 @@ namespace rocksdb {
 
 class DBWithTTL : public StackableDB {
  public:
-  DBWithTTL(const int32_t ttl,
-            const Options& options,
-            const std::string& dbname,
-            Status& st,
-            bool read_only);
+  static void SanitizeOptions(int32_t ttl, Options* options);
+
+  explicit DBWithTTL(DB* db);
 
   virtual ~DBWithTTL();
 
-  virtual Status Put(const WriteOptions& o,
-                     const Slice& key,
-                     const Slice& val);
+  virtual Status Put(const WriteOptions& o, const Slice& key,
+                     const Slice& val) override;
 
-  virtual Status Get(const ReadOptions& options,
-                     const Slice& key,
-                     std::string* value);
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value) override;
 
-  virtual std::vector<Status> MultiGet(const ReadOptions& options,
-                                       const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values);
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options, const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
 
   virtual bool KeyMayExist(const ReadOptions& options,
                            const Slice& key,
                            std::string* value,
                            bool* value_found = nullptr) override;
 
-  virtual Status Delete(const WriteOptions& wopts, const Slice& key);
+  virtual Status Merge(const WriteOptions& options, const Slice& key,
+                       const Slice& value) override;
 
-  virtual Status Merge(const WriteOptions& options,
-                       const Slice& key,
-                       const Slice& value);
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
-
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates);
-
-  virtual Iterator* NewIterator(const ReadOptions& opts);
-
-  virtual const Snapshot* GetSnapshot();
-
-  virtual void ReleaseSnapshot(const Snapshot* snapshot);
-
-  virtual bool GetProperty(const Slice& property, std::string* value);
-
-  virtual void GetApproximateSizes(const Range* r, int n, uint64_t* sizes);
-
-  virtual void CompactRange(const Slice* begin, const Slice* end,
-                            bool reduce_level = false, int target_level = -1);
-
-  virtual int NumberLevels();
-
-  virtual int MaxMemCompactionLevel();
-
-  virtual int Level0StopWriteTrigger();
-
-  virtual Env* GetEnv() const;
-
-  virtual const Options& GetOptions() const;
-
-  virtual Status Flush(const FlushOptions& fopts);
-
-  virtual Status DisableFileDeletions();
-
-  virtual Status EnableFileDeletions();
-
-  virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                              bool flush_memtable = true);
-
-  virtual Status GetSortedWalFiles(VectorLogPtr& files);
-
-  virtual Status DeleteFile(std::string name);
-
-  virtual Status GetDbIdentity(std::string& identity);
-
-  virtual SequenceNumber GetLatestSequenceNumber() const;
-
-  virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 unique_ptr<TransactionLogIterator>* iter);
+  virtual Iterator* NewIterator(const ReadOptions& opts) override;
 
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBWithTtl();
@@ -113,10 +64,6 @@ class DBWithTTL : public StackableDB {
   static const int32_t kMinTimestamp = 1368146402; // 05/09/2013:5:40PM GMT-8
 
   static const int32_t kMaxTimestamp = 2147483647; // 01/18/2038:7:14PM GMT-8
-
- private:
-  DB* db_;
-  unique_ptr<CompactionFilter> ttl_comp_filter_;
 };
 
 class TtlIterator : public Iterator {
