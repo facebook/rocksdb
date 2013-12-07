@@ -26,6 +26,12 @@ function cleanup {
 }
 
 trap cleanup EXIT
+git_branch=$(git rev-parse --abbrev-ref HEAD)
+if [ $git_branch == "master" ]; then
+  git_branch=""
+else
+  git_branch="."$git_branch
+fi
 
 make clean
 OPT=-DNDEBUG make db_bench -j$(nproc)
@@ -150,7 +156,7 @@ function send_to_ods {
     echo >&2 "ERROR: Key $key doesn't have a value."
     return
   fi
-  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=$key&value=$value" \
+  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build$git_branch&key=$key&value=$value" \
     --connect-timeout 60
 }
 
