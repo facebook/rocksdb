@@ -11,7 +11,7 @@ namespace rocksdb {
 // Utility functions
 inline void RecordTick(Statistics* statistics,
                        Tickers ticker,
-                       uint64_t count = 1) {
+                       int64_t count = 1) {
   assert(HistogramsNameMap.size() == HISTOGRAM_ENUM_MAX);
   assert(TickersNameMap.size() == TICKER_ENUM_MAX);
   if (statistics) {
