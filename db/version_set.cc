@@ -450,17 +450,12 @@ void Version::Get(const ReadOptions& options,
   // levels.  Therefore we are guaranteed that if we find data
   // in an smaller level, later levels are irrelevant (unless we
   // are MergeInProgress).
-  std::vector<FileMetaData*> important_files;
   for (int level = 0; level < vset_->NumberLevels(); level++) {
     size_t num_files = files_[level].size();
     if (num_files == 0) continue;
 
     // Get the list of files to search in this level
     FileMetaData* const* files = &files_[level][0];
-    important_files.clear();
-    if (level == 0) {
-      important_files.reserve(num_files);
-    }
 
     // Some files may overlap each other. We find
     // all files that overlap user_key and process them in order from
@@ -478,44 +473,42 @@ void Version::Get(const ReadOptions& options,
       start_index = FindFile(vset_->icmp_, files_[level], ikey);
     }
 
-    // Traverse the list, finding all overlapping files.
-    for (uint32_t i = start_index; i < num_files; i++) {
-      FileMetaData* f = files[i];
-      if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
-          ucmp->Compare(user_key, f->largest.user_key()) <= 0) {
-        important_files.push_back(f);
-      } else if (level > 0) {
-        // If on Level-n (n>=1) then the files are sorted.
-        // So we can stop looking when we are past the ikey.
-        break;
-      }
-    }
-
-    if (important_files.empty()) continue;
-
-    if (level == 0) {
-      if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
-        std::sort(important_files.begin(), important_files.end(), NewestFirstBySeqNo);
-      } else {
-        std::sort(important_files.begin(), important_files.end(), NewestFirst);
-      }
-    } else {
-      // Sanity check to make sure that the files are correctly sorted
-#ifndef NDEBUG
-      num_files = important_files.size();
-      for (uint32_t i = 1; i < num_files; ++i) {
-        FileMetaData* a = important_files[i-1];
-        FileMetaData* b = important_files[i];
-        int comp_sign = vset_->icmp_.Compare(a->largest, b->smallest);
-        assert(comp_sign < 0);
-      }
-#endif
-    }
-
     // Traverse each relevant file to find the desired key
-    num_files = important_files.size();
-    for (uint32_t i = 0; i < num_files; ++i) {
-      FileMetaData* f = important_files[i];
+#ifndef NDEBUG
+    FileMetaData* prev_file = nullptr;
+#endif
+    for (uint32_t i = start_index; i < num_files; ++i) {
+      FileMetaData* f = files[i];
+      if (ucmp->Compare(user_key, f->smallest.user_key()) < 0 ||
+          ucmp->Compare(user_key, f->largest.user_key()) > 0) {
+        // Only process overlapping files.
+        if (level > 0) {
+          // If on Level-n (n>=1) then the files are sorted.
+          // So we can stop looking when we are past the ikey.
+          break;
+        }
+        // TODO: do we want to check file ranges for level0 files at all?
+        // For new SST format where Get() is fast, we might want to consider
+        // to avoid those two comparisons, if it can filter out too few files.
+        continue;
+      }
+#ifndef NDEBUG
+      // Sanity check to make sure that the files are correctly sorted
+      if (prev_file) {
+        if (level != 0) {
+          int comp_sign = vset_->icmp_.Compare(prev_file->largest, f->smallest);
+          assert(comp_sign < 0);
+        } else {
+          // level == 0, the current file cannot be newer than the previous one.
+          if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
+            assert(!NewestFirstBySeqNo(f, prev_file));
+          } else {
+            assert(!NewestFirst(f, prev_file));
+          }
+        }
+      }
+      prev_file = f;
+#endif
       bool tableIO = false;
       *status = vset_->table_cache_->Get(options, f->number, f->file_size,
                                          ikey, &saver, SaveValue, &tableIO,
@@ -1113,6 +1106,13 @@ class VersionSet::Builder {
         MaybeAddFile(v, level, *base_iter);
       }
     }
+    // Pre-sort level0 for Get()
+    if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
+      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirstBySeqNo);
+    } else {
+      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirst);
+    }
+
     CheckConsistency(v);
   }
 
