@@ -76,6 +76,7 @@ TESTS = \
 	skiplist_test \
 	stringappend_test \
 	ttl_test \
+	backupable_db_test \
 	version_edit_test \
 	version_set_test \
 	write_batch_test\
@@ -271,6 +272,9 @@ perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+
+backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)

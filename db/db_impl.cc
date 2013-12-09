@@ -3176,6 +3176,10 @@ Status DBImpl::MakeRoomForWrite(bool force) {
   return s;
 }
 
+const std::string& DBImpl::GetName() const {
+  return dbname_;
+}
+
 Env* DBImpl::GetEnv() const {
   return env_;
 }

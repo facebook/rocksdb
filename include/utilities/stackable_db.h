@@ -103,6 +103,10 @@ class StackableDB : public DB {
     return db_->Level0StopWriteTrigger();
   }
 
+  virtual const std::string& GetName() const override {
+    return db_->GetName();
+  }
+
   virtual Env* GetEnv() const override {
     return db_->GetEnv();
   }

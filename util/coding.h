@@ -40,6 +40,8 @@ extern bool GetVarint64(Slice* input, uint64_t* value);
 extern bool GetLengthPrefixedSlice(Slice* input, Slice* result);
 extern Slice GetLengthPrefixedSlice(const char* data);
 
+extern Slice GetSliceUntil(Slice* slice, char delimiter);
+
 // Pointer-based variants of GetVarint...  These either store a value
 // in *v and return a pointer just past the parsed value, or return
 // nullptr on error.  These routines only look at bytes in the range

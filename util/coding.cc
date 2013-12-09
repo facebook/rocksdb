@@ -217,6 +217,17 @@ Slice GetLengthPrefixedSlice(const char* data) {
   return Slice(p, len);
 }
 
+Slice GetSliceUntil(Slice* slice, char delimiter) {
+  uint32_t len;
+  for (len = 0; len < slice->size() && slice->data()[len] != delimiter; ++len) {
+    // nothing
+  }
+
+  Slice ret(slice->data(), len);
+  slice->remove_prefix(len + ((len < slice->size()) ? 1 : 0));
+  return ret;
+}
+
 void BitStreamPutInt(char* dst, size_t dstlen, size_t offset,
                      uint32_t bits, uint64_t value) {
   assert((offset + bits + 7)/8 <= dstlen);

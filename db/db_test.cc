@@ -4444,6 +4444,10 @@ class ModelDB: public DB {
   return -1;
   }
 
+  virtual const std::string& GetName() const {
+    return name_;
+  }
+
   virtual Env* GetEnv() const {
     return nullptr;
   }
@@ -4521,6 +4525,7 @@ class ModelDB: public DB {
   };
   const Options options_;
   KVMap map_;
+  std::string name_ = "";
 };
 
 static std::string RandomKey(Random* rnd, int minimum = 0) {
