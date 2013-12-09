@@ -149,7 +149,7 @@ DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
-DEFINE_int32(write_buffer_size, rocksdb::Options().write_buffer_size,
+DEFINE_int64(write_buffer_size, rocksdb::Options().write_buffer_size,
              "Number of bytes to buffer in memtable before compacting");
 
 DEFINE_int32(max_write_buffer_number,

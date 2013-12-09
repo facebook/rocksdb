@@ -441,15 +441,25 @@ class DBImpl : public DB {
 
   // Used to compute per-interval statistics
   struct StatsSnapshot {
-    uint64_t bytes_read_;
-    uint64_t bytes_written_;
-    uint64_t bytes_new_;
+    uint64_t compaction_bytes_read_;     // Bytes read by compaction
+    uint64_t compaction_bytes_written_;  // Bytes written by compaction
+    uint64_t ingest_bytes_;              // Bytes written by user
+    uint64_t wal_bytes_;                 // Bytes written to WAL
+    uint64_t wal_synced_;                // Number of times WAL is synced
+    uint64_t write_with_wal_;            // Number of writes that request WAL
+    // These count the number of writes processed by the calling thread or
+    // another thread.
+    uint64_t write_other_;
+    uint64_t write_self_;
     double   seconds_up_;
 
-    StatsSnapshot() : bytes_read_(0), bytes_written_(0),
-                      bytes_new_(0), seconds_up_(0) {}
+    StatsSnapshot() : compaction_bytes_read_(0), compaction_bytes_written_(0),
+                      ingest_bytes_(0), wal_bytes_(0), wal_synced_(0),
+                      write_with_wal_(0), write_other_(0), write_self_(0),
+                      seconds_up_(0) {}
   };
 
+  // Counters from the previous time per-interval stats were computed
   StatsSnapshot last_stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;

@@ -114,6 +114,19 @@ enum Tickers {
   BLOCK_CACHE_COMPRESSED_MISS, // miss in the compressed block cache
   BLOCK_CACHE_COMPRESSED_HIT,  // hit in the compressed block cache
 
+  WAL_FILE_SYNCED,  // Number of times WAL sync is done
+  WAL_FILE_BYTES,   // Number of bytes written to WAL
+
+  // Writes can be processed by requesting thread or by the thread at the
+  // head of the writers queue.
+  WRITE_DONE_BY_SELF,
+  WRITE_DONE_BY_OTHER,
+
+  WRITE_WITH_WAL,      // Number of Write calls that request WAL
+
+  COMPACT_READ_BYTES,  // Bytes read during compaction
+  COMPACT_WRITE_BYTES, // Bytes written during compaction
+
   TICKER_ENUM_MAX
 };
 
@@ -159,7 +172,14 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
   { NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration" },
   { GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls" },
   { BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss" },
-  { BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit" }
+  { BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit" },
+  { WAL_FILE_SYNCED, "rocksdb.wal.synced" },
+  { WAL_FILE_BYTES, "rocksdb.wal.bytes" },
+  { WRITE_DONE_BY_SELF, "rocksdb.write.self" },
+  { WRITE_DONE_BY_OTHER, "rocksdb.write.other" },
+  { WRITE_WITH_WAL, "rocksdb.write.wal" },
+  { COMPACT_READ_BYTES, "rocksdb.compact.read.bytes" },
+  { COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes" },
 };
 
 /**
