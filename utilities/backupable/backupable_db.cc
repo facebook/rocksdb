@@ -82,6 +82,8 @@ class BackupEngine {
     std::vector<std::string> files_;
     std::unordered_map<std::string, int>* file_refs_;
     Env* env_;
+
+    static const size_t max_backup_meta_file_size_ = 10 * 1024 * 1024; // 10MB
   }; // BackupMeta
 
   inline std::string GetAbsolutePath(
@@ -144,8 +146,6 @@ class BackupEngine {
   Env* db_env_;
   Env* backup_env_;
 
-  // constants
-  static const size_t max_backup_meta_file_size_ = 10 * 1024 * 1024; // 10MB
   static const size_t copy_file_buffer_size_ = 5 * 1024 * 1024LL; // 5MB
 };
 
@@ -438,21 +438,19 @@ Status BackupEngine::GetLatestBackupFileContents(uint32_t* latest_backup) {
     return s;
   }
 
-  char* buf = new char[10];
-  Slice data(buf, 0);
-
+  char buf[11];
+  Slice data;
   s = file->Read(10, &data, buf);
-
   if (!s.ok() || data.size() == 0) {
-    delete[] buf;
     return s.ok() ? Status::Corruption("Latest backup file corrupted") : s;
   }
+  buf[data.size()] = 0;
 
+  *latest_backup = 0;
   sscanf(data.data(), "%u", latest_backup);
   if (backup_env_->FileExists(GetBackupMetaFile(*latest_backup)) == false) {
     s = Status::Corruption("Latest backup file corrupted");
   }
-  delete[] buf;
   return Status::OK();
 }
 
@@ -473,7 +471,7 @@ Status BackupEngine::PutLatestBackupFileContents(uint32_t latest_backup) {
     return s;
   }
 
-  char* file_contents = new char[10];
+  char file_contents[10];
   int len = sprintf(file_contents, "%u\n", latest_backup);
   s = file->Append(Slice(file_contents, len));
   if (s.ok() && options_.sync) {
@@ -519,13 +517,13 @@ Status BackupEngine::CopyFile(const std::string& src,
     return s;
   }
 
-  char* buf = new char[copy_file_buffer_size_];
-  Slice data(buf, 0);
+  unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
+  Slice data;
 
   do {
     size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
       copy_file_buffer_size_ : size_limit;
-    s = src_file->Read(buffer_to_read, &data, buf);
+    s = src_file->Read(buffer_to_read, &data, buf.get());
     size_limit -= data.size();
     if (size != nullptr) {
       *size += data.size();
@@ -700,12 +698,11 @@ Status BackupEngine::BackupMeta::LoadFromFile(const std::string& backup_dir) {
     return s;
   }
 
-  char* buf = new char[max_backup_meta_file_size_ + 1];
-  Slice data(buf, 0);
-  s = backup_meta_file->Read(max_backup_meta_file_size_, &data, buf);
+  unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
+  Slice data;
+  s = backup_meta_file->Read(max_backup_meta_file_size_, &data, buf.get());
 
   if (!s.ok() || data.size() == max_backup_meta_file_size_) {
-    delete[] buf;
     return s.ok() ? Status::IOError("File size too big") : s;
   }
   buf[data.size()] = 0;
@@ -724,7 +721,6 @@ Status BackupEngine::BackupMeta::LoadFromFile(const std::string& backup_dir) {
     AddFile(filename, size);
   }
 
-  delete[] buf;
   return s;
 }
 
@@ -739,15 +735,15 @@ Status BackupEngine::BackupMeta::StoreToFile(bool sync) {
     return s;
   }
 
-  char* buf = new char[max_backup_meta_file_size_];
+  unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
   int len = 0, buf_size = max_backup_meta_file_size_;
-  len += snprintf(buf, buf_size, "%" PRId64 "\n", timestamp_);
-  len += snprintf(buf + len, buf_size - len, "%zu\n", files_.size());
+  len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
+  len += snprintf(buf.get() + len, buf_size - len, "%zu\n", files_.size());
   for (size_t i = 0; i < files_.size(); ++i) {
-    len += snprintf(buf + len, buf_size - len, "%s\n", files_[i].c_str());
+    len += snprintf(buf.get() + len, buf_size - len, "%s\n", files_[i].c_str());
   }
 
-  s = backup_meta_file->Append(Slice(buf, (size_t)len));
+  s = backup_meta_file->Append(Slice(buf.get(), (size_t)len));
   if (s.ok() && sync) {
     s = backup_meta_file->Sync();
   }

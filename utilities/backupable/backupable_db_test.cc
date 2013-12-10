@@ -124,8 +124,13 @@ class TestEnv : public EnvWrapper {
   explicit TestEnv(Env* t) : EnvWrapper(t) {}
 
   class DummySequentialFile : public SequentialFile {
+   public:
+    DummySequentialFile() : SequentialFile(), rnd_(5) {}
     virtual Status Read(size_t n, Slice* result, char* scratch) {
       size_t read_size = (n > size_left) ? size_left : n;
+      for (size_t i = 0; i < read_size; ++i) {
+        scratch[i] = rnd_.Next() & 255;
+      }
       *result = Slice(scratch, read_size);
       size_left -= read_size;
       return Status::OK();
@@ -137,6 +142,7 @@ class TestEnv : public EnvWrapper {
     }
    private:
     size_t size_left = 200;
+    Random rnd_;
   };
 
   Status NewSequentialFile(const std::string& f,
@@ -291,9 +297,9 @@ class BackupableDBTest {
     options_.wal_dir = dbname_;
     // set up backup db options
     CreateLoggerFromOptions(dbname_, backupdir_, env_,
-                            Options(), &logger);
+                            Options(), &logger_);
     backupable_options_.reset(new BackupableDBOptions(
-        backupdir_, test_backup_env_.get(), logger.get(), true));
+        backupdir_, test_backup_env_.get(), logger_.get(), true));
 
     // delete old files in db
     DestroyDB(dbname_, Options());
@@ -377,7 +383,7 @@ class BackupableDBTest {
   // options
   Options options_;
   unique_ptr<BackupableDBOptions> backupable_options_;
-  std::shared_ptr<Logger> logger;
+  std::shared_ptr<Logger> logger_;
 }; // BackupableDBTest
 
 void AppendPath(const std::string& path, std::vector<std::string>& v) {
@@ -432,6 +438,8 @@ TEST(BackupableDBTest, NoDoubleCopy) {
   ASSERT_EQ(100, size);
   test_backup_env_->GetFileSize(backupdir_ + "/shared/00015.sst", &size);
   ASSERT_EQ(200, size);
+
+  CloseBackupableDB();
 }
 
 // test various kind of corruptions that may happen:
