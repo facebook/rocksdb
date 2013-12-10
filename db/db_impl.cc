@@ -2559,7 +2559,6 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
   mutex_.Unlock();
-  LogFlush(options_.info_log);
   return internal_iter;
 }
 
