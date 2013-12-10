@@ -2643,7 +2643,6 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   delete m;
   for (MemTable* v: to_delete) delete v;
 
-  LogFlush(options_.info_log);
   // Note, tickers are atomic now - no lock protection needed any more.
   RecordTick(options_.statistics.get(), NUMBER_KEYS_READ);
   RecordTick(options_.statistics.get(), BYTES_READ, value->size());
@@ -2729,7 +2728,6 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   delete m;
   for (MemTable* v: to_delete) delete v;
 
-  LogFlush(options_.info_log);
   RecordTick(options_.statistics.get(), NUMBER_MULTIGET_CALLS);
   RecordTick(options_.statistics.get(), NUMBER_MULTIGET_KEYS_READ, numKeys);
   RecordTick(options_.statistics.get(), NUMBER_MULTIGET_BYTES_READ, bytesRead);
@@ -2877,7 +2875,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         SetTickerCount(options_.statistics.get(),
                        SEQUENCE_NUMBER, last_sequence);
       }
-      LogFlush(options_.info_log);
       mutex_.Lock();
       if (status.ok()) {
         versions_->SetLastSequence(last_sequence);
