@@ -435,9 +435,9 @@ TEST(BackupableDBTest, NoDoubleCopy) {
   // MANIFEST file size should be only 100
   uint64_t size;
   test_backup_env_->GetFileSize(backupdir_ + "/private/2/MANIFEST-01", &size);
-  ASSERT_EQ(100, size);
+  ASSERT_EQ(100UL, size);
   test_backup_env_->GetFileSize(backupdir_ + "/shared/00015.sst", &size);
-  ASSERT_EQ(200, size);
+  ASSERT_EQ(200UL, size);
 
   CloseBackupableDB();
 }
