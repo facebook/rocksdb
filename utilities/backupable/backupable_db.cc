@@ -273,7 +273,10 @@ Status BackupEngine::CreateNewBackup(DB* db, bool flush_before_backup) {
     uint64_t number;
     FileType type;
     bool ok = ParseFileName(live_files[i], &number, &type);
-    assert(ok);
+    if (!ok) {
+      assert(false);
+      return Status::Corruption("Can't parse file name. This is very bad");
+    }
     // we should only get sst, manifest and current files here
     assert(type == kTableFile ||
              type == kDescriptorFile ||
