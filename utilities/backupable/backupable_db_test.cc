@@ -614,7 +614,7 @@ TEST(BackupableDBTest, OnlineIntegrationTest) {
 
   std::vector<BackupInfo> backup_info;
   restore_db_->GetBackupInfo(&backup_info);
-  ASSERT_EQ(2, backup_info.size());
+  ASSERT_EQ(2UL, backup_info.size());
 
   // check backup 3
   AssertBackupConsistency(3, 0, 3 * keys_iteration, max_key);
