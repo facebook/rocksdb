@@ -78,6 +78,9 @@ class BackupableDB : public StackableDB {
  public:
   // BackupableDBOptions have to be the same as the ones used in a previous
   // incarnation of the DB
+  //
+  // BackupableDB ownes the pointer `DB* db` now. You should not delete it or
+  // use it after the invocation of BackupableDB
   BackupableDB(DB* db, const BackupableDBOptions& options);
   virtual ~BackupableDB();
 
@@ -106,10 +109,12 @@ class RestoreBackupableDB {
 
    // restore from backup with backup_id
    // IMPORTANT -- if you restore from some backup that is not the latest,
-   // you HAVE to delete all the newer backups immediately, before creating
-   // new backup on the restored database. Otherwise, your new backups
-   // will be corrupted.
-   // TODO should we enforce this somehow?
+   // and you start creating new backups from the new DB, all the backups
+   // that were newer than the backup you restored from will be deleted
+   //
+   // Example: Let's say you have backups 1, 2, 3, 4, 5 and you restore 3.
+   // If you try creating a new backup now, old backups 4 and 5 will be deleted
+   // and new backup with ID 4 will be created.
    Status RestoreDBFromBackup(BackupID backup_id, const std::string& db_dir,
                               const std::string& wal_dir);
 

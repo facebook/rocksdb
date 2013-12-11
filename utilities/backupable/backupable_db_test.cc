@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 #include "utilities/utility_db.h"
 #include "utilities/backupable_db.h"
@@ -29,7 +30,11 @@ class DummyDB : public StackableDB {
   /* implicit */
   DummyDB(const Options& options, const std::string& dbname)
      : StackableDB(nullptr), options_(options), dbname_(dbname),
-       deletions_enabled_(true) {}
+       deletions_enabled_(true), sequence_number_(0) {}
+
+  virtual SequenceNumber GetLatestSequenceNumber() const {
+    return ++sequence_number_;
+  }
 
   virtual const std::string& GetName() const override {
     return dbname_;
@@ -117,6 +122,7 @@ class DummyDB : public StackableDB {
   Options options_;
   std::string dbname_;
   bool deletions_enabled_;
+  mutable SequenceNumber sequence_number_;
 }; // DummyDB
 
 class TestEnv : public EnvWrapper {
@@ -292,7 +298,7 @@ class BackupableDBTest {
     // set up db options
     options_.create_if_missing = true;
     options_.paranoid_checks = true;
-    options_.write_buffer_size = 1 << 19; // 512KB
+    options_.write_buffer_size = 1 << 17; // 128KB
     options_.env = test_db_env_.get();
     options_.wal_dir = dbname_;
     // set up backup db options
@@ -303,6 +309,12 @@ class BackupableDBTest {
 
     // delete old files in db
     DestroyDB(dbname_, Options());
+  }
+
+  DB* OpenDB() {
+    DB* db;
+    ASSERT_OK(DB::Open(options_, dbname_, &db));
+    return db;
   }
 
   void OpenBackupableDB(bool destroy_old_data = false, bool dummy = false) {
@@ -354,12 +366,12 @@ class BackupableDBTest {
     } else {
       ASSERT_OK(restore_db_->RestoreDBFromLatestBackup(dbname_, dbname_));
     }
-    OpenBackupableDB();
-    AssertExists(db_.get(), start_exist, end_exist);
+    DB* db = OpenDB();
+    AssertExists(db, start_exist, end_exist);
     if (end != 0) {
-      AssertEmpty(db_.get(), end_exist, end);
+      AssertEmpty(db, end_exist, end);
     }
-    CloseBackupableDB();
+    delete db;
     if (opened_restore) {
       CloseRestoreDB();
     }
@@ -450,7 +462,7 @@ TEST(BackupableDBTest, NoDoubleCopy) {
 //      not be able to open that backup, but all other backups should be
 //      fine
 TEST(BackupableDBTest, CorruptionsTest) {
-  const int keys_iteration = 20000;
+  const int keys_iteration = 5000;
   Random rnd(6);
   Status s;
 
@@ -516,7 +528,7 @@ TEST(BackupableDBTest, CorruptionsTest) {
 // open DB, write, close DB, backup, restore, repeat
 TEST(BackupableDBTest, OfflineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
-  const int keys_iteration = 20000;
+  const int keys_iteration = 5000;
   const int max_key = keys_iteration * 4 + 10;
   // first iter -- flush before backup
   // second iter -- don't flush before backup
@@ -542,9 +554,9 @@ TEST(BackupableDBTest, OfflineIntegrationTest) {
       DestroyDB(dbname_, Options());
 
       // ---- make sure it's empty ----
-      OpenBackupableDB();
-      AssertEmpty(db_.get(), 0, fill_up_to);
-      CloseBackupableDB();
+      DB* db = OpenDB();
+      AssertEmpty(db, 0, fill_up_to);
+      delete db;
 
       // ---- restore the DB ----
       OpenRestoreDB();
@@ -563,7 +575,7 @@ TEST(BackupableDBTest, OfflineIntegrationTest) {
 // open DB, write, backup, write, backup, close, restore
 TEST(BackupableDBTest, OnlineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
-  const int keys_iteration = 20000;
+  const int keys_iteration = 5000;
   const int max_key = keys_iteration * 4 + 10;
   Random rnd(7);
   // delete old data
@@ -591,9 +603,9 @@ TEST(BackupableDBTest, OnlineIntegrationTest) {
   DestroyDB(dbname_, Options());
 
   // ---- make sure it's empty ----
-  OpenBackupableDB();
-  AssertEmpty(db_.get(), 0, max_key);
-  CloseBackupableDB();
+  DB* db = OpenDB();
+  AssertEmpty(db, 0, max_key);
+  delete db;
 
   // ---- restore every backup and verify all the data is there ----
   OpenRestoreDB();
@@ -621,6 +633,29 @@ TEST(BackupableDBTest, OnlineIntegrationTest) {
   // check backup 5
   AssertBackupConsistency(5, 0, max_key);
 
+  CloseRestoreDB();
+}
+
+TEST(BackupableDBTest, DeleteNewerBackups) {
+  // create backups 1, 2, 3, 4, 5
+  OpenBackupableDB(true);
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), 100 * i, 100 * (i + 1));
+    ASSERT_OK(db_->CreateNewBackup(!!(i % 2)));
+  }
+  CloseBackupableDB();
+
+  // backup 3 is fine
+  AssertBackupConsistency(3, 0, 300, 500);
+  // this should delete backups 4 and 5
+  OpenBackupableDB();
+  CloseBackupableDB();
+  // backups 4 and 5 don't exist
+  OpenRestoreDB();
+  Status s = restore_db_->RestoreDBFromBackup(4, dbname_, dbname_);
+  ASSERT_TRUE(s.IsNotFound());
+  s = restore_db_->RestoreDBFromBackup(5, dbname_, dbname_);
+  ASSERT_TRUE(s.IsNotFound());
   CloseRestoreDB();
 }
 

@@ -40,6 +40,8 @@ class BackupEngine {
     return RestoreDBFromBackup(latest_backup_id_, db_dir, wal_dir);
   }
 
+  void DeleteBackupsNewerThan(uint64_t sequence_number);
+
  private:
   class BackupMeta {
    public:
@@ -59,6 +61,12 @@ class BackupEngine {
     uint64_t GetSize() const {
       return size_;
     }
+    void SetSequenceNumber(uint64_t sequence_number) {
+      sequence_number_ = sequence_number;
+    }
+    uint64_t GetSequenceNumber() {
+      return sequence_number_;
+    }
 
     void AddFile(const std::string& filename, uint64_t size);
     void Delete();
@@ -76,6 +84,9 @@ class BackupEngine {
 
    private:
     int64_t timestamp_;
+    // sequence number is only approximate, should not be used
+    // by clients
+    uint64_t sequence_number_;
     uint64_t size_;
     std::string const meta_filename_;
     // files with relative paths (without "/" prefix!!)
@@ -232,11 +243,31 @@ BackupEngine::~BackupEngine() {
   LogFlush(options_.info_log);
 }
 
+void BackupEngine::DeleteBackupsNewerThan(uint64_t sequence_number) {
+  for (auto backup : backups_) {
+    if (backup.second.GetSequenceNumber() > sequence_number) {
+      Log(options_.info_log,
+          "Deleting backup %u because sequence number (%lu) is newer than %lu",
+          backup.first, backup.second.GetSequenceNumber(), sequence_number);
+      backup.second.Delete();
+      obsolete_backups_.push_back(backup.first);
+    }
+  }
+  for (auto ob : obsolete_backups_) {
+    backups_.erase(backups_.find(ob));
+  }
+  auto itr = backups_.end();
+  latest_backup_id_ = (itr == backups_.begin()) ? 0 : (--itr)->first;
+  PutLatestBackupFileContents(latest_backup_id_); // Ignore errors
+  GarbageCollection(false);
+}
+
 Status BackupEngine::CreateNewBackup(DB* db, bool flush_before_backup) {
   Status s;
   std::vector<std::string> live_files;
   VectorLogPtr live_wal_files;
   uint64_t manifest_file_size = 0;
+  uint64_t sequence_number = db->GetLatestSequenceNumber();
 
   s = db->DisableFileDeletions();
   if (s.ok()) {
@@ -261,6 +292,7 @@ Status BackupEngine::CreateNewBackup(DB* db, bool flush_before_backup) {
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup.RecordTimestamp();
+  new_backup.SetSequenceNumber(sequence_number);
 
   Log(options_.info_log, "Started the backup process -- creating backup %u",
       new_backup_id);
@@ -603,8 +635,8 @@ void BackupEngine::GarbageCollection(bool full_scan) {
       Log(options_.info_log, "Deleting private dir %s -- %s",
           private_dir.c_str(), s.ToString().c_str());
     }
-    obsolete_backups_.clear();
   }
+  obsolete_backups_.clear();
 
   if (full_scan) {
     Log(options_.info_log, "Starting full scan garbage collection");
@@ -684,6 +716,7 @@ void BackupEngine::BackupMeta::Delete() {
 
 // each backup meta file is of the format:
 // <timestamp>
+// <seq number>
 // <number of files>
 // <file1>
 // <file2>
@@ -711,14 +744,24 @@ Status BackupEngine::BackupMeta::LoadFromFile(const std::string& backup_dir) {
   int bytes_read = 0;
   sscanf(data.data(), "%ld%n", &timestamp_, &bytes_read);
   data.remove_prefix(bytes_read + 1); // +1 for '\n'
+  sscanf(data.data(), "%lu%n", &sequence_number_, &bytes_read);
+  data.remove_prefix(bytes_read + 1); // +1 for '\n'
   sscanf(data.data(), "%u%n", &num_files, &bytes_read);
   data.remove_prefix(bytes_read + 1); // +1 for '\n'
+
+  std::vector<std::pair<std::string, uint64_t>> files;
 
   for (uint32_t i = 0; s.ok() && i < num_files; ++i) {
     std::string filename = GetSliceUntil(&data, '\n').ToString();
     uint64_t size;
     s = env_->GetFileSize(backup_dir + "/" + filename, &size);
-    AddFile(filename, size);
+    files.push_back(std::make_pair(filename, size));
+  }
+
+  if (s.ok()) {
+    for (auto file : files) {
+      AddFile(file.first, file.second);
+    }
   }
 
   return s;
@@ -738,6 +781,8 @@ Status BackupEngine::BackupMeta::StoreToFile(bool sync) {
   unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
   int len = 0, buf_size = max_backup_meta_file_size_;
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
+  len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
+                  sequence_number_);
   len += snprintf(buf.get() + len, buf_size - len, "%zu\n", files_.size());
   for (size_t i = 0; i < files_.size(); ++i) {
     len += snprintf(buf.get() + len, buf_size - len, "%s\n", files_[i].c_str());
@@ -758,9 +803,10 @@ Status BackupEngine::BackupMeta::StoreToFile(bool sync) {
 
 // --- BackupableDB methods --------
 
-BackupableDB::BackupableDB(DB* db, const BackupableDBOptions& options) :
-  StackableDB(db),
-  backup_engine_(new BackupEngine(db->GetEnv(), options)) {}
+BackupableDB::BackupableDB(DB* db, const BackupableDBOptions& options)
+    : StackableDB(db), backup_engine_(new BackupEngine(db->GetEnv(), options)) {
+  backup_engine_->DeleteBackupsNewerThan(GetLatestSequenceNumber());
+}
 
 BackupableDB::~BackupableDB() {
   delete backup_engine_;
