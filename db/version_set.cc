@@ -591,13 +591,15 @@ void Version::Ref() {
   ++refs_;
 }
 
-void Version::Unref() {
+bool Version::Unref() {
   assert(this != &vset_->dummy_versions_);
   assert(refs_ >= 1);
   --refs_;
   if (refs_ == 0) {
     delete this;
+    return true;
   }
+  return false;
 }
 
 bool Version::OverlapInLevel(int level,

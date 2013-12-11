@@ -2515,9 +2515,10 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
       deletion_state.memtables_to_free.push_back(m);
     }
   }
-  state->version->Unref();
-  // fast path FindObsoleteFiles
-  state->db->FindObsoleteFiles(deletion_state, false, true);
+  if (state->version->Unref()) {
+    // fast path FindObsoleteFiles
+    state->db->FindObsoleteFiles(deletion_state, false, true);
+  }
   state->mu->Unlock();
   state->db->PurgeObsoleteFiles(deletion_state);
   delete state;

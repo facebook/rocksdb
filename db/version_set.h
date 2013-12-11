@@ -89,7 +89,9 @@ class Version {
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
   void Ref();
-  void Unref();
+  // Decrease reference count. Delete the object if no reference left
+  // and return true. Otherwise, return false.
+  bool Unref();
 
   void GetOverlappingInputs(
       int level,
