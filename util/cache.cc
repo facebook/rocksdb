@@ -404,7 +404,7 @@ class ShardedLRUCache : public Cache {
     MutexLock l(&id_mutex_);
     return ++(last_id_);
   }
-  virtual size_t GetCapacity() {
+  virtual size_t GetCapacity() const {
     return capacity_;
   }
 };
