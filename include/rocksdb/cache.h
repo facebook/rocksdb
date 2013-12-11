@@ -104,6 +104,9 @@ class Cache {
   // returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() const = 0;
 
+  // returns the memory size for the entries residing in the cache.
+  virtual size_t GetUsage() const = 0;
+
  private:
   void LRU_Remove(Handle* e);
   void LRU_Append(Handle* e);

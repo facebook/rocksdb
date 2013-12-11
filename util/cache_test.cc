@@ -107,6 +107,39 @@ class CacheTest {
 };
 CacheTest* CacheTest::current_;
 
+void dumbDeleter(const Slice& key, void* value) { }
+
+TEST(CacheTest, UsageTest) {
+  // cache is shared_ptr and will be automatically cleaned up.
+  const uint64_t kCapacity = 100000;
+  auto cache = NewLRUCache(kCapacity, 8, 200);
+
+  size_t usage = 0;
+  const char* value = "abcdef";
+  // make sure everything will be cached
+  for (int i = 1; i < 100; ++i) {
+    std::string key(i, 'a');
+    auto kv_size = key.size() + 5;
+    cache->Release(
+        cache->Insert(key, (void*)value, kv_size, dumbDeleter)
+    );
+    usage += kv_size;
+    ASSERT_EQ(usage, cache->GetUsage());
+  }
+
+  // make sure the cache will be overloaded
+  for (int i = 1; i < kCapacity; ++i) {
+    auto key = std::to_string(i);
+    cache->Release(
+        cache->Insert(key, (void*)value, key.size() + 5, dumbDeleter)
+    );
+  }
+
+  // the usage should be close to the capacity
+  ASSERT_GT(kCapacity, cache->GetUsage());
+  ASSERT_LT(kCapacity * 0.95, cache->GetUsage());
+}
+
 TEST(CacheTest, HitAndMiss) {
   ASSERT_EQ(-1, Lookup(100));
 
@@ -352,7 +385,6 @@ class Value {
 void deleter(const Slice& key, void* value) {
   delete (Value *)value;
 }
-
 
 TEST(CacheTest, BadEviction) {
   int n = 10;
