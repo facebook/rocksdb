@@ -1053,27 +1053,26 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   *filenumber = meta.number;
   pending_outputs_.insert(meta.number);
 
-  std::vector<Iterator*> list;
-  for (MemTable* m : mems) {
-    Log(options_.info_log,
-        "Flushing memtable with log file: %lu\n",
-        (unsigned long)m->GetLogNumber());
-    list.push_back(m->NewIterator());
-  }
-  Iterator* iter = NewMergingIterator(&internal_comparator_, &list[0],
-                                      list.size());
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mems[0]->GetFirstSequenceNumber();
-  Log(options_.info_log,
-      "Level-0 flush table #%lu: started",
-      (unsigned long)meta.number);
-
   Version* base = versions_->current();
   base->Ref();          // it is likely that we do not need this reference
   Status s;
   {
     mutex_.Unlock();
+    std::vector<Iterator*> list;
+    for (MemTable* m : mems) {
+      Log(options_.info_log,
+          "Flushing memtable with log file: %lu\n",
+          (unsigned long)m->GetLogNumber());
+      list.push_back(m->NewIterator());
+    }
+    Iterator* iter = NewMergingIterator(&internal_comparator_, &list[0],
+                                        list.size());
+    Log(options_.info_log,
+        "Level-0 flush table #%lu: started",
+        (unsigned long)meta.number);
     // We skip compression if universal compression is used and the size
     // threshold is set for compression.
     bool enable_compression = (options_.compaction_style
@@ -1084,15 +1083,15 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
                    user_comparator(), newest_snapshot,
                    earliest_seqno_in_memtable, enable_compression);
     LogFlush(options_.info_log);
+    delete iter;
+    Log(options_.info_log, "Level-0 flush table #%lu: %lu bytes %s",
+        (unsigned long) meta.number,
+        (unsigned long) meta.file_size,
+        s.ToString().c_str());
     mutex_.Lock();
   }
   base->Unref();
 
-  Log(options_.info_log, "Level-0 flush table #%lu: %lu bytes %s",
-      (unsigned long) meta.number,
-      (unsigned long) meta.file_size,
-      s.ToString().c_str());
-  delete iter;
 
   // re-acquire the most current version
   base = versions_->current();
