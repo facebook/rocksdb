@@ -26,7 +26,7 @@
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/memtable.h"
-#include "db/memtablelist.h"
+#include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/prefix_filter_iterator.h"

@@ -21,7 +21,7 @@
 #include "rocksdb/transaction_log.h"
 #include "port/port.h"
 #include "util/stats_logger.h"
-#include "memtablelist.h"
+#include "memtable_list.h"
 
 namespace rocksdb {
 
