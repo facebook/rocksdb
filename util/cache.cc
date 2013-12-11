@@ -10,7 +10,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <list>
+#include <vector>
 
 #include "rocksdb/cache.h"
 #include "port/port.h"
@@ -111,8 +111,8 @@ class HandleTable {
   }
 
   void Resize() {
-    uint32_t new_length = 4;
-    while (new_length < elems_) {
+    uint32_t new_length = 16;
+    while (new_length < elems_ * 1.5) {
       new_length *= 2;
     }
     LRUHandle** new_list = new LRUHandle*[new_length];
@@ -255,18 +255,20 @@ Cache::Handle* LRUCache::Insert(
 
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
       malloc(sizeof(LRUHandle)-1 + key.size()));
-  std::list<LRUHandle*> last_reference_list;
+  std::vector<LRUHandle*> last_reference_list;
+  last_reference_list.reserve(1);
+
+  e->value = value;
+  e->deleter = deleter;
+  e->charge = charge;
+  e->key_length = key.size();
+  e->hash = hash;
+  e->refs = 2;  // One from LRUCache, one for the returned handle
+  memcpy(e->key_data, key.data(), key.size());
 
   {
     MutexLock l(&mutex_);
 
-    e->value = value;
-    e->deleter = deleter;
-    e->charge = charge;
-    e->key_length = key.size();
-    e->hash = hash;
-    e->refs = 2;  // One from LRUCache, one for the returned handle
-    memcpy(e->key_data, key.data(), key.size());
     LRU_Append(e);
 
     LRUHandle* old = table_.Insert(e);
