@@ -1297,7 +1297,7 @@ class PosixEnv : public Env {
   }
 
   bool SupportsFastAllocate(const std::string& path) {
-#ifdef OS_LINUX
+#ifdef ROCKSDB_FALLOCATE_PRESENT
     struct statfs s;
     if (statfs(path.c_str(), &s)){
       return false;
