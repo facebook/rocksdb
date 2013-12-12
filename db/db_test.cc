@@ -2596,6 +2596,7 @@ class ChangeFilter : public CompactionFilter {
                       const Slice& value, std::string* new_value,
                       bool* value_changed) const override {
     assert(argv_ == 100);
+    argv_ = argv_ + 0;
     assert(new_value != nullptr);
     *new_value = NEW_VALUE;
     *value_changed = true;
