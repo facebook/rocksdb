@@ -247,7 +247,8 @@ void BackupEngine::DeleteBackupsNewerThan(uint64_t sequence_number) {
   for (auto backup : backups_) {
     if (backup.second.GetSequenceNumber() > sequence_number) {
       Log(options_.info_log,
-          "Deleting backup %u because sequence number (%lu) is newer than %lu",
+          "Deleting backup %u because sequence number (%" PRIu64
+          ") is newer than %" PRIu64 "",
           backup.first, backup.second.GetSequenceNumber(), sequence_number);
       backup.second.Delete();
       obsolete_backups_.push_back(backup.first);
@@ -742,9 +743,9 @@ Status BackupEngine::BackupMeta::LoadFromFile(const std::string& backup_dir) {
 
   uint32_t num_files = 0;
   int bytes_read = 0;
-  sscanf(data.data(), "%ld%n", &timestamp_, &bytes_read);
+  sscanf(data.data(), "%" PRId64 "%n", &timestamp_, &bytes_read);
   data.remove_prefix(bytes_read + 1); // +1 for '\n'
-  sscanf(data.data(), "%lu%n", &sequence_number_, &bytes_read);
+  sscanf(data.data(), "%" PRIu64 "%n", &sequence_number_, &bytes_read);
   data.remove_prefix(bytes_read + 1); // +1 for '\n'
   sscanf(data.data(), "%u%n", &num_files, &bytes_read);
   data.remove_prefix(bytes_read + 1); // +1 for '\n'
