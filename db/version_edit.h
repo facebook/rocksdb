@@ -29,13 +29,12 @@ struct FileMetaData {
   SequenceNumber largest_seqno; // The largest seqno in this file
 
   FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0),
-                   being_compacted(false) { }
+                   being_compacted(false) {}
 };
 
 class VersionEdit {
  public:
-  explicit VersionEdit(int number_levels) :
-      number_levels_(number_levels) {
+  explicit VersionEdit(int number_levels) : number_levels_(number_levels) {
     Clear();
   }
   ~VersionEdit() { }
@@ -96,6 +95,27 @@ class VersionEdit {
     return new_files_.size() + deleted_files_.size();
   }
 
+  void SetColumnFamily(uint32_t column_family_id) {
+    column_family_ = column_family_id;
+  }
+
+  // set column family ID by calling SetColumnFamily()
+  void AddColumnFamily(const std::string& name) {
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
+    assert(NumEntries() == 0);
+    is_column_family_add_ = true;
+    column_family_name_ = name;
+  }
+
+  // set column family ID by calling SetColumnFamily()
+  void DropColumnFamily() {
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
+    assert(NumEntries() == 0);
+    is_column_family_drop_ = true;
+  }
+
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
 
@@ -123,6 +143,16 @@ class VersionEdit {
   std::vector< std::pair<int, InternalKey> > compact_pointers_;
   DeletedFileSet deleted_files_;
   std::vector< std::pair<int, FileMetaData> > new_files_;
+
+  // Each version edit record should have column_family_id set
+  // If it's not set, it is default (0)
+  uint32_t column_family_;
+  // a version edit can be either column_family add or
+  // column_family drop. If it's column family add,
+  // it also includes column family name.
+  bool is_column_family_drop_;
+  bool is_column_family_add_;
+  std::string column_family_name_;
 };
 
 }  // namespace rocksdb

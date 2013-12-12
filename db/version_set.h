@@ -505,6 +505,10 @@ class VersionSet {
   // generates a increasing version number for every new version
   uint64_t current_version_number_;
 
+  // column family metadata
+  std::unordered_map<std::string, ColumnFamilyHandle> column_families_;
+  uint32_t max_column_family_id_;
+
   // Queue of writers to the manifest file
   std::deque<ManifestWriter*> manifest_writers_;
 

@@ -767,8 +767,8 @@ TEST(DBTest, LevelLimitReopen) {
   Status s = TryReopen(&options);
   ASSERT_EQ(s.IsCorruption(), true);
   ASSERT_EQ(s.ToString(),
-            "Corruption: VersionEdit: db already has "
-            "more levels than options.num_levels");
+            "Corruption: VersionEdit: column family already has "
+            "more levels than specified");
 
   options.num_levels = 10;
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);

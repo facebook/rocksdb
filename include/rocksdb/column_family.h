@@ -18,11 +18,11 @@ namespace rocksdb {
 // should not be used by the clients
 
 struct ColumnFamilyHandle {
-  int id;
+  uint32_t id;
   // default
   ColumnFamilyHandle() : id() {}
   /* implicit */
-  ColumnFamilyHandle(int _id) : id(_id) {}
+  ColumnFamilyHandle(uint32_t _id) : id(_id) {}
 };
 
 const ColumnFamilyHandle default_column_family = ColumnFamilyHandle();

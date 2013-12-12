@@ -11,6 +11,7 @@
 
 #include "db/version_set.h"
 #include "util/coding.h"
+#include "rocksdb/slice.h"
 
 namespace rocksdb {
 
@@ -28,7 +29,11 @@ enum Tag {
   kPrevLogNumber        = 9,
 
   // these are new formats divergent from open source leveldb
-  kNewFile2             = 100  // store smallest & largest seqno
+  kNewFile2             = 100,  // store smallest & largest seqno
+
+  kColumnFamily         = 200, // specify column family for version edit
+  kColumnFamilyAdd      = 201,
+  kColumnFamilyDrop     = 202,
 };
 
 void VersionEdit::Clear() {
@@ -44,6 +49,10 @@ void VersionEdit::Clear() {
   has_last_sequence_ = false;
   deleted_files_.clear();
   new_files_.clear();
+  column_family_ = 0;
+  is_column_family_add_ = 0;
+  is_column_family_drop_ = 0;
+  column_family_name_.clear();
 }
 
 void VersionEdit::EncodeTo(std::string* dst) const {
@@ -93,6 +102,21 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, f.smallest_seqno);
     PutVarint64(dst, f.largest_seqno);
   }
+
+  // 0 is default and does not need to be explicitly written
+  if (column_family_ != 0) {
+    PutVarint32(dst, kColumnFamily);
+    PutVarint32(dst, column_family_);
+  }
+
+  if (is_column_family_add_) {
+    PutVarint32(dst, kColumnFamilyAdd);
+    PutLengthPrefixedSlice(dst, Slice(column_family_name_));
+  }
+
+  if (is_column_family_drop_) {
+    PutVarint32(dst, kColumnFamilyDrop);
+  }
 }
 
 static bool GetInternalKey(Slice* input, InternalKey* dst) {
@@ -113,7 +137,7 @@ bool VersionEdit::GetLevel(Slice* input, int* level, const char** msg) {
     return true;
   } else {
     if ((int)v >= number_levels_) {
-      *msg = "db already has more levels than options.num_levels";
+      *msg = "column family already has more levels than specified";
     }
     return false;
   }
@@ -227,6 +251,29 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kColumnFamily:
+        if (!GetVarint32(&input, &column_family_)) {
+          if (!msg) {
+            msg = "set column family id";
+          }
+        }
+        break;
+
+      case kColumnFamilyAdd:
+        if (GetLengthPrefixedSlice(&input, &str)) {
+          is_column_family_add_ = true;
+          column_family_name_ = str.ToString();
+        } else {
+          if (!msg) {
+            msg = "column family add";
+          }
+        }
+        break;
+
+      case kColumnFamilyDrop:
+        is_column_family_drop_ = true;
+        break;
+
       default:
         msg = "unknown tag";
         break;
@@ -293,6 +340,15 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(f.smallest.DebugString(hex_key));
     r.append(" .. ");
     r.append(f.largest.DebugString(hex_key));
+  }
+  r.append("\n  ColumnFamily: ");
+  AppendNumberTo(&r, column_family_);
+  if (is_column_family_add_) {
+    r.append("\n  ColumnFamilyAdd: ");
+    r.append(column_family_name_);
+  }
+  if (is_column_family_drop_) {
+    r.append("\n  ColumnFamilyDrop");
   }
   r.append("\n}\n");
   return r;

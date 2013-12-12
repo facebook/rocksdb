@@ -987,7 +987,7 @@ class VersionSet::Builder {
 #ifndef NDEBUG
       // a file to be deleted better exist in the previous version
       bool found = false;
-      for (int l = 0; !found && l < edit->number_levels_; l++) {
+      for (int l = 0; !found && l < vset_->NumberLevels(); l++) {
         const std::vector<FileMetaData*>& base_files = base_->files_[l];
         for (unsigned int i = 0; i < base_files.size(); i++) {
           FileMetaData* f = base_files[i];
@@ -1000,7 +1000,7 @@ class VersionSet::Builder {
       // if the file did not exist in the previous version, then it
       // is possibly moved from lower level to higher level in current
       // version
-      for (int l = level+1; !found && l < edit->number_levels_; l++) {
+      for (int l = level+1; !found && l < vset_->NumberLevels(); l++) {
         const FileSet* added = levels_[l].added_files;
         for (FileSet::const_iterator added_iter = added->begin();
              added_iter != added->end(); ++added_iter) {
