@@ -49,6 +49,7 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
+	autovector_test \
 	db_test \
 	table_properties_collector_test \
 	arena_test \
@@ -225,6 +226,9 @@ signal_test: util/signal_test.o $(LIBOBJECTS)
 
 arena_test: util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 table_properties_collector_test: db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
