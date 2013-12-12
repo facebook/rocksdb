@@ -422,10 +422,17 @@ Status BackupEngine::RestoreDBFromBackup(BackupID backup_id,
   // delete log files that might have been already in wal_dir.
   // This is important since they might get replayed to the restored DB,
   // which will then differ from the backuped DB
-  std::vector<std::string> wal_dir_children;
-  db_env_->GetChildren(wal_dir, &wal_dir_children); // ignore errors
-  for (auto f : wal_dir_children) {
+  std::vector<std::string> delete_children;
+  db_env_->GetChildren(wal_dir, &delete_children); // ignore errors
+  for (auto f : delete_children) {
     db_env_->DeleteFile(wal_dir + "/" + f); // ignore errors
+  }
+  // Also delete all the db_dir children. This is not so important
+  // because obsolete files will be deleted by DBImpl::PurgeObsoleteFiles()
+  delete_children.clear();
+  db_env_->GetChildren(db_dir, &delete_children); // ignore errors
+  for (auto f : delete_children) {
+    db_env_->DeleteFile(db_dir + "/" + f); // ignore errors
   }
 
   Status s;
