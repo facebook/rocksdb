@@ -2657,38 +2657,40 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       SequenceNumber* latest_snapshot) {
   IterState* cleanup = new IterState;
-  mutex_.Lock();
-  *latest_snapshot = versions_->LastSequence();
+  MemTable* mutable_mem;
+  std::vector<MemTable*> immutables;
+  Version* version;
 
   // Collect together all needed child iterators for mem
-  std::vector<Iterator*> list;
+  mutex_.Lock();
+  *latest_snapshot = versions_->LastSequence();
   mem_->Ref();
-  list.push_back(mem_->NewIterator(options));
-
-  cleanup->mem.push_back(mem_);
-
+  mutable_mem = mem_;
   // Collect together all needed child iterators for imm_
-  std::vector<MemTable*> immutables;
   imm_.GetMemTables(&immutables);
   for (unsigned int i = 0; i < immutables.size(); i++) {
-    MemTable* m = immutables[i];
-    m->Ref();
+    immutables[i]->Ref();
+  }
+  // Collect iterators for files in L0 - Ln
+  versions_->current()->Ref();
+  version = versions_->current();
+  mutex_.Unlock();
+
+  std::vector<Iterator*> list;
+  list.push_back(mutable_mem->NewIterator(options));
+  cleanup->mem.push_back(mutable_mem);
+  for (MemTable* m : immutables) {
     list.push_back(m->NewIterator(options));
     cleanup->mem.push_back(m);
   }
-
-  // Collect iterators for files in L0 - Ln
-  versions_->current()->AddIterators(options, storage_options_, &list);
+  version->AddIterators(options, storage_options_, &list);
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
-  versions_->current()->Ref();
-
+  cleanup->version = version;
   cleanup->mu = &mutex_;
   cleanup->db = this;
-  cleanup->version = versions_->current();
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
-  mutex_.Unlock();
   return internal_iter;
 }
 
