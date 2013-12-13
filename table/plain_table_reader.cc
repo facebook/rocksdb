@@ -37,14 +37,6 @@ public:
     return MurmurHash(s.data(), s.size(), 397);
   }
 };
-
-class slice_comparator {
-public:
-  bool operator()(rocksdb::Slice const& s1,
-                  rocksdb::Slice const& s2) const {
-    return s1.compare(s2) < 0;
-  }
-};
 }
 
 namespace rocksdb {
@@ -146,8 +138,8 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
   HistogramImpl keys_per_prefix_hist;
   // Need map to be ordered to make sure sub indexes generated
   // are in order.
-  std::map<Slice, std::string, std::slice_comparator> prefix2map;
-
+  std::vector<std::pair<Slice, std::string>> prefix_index_pairs;
+  std::string current_prefix_index;
   while (pos < file_size) {
     uint32_t key_offset = pos;
     status_ = Next(pos, &key_slice, &value_slice, pos);
@@ -156,6 +148,11 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
     if (first || prev_key_prefix_slice != key_prefix_slice) {
       if (!first) {
         keys_per_prefix_hist.Add(key_index_within_prefix);
+        prefix_index_pairs.push_back(
+            std::make_pair<Slice, std::string>(
+                std::move(prev_key_prefix_slice),
+                std::move(current_prefix_index)));
+        current_prefix_index.clear();
       }
       key_index_within_prefix = 0;
       prev_key_prefix_slice = key_prefix_slice;
@@ -163,27 +160,30 @@ Status PlainTableReader::PopulateIndex(uint64_t file_size) {
 
     if (key_index_within_prefix++ % 8 == 0) {
       // Add an index key for every 8 keys
-      std::string& prefix_index = prefix2map[key_prefix_slice];
-      PutFixed32(&prefix_index, key_offset);
+      PutFixed32(&current_prefix_index, key_offset);
     }
     first = false;
   }
+  prefix_index_pairs.push_back(
+      std::make_pair<Slice, std::string>(std::move(prev_key_prefix_slice),
+                                         std::move(current_prefix_index)));
+
   keys_per_prefix_hist.Add(key_index_within_prefix);
   if (hash_table_ != nullptr) {
     delete[] hash_table_;
   }
   std::vector<Slice> filter_entries(0); // for creating bloom filter;
   if (filter_policy_ != nullptr) {
-    filter_entries.reserve(prefix2map.size());
+    filter_entries.reserve(prefix_index_pairs.size());
   }
   double hash_table_size_multipier =
       (hash_table_ratio_ > 1.0) ? 1.0 : 1.0 / hash_table_ratio_;
-  hash_table_size_ = prefix2map.size() * hash_table_size_multipier + 1;
+  hash_table_size_ = prefix_index_pairs.size() * hash_table_size_multipier + 1;
   hash_table_ = new uint32_t[hash_table_size_];
   std::vector<std::string> hash2map(hash_table_size_);
 
   size_t sub_index_size_needed = 0;
-  for (auto& p: prefix2map) {
+  for (auto& p: prefix_index_pairs) {
     auto& sub_index = hash2map[getBucketId(p.first, key_prefix_len_,
                                            hash_table_size_)];
     if (sub_index.length() > 0 || p.second.length() > kOffsetLen) {
