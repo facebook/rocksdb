@@ -128,7 +128,7 @@ TEST(CacheTest, UsageTest) {
   }
 
   // make sure the cache will be overloaded
-  for (int i = 1; i < kCapacity; ++i) {
+  for (uint64_t i = 1; i < kCapacity; ++i) {
     auto key = std::to_string(i);
     cache->Release(
         cache->Insert(key, (void*)value, key.size() + 5, dumbDeleter)
