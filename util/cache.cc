@@ -156,7 +156,13 @@ class LRUCache {
   Cache::Handle* Lookup(const Slice& key, uint32_t hash);
   void Release(Cache::Handle* handle);
   void Erase(const Slice& key, uint32_t hash);
-  size_t GetUsage() const { return usage_.load(std::memory_order_relaxed); }
+  // Although in some platforms the update of size_t is atomic, to make sure
+  // GetUsage() works correctly under any platforms, we'll protect this
+  // function with mutex.
+  size_t GetUsage() const {
+    MutexLock l(&mutex_);
+    return usage_;
+  }
 
  private:
   void LRU_Remove(LRUHandle* e);
@@ -172,8 +178,10 @@ class LRUCache {
   uint32_t remove_scan_count_limit_;
 
   // mutex_ protects the following state.
-  port::Mutex mutex_;
-  std::atomic_size_t usage_;
+  // We don't count mutex_ as the cache's internal state so semantically we
+  // don't mind mutex_ invoking the non-const actions.
+  mutable port::Mutex mutex_;
+  size_t usage_;
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
@@ -215,7 +223,7 @@ void LRUCache::FreeEntry(LRUHandle* e) {
 void LRUCache::LRU_Remove(LRUHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
-  usage_.fetch_sub(e->charge, std::memory_order_relaxed);
+  usage_ -= e->charge;
 }
 
 void LRUCache::LRU_Append(LRUHandle* e) {
@@ -224,7 +232,7 @@ void LRUCache::LRU_Append(LRUHandle* e) {
   e->prev = lru_.prev;
   e->prev->next = e;
   e->next->prev = e;
-  usage_.fetch_add(e->charge, std::memory_order_relaxed);
+  usage_ += e->charge;
 }
 
 Cache::Handle* LRUCache::Lookup(const Slice& key, uint32_t hash) {
@@ -283,7 +291,7 @@ Cache::Handle* LRUCache::Insert(
       // referenced by the cache first.
       LRUHandle* cur = lru_.next;
       for (unsigned int scanCount = 0;
-           GetUsage() > capacity_ && cur != &lru_
+           usage_ > capacity_ && cur != &lru_
            && scanCount < remove_scan_count_limit_; scanCount++) {
         LRUHandle* next = cur->next;
         if (cur->refs <= 1) {
@@ -299,7 +307,7 @@ Cache::Handle* LRUCache::Insert(
 
     // Free the space following strict LRU policy until enough space
     // is freed.
-    while (GetUsage() > capacity_ && lru_.next != &lru_) {
+    while (usage_ > capacity_ && lru_.next != &lru_) {
       LRUHandle* old = lru_.next;
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
