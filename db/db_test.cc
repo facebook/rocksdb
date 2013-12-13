@@ -2590,12 +2590,11 @@ class DeleteFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  explicit ChangeFilter(int argv) : argv_(argv) {}
+  explicit ChangeFilter() {}
 
   virtual bool Filter(int level, const Slice& key,
                       const Slice& value, std::string* new_value,
                       bool* value_changed) const override {
-    assert(argv_ == 100);
     assert(new_value != nullptr);
     *new_value = NEW_VALUE;
     *value_changed = true;
@@ -2605,9 +2604,6 @@ class ChangeFilter : public CompactionFilter {
   virtual const char* Name() const override {
     return "ChangeFilter";
   }
-
- private:
-  const int __attribute__((unused)) argv_;
 };
 
 class KeepFilterFactory : public CompactionFilterFactory {
@@ -2636,19 +2632,16 @@ class DeleteFilterFactory : public CompactionFilterFactory {
 
 class ChangeFilterFactory : public CompactionFilterFactory {
   public:
-    explicit ChangeFilterFactory(int argv) : argv_(argv) {}
+    explicit ChangeFilterFactory() {}
 
     virtual std::unique_ptr<CompactionFilter>
     CreateCompactionFilter(const CompactionFilter::Context& context) override {
-      return std::unique_ptr<CompactionFilter>(new ChangeFilter(argv_));
+      return std::unique_ptr<CompactionFilter>(new ChangeFilter());
     }
 
     virtual const char* Name() const override {
       return "ChangeFilterFactory";
     }
-
-  private:
-    const int argv_;
 };
 
 TEST(DBTest, CompactionFilter) {
@@ -2795,7 +2788,7 @@ TEST(DBTest, CompactionFilterWithValueChange) {
     options.num_levels = 3;
     options.max_mem_compaction_level = 0;
     options.compaction_filter_factory =
-      std::make_shared<ChangeFilterFactory>(100);
+      std::make_shared<ChangeFilterFactory>();
     Reopen(&options);
 
     // Write 100K+1 keys, these are written to a few files
