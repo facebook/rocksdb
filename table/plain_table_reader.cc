@@ -279,7 +279,7 @@ uint32_t PlainTableReader::GetOffset(const Slice& target,
     const char* index_offset = sub_index_.data() + base_offset
         + kOffsetLen * mid;
     uint32_t file_offset = DecodeFixed32(index_offset);
-    mid_key = Slice(file_data_.data() + file_offset, user_key_size_);
+    mid_key = Slice(file_data_.data() + file_offset, GetInternalKeyLength());
 
     int cmp_result = options_.comparator->Compare(target, mid_key);
     if (cmp_result > 0) {
