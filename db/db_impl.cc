@@ -2597,7 +2597,6 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   StopWatch sw(env_, options_.statistics.get(), DB_GET);
   SequenceNumber snapshot;
   std::vector<MemTable*> to_delete;
-  to_delete.reserve(options_.max_write_buffer_number);
   mutex_.Lock();
   if (options.snapshot != nullptr) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
@@ -2665,7 +2664,6 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   StopWatch sw(env_, options_.statistics.get(), DB_MULTIGET);
   SequenceNumber snapshot;
   std::vector<MemTable*> to_delete;
-  to_delete.reserve(options_.max_write_buffer_number);
 
   mutex_.Lock();
   if (options.snapshot != nullptr) {
