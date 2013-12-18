@@ -49,6 +49,7 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
+	db_test \
 	table_properties_collector_test \
 	arena_test \
 	auto_roll_logger_test \
@@ -81,8 +82,7 @@ TESTS = \
 	version_set_test \
 	write_batch_test\
 	deletefile_test \
-	table_test \
-	db_test
+	table_test
 
 TOOLS = \
         sst_dump \
@@ -147,8 +147,9 @@ coverage:
 	# Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-check: all $(PROGRAMS) $(TESTS) $(TOOLS) ldb_tests
+check: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
+	python tools/ldb_test.py
 
 ldb_tests: all $(PROGRAMS) $(TOOLS)
 	python tools/ldb_test.py
