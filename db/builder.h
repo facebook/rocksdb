@@ -43,6 +43,6 @@ extern Status BuildTable(const std::string& dbname,
                          const Comparator* user_comparator,
                          const SequenceNumber newest_snapshot,
                          const SequenceNumber earliest_seqno_in_memtable,
-                         const bool enable_compression);
+                         const CompressionType compression);
 
 }  // namespace rocksdb

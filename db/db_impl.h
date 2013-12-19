@@ -589,4 +589,7 @@ extern Options SanitizeOptions(const std::string& db,
 CompressionType GetCompressionType(const Options& options, int level,
                                    const bool enable_compression);
 
+// Determine compression type for L0 file written by memtable flush.
+CompressionType GetCompressionFlush(const Options& options);
+
 }  // namespace rocksdb

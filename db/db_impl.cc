@@ -225,6 +225,28 @@ CompressionType GetCompressionType(const Options& options, int level,
   }
 }
 
+CompressionType GetCompressionFlush(const Options& options) {
+  // Compressing memtable flushes might not help unless the sequential load
+  // optimization is used for leveled compaction. Otherwise the CPU and
+  // latency overhead is not offset by saving much space.
+
+  bool can_compress;
+
+  if  (options.compaction_style == kCompactionStyleUniversal) {
+    can_compress =
+        (options.compaction_options_universal.compression_size_percent < 0);
+  } else {
+    // For leveled compress when min_level_to_compress == 0.
+    can_compress = (GetCompressionType(options, 0, true) != kNoCompression);
+  }
+
+  if (can_compress) {
+    return options.compression;
+  } else {
+    return kNoCompression;
+  }
+}
+
 DBImpl::DBImpl(const Options& options, const std::string& dbname)
     : env_(options.env),
       dbname_(dbname),
@@ -1068,7 +1090,8 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
     s = BuildTable(dbname_, env_, options_, storage_options_,
                    table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable, true);
+                   earliest_seqno_in_memtable,
+                   GetCompressionFlush(options_));
     LogFlush(options_.info_log);
     mutex_.Lock();
   }
@@ -1129,15 +1152,11 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
     Log(options_.info_log,
         "Level-0 flush table #%lu: started",
         (unsigned long)meta.number);
-    // We skip compression if universal compression is used and the size
-    // threshold is set for compression.
-    bool enable_compression = (options_.compaction_style
-        != kCompactionStyleUniversal ||
-        options_.compaction_options_universal.compression_size_percent < 0);
+
     s = BuildTable(dbname_, env_, options_, storage_options_,
                    table_cache_.get(), iter, &meta,
                    user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable, enable_compression);
+                   earliest_seqno_in_memtable, GetCompressionFlush(options_));
     LogFlush(options_.info_log);
     delete iter;
     Log(options_.info_log, "Level-0 flush table #%lu: %lu bytes %s",

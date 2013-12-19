@@ -225,7 +225,8 @@ class Repairer {
     Iterator* iter = mem->NewIterator();
     status = BuildTable(dbname_, env_, options_, storage_options_,
                         table_cache_, iter, &meta,
-                        icmp_.user_comparator(), 0, 0, true);
+                        icmp_.user_comparator(), 0, 0,
+                        kNoCompression);
     delete iter;
     delete mem->Unref();
     mem = nullptr;
