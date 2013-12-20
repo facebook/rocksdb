@@ -15,6 +15,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/plain_table_factory.h"
 
 #include "table/block.h"
 #include "table/filter_block.h"
@@ -23,6 +24,7 @@
 #include "table/two_level_iterator.h"
 
 #include "util/coding.h"
+#include "util/dynamic_bloom.h"
 #include "util/hash.h"
 #include "util/histogram.h"
 #include "util/murmurhash.h"
@@ -30,46 +32,36 @@
 #include "util/stop_watch.h"
 
 
-namespace std {
-template<>
-struct hash<rocksdb::Slice> {
-public:
-  std::size_t operator()(rocksdb::Slice const& s) const {
-    return MurmurHash(s.data(), s.size(), 397);
-  }
-};
-}
-
 namespace rocksdb {
 
 extern const uint64_t kPlainTableMagicNumber;
-static uint32_t getBucketId(Slice const& s, size_t prefix_len,
-                            uint32_t num_buckets) {
-  return MurmurHash(s.data(), prefix_len, 397) % num_buckets;
+
+static uint32_t GetSliceHash(Slice const& s) {
+  return Hash(s.data(), s.size(), 397) ;
+}
+static uint32_t getBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
+  return hash % num_buckets;
 }
 
 PlainTableReader::PlainTableReader(const EnvOptions& storage_options,
-                                   uint64_t file_size, int user_key_size,
-                                   int key_prefix_len, int bloom_bits_per_key,
+                                   uint64_t file_size, int bloom_bits_per_key,
                                    double hash_table_ratio,
                                    const TableProperties& table_properties) :
     hash_table_size_(0), soptions_(storage_options), file_size_(file_size),
-    user_key_size_(user_key_size), key_prefix_len_(key_prefix_len),
     hash_table_ratio_(hash_table_ratio),
-    filter_policy_(bloom_bits_per_key > 0 ?
-                     NewBloomFilterPolicy(bloom_bits_per_key) : nullptr),
-    table_properties_(table_properties),
-    data_start_offset_(0),
-    data_end_offset_(table_properties_.data_size) {
+    bloom_bits_per_key_(bloom_bits_per_key),
+    table_properties_(table_properties), data_start_offset_(0),
+    data_end_offset_(table_properties_.data_size),
+    user_key_len_(table_properties.fixed_key_len) {
+  hash_table_ = nullptr;
+  bloom_ = nullptr;
+  sub_index_ = nullptr;
 }
 
 PlainTableReader::~PlainTableReader() {
-  if (hash_table_ != nullptr) {
-    delete[] hash_table_;
-  }
-  if (filter_policy_ != nullptr) {
-    delete filter_policy_;
-  }
+  delete[] hash_table_;
+  delete[] sub_index_;
+  delete bloom_;
 }
 
 Status PlainTableReader::Open(const Options& options,
@@ -77,8 +69,6 @@ Status PlainTableReader::Open(const Options& options,
                               unique_ptr<RandomAccessFile> && file,
                               uint64_t file_size,
                               unique_ptr<TableReader>* table_reader,
-                              const int user_key_size,
-                              const int key_prefix_len,
                               const int bloom_num_bits,
                               double hash_table_ratio) {
   assert(options.allow_mmap_reads);
@@ -103,8 +93,6 @@ Status PlainTableReader::Open(const Options& options,
   std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
       soptions,
       file_size,
-      user_key_size,
-      key_prefix_len,
       bloom_num_bits,
       hash_table_ratio,
       table_properties
@@ -133,22 +121,69 @@ Iterator* PlainTableReader::NewIterator(const ReadOptions& options) {
   return new PlainTableIterator(this);
 }
 
-Status PlainTableReader::PopulateIndex() {
-  // Get mmapped memory to file_data_.
-  Status s = file_->Read(0, file_size_, &file_data_, nullptr);
-  if (!s.ok()) {
-    return s;
-  }
-  version_ = DecodeFixed32(file_data_.data());
-  version_ ^= 0x80000000;
-  assert(version_ == 1);
-  data_start_offset_ = 4;
+struct PlainTableReader::IndexRecord {
+  uint32_t hash; // hash of the prefix
+  uint32_t offset; // offset of a row
+  IndexRecord* next;
+};
 
+// Helper class to track all the index records
+class PlainTableReader::IndexRecordList {
+public:
+  explicit IndexRecordList(size_t num_records_per_group) :
+      num_records_per_group_(num_records_per_group),
+      current_group_(nullptr),
+      num_records_in_current_group_(num_records_per_group) {
+  }
+
+  ~IndexRecordList() {
+    for (size_t i = 0; i < groups_.size(); i++) {
+      delete[] groups_[i];
+    }
+  }
+
+  void AddRecord(murmur_t hash, uint32_t offset) {
+    if (num_records_in_current_group_ == num_records_per_group_) {
+      current_group_ = AllocateNewGroup();
+      num_records_in_current_group_ = 0;
+    }
+    auto& new_record = current_group_[num_records_in_current_group_];
+    new_record.hash = hash;
+    new_record.offset = offset;
+    new_record.next = nullptr;
+    num_records_in_current_group_++;
+  }
+
+  size_t GetNumRecords() {
+    return (groups_.size() - 1) * num_records_per_group_
+        + num_records_in_current_group_;
+  }
+  IndexRecord* At(size_t index) {
+    return &(groups_[index / num_records_per_group_]
+                    [index % num_records_per_group_]);
+  }
+
+  IndexRecord* AllocateNewGroup() {
+    IndexRecord* result = new IndexRecord[num_records_per_group_];
+    groups_.push_back(result);
+    return result;
+  }
+private:
+  const size_t num_records_per_group_;
+  IndexRecord* current_group_;
+  // List of arrays allocated
+  std::vector<IndexRecord*> groups_;
+  size_t num_records_in_current_group_;
+};
+
+int PlainTableReader::PopulateIndexRecordList(
+    IndexRecordList& record_list) {
   Slice key_slice;
   Slice key_prefix_slice;
   Slice key_suffix_slice;
   Slice value_slice;
   Slice prev_key_prefix_slice;
+  uint32_t prev_key_prefix_hash = 0;
   uint32_t pos = data_start_offset_;
   int key_index_within_prefix = 0;
   bool first = true;
@@ -156,72 +191,104 @@ Status PlainTableReader::PopulateIndex() {
   HistogramImpl keys_per_prefix_hist;
   // Need map to be ordered to make sure sub indexes generated
   // are in order.
-  std::vector<std::pair<Slice, std::string>> prefix_index_pairs;
-  std::string current_prefix_index;
+
+  int num_prefixes = 0;
+
   while (pos < data_end_offset_) {
     uint32_t key_offset = pos;
     status_ = Next(pos, &key_slice, &value_slice, pos);
-    key_prefix_slice = Slice(key_slice.data(), key_prefix_len_);
+    key_prefix_slice = GetPrefix(key_slice);
 
     if (first || prev_key_prefix_slice != key_prefix_slice) {
+      num_prefixes++;
       if (!first) {
         keys_per_prefix_hist.Add(key_index_within_prefix);
-        prefix_index_pairs.push_back(
-            std::make_pair<Slice, std::string>(
-                std::move(prev_key_prefix_slice),
-                std::move(current_prefix_index)));
-        current_prefix_index.clear();
       }
       key_index_within_prefix = 0;
       prev_key_prefix_slice = key_prefix_slice;
+      prev_key_prefix_hash = GetSliceHash(key_prefix_slice);
     }
 
-    if (key_index_within_prefix++ % 8 == 0) {
-      // Add an index key for every 8 keys
-      PutFixed32(&current_prefix_index, key_offset);
+    if (key_index_within_prefix++ % 16 == 0) {
+      // Add an index key for every 16 keys
+      record_list.AddRecord(prev_key_prefix_hash, key_offset);
     }
     first = false;
   }
-  prefix_index_pairs.push_back(
-      std::make_pair<Slice, std::string>(std::move(prev_key_prefix_slice),
-                                         std::move(current_prefix_index)));
-
   keys_per_prefix_hist.Add(key_index_within_prefix);
+  Log(options_.info_log, "Number of Keys per prefix Histogram: %s",
+      keys_per_prefix_hist.ToString().c_str());
+
+  return num_prefixes;
+}
+
+void PlainTableReader::Allocate(int num_prefixes) {
   if (hash_table_ != nullptr) {
     delete[] hash_table_;
   }
-  std::vector<Slice> filter_entries(0); // for creating bloom filter;
-  if (filter_policy_ != nullptr) {
-    filter_entries.reserve(prefix_index_pairs.size());
+  if (bloom_bits_per_key_ > 0) {
+    bloom_ = new DynamicBloom(num_prefixes * bloom_bits_per_key_);
   }
   double hash_table_size_multipier =
       (hash_table_ratio_ > 1.0) ? 1.0 : 1.0 / hash_table_ratio_;
-  hash_table_size_ = prefix_index_pairs.size() * hash_table_size_multipier + 1;
+  hash_table_size_ = num_prefixes * hash_table_size_multipier + 1;
   hash_table_ = new uint32_t[hash_table_size_];
-  std::vector<std::string> hash2map(hash_table_size_);
+}
 
+size_t PlainTableReader::BucketizeIndexesAndFillBloom(
+    IndexRecordList& record_list, int num_prefixes,
+    std::vector<IndexRecord*>& hash2offsets,
+    std::vector<uint32_t>& bucket_count) {
   size_t sub_index_size_needed = 0;
-  for (auto& p: prefix_index_pairs) {
-    auto& sub_index = hash2map[getBucketId(p.first, key_prefix_len_,
-                                           hash_table_size_)];
-    if (sub_index.length() > 0 || p.second.length() > kOffsetLen) {
-      if (sub_index.length() <= kOffsetLen) {
-        sub_index_size_needed += sub_index.length() + 4;
+  bool first = true;
+  uint32_t prev_hash = 0;
+  size_t num_records = record_list.GetNumRecords();
+  for (size_t i = 0; i < num_records; i++) {
+    IndexRecord* index_record = record_list.At(i);
+    uint32_t cur_hash = index_record->hash;
+    if (first || prev_hash != cur_hash) {
+      prev_hash = cur_hash;
+      first = false;
+      if (bloom_) {
+        bloom_->AddHash(cur_hash);
       }
-      sub_index_size_needed += p.second.length();
     }
-    sub_index.append(p.second);
-    if (filter_policy_ != nullptr) {
-      filter_entries.push_back(p.first);
+    uint32_t bucket = getBucketIdFromHash(cur_hash, hash_table_size_);
+    IndexRecord* prev_bucket_head = hash2offsets[bucket];
+    index_record->next = prev_bucket_head;
+    hash2offsets[bucket] = index_record;
+    if (bucket_count[bucket] > 0) {
+      if (bucket_count[bucket] == 1) {
+        sub_index_size_needed += kOffsetLen + 1;
+      }
+      if (bucket_count[bucket] == 127) {
+        // Need more than one byte for length
+        sub_index_size_needed++;
+      }
+      sub_index_size_needed += kOffsetLen;
     }
+    bucket_count[bucket]++;
   }
+  return sub_index_size_needed;
+}
 
-  sub_index_.clear();
+void PlainTableReader::FillIndexes(size_t sub_index_size_needed,
+                                   std::vector<IndexRecord*>& hash2offsets,
+                                   std::vector<uint32_t>& bucket_count) {
   Log(options_.info_log, "Reserving %zu bytes for sub index",
       sub_index_size_needed);
-  sub_index_.reserve(sub_index_size_needed);
+  // 4 bytes buffer for variable length size
+  size_t buffer_size = 64;
+  size_t buffer_used = 0;
+  sub_index_size_needed += buffer_size;
+  sub_index_ = new char[sub_index_size_needed];
+  size_t sub_index_offset = 0;
+  char* prev_ptr;
+  char* cur_ptr;
+  uint32_t* sub_index_ptr;
+  IndexRecord* record;
   for (int i = 0; i < hash_table_size_; i++) {
-    uint32_t num_keys_for_bucket = hash2map[i].length() / kOffsetLen;
+    uint32_t num_keys_for_bucket = bucket_count[i];
     switch (num_keys_for_bucket) {
     case 0:
       // No key for bucket
@@ -229,58 +296,131 @@ Status PlainTableReader::PopulateIndex() {
       break;
     case 1:
       // point directly to the file offset
-      hash_table_[i] = DecodeFixed32(hash2map[i].data());
+      hash_table_[i] = hash2offsets[i]->offset;
       break;
     default:
-      // point to index block
-      hash_table_[i] = sub_index_.length() | kSubIndexMask;
-      PutFixed32(&sub_index_, num_keys_for_bucket);
-      sub_index_.append(hash2map[i]);
+      // point to second level indexes.
+      hash_table_[i] = sub_index_offset | kSubIndexMask;
+      prev_ptr = sub_index_ + sub_index_offset;
+      cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
+      sub_index_offset += cur_ptr - prev_ptr;
+      if (cur_ptr - prev_ptr > 2
+          || (cur_ptr - prev_ptr == 2 && num_keys_for_bucket <= 127)) {
+        // Need to resize sub_index. Exponentially grow buffer.
+        buffer_used += cur_ptr - prev_ptr - 1;
+        if (buffer_used + 4 > buffer_size) {
+          Log(options_.info_log, "Recalculate suffix_map length to %zu",
+              sub_index_size_needed);
+
+          sub_index_size_needed += buffer_size;
+          buffer_size *= 2;
+          char* new_sub_index = new char[sub_index_size_needed];
+          memcpy(new_sub_index, sub_index_, sub_index_offset);
+          delete[] sub_index_;
+          sub_index_ = new_sub_index;
+        }
+      }
+      sub_index_ptr = (uint32_t*) (sub_index_ + sub_index_offset);
+      record = hash2offsets[i];
+      int j;
+      for (j = num_keys_for_bucket - 1;
+          j >= 0 && record; j--, record = record->next) {
+        sub_index_ptr[j] = record->offset;
+      }
+      assert(j == -1 && record == nullptr);
+      sub_index_offset += kOffsetLen * num_keys_for_bucket;
+      break;
     }
-  }
-  if (filter_policy_ != nullptr) {
-    filter_str_.clear();
-    filter_policy_->CreateFilter(&filter_entries[0], filter_entries.size(),
-                                 &filter_str_);
-    filter_slice_ = Slice(filter_str_.data(), filter_str_.size());
   }
 
   Log(options_.info_log, "hash table size: %d, suffix_map length %zu",
-      hash_table_size_, sub_index_.length());
-  Log(options_.info_log, "Number of Keys per prefix Histogram: %s",
-      keys_per_prefix_hist.ToString().c_str());
+      hash_table_size_, sub_index_size_needed);
+}
+
+// PopulateIndex() builds index of keys.
+// hash_table_ contains buckets size of hash_table_size_, each is a 32-bit
+// integer. The lower 31 bits contain an offset value (explained below) and
+// the first bit of the integer indicates type of the offset:
+//
+// 0 indicates that the bucket contains only one prefix (no conflict when
+//   hashing this prefix), whose first row starts from this offset of the file.
+// 1 indicates that the bucket contains more than one prefixes, or there
+//   are too many rows for one prefix so we need a binary search for it. In
+//   this case, the offset indicates the offset of sub_index_ holding the
+//   binary search indexes of keys for those rows. Those binary search indexes
+//   are organized in this way:
+//
+// The first 4 bytes, indicates how many indexes (N) are stored after it. After
+// it, there are N 32-bit integers, each points of an offset of the file, which
+// points to starting of a row. Those offsets need to be guaranteed to be in
+// ascending order so the keys they are pointing to are also in ascending order
+// to make sure we can use them to do binary searches.
+Status PlainTableReader::PopulateIndex() {
+  // Get mmapped memory to file_data_.
+  Status s = file_->Read(0, file_size_, &file_data_, nullptr);
+  if (!s.ok()) {
+    return s;
+  }
+
+  IndexRecordList record_list(256);
+  // First, read the whole file, for every 16 rows for a prefix (starting from
+  // the first one), generate a record of (hash, offset) and append it to
+  // IndexRecordList, which is a data structure created to store them.
+  int num_prefixes = PopulateIndexRecordList(record_list);
+  // Calculated hash table and bloom filter size and allocate memory for indexes
+  // and bloom filter based on the number of prefixes.
+  Allocate(num_prefixes);
+
+  // Bucketize all the index records to a temp data structure, in which for
+  // each bucket, we generate a linked list of IndexRecord, in reversed order.
+  std::vector<IndexRecord*> hash2offsets(hash_table_size_, nullptr);
+  std::vector<uint32_t> bucket_count(hash_table_size_, 0);
+  size_t sub_index_size_needed = BucketizeIndexesAndFillBloom(record_list,
+                                                              num_prefixes,
+                                                              hash2offsets,
+                                                              bucket_count);
+  // From the temp data structure, populate indexes.
+  FillIndexes(sub_index_size_needed, hash2offsets, bucket_count);
 
   return Status::OK();
 }
 
-uint32_t PlainTableReader::GetOffset(const Slice& target,
-                                     bool& prefix_matched) {
+Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
+                                   uint32_t prefix_hash, bool& prefix_matched,
+                                   uint32_t& ret_offset) {
   prefix_matched = false;
-  int bucket = getBucketId(target, key_prefix_len_, hash_table_size_);
+  int bucket = getBucketIdFromHash(prefix_hash, hash_table_size_);
   uint32_t bucket_value = hash_table_[bucket];
   if (bucket_value == data_end_offset_) {
-    return data_end_offset_;
+    ret_offset = data_end_offset_;
+    return Status::OK();
   } else if ((bucket_value & kSubIndexMask) == 0) {
     // point directly to the file
-    return bucket_value;
+    ret_offset = bucket_value;
+    return Status::OK();
   }
-  // point to sub-index, need to do a binary search
 
+  // point to sub-index, need to do a binary search
   uint32_t low = 0;
   uint64_t prefix_index_offset = bucket_value ^ kSubIndexMask;
-  uint32_t upper_bound = DecodeFixed32(sub_index_.data() + prefix_index_offset);
+
+  const char* index_ptr = sub_index_ + prefix_index_offset;
+  uint32_t upper_bound;
+  const uint32_t* base_ptr = (const uint32_t*) GetVarint32Ptr(index_ptr,
+                                                              index_ptr + 4,
+                                                              &upper_bound);
   uint32_t high = upper_bound;
-  uint64_t base_offset = prefix_index_offset + 4;
   Slice mid_key;
 
   // The key is between [low, high). Do a binary search between it.
   while (high - low > 1) {
     uint32_t mid = (high + low) / 2;
-    const char* index_offset = sub_index_.data() + base_offset
-        + kOffsetLen * mid;
-    uint32_t file_offset = DecodeFixed32(index_offset);
-    mid_key = Slice(file_data_.data() + file_offset, GetInternalKeyLength());
-
+    uint32_t file_offset = base_ptr[mid];
+    size_t tmp;
+    Status s = ReadKey(file_data_.data() + file_offset, &mid_key, tmp);
+    if (!s.ok()) {
+      return s;
+    }
     int cmp_result = options_.comparator->Compare(target, mid_key);
     if (cmp_result > 0) {
       low = mid;
@@ -289,38 +429,61 @@ uint32_t PlainTableReader::GetOffset(const Slice& target,
         // Happen to have found the exact key or target is smaller than the
         // first key after base_offset.
         prefix_matched = true;
-        return file_offset;
+        ret_offset = file_offset;
+        return Status::OK();
       } else {
         high = mid;
       }
     }
   }
-
-  // The key is between low and low+1 (if exists). Both of them can have the
-  // correct prefix. Need to rule out at least one, to avoid to miss the
-  // correct one.
-  uint32_t low_key_offset = DecodeFixed32(
-      sub_index_.data() + base_offset + kOffsetLen * low);
-  if (low + 1 < upper_bound) {
-    if (Slice(file_data_.data() + low_key_offset, key_prefix_len_)
-        == Slice(target.data(), key_prefix_len_)) {
-      prefix_matched = true;
-    } else {
-      prefix_matched = false;
-      return DecodeFixed32(
-          sub_index_.data() + base_offset + kOffsetLen * (low + 1));
-    }
-  } else {
+  // Both of the key at the position low or low+1 could share the same
+  // prefix as target. We need to rule out one of them to avoid to go
+  // to the wrong prefix.
+  Slice low_key;
+  size_t tmp;
+  uint32_t low_key_offset = base_ptr[low];
+  Status s = ReadKey(file_data_.data() + low_key_offset, &low_key, tmp);
+  if (GetPrefix(low_key) == prefix) {
+    prefix_matched = true;
+    ret_offset = low_key_offset;
+  } else if (low + 1 < upper_bound) {
+    // There is possible a next prefix, return it
     prefix_matched = false;
+    ret_offset = base_ptr[low + 1];
+  } else {
+    // target is larger than a key of the last prefix in this bucket
+    // but with a different prefix. Key does not exist.
+    ret_offset = data_end_offset_;
   }
-  return low_key_offset;
+  return Status::OK();
 }
 
-bool PlainTableReader::MayHavePrefix(const Slice& target_prefix) {
-  return filter_policy_ == nullptr
-      || filter_policy_->KeyMayMatch(target_prefix, filter_slice_);
+bool PlainTableReader::MayHavePrefix(uint32_t hash) {
+  return bloom_ == nullptr || bloom_->MayContainHash(hash);
 }
 
+Status PlainTableReader::ReadKey(const char* row_ptr, Slice* key,
+                                 size_t& bytes_read) {
+  const char* key_ptr;
+  bytes_read = 0;
+  size_t internal_key_size;
+  if (IsFixedLength()) {
+    internal_key_size = GetFixedInternalKeyLength();
+    key_ptr = row_ptr;
+  } else {
+    uint32_t key_size;
+    key_ptr = GetVarint32Ptr(row_ptr, file_data_.data() + data_end_offset_,
+                             &key_size);
+    internal_key_size = (size_t) key_size;
+    bytes_read = key_ptr - row_ptr;
+  }
+  if (row_ptr + internal_key_size >= file_data_.data() + data_end_offset_) {
+    return Status::Corruption("Unable to read the next key");
+  }
+  *key = Slice(key_ptr, internal_key_size);
+  bytes_read += internal_key_size;
+  return Status::OK();
+}
 
 Status PlainTableReader::Next(uint32_t offset, Slice* key, Slice* value,
                               uint32_t& next_offset) {
@@ -333,22 +496,17 @@ Status PlainTableReader::Next(uint32_t offset, Slice* key, Slice* value,
     return Status::Corruption("Offset is out of file size");
   }
 
-  int internal_key_size = GetInternalKeyLength();
-  if (offset + internal_key_size >= data_end_offset_) {
-    return Status::Corruption("Un able to read the next key");
-  }
-
-  const char* key_ptr =  file_data_.data() + offset;
-  *key = Slice(key_ptr, internal_key_size);
-
+  const char* row_ptr = file_data_.data() + offset;
+  size_t bytes_for_key;
+  Status s = ReadKey(row_ptr, key, bytes_for_key);
   uint32_t value_size;
-  const char* value_ptr = GetVarint32Ptr(key_ptr + internal_key_size,
+  const char* value_ptr = GetVarint32Ptr(row_ptr + bytes_for_key,
                                          file_data_.data() + data_end_offset_,
                                          &value_size);
   if (value_ptr == nullptr) {
     return Status::Corruption("Error reading value length.");
   }
-  next_offset = offset + (value_ptr - key_ptr) + value_size;
+  next_offset = offset + (value_ptr - row_ptr) + value_size;
   if (next_offset > data_end_offset_) {
     return Status::Corruption("Reach end of file when reading value");
   }
@@ -362,13 +520,17 @@ Status PlainTableReader::Get(
     bool (*saver)(void*, const Slice&, const Slice&, bool),
     void (*mark_key_may_exist)(void*)) {
   // Check bloom filter first.
-  if (!MayHavePrefix(Slice(target.data(), key_prefix_len_))) {
+  Slice prefix_slice = GetPrefix(target);
+  uint32_t prefix_hash = GetSliceHash(prefix_slice);
+  if (!MayHavePrefix(prefix_hash)) {
     return Status::OK();
   }
-
   uint32_t offset;
   bool prefix_match;
-  offset = GetOffset(target, prefix_match);
+  Status s = GetOffset(target, prefix_slice, prefix_hash, prefix_match, offset);
+  if (!s.ok()) {
+    return s;
+  }
   Slice found_key;
   Slice found_value;
   while (offset < data_end_offset_) {
@@ -379,8 +541,8 @@ Status PlainTableReader::Get(
     if (!prefix_match) {
       // Need to verify prefix for the first key found if it is not yet
       // checked.
-      if (!target.starts_with(Slice(found_key.data(), key_prefix_len_))) {
-        break;
+      if (GetPrefix(found_key) != prefix_slice) {
+        return Status::OK();
       }
       prefix_match = true;
     }
@@ -403,7 +565,7 @@ uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& key) {
 
 PlainTableIterator::PlainTableIterator(PlainTableReader* table) :
     table_(table) {
-  SeekToFirst();
+  next_offset_ = offset_ = table_->data_end_offset_;
 }
 
 PlainTableIterator::~PlainTableIterator() {
@@ -416,7 +578,11 @@ bool PlainTableIterator::Valid() const {
 
 void PlainTableIterator::SeekToFirst() {
   next_offset_ = table_->data_start_offset_;
-  Next();
+  if (next_offset_ >= table_->data_end_offset_) {
+    next_offset_ = offset_ = table_->data_end_offset_;
+  } else {
+    Next();
+  }
 }
 
 void PlainTableIterator::SeekToLast() {
@@ -424,18 +590,25 @@ void PlainTableIterator::SeekToLast() {
 }
 
 void PlainTableIterator::Seek(const Slice& target) {
-  if (!table_->MayHavePrefix(Slice(target.data(), table_->key_prefix_len_))) {
+  Slice prefix_slice =  table_->GetPrefix(target);
+  uint32_t prefix_hash = GetSliceHash(prefix_slice);
+  if (!table_->MayHavePrefix(prefix_hash)) {
     offset_ = next_offset_ = table_->data_end_offset_;
     return;
   }
   bool prefix_match;
-  next_offset_ = table_->GetOffset(target, prefix_match);
+  status_ = table_->GetOffset(target, prefix_slice, prefix_hash, prefix_match,
+                              next_offset_);
+  if (!status_.ok()) {
+    offset_ = next_offset_ = table_->data_end_offset_;
+    return;
+  }
 
   if (next_offset_ < table_-> data_end_offset_) {
     for (Next(); status_.ok() && Valid(); Next()) {
       if (!prefix_match) {
         // Need to verify the first key's prefix
-        if (!target.starts_with(Slice(key().data(), table_->key_prefix_len_))) {
+        if (table_->GetPrefix(key()) != prefix_slice) {
           offset_ = next_offset_ = table_->data_end_offset_;
           break;
         }

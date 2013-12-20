@@ -23,41 +23,37 @@ class TableBuilder;
 
 // IndexedTable requires fixed length key, configured as a constructor
 // parameter of the factory class. Output file format:
-// +-------------+
-// | version     |
-// +-------------+------------------------------+  <= key1 offset
-// | key1            | value_size (4 bytes) |   |
-// +----------------------------------------+   |
+// +-------------+-----------------+
+// | version     | user_key_length |
+// +------------++------------------------------+  <= key1 offset
+// | [key_size] |  key1       | value_size  |   |
+// +------------+-------------+-------------+   |
 // | value1                                     |
 // |                                            |
 // +----------------------------------------+---+  <= key2 offset
-// | key2            | value_size (4 bytes) |   |
-// +----------------------------------------+   |
+// | [key_size] |  key2       | value_size  |   |
+// +------------+-------------+-------------+   |
 // | value2                                     |
 // |                                            |
 // |        ......                              |
-// +-----------------+--------------------------+   <= index_block_offset
-// | key1            | key1 offset (8 bytes)    |
 // +-----------------+--------------------------+
-// | key2            | key2 offset (8 bytes)    |
-// +-----------------+--------------------------+
-// | key3            | key3 offset (8 bytes)    |
-// +-----------------+--------------------------+
-// |        ......                              |
-// +-----------------+------------+-------------+
+// If user_key_length = kVariableLength, it means the key is variable length,
+// there will be an extra field for key size encoded before every key.
 class PlainTableFactory: public TableFactory {
 public:
   ~PlainTableFactory() {
   }
-  // user_key_size is the length of the user key. key_prefix_len is the
-  // length of the prefix used for in-memory indexes. bloom_num_bits is
+  // user_key_size is the length of the user key. If it is set to be
+  // kVariableLength, then it means variable length. Otherwise, all the
+  // keys need to have the fix length of this value. bloom_num_bits is
   // number of bits used for bloom filer per key. hash_table_ratio is
-  // the desired ultilization of the hash table used for prefix hashing.
+  // the desired utilization of the hash table used for prefix hashing.
   // hash_table_ratio = number of prefixes / #buckets in the hash table
-  PlainTableFactory(int user_key_size, int key_prefix_len,
-                    int bloom_num_bits = 0, double hash_table_ratio = 0.75) :
-      user_key_size_(user_key_size), key_prefix_len_(key_prefix_len),
-      bloom_num_bits_(bloom_num_bits), hash_table_ratio_(hash_table_ratio) {
+  explicit PlainTableFactory(uint32_t user_key_len = kVariableLength,
+                             int bloom_num_bits = 0,
+                             double hash_table_ratio = 0.75) :
+      user_key_len_(user_key_len), bloom_num_bits_(bloom_num_bits),
+      hash_table_ratio_(hash_table_ratio) {
   }
   const char* Name() const override {
     return "PlainTable";
@@ -70,9 +66,10 @@ public:
   TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
                                 CompressionType compression_type) const
                                     override;
+
+  static const uint32_t kVariableLength = 0;
 private:
-  int user_key_size_;
-  int key_prefix_len_;
+  uint32_t user_key_len_;
   int bloom_num_bits_;
   double hash_table_ratio_;
 };

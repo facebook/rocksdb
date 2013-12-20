@@ -39,7 +39,10 @@ DynamicBloom::DynamicBloom(uint32_t total_bits,
 }
 
 void DynamicBloom::Add(const Slice& key) {
-  uint32_t h = hash_func_(key);
+  AddHash(hash_func_(key));
+}
+
+void DynamicBloom::AddHash(uint32_t h) {
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   for (uint32_t i = 0; i < num_probes_; i++) {
     const uint32_t bitpos = h % total_bits_;
@@ -49,7 +52,10 @@ void DynamicBloom::Add(const Slice& key) {
 }
 
 bool DynamicBloom::MayContain(const Slice& key) {
-  uint32_t h = hash_func_(key);
+  return (MayContainHash(hash_func_(key)));
+}
+
+bool DynamicBloom::MayContainHash(uint32_t h) {
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   for (uint32_t i = 0; i < num_probes_; i++) {
     const uint32_t bitpos = h % total_bits_;

@@ -27,7 +27,7 @@ public:
   // will be part of level specified by 'level'.  A value of -1 means
   // that the caller does not know which level the output file will reside.
   PlainTableBuilder(const Options& options, WritableFile* file,
-                    int user_key_size, int key_prefix_len);
+                    uint32_t user_key_size);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder();
@@ -66,11 +66,14 @@ private:
   Status status_;
   TableProperties properties_;
 
-  const size_t user_key_size_;
+  const size_t user_key_len_;
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
-  int GetInternalKeyLength() {
-    return user_key_size_ + 8;
+  std::string key_size_str_;
+  std::string value_size_str_;
+
+  bool IsFixedLength() const {
+    return user_key_len_ > 0;
   }
 
   // No copying allowed

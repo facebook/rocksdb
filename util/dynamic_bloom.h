@@ -28,9 +28,14 @@ class DynamicBloom {
   // Assuming single threaded access to Add
   void Add(const Slice& key);
 
+  // Assuming single threaded access to Add
+  void AddHash(uint32_t hash);
+
   // Multithreaded access to MayContain is OK
   bool MayContain(const Slice& key);
 
+  // Multithreaded access to MayContain is OK
+  bool MayContainHash(uint32_t hash);
 
  private:
   uint32_t (*hash_func_)(const Slice& key);

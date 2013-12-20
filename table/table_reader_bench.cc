@@ -8,7 +8,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "rocksdb/slice_transform.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "port/atomic_pointer.h"
@@ -242,9 +241,10 @@ int main(int argc, char** argv) {
   if (FLAGS_plain_table) {
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
-    tf = new rocksdb::PlainTableFactory(16, FLAGS_prefix_len,
-                                        (FLAGS_prefix_len == 16) ? 0 : 8,
+    tf = new rocksdb::PlainTableFactory(16, (FLAGS_prefix_len == 16) ? 0 : 8,
                                         0.75);
+    options.prefix_extractor = rocksdb::NewFixedPrefixTransform(
+        FLAGS_prefix_len);
   } else {
     tf = new rocksdb::BlockBasedTableFactory();
   }

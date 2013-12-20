@@ -67,6 +67,8 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kNumEntries, props.num_entries);
   Add(TablePropertiesNames::kNumDataBlocks, props.num_data_blocks);
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
+  Add(TablePropertiesNames::kFormatVersion, props.format_version);
+  Add(TablePropertiesNames::kFixedKeyLen, props.fixed_key_len);
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy,
@@ -175,6 +177,8 @@ Status ReadProperties(
     { TablePropertiesNames::kNumDataBlocks,
       &table_properties->num_data_blocks },
     { TablePropertiesNames::kNumEntries, &table_properties->num_entries },
+    { TablePropertiesNames::kFormatVersion, &table_properties->format_version },
+    { TablePropertiesNames::kFixedKeyLen, &table_properties->fixed_key_len },
   };
 
   std::string last_key;

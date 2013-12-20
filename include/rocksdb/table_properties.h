@@ -37,6 +37,10 @@ struct TableProperties {
   uint64_t num_data_blocks = 0;
   // the number of entries in this table
   uint64_t num_entries = 0;
+  // format version, reserved for backward compatibility
+  uint64_t format_version = 0;
+  // If 0, key is variable length. Otherwise number of bytes for each key.
+  uint64_t fixed_key_len = 0;
 
   // The name of the filter policy used in this table.
   // If no filter policy is used, `filter_policy_name` will be an empty string.
@@ -61,6 +65,8 @@ struct TablePropertiesNames {
   static const std::string kRawValueSize;
   static const std::string kNumDataBlocks;
   static const std::string kNumEntries;
+  static const std::string kFormatVersion;
+  static const std::string kFixedKeyLen;
   static const std::string kFilterPolicy;
 };
 

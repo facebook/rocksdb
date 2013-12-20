@@ -50,12 +50,9 @@ extern const uint64_t kPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(const Options& options,
                                      WritableFile* file,
-                                     int user_key_size, int key_prefix_len) :
-    options_(options), file_(file), user_key_size_(user_key_size) {
-  std::string version;
-  PutFixed32(&version, 1 | 0x80000000);
-  file_->Append(Slice(version));
-  offset_ = 4;
+                                     uint32_t user_key_len) :
+    options_(options), file_(file), user_key_len_(user_key_len) {
+  properties_.fixed_key_len = user_key_len;
 
   // for plain table, we put all the data in a big chuck.
   properties_.num_data_blocks = 1;
@@ -63,25 +60,37 @@ PlainTableBuilder::PlainTableBuilder(const Options& options,
   // filter block.
   properties_.index_size = 0;
   properties_.filter_size = 0;
+  properties_.format_version = 0;
 }
 
 PlainTableBuilder::~PlainTableBuilder() {
 }
 
 void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
-  assert((int) key.size() == GetInternalKeyLength());
+  assert(user_key_len_ == 0 || key.size() == user_key_len_ + 8);
 
-  // Write key-value pair
+  if (!IsFixedLength()) {
+    // Write key length
+    int key_size = key.size();
+    key_size_str_.clear();
+    PutVarint32(&key_size_str_, key_size);
+    file_->Append(key_size_str_);
+    offset_ += key_size_str_.length();
+  }
+
+  // Write key
   file_->Append(key);
-  offset_ += GetInternalKeyLength();
+  offset_ += key.size();
 
-  std::string size;
+  // Write value length
+  value_size_str_.clear();
   int value_size = value.size();
-  PutVarint32(&size, value_size);
-  Slice sizeSlice(size);
-  file_->Append(sizeSlice);
+  PutVarint32(&value_size_str_, value_size);
+  file_->Append(value_size_str_);
+
+  // Write value
   file_->Append(value);
-  offset_ += value_size + size.length();
+  offset_ += value_size + value_size_str_.length();
 
   properties_.num_entries++;
   properties_.raw_key_size += key.size();

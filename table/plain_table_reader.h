@@ -9,6 +9,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table.h"
+#include "rocksdb/plain_table_factory.h"
 
 namespace rocksdb {
 
@@ -20,33 +21,12 @@ class RandomAccessFile;
 struct ReadOptions;
 class TableCache;
 class TableReader;
+class DynamicBloom;
 
 using std::unique_ptr;
 using std::unordered_map;
 
-// Based on following output file format:
-// +-------------+
-// | version     |
-// +-------------+------------------------------+  <= key1_data_offset
-// | key1            | value_size (4 bytes) |   |
-// +----------------------------------------+   |
-// | value1                                     |
-// |                                            |
-// +----------------------------------------+---+  <= key2_data_offset
-// | key2            | value_size (4 bytes) |   |
-// +----------------------------------------+   |
-// | value2                                     |
-// |                                            |
-// |        ......                              |
-// +-----------------+--------------------------+   <= index_block_offset
-// | key1            | key1 offset (8 bytes)    |
-// +-----------------+--------------------------+   <= key2_index_offset
-// | key2            | key2 offset (8 bytes)    |
-// +-----------------+--------------------------+   <= key3_index_offset
-// | key3            | key3 offset (8 bytes)    |
-// +-----------------+--------------------------+   <= key4_index_offset
-// |        ......                              |
-// +-----------------+------------+-------------+
+// Based on following output file format shown in plain_table_factory.h
 // When opening the output file, IndexedTableReader creates a hash table
 // from key prefixes to offset of the output file. IndexedTable will decide
 // whether it points to the data offset of the first key with the key prefix
@@ -58,8 +38,7 @@ class PlainTableReader: public TableReader {
 public:
   static Status Open(const Options& options, const EnvOptions& soptions,
                      unique_ptr<RandomAccessFile> && file, uint64_t file_size,
-                     unique_ptr<TableReader>* table, const int user_key_size,
-                     const int key_prefix_len, const int bloom_num_bits,
+                     unique_ptr<TableReader>* table, const int bloom_num_bits,
                      double hash_table_ratio);
 
   bool PrefixMayMatch(const Slice& internal_prefix);
@@ -81,20 +60,18 @@ public:
     return table_properties_;
   }
 
-  PlainTableReader(
-      const EnvOptions& storage_options,
-      uint64_t file_size,
-      int user_key_size,
-      int key_prefix_len,
-      int bloom_num_bits,
-      double hash_table_ratio,
-      const TableProperties& table_properties);
+  PlainTableReader(const EnvOptions& storage_options, uint64_t file_size,
+                   int bloom_num_bits, double hash_table_ratio,
+                   const TableProperties& table_properties);
   ~PlainTableReader();
 
 private:
+  struct IndexRecord;
+  class IndexRecordList;
+
   uint32_t* hash_table_ = nullptr;
   int hash_table_size_;
-  std::string sub_index_;
+  char* sub_index_ = nullptr;
 
   Options options_;
   const EnvOptions& soptions_;
@@ -104,27 +81,54 @@ private:
   Slice file_data_;
   uint32_t version_;
   uint32_t file_size_;
-  const size_t user_key_size_;
-  const size_t key_prefix_len_;
+
   const double hash_table_ratio_;
-  const FilterPolicy* filter_policy_;
-  std::string filter_str_;
-  Slice filter_slice_;
+  const int bloom_bits_per_key_;
+  DynamicBloom* bloom_;
 
   TableProperties table_properties_;
-  uint32_t data_start_offset_;
-  uint32_t data_end_offset_;
+  const uint32_t data_start_offset_;
+  const uint32_t data_end_offset_;
+  const size_t user_key_len_;
 
   static const size_t kNumInternalBytes = 8;
   static const uint32_t kSubIndexMask = 0x80000000;
   static const size_t kOffsetLen = sizeof(uint32_t);
 
-  inline size_t GetInternalKeyLength() {
-    return user_key_size_ + kNumInternalBytes;
+  bool IsFixedLength() {
+    return user_key_len_ != PlainTableFactory::kVariableLength;
+  }
+
+  size_t GetFixedInternalKeyLength() {
+    return user_key_len_ + kNumInternalBytes;
   }
 
   friend class TableCache;
   friend class PlainTableIterator;
+
+  // Internal helper function to generate an IndexRecordList object from all
+  // the rows, which contains index records as a list.
+  int PopulateIndexRecordList(IndexRecordList& record_list);
+
+  // Internal helper function to allocate memory for indexes and bloom filters
+  void Allocate(int num_prefixes);
+
+  // Internal helper function to bucket index record list to hash buckets.
+  // hash2offsets is sized of of hash_table_size_, each contains a linked list
+  // of offsets for the hash, in reversed order.
+  // bucket_count is sized of hash_table_size_. The value is how many index
+  // records are there in hash2offsets for the same bucket.
+  size_t BucketizeIndexesAndFillBloom(
+      IndexRecordList& record_list, int num_prefixes,
+      std::vector<IndexRecord*>& hash2offsets,
+      std::vector<uint32_t>& bucket_count);
+
+  // Internal helper class to fill the indexes and bloom filters to internal
+  // data structures. hash2offsets and bucket_count are bucketized indexes and
+  // counts generated by BucketizeIndexesAndFillBloom().
+  void FillIndexes(size_t sub_index_size_needed,
+                   std::vector<IndexRecord*>& hash2offsets,
+                   std::vector<uint32_t>& bucket_count);
 
   // Populate the internal indexes. It must be called before
   // any query to the table.
@@ -132,9 +136,12 @@ private:
   // level of indexes sub_index_ and bloom filter filter_slice_ if enabled.
   Status PopulateIndex();
 
-  // Check bloom filter to see whether it might contain this prefix
-  bool MayHavePrefix(const Slice& target_prefix);
+  // Check bloom filter to see whether it might contain this prefix.
+  // The hash of the prefix is given, since it can be reused for index lookup
+  // too.
+  bool MayHavePrefix(uint32_t hash);
 
+  Status ReadKey(const char* row_ptr, Slice* key, size_t& bytes_read);
   // Read the key and value at offset to key and value.
   // tmp_slice is a tmp slice.
   // return next_offset as the offset for the next key.
@@ -142,7 +149,15 @@ private:
   // Get file offset for key target.
   // return value prefix_matched is set to true if the offset is confirmed
   // for a key with the same prefix as target.
-  uint32_t GetOffset(const Slice& target, bool& prefix_matched);
+  Status GetOffset(const Slice& target, const Slice& prefix,
+                   uint32_t prefix_hash, bool& prefix_matched,
+                   uint32_t& ret_offset);
+
+  Slice GetPrefix(const Slice& target) {
+    assert(target.size() >= 8); // target is internal key
+    return options_.prefix_extractor->Transform(
+        Slice(target.data(), target.size() - 8));
+  }
 
   // No copying allowed
   explicit PlainTableReader(const TableReader&) = delete;

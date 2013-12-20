@@ -104,6 +104,10 @@ const std::string TablePropertiesNames::kNumEntries =
     "rocksdb.num.entries";
 const std::string TablePropertiesNames::kFilterPolicy =
     "rocksdb.filter.policy";
+const std::string TablePropertiesNames::kFormatVersion =
+    "rocksdb.format.version";
+const std::string TablePropertiesNames::kFixedKeyLen =
+    "rocksdb.fixed.key.length";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 

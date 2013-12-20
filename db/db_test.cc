@@ -23,6 +23,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/plain_table_factory.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -244,6 +245,8 @@ class DBTest {
   // Sequence of option configurations to try
   enum OptionConfig {
     kDefault,
+    kPlainTableFirstBytePrefix,
+    kPlainTableAllBytesPrefix,
     kVectorRep,
     kMergePut,
     kFilter,
@@ -275,7 +278,8 @@ class DBTest {
     kNoSkip = 0,
     kSkipDeletesFilterFirst = 1,
     kSkipUniversalCompaction = 2,
-    kSkipMergePut = 4
+    kSkipMergePut = 4,
+    kSkipPlainTable = 8
   };
 
   DBTest() : option_config_(kDefault),
@@ -297,20 +301,27 @@ class DBTest {
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions(int skip_mask = kNoSkip) {
-    option_config_++;
-
     // skip some options
-    if (skip_mask & kSkipDeletesFilterFirst &&
-        option_config_ == kDeletesFilterFirst) {
-      option_config_++;
+    for(option_config_++; option_config_ < kEnd; option_config_++) {
+      if ((skip_mask & kSkipDeletesFilterFirst) &&
+          option_config_ == kDeletesFilterFirst) {
+        continue;
+      }
+      if ((skip_mask & kSkipUniversalCompaction) &&
+          option_config_ == kUniversalCompaction) {
+        continue;
+      }
+      if ((skip_mask & kSkipMergePut) && option_config_ == kMergePut) {
+        continue;
+      }
+      if ((skip_mask & kSkipPlainTable)
+          && (option_config_ == kPlainTableAllBytesPrefix
+              || option_config_ == kPlainTableFirstBytePrefix)) {
+        continue;
+      }
+      break;
     }
-    if (skip_mask & kSkipUniversalCompaction &&
-        option_config_ == kUniversalCompaction) {
-      option_config_++;
-    }
-    if (skip_mask & kSkipMergePut && option_config_ == kMergePut) {
-      option_config_++;
-    }
+
     if (option_config_ >= kEnd) {
       Destroy(&last_options_);
       return false;
@@ -342,6 +353,18 @@ class DBTest {
       case kHashSkipList:
         options.memtable_factory.reset(
             NewHashSkipListRepFactory(NewFixedPrefixTransform(1)));
+        break;
+      case kPlainTableFirstBytePrefix:
+        options.table_factory.reset(new PlainTableFactory());
+        options.prefix_extractor = NewFixedPrefixTransform(1);
+        options.allow_mmap_reads = true;
+        options.max_sequential_skip_in_iterations = 999999;
+        break;
+      case kPlainTableAllBytesPrefix:
+        options.table_factory.reset(new PlainTableFactory());
+        options.prefix_extractor = NewNoopTransform();
+        options.allow_mmap_reads = true;
+        options.max_sequential_skip_in_iterations = 999999;
         break;
       case kMergePut:
         options.merge_operator = MergeOperators::CreatePutOperator();
@@ -1009,7 +1032,10 @@ TEST(DBTest, KeyMayExist) {
               options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
 
     delete options.filter_policy;
-  } while (ChangeOptions());
+
+    // KeyMayExist function only checks data in block caches, which is not used
+    // by plain table format.
+  } while (ChangeOptions(kSkipPlainTable));
 }
 
 TEST(DBTest, NonBlockingIteration) {
@@ -1073,7 +1099,9 @@ TEST(DBTest, NonBlockingIteration) {
               options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
     delete iter;
 
-  } while (ChangeOptions());
+    // This test verifies block cache behaviors, which is not used by plain
+    // table format.
+  } while (ChangeOptions(kSkipPlainTable));
 }
 
 // A delete is skipped for key if KeyMayExist(key) returns False
@@ -2932,7 +2960,8 @@ TEST(DBTest, ApproximateSizes) {
       ASSERT_EQ(NumTableFilesAtLevel(0), 0);
       ASSERT_GT(NumTableFilesAtLevel(1), 0);
     }
-  } while (ChangeOptions(kSkipUniversalCompaction));
+    // ApproximateOffsetOf() is not yet implemented in plain table format.
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable));
 }
 
 TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
@@ -2970,7 +2999,8 @@ TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
 
       dbfull()->TEST_CompactRange(0, nullptr, nullptr);
     }
-  } while (ChangeOptions());
+    // ApproximateOffsetOf() is not yet implemented in plain table format.
+  } while (ChangeOptions(kSkipPlainTable));
 }
 
 TEST(DBTest, IteratorPinsRef) {
@@ -3054,7 +3084,9 @@ TEST(DBTest, HiddenValuesAreRemoved) {
     ASSERT_EQ(AllEntriesFor("foo"), "[ tiny ]");
 
     ASSERT_TRUE(Between(Size("", "pastfoo"), 0, 1000));
-  } while (ChangeOptions(kSkipUniversalCompaction));
+    // ApproximateOffsetOf() is not yet implemented in plain table format,
+    // which is used by Size().
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable));
 }
 
 TEST(DBTest, CompactBetweenSnapshots) {
@@ -4626,7 +4658,8 @@ TEST(DBTest, Randomized) {
       // TODO(sanjay): Test Get() works
       int p = rnd.Uniform(100);
       int minimum = 0;
-      if (option_config_ == kHashSkipList) {
+      if (option_config_ == kHashSkipList ||
+          option_config_ == kPlainTableFirstBytePrefix) {
         minimum = 1;
       }
       if (p < 45) {                               // Put
