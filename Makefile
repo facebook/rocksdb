@@ -93,7 +93,8 @@ TESTS = \
 	write_batch_test\
 	deletefile_test \
 	table_test \
-	thread_local_test
+	thread_local_test \
+        geodb_test
 
 TOOLS = \
         sst_dump \
@@ -365,6 +366,9 @@ merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+
+geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 	rm -f $@
