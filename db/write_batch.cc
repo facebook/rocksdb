@@ -58,6 +58,7 @@ bool WriteBatch::Handler::Continue() {
 
 void WriteBatch::Clear() {
   rep_.clear();
+  rep_.resize(kHeader);
 }
 
 int WriteBatch::Count() const {
