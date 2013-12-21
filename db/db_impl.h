@@ -388,8 +388,13 @@ class DBImpl : public DB {
   // part of ongoing compactions.
   std::set<uint64_t> pending_outputs_;
 
-  // count how many background compaction been scheduled or is running?
+  // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;
+
+  // If non-zero, MaybeScheduleFlushOrCompaction() will only schedule manual
+  // compactions (if manual_compaction_ is not null). This mechanism enables
+  // manual compactions to wait until all other compactions are finished.
+  int bg_manual_only_;
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_;
