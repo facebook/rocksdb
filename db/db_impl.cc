@@ -2232,7 +2232,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       compact->compaction->output_level(),
       compact->compaction->score(),
       options_.max_background_compactions - bg_compaction_scheduled_);
-  char scratch[256];
+  char scratch[2345];
   compact->compaction->Summary(scratch, sizeof(scratch));
   Log(options_.info_log, "Compaction start summary: %s\n", scratch);
 

@@ -551,22 +551,27 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
       version->LevelFileSummary(&tmp, 0));
 
   // Check for size amplification first.
-  Compaction* c = PickCompactionUniversalSizeAmp(version, score);
-  if (c == nullptr) {
+  Compaction* c;
+  if ((c = PickCompactionUniversalSizeAmp(version, score)) != nullptr) {
+    Log(options_->info_log, "Universal: compacting for size amp\n");
+  } else {
 
     // Size amplification is within limits. Try reducing read
     // amplification while maintaining file size ratios.
     unsigned int ratio = options_->compaction_options_universal.size_ratio;
-    c = PickCompactionUniversalReadAmp(version, score, ratio, UINT_MAX);
 
-    // Size amplification and file size ratios are within configured limits.
-    // If max read amplification is exceeding configured limits, then force
-    // compaction without looking at filesize ratios and try to reduce
-    // the number of files to fewer than level0_file_num_compaction_trigger.
-    if (c == nullptr) {
+    if ((c = PickCompactionUniversalReadAmp(version, score, ratio, UINT_MAX)) != nullptr) {
+      Log(options_->info_log, "Universal: compacting for size ratio\n");
+    } else {
+      // Size amplification and file size ratios are within configured limits.
+      // If max read amplification is exceeding configured limits, then force
+      // compaction without looking at filesize ratios and try to reduce
+      // the number of files to fewer than level0_file_num_compaction_trigger.
       unsigned int num_files = version->files_[level].size() -
                                options_->level0_file_num_compaction_trigger;
-      c = PickCompactionUniversalReadAmp(version, score, UINT_MAX, num_files);
+      if ((c = PickCompactionUniversalReadAmp(version, score, UINT_MAX, num_files)) != nullptr) {
+        Log(options_->info_log, "Universal: compacting for file num\n");
+      }
     }
   }
   if (c == nullptr) {
