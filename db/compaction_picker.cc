@@ -683,14 +683,32 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       if (f->being_compacted) {
         break;
       }
-      // pick files if the total candidate file size (increased by the
+      // Pick files if the total/last candidate file size (increased by the
       // specified ratio) is still larger than the next candidate file.
+      // candidate_size is the total size of files picked so far with the
+      // default kCompactionStopStyleTotalSize; with
+      // kCompactionStopStyleSimilarSize, it's simply the size of the last
+      // picked file.
       uint64_t sz = (candidate_size * (100L + ratio)) /100;
       if (sz < f->file_size) {
         break;
+      } 
+      if (options_->compaction_options_universal.stop_style == kCompactionStopStyleSimilarSize) {
+        // Similar-size stopping rule: also check the last picked file isn't
+        // far larger than the next candidate file.
+        sz = (f->file_size * (100L + ratio)) / 100;
+        if (sz < candidate_size) {
+          // If the small file we've encountered begins a run of similar-size
+          // files, we'll pick them up on a future iteration of the outer
+          // loop. If it's some lonely straggler, it'll eventually get picked
+          // by the last-resort read amp strategy which disregards size ratios.
+          break;
+        }
+        candidate_size = f->file_size;
+      } else { // default kCompactionStopStyleTotalSize
+        candidate_size += f->file_size;
       }
       candidate_count++;
-      candidate_size += f->file_size;
     }
 
     // Found a series of consecutive files that need compaction.
