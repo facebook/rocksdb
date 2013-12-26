@@ -147,7 +147,8 @@ TEST(AutoVectorTest, Iterators) {
   }
 
   pos = vec.begin();
-  for (size_t i = 0; i < vec.size(); i += 2) {
+  typedef autovector<std::string>::difference_type diff_type;
+  for (diff_type i = 0; i < vec.size(); i += 2) {
     // Cannot use ASSERT_EQ since that macro depends on iostream serialization
     ASSERT_TRUE(pos + 2 - 2 == pos);
     pos += 2;
