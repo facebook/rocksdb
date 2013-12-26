@@ -225,7 +225,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
               *s = Status::Corruption("Error: Could not perform merge.");
             }
           } else {
-            *s = Status::NotFound(Slice());
+            *s = Status::NotFound();
           }
           return true;
         }
