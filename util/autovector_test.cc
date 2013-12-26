@@ -48,7 +48,7 @@ TEST(AutoVectorTest, PushBackAndPopBack) {
 }
 
 TEST(AutoVectorTest, EmplaceBack) {
-  typedef std::pair<int, std::string> ValueType;
+  typedef std::pair<size_t, std::string> ValueType;
   autovector<ValueType, kSize> vec;
 
   for (size_t i = 0; i < 1000 * kSize; ++i) {
@@ -143,18 +143,19 @@ TEST(AutoVectorTest, Iterators) {
     // HACK: make sure -> works
     ASSERT_TRUE(!old->empty());
     ASSERT_EQ(old_val, *old);
-    ASSERT_TRUE(old_val != *pos);
+    ASSERT_TRUE(pos == vec.end() || old_val != *pos);
   }
 
   pos = vec.begin();
-  typedef autovector<std::string>::difference_type diff_type;
-  for (diff_type i = 0; i < vec.size(); i += 2) {
+  for (size_t i = 0; i < vec.size(); i += 2) {
     // Cannot use ASSERT_EQ since that macro depends on iostream serialization
     ASSERT_TRUE(pos + 2 - 2 == pos);
     pos += 2;
-    ASSERT_TRUE(i + 2 == pos - vec.begin());
     ASSERT_TRUE(pos >= vec.begin());
     ASSERT_TRUE(pos <= vec.end());
+
+    size_t diff = static_cast<size_t>(pos - vec.begin());
+    ASSERT_EQ(i + 2, diff);
   }
 }
 
@@ -191,7 +192,7 @@ void BenchmarkVectorCreationAndInsertion(
 }
 
 template <class TVector>
-void BenchmarkSequenceAccess(string name, size_t ops, size_t elem_size) {
+size_t BenchmarkSequenceAccess(string name, size_t ops, size_t elem_size) {
   TVector v;
   for (const auto& item : GetTestKeys(elem_size)) {
     v.push_back(item);
@@ -211,6 +212,8 @@ void BenchmarkSequenceAccess(string name, size_t ops, size_t elem_size) {
   cout << "performed " << ops << " sequence access against " << name << "\n\t"
        << "size: " << elem_size << "\n\t"
        << "total time elapsed: " << elapsed << " (ns)" << endl;
+  // HACK avoid compiler's optimization to ignore total
+  return total;
 }
 
 // This test case only reports the performance between std::vector<string>

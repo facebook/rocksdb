@@ -6,7 +6,7 @@
 
 #include <algorithm>
 #include <cassert>
-#include <exception>
+#include <stdexcept>
 #include <iterator>
 #include <vector>
 
