@@ -2549,12 +2549,13 @@ class DeleteFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  explicit ChangeFilter(int argv) : argv_(argv) {}
+  explicit ChangeFilter(int argv) {
+    assert(argv == 100);
+  }
 
   virtual bool Filter(int level, const Slice& key,
                       const Slice& value, std::string* new_value,
                       bool* value_changed) const override {
-    assert(argv_ == 100);
     assert(new_value != nullptr);
     *new_value = NEW_VALUE;
     *value_changed = true;
@@ -2564,9 +2565,6 @@ class ChangeFilter : public CompactionFilter {
   virtual const char* Name() const override {
     return "ChangeFilter";
   }
-
- private:
-  const int argv_;
 };
 
 class KeepFilterFactory : public CompactionFilterFactory {
