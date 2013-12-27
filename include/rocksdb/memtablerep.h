@@ -268,6 +268,13 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
   int32_t skiplist_height = 4, int32_t skiplist_branching_factor = 4
 );
 
+// The factory is to create memtables with a hashed linked list:
+// it contains a fixed array of buckets, each pointing to a sorted single
+// linked list (null if the bucket is empty).
+// bucket_count: number of fixed array buckets
+extern MemTableRepFactory* NewHashLinkListRepFactory(
+    const SliceTransform* transform, size_t bucket_count = 50000);
+
 }
 
 #endif // STORAGE_ROCKSDB_DB_MEMTABLEREP_H_

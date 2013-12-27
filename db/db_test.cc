@@ -29,6 +29,7 @@
 #include "util/mutexlock.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "util/hash_linklist_rep.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -250,6 +251,7 @@ class DBTest {
     kPlainTableFirstBytePrefix,
     kPlainTableAllBytesPrefix,
     kVectorRep,
+    kHashLinkList,
     kMergePut,
     kFilter,
     kUncompressed,
@@ -402,6 +404,10 @@ class DBTest {
         break;
       case kVectorRep:
         options.memtable_factory.reset(new VectorRepFactory(100));
+        break;
+      case kHashLinkList:
+      options.memtable_factory.reset(
+          NewHashLinkListRepFactory(NewFixedPrefixTransform(1), 4));
         break;
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;
@@ -4521,6 +4527,7 @@ TEST(DBTest, Randomized) {
       int p = rnd.Uniform(100);
       int minimum = 0;
       if (option_config_ == kHashSkipList ||
+          option_config_ == kHashLinkList ||
           option_config_ == kPlainTableFirstBytePrefix) {
         minimum = 1;
       }
