@@ -49,6 +49,7 @@ DEFINE_string(benchmarks,
               "compact,"
               "readrandom,"
               "readseq,"
+              "readtocache,"
               "readreverse,"
               "readwhilewriting,"
               "readrandomwriterandom,"
@@ -76,6 +77,7 @@ DEFINE_string(benchmarks,
               "\tdeleteseq     -- delete N keys in sequential order\n"
               "\tdeleterandom  -- delete N keys in random order\n"
               "\treadseq       -- read N times sequentially\n"
+              "\treadtocache   -- 1 thread reading database sequentially\n"
               "\treadreverse   -- read N times in reverse order\n"
               "\treadrandom    -- read N times in random order\n"
               "\treadmissing   -- read N missing keys in random order\n"
@@ -150,7 +152,7 @@ DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
-DEFINE_int32(write_buffer_size, rocksdb::Options().write_buffer_size,
+DEFINE_int64(write_buffer_size, rocksdb::Options().write_buffer_size,
              "Number of bytes to buffer in memtable before compacting");
 
 DEFINE_int32(max_write_buffer_number,
@@ -1062,6 +1064,10 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == Slice("readseq")) {
         method = &Benchmark::ReadSequential;
+      } else if (name == Slice("readtocache")) {
+        method = &Benchmark::ReadSequential;
+        num_threads = 1;
+        reads_ = num_;
       } else if (name == Slice("readreverse")) {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {

@@ -67,6 +67,7 @@ class DBImpl : public DB {
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
+  virtual const std::string& GetName() const;
   virtual Env* GetEnv() const;
   virtual const Options& GetOptions() const;
   virtual Status Flush(const FlushOptions& options);
@@ -127,12 +128,38 @@ class DBImpl : public DB {
     default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
   }
 
-  // needed for CleanupIteratorState
+  // holds references to memtable, all immutable memtables and version
+  struct SuperVersion {
+    MemTable* mem;
+    MemTableList imm;
+    Version* current;
+    std::atomic<uint32_t> refs;
+    // We need to_delete because during Cleanup(), imm.UnrefAll() returns
+    // all memtables that we need to free through this vector. We then
+    // delete all those memtables outside of mutex, during destruction
+    std::vector<MemTable*> to_delete;
 
+    // should be called outside the mutex
+    explicit SuperVersion(const int num_memtables = 0);
+    ~SuperVersion();
+    SuperVersion* Ref();
+    // Returns true if this was the last reference and caller should
+    // call Clenaup() and delete the object
+    bool Unref();
+
+    // call these two methods with db mutex held
+    // Cleanup unrefs mem, imm and current. Also, it stores all memtables
+    // that needs to be deleted in to_delete vector. Unrefing those
+    // objects needs to be done in the mutex
+    void Cleanup();
+    void Init(MemTable* new_mem, const MemTableList& new_imm,
+              Version* new_current);
+  };
+
+  // needed for CleanupIteratorState
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
-      return  memtables_to_free.size() ||
-        all_files.size() ||
+      return  all_files.size() ||
         sst_delete_files.size() ||
         log_delete_files.size();
     }
@@ -154,15 +181,35 @@ class DBImpl : public DB {
     // a list of memtables to be free
     std::vector<MemTable *> memtables_to_free;
 
+    SuperVersion* superversion_to_free; // if nullptr nothing to free
+
+    SuperVersion* new_superversion; // if nullptr no new superversion
+
     // the current manifest_file_number, log_number and prev_log_number
     // that corresponds to the set of files in 'live'.
     uint64_t manifest_file_number, log_number, prev_log_number;
 
-    explicit DeletionState(const int num_memtables = 0) {
+    explicit DeletionState(const int num_memtables = 0,
+                           bool create_superversion = false) {
       manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
       memtables_to_free.reserve(num_memtables);
+      superversion_to_free = nullptr;
+      new_superversion =
+          create_superversion ? new SuperVersion(num_memtables) : nullptr;
+    }
+
+    ~DeletionState() {
+      // free pending memtables
+      for (auto m : memtables_to_free) {
+        delete m;
+      }
+      // free superversion. if nullptr, this will be noop
+      delete superversion_to_free;
+      // if new_superversion was not used, it will be non-nullptr and needs
+      // to be freed here
+      delete new_superversion;
     }
   };
 
@@ -239,7 +286,11 @@ class DBImpl : public DB {
                                 uint64_t* filenumber);
 
   uint64_t SlowdownAmount(int n, int top, int bottom);
-  Status MakeRoomForWrite(bool force /* compact even if there is room? */);
+  // MakeRoomForWrite will return superversion_to_free through an arugment,
+  // which the caller needs to delete. We do it because caller can delete
+  // the superversion outside of mutex
+  Status MakeRoomForWrite(bool force /* compact even if there is room? */,
+                          SuperVersion** superversion_to_free);
   WriteBatch* BuildBatchGroup(Writer** last_writer);
 
   // Force current memtable contents to be flushed.
@@ -322,6 +373,8 @@ class DBImpl : public DB {
   MemTableList imm_;             // Memtable that are not changing
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
+
+  SuperVersion* super_version_;
 
   std::string host_name_;
 
@@ -440,15 +493,25 @@ class DBImpl : public DB {
 
   // Used to compute per-interval statistics
   struct StatsSnapshot {
-    uint64_t bytes_read_;
-    uint64_t bytes_written_;
-    uint64_t bytes_new_;
+    uint64_t compaction_bytes_read_;     // Bytes read by compaction
+    uint64_t compaction_bytes_written_;  // Bytes written by compaction
+    uint64_t ingest_bytes_;              // Bytes written by user
+    uint64_t wal_bytes_;                 // Bytes written to WAL
+    uint64_t wal_synced_;                // Number of times WAL is synced
+    uint64_t write_with_wal_;            // Number of writes that request WAL
+    // These count the number of writes processed by the calling thread or
+    // another thread.
+    uint64_t write_other_;
+    uint64_t write_self_;
     double   seconds_up_;
 
-    StatsSnapshot() : bytes_read_(0), bytes_written_(0),
-                      bytes_new_(0), seconds_up_(0) {}
+    StatsSnapshot() : compaction_bytes_read_(0), compaction_bytes_written_(0),
+                      ingest_bytes_(0), wal_bytes_(0), wal_synced_(0),
+                      write_with_wal_(0), write_other_(0), write_self_(0),
+                      seconds_up_(0) {}
   };
 
+  // Counters from the previous time per-interval stats were computed
   StatsSnapshot last_stats_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
@@ -479,6 +542,18 @@ class DBImpl : public DB {
     SequenceNumber in,
     std::vector<SequenceNumber>& snapshots,
     SequenceNumber* prev_snapshot);
+
+  // will return a pointer to SuperVersion* if previous SuperVersion
+  // if its reference count is zero and needs deletion or nullptr if not
+  // As argument takes a pointer to allocated SuperVersion
+  // Foreground threads call this function directly (they don't carry
+  // deletion state and have to handle their own creation and deletion
+  // of SuperVersion)
+  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion);
+  // Background threads call this function, which is just a wrapper around
+  // the InstallSuperVersion() function above. Background threads carry
+  // deletion_state which can have new_superversion already allocated.
+  void InstallSuperVersion(DeletionState& deletion_state);
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here

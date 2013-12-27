@@ -545,7 +545,7 @@ void Version::Get(const ReadOptions& options,
         case kFound:
           return;
         case kDeleted:
-          *status = Status::NotFound(Slice());  // Use empty error message for speed
+          *status = Status::NotFound();  // Use empty error message for speed
           return;
         case kCorrupt:
           *status = Status::Corruption("corrupted key for ", user_key);
@@ -570,7 +570,7 @@ void Version::Get(const ReadOptions& options,
                                    user_key);
     }
   } else {
-    *status = Status::NotFound(Slice()); // Use an empty error message for speed
+    *status = Status::NotFound(); // Use an empty error message for speed
   }
 }
 
@@ -1111,12 +1111,6 @@ class VersionSet::Builder {
       for (; base_iter != base_end; ++base_iter) {
         MaybeAddFile(v, level, *base_iter);
       }
-    }
-    // Pre-sort level0 for Get()
-    if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
-      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirstBySeqNo);
-    } else {
-      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirst);
     }
 
     CheckConsistency(v);
@@ -1683,6 +1677,12 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 
 void VersionSet::Finalize(Version* v,
   std::vector<uint64_t>& size_being_compacted) {
+  // Pre-sort level0 for Get()
+  if (options_->compaction_style == kCompactionStyleUniversal) {
+    std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirstBySeqNo);
+  } else {
+    std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirst);
+  }
 
   double max_score = 0;
   int max_score_level = 0;

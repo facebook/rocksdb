@@ -50,9 +50,8 @@ Status TableCache::FindTable(const EnvOptions& toptions,
                              Cache::Handle** handle, bool* table_io,
                              const bool no_io) {
   Status s;
-  char buf[sizeof(file_number)];
-  EncodeFixed64(buf, file_number);
-  Slice key(buf, sizeof(buf));
+  Slice key(reinterpret_cast<const char*>(&file_number), sizeof(file_number));
+
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
     if (no_io) { // Dont do IO and return a not-found status
@@ -165,9 +164,8 @@ bool TableCache::PrefixMayMatch(const ReadOptions& options,
 }
 
 void TableCache::Evict(uint64_t file_number) {
-  char buf[sizeof(file_number)];
-  EncodeFixed64(buf, file_number);
-  cache_->Erase(Slice(buf, sizeof(buf)));
+  Slice key(reinterpret_cast<const char*>(&file_number), sizeof(file_number));
+  cache_->Erase(key);
 }
 
 }  // namespace rocksdb

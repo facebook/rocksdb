@@ -36,15 +36,19 @@ class PosixLogger : public Logger {
   const static uint64_t flush_every_seconds_ = 5;
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
+  bool flush_pending_;
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env) :
     file_(f), gettid_(gettid), log_size_(0), fd_(fileno(f)),
-    last_flush_micros_(0), env_(env) { }
+    last_flush_micros_(0), env_(env), flush_pending_(false) { }
   virtual ~PosixLogger() {
     fclose(file_);
   }
   virtual void Flush() {
-    fflush(file_);
+    if (flush_pending_) {
+      flush_pending_ = false;
+      fflush(file_);
+    }
     last_flush_micros_ = env_->NowMicros();
   }
   virtual void Logv(const char* format, va_list ap) {
@@ -107,7 +111,7 @@ class PosixLogger : public Logger {
       assert(p <= limit);
       const size_t write_size = p - base;
 
-#ifdef OS_LINUX
+#ifdef ROCKSDB_FALLOCATE_PRESENT
       // If this write would cross a boundary of kDebugLogChunkSize
       // space, pre-allocate more space to avoid overly large
       // allocations from filesystem allocsize options.
@@ -124,6 +128,7 @@ class PosixLogger : public Logger {
 #endif
 
       size_t sz = fwrite(base, 1, write_size, file_);
+      flush_pending_ = true;
       assert(sz == write_size);
       if (sz > 0) {
         log_size_ += write_size;
@@ -131,6 +136,7 @@ class PosixLogger : public Logger {
       uint64_t now_micros = static_cast<uint64_t>(now_tv.tv_sec) * 1000000 +
         now_tv.tv_usec;
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
+        flush_pending_ = false;
         fflush(file_);
         last_flush_micros_ = now_micros;
       }

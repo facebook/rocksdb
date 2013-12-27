@@ -228,6 +228,10 @@ class DB {
   // Number of files in level-0 that would stop writes.
   virtual int Level0StopWriteTrigger() = 0;
 
+  // Get DB name -- the exact same name that was provided as an argument to
+  // DB::Open()
+  virtual const std::string& GetName() const = 0;
+
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
 

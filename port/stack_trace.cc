@@ -31,12 +31,7 @@ static const char* GetExecutableName()
   }
 }
 
-static void StackTraceHandler(int sig) {
-  // reset to default handler
-  signal(sig, SIG_DFL);
-
-  fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
-
+void PrintStack(int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void *frames[kMaxFrames];
 
@@ -45,11 +40,8 @@ static void StackTraceHandler(int sig) {
 
   auto executable = GetExecutableName();
 
-  const int kSkip = 2; // skip the top two signal handler related frames
-
-  for (int i = kSkip; i < num_frames; ++i)
-  {
-    fprintf(stderr, "#%-2d %p ", i - kSkip, frames[i]);
+  for (int i = first_frames_to_skip; i < num_frames; ++i) {
+    fprintf(stderr, "#%-2d  ", i - first_frames_to_skip);
     if (symbols) {
       fprintf(stderr, "%s ", symbols[i]);
     }
@@ -57,22 +49,29 @@ static void StackTraceHandler(int sig) {
       // out source to addr2line, for the address translation
       const int kLineMax = 256;
       char cmd[kLineMax];
-      sprintf(cmd,"addr2line %p -e %s 2>&1", frames[i] , executable);
+      sprintf(cmd, "addr2line %p -e %s -f -C 2>&1", frames[i], executable);
       auto f = popen(cmd, "r");
       if (f) {
         char line[kLineMax];
         while (fgets(line, sizeof(line), f)) {
-          fprintf(stderr, "%s", line);
+          line[strlen(line) - 1] = 0; // remove newline
+          fprintf(stderr, "%s\t", line);
         }
         pclose(f);
-      } else {
-        fprintf(stderr, "\n");
       }
     } else {
-      fprintf(stderr, "\n");
+      fprintf(stderr, " %p", frames[i]);
     }
+    fprintf(stderr, "\n");
   }
+}
 
+static void StackTraceHandler(int sig) {
+  // reset to default handler
+  signal(sig, SIG_DFL);
+  fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
+  // skip the top three signal handler related frames
+  PrintStack(3);
   // re-signal to default handler (so we still get core dump if needed...)
   raise(sig);
 }
@@ -96,6 +95,7 @@ void InstallStackTraceHandler() {
 namespace rocksdb {
 
 void InstallStackTraceHandler() {}
+void PrintStack(int first_frames_to_skip) {}
 
 }
 

@@ -701,23 +701,25 @@ static std::string Key(int i) {
   return std::string(buf);
 }
 
-TEST(DBTest, Empty) {
+/*
+TEST(DBTest, GetFromImmutableLayer) {
   do {
-    ASSERT_TRUE(db_ != nullptr);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-  } while (ChangeOptions());
-}
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.write_buffer_size = 100000;  // Small write buffer
+    Reopen(&options);
 
-TEST(DBTest, ReadWrite) {
-  do {
     ASSERT_OK(Put("foo", "v1"));
     ASSERT_EQ("v1", Get("foo"));
-    ASSERT_OK(Put("bar", "v2"));
-    ASSERT_OK(Put("foo", "v3"));
-    ASSERT_EQ("v3", Get("foo"));
-    ASSERT_EQ("v2", Get("bar"));
+
+    env_->delay_sstable_sync_.Release_Store(env_);   // Block sync calls
+    Put("k1", std::string(100000, 'x'));             // Fill memtable
+    Put("k2", std::string(100000, 'y'));             // Trigger compaction
+    ASSERT_EQ("v1", Get("foo"));
+    env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
   } while (ChangeOptions());
 }
+*/
 
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
@@ -731,7 +733,7 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
 
   ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
   // Create a new talbe.
-  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
 
   // index/filter blocks added to block cache right after table creation.
   ASSERT_EQ(1,
@@ -774,157 +776,6 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
             options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(index_block_hit + 2,
             options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
-}
-
-TEST(DBTest, LevelLimitReopen) {
-  Options options = CurrentOptions();
-  Reopen(&options);
-
-  const std::string value(1024 * 1024, ' ');
-  int i = 0;
-  while (NumTableFilesAtLevel(2) == 0) {
-    ASSERT_OK(Put(Key(i++), value));
-  }
-
-  options.num_levels = 1;
-  options.max_bytes_for_level_multiplier_additional.resize(1, 1);
-  Status s = TryReopen(&options);
-  ASSERT_EQ(s.IsCorruption(), true);
-  ASSERT_EQ(s.ToString(),
-            "Corruption: VersionEdit: db already has "
-            "more levels than options.num_levels");
-
-  options.num_levels = 10;
-  options.max_bytes_for_level_multiplier_additional.resize(10, 1);
-  ASSERT_OK(TryReopen(&options));
-}
-
-TEST(DBTest, Preallocation) {
-  const std::string src = dbname_ + "/alloc_test";
-  unique_ptr<WritableFile> srcfile;
-  const EnvOptions soptions;
-  ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
-  srcfile->SetPreallocationBlockSize(1024 * 1024);
-
-  // No writes should mean no preallocation
-  size_t block_size, last_allocated_block;
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 0UL);
-
-  // Small write should preallocate one block
-  srcfile->Append("test");
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 1UL);
-
-  // Write an entire preallocation block, make sure we increased by two.
-  std::string buf(block_size, ' ');
-  srcfile->Append(buf);
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 2UL);
-
-  // Write five more blocks at once, ensure we're where we need to be.
-  buf = std::string(block_size * 5, ' ');
-  srcfile->Append(buf);
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 7UL);
-}
-
-TEST(DBTest, PutDeleteGet) {
-  do {
-    ASSERT_OK(db_->Put(WriteOptions(), "foo", "v1"));
-    ASSERT_EQ("v1", Get("foo"));
-    ASSERT_OK(db_->Put(WriteOptions(), "foo", "v2"));
-    ASSERT_EQ("v2", Get("foo"));
-    ASSERT_OK(db_->Delete(WriteOptions(), "foo"));
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-  } while (ChangeOptions());
-}
-
-
-TEST(DBTest, GetFromImmutableLayer) {
-  do {
-    Options options = CurrentOptions();
-    options.env = env_;
-    options.write_buffer_size = 100000;  // Small write buffer
-    Reopen(&options);
-
-    ASSERT_OK(Put("foo", "v1"));
-    ASSERT_EQ("v1", Get("foo"));
-
-    env_->delay_sstable_sync_.Release_Store(env_);   // Block sync calls
-    Put("k1", std::string(100000, 'x'));             // Fill memtable
-    Put("k2", std::string(100000, 'y'));             // Trigger compaction
-    ASSERT_EQ("v1", Get("foo"));
-    env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
-  } while (ChangeOptions());
-}
-
-TEST(DBTest, GetFromVersions) {
-  do {
-    ASSERT_OK(Put("foo", "v1"));
-    dbfull()->TEST_FlushMemTable();
-    ASSERT_EQ("v1", Get("foo"));
-  } while (ChangeOptions());
-}
-
-TEST(DBTest, GetSnapshot) {
-  do {
-    // Try with both a short key and a long key
-    for (int i = 0; i < 2; i++) {
-      std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
-      ASSERT_OK(Put(key, "v1"));
-      const Snapshot* s1 = db_->GetSnapshot();
-      ASSERT_OK(Put(key, "v2"));
-      ASSERT_EQ("v2", Get(key));
-      ASSERT_EQ("v1", Get(key, s1));
-      dbfull()->TEST_FlushMemTable();
-      ASSERT_EQ("v2", Get(key));
-      ASSERT_EQ("v1", Get(key, s1));
-      db_->ReleaseSnapshot(s1);
-    }
-  } while (ChangeOptions());
-}
-
-TEST(DBTest, GetLevel0Ordering) {
-  do {
-    // Check that we process level-0 files in correct order.  The code
-    // below generates two level-0 files where the earlier one comes
-    // before the later one in the level-0 file list since the earlier
-    // one has a smaller "smallest" key.
-    ASSERT_OK(Put("bar", "b"));
-    ASSERT_OK(Put("foo", "v1"));
-    dbfull()->TEST_FlushMemTable();
-    ASSERT_OK(Put("foo", "v2"));
-    dbfull()->TEST_FlushMemTable();
-    ASSERT_EQ("v2", Get("foo"));
-  } while (ChangeOptions());
-}
-
-TEST(DBTest, GetOrderedByLevels) {
-  do {
-    ASSERT_OK(Put("foo", "v1"));
-    Compact("a", "z");
-    ASSERT_EQ("v1", Get("foo"));
-    ASSERT_OK(Put("foo", "v2"));
-    ASSERT_EQ("v2", Get("foo"));
-    dbfull()->TEST_FlushMemTable();
-    ASSERT_EQ("v2", Get("foo"));
-  } while (ChangeOptions());
-}
-
-TEST(DBTest, GetPicksCorrectFile) {
-  do {
-    // Arrange to have multiple files in a non-level-0 level.
-    ASSERT_OK(Put("a", "va"));
-    Compact("a", "b");
-    ASSERT_OK(Put("x", "vx"));
-    Compact("x", "y");
-    ASSERT_OK(Put("f", "vf"));
-    Compact("f", "g");
-    ASSERT_EQ("va", Get("a"));
-    ASSERT_EQ("vf", Get("f"));
-    ASSERT_EQ("vx", Get("x"));
-  } while (ChangeOptions());
 }
 
 TEST(DBTest, GetEncountersEmptyLevel) {
@@ -4510,6 +4361,10 @@ class ModelDB: public DB {
   return -1;
   }
 
+  virtual const std::string& GetName() const {
+    return name_;
+  }
+
   virtual Env* GetEnv() const {
     return nullptr;
   }
@@ -4587,6 +4442,7 @@ class ModelDB: public DB {
   };
   const Options options_;
   KVMap map_;
+  std::string name_ = "";
 };
 
 static std::string RandomKey(Random* rnd, int minimum = 0) {

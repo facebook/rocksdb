@@ -54,171 +54,204 @@ extern "C" {
 
 /* Exported types */
 
-typedef struct leveldb_t               leveldb_t;
-typedef struct leveldb_cache_t         leveldb_cache_t;
-typedef struct leveldb_comparator_t    leveldb_comparator_t;
-typedef struct leveldb_env_t           leveldb_env_t;
-typedef struct leveldb_filelock_t      leveldb_filelock_t;
-typedef struct leveldb_filterpolicy_t  leveldb_filterpolicy_t;
-typedef struct leveldb_iterator_t      leveldb_iterator_t;
-typedef struct leveldb_logger_t        leveldb_logger_t;
-typedef struct leveldb_options_t       leveldb_options_t;
-typedef struct leveldb_randomfile_t    leveldb_randomfile_t;
-typedef struct leveldb_readoptions_t   leveldb_readoptions_t;
-typedef struct leveldb_seqfile_t       leveldb_seqfile_t;
-typedef struct leveldb_snapshot_t      leveldb_snapshot_t;
-typedef struct leveldb_writablefile_t  leveldb_writablefile_t;
-typedef struct leveldb_writebatch_t    leveldb_writebatch_t;
-typedef struct leveldb_writeoptions_t  leveldb_writeoptions_t;
+typedef struct rocksdb_t               rocksdb_t;
+typedef struct rocksdb_cache_t         rocksdb_cache_t;
+typedef struct rocksdb_comparator_t    rocksdb_comparator_t;
+typedef struct rocksdb_env_t           rocksdb_env_t;
+typedef struct rocksdb_filelock_t      rocksdb_filelock_t;
+typedef struct rocksdb_filterpolicy_t  rocksdb_filterpolicy_t;
+typedef struct rocksdb_iterator_t      rocksdb_iterator_t;
+typedef struct rocksdb_logger_t        rocksdb_logger_t;
+typedef struct rocksdb_options_t       rocksdb_options_t;
+typedef struct rocksdb_randomfile_t    rocksdb_randomfile_t;
+typedef struct rocksdb_readoptions_t   rocksdb_readoptions_t;
+typedef struct rocksdb_seqfile_t       rocksdb_seqfile_t;
+typedef struct rocksdb_snapshot_t      rocksdb_snapshot_t;
+typedef struct rocksdb_writablefile_t  rocksdb_writablefile_t;
+typedef struct rocksdb_writebatch_t    rocksdb_writebatch_t;
+typedef struct rocksdb_writeoptions_t  rocksdb_writeoptions_t;
+typedef struct rocksdb_universal_compaction_options_t rocksdb_universal_compaction_options_t;
 
 /* DB operations */
 
-extern leveldb_t* leveldb_open(
-    const leveldb_options_t* options,
+extern rocksdb_t* rocksdb_open(
+    const rocksdb_options_t* options,
     const char* name,
     char** errptr);
 
-extern void leveldb_close(leveldb_t* db);
+extern void rocksdb_close(rocksdb_t* db);
 
-extern void leveldb_put(
-    leveldb_t* db,
-    const leveldb_writeoptions_t* options,
+extern void rocksdb_put(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
     const char* key, size_t keylen,
     const char* val, size_t vallen,
     char** errptr);
 
-extern void leveldb_delete(
-    leveldb_t* db,
-    const leveldb_writeoptions_t* options,
+extern void rocksdb_delete(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
     const char* key, size_t keylen,
     char** errptr);
 
-extern void leveldb_write(
-    leveldb_t* db,
-    const leveldb_writeoptions_t* options,
-    leveldb_writebatch_t* batch,
+extern void rocksdb_write(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    rocksdb_writebatch_t* batch,
     char** errptr);
 
 /* Returns NULL if not found.  A malloc()ed array otherwise.
    Stores the length of the array in *vallen. */
-extern char* leveldb_get(
-    leveldb_t* db,
-    const leveldb_readoptions_t* options,
+extern char* rocksdb_get(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
     const char* key, size_t keylen,
     size_t* vallen,
     char** errptr);
 
-extern leveldb_iterator_t* leveldb_create_iterator(
-    leveldb_t* db,
-    const leveldb_readoptions_t* options);
+extern rocksdb_iterator_t* rocksdb_create_iterator(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options);
 
-extern const leveldb_snapshot_t* leveldb_create_snapshot(
-    leveldb_t* db);
+extern const rocksdb_snapshot_t* rocksdb_create_snapshot(
+    rocksdb_t* db);
 
-extern void leveldb_release_snapshot(
-    leveldb_t* db,
-    const leveldb_snapshot_t* snapshot);
+extern void rocksdb_release_snapshot(
+    rocksdb_t* db,
+    const rocksdb_snapshot_t* snapshot);
 
 /* Returns NULL if property name is unknown.
    Else returns a pointer to a malloc()-ed null-terminated value. */
-extern char* leveldb_property_value(
-    leveldb_t* db,
+extern char* rocksdb_property_value(
+    rocksdb_t* db,
     const char* propname);
 
-extern void leveldb_approximate_sizes(
-    leveldb_t* db,
+extern void rocksdb_approximate_sizes(
+    rocksdb_t* db,
     int num_ranges,
     const char* const* range_start_key, const size_t* range_start_key_len,
     const char* const* range_limit_key, const size_t* range_limit_key_len,
     uint64_t* sizes);
 
-extern void leveldb_compact_range(
-    leveldb_t* db,
+extern void rocksdb_compact_range(
+    rocksdb_t* db,
     const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len);
 
 /* Management operations */
 
-extern void leveldb_destroy_db(
-    const leveldb_options_t* options,
+extern void rocksdb_destroy_db(
+    const rocksdb_options_t* options,
     const char* name,
     char** errptr);
 
-extern void leveldb_repair_db(
-    const leveldb_options_t* options,
+extern void rocksdb_repair_db(
+    const rocksdb_options_t* options,
     const char* name,
     char** errptr);
 
 /* Iterator */
 
-extern void leveldb_iter_destroy(leveldb_iterator_t*);
-extern unsigned char leveldb_iter_valid(const leveldb_iterator_t*);
-extern void leveldb_iter_seek_to_first(leveldb_iterator_t*);
-extern void leveldb_iter_seek_to_last(leveldb_iterator_t*);
-extern void leveldb_iter_seek(leveldb_iterator_t*, const char* k, size_t klen);
-extern void leveldb_iter_next(leveldb_iterator_t*);
-extern void leveldb_iter_prev(leveldb_iterator_t*);
-extern const char* leveldb_iter_key(const leveldb_iterator_t*, size_t* klen);
-extern const char* leveldb_iter_value(const leveldb_iterator_t*, size_t* vlen);
-extern void leveldb_iter_get_error(const leveldb_iterator_t*, char** errptr);
+extern void rocksdb_iter_destroy(rocksdb_iterator_t*);
+extern unsigned char rocksdb_iter_valid(const rocksdb_iterator_t*);
+extern void rocksdb_iter_seek_to_first(rocksdb_iterator_t*);
+extern void rocksdb_iter_seek_to_last(rocksdb_iterator_t*);
+extern void rocksdb_iter_seek(rocksdb_iterator_t*, const char* k, size_t klen);
+extern void rocksdb_iter_next(rocksdb_iterator_t*);
+extern void rocksdb_iter_prev(rocksdb_iterator_t*);
+extern const char* rocksdb_iter_key(const rocksdb_iterator_t*, size_t* klen);
+extern const char* rocksdb_iter_value(const rocksdb_iterator_t*, size_t* vlen);
+extern void rocksdb_iter_get_error(const rocksdb_iterator_t*, char** errptr);
 
 /* Write batch */
 
-extern leveldb_writebatch_t* leveldb_writebatch_create();
-extern void leveldb_writebatch_destroy(leveldb_writebatch_t*);
-extern void leveldb_writebatch_clear(leveldb_writebatch_t*);
-extern void leveldb_writebatch_put(
-    leveldb_writebatch_t*,
+extern rocksdb_writebatch_t* rocksdb_writebatch_create();
+extern void rocksdb_writebatch_destroy(rocksdb_writebatch_t*);
+extern void rocksdb_writebatch_clear(rocksdb_writebatch_t*);
+extern void rocksdb_writebatch_put(
+    rocksdb_writebatch_t*,
     const char* key, size_t klen,
     const char* val, size_t vlen);
-extern void leveldb_writebatch_delete(
-    leveldb_writebatch_t*,
+extern void rocksdb_writebatch_delete(
+    rocksdb_writebatch_t*,
     const char* key, size_t klen);
-extern void leveldb_writebatch_iterate(
-    leveldb_writebatch_t*,
+extern void rocksdb_writebatch_iterate(
+    rocksdb_writebatch_t*,
     void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen));
 
 /* Options */
 
-extern leveldb_options_t* leveldb_options_create();
-extern void leveldb_options_destroy(leveldb_options_t*);
-extern void leveldb_options_set_comparator(
-    leveldb_options_t*,
-    leveldb_comparator_t*);
-extern void leveldb_options_set_compression_per_level(
-  leveldb_options_t* opt,
+extern rocksdb_options_t* rocksdb_options_create();
+extern void rocksdb_options_destroy(rocksdb_options_t*);
+extern void rocksdb_options_set_comparator(
+    rocksdb_options_t*,
+    rocksdb_comparator_t*);
+extern void rocksdb_options_set_compression_per_level(
+  rocksdb_options_t* opt,
   int* level_values,
   size_t num_levels);
-extern void leveldb_options_set_filter_policy(
-    leveldb_options_t*,
-    leveldb_filterpolicy_t*);
-extern void leveldb_options_set_create_if_missing(
-    leveldb_options_t*, unsigned char);
-extern void leveldb_options_set_error_if_exists(
-    leveldb_options_t*, unsigned char);
-extern void leveldb_options_set_paranoid_checks(
-    leveldb_options_t*, unsigned char);
-extern void leveldb_options_set_env(leveldb_options_t*, leveldb_env_t*);
-extern void leveldb_options_set_info_log(leveldb_options_t*, leveldb_logger_t*);
-extern void leveldb_options_set_write_buffer_size(leveldb_options_t*, size_t);
-extern void leveldb_options_set_max_open_files(leveldb_options_t*, int);
-extern void leveldb_options_set_cache(leveldb_options_t*, leveldb_cache_t*);
-extern void leveldb_options_set_block_size(leveldb_options_t*, size_t);
-extern void leveldb_options_set_block_restart_interval(leveldb_options_t*, int);
-extern void leveldb_options_set_compression_options(
-    leveldb_options_t* opt, int w_bits, int level, int strategy);
+extern void rocksdb_options_set_filter_policy(
+    rocksdb_options_t*,
+    rocksdb_filterpolicy_t*);
+extern void rocksdb_options_set_create_if_missing(
+    rocksdb_options_t*, unsigned char);
+extern void rocksdb_options_set_error_if_exists(
+    rocksdb_options_t*, unsigned char);
+extern void rocksdb_options_set_paranoid_checks(
+    rocksdb_options_t*, unsigned char);
+extern void rocksdb_options_set_env(rocksdb_options_t*, rocksdb_env_t*);
+extern void rocksdb_options_set_info_log(rocksdb_options_t*, rocksdb_logger_t*);
+extern void rocksdb_options_set_write_buffer_size(rocksdb_options_t*, size_t);
+extern void rocksdb_options_set_max_open_files(rocksdb_options_t*, int);
+extern void rocksdb_options_set_cache(rocksdb_options_t*, rocksdb_cache_t*);
+extern void rocksdb_options_set_block_size(rocksdb_options_t*, size_t);
+extern void rocksdb_options_set_block_restart_interval(rocksdb_options_t*, int);
+extern void rocksdb_options_set_compression_options(
+    rocksdb_options_t*, int, int, int);
+extern void rocksdb_options_set_num_levels(rocksdb_options_t*, int);
+extern void rocksdb_options_set_level0_file_num_compaction_trigger(
+    rocksdb_options_t*, int);
+extern void rocksdb_options_set_level0_slowdown_writes_trigger(
+    rocksdb_options_t*, int);
+extern void rocksdb_options_set_level0_stop_writes_trigger(
+    rocksdb_options_t*, int);
+extern void rocksdb_options_set_target_file_size_base(
+    rocksdb_options_t*, uint64_t);
+extern void rocksdb_options_set_target_file_size_multiplier(
+    rocksdb_options_t*, int);
+extern void rocksdb_options_set_max_write_buffer_number(rocksdb_options_t*, int);
+extern void rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t*, int);
+extern void rocksdb_options_set_max_background_compactions(rocksdb_options_t*, int);
+extern void rocksdb_options_set_max_background_flushes(rocksdb_options_t*, int);
+extern void rocksdb_options_set_use_fsync(
+    rocksdb_options_t*, int);
+extern void rocksdb_options_set_disable_data_sync(rocksdb_options_t*, int);
+extern void rocksdb_options_set_disable_auto_compactions(rocksdb_options_t*, int);
+extern void rocksdb_options_set_disable_seek_compaction(rocksdb_options_t*, int);
+extern void rocksdb_options_set_source_compaction_factor(rocksdb_options_t*, int);
+extern void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t*);
+extern void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t*);
+
 
 enum {
-  leveldb_no_compression = 0,
-  leveldb_snappy_compression = 1
+  rocksdb_no_compression = 0,
+  rocksdb_snappy_compression = 1,
+  rocksdb_zlib_compression = 1,
+  rocksdb_bz2_compression = 1
 };
-extern void leveldb_options_set_compression(leveldb_options_t*, int);
+extern void rocksdb_options_set_compression(rocksdb_options_t*, int);
 
+enum {
+  rocksdb_level_compaction = 0,
+  rocksdb_universal_compaction = 1
+};
+extern void rocksdb_options_set_compaction_style(rocksdb_options_t*, int);
+extern void rocksdb_options_set_universal_compaction_options(rocksdb_options_t*, rocksdb_universal_compaction_options_t*);
 /* Comparator */
 
-extern leveldb_comparator_t* leveldb_comparator_create(
+extern rocksdb_comparator_t* rocksdb_comparator_create(
     void* state,
     void (*destructor)(void*),
     int (*compare)(
@@ -226,11 +259,11 @@ extern leveldb_comparator_t* leveldb_comparator_create(
         const char* a, size_t alen,
         const char* b, size_t blen),
     const char* (*name)(void*));
-extern void leveldb_comparator_destroy(leveldb_comparator_t*);
+extern void rocksdb_comparator_destroy(rocksdb_comparator_t*);
 
 /* Filter policy */
 
-extern leveldb_filterpolicy_t* leveldb_filterpolicy_create(
+extern rocksdb_filterpolicy_t* rocksdb_filterpolicy_create(
     void* state,
     void (*destructor)(void*),
     char* (*create_filter)(
@@ -243,40 +276,65 @@ extern leveldb_filterpolicy_t* leveldb_filterpolicy_create(
         const char* key, size_t length,
         const char* filter, size_t filter_length),
     const char* (*name)(void*));
-extern void leveldb_filterpolicy_destroy(leveldb_filterpolicy_t*);
+extern void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t*);
 
-extern leveldb_filterpolicy_t* leveldb_filterpolicy_create_bloom(
+extern rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(
     int bits_per_key);
 
 /* Read options */
 
-extern leveldb_readoptions_t* leveldb_readoptions_create();
-extern void leveldb_readoptions_destroy(leveldb_readoptions_t*);
-extern void leveldb_readoptions_set_verify_checksums(
-    leveldb_readoptions_t*,
+extern rocksdb_readoptions_t* rocksdb_readoptions_create();
+extern void rocksdb_readoptions_destroy(rocksdb_readoptions_t*);
+extern void rocksdb_readoptions_set_verify_checksums(
+    rocksdb_readoptions_t*,
     unsigned char);
-extern void leveldb_readoptions_set_fill_cache(
-    leveldb_readoptions_t*, unsigned char);
-extern void leveldb_readoptions_set_snapshot(
-    leveldb_readoptions_t*,
-    const leveldb_snapshot_t*);
+extern void rocksdb_readoptions_set_fill_cache(
+    rocksdb_readoptions_t*, unsigned char);
+extern void rocksdb_readoptions_set_snapshot(
+    rocksdb_readoptions_t*,
+    const rocksdb_snapshot_t*);
 
 /* Write options */
 
-extern leveldb_writeoptions_t* leveldb_writeoptions_create();
-extern void leveldb_writeoptions_destroy(leveldb_writeoptions_t*);
-extern void leveldb_writeoptions_set_sync(
-    leveldb_writeoptions_t*, unsigned char);
+extern rocksdb_writeoptions_t* rocksdb_writeoptions_create();
+extern void rocksdb_writeoptions_destroy(rocksdb_writeoptions_t*);
+extern void rocksdb_writeoptions_set_sync(
+    rocksdb_writeoptions_t*, unsigned char);
+extern void rocksdb_writeoptions_disable_WAL(rocksdb_writeoptions_t* opt, int disable);
 
 /* Cache */
 
-extern leveldb_cache_t* leveldb_cache_create_lru(size_t capacity);
-extern void leveldb_cache_destroy(leveldb_cache_t* cache);
+extern rocksdb_cache_t* rocksdb_cache_create_lru(size_t capacity);
+extern void rocksdb_cache_destroy(rocksdb_cache_t* cache);
 
 /* Env */
 
-extern leveldb_env_t* leveldb_create_default_env();
-extern void leveldb_env_destroy(leveldb_env_t*);
+extern rocksdb_env_t* rocksdb_create_default_env();
+extern void rocksdb_env_set_background_threads(rocksdb_env_t* env, int n);
+extern void rocksdb_env_destroy(rocksdb_env_t*);
+
+/* Universal Compaction options */
+
+enum {
+  rocksdb_similar_size_compaction_stop_style = 0,
+  rocksdb_total_size_compaction_stop_style = 1
+};
+
+extern rocksdb_universal_compaction_options_t* rocksdb_universal_compaction_options_create() ;
+extern void rocksdb_universal_compaction_options_set_size_ratio(
+  rocksdb_universal_compaction_options_t*, int);
+extern void rocksdb_universal_compaction_options_set_min_merge_width(
+  rocksdb_universal_compaction_options_t*, int);
+extern void rocksdb_universal_compaction_options_set_max_merge_width(
+  rocksdb_universal_compaction_options_t*, int);
+extern void rocksdb_universal_compaction_options_set_max_size_amplification_percent(
+  rocksdb_universal_compaction_options_t*, int);
+extern void rocksdb_universal_compaction_options_set_compression_size_percent(
+  rocksdb_universal_compaction_options_t*, int);
+extern void rocksdb_universal_compaction_options_set_stop_style(
+  rocksdb_universal_compaction_options_t*, int);
+extern void rocksdb_universal_compaction_options_destroy(
+  rocksdb_universal_compaction_options_t*);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

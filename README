@@ -79,4 +79,4 @@ include/rocksdb/statistics.h
 include/rocksdb/transaction_log.h
     An API to retrieve transaction logs from a database.
 
-
+Design discussions are conducted in https://www.facebook.com/groups/rocksdb.dev/

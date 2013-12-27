@@ -11,4 +11,7 @@ namespace rocksdb {
 // Currently supports linux only. No-op otherwise.
 void InstallStackTraceHandler();
 
+// Prints stack, skips skip_first_frames frames
+void PrintStack(int first_frames_to_skip = 0);
+
 }   // namespace rocksdb

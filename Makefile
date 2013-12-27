@@ -45,6 +45,8 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
+	autovector_test \
+	db_test \
 	table_properties_collector_test \
 	arena_test \
 	auto_roll_logger_test \
@@ -74,12 +76,12 @@ TESTS = \
 	skiplist_test \
 	stringappend_test \
 	ttl_test \
+	backupable_db_test \
 	version_edit_test \
 	version_set_test \
 	write_batch_test\
 	deletefile_test \
-	table_test \
-	db_test
+	table_test
 
 TOOLS = \
         sst_dump \
@@ -125,7 +127,7 @@ $(SHARED2): $(SHARED3)
 endif
 
 $(SHARED3):
-	$(CXX) $(LDFLAGS) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(COVERAGEFLAGS) $(PLATFORM_SHARED_CFLAGS) $(SOURCES) -o $(SHARED3)
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(COVERAGEFLAGS) $(PLATFORM_SHARED_CFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
 
 endif  # PLATFORM_SHARED_EXT
 
@@ -145,8 +147,9 @@ coverage:
 	# Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-check: all $(PROGRAMS) $(TESTS) $(TOOLS) ldb_tests
+check: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
+	python tools/ldb_test.py
 
 ldb_tests: all $(PROGRAMS) $(TOOLS)
 	python tools/ldb_test.py
@@ -223,6 +226,9 @@ signal_test: util/signal_test.o $(LIBOBJECTS)
 arena_test: util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
+autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 table_properties_collector_test: db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
@@ -276,6 +282,9 @@ perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
+
+backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)

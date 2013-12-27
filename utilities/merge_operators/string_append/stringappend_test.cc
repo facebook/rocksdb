@@ -41,9 +41,7 @@ std::shared_ptr<DB> OpenTtlDb(char delim_char) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new StringAppendTESTOperator(delim_char));
-  Status s;
-  db = new DBWithTTL(123456, options, kDbName, s, false);
-  ASSERT_OK(s);
+  ASSERT_OK(UtilityDB::OpenTtlDB(options, kDbName, &db, 123456));
   return std::shared_ptr<DB>(db);
 }
 
@@ -53,6 +51,7 @@ class StringLists {
  public:
 
   //Constructor: specifies the rocksdb db
+  /* implicit */
   StringLists(std::shared_ptr<DB> db)
       : db_(db),
         merge_option_(),
@@ -75,7 +74,7 @@ class StringLists {
 
   // Returns the list of strings associated with key (or "" if does not exist)
   bool Get(const std::string& key, std::string* const result){
-    assert(result != NULL); // we should have a place to store the result
+    assert(result != nullptr); // we should have a place to store the result
     auto s = db_->Get(get_option_, key, result);
 
     if (s.ok()) {
