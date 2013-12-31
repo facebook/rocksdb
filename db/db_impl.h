@@ -11,6 +11,7 @@
 #include <deque>
 #include <set>
 #include <vector>
+
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
@@ -159,7 +160,7 @@ class DBImpl : public DB {
   // needed for CleanupIteratorState
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
-      return  all_files.size() ||
+      return  candidate_files.size() ||
         sst_delete_files.size() ||
         log_delete_files.size();
     }
@@ -167,7 +168,7 @@ class DBImpl : public DB {
     // a list of all files that we'll consider deleting
     // (every once in a while this is filled up with all files
     // in the DB directory)
-    std::vector<std::string> all_files;
+    std::vector<std::string> candidate_files;
 
     // the list of all live sst files that cannot be deleted
     std::vector<uint64_t> sst_live;
@@ -214,7 +215,7 @@ class DBImpl : public DB {
   };
 
   // Returns the list of live files in 'live' and the list
-  // of all files in the filesystem in 'all_files'.
+  // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
   // options_.delete_obsolete_files_period_micros microseconds ago,
   // it will not fill up the deletion_state

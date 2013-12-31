@@ -78,8 +78,8 @@ class Version {
   };
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
            Status* status, MergeContext* merge_context,
-           GetStats* stats, const Options& db_option, bool* value_found =
-               nullptr);
+           GetStats* stats, const Options& db_option,
+           bool* value_found = nullptr);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
@@ -172,7 +172,7 @@ class Version {
   // but files in each level are now sorted based on file
   // size. The file with the largest size is at the front.
   // This vector stores the index of the file from files_.
-  std::vector< std::vector<int> > files_by_size_;
+  std::vector<std::vector<int>> files_by_size_;
 
   // An index into files_by_size_ that specifies the first
   // file that is not yet compacted

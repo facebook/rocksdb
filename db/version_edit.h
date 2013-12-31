@@ -75,6 +75,7 @@ class VersionEdit {
                const InternalKey& largest,
                const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno) {
+    assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.number = file;
     f.file_size = file_size;
@@ -82,13 +83,12 @@ class VersionEdit {
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
-    assert(smallest_seqno <= largest_seqno);
     new_files_.push_back(std::make_pair(level, f));
   }
 
   // Delete the specified "file" from the specified "level".
   void DeleteFile(int level, uint64_t file) {
-    deleted_files_.insert(std::make_pair(level, file));
+    deleted_files_.insert({level, file});
   }
 
   // Number of edits
@@ -104,7 +104,7 @@ class VersionEdit {
  private:
   friend class VersionSet;
 
-  typedef std::set< std::pair<int, uint64_t> > DeletedFileSet;
+  typedef std::set< std::pair<int, uint64_t>> DeletedFileSet;
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 
@@ -120,9 +120,9 @@ class VersionEdit {
   bool has_next_file_number_;
   bool has_last_sequence_;
 
-  std::vector< std::pair<int, InternalKey> > compact_pointers_;
+  std::vector<std::pair<int, InternalKey>> compact_pointers_;
   DeletedFileSet deleted_files_;
-  std::vector< std::pair<int, FileMetaData> > new_files_;
+  std::vector<std::pair<int, FileMetaData>> new_files_;
 };
 
 }  // namespace rocksdb

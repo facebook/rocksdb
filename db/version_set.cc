@@ -958,6 +958,7 @@ class VersionSet::Builder {
         }
       }
     }
+
     delete[] levels_;
     base_->Unref();
   }
@@ -1043,19 +1044,17 @@ class VersionSet::Builder {
 
     // Delete files
     const VersionEdit::DeletedFileSet& del = edit->deleted_files_;
-    for (VersionEdit::DeletedFileSet::const_iterator iter = del.begin();
-         iter != del.end();
-         ++iter) {
-      const int level = iter->first;
-      const uint64_t number = iter->second;
+    for (const auto& del_file : del) {
+      const auto level = del_file.first;
+      const auto number = del_file.second;
       levels_[level].deleted_files.insert(number);
       CheckConsistencyForDeletes(edit, number, level);
     }
 
     // Add new files
-    for (size_t i = 0; i < edit->new_files_.size(); i++) {
-      const int level = edit->new_files_[i].first;
-      FileMetaData* f = new FileMetaData(edit->new_files_[i].second);
+    for (const auto& new_file : edit->new_files_) {
+      const int level = new_file.first;
+      FileMetaData* f = new FileMetaData(new_file.second);
       f->refs = 1;
 
       // We arrange to automatically compact this file after
@@ -1088,23 +1087,21 @@ class VersionSet::Builder {
     for (int level = 0; level < vset_->NumberLevels(); level++) {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
-      const std::vector<FileMetaData*>& base_files = base_->files_[level];
-      std::vector<FileMetaData*>::const_iterator base_iter = base_files.begin();
-      std::vector<FileMetaData*>::const_iterator base_end = base_files.end();
-      const FileSet* added = levels_[level].added_files;
-      v->files_[level].reserve(base_files.size() + added->size());
-      for (FileSet::const_iterator added_iter = added->begin();
-           added_iter != added->end();
-           ++added_iter) {
+      const auto& base_files = base_->files_[level];
+      auto base_iter = base_files.begin();
+      auto base_end = base_files.end();
+      const auto& added_files = *levels_[level].added_files;
+      v->files_[level].reserve(base_files.size() + added_files.size());
+
+      for (const auto& added : added_files) {
         // Add all smaller files listed in base_
-        for (std::vector<FileMetaData*>::const_iterator bpos
-                 = std::upper_bound(base_iter, base_end, *added_iter, cmp);
+        for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
              base_iter != bpos;
              ++base_iter) {
           MaybeAddFile(v, level, *base_iter);
         }
 
-        MaybeAddFile(v, level, *added_iter);
+        MaybeAddFile(v, level, added);
       }
 
       // Add remaining base files
@@ -1120,7 +1117,7 @@ class VersionSet::Builder {
     if (levels_[level].deleted_files.count(f->number) > 0) {
       // File is deleted: do nothing
     } else {
-      std::vector<FileMetaData*>* files = &v->files_[level];
+      auto* files = &v->files_[level];
       if (level > 0 && !files->empty()) {
         // Must not overlap
         assert(vset_->icmp_.Compare((*files)[files->size()-1]->largest,
@@ -1210,7 +1207,9 @@ void VersionSet::AppendVersion(Version* v) {
   v->next_->prev_ = v;
 }
 
-Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
+Status VersionSet::LogAndApply(
+    VersionEdit* edit,
+    port::Mutex* mu,
     bool new_descriptor_log) {
   mu->AssertHeld();
 
@@ -1232,17 +1231,16 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   ManifestWriter* last_writer = &w;
   assert(!manifest_writers_.empty());
   assert(manifest_writers_.front() == &w);
-  std::deque<ManifestWriter*>::iterator iter = manifest_writers_.begin();
-  for (; iter != manifest_writers_.end(); ++iter) {
-    last_writer = *iter;
-    LogAndApplyHelper(&builder, v, last_writer->edit, mu);
-    batch_edits.push_back(last_writer->edit);
+  for (const auto& writer : manifest_writers_) {
+    last_writer = writer;
+    LogAndApplyHelper(&builder, v, writer->edit, mu);
+    batch_edits.push_back(writer->edit);
   }
   builder.SaveTo(v);
 
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
-  std::string new_manifest_file;
+  std::string new_manifest_filename;
   uint64_t new_manifest_file_size = 0;
   Status s;
   // we will need this if we are creating new manifest
@@ -1256,7 +1254,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   }
 
   if (new_descriptor_log) {
-    new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
+    new_manifest_filename = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
   }
 
@@ -1271,9 +1269,10 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
 
     // This is fine because everything inside of this block is serialized --
     // only one thread can be here at the same time
-    if (!new_manifest_file.empty()) {
+    if (!new_manifest_filename.empty()) {
       unique_ptr<WritableFile> descriptor_file;
-      s = env_->NewWritableFile(new_manifest_file, &descriptor_file,
+      s = env_->NewWritableFile(new_manifest_filename,
+                                &descriptor_file,
                                 storage_options_);
       if (s.ok()) {
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
@@ -1321,7 +1320,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
-    if (s.ok() && !new_manifest_file.empty()) {
+    if (s.ok() && !new_manifest_filename.empty()) {
       s = SetCurrentFile(env_, dbname_, manifest_file_number_);
       if (s.ok() && old_manifest_file_number < manifest_file_number_) {
         // delete old manifest file
@@ -1356,9 +1355,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     Log(options_->info_log, "Error in committing version %lu",
         (unsigned long)v->GetVersionNumber());
     delete v;
-    if (!new_manifest_file.empty()) {
+    if (!new_manifest_filename.empty()) {
       descriptor_log_.reset();
-      env_->DeleteFile(new_manifest_file);
+      env_->DeleteFile(new_manifest_filename);
     }
   }
 
@@ -1410,27 +1409,33 @@ Status VersionSet::Recover() {
   };
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
-  std::string current;
-  Status s = ReadFileToString(env_, CurrentFileName(dbname_), &current);
+  std::string manifest_filename;
+  Status s = ReadFileToString(
+      env_, CurrentFileName(dbname_), &manifest_filename
+  );
   if (!s.ok()) {
     return s;
   }
-  if (current.empty() || current[current.size()-1] != '\n') {
+  if (manifest_filename.empty() ||
+      manifest_filename.back() != '\n') {
     return Status::Corruption("CURRENT file does not end with newline");
   }
-  current.resize(current.size() - 1);
+  // remove the trailing '\n'
+  manifest_filename.resize(manifest_filename.size() - 1);
 
   Log(options_->info_log, "Recovering from manifest file:%s\n",
-      current.c_str());
+      manifest_filename.c_str());
 
-  std::string dscname = dbname_ + "/" + current;
-  unique_ptr<SequentialFile> file;
-  s = env_->NewSequentialFile(dscname, &file, storage_options_);
+  manifest_filename = dbname_ + "/" + manifest_filename;
+  unique_ptr<SequentialFile> manifest_file;
+  s = env_->NewSequentialFile(
+      manifest_filename, &manifest_file, storage_options_
+  );
   if (!s.ok()) {
     return s;
   }
   uint64_t manifest_file_size;
-  s = env_->GetFileSize(dscname, &manifest_file_size);
+  s = env_->GetFileSize(manifest_filename, &manifest_file_size);
   if (!s.ok()) {
     return s;
   }
@@ -1448,8 +1453,8 @@ Status VersionSet::Recover() {
   {
     LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(std::move(file), &reporter, true/*checksum*/,
-                       0/*initial_offset*/);
+    log::Reader reader(std::move(manifest_file), &reporter, true /*checksum*/,
+                       0 /*initial_offset*/);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -1489,7 +1494,6 @@ Status VersionSet::Recover() {
       }
     }
   }
-  file.reset();
 
   if (s.ok()) {
     if (!have_next_file) {
@@ -1529,7 +1533,7 @@ Status VersionSet::Recover() {
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu\n",
-        current.c_str(),
+        manifest_filename.c_str(),
         (unsigned long)manifest_file_number_,
         (unsigned long)next_file_number_,
         (unsigned long)last_sequence_,
@@ -1844,9 +1848,9 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
   // Save files
   for (int level = 0; level < NumberLevels(); level++) {
-    const std::vector<FileMetaData*>& files = current_->files_[level];
+    const auto& files = current_->files_[level];
     for (size_t i = 0; i < files.size(); i++) {
-      const FileMetaData* f = files[i];
+      const auto f = files[i];
       edit.AddFile(level, f->number, f->file_size, f->smallest, f->largest,
                    f->smallest_seqno, f->largest_seqno);
     }

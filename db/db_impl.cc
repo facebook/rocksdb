@@ -20,8 +20,8 @@
 #include <vector>
 
 #include "db/builder.h"
-#include "db/dbformat.h"
 #include "db/db_iter.h"
+#include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -43,7 +43,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "port/port.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merger.h"
@@ -59,7 +58,7 @@
 
 namespace rocksdb {
 
-void dumpLeveldbBuildVersion(Logger * log);
+void DumpLeveldbBuildVersion(Logger * log);
 
 // Information kept for every waiting writer
 struct DBImpl::Writer {
@@ -266,9 +265,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       storage_options_(options),
       bg_work_gate_closed_(false),
       refitting_level_(false) {
-
   mem_->Ref();
-
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   stall_leveln_slowdown_.resize(options.num_levels);
@@ -282,16 +279,15 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   const int table_cache_size = options_.max_open_files - 10;
   table_cache_.reset(new TableCache(dbname_, &options_,
                                     storage_options_, table_cache_size));
-
   versions_.reset(new VersionSet(dbname_, &options_, storage_options_,
                                  table_cache_.get(), &internal_comparator_));
 
-  dumpLeveldbBuildVersion(options_.info_log.get());
+  DumpLeveldbBuildVersion(options_.info_log.get());
   options_.Dump(options_.info_log.get());
 
   char name[100];
-  Status st = env_->GetHostName(name, 100L);
-  if (st.ok()) {
+  Status s = env_->GetHostName(name, 100L);
+  if (s.ok()) {
     host_name_ = name;
   } else {
     Log(options_.info_log, "Can't get hostname, use localhost as host name.");
@@ -502,7 +498,7 @@ void DBImpl::SuperVersion::Init(MemTable* new_mem, const MemTableList& new_imm,
 }
 
 // Returns the list of live files in 'sst_live' and the list
-// of all files in the filesystem in 'all_files'.
+// of all files in the filesystem in 'candidate_files'.
 // no_full_scan = true -- never do the full scan using GetChildren()
 // force = false -- don't force the full scan, except every
 //  options_.delete_obsolete_files_period_micros
@@ -554,15 +550,18 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
   versions_->AddLiveFiles(&deletion_state.sst_live);
 
   if (doing_the_full_scan) {
-    // set of all files in the directory
-    env_->GetChildren(dbname_, &deletion_state.all_files); // Ignore errors
+    // set of all files in the directory. We'll exclude files that are still
+    // alive in the subsequent processings.
+    env_->GetChildren(
+        dbname_, &deletion_state.candidate_files
+    ); // Ignore errors
 
     //Add log files in wal_dir
     if (options_.wal_dir != dbname_) {
       std::vector<std::string> log_files;
       env_->GetChildren(options_.wal_dir, &log_files); // Ignore errors
-      deletion_state.all_files.insert(
-        deletion_state.all_files.end(),
+      deletion_state.candidate_files.insert(
+        deletion_state.candidate_files.end(),
         log_files.begin(),
         log_files.end()
       );
@@ -575,11 +574,10 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
-
   // check if there is anything to do
-  if (!state.all_files.size() &&
-      !state.sst_delete_files.size() &&
-      !state.log_delete_files.size()) {
+  if (state.candidate_files.empty() &&
+      state.sst_delete_files.empty() &&
+      state.log_delete_files.empty()) {
     return;
   }
 
@@ -589,100 +587,114 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   if (state.manifest_file_number == 0) {
     return;
   }
-
-  uint64_t number;
-  FileType type;
   std::vector<std::string> old_log_files;
 
   // Now, convert live list to an unordered set, WITHOUT mutex held;
   // set is slow.
-  std::unordered_set<uint64_t> live_set(state.sst_live.begin(),
-                                        state.sst_live.end());
+  std::unordered_set<uint64_t> sst_live(
+      state.sst_live.begin(), state.sst_live.end()
+  );
 
-  state.all_files.reserve(state.all_files.size() +
-      state.sst_delete_files.size());
+  auto& candidate_files = state.candidate_files;
+  candidate_files.reserve(
+      candidate_files.size() +
+      state.sst_delete_files.size() +
+      state.log_delete_files.size());
+  // We may ignore the dbname when generating the file names.
+  const char* kDumbDbName = "";
   for (auto file : state.sst_delete_files) {
-    state.all_files.push_back(TableFileName("", file->number).substr(1));
+    candidate_files.push_back(
+        TableFileName(kDumbDbName, file->number).substr(1)
+    );
     delete file;
   }
 
-  state.all_files.reserve(state.all_files.size() +
-      state.log_delete_files.size());
-  for (auto filenum : state.log_delete_files) {
-    if (filenum > 0) {
-      state.all_files.push_back(LogFileName("", filenum).substr(1));
+  for (auto file_num : state.log_delete_files) {
+    if (file_num > 0) {
+      candidate_files.push_back(
+          LogFileName(kDumbDbName, file_num).substr(1)
+      );
     }
   }
 
-  // dedup state.all_files so we don't try to delete the same
+  // dedup state.candidate_files so we don't try to delete the same
   // file twice
-  sort(state.all_files.begin(), state.all_files.end());
-  auto unique_end = unique(state.all_files.begin(), state.all_files.end());
+  sort(candidate_files.begin(), candidate_files.end());
+  candidate_files.erase(
+      unique(candidate_files.begin(), candidate_files.end()),
+      candidate_files.end()
+  );
 
-  for (size_t i = 0; state.all_files.begin() + i < unique_end; i++) {
-    if (ParseFileName(state.all_files[i], &number, &type)) {
-      bool keep = true;
-      switch (type) {
-        case kLogFile:
-          keep = ((number >= state.log_number) ||
-                  (number == state.prev_log_number));
-          break;
-        case kDescriptorFile:
-          // Keep my manifest file, and any newer incarnations'
-          // (in case there is a race that allows other incarnations)
-          keep = (number >= state.manifest_file_number);
-          break;
-        case kTableFile:
-          keep = (live_set.find(number) != live_set.end());
-          break;
-        case kTempFile:
-          // Any temp files that are currently being written to must
-          // be recorded in pending_outputs_, which is inserted into "live"
-          keep = (live_set.find(number) != live_set.end());
-          break;
-        case kInfoLogFile:
-          keep = true;
-          if (number != 0) {
-            old_log_files.push_back(state.all_files[i]);
-          }
-          break;
-        case kCurrentFile:
-        case kDBLockFile:
-        case kIdentityFile:
-        case kMetaDatabase:
-          keep = true;
-          break;
-      }
+  for (const auto& to_delete : candidate_files) {
+    uint64_t number;
+    FileType type;
+    // Ignore file if we cannot recognize it.
+    if (!ParseFileName(to_delete, &number, &type)) {
+      continue;
+    }
 
-      if (!keep) {
-        if (type == kTableFile) {
-          // evict from cache
-          table_cache_->Evict(number);
+    bool keep = true;
+    switch (type) {
+      case kLogFile:
+        keep = ((number >= state.log_number) ||
+                (number == state.prev_log_number));
+        break;
+      case kDescriptorFile:
+        // Keep my manifest file, and any newer incarnations'
+        // (in case there is a race that allows other incarnations)
+        keep = (number >= state.manifest_file_number);
+        break;
+      case kTableFile:
+        keep = (sst_live.find(number) != sst_live.end());
+        break;
+      case kTempFile:
+        // Any temp files that are currently being written to must
+        // be recorded in pending_outputs_, which is inserted into "live"
+        keep = (sst_live.find(number) != sst_live.end());
+        break;
+      case kInfoLogFile:
+        keep = true;
+        if (number != 0) {
+          old_log_files.push_back(to_delete);
         }
-        std::string fname = ((type == kLogFile) ? options_.wal_dir : dbname_) +
-            "/" + state.all_files[i];
+        break;
+      case kCurrentFile:
+      case kDBLockFile:
+      case kIdentityFile:
+      case kMetaDatabase:
+        keep = true;
+        break;
+    }
+
+    if (keep) {
+      continue;
+    }
+
+    if (type == kTableFile) {
+      // evict from cache
+      table_cache_->Evict(number);
+    }
+    std::string fname = ((type == kLogFile) ? options_.wal_dir : dbname_) +
+        "/" + to_delete;
+    Log(options_.info_log,
+        "Delete type=%d #%lu",
+        int(type),
+        (unsigned long)number);
+
+    if (type == kLogFile &&
+        (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0)) {
+      Status s = env_->RenameFile(fname,
+          ArchivedLogFileName(options_.wal_dir, number));
+      if (!s.ok()) {
         Log(options_.info_log,
-            "Delete type=%d #%lu",
-            int(type),
-            (unsigned long)number);
-
-        Status st;
-        if (type == kLogFile && (options_.WAL_ttl_seconds > 0 ||
-              options_.WAL_size_limit_MB > 0)) {
-            st = env_->RenameFile(fname,
-                ArchivedLogFileName(options_.wal_dir, number));
-            if (!st.ok()) {
-              Log(options_.info_log,
-                  "RenameFile logfile #%lu FAILED -- %s\n",
-                  (unsigned long)number, st.ToString().c_str());
-            }
-        } else {
-          st = env_->DeleteFile(fname);
-          if (!st.ok()) {
-            Log(options_.info_log, "Delete type=%d #%lu FAILED -- %s\n",
-                int(type), (unsigned long)number, st.ToString().c_str());
-          }
-        }
+            "RenameFile logfile #%lu FAILED -- %s\n",
+            (unsigned long)number, s.ToString().c_str());
+      }
+    } else {
+      Status s = env_->DeleteFile(fname);
+      if (!s.ok()) {
+        Log(options_.info_log, "Delete type=%d #%lu FAILED -- %s\n",
+            int(type), (unsigned long)number, s.ToString().c_str());
       }
     }
   }
@@ -839,7 +851,9 @@ void DBImpl::PurgeObsoleteWALFiles() {
 
 // If externalTable is set, then apply recovered transactions
 // to that table. This is used for readonly mode.
-Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
+Status DBImpl::Recover(
+    VersionEdit* edit,
+    MemTable* external_table,
     bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
@@ -906,10 +920,11 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
     if (!s.ok()) {
       return s;
     }
-    uint64_t number;
-    FileType type;
+
     std::vector<uint64_t> logs;
     for (size_t i = 0; i < filenames.size(); i++) {
+      uint64_t number;
+      FileType type;
       if (ParseFileName(filenames[i], &number, &type)
           && type == kLogFile
           && ((number >= min_log) || (number == prev_log))) {
@@ -925,12 +940,12 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
 
     // Recover in the order in which the logs were generated
     std::sort(logs.begin(), logs.end());
-    for (size_t i = 0; i < logs.size(); i++) {
-      s = RecoverLogFile(logs[i], edit, &max_sequence, external_table);
+    for (const auto& log : logs) {
+      s = RecoverLogFile(log, edit, &max_sequence, external_table);
       // The previous incarnation may not have written any MANIFEST
       // records after allocating this log number.  So we manually
       // update the file number allocation counter in VersionSet.
-      versions_->MarkFileNumberUsed(logs[i]);
+      versions_->MarkFileNumberUsed(log);
     }
 
     if (s.ok()) {
@@ -1146,7 +1161,6 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
     mutex_.Lock();
   }
   base->Unref();
-
 
   // re-acquire the most current version
   base = versions_->current();
@@ -3285,7 +3299,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
 
     } else {
       unique_ptr<WritableFile> lfile;
-      MemTable* memtmp = nullptr;
+      MemTable* new_mem = nullptr;
 
       // Attempt to switch to a new memtable and trigger compaction of old.
       // Do this without holding the dbmutex lock.
@@ -3306,7 +3320,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
           // Our final size should be less than write_buffer_size
           // (compression, etc) but err on the side of caution.
           lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
-          memtmp = new MemTable(
+          new_mem = new MemTable(
             internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
           new_superversion = new SuperVersion(options_.max_write_buffer_number);
         }
@@ -3315,7 +3329,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
-        assert (!memtmp);
+        assert (!new_mem);
         break;
       }
       logfile_number_ = new_log_number;
@@ -3325,7 +3339,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       if (force) {
         imm_.FlushRequested();
       }
-      mem_ = memtmp;
+      mem_ = new_mem;
       mem_->Ref();
       Log(options_.info_log,
           "New memtable created with log file: #%lu\n",
@@ -3806,7 +3820,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     delete impl;
     return s;
   }
-  impl->mutex_.Lock();
+  impl->mutex_.Lock();  // DBImpl::Recover() requires lock being held
   VersionEdit edit(impl->NumberLevels());
   s = impl->Recover(&edit); // Handles create_if_missing, error_if_exists
   if (s.ok()) {
@@ -3929,7 +3943,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 
 //
 // A global method that can dump out the build version
-void dumpLeveldbBuildVersion(Logger * log) {
+void DumpLeveldbBuildVersion(Logger * log) {
   Log(log, "Git sha %s", rocksdb_build_git_sha);
   Log(log, "Compile time %s %s",
       rocksdb_build_compile_time, rocksdb_build_compile_date);
