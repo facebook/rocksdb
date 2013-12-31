@@ -8,7 +8,7 @@
 #
 
 # create git version file
-VFILE=$ROCKSDB_ROOT/util/build_version.cc.tmp
+VFILE=$PWD/util/build_version.cc.tmp
 trap "rm $VFILE" EXIT
 
 # check to see if git is in the path
@@ -36,7 +36,7 @@ echo "const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:$(da
 echo "const char* rocksdb_build_compile_date = __DATE__;" >> ${VFILE}
 echo "const char* rocksdb_build_compile_time = __TIME__;" >> ${VFILE}
 
-OUTFILE=$ROCKSDB_ROOT/util/build_version.cc
+OUTFILE=$PWD/util/build_version.cc
 if [ ! -e $OUTFILE ] || ! cmp -s $VFILE $OUTFILE; then
     cp $VFILE $OUTFILE
 fi
