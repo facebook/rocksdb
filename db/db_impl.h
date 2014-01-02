@@ -72,7 +72,7 @@ class DBImpl : public DB {
   virtual const Options& GetOptions() const;
   virtual Status Flush(const FlushOptions& options);
   virtual Status DisableFileDeletions();
-  virtual Status EnableFileDeletions();
+  virtual Status EnableFileDeletions(bool force);
   // All the returned filenames start with "/"
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,
@@ -416,7 +416,12 @@ class DBImpl : public DB {
   int64_t volatile last_log_ts;
 
   // shall we disable deletion of obsolete files
-  bool disable_delete_obsolete_files_;
+  // if 0 the deletion is enabled.
+  // if non-zero, files will not be getting deleted
+  // This enables two different threads to call
+  // EnableFileDeletions() and DisableFileDeletions()
+  // without any synchronization
+  int disable_delete_obsolete_files_;
 
   // last time when DeleteObsoleteFiles was invoked
   uint64_t delete_obsolete_files_last_run_;

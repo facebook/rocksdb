@@ -247,7 +247,15 @@ class DB {
   virtual Status DisableFileDeletions() = 0;
 
   // Allow compactions to delete obselete files.
-  virtual Status EnableFileDeletions() = 0;
+  // If force == true, the call to EnableFileDeletions() will guarantee that
+  // file deletions are enabled after the call, even if DisableFileDeletions()
+  // was called multiple times before.
+  // If force == false, EnableFileDeletions will only enable file deletion
+  // after it's been called at least as many times as DisableFileDeletions(),
+  // enabling the two methods to be called by two threads concurrently without
+  // synchronization -- i.e., file deletions will be enabled only after both
+  // threads call EnableFileDeletions()
+  virtual Status EnableFileDeletions(bool force = true) = 0;
 
   // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
 

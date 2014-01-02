@@ -48,7 +48,7 @@ class DummyDB : public StackableDB {
     return options_;
   }
 
-  virtual Status EnableFileDeletions() override {
+  virtual Status EnableFileDeletions(bool force) override {
     ASSERT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
     return Status::OK();

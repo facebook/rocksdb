@@ -55,7 +55,7 @@ public:
  virtual Status DisableFileDeletions() {
    return Status::NotSupported("Not supported operation in read only mode.");
  }
- virtual Status EnableFileDeletions() {
+ virtual Status EnableFileDeletions(bool force) {
    return Status::NotSupported("Not supported operation in read only mode.");
  }
  virtual Status GetLiveFiles(std::vector<std::string>&,

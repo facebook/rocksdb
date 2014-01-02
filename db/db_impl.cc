@@ -248,7 +248,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       bg_logstats_scheduled_(false),
       manual_compaction_(nullptr),
       logger_(nullptr),
-      disable_delete_obsolete_files_(false),
+      disable_delete_obsolete_files_(0),
       delete_obsolete_files_last_run_(options.env->NowMicros()),
       purge_wal_files_last_run_(0),
       last_stats_dump_time_microsec_(0),
@@ -513,7 +513,7 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
   mutex_.AssertHeld();
 
   // if deletion is disabled, do nothing
-  if (disable_delete_obsolete_files_) {
+  if (disable_delete_obsolete_files_ > 0) {
     return;
   }
 
@@ -1248,7 +1248,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
     MaybeScheduleLogDBDeployStats();
 
-    if (!disable_delete_obsolete_files_) {
+    if (disable_delete_obsolete_files_ == 0) {
       // add to deletion state
       deletion_state.log_delete_files.insert(
           deletion_state.log_delete_files.end(),
