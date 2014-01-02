@@ -10,10 +10,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <vector>
 
 #include "rocksdb/cache.h"
 #include "port/port.h"
+#include "util/autovector.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 
@@ -264,8 +264,7 @@ Cache::Handle* LRUCache::Insert(
 
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
       malloc(sizeof(LRUHandle)-1 + key.size()));
-  std::vector<LRUHandle*> last_reference_list;
-  last_reference_list.reserve(1);
+  autovector<LRUHandle*> last_reference_list;
 
   e->value = value;
   e->deleter = deleter;

@@ -47,6 +47,7 @@
 #include "table/block_based_table_factory.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
+#include "util/autovector.h"
 #include "util/auto_roll_logger.h"
 #include "util/build_version.h"
 #include "util/coding.h"
@@ -299,8 +300,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 }
 
 DBImpl::~DBImpl() {
-  std::vector<MemTable*> to_delete;
-  to_delete.reserve(options_.max_write_buffer_number);
+  autovector<MemTable*> to_delete;
 
   // Wait for background work to finish
   if (flush_on_destroy_ && mem_->GetFirstSequenceNumber() != 0) {
@@ -455,10 +455,6 @@ void DBImpl::MaybeDumpStats() {
 }
 
 // DBImpl::SuperVersion methods
-DBImpl::SuperVersion::SuperVersion(const int num_memtables) {
-  to_delete.resize(num_memtables);
-}
-
 DBImpl::SuperVersion::~SuperVersion() {
   for (auto td : to_delete) {
     delete td;
@@ -1114,7 +1110,7 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
 }
 
 
-Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
+Status DBImpl::WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
                                 uint64_t* filenumber) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
@@ -1131,15 +1127,15 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
-    std::vector<Iterator*> list;
+    std::vector<Iterator*> memtables;
     for (MemTable* m : mems) {
       Log(options_.info_log,
           "Flushing memtable with log file: %lu\n",
           (unsigned long)m->GetLogNumber());
-      list.push_back(m->NewIterator());
+      memtables.push_back(m->NewIterator());
     }
-    Iterator* iter = NewMergingIterator(env_, &internal_comparator_, &list[0],
-                                        list.size());
+    Iterator* iter = NewMergingIterator(
+        env_, &internal_comparator_, &memtables[0], memtables.size());
     Log(options_.info_log,
         "Level-0 flush table #%lu: started",
         (unsigned long)meta.number);
@@ -1214,7 +1210,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   // Save the contents of the earliest memtable as a new Table
   uint64_t file_number;
-  std::vector<MemTable*> mems;
+  autovector<MemTable*> mems;
   imm_.PickMemtablesToFlush(&mems);
   if (mems.empty()) {
     Log(options_.info_log, "Nothing in memstore to flush");
@@ -1316,8 +1312,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
   assert(level < NumberLevels());
 
   SuperVersion* superversion_to_free = nullptr;
-  SuperVersion* new_superversion =
-      new SuperVersion(options_.max_write_buffer_number);
+  SuperVersion* new_superversion = new SuperVersion();
 
   mutex_.Lock();
 
@@ -1750,7 +1745,7 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
 
 void DBImpl::BackgroundCallFlush() {
   bool madeProgress = false;
-  DeletionState deletion_state(options_.max_write_buffer_number, true);
+  DeletionState deletion_state(true);
   assert(bg_flush_scheduled_);
   MutexLock l(&mutex_);
 
@@ -1796,7 +1791,7 @@ void DBImpl::TEST_PurgeObsoleteteWAL() {
 
 void DBImpl::BackgroundCallCompaction() {
   bool madeProgress = false;
-  DeletionState deletion_state(options_.max_write_buffer_number, true);
+  DeletionState deletion_state(true);
 
   MaybeDumpStats();
 
@@ -2591,16 +2586,16 @@ namespace {
 struct IterState {
   port::Mutex* mu;
   Version* version;
-  std::vector<MemTable*> mem; // includes both mem_ and imm_
+  autovector<MemTable*> mem; // includes both mem_ and imm_
   DBImpl *db;
 };
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
-  DBImpl::DeletionState deletion_state(state->db->GetOptions().
-                                       max_write_buffer_number);
+  DBImpl::DeletionState deletion_state;
   state->mu->Lock();
-  for (unsigned int i = 0; i < state->mem.size(); i++) {
+  auto mems_size = state->mem.size();
+  for (size_t i = 0; i < mems_size; i++) {
     MemTable* m = state->mem[i]->Unref();
     if (m != nullptr) {
       deletion_state.memtables_to_free.push_back(m);
@@ -2620,7 +2615,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       SequenceNumber* latest_snapshot) {
   IterState* cleanup = new IterState;
   MemTable* mutable_mem;
-  std::vector<MemTable*> immutables;
+  autovector<MemTable*> immutables;
   Version* version;
 
   // Collect together all needed child iterators for mem
@@ -2638,16 +2633,17 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   version = versions_->current();
   mutex_.Unlock();
 
-  std::vector<Iterator*> list;
-  list.push_back(mutable_mem->NewIterator(options));
+  std::vector<Iterator*> memtables;
+  memtables.push_back(mutable_mem->NewIterator(options));
   cleanup->mem.push_back(mutable_mem);
   for (MemTable* m : immutables) {
-    list.push_back(m->NewIterator(options));
+    memtables.push_back(m->NewIterator(options));
     cleanup->mem.push_back(m);
   }
-  version->AddIterators(options, storage_options_, &list);
-  Iterator* internal_iter =
-      NewMergingIterator(env_, &internal_comparator_, &list[0], list.size());
+  version->AddIterators(options, storage_options_, &memtables);
+  Iterator* internal_iter = NewMergingIterator(
+      env_, &internal_comparator_, memtables.data(), memtables.size()
+  );
   cleanup->version = version;
   cleanup->mu = &mutex_;
   cleanup->db = this;
@@ -2802,7 +2798,7 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
   StartPerfTimer(&snapshot_timer);
 
   SequenceNumber snapshot;
-  std::vector<MemTable*> to_delete;
+  autovector<MemTable*> to_delete;
 
   mutex_.Lock();
   if (options.snapshot != nullptr) {
@@ -3322,7 +3318,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
           lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
           new_mem = new MemTable(
             internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
-          new_superversion = new SuperVersion(options_.max_write_buffer_number);
+          new_superversion = new SuperVersion();
         }
       }
       mutex_.Lock();
@@ -3703,7 +3699,7 @@ Status DBImpl::DeleteFile(std::string name) {
   FileMetaData metadata;
   int maxlevel = NumberLevels();
   VersionEdit edit(maxlevel);
-  DeletionState deletion_state(0, true);
+  DeletionState deletion_state(true);
   {
     MutexLock l(&mutex_);
     status = versions_->GetMetadataForFile(number, &level, &metadata);

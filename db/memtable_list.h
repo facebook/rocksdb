@@ -3,15 +3,17 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-
 #pragma once
+
 #include <string>
 #include <list>
 #include <deque>
-#include "rocksdb/db.h"
+
 #include "db/dbformat.h"
+#include "db/memtable.h"
 #include "db/skiplist.h"
-#include "memtable.h"
+#include "rocksdb/db.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -47,7 +49,7 @@ class MemTableList {
   // Drop reference count on all underling memtables. If the refcount
   // on an underlying memtable drops to zero, then return it in
   // to_delete vector.
-  void UnrefAll(std::vector<MemTable*>* to_delete);
+  void UnrefAll(autovector<MemTable*>* to_delete);
 
   // Returns the total number of memtables in the list
   int size();
@@ -58,15 +60,15 @@ class MemTableList {
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
-  void PickMemtablesToFlush(std::vector<MemTable*>* mems);
+  void PickMemtablesToFlush(autovector<MemTable*>* mems);
 
   // Commit a successful flush in the manifest file
-  Status InstallMemtableFlushResults(const std::vector<MemTable*> &m,
+  Status InstallMemtableFlushResults(const autovector<MemTable*> &m,
                       VersionSet* vset, Status flushStatus,
                       port::Mutex* mu, Logger* info_log,
                       uint64_t file_number,
                       std::set<uint64_t>& pending_outputs,
-                      std::vector<MemTable*>* to_delete);
+                      autovector<MemTable*>* to_delete);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
@@ -81,7 +83,7 @@ class MemTableList {
            MergeContext& merge_context, const Options& options);
 
   // Returns the list of underlying memtables.
-  void GetMemTables(std::vector<MemTable*>* list);
+  void GetMemTables(autovector<MemTable*>* list);
 
   // Request a flush of all existing memtables to storage
   void FlushRequested() { flush_requested_ = true; }

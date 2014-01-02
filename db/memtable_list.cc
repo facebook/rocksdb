@@ -31,7 +31,7 @@ void MemTableList::RefAll() {
 // Drop reference count on all underling memtables. If the
 // refcount of an underlying memtable drops to zero, then
 // return it in to_delete vector.
-void MemTableList::UnrefAll(std::vector<MemTable*>* to_delete) {
+void MemTableList::UnrefAll(autovector<MemTable*>* to_delete) {
   for (auto &memtable : memlist_) {
     MemTable* m = memtable->Unref();
     if (m != nullptr) {
@@ -58,7 +58,7 @@ bool MemTableList::IsFlushPending(int min_write_buffer_number_to_merge) {
 }
 
 // Returns the memtables that need to be flushed.
-void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
+void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
   for (auto it = memlist_.rbegin(); it != memlist_.rend(); it++) {
     MemTable* m = *it;
     if (!m->flush_in_progress_) {
@@ -76,12 +76,12 @@ void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
 
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(
-                      const std::vector<MemTable*> &mems,
+                      const autovector<MemTable*> &mems,
                       VersionSet* vset, Status flushStatus,
                       port::Mutex* mu, Logger* info_log,
                       uint64_t file_number,
                       std::set<uint64_t>& pending_outputs,
-                      std::vector<MemTable*>* to_delete) {
+                      autovector<MemTable*>* to_delete) {
   mu->AssertHeld();
 
   // If the flush was not successful, then just reset state.
@@ -213,7 +213,7 @@ bool MemTableList::Get(const LookupKey& key, std::string* value, Status* s,
   return false;
 }
 
-void MemTableList::GetMemTables(std::vector<MemTable*>* output) {
+void MemTableList::GetMemTables(autovector<MemTable*>* output) {
   for (auto &memtable : memlist_) {
     output->push_back(memtable);
   }

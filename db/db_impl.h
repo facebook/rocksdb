@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+
 #include <atomic>
 #include <deque>
 #include <set>
@@ -16,13 +17,14 @@
 #include "db/log_writer.h"
 #include "db/snapshot.h"
 #include "db/version_edit.h"
+#include "memtable_list.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
-#include "port/port.h"
+#include "util/autovector.h"
 #include "util/stats_logger.h"
-#include "memtable_list.h"
 
 namespace rocksdb {
 
@@ -138,10 +140,10 @@ class DBImpl : public DB {
     // We need to_delete because during Cleanup(), imm.UnrefAll() returns
     // all memtables that we need to free through this vector. We then
     // delete all those memtables outside of mutex, during destruction
-    std::vector<MemTable*> to_delete;
+    autovector<MemTable*> to_delete;
 
     // should be called outside the mutex
-    explicit SuperVersion(const int num_memtables = 0);
+    SuperVersion() = default;
     ~SuperVersion();
     SuperVersion* Ref();
     // Returns true if this was the last reference and caller should
@@ -180,7 +182,7 @@ class DBImpl : public DB {
     std::vector<uint64_t> log_delete_files;
 
     // a list of memtables to be free
-    std::vector<MemTable *> memtables_to_free;
+    autovector<MemTable*> memtables_to_free;
 
     SuperVersion* superversion_to_free; // if nullptr nothing to free
 
@@ -190,15 +192,13 @@ class DBImpl : public DB {
     // that corresponds to the set of files in 'live'.
     uint64_t manifest_file_number, log_number, prev_log_number;
 
-    explicit DeletionState(const int num_memtables = 0,
-                           bool create_superversion = false) {
+    explicit DeletionState(bool create_superversion = false) {
       manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
-      memtables_to_free.reserve(num_memtables);
       superversion_to_free = nullptr;
       new_superversion =
-          create_superversion ? new SuperVersion(num_memtables) : nullptr;
+          create_superversion ? new SuperVersion() : nullptr;
     }
 
     ~DeletionState() {
@@ -283,7 +283,7 @@ class DBImpl : public DB {
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit);
-  Status WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
+  Status WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
                                 uint64_t* filenumber);
 
   uint64_t SlowdownAmount(int n, int top, int bottom);
