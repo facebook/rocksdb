@@ -158,8 +158,8 @@ class StackableDB : public DB {
     return db_->DisableFileDeletions();
   }
 
-  virtual Status EnableFileDeletions() override {
-    return db_->EnableFileDeletions();
+  virtual Status EnableFileDeletions(bool force) override {
+    return db_->EnableFileDeletions(force);
   }
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,

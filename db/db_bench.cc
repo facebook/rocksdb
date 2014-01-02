@@ -48,6 +48,7 @@ DEFINE_string(benchmarks,
               "compact,"
               "readrandom,"
               "readseq,"
+              "readtocache,"
               "readreverse,"
               "readwhilewriting,"
               "readrandomwriterandom,"
@@ -75,6 +76,7 @@ DEFINE_string(benchmarks,
               "\tdeleteseq     -- delete N keys in sequential order\n"
               "\tdeleterandom  -- delete N keys in random order\n"
               "\treadseq       -- read N times sequentially\n"
+              "\treadtocache   -- 1 thread reading database sequentially\n"
               "\treadreverse   -- read N times in reverse order\n"
               "\treadrandom    -- read N times in random order\n"
               "\treadmissing   -- read N missing keys in random order\n"
@@ -1057,6 +1059,10 @@ class Benchmark {
         method = &Benchmark::WriteRandom;
       } else if (name == Slice("readseq")) {
         method = &Benchmark::ReadSequential;
+      } else if (name == Slice("readtocache")) {
+        method = &Benchmark::ReadSequential;
+        num_threads = 1;
+        reads_ = num_;
       } else if (name == Slice("readreverse")) {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {

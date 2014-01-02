@@ -389,7 +389,7 @@ class PosixMmapFile : public WritableFile {
   }
 
   Status MapNewRegion() {
-#ifdef OS_LINUX
+#ifdef ROCKSDB_FALLOCATE_PRESENT
     assert(base_ == nullptr);
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
@@ -575,7 +575,7 @@ class PosixMmapFile : public WritableFile {
 #endif
   }
 
-#ifdef OS_LINUX
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
@@ -752,7 +752,7 @@ class PosixWritableFile : public WritableFile {
 #endif
   }
 
-#ifdef OS_LINUX
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
@@ -856,7 +856,7 @@ class PosixRandomRWFile : public RandomRWFile {
     return Status::OK();
   }
 
-#ifdef OS_LINUX
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) {
     if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
       return Status::OK();
@@ -1297,7 +1297,7 @@ class PosixEnv : public Env {
   }
 
   bool SupportsFastAllocate(const std::string& path) {
-#ifdef OS_LINUX
+#ifdef ROCKSDB_FALLOCATE_PRESENT
     struct statfs s;
     if (statfs(path.c_str(), &s)){
       return false;

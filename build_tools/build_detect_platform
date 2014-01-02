@@ -189,6 +189,18 @@ EOF
         COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_ATOMIC_PRESENT"
     fi
 
+    # Test whether fallocate is available
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <fcntl.h>
+      int main() {
+	int fd = open("/dev/null", 0);
+	fallocate(fd, 0, 0, 1024);
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_FALLOCATE_PRESENT"
+    fi
+
     # Test whether Snappy library is installed
     # http://code.google.com/p/snappy/
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF

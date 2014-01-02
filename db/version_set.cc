@@ -545,7 +545,7 @@ void Version::Get(const ReadOptions& options,
         case kFound:
           return;
         case kDeleted:
-          *status = Status::NotFound(Slice());  // Use empty error message for speed
+          *status = Status::NotFound();  // Use empty error message for speed
           return;
         case kCorrupt:
           *status = Status::Corruption("corrupted key for ", user_key);
@@ -570,7 +570,7 @@ void Version::Get(const ReadOptions& options,
                                    user_key);
     }
   } else {
-    *status = Status::NotFound(Slice()); // Use an empty error message for speed
+    *status = Status::NotFound(); // Use an empty error message for speed
   }
 }
 

@@ -272,12 +272,14 @@ class VersionSet {
   int64_t NumLevelBytes(int level) const;
 
   // Return the last sequence number.
-  uint64_t LastSequence() const { return last_sequence_; }
+  uint64_t LastSequence() const {
+    return last_sequence_.load(std::memory_order_acquire);
+  }
 
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
-    last_sequence_ = s;
+    last_sequence_.store(s, std::memory_order_release);
   }
 
   // Mark the specified file number as used.
@@ -476,7 +478,7 @@ class VersionSet {
   const InternalKeyComparator icmp_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
-  uint64_t last_sequence_;
+  std::atomic<uint64_t> last_sequence_;
   uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 

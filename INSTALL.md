@@ -44,5 +44,7 @@ libraries. You are on your own.
 `make clean; make` will compile librocksdb.a (RocskDB static library) and all
 the unit tests. You can run all unit tests with `make check`.
 
+For shared library builds, exec `make librocksdb.so` instead.
+
 If you followed the above steps and your compile or unit tests fail,
 please submit an issue: (https://github.com/facebook/rocksdb/issues)
