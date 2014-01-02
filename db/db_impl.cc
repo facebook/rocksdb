@@ -2856,6 +2856,26 @@ std::vector<Status> DBImpl::MultiGet(
   return statList;
 }
 
+Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
+                                  const Slice& column_family,
+                                  ColumnFamilyHandle* handle) {
+  VersionEdit edit(0);
+  edit.AddColumnFamily(column_family.ToString());
+  MutexLock l(&mutex_);
+  ++versions_->max_column_family_;
+  handle->id = versions_->max_column_family_;
+  edit.SetColumnFamily(handle->id);
+  return versions_->LogAndApply(&edit, &mutex_);
+}
+
+Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
+  VersionEdit edit(0);
+  edit.DropColumnFamily();
+  edit.SetColumnFamily(column_family.id);
+  MutexLock l(&mutex_);
+  return versions_->LogAndApply(&edit, &mutex_);
+}
+
 bool DBImpl::KeyMayExist(const ReadOptions& options,
                          const ColumnFamilyHandle& column_family,
                          const Slice& key, std::string* value,
@@ -3776,14 +3796,14 @@ Status DB::Merge(const WriteOptions& opt,
   return Write(opt, &batch);
 }
 
-Status DB::OpenColumnFamily(const ColumnFamilyOptions& options,
-                            const Slice& column_family,
-                            ColumnFamilyHandle* handle) {
-  return Status::NotSupported("working on it");
+// Default implementation -- returns not supported status
+Status DB::CreateColumnFamily(const ColumnFamilyOptions& options,
+                              const Slice& column_family,
+                              ColumnFamilyHandle* handle) {
+  return Status::NotSupported("");
 }
-
 Status DB::DropColumnFamily(const ColumnFamilyHandle& column_family) {
-  return Status::NotSupported("working on it");
+  return Status::NotSupported("");
 }
 
 DB::~DB() { }
@@ -3866,10 +3886,25 @@ Status DB::OpenWithColumnFamilies(
   return Status::NotSupported("Working on it");
 }
 
-Status DB::ListColumnFamilies(
-    const DBOptions& db_options, const std::string& name,
-    const std::vector<std::string>* column_families) {
-  // TODO
+Status DB::ListColumnFamilies(const DBOptions& db_options,
+                              const std::string& name,
+                              std::vector<std::string>* column_families) {
+  Options options(db_options, ColumnFamilyOptions());
+  InternalKeyComparator* icmp = new InternalKeyComparator(options.comparator);
+  TableCache* table_cache = new TableCache(name, &options, EnvOptions(options),
+                                           db_options.max_open_files - 10);
+  VersionSet* version_set =
+      new VersionSet(name, &options, EnvOptions(options), table_cache, icmp);
+
+  version_set->Recover();
+  column_families->clear();
+  for (auto cf : version_set->column_families_) {
+    column_families->push_back(cf.first);
+  }
+
+  delete version_set;
+  delete table_cache;
+  delete icmp;
   return Status::NotSupported("Working on it");
 }
 

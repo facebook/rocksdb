@@ -436,6 +436,15 @@ class VersionSet {
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
+  // column family metadata
+  struct ColumnFamilyData {
+    std::string name;
+    explicit ColumnFamilyData(const std::string& name) : name(name) {}
+  };
+  std::unordered_map<std::string, uint32_t> column_families_;
+  std::unordered_map<uint32_t, ColumnFamilyData> column_family_data_;
+  uint32_t max_column_family_;
+
  private:
   class Builder;
   struct ManifestWriter;
@@ -504,10 +513,6 @@ class VersionSet {
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;
-
-  // column family metadata
-  std::unordered_map<std::string, ColumnFamilyHandle> column_families_;
-  uint32_t max_column_family_id_;
 
   // Queue of writers to the manifest file
   std::deque<ManifestWriter*> manifest_writers_;

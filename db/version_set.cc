@@ -1466,6 +1466,23 @@ Status VersionSet::Recover() {
         builder.Apply(&edit);
       }
 
+      if (edit.is_column_family_add_) {
+        assert(column_families_.find(edit.column_family_name_) ==
+               column_families_.end());
+        column_families_.insert(
+            {edit.column_family_name_, edit.column_family_});
+        column_family_data_.insert(
+            {edit.column_family_, ColumnFamilyData(edit.column_family_name_)});
+        max_column_family_ = std::max(max_column_family_, edit.column_family_);
+      }
+
+      if (edit.is_column_family_drop_) {
+        auto cf = column_family_data_.find(edit.column_family_);
+        assert(cf != column_family_data_.end());
+        column_families_.erase(cf->second.name);
+        column_family_data_.erase(cf);
+      }
+
       if (edit.has_log_number_) {
         log_number = edit.log_number_;
         have_log_number = true;
@@ -1826,6 +1843,19 @@ void VersionSet::UpdateFilesBySize(Version* v) {
 
 Status VersionSet::WriteSnapshot(log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
+
+  // Save column families
+  for (auto cf : column_families_) {
+    VersionEdit edit(0);
+    edit.AddColumnFamily(cf.first);
+    edit.SetColumnFamily(cf.second);
+    std::string record;
+    edit.EncodeTo(&record);
+    Status s = log->AddRecord(record);
+    if (!s.ok()) {
+      return s;
+    }
+  }
 
   // Save metadata
   VersionEdit edit(NumberLevels());

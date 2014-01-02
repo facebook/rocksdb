@@ -52,8 +52,9 @@ DBImplReadOnly::~DBImplReadOnly() {
 }
 
 // Implementations of the DB interface
-Status DBImplReadOnly::Get(const ReadOptions& options, const Slice& key,
-                           std::string* value) {
+Status DBImplReadOnly::Get(const ReadOptions& options,
+                           const ColumnFamilyHandle& column_family,
+                           const Slice& key, std::string* value) {
   Status s;
   MemTable* mem = GetMemTable();
   Version* current = versions_->current();

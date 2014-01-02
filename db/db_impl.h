@@ -61,6 +61,11 @@ class DBImpl : public DB {
       const std::vector<ColumnFamilyHandle>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values);
 
+  virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
+                                    const Slice& column_family,
+                                    ColumnFamilyHandle* handle);
+  virtual Status DropColumnFamily(const ColumnFamilyHandle& column_family);
+
   // Returns false if key doesn't exist in the database and true if it may.
   // If value_found is not passed in as null, then return the value if found in
   // memory. On return, if value was found, then value_found will be set to true

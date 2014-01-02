@@ -28,9 +28,9 @@ public:
  virtual ~DBImplReadOnly();
 
  // Implementations of the DB interface
- using DBImpl::Get;
+ using DB::Get;
  virtual Status Get(const ReadOptions& options,
-                    const Slice& key,
+                    const ColumnFamilyHandle& column_family, const Slice& key,
                     std::string* value);
 
  // TODO: Implement ReadOnly MultiGet?

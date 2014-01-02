@@ -107,28 +107,24 @@ class DB {
   // and return the list of all column families in that DB
   // through column_families argument. The ordering of
   // column families in column_families is unspecified.
-  static Status ListColumnFamilies(
-      const DBOptions& db_options, const std::string& name,
-      const std::vector<std::string>* column_families);
+  static Status ListColumnFamilies(const DBOptions& db_options,
+                                   const std::string& name,
+                                   std::vector<std::string>* column_families);
 
   DB() { }
   virtual ~DB();
 
-  // Open a column_family and return the handle of column family
-  // through the argument handle
-  // If the column family already exists in the Database,
-  // it will open it and make it available for the client to query.
-  // If the column family does not exist, the function will create
-  // and persist it.
-  Status OpenColumnFamily(const ColumnFamilyOptions& options,
-                          const Slice& column_family,
-                          ColumnFamilyHandle* handle);
+  // Create a column_family and return the handle of column family
+  // through the argument handle.
+  virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
+                                    const Slice& column_family,
+                                    ColumnFamilyHandle* handle);
 
   // Drop a column family specified by column_family handle.
   // All data related to the column family will be deleted before
   // the function returns.
   // Calls referring to the dropped column family will fail.
-  Status DropColumnFamily(const ColumnFamilyHandle& column_family);
+  virtual Status DropColumnFamily(const ColumnFamilyHandle& column_family);
 
   // Set the database entry for "key" to "value".
   // Returns OK on success, and a non-OK status on error.
