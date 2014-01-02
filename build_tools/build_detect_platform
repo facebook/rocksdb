@@ -198,7 +198,7 @@ EOF
       }
 EOF
     if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$PLATFORM_LDFLAGS -DROCKSDB_FALLOCATE_PRESENT"
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_FALLOCATE_PRESENT"
     fi
 
     # Test whether Snappy library is installed
