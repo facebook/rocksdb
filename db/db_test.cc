@@ -240,6 +240,8 @@ class SpecialEnv : public EnvWrapper {
 class DBTest {
  private:
   const FilterPolicy* filter_policy_;
+  static std::unique_ptr<const SliceTransform> prefix_1_transform;
+  static std::unique_ptr<const SliceTransform> noop_transform;
 
  protected:
   // Sequence of option configurations to try
@@ -356,13 +358,13 @@ class DBTest {
         break;
       case kPlainTableFirstBytePrefix:
         options.table_factory.reset(new PlainTableFactory());
-        options.prefix_extractor = NewFixedPrefixTransform(1);
+        options.prefix_extractor = prefix_1_transform.get();
         options.allow_mmap_reads = true;
         options.max_sequential_skip_in_iterations = 999999;
         break;
       case kPlainTableAllBytesPrefix:
         options.table_factory.reset(new PlainTableFactory());
-        options.prefix_extractor = NewNoopTransform();
+        options.prefix_extractor = noop_transform.get();
         options.allow_mmap_reads = true;
         options.max_sequential_skip_in_iterations = 999999;
         break;
@@ -694,6 +696,10 @@ class DBTest {
     delete iter;
   }
 };
+std::unique_ptr<const SliceTransform> DBTest::prefix_1_transform(
+    NewFixedPrefixTransform(1));
+std::unique_ptr<const SliceTransform> DBTest::noop_transform(
+    NewNoopTransform());
 
 static std::string Key(int i) {
   char buf[100];
@@ -4694,20 +4700,22 @@ TEST(DBTest, PrefixScan) {
   snprintf(buf, sizeof(buf), "03______:");
   prefix = Slice(buf, 8);
   key = Slice(buf, 9);
-  auto prefix_extractor = NewFixedPrefixTransform(8);
   // db configs
   env_->count_random_reads_ = true;
   Options options = CurrentOptions();
   options.env = env_;
   options.no_block_cache = true;
-  options.filter_policy =  NewBloomFilterPolicy(10);
-  options.prefix_extractor = prefix_extractor;
+  options.filter_policy = NewBloomFilterPolicy(10);
+  options.prefix_extractor = NewFixedPrefixTransform(8);
   options.whole_key_filtering = false;
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
   options.create_if_missing = true;
   options.disable_seek_compaction = true;
-  options.memtable_factory.reset(NewHashSkipListRepFactory(prefix_extractor));
+  // Tricky: options.prefix_extractor will be released by
+  // NewHashSkipListRepFactory after use.
+  options.memtable_factory.reset(
+      NewHashSkipListRepFactory(options.prefix_extractor));
 
   // prefix specified, with blooms: 2 RAND I/Os
   // SeekToFirst

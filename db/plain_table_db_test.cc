@@ -35,16 +35,17 @@ using std::unique_ptr;
 namespace rocksdb {
 
 class PlainTableDBTest {
-protected:
-public:
+ protected:
+ private:
   std::string dbname_;
   Env* env_;
   DB* db_;
 
   Options last_options_;
+  static std::unique_ptr<const SliceTransform> prefix_transform;
 
-  PlainTableDBTest() :
-      env_(Env::Default()) {
+ public:
+  PlainTableDBTest() : env_(Env::Default()) {
     dbname_ = test::TmpDir() + "/plain_table_db_test";
     ASSERT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
@@ -60,7 +61,7 @@ public:
   Options CurrentOptions() {
     Options options;
     options.table_factory.reset(new PlainTableFactory(16, 2, 0.8));
-    options.prefix_extractor = NewFixedPrefixTransform(8);
+    options.prefix_extractor = prefix_transform.get();
     options.allow_mmap_reads = true;
     return options;
   }
@@ -167,8 +168,11 @@ public:
   }
 };
 
+std::unique_ptr<const SliceTransform> PlainTableDBTest::prefix_transform(
+    NewFixedPrefixTransform(8));
+
 TEST(PlainTableDBTest, Empty) {
-  ASSERT_TRUE(db_ != nullptr);
+  ASSERT_TRUE(dbfull() != nullptr);
   ASSERT_EQ("NOT_FOUND", Get("0000000000000foo"));
 }
 
