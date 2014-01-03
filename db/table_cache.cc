@@ -29,6 +29,11 @@ static void UnrefEntry(void* arg1, void* arg2) {
   cache->Release(h);
 }
 
+static Slice GetSliceForFileNumber(uint64_t* file_number) {
+  return Slice(reinterpret_cast<const char*>(file_number),
+               sizeof(*file_number));
+}
+
 TableCache::TableCache(const std::string& dbname,
                        const Options* options,
                        const EnvOptions& storage_options,
@@ -50,8 +55,7 @@ Status TableCache::FindTable(const EnvOptions& toptions,
                              Cache::Handle** handle, bool* table_io,
                              const bool no_io) {
   Status s;
-  Slice key(reinterpret_cast<const char*>(&file_number), sizeof(file_number));
-
+  Slice key = GetSliceForFileNumber(&file_number);
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
     if (no_io) { // Dont do IO and return a not-found status
@@ -164,8 +168,7 @@ bool TableCache::PrefixMayMatch(const ReadOptions& options,
 }
 
 void TableCache::Evict(uint64_t file_number) {
-  Slice key(reinterpret_cast<const char*>(&file_number), sizeof(file_number));
-  cache_->Erase(key);
+  cache_->Erase(GetSliceForFileNumber(&file_number));
 }
 
 }  // namespace rocksdb

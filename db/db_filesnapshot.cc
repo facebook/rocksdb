@@ -22,20 +22,34 @@ namespace rocksdb {
 
 Status DBImpl::DisableFileDeletions() {
   MutexLock l(&mutex_);
-  disable_delete_obsolete_files_ = true;
-  Log(options_.info_log, "File Deletions Disabled");
+  ++disable_delete_obsolete_files_;
+  if (disable_delete_obsolete_files_ == 1) {
+    // if not, it has already been disabled, so don't log anything
+    Log(options_.info_log, "File Deletions Disabled");
+  }
   return Status::OK();
 }
 
-Status DBImpl::EnableFileDeletions() {
+Status DBImpl::EnableFileDeletions(bool force) {
   DeletionState deletion_state;
+  bool should_purge_files = false;
   {
     MutexLock l(&mutex_);
-    disable_delete_obsolete_files_ = false;
-    Log(options_.info_log, "File Deletions Enabled");
-    FindObsoleteFiles(deletion_state, true);
+    if (force) {
+      // if force, we need to enable file deletions right away
+      disable_delete_obsolete_files_ = 0;
+    } else if (disable_delete_obsolete_files_ > 0) {
+      --disable_delete_obsolete_files_;
+    }
+    if (disable_delete_obsolete_files_ == 0)  {
+      Log(options_.info_log, "File Deletions Enabled");
+      should_purge_files = true;
+      FindObsoleteFiles(deletion_state, true);
+    }
   }
-  PurgeObsoleteFiles(deletion_state);
+  if (should_purge_files)  {
+    PurgeObsoleteFiles(deletion_state);
+  }
   LogFlush(options_.info_log);
   return Status::OK();
 }

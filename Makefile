@@ -45,8 +45,8 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
-	autovector_test \
 	db_test \
+	autovector_test \
 	table_properties_collector_test \
 	arena_test \
 	auto_roll_logger_test \

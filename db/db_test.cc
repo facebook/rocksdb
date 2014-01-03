@@ -4381,7 +4381,7 @@ class ModelDB: public DB {
   virtual Status DisableFileDeletions() {
     return Status::OK();
   }
-  virtual Status EnableFileDeletions() {
+  virtual Status EnableFileDeletions(bool force) {
     return Status::OK();
   }
   virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size,
