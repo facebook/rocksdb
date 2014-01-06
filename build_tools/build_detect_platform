@@ -172,11 +172,7 @@ echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> $OUTPUT
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
     # Also don't need any compilation tests if compiling on fbcode
-    # TODO(kailiu) For some fb-supported environments, they have trouble finding
-    # symbols from gflags if -lgflags wasn't specified. As a temporary resort,
-    # we added it to PLATFORM_LDFLAGS although for some environments it is
-    # unnecessary.
-    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -gflags"
+    true
 else
     # do fPIC on 64 bit in non-fbcode environment
     case "$TARGET_OS" in
