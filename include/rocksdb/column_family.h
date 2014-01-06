@@ -26,6 +26,6 @@ struct ColumnFamilyHandle {
 };
 
 const ColumnFamilyHandle default_column_family = ColumnFamilyHandle();
-extern const Slice& default_column_family_name;
+extern const std::string default_column_family_name;
 
 }

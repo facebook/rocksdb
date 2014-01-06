@@ -68,6 +68,8 @@ struct CompressionOptions {
                                                        strategy(strategy){}
 };
 
+struct Options;
+
 struct ColumnFamilyOptions {
   // -------------------
   // Parameters that affect behavior
@@ -426,6 +428,8 @@ struct ColumnFamilyOptions {
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
+  // Create ColumnFamilyOptions from Options
+  explicit ColumnFamilyOptions(const Options& options);
 };
 
 struct DBOptions {
@@ -627,6 +631,8 @@ struct DBOptions {
 
   // Create DBOptions with default values for all fields
   DBOptions();
+  // Create DBOptions from Options
+  explicit DBOptions(const Options& options);
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

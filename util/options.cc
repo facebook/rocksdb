@@ -73,6 +73,65 @@ ColumnFamilyOptions::ColumnFamilyOptions()
   assert(memtable_factory.get() != nullptr);
 }
 
+ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
+    : comparator(options.comparator),
+      merge_operator(options.merge_operator),
+      compaction_filter(options.compaction_filter),
+      compaction_filter_factory(options.compaction_filter_factory),
+      write_buffer_size(options.write_buffer_size),
+      max_write_buffer_number(options.max_write_buffer_number),
+      min_write_buffer_number_to_merge(
+          options.min_write_buffer_number_to_merge),
+      block_cache(options.block_cache),
+      block_cache_compressed(options.block_cache_compressed),
+      block_size(options.block_size),
+      block_restart_interval(options.block_restart_interval),
+      compression(options.compression),
+      compression_per_level(options.compression_per_level),
+      compression_opts(options.compression_opts),
+      filter_policy(options.filter_policy),
+      prefix_extractor(options.prefix_extractor),
+      whole_key_filtering(options.whole_key_filtering),
+      num_levels(options.num_levels),
+      level0_file_num_compaction_trigger(
+          options.level0_file_num_compaction_trigger),
+      level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
+      level0_stop_writes_trigger(options.level0_stop_writes_trigger),
+      max_mem_compaction_level(options.max_mem_compaction_level),
+      target_file_size_base(options.target_file_size_base),
+      target_file_size_multiplier(options.target_file_size_multiplier),
+      max_bytes_for_level_base(options.max_bytes_for_level_base),
+      max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
+      max_bytes_for_level_multiplier_additional(
+          options.max_bytes_for_level_multiplier_additional),
+      expanded_compaction_factor(options.expanded_compaction_factor),
+      source_compaction_factor(options.source_compaction_factor),
+      max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
+      disable_seek_compaction(options.disable_seek_compaction),
+      soft_rate_limit(options.soft_rate_limit),
+      hard_rate_limit(options.hard_rate_limit),
+      rate_limit_delay_max_milliseconds(
+          options.rate_limit_delay_max_milliseconds),
+      no_block_cache(options.no_block_cache),
+      table_cache_numshardbits(options.table_cache_numshardbits),
+      table_cache_remove_scan_count_limit(
+          options.table_cache_remove_scan_count_limit),
+      disable_auto_compactions(options.disable_auto_compactions),
+      purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
+      block_size_deviation(options.block_size_deviation),
+      compaction_style(options.compaction_style),
+      compaction_options_universal(options.compaction_options_universal),
+      filter_deletes(options.filter_deletes),
+      max_sequential_skip_in_iterations(
+          options.max_sequential_skip_in_iterations),
+      memtable_factory(options.memtable_factory),
+      table_factory(options.table_factory),
+      table_properties_collectors(options.table_properties_collectors),
+      inplace_update_support(options.inplace_update_support),
+      inplace_update_num_locks(options.inplace_update_num_locks) {
+  assert(memtable_factory.get() != nullptr);
+}
+
 DBOptions::DBOptions()
     : create_if_missing(false),
       error_if_exists(false),
@@ -106,6 +165,42 @@ DBOptions::DBOptions()
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0) { }
+
+DBOptions::DBOptions(const Options& options)
+    : create_if_missing(options.create_if_missing),
+      error_if_exists(options.error_if_exists),
+      paranoid_checks(options.paranoid_checks),
+      env(options.env),
+      info_log(options.info_log),
+      max_open_files(options.max_open_files),
+      statistics(options.statistics),
+      disableDataSync(options.disableDataSync),
+      use_fsync(options.use_fsync),
+      db_stats_log_interval(options.db_stats_log_interval),
+      db_log_dir(options.db_log_dir),
+      wal_dir(options.wal_dir),
+      delete_obsolete_files_period_micros(
+          options.delete_obsolete_files_period_micros),
+      max_background_compactions(options.max_background_compactions),
+      max_background_flushes(options.max_background_flushes),
+      max_log_file_size(options.max_log_file_size),
+      log_file_time_to_roll(options.log_file_time_to_roll),
+      keep_log_file_num(options.keep_log_file_num),
+      max_manifest_file_size(options.max_manifest_file_size),
+      arena_block_size(options.arena_block_size),
+      WAL_ttl_seconds(options.WAL_ttl_seconds),
+      WAL_size_limit_MB(options.WAL_size_limit_MB),
+      manifest_preallocation_size(options.manifest_preallocation_size),
+      allow_os_buffer(options.allow_os_buffer),
+      allow_mmap_reads(options.allow_mmap_reads),
+      allow_mmap_writes(options.allow_mmap_writes),
+      is_fd_close_on_exec(options.is_fd_close_on_exec),
+      skip_log_error_on_recovery(options.skip_log_error_on_recovery),
+      stats_dump_period_sec(options.stats_dump_period_sec),
+      advise_random_on_open(options.advise_random_on_open),
+      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
+      use_adaptive_mutex(options.use_adaptive_mutex),
+      bytes_per_sync(options.bytes_per_sync) {}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"

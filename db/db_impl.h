@@ -62,7 +62,7 @@ class DBImpl : public DB {
       const std::vector<Slice>& keys, std::vector<std::string>* values);
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
-                                    const Slice& column_family,
+                                    const std::string& column_family,
                                     ColumnFamilyHandle* handle);
   virtual Status DropColumnFamily(const ColumnFamilyHandle& column_family);
 
@@ -293,8 +293,10 @@ class DBImpl : public DB {
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
-  Status Recover(VersionEdit* edit, MemTable* external_table = nullptr,
-      bool error_if_log_file_exist = false);
+  Status Recover(VersionEdit* edit,
+                 const std::vector<ColumnFamilyDescriptor>& column_families,
+                 MemTable* external_table = nullptr,
+                 bool error_if_log_file_exist = false);
 
   void MaybeIgnoreError(Status* s) const;
 

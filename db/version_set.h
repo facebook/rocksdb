@@ -439,7 +439,11 @@ class VersionSet {
   // column family metadata
   struct ColumnFamilyData {
     std::string name;
+    ColumnFamilyOptions options;
     explicit ColumnFamilyData(const std::string& name) : name(name) {}
+    ColumnFamilyData(const std::string& name,
+                     const ColumnFamilyOptions& options)
+        : name(name), options(options) {}
   };
   std::unordered_map<std::string, uint32_t> column_families_;
   std::unordered_map<uint32_t, ColumnFamilyData> column_family_data_;

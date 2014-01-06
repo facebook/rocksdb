@@ -1443,6 +1443,11 @@ Status VersionSet::Recover() {
   uint64_t prev_log_number = 0;
   Builder builder(this, current_);
 
+  // add default column family
+  column_families_.insert({default_column_family_name, 0});
+  column_family_data_.insert(
+      {0, ColumnFamilyData(default_column_family_name)});
+
   {
     LogReporter reporter;
     reporter.status = &s;
@@ -1847,6 +1852,11 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // Save column families
   for (auto cf : column_families_) {
     VersionEdit edit(0);
+    if (cf.second == 0) {
+      // default column family is always there,
+      // no need to explicitly write it
+      continue;
+    }
     edit.AddColumnFamily(cf.first);
     edit.SetColumnFamily(cf.second);
     std::string record;

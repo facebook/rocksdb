@@ -33,8 +33,15 @@ class ColumnFamilyTest {
     db_ = nullptr;
   }
 
-  void Open() {
-    ASSERT_OK(DB::Open(options_, dbname_, &db_));
+  Status Open(vector<string> cf) {
+    vector<ColumnFamilyDescriptor> column_families;
+    for (auto x : cf) {
+      column_families.push_back(
+          ColumnFamilyDescriptor(x, ColumnFamilyOptions()));
+    }
+    vector <ColumnFamilyHandle> handles;
+    return DB::OpenWithColumnFamilies(db_options_, dbname_, column_families,
+                                      &handles, &db_);
   }
 
   Options options_;
@@ -45,25 +52,26 @@ class ColumnFamilyTest {
 };
 
 TEST(ColumnFamilyTest, AddDrop) {
-  Open();
+  ASSERT_OK(Open({"default"}));
   ColumnFamilyHandle handles[4];
-  ASSERT_OK(db_->CreateColumnFamily(column_family_options_, Slice("one"),
-                                    &handles[0]));
-  ASSERT_OK(db_->CreateColumnFamily(column_family_options_, Slice("two"),
-                                    &handles[1]));
-  ASSERT_OK(db_->CreateColumnFamily(column_family_options_, Slice("three"),
-                                    &handles[2]));
+  ASSERT_OK(
+      db_->CreateColumnFamily(column_family_options_, "one", &handles[0]));
+  ASSERT_OK(
+      db_->CreateColumnFamily(column_family_options_, "two", &handles[1]));
+  ASSERT_OK(
+      db_->CreateColumnFamily(column_family_options_, "three", &handles[2]));
   ASSERT_OK(db_->DropColumnFamily(handles[1]));
-  ASSERT_OK(db_->CreateColumnFamily(column_family_options_, Slice("four"),
-                                    &handles[3]));
+  ASSERT_OK(
+      db_->CreateColumnFamily(column_family_options_, "four", &handles[3]));
   Close();
-  Open(); // this will roll the manifest, column families should stay consistent
+  ASSERT_TRUE(Open({"default"}).IsInvalidArgument());
+  ASSERT_OK(Open({"default", "one", "three", "four"}));
   Close();
 
   vector<string> families;
   DB::ListColumnFamilies(db_options_, dbname_, &families);
   sort(families.begin(), families.end());
-  ASSERT_TRUE(families == vector<string>({"four", "one", "three"}));
+  ASSERT_TRUE(families == vector<string>({"default", "four", "one", "three"}));
 }
 
 }  // namespace rocksdb

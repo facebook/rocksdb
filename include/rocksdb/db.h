@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <memory>
 #include <vector>
+#include <string>
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -26,8 +27,11 @@ struct ColumnFamilyHandle;
 extern const ColumnFamilyHandle default_column_family;
 
 struct ColumnFamilyDescriptor {
-  Slice name;
+  std::string name;
   ColumnFamilyOptions options;
+  ColumnFamilyDescriptor(const std::string& name,
+                         const ColumnFamilyOptions& options)
+      : name(name), options(options) {}
 };
 
 // Update Makefile if you change these
@@ -117,7 +121,7 @@ class DB {
   // Create a column_family and return the handle of column family
   // through the argument handle.
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
-                                    const Slice& column_family,
+                                    const std::string& column_family_name,
                                     ColumnFamilyHandle* handle);
 
   // Drop a column family specified by column_family handle.

@@ -60,7 +60,7 @@
 
 namespace rocksdb {
 
-const Slice& default_column_family_name("default");
+const std::string default_column_family_name("default");
 
 void dumpLeveldbBuildVersion(Logger * log);
 
@@ -843,8 +843,10 @@ void DBImpl::PurgeObsoleteWALFiles() {
 
 // If externalTable is set, then apply recovered transactions
 // to that table. This is used for readonly mode.
-Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
-    bool error_if_log_file_exist) {
+Status DBImpl::Recover(
+    VersionEdit* edit,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    MemTable* external_table, bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
   assert(db_lock_ == nullptr);
@@ -894,6 +896,19 @@ Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
 
   Status s = versions_->Recover();
   if (s.ok()) {
+    if (column_families.size() != versions_->column_families_.size()) {
+      return Status::InvalidArgument("Column family specifications mismatch");
+    }
+    for (auto cf : column_families) {
+      auto cf_iter = versions_->column_families_.find(cf.name);
+      if (cf_iter == versions_->column_families_.end()) {
+        return Status::InvalidArgument("Column family specifications mismatch");
+      }
+      auto cf_data_iter = versions_->column_family_data_.find(cf_iter->second);
+      assert(cf_data_iter != versions_->column_family_data_.end());
+      cf_data_iter->second.options = cf.options;
+    }
+
     SequenceNumber max_sequence(0);
 
     // Recover from all newer log files than the ones named in the
@@ -2862,15 +2877,23 @@ std::vector<Status> DBImpl::MultiGet(
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
-                                  const Slice& column_family,
+                                  const std::string& column_family_name,
                                   ColumnFamilyHandle* handle) {
   VersionEdit edit(0);
-  edit.AddColumnFamily(column_family.ToString());
+  edit.AddColumnFamily(column_family_name);
   MutexLock l(&mutex_);
   ++versions_->max_column_family_;
   handle->id = versions_->max_column_family_;
   edit.SetColumnFamily(handle->id);
-  return versions_->LogAndApply(&edit, &mutex_);
+  Status s = versions_->LogAndApply(&edit, &mutex_);
+  if (s.ok()) {
+    // add to internal data structures
+    versions_->column_families_[column_family_name] = handle->id;
+    versions_->column_family_data_.insert(
+        {handle->id,
+         VersionSet::ColumnFamilyData(column_family_name, options)});
+  }
+  return s;
 }
 
 Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
@@ -2878,7 +2901,19 @@ Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
   edit.DropColumnFamily();
   edit.SetColumnFamily(column_family.id);
   MutexLock l(&mutex_);
-  return versions_->LogAndApply(&edit, &mutex_);
+  auto data_iter = versions_->column_family_data_.find(column_family.id);
+  if (data_iter == versions_->column_family_data_.end()) {
+    return Status::NotFound("Column family not found");
+  }
+  Status s = versions_->LogAndApply(&edit, &mutex_);
+  if (s.ok()) {
+    // remove from internal data structures
+    auto cf_iter = versions_->column_families_.find(data_iter->second.name);
+    assert(cf_iter != versions_->column_families_.end());
+    versions_->column_families_.erase(cf_iter);
+    versions_->column_family_data_.erase(data_iter);
+  }
+  return s;
 }
 
 bool DBImpl::KeyMayExist(const ReadOptions& options,
@@ -3803,7 +3838,7 @@ Status DB::Merge(const WriteOptions& opt,
 
 // Default implementation -- returns not supported status
 Status DB::CreateColumnFamily(const ColumnFamilyOptions& options,
-                              const Slice& column_family,
+                              const std::string& column_family_name,
                               ColumnFamilyHandle* handle) {
   return Status::NotSupported("");
 }
@@ -3814,8 +3849,33 @@ Status DB::DropColumnFamily(const ColumnFamilyHandle& column_family) {
 DB::~DB() { }
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
+  DBOptions db_options(options);
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(default_column_family_name, cf_options));
+  std::vector<ColumnFamilyHandle> handles;
+  return DB::OpenWithColumnFamilies(db_options, dbname, column_families,
+                                    &handles, dbptr);
+}
+
+Status DB::OpenWithColumnFamilies(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle>* handles, DB** dbptr) {
   *dbptr = nullptr;
   EnvOptions soptions;
+  // TODO temporary until we change DBImpl to accept
+  // DBOptions instead of Options
+  ColumnFamilyOptions default_column_family_options;
+  for (auto cfd : column_families) {
+    if (cfd.name == default_column_family_name) {
+      default_column_family_options = cfd.options;
+      break;
+    }
+  }
+  // default options
+  Options options(db_options, default_column_family_options);
 
   if (options.block_cache != nullptr && options.no_block_cache) {
     return Status::InvalidArgument(
@@ -3836,7 +3896,8 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   }
   impl->mutex_.Lock();
   VersionEdit edit(impl->NumberLevels());
-  s = impl->Recover(&edit); // Handles create_if_missing, error_if_exists
+  // Handles create_if_missing, error_if_exists
+  s = impl->Recover(&edit, column_families);
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
@@ -3854,6 +3915,13 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       s = impl->versions_->LogAndApply(&edit, &impl->mutex_);
     }
     if (s.ok()) {
+      // set column family handles
+      handles->clear();
+      for (auto cf : column_families) {
+        auto cf_iter = impl->versions_->column_families_.find(cf.name);
+        assert(cf_iter != impl->versions_->column_families_.end());
+        handles->push_back(ColumnFamilyHandle(cf_iter->second));
+      }
       delete impl->InstallSuperVersion(new DBImpl::SuperVersion());
       impl->mem_->SetLogNumber(impl->logfile_number_);
       impl->DeleteObsoleteFiles();
@@ -3878,17 +3946,10 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   if (s.ok()) {
     *dbptr = impl;
   } else {
+    handles->clear();
     delete impl;
   }
   return s;
-}
-
-Status DB::OpenWithColumnFamilies(
-    const DBOptions& db_options, const std::string& name,
-    const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle>* handles, DB** dbptr) {
-  // TODO
-  return Status::NotSupported("Working on it");
 }
 
 Status DB::ListColumnFamilies(const DBOptions& db_options,
