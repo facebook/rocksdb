@@ -21,6 +21,7 @@
 namespace rocksdb {
 
 class Env;
+struct FileMetaData;
 
 class TableCache {
  public:
@@ -37,8 +38,7 @@ class TableCache {
   // returned iterator is live.
   Iterator* NewIterator(const ReadOptions& options,
                         const EnvOptions& toptions,
-                        uint64_t file_number,
-                        uint64_t file_size,
+                        const FileMetaData& file_meta,
                         TableReader** table_reader_ptr = nullptr,
                         bool for_compaction = false);
 
@@ -46,8 +46,7 @@ class TableCache {
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
   // it returns false.
   Status Get(const ReadOptions& options,
-             uint64_t file_number,
-             uint64_t file_size,
+             const FileMetaData& file_meta,
              const Slice& k,
              void* arg,
              bool (*handle_result)(void*, const Slice&, const Slice&, bool),
@@ -63,16 +62,23 @@ class TableCache {
   // Evict any entry for the specified file number
   void Evict(uint64_t file_number);
 
+  // Find table reader
+  Status FindTable(const EnvOptions& toptions, uint64_t file_number,
+                   uint64_t file_size, Cache::Handle**, bool* table_io=nullptr,
+                   const bool no_io = false);
+
+  // Get TableReader from a cache handle.
+  TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
+
+  // Release the handle from a cache
+  void ReleaseHandle(Cache::Handle* handle);
+
  private:
   Env* const env_;
   const std::string dbname_;
   const Options* options_;
   const EnvOptions& storage_options_;
   std::shared_ptr<Cache> cache_;
-
-  Status FindTable(const EnvOptions& toptions, uint64_t file_number,
-                   uint64_t file_size, Cache::Handle**, bool* table_io=nullptr,
-                   const bool no_io = false);
 };
 
 }  // namespace rocksdb

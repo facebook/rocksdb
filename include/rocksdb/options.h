@@ -182,8 +182,10 @@ struct Options {
   int min_write_buffer_number_to_merge;
 
   // Number of open files that can be used by the DB.  You may need to
-  // increase this if your database has a large working set (budget
-  // one open file per 2MB of working set).
+  // increase this if your database has a large working set. Value -1 means
+  // files opened are always kept open. You can estimate number of files based
+  // on target_file_size_base and target_file_size_multiplier for level-based
+  // compaction. For universal-style compaction, you can usually set it to -1.
   //
   // Default: 1000
   int max_open_files;

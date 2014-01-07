@@ -11,6 +11,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include "rocksdb/cache.h"
 #include "db/dbformat.h"
 
 namespace rocksdb {
@@ -28,8 +29,14 @@ struct FileMetaData {
   SequenceNumber smallest_seqno;// The smallest seqno in this file
   SequenceNumber largest_seqno; // The largest seqno in this file
 
-  FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0),
-                   being_compacted(false) { }
+  // Needs to be disposed when refs becomes 0.
+  Cache::Handle* table_reader_handle;
+
+  FileMetaData(uint64_t number, uint64_t file_size) :
+      refs(0), allowed_seeks(1 << 30), number(number), file_size(file_size),
+      being_compacted(false), table_reader_handle(nullptr) {
+  }
+  FileMetaData() : FileMetaData(0, 0) { }
 };
 
 class VersionEdit {

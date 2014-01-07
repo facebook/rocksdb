@@ -10,6 +10,7 @@
 #include "db/table_cache.h"
 
 #include "db/filename.h"
+#include "db/version_edit.h"
 
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
@@ -48,6 +49,14 @@ TableCache::TableCache(const std::string& dbname,
 }
 
 TableCache::~TableCache() {
+}
+
+TableReader* TableCache::GetTableReaderFromHandle(Cache::Handle* handle) {
+  return reinterpret_cast<TableReader*>(cache_->Value(handle));
+}
+
+void TableCache::ReleaseHandle(Cache::Handle* handle) {
+  cache_->Release(handle);
 }
 
 Status TableCache::FindTable(const EnvOptions& toptions,
@@ -94,25 +103,27 @@ Status TableCache::FindTable(const EnvOptions& toptions,
 
 Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   const EnvOptions& toptions,
-                                  uint64_t file_number,
-                                  uint64_t file_size,
+                                  const FileMetaData& file_meta,
                                   TableReader** table_reader_ptr,
                                   bool for_compaction) {
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
-
-  Cache::Handle* handle = nullptr;
-  Status s = FindTable(toptions, file_number, file_size, &handle,
-                       nullptr, options.read_tier == kBlockCacheTier);
+  Cache::Handle* handle = file_meta.table_reader_handle;
+  Status s;
+  if (!handle) {
+    s = FindTable(toptions, file_meta.number, file_meta.file_size, &handle,
+                  nullptr, options.read_tier == kBlockCacheTier);
+  }
   if (!s.ok()) {
     return NewErrorIterator(s);
   }
 
-  TableReader* table_reader =
-    reinterpret_cast<TableReader*>(cache_->Value(handle));
+  TableReader* table_reader = GetTableReaderFromHandle(handle);
   Iterator* result = table_reader->NewIterator(options);
-  result->RegisterCleanup(&UnrefEntry, cache_.get(), handle);
+  if (!file_meta.table_reader_handle) {
+    result->RegisterCleanup(&UnrefEntry, cache_.get(), handle);
+  }
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = table_reader;
   }
@@ -125,22 +136,24 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
 }
 
 Status TableCache::Get(const ReadOptions& options,
-                       uint64_t file_number,
-                       uint64_t file_size,
+                       const FileMetaData& file_meta,
                        const Slice& k,
                        void* arg,
                        bool (*saver)(void*, const Slice&, const Slice&, bool),
                        bool* table_io,
                        void (*mark_key_may_exist)(void*)) {
-  Cache::Handle* handle = nullptr;
-  Status s = FindTable(storage_options_, file_number, file_size,
-                       &handle, table_io,
-                       options.read_tier == kBlockCacheTier);
+  Cache::Handle* handle = file_meta.table_reader_handle;
+  Status s;
+  if (!handle) {
+    s = FindTable(storage_options_, file_meta.number, file_meta.file_size,
+                  &handle, table_io, options.read_tier == kBlockCacheTier);
+  }
   if (s.ok()) {
-    TableReader* t =
-      reinterpret_cast<TableReader*>(cache_->Value(handle));
+    TableReader* t = GetTableReaderFromHandle(handle);
     s = t->Get(options, k, arg, saver, mark_key_may_exist);
-    cache_->Release(handle);
+    if (!file_meta.table_reader_handle) {
+      ReleaseHandle(handle);
+    }
   } else if (options.read_tier && s.IsIncomplete()) {
     // Couldnt find Table in cache but treat as kFound if no_io set
     (*mark_key_may_exist)(arg);
@@ -159,10 +172,9 @@ bool TableCache::PrefixMayMatch(const ReadOptions& options,
                        file_size, &handle, table_io);
   bool may_match = true;
   if (s.ok()) {
-    TableReader* t =
-      reinterpret_cast<TableReader*>(cache_->Value(handle));
+    TableReader* t = GetTableReaderFromHandle(handle);
     may_match = t->PrefixMayMatch(internal_prefix);
-    cache_->Release(handle);
+    ReleaseHandle(handle);
   }
   return may_match;
 }

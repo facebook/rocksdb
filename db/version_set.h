@@ -431,7 +431,7 @@ class VersionSet {
   double MaxBytesForLevel(int level);
 
   Status GetMetadataForFile(
-    uint64_t number, int *filelevel, FileMetaData *metadata);
+    uint64_t number, int *filelevel, FileMetaData **metadata);
 
   void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);

@@ -265,8 +265,9 @@ class Repairer {
     int counter = 0;
     Status status = env_->GetFileSize(fname, &t->meta.file_size);
     if (status.ok()) {
+      FileMetaData dummy_meta(t->meta.number, t->meta.file_size);
       Iterator* iter = table_cache_->NewIterator(
-          ReadOptions(), storage_options_, t->meta.number, t->meta.file_size);
+          ReadOptions(), storage_options_, dummy_meta);
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;

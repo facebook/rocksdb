@@ -265,6 +265,7 @@ class DBTest {
     kHashSkipList,
     kUniversalCompaction,
     kCompressedBlockCache,
+    kInfiniteMaxOpenFiles,
     kEnd
   };
   int option_config_;
@@ -414,6 +415,9 @@ class DBTest {
         break;
       case kCompressedBlockCache:
         options.block_cache_compressed = NewLRUCache(8*1024*1024);
+        break;
+      case kInfiniteMaxOpenFiles:
+        options.max_open_files = -1;
         break;
       default:
         break;

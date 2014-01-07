@@ -204,8 +204,7 @@ Status BuildTable(const std::string& dbname,
       // Verify that the table is usable
       Iterator* it = table_cache->NewIterator(ReadOptions(),
                                               soptions,
-                                              meta->number,
-                                              meta->file_size);
+                                              *meta);
       s = it->status();
       delete it;
     }

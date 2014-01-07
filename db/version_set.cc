@@ -51,6 +51,10 @@ Version::~Version() {
       assert(f->refs > 0);
       f->refs--;
       if (f->refs <= 0) {
+        if (f->table_reader_handle) {
+          vset_->table_cache_->ReleaseHandle(f->table_reader_handle);
+          f->table_reader_handle = nullptr;
+        }
         vset_->obsolete_files_.push_back(f);
       }
     }
@@ -202,10 +206,11 @@ static Iterator* GetFileIterator(void* arg,
       options_copy = options;
       options_copy.prefix = nullptr;
     }
+    FileMetaData meta(DecodeFixed64(file_value.data()),
+                      DecodeFixed64(file_value.data() + 8));
     return cache->NewIterator(options.prefix ? options_copy : options,
                               soptions,
-                              DecodeFixed64(file_value.data()),
-                              DecodeFixed64(file_value.data() + 8),
+                              meta,
                               nullptr /* don't need reference to table*/,
                               for_compaction);
   }
@@ -257,9 +262,8 @@ void Version::AddIterators(const ReadOptions& options,
                            std::vector<Iterator*>* iters) {
   // Merge all level zero files together since they may overlap
   for (const FileMetaData* file : files_[0]) {
-    iters->push_back(
-        vset_->table_cache_->NewIterator(
-            options, soptions, file->number, file->file_size));
+    iters->push_back(vset_->table_cache_->NewIterator(options, soptions,
+                                                      *file));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -513,9 +517,8 @@ void Version::Get(const ReadOptions& options,
       prev_file = f;
 #endif
       bool tableIO = false;
-      *status = vset_->table_cache_->Get(options, f->number, f->file_size,
-                                         ikey, &saver, SaveValue, &tableIO,
-                                         MarkKeyMayExist);
+      *status = vset_->table_cache_->Get(options, *f, ikey, &saver, SaveValue,
+                                         &tableIO, MarkKeyMayExist);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;
@@ -954,6 +957,11 @@ class VersionSet::Builder {
         FileMetaData* f = to_unref[i];
         f->refs--;
         if (f->refs <= 0) {
+          if (f->table_reader_handle) {
+            vset_->table_cache_->ReleaseHandle(
+                f->table_reader_handle);
+            f->table_reader_handle = nullptr;
+          }
           delete f;
         }
       }
@@ -1113,6 +1121,20 @@ class VersionSet::Builder {
     CheckConsistency(v);
   }
 
+  void LoadTableHandlers() {
+    for (int level = 0; level < vset_->NumberLevels(); level++) {
+      for (auto& file_meta : *(levels_[level].added_files)) {
+        assert (!file_meta->table_reader_handle);
+        bool table_io;
+        vset_->table_cache_->FindTable(vset_->storage_options_,
+                                       file_meta->number,
+                                       file_meta->file_size,
+                                       &file_meta->table_reader_handle,
+                                       &table_io, false);
+      }
+    }
+  }
+
   void MaybeAddFile(Version* v, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->number) > 0) {
       // File is deleted: do nothing
@@ -1258,7 +1280,7 @@ Status VersionSet::LogAndApply(
     edit->SetNextFile(next_file_number_);
   }
 
-  // Unlock during expensive MANIFEST log write. New writes cannot get here
+  // Unlock during expensive operations. New writes cannot get here
   // because &w is ensuring that all new writes get queued.
   {
     // calculate the amount of data being compacted at every level
@@ -1266,6 +1288,12 @@ Status VersionSet::LogAndApply(
     SizeBeingCompacted(size_being_compacted);
 
     mu->Unlock();
+
+    if (options_->max_open_files == -1) {
+      // unlimited table cache. Pre-load table handle now.
+      // Need to do it out of the mutex.
+      builder.LoadTableHandlers();
+    }
 
     // This is fine because everything inside of this block is serialized --
     // only one thread can be here at the same time
@@ -1966,8 +1994,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
         // approximate offset of "ikey" within the table.
         TableReader* table_reader_ptr;
         Iterator* iter = table_cache_->NewIterator(
-            ReadOptions(), storage_options_, files[i]->number,
-            files[i]->file_size, &table_reader_ptr);
+            ReadOptions(), storage_options_, *(files[i]), &table_reader_ptr);
         if (table_reader_ptr != nullptr) {
           result += table_reader_ptr->ApproximateOffsetOf(ikey.Encode());
         }
@@ -2092,8 +2119,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         for (size_t i = 0; i < files.size(); i++) {
           list[num++] = table_cache_->NewIterator(
               options, storage_options_compactions_,
-              files[i]->number, files[i]->file_size, nullptr,
-              true /* for compaction */);
+              *(files[i]), nullptr, true /* for compaction */);
         }
       } else {
         // Create concatenating iterator for the files from this level
@@ -2876,12 +2902,12 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 Status VersionSet::GetMetadataForFile(
     uint64_t number,
     int *filelevel,
-    FileMetaData *meta) {
+    FileMetaData **meta) {
   for (int level = 0; level < NumberLevels(); level++) {
     const std::vector<FileMetaData*>& files = current_->files_[level];
     for (size_t i = 0; i < files.size(); i++) {
       if (files[i]->number == number) {
-        *meta = *files[i];
+        *meta = files[i];
         *filelevel = level;
         return Status::OK();
       }

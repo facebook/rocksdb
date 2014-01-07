@@ -126,7 +126,10 @@ Options SanitizeOptions(const std::string& dbname,
   Options result = src;
   result.comparator = icmp;
   result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
-  ClipToRange(&result.max_open_files,            20,     1000000);
+  // result.max_open_files means an "infinite" open files.
+  if (result.max_open_files != -1) {
+    ClipToRange(&result.max_open_files,            20,     1000000);
+  }
   ClipToRange(&result.write_buffer_size,         ((size_t)64)<<10,
                                                  ((size_t)64)<<30);
   ClipToRange(&result.block_size,                1<<10,  4<<20);
@@ -278,7 +281,10 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   }
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
-  const int table_cache_size = options_.max_open_files - 10;
+  // Give a large number for setting of "infinite" open files.
+  const int table_cache_size =
+      (options_.max_open_files == -1) ?
+          4194304 : options_.max_open_files - 10;
   table_cache_.reset(new TableCache(dbname_, &options_,
                                     storage_options_, table_cache_size));
   versions_.reset(new VersionSet(dbname_, &options_, storage_options_,
@@ -335,6 +341,9 @@ DBImpl::~DBImpl() {
   for (MemTable* m: to_delete) {
     delete m;
   }
+  // versions need to be destroyed before table_cache since it can holds
+  // references to table_cache.
+  versions_.reset();
   LogFlush(options_.info_log);
 }
 
@@ -2095,10 +2104,10 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
 
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
+    FileMetaData meta(output_number, current_bytes);
     Iterator* iter = table_cache_->NewIterator(ReadOptions(),
                                                storage_options_,
-                                               output_number,
-                                               current_bytes);
+                                               meta);
     s = iter->status();
     delete iter;
     if (s.ok()) {
@@ -3701,7 +3710,7 @@ Status DBImpl::DeleteFile(std::string name) {
   }
 
   int level;
-  FileMetaData metadata;
+  FileMetaData* metadata;
   int maxlevel = NumberLevels();
   VersionEdit edit(maxlevel);
   DeletionState deletion_state(true);
@@ -3716,7 +3725,7 @@ Status DBImpl::DeleteFile(std::string name) {
     assert((level > 0) && (level < maxlevel));
 
     // If the file is being compacted no need to delete.
-    if (metadata.being_compacted) {
+    if (metadata->being_compacted) {
       Log(options_.info_log,
           "DeleteFile %s Skipped. File about to be compacted\n", name.c_str());
       return Status::OK();
