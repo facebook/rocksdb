@@ -2091,11 +2091,11 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   if (s.ok() && !options_.disableDataSync) {
     if (options_.use_fsync) {
       StopWatch sw(env_, options_.statistics.get(),
-                   COMPACTION_OUTFILE_SYNC_MICROS);
+                   COMPACTION_OUTFILE_SYNC_MICROS, false);
       s = compact->outfile->Fsync();
     } else {
       StopWatch sw(env_, options_.statistics.get(),
-                   COMPACTION_OUTFILE_SYNC_MICROS);
+                   COMPACTION_OUTFILE_SYNC_MICROS, false);
       s = compact->outfile->Sync();
     }
   }
@@ -2724,7 +2724,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
                        bool* value_found) {
   Status s;
 
-  StopWatch sw(env_, options_.statistics.get(), DB_GET);
+  StopWatch sw(env_, options_.statistics.get(), DB_GET, false);
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
@@ -2793,7 +2793,7 @@ std::vector<Status> DBImpl::MultiGet(const ReadOptions& options,
                                      const std::vector<Slice>& keys,
                                      std::vector<std::string>* values) {
 
-  StopWatch sw(env_, options_.statistics.get(), DB_MULTIGET);
+  StopWatch sw(env_, options_.statistics.get(), DB_MULTIGET, false);
   SequenceNumber snapshot;
   std::vector<MemTable*> to_delete;
 
@@ -2944,7 +2944,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   w.disableWAL = options.disableWAL;
   w.done = false;
 
-  StopWatch sw(env_, options_.statistics.get(), DB_WRITE);
+  StopWatch sw(env_, options_.statistics.get(), DB_WRITE, false);
   mutex_.Lock();
   writers_.push_back(&w);
   while (!w.done && &w != writers_.front()) {

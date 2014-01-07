@@ -15,9 +15,10 @@ class StopWatch {
   explicit StopWatch(
     Env * const env,
     Statistics* statistics = nullptr,
-    const Histograms histogram_name = DB_GET) :
+    const Histograms histogram_name = DB_GET,
+    bool auto_start = true) :
       env_(env),
-      start_time_(env->NowMicros()),
+      start_time_((!auto_start && !statistics) ? 0 : env->NowMicros()),
       statistics_(statistics),
       histogram_name_(histogram_name) {}
 
