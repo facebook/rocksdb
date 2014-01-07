@@ -379,6 +379,9 @@ static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
           }
           return true;
 
+        case kTypeColumnFamilyDeletion:
+        case kTypeColumnFamilyValue:
+        case kTypeColumnFamilyMerge:
         case kTypeLogData:
           assert(false);
           break;

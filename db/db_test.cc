@@ -519,6 +519,9 @@ class DBTest {
             case kTypeDeletion:
               result += "DEL";
               break;
+            case kTypeColumnFamilyDeletion:
+            case kTypeColumnFamilyValue:
+            case kTypeColumnFamilyMerge:
             case kTypeLogData:
               assert(false);
               break;

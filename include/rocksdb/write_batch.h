@@ -40,33 +40,31 @@ class WriteBatch {
   ~WriteBatch();
 
   // Store the mapping "key->value" in the database.
-  void Put(const ColumnFamilyHandle& column_family, const Slice& key,
-           const Slice& value);
+  void Put(uint32_t column_family_id, const Slice& key, const Slice& value);
   void Put(const Slice& key, const Slice& value) {
-    Put(default_column_family, key, value);
+    Put(0, key, value);
   }
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatentations of arrays of
   // slices.
-  void Put(const ColumnFamilyHandle& column_family, const SliceParts& key,
+  void Put(uint32_t column_family_id, const SliceParts& key,
            const SliceParts& value);
   void Put(const SliceParts& key, const SliceParts& value) {
-    Put(default_column_family, key, value);
+    Put(0, key, value);
   }
 
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
-  void Merge(const ColumnFamilyHandle& column_family, const Slice& key,
-             const Slice& value);
+  void Merge(uint32_t column_family_id, const Slice& key, const Slice& value);
   void Merge(const Slice& key, const Slice& value) {
-    Merge(default_column_family, key, value);
+    Merge(0, key, value);
   }
 
   // If the database contains a mapping for "key", erase it.  Else do nothing.
-  void Delete(const ColumnFamilyHandle& column_family, const Slice& key);
+  void Delete(uint32_t column_family_id, const Slice& key);
   void Delete(const Slice& key) {
-    Delete(default_column_family, key);
+    Delete(0, key);
   }
 
   // Append a blob of arbitrary size to the records in this batch. The blob will
@@ -89,25 +87,31 @@ class WriteBatch {
    public:
     virtual ~Handler();
     // default implementation will just call Put without column family for
-    // backwards compatibility
-    virtual void PutCF(const ColumnFamilyHandle& column_family,
-                       const Slice& key, const Slice& value) {
-      Put(key, value);
+    // backwards compatibility. If the column family is not default,
+    // the function is noop
+    virtual void PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) {
+      if (column_family_id == 0) {
+        Put(key, value);
+      }
     }
     virtual void Put(const Slice& key, const Slice& value);
     // Merge and LogData are not pure virtual. Otherwise, we would break
     // existing clients of Handler on a source code level. The default
     // implementation of Merge simply throws a runtime exception.
-    virtual void MergeCF(const ColumnFamilyHandle& column_family,
-                         const Slice& key, const Slice& value) {
-      Merge(key, value);
+    virtual void MergeCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
+      if (column_family_id == 0) {
+        Merge(key, value);
+      }
     }
     virtual void Merge(const Slice& key, const Slice& value);
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
-    virtual void DeleteCF(const ColumnFamilyHandle& column_family,
-                          const Slice& key) {
-      Delete(key);
+    virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
+      if (column_family_id == 0) {
+        Delete(key);
+      }
     }
     virtual void Delete(const Slice& key);
     // Continue is called by WriteBatch::Iterate. If it returns false,

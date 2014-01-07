@@ -247,6 +247,9 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           }
           break;
         }
+        case kTypeColumnFamilyDeletion:
+        case kTypeColumnFamilyValue:
+        case kTypeColumnFamilyMerge:
         case kTypeLogData:
           assert(false);
           break;

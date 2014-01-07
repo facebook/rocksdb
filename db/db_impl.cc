@@ -3817,14 +3817,14 @@ Status DBImpl::GetDbIdentity(std::string& identity) {
 Status DB::Put(const WriteOptions& opt, const ColumnFamilyHandle& column_family,
                const Slice& key, const Slice& value) {
   WriteBatch batch;
-  batch.Put(column_family, key, value);
+  batch.Put(column_family.id, key, value);
   return Write(opt, &batch);
 }
 
 Status DB::Delete(const WriteOptions& opt,
                   const ColumnFamilyHandle& column_family, const Slice& key) {
   WriteBatch batch;
-  batch.Delete(column_family, key);
+  batch.Delete(column_family.id, key);
   return Write(opt, &batch);
 }
 
@@ -3832,7 +3832,7 @@ Status DB::Merge(const WriteOptions& opt,
                  const ColumnFamilyHandle& column_family, const Slice& key,
                  const Slice& value) {
   WriteBatch batch;
-  batch.Merge(column_family, key, value);
+  batch.Merge(column_family.id, key, value);
   return Write(opt, &batch);
 }
 

@@ -226,6 +226,9 @@ void DBIter::FindNextUserEntry(bool skipping) {
             valid_ = true;
             MergeValuesNewToOld();  // Go to a different state machine
             return;
+          case kTypeColumnFamilyDeletion:
+          case kTypeColumnFamilyValue:
+          case kTypeColumnFamilyMerge:
           case kTypeLogData:
             assert(false);
             break;

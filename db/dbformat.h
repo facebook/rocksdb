@@ -29,7 +29,10 @@ enum ValueType {
   kTypeDeletion = 0x0,
   kTypeValue = 0x1,
   kTypeMerge = 0x2,
-  kTypeLogData = 0x3
+  kTypeLogData = 0x3,
+  kTypeColumnFamilyDeletion = 0x4,
+  kTypeColumnFamilyValue = 0x5,
+  kTypeColumnFamilyMerge = 0x6,
 };
 // kValueTypeForSeek defines the ValueType that should be passed when
 // constructing a ParsedInternalKey object for seeking to a particular
