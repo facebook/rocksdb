@@ -17,7 +17,7 @@ using namespace std;
 
 class AutoVectorTest { };
 
-const size_t kSize = 8;
+const unsigned long kSize = 8;
 TEST(AutoVectorTest, PushBackAndPopBack) {
   autovector<size_t, kSize> vec;
   ASSERT_TRUE(vec.empty());
