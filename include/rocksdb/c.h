@@ -311,6 +311,7 @@ extern void rocksdb_cache_destroy(rocksdb_cache_t* cache);
 
 extern rocksdb_env_t* rocksdb_create_default_env();
 extern void rocksdb_env_set_background_threads(rocksdb_env_t* env, int n);
+extern void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n);
 extern void rocksdb_env_destroy(rocksdb_env_t*);
 
 /* Universal Compaction options */
