@@ -57,8 +57,33 @@ TEST(ArenaImplTest, MemoryAllocatedBytes) {
   ASSERT_EQ(arena_impl.MemoryAllocatedBytes(), expected_memory_allocated);
 }
 
+// Make sure we didn't count the allocate but not used memory space in
+// Arena::ApproximateMemoryUsage()
+TEST(ArenaImplTest, ApproximateMemoryUsageTest) {
+  const size_t kBlockSize = 4096;
+  const size_t kEntrySize = kBlockSize / 8;
+  ArenaImpl arena(kBlockSize);
+  ASSERT_EQ(0, arena.ApproximateMemoryUsage());
+
+  auto num_blocks = kBlockSize / kEntrySize;
+
+  // first allocation
+  arena.AllocateAligned(kEntrySize);
+  auto mem_usage = arena.MemoryAllocatedBytes();
+  ASSERT_EQ(mem_usage, kBlockSize);
+  auto usage = arena.ApproximateMemoryUsage();
+  ASSERT_LT(usage, mem_usage);
+  for (size_t i = 1; i < num_blocks; ++i) {
+    arena.AllocateAligned(kEntrySize);
+    ASSERT_EQ(mem_usage, arena.MemoryAllocatedBytes());
+    ASSERT_EQ(arena.ApproximateMemoryUsage(), usage + kEntrySize);
+    usage = arena.ApproximateMemoryUsage();
+  }
+  ASSERT_GT(usage, mem_usage);
+}
+
 TEST(ArenaImplTest, Simple) {
-  std::vector<std::pair<size_t, char*> > allocated;
+  std::vector<std::pair<size_t, char*>> allocated;
   ArenaImpl arena_impl;
   const int N = 100000;
   size_t bytes = 0;
@@ -68,8 +93,9 @@ TEST(ArenaImplTest, Simple) {
     if (i % (N / 10) == 0) {
       s = i;
     } else {
-      s = rnd.OneIn(4000) ? rnd.Uniform(6000) :
-          (rnd.OneIn(10) ? rnd.Uniform(100) : rnd.Uniform(20));
+      s = rnd.OneIn(4000)
+              ? rnd.Uniform(6000)
+              : (rnd.OneIn(10) ? rnd.Uniform(100) : rnd.Uniform(20));
     }
     if (s == 0) {
       // Our arena disallows size 0 allocations.
@@ -89,7 +115,7 @@ TEST(ArenaImplTest, Simple) {
     bytes += s;
     allocated.push_back(std::make_pair(s, r));
     ASSERT_GE(arena_impl.ApproximateMemoryUsage(), bytes);
-    if (i > N/10) {
+    if (i > N / 10) {
       ASSERT_LE(arena_impl.ApproximateMemoryUsage(), bytes * 1.10);
     }
   }
