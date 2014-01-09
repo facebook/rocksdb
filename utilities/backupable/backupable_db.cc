@@ -20,6 +20,7 @@
 #include <map>
 #include <string>
 #include <limits>
+#include <atomic>
 
 namespace rocksdb {
 
@@ -31,6 +32,9 @@ class BackupEngine {
   Status CreateNewBackup(DB* db, bool flush_before_backup = false);
   Status PurgeOldBackups(uint32_t num_backups_to_keep);
   Status DeleteBackup(BackupID backup_id);
+  void StopBackup() {
+    stop_backup_.store(true, std::memory_order_release);
+  }
 
   void GetBackupInfo(std::vector<BackupInfo>* backup_info);
   Status RestoreDBFromBackup(BackupID backup_id, const std::string &db_dir,
@@ -106,13 +110,16 @@ class BackupEngine {
     return "private";
   }
   inline std::string GetPrivateFileRel(BackupID backup_id,
-                                       const std::string &file = "") const {
+                                       bool tmp = false,
+                                       const std::string& file = "") const {
     assert(file.size() == 0 || file[0] != '/');
-    return GetPrivateDirRel() + "/" + std::to_string(backup_id) + "/" + file;
+    return GetPrivateDirRel() + "/" + std::to_string(backup_id) +
+           (tmp ? ".tmp" : "") + "/" + file;
   }
-  inline std::string GetSharedFileRel(const std::string& file = "") const {
+  inline std::string GetSharedFileRel(const std::string& file = "",
+                                      bool tmp = false) const {
     assert(file.size() == 0 || file[0] != '/');
-    return "shared/" + file;
+    return "shared/" + file + (tmp ? ".tmp" : "");
   }
   inline std::string GetLatestBackupFile(bool tmp = false) const {
     return GetAbsolutePath(std::string("LATEST_BACKUP") + (tmp ? ".tmp" : ""));
@@ -151,6 +158,7 @@ class BackupEngine {
   std::map<BackupID, BackupMeta> backups_;
   std::unordered_map<std::string, int> backuped_file_refs_;
   std::vector<BackupID> obsolete_backups_;
+  std::atomic<bool> stop_backup_;
 
   // options data
   BackupableDBOptions options_;
@@ -161,13 +169,17 @@ class BackupEngine {
 };
 
 BackupEngine::BackupEngine(Env* db_env, const BackupableDBOptions& options)
-  : options_(options),
-    db_env_(db_env),
-    backup_env_(options.backup_env != nullptr ? options.backup_env : db_env_) {
+    : stop_backup_(false),
+      options_(options),
+      db_env_(db_env),
+      backup_env_(options.backup_env != nullptr ? options.backup_env
+                                                : db_env_) {
 
   // create all the dirs we need
   backup_env_->CreateDirIfMissing(GetAbsolutePath());
-  backup_env_->CreateDirIfMissing(GetAbsolutePath(GetSharedFileRel()));
+  if (!options_.share_table_files) {
+    backup_env_->CreateDirIfMissing(GetAbsolutePath(GetSharedFileRel()));
+  }
   backup_env_->CreateDirIfMissing(GetAbsolutePath(GetPrivateDirRel()));
   backup_env_->CreateDirIfMissing(GetBackupMetaDir());
 
@@ -298,8 +310,9 @@ Status BackupEngine::CreateNewBackup(DB* db, bool flush_before_backup) {
   Log(options_.info_log, "Started the backup process -- creating backup %u",
       new_backup_id);
 
-  // create private dir
-  s = backup_env_->CreateDir(GetAbsolutePath(GetPrivateFileRel(new_backup_id)));
+  // create temporary private dir
+  s = backup_env_->CreateDir(
+      GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)));
 
   // copy live_files
   for (size_t i = 0; s.ok() && i < live_files.size(); ++i) {
@@ -320,7 +333,7 @@ Status BackupEngine::CreateNewBackup(DB* db, bool flush_before_backup) {
     // * if it's kDescriptorFile, limit the size to manifest_file_size
     s = BackupFile(new_backup_id,
                    &new_backup,
-                   type == kTableFile,       /* shared  */
+                   options_.share_table_files && type == kTableFile,
                    db->GetName(),            /* src_dir */
                    live_files[i],            /* src_fname */
                    (type == kDescriptorFile) ? manifest_file_size : 0);
@@ -341,6 +354,13 @@ Status BackupEngine::CreateNewBackup(DB* db, bool flush_before_backup) {
 
   // we copied all the files, enable file deletions
   db->EnableFileDeletions();
+
+  if (s.ok()) {
+    // move tmp private backup to real backup folder
+    s = backup_env_->RenameFile(
+        GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)), // tmp
+        GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)));
+  }
 
   if (s.ok()) {
     // persist the backup metadata on the disk
@@ -561,6 +581,9 @@ Status BackupEngine::CopyFile(const std::string& src,
   Slice data;
 
   do {
+    if (stop_backup_.load(std::memory_order_acquire)) {
+      return Status::Incomplete("Backup stopped");
+    }
     size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
       copy_file_buffer_size_ : size_limit;
     s = src_file->Read(buffer_to_read, &data, buf.get());
@@ -590,12 +613,16 @@ Status BackupEngine::BackupFile(BackupID backup_id,
 
   assert(src_fname.size() > 0 && src_fname[0] == '/');
   std::string dst_relative = src_fname.substr(1);
+  std::string dst_relative_tmp;
   if (shared) {
-    dst_relative = GetSharedFileRel(dst_relative);
+    dst_relative_tmp = GetSharedFileRel(dst_relative, true);
+    dst_relative = GetSharedFileRel(dst_relative, false);
   } else {
-    dst_relative = GetPrivateFileRel(backup_id, dst_relative);
+    dst_relative_tmp = GetPrivateFileRel(backup_id, true, dst_relative);
+    dst_relative = GetPrivateFileRel(backup_id, false, dst_relative);
   }
   std::string dst_path = GetAbsolutePath(dst_relative);
+  std::string dst_path_tmp = GetAbsolutePath(dst_relative_tmp);
   Status s;
   uint64_t size;
 
@@ -607,12 +634,15 @@ Status BackupEngine::BackupFile(BackupID backup_id,
   } else {
     Log(options_.info_log, "Copying %s", src_fname.c_str());
     s = CopyFile(src_dir + src_fname,
-                 dst_path,
+                 dst_path_tmp,
                  db_env_,
                  backup_env_,
                  options_.sync,
                  &size,
                  size_limit);
+    if (s.ok() && shared) {
+      s = backup_env_->RenameFile(dst_path_tmp, dst_path);
+    }
   }
   if (s.ok()) {
     backup->AddFile(dst_relative, size);
@@ -671,14 +701,16 @@ void BackupEngine::GarbageCollection(bool full_scan) {
                              &private_children);
     for (auto& child : private_children) {
       BackupID backup_id = 0;
+      bool tmp_dir = child.find(".tmp") != std::string::npos;
       sscanf(child.c_str(), "%u", &backup_id);
-      if (backup_id == 0 || backups_.find(backup_id) != backups_.end()) {
+      if (!tmp_dir && // if it's tmp_dir, delete it
+          (backup_id == 0 || backups_.find(backup_id) != backups_.end())) {
         // it's either not a number or it's still alive. continue
         continue;
       }
       // here we have to delete the dir and all its children
       std::string full_private_path =
-          GetAbsolutePath(GetPrivateFileRel(backup_id));
+          GetAbsolutePath(GetPrivateFileRel(backup_id, tmp_dir));
       std::vector<std::string> subchildren;
       backup_env_->GetChildren(full_private_path, &subchildren);
       for (auto& subchild : subchildren) {
@@ -813,7 +845,9 @@ Status BackupEngine::BackupMeta::StoreToFile(bool sync) {
 
 BackupableDB::BackupableDB(DB* db, const BackupableDBOptions& options)
     : StackableDB(db), backup_engine_(new BackupEngine(db->GetEnv(), options)) {
-  backup_engine_->DeleteBackupsNewerThan(GetLatestSequenceNumber());
+  if (options.share_table_files) {
+    backup_engine_->DeleteBackupsNewerThan(GetLatestSequenceNumber());
+  }
 }
 
 BackupableDB::~BackupableDB() {
@@ -834,6 +868,10 @@ Status BackupableDB::PurgeOldBackups(uint32_t num_backups_to_keep) {
 
 Status BackupableDB::DeleteBackup(BackupID backup_id) {
   return backup_engine_->DeleteBackup(backup_id);
+}
+
+void BackupableDB::StopBackup() {
+  backup_engine_->StopBackup();
 }
 
 // --- RestoreBackupableDB methods ------
