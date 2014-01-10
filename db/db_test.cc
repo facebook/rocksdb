@@ -2434,7 +2434,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
       : check_context_(check_context) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) override {
+      const CompactionFilterContext& context) override {
     if (check_context_) {
       ASSERT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
       ASSERT_EQ(expect_manual_compaction_.load(), context.is_manual_compaction);
@@ -2451,7 +2451,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
 class DeleteFilterFactory : public CompactionFilterFactory {
  public:
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) override {
+      const CompactionFilterContext& context) override {
     if (context.is_manual_compaction) {
       return std::unique_ptr<CompactionFilter>(new DeleteFilter());
     } else {
@@ -2467,7 +2467,7 @@ class ChangeFilterFactory : public CompactionFilterFactory {
   explicit ChangeFilterFactory() {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) override {
+      const CompactionFilterContext& context) override {
     return std::unique_ptr<CompactionFilter>(new ChangeFilter());
   }
 
@@ -3507,7 +3507,7 @@ TEST(DBTest, CompactionFilterWithValueChange) {
 
     // verify that all keys now have the new value that
     // was set by the compaction process.
-    for (int i = 0; i < 100000; i++) {
+    for (int i = 0; i < 100001; i++) {
       char key[100];
       snprintf(key, sizeof(key), "B%010d", i);
       std::string newvalue = Get(key);
@@ -3568,6 +3568,252 @@ TEST(DBTest, CompactionFilterContextManual) {
   ASSERT_EQ(total, 700);
   ASSERT_EQ(count, 1);
   delete iter;
+}
+
+class KeepFilterV2 : public CompactionFilterV2 {
+ public:
+  virtual std::vector<bool> Filter(int level,
+                                   const SliceVector& keys,
+                                   const SliceVector& existing_values,
+                                   std::vector<std::string>* new_values,
+                                   std::vector<bool>* values_changed)
+    const override {
+    cfilter_count++;
+    std::vector<bool> ret;
+    new_values->clear();
+    values_changed->clear();
+    for (unsigned int i = 0; i < keys.size(); ++i) {
+      values_changed->push_back(false);
+      ret.push_back(false);
+    }
+    return ret;
+  }
+
+  virtual const char* Name() const override {
+    return "KeepFilterV2";
+  }
+};
+
+class DeleteFilterV2 : public CompactionFilterV2 {
+ public:
+  virtual std::vector<bool> Filter(int level,
+                                   const SliceVector& keys,
+                                   const SliceVector& existing_values,
+                                   std::vector<std::string>* new_values,
+                                   std::vector<bool>* values_changed)
+    const override {
+    cfilter_count++;
+    new_values->clear();
+    values_changed->clear();
+    std::vector<bool> ret;
+    for (unsigned int i = 0; i < keys.size(); ++i) {
+      values_changed->push_back(false);
+      ret.push_back(true);
+    }
+    return ret;
+  }
+
+  virtual const char* Name() const override {
+    return "DeleteFilterV2";
+  }
+};
+
+class ChangeFilterV2 : public CompactionFilterV2 {
+ public:
+  virtual std::vector<bool> Filter(int level,
+                                   const SliceVector& keys,
+                                   const SliceVector& existing_values,
+                                   std::vector<std::string>* new_values,
+                                   std::vector<bool>* values_changed)
+    const override {
+    std::vector<bool> ret;
+    new_values->clear();
+    values_changed->clear();
+    for (unsigned int i = 0; i < keys.size(); ++i) {
+      values_changed->push_back(true);
+      new_values->push_back(NEW_VALUE);
+      ret.push_back(false);
+    }
+    return ret;
+  }
+
+  virtual const char* Name() const override {
+    return "ChangeFilterV2";
+  }
+};
+
+class KeepFilterFactoryV2 : public CompactionFilterFactoryV2 {
+ public:
+  explicit KeepFilterFactoryV2(const SliceTransform* prefix_extractor)
+    : CompactionFilterFactoryV2(prefix_extractor) { }
+
+  virtual std::unique_ptr<CompactionFilterV2>
+  CreateCompactionFilterV2(
+      const CompactionFilterContext& context) override {
+    return std::unique_ptr<CompactionFilterV2>(new KeepFilterV2());
+  }
+
+  virtual const char* Name() const override {
+    return "KeepFilterFactoryV2";
+  }
+};
+
+class DeleteFilterFactoryV2 : public CompactionFilterFactoryV2 {
+ public:
+  explicit DeleteFilterFactoryV2(const SliceTransform* prefix_extractor)
+    : CompactionFilterFactoryV2(prefix_extractor) { }
+
+  virtual std::unique_ptr<CompactionFilterV2>
+  CreateCompactionFilterV2(
+      const CompactionFilterContext& context) override {
+    return std::unique_ptr<CompactionFilterV2>(new DeleteFilterV2());
+  }
+
+  virtual const char* Name() const override {
+    return "DeleteFilterFactoryV2";
+  }
+};
+
+class ChangeFilterFactoryV2 : public CompactionFilterFactoryV2 {
+ public:
+  explicit ChangeFilterFactoryV2(const SliceTransform* prefix_extractor)
+    : CompactionFilterFactoryV2(prefix_extractor) { }
+
+  virtual std::unique_ptr<CompactionFilterV2>
+  CreateCompactionFilterV2(
+      const CompactionFilterContext& context) override {
+    return std::unique_ptr<CompactionFilterV2>(new ChangeFilterV2());
+  }
+
+  virtual const char* Name() const override {
+    return "ChangeFilterFactoryV2";
+  }
+};
+
+TEST(DBTest, CompactionFilterV2) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.max_mem_compaction_level = 0;
+  // extract prefix
+  auto prefix_extractor = NewFixedPrefixTransform(8);
+  options.compaction_filter_factory_v2
+    = std::make_shared<KeepFilterFactoryV2>(prefix_extractor);
+  // In a testing environment, we can only flush the application
+  // compaction filter buffer using universal compaction
+  option_config_ = kUniversalCompaction;
+  options.compaction_style = (rocksdb::CompactionStyle)1;
+  Reopen(&options);
+
+  // Write 100K keys, these are written to a few files in L0.
+  const std::string value(10, 'x');
+  for (int i = 0; i < 100000; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%08d%010d", i , i);
+    Put(key, value);
+  }
+
+  dbfull()->TEST_FlushMemTable();
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr);
+
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  // All the files are in the lowest level.
+  int count = 0;
+  int total = 0;
+  Iterator* iter = dbfull()->TEST_NewInternalIterator();
+  iter->SeekToFirst();
+  ASSERT_OK(iter->status());
+  while (iter->Valid()) {
+    ParsedInternalKey ikey(Slice(), 0, kTypeValue);
+    ikey.sequence = -1;
+    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+    total++;
+    if (ikey.sequence != 0) {
+      count++;
+    }
+    iter->Next();
+  }
+
+  ASSERT_EQ(total, 100000);
+  // 1 snapshot only. Since we are using universal compacton,
+  // the sequence no is cleared for better compression
+  ASSERT_EQ(count, 1);
+  delete iter;
+
+  // create a new database with the compaction
+  // filter in such a way that it deletes all keys
+  options.compaction_filter_factory_v2 =
+    std::make_shared<DeleteFilterFactoryV2>(prefix_extractor);
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+
+  // write all the keys once again.
+  for (int i = 0; i < 100000; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%08d%010d", i, i);
+    Put(key, value);
+  }
+
+  dbfull()->TEST_FlushMemTable();
+  ASSERT_NE(NumTableFilesAtLevel(0), 0);
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+
+  // Scan the entire database to ensure that nothing is left
+  iter = db_->NewIterator(ReadOptions());
+  iter->SeekToFirst();
+  count = 0;
+  while (iter->Valid()) {
+    count++;
+    iter->Next();
+  }
+
+  ASSERT_EQ(count, 0);
+  delete iter;
+}
+
+TEST(DBTest, CompactionFilterV2WithValueChange) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.max_mem_compaction_level = 0;
+  auto prefix_extractor = NewFixedPrefixTransform(8);
+  options.compaction_filter_factory_v2 =
+    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor);
+  // In a testing environment, we can only flush the application
+  // compaction filter buffer using universal compaction
+  option_config_ = kUniversalCompaction;
+  options.compaction_style = (rocksdb::CompactionStyle)1;
+  Reopen(&options);
+
+  // Write 100K+1 keys, these are written to a few files
+  // in L0. We do this so that the current snapshot points
+  // to the 100001 key.The compaction filter is  not invoked
+  // on keys that are visible via a snapshot because we
+  // anyways cannot delete it.
+  const std::string value(10, 'x');
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%08d%010d", i, i);
+    Put(key, value);
+  }
+
+  // push all files to lower levels
+  dbfull()->TEST_FlushMemTable();
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr);
+
+  // verify that all keys now have the new value that
+  // was set by the compaction process.
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%08d%010d", i, i);
+    std::string newvalue = Get(key);
+    ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
+  }
 }
 
 TEST(DBTest, SparseMerge) {

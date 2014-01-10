@@ -21,7 +21,7 @@ namespace rocksdb {
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
 void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
-                             bool at_bottom, Statistics* stats) {
+                             bool at_bottom, Statistics* stats, int* steps) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   keys_.clear();
@@ -42,6 +42,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
   bool hit_the_next_user_key = false;
   ParsedInternalKey ikey;
   std::string merge_result;  // Temporary value for merge results
+  if (steps) {
+    ++(*steps);
+  }
   for (iter->Next(); iter->Valid(); iter->Next()) {
     assert(operands_.size() >= 1);        // Should be invariants!
     assert(keys_.size() == operands_.size());
@@ -91,6 +94,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
 
       // move iter to the next entry (before doing anything else)
       iter->Next();
+      if (steps) {
+        ++(*steps);
+      }
       return;
     }
 
@@ -119,6 +125,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
 
       // move iter to the next entry
       iter->Next();
+      if (steps) {
+        ++(*steps);
+      }
       return;
     }
 
@@ -133,6 +142,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       // request or later did a partial merge.
       keys_.push_front(iter->key().ToString());
       operands_.push_front(iter->value().ToString());
+      if (steps) {
+        ++(*steps);
+      }
     }
   }
 

@@ -32,6 +32,9 @@ Options::Options()
       compaction_filter(nullptr),
       compaction_filter_factory(std::shared_ptr<CompactionFilterFactory>(
           new DefaultCompactionFilterFactory())),
+      compaction_filter_factory_v2(
+            new DefaultCompactionFilterFactoryV2(
+              NewFixedPrefixTransform(8))),
       create_if_missing(false),
       error_if_exists(false),
       paranoid_checks(false),
@@ -131,6 +134,8 @@ Options::Dump(Logger* log) const
         compaction_filter? compaction_filter->Name() : "None");
     Log(log,"       Options.compaction_filter_factory: %s",
         compaction_filter_factory->Name());
+    Log(log, "       Options.compaction_filter_factory_v2: %s",
+        compaction_filter_factory_v2->Name());
     Log(log,"        Options.memtable_factory: %s",
         memtable_factory->Name());
     Log(log,"           Options.table_factory: %s", table_factory->Name());

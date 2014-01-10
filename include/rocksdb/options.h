@@ -22,6 +22,7 @@ namespace rocksdb {
 class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
+class CompactionFilterFactoryV2;
 class Comparator;
 class Env;
 enum InfoLogLevel : unsigned char;
@@ -122,6 +123,10 @@ struct Options {
   //
   // Default: a factory that doesn't provide any object
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
+
+  // Version TWO of the compaction_filter_factory
+  // It supports rolling compaction
+  std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // If true, the database will be created if it is missing.
   // Default: false

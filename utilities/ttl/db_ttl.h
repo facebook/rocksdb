@@ -192,7 +192,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
       user_comp_filter_factory_(comp_filter_factory) { }
 
     virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-        const CompactionFilter::Context& context) {
+        const CompactionFilterContext& context) {
       return std::unique_ptr<TtlCompactionFilter>(
         new TtlCompactionFilter(
           ttl_,

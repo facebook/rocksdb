@@ -47,7 +47,8 @@ class MergeHelper {
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
   void MergeUntil(Iterator* iter, SequenceNumber stop_before = 0,
-                  bool at_bottom = false, Statistics* stats = nullptr);
+                  bool at_bottom = false, Statistics* stats = nullptr,
+                  int* steps = nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call
