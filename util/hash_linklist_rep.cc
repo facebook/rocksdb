@@ -125,7 +125,7 @@ class HashLinkListRep : public MemTableRep {
   class FullListIterator : public MemTableRep::Iterator {
    public:
     explicit FullListIterator(FullList* list)
-      : iter_(list) {}
+      : iter_(list), full_list_(list) {}
 
     virtual ~FullListIterator() {
     }
@@ -177,6 +177,8 @@ class HashLinkListRep : public MemTableRep {
     }
    private:
     FullList::Iterator iter_;
+    // To destruct with the iterator.
+    std::unique_ptr<FullList> full_list_;
     std::string tmp_;       // For passing to EncodeKey
   };
 

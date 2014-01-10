@@ -108,7 +108,6 @@ class PrefixTest {
     options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
 
-    options.comparator = new TestKeyComparator();
     options.memtable_prefix_bloom_bits = FLAGS_memtable_prefix_bloom_bits;
     options.memtable_prefix_bloom_probes = FLAGS_memtable_prefix_bloom_probes;
 
@@ -142,7 +141,9 @@ class PrefixTest {
     return false;
   }
 
-  PrefixTest() : option_config_(kBegin) { }
+  PrefixTest() : option_config_(kBegin) {
+    options.comparator = new TestKeyComparator();
+  }
   ~PrefixTest() {
     delete options.comparator;
   }
