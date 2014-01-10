@@ -62,8 +62,9 @@ TEST(ArenaImplTest, MemoryAllocatedBytes) {
 TEST(ArenaImplTest, ApproximateMemoryUsageTest) {
   const size_t kBlockSize = 4096;
   const size_t kEntrySize = kBlockSize / 8;
+	const size_t kZero = 0;
   ArenaImpl arena(kBlockSize);
-  ASSERT_EQ(0, arena.ApproximateMemoryUsage());
+  ASSERT_EQ(kZero, arena.ApproximateMemoryUsage());
 
   auto num_blocks = kBlockSize / kEntrySize;
 
