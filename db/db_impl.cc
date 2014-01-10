@@ -906,7 +906,7 @@ Status DBImpl::Recover(
       }
       auto cf_data_iter = versions_->column_family_data_.find(cf_iter->second);
       assert(cf_data_iter != versions_->column_family_data_.end());
-      cf_data_iter->second.options = cf.options;
+      cf_data_iter->second->options = cf.options;
     }
 
     SequenceNumber max_sequence(0);
@@ -2888,15 +2888,19 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   Status s = versions_->LogAndApply(&edit, &mutex_);
   if (s.ok()) {
     // add to internal data structures
-    versions_->column_families_[column_family_name] = handle->id;
-    versions_->column_family_data_.insert(
-        {handle->id,
-         VersionSet::ColumnFamilyData(column_family_name, options)});
+    versions_->CreateColumnFamily(options, &edit);
   }
   return s;
 }
 
 Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
+  // TODO this is not good. implement some sort of refcounting
+  // column family data and only delete when refcount goes to 0
+  // We don't want to delete column family if there is a compaction going on,
+  // or if there are some outstanding iterators
+  if (column_family.id == 0) {
+    return Status::InvalidArgument("Can't drop default column family");
+  }
   VersionEdit edit(0);
   edit.DropColumnFamily();
   edit.SetColumnFamily(column_family.id);
@@ -2908,10 +2912,7 @@ Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
   Status s = versions_->LogAndApply(&edit, &mutex_);
   if (s.ok()) {
     // remove from internal data structures
-    auto cf_iter = versions_->column_families_.find(data_iter->second.name);
-    assert(cf_iter != versions_->column_families_.end());
-    versions_->column_families_.erase(cf_iter);
-    versions_->column_family_data_.erase(data_iter);
+    versions_->DropColumnFamily(&edit);
   }
   return s;
 }
@@ -3931,7 +3932,7 @@ Status DB::OpenWithColumnFamilies(
   }
   impl->mutex_.Unlock();
 
-  if (options.compaction_style == kCompactionStyleUniversal) {
+  if (s.ok() && options.compaction_style == kCompactionStyleUniversal) {
     int num_files;
     for (int i = 1; i < impl->NumberLevels(); i++) {
       num_files = impl->versions_->NumLevelFiles(i);

@@ -149,6 +149,7 @@ class Version {
   friend class Compaction;
   friend class VersionSet;
   friend class DBImpl;
+  friend struct ColumnFamilyData;
 
   class LevelFileNumIterator;
   Iterator* NewConcatenatingIterator(const ReadOptions&,
@@ -197,9 +198,6 @@ class Version {
   double max_compaction_score_; // max score in l1 to ln-1
   int max_compaction_score_level_; // level on which max score occurs
 
-  // The offset in the manifest file where this version is stored.
-  uint64_t offset_manifest_file_;
-
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
@@ -219,6 +217,20 @@ class Version {
   void operator=(const Version&);
 };
 
+// column family metadata
+struct ColumnFamilyData {
+  std::string name;
+  Version dummy_versions;  // Head of circular doubly-linked list of versions.
+  Version* current;        // == dummy_versions.prev_
+  ColumnFamilyOptions options;
+
+  ColumnFamilyData(const std::string& name,
+                   VersionSet* vset,
+                   const ColumnFamilyOptions& options)
+      : name(name), dummy_versions(vset), current(nullptr), options(options) {}
+  ~ColumnFamilyData() {}
+};
+
 class VersionSet {
  public:
   VersionSet(const std::string& dbname,
@@ -233,8 +245,17 @@ class VersionSet {
   // current version.  Will release *mu while actually writing to the file.
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
-  Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
-      bool new_descriptor_log = false);
+  Status LogAndApply(ColumnFamilyData* column_family_data,
+                     VersionEdit* edit,
+                     port::Mutex* mu,
+                     bool new_descriptor_log = false);
+
+  Status LogAndApply(VersionEdit* edit,
+                     port::Mutex* mu,
+                     bool new_descriptor_log = false) {
+    return LogAndApply(
+        column_family_data_.find(0)->second, edit, mu, new_descriptor_log);
+  }
 
   // Recover the last saved descriptor from persistent storage.
   Status Recover();
@@ -248,7 +269,10 @@ class VersionSet {
   Status ReduceNumberOfLevels(int new_levels, port::Mutex* mu);
 
   // Return the current version.
-  Version* current() const { return current_; }
+  Version* current() const {
+    // TODO this only works for default column family now
+    return column_family_data_.find(0)->second->current;
+  }
 
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
@@ -327,11 +351,13 @@ class VersionSet {
     // ending up with nothing to do. We can improve it later.
     // TODO: improve this function to be accurate for universal
     //       compactions.
+    // TODO this only works for default column family now
+    Version* version = column_family_data_.find(0)->second->current;
     int num_levels_to_check =
         (options_->compaction_style != kCompactionStyleUniversal) ?
             NumberLevels() - 1 : 1;
     for (int i = 0; i < num_levels_to_check; i++) {
-      if (current_->compaction_score_[i] >= 1) {
+      if (version->compaction_score_[i] >= 1) {
         return true;
       }
     }
@@ -339,18 +365,23 @@ class VersionSet {
   }
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const {
-    return ((current_->file_to_compact_ != nullptr) ||
-            NeedsSizeCompaction());
+    // TODO this only works for default column family now
+    Version* version = column_family_data_.find(0)->second->current;
+    return ((version->file_to_compact_ != nullptr) || NeedsSizeCompaction());
   }
 
   // Returns the maxmimum compaction score for levels 1 to max
   double MaxCompactionScore() const {
-    return current_->max_compaction_score_;
+    // TODO this only works for default column family now
+    Version* version = column_family_data_.find(0)->second->current;
+    return version->max_compaction_score_;
   }
 
   // See field declaration
   int MaxCompactionScoreLevel() const {
-    return current_->max_compaction_score_level_;
+    // TODO this only works for default column family now
+    Version* version = column_family_data_.find(0)->second->current;
+    return version->max_compaction_score_level_;
   }
 
   // Add all files listed in any live version to *live.
@@ -383,10 +414,12 @@ class VersionSet {
 
   // Return a human-readable short (single-line) summary of files
   // in a specified level.  Uses *scratch as backing store.
-  const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
+  const char* LevelFileSummary(Version* version,
+                               FileSummaryStorage* scratch,
+                               int level) const;
 
   // Return the size of the current manifest file
-  const uint64_t ManifestFileSize() { return current_->offset_manifest_file_; }
+  const uint64_t ManifestFileSize() { return manifest_file_size_; }
 
   // For the specfied level, pick a compaction.
   // Returns nullptr if there is no compaction to be done.
@@ -436,17 +469,13 @@ class VersionSet {
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
-  // column family metadata
-  struct ColumnFamilyData {
-    std::string name;
-    ColumnFamilyOptions options;
-    explicit ColumnFamilyData(const std::string& name) : name(name) {}
-    ColumnFamilyData(const std::string& name,
-                     const ColumnFamilyOptions& options)
-        : name(name), options(options) {}
-  };
+  ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
+                                       VersionEdit* edit);
+
+  void DropColumnFamily(VersionEdit* edit);
+
   std::unordered_map<std::string, uint32_t> column_families_;
-  std::unordered_map<uint32_t, ColumnFamilyData> column_family_data_;
+  std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
   uint32_t max_column_family_;
 
  private:
@@ -476,7 +505,7 @@ class VersionSet {
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);
 
-  void AppendVersion(Version* v);
+  void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   bool ManifestContains(const std::string& record) const;
 
@@ -499,8 +528,6 @@ class VersionSet {
 
   // Opened lazily
   unique_ptr<log::Writer> descriptor_log_;
-  Version dummy_versions_;  // Head of circular doubly-linked list of versions.
-  Version* current_;        // == dummy_versions_.prev_
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
@@ -521,9 +548,8 @@ class VersionSet {
   // Queue of writers to the manifest file
   std::deque<ManifestWriter*> manifest_writers_;
 
-  // Store the manifest file size when it is checked.
-  // Save us the cost of checking file size twice in LogAndApply
-  uint64_t last_observed_manifest_size_;
+  // size of manifest file
+  uint64_t manifest_file_size_;
 
   std::vector<FileMetaData*> obsolete_files_;
 
@@ -616,9 +642,14 @@ class Compaction {
   friend class Version;
   friend class VersionSet;
 
-  explicit Compaction(int level, int out_level, uint64_t target_file_size,
-    uint64_t max_grandparent_overlap_bytes, int number_levels,
-    bool seek_compaction = false, bool enable_compression = true);
+  Compaction(int level,
+             int out_level,
+             uint64_t target_file_size,
+             uint64_t max_grandparent_overlap_bytes,
+             int number_levels,
+             Version* input_version,
+             bool seek_compaction = false,
+             bool enable_compression = true);
 
   int level_;
   int out_level_; // levels to which output files are stored
