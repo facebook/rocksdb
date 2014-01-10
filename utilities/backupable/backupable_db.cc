@@ -177,7 +177,7 @@ BackupEngine::BackupEngine(Env* db_env, const BackupableDBOptions& options)
 
   // create all the dirs we need
   backup_env_->CreateDirIfMissing(GetAbsolutePath());
-  if (!options_.share_table_files) {
+  if (options_.share_table_files) {
     backup_env_->CreateDirIfMissing(GetAbsolutePath(GetSharedFileRel()));
   }
   backup_env_->CreateDirIfMissing(GetAbsolutePath(GetPrivateDirRel()));
