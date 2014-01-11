@@ -14,6 +14,7 @@
 #include "rocksdb/merge_operator.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
+#include "db/write_batch_internal.h"
 #include "utilities/merge_operators.h"
 #include "util/testharness.h"
 #include "utilities/utility_db.h"
@@ -21,13 +22,52 @@
 using namespace std;
 using namespace rocksdb;
 
+namespace {
+  int numMergeOperatorCalls;
 
-std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false) {
+  void resetNumMergeOperatorCalls() {
+    numMergeOperatorCalls = 0;
+  }
+}
+
+class CountMergeOperator : public AssociativeMergeOperator {
+ public:
+  CountMergeOperator() {
+    mergeOperator_ = MergeOperators::CreateUInt64AddOperator();
+  }
+
+  virtual bool Merge(const Slice& key,
+                     const Slice* existing_value,
+                     const Slice& value,
+                     std::string* new_value,
+                     Logger* logger) const override {
+    ++numMergeOperatorCalls;
+    return mergeOperator_->PartialMerge(
+        key,
+        *existing_value,
+        value,
+        new_value,
+        logger);
+  }
+
+  virtual const char* Name() const override {
+    return "UInt64AddOperator";
+  }
+
+ private:
+  std::shared_ptr<MergeOperator> mergeOperator_;
+};
+
+std::shared_ptr<DB> OpenDb(
+    const string& dbname,
+    const bool ttl = false,
+    const unsigned max_successive_merges = 0) {
   DB* db;
   StackableDB* sdb;
   Options options;
   options.create_if_missing = true;
-  options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  options.merge_operator = std::make_shared<CountMergeOperator>();
+  options.max_successive_merges = max_successive_merges;
   Status s;
   DestroyDB(dbname, Options());
   if (ttl) {
@@ -243,6 +283,67 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
   }
 }
 
+void testSuccessiveMerge(
+    Counters& counters, int max_num_merges, int num_merges) {
+
+  counters.assert_remove("z");
+  uint64_t sum = 0;
+
+  for (int i = 1; i <= num_merges; ++i) {
+    resetNumMergeOperatorCalls();
+    counters.assert_add("z", i);
+    sum += i;
+
+    if (i % (max_num_merges + 1) == 0) {
+      assert(numMergeOperatorCalls == max_num_merges + 1);
+    } else {
+      assert(numMergeOperatorCalls == 0);
+    }
+
+    resetNumMergeOperatorCalls();
+    assert(counters.assert_get("z") == sum);
+    assert(numMergeOperatorCalls == i % (max_num_merges + 1));
+  }
+}
+
+void testSingleBatchSuccessiveMerge(
+    DB* db,
+    int max_num_merges,
+    int num_merges) {
+  assert(num_merges > max_num_merges);
+
+  Slice key("BatchSuccessiveMerge");
+  uint64_t merge_value = 1;
+  Slice merge_value_slice((char *)&merge_value, sizeof(merge_value));
+
+  // Create the batch
+  WriteBatch batch;
+  for (int i = 0; i < num_merges; ++i) {
+    batch.Merge(key, merge_value_slice);
+  }
+
+  // Apply to memtable and count the number of merges
+  resetNumMergeOperatorCalls();
+  {
+    Status s = db->Write(WriteOptions(), &batch);
+    assert(s.ok());
+  }
+  assert(numMergeOperatorCalls ==
+      num_merges - (num_merges % (max_num_merges + 1)));
+
+  // Get the value
+  resetNumMergeOperatorCalls();
+  string get_value_str;
+  {
+    Status s = db->Get(ReadOptions(), key, &get_value_str);
+    assert(s.ok());
+  }
+  assert(get_value_str.size() == sizeof(uint64_t));
+  uint64_t get_value = DecodeFixed64(&get_value_str[0]);
+  assert(get_value == num_merges * merge_value);
+  assert(numMergeOperatorCalls == (num_merges % (max_num_merges + 1)));
+}
+
 void runTest(int argc, const string& dbname, const bool use_ttl = false) {
   auto db = OpenDb(dbname, use_ttl);
 
@@ -265,6 +366,19 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
   }
 
   DestroyDB(dbname, Options());
+  db.reset();
+
+  {
+    cout << "Test merge in memtable... \n";
+    unsigned maxMerge = 5;
+    auto db = OpenDb(dbname, use_ttl, maxMerge);
+    MergeBasedCounters counters(db, 0);
+    testCounters(counters, db.get(), compact);
+    testSuccessiveMerge(counters, maxMerge, maxMerge * 2);
+    testSingleBatchSuccessiveMerge(db.get(), 5, 7);
+    DestroyDB(dbname, Options());
+  }
+
 }
 
 int main(int argc, char *argv[]) {

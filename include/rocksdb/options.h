@@ -643,6 +643,17 @@ struct Options {
   // Number of locks used for inplace update
   // Default: 10000, if inplace_update_support = true, else 0.
   size_t inplace_update_num_locks;
+
+  // Maximum number of successive merge operations on a key in the memtable.
+  //
+  // When a merge operation is added to the memtable and the maximum number of
+  // successive merges is reached, the value of the key will be calculated and
+  // inserted into the memtable instead of the merge operation. This will
+  // ensure that there are never more than max_successive_merges merge
+  // operations in the memtable.
+  //
+  // Default: 0 (disabled)
+  size_t max_successive_merges;
 };
 
 //

@@ -101,7 +101,8 @@ Options::Options()
       table_factory(
         std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       inplace_update_support(false),
-      inplace_update_num_locks(10000) {
+      inplace_update_num_locks(10000),
+      max_successive_merges(0) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -292,6 +293,8 @@ Options::Dump(Logger* log) const
         inplace_update_support);
     Log(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
+    Log(log, "                   Options.max_successive_merges: %zd",
+        max_successive_merges);
 }   // Options::Dump
 
 //

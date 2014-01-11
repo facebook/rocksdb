@@ -107,6 +107,11 @@ class MemTable {
               const Slice& key,
               const Slice& value);
 
+  // Returns the number of successive merge entries starting from the newest
+  // entry for the key up to the last non-merge entry or last entry for the
+  // key in the memtable.
+  size_t CountSuccessiveMergeEntries(const LookupKey& key);
+
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
