@@ -340,8 +340,8 @@ void testSingleBatchSuccessiveMerge(
   }
   assert(get_value_str.size() == sizeof(uint64_t));
   uint64_t get_value = DecodeFixed64(&get_value_str[0]);
-  assert(get_value == num_merges * merge_value);
-  assert(numMergeOperatorCalls == (num_merges % (max_num_merges + 1)));
+  ASSERT_EQ(get_value, num_merges * merge_value);
+  ASSERT_EQ(numMergeOperatorCalls, (num_merges % (max_num_merges + 1)));
 }
 
 void runTest(int argc, const string& dbname, const bool use_ttl = false) {
