@@ -1163,7 +1163,7 @@ VersionSet::~VersionSet() {
     cfd.second->current->Unref();
     // List must be empty
     assert(cfd.second->dummy_versions.next_ == &cfd.second->dummy_versions);
-    delete cfd.second;
+    cfd.second->Unref();
   }
   for (auto file : obsolete_files_) {
     delete file;
@@ -3059,7 +3059,8 @@ void VersionSet::DropColumnFamily(VersionEdit* edit) {
   cfd->second->current->Unref();
   // List must be empty
   assert(cfd->second->dummy_versions.next_ == &cfd->second->dummy_versions);
-  delete cfd->second;
+  // might delete itself
+  cfd->second->Unref();
   column_family_data_.erase(cfd);
 }
 

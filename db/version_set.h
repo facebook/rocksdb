@@ -223,11 +223,29 @@ struct ColumnFamilyData {
   Version dummy_versions;  // Head of circular doubly-linked list of versions.
   Version* current;        // == dummy_versions.prev_
   ColumnFamilyOptions options;
+  int refs;
+
+  void Ref() {
+    ++refs;
+  }
+
+  void Unref() {
+    assert(refs > 0);
+    if (refs == 1) {
+      delete this;
+    } else {
+      --refs;
+    }
+  }
 
   ColumnFamilyData(const std::string& name,
                    VersionSet* vset,
                    const ColumnFamilyOptions& options)
-      : name(name), dummy_versions(vset), current(nullptr), options(options) {}
+      : name(name),
+        dummy_versions(vset),
+        current(nullptr),
+        options(options),
+        refs(1) {}
   ~ColumnFamilyData() {}
 };
 
