@@ -69,7 +69,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       table_factory(
         std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       inplace_update_support(false),
-      inplace_update_num_locks(10000) {
+      inplace_update_num_locks(10000),
+      max_successive_merges(0) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -129,7 +130,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       table_properties_collectors(options.table_properties_collectors),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
-      max_successive_merges(0) {
+      max_successive_merges(options.max_successive_merges) {
   assert(memtable_factory.get() != nullptr);
 }
 
