@@ -329,4 +329,37 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
   // Key doesn't exist
   return false;
 }
+
+size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
+  Slice memkey = key.memtable_key();
+
+  // A total ordered iterator is costly for some memtablerep (prefix aware
+  // reps). By passing in the user key, we allow efficient iterator creation.
+  // The iterator only needs to be ordered within the same user key.
+  std::shared_ptr<MemTableRep::Iterator> iter(
+    table_->GetIterator(key.user_key()));
+  iter->Seek(memkey.data());
+
+  size_t num_successive_merges = 0;
+
+  for (; iter->Valid(); iter->Next()) {
+    const char* entry = iter->key();
+    uint32_t key_length;
+    const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    if (!comparator_.comparator.user_comparator()->Compare(
+        Slice(iter_key_ptr, key_length - 8), key.user_key()) == 0) {
+      break;
+    }
+
+    const uint64_t tag = DecodeFixed64(iter_key_ptr + key_length - 8);
+    if (static_cast<ValueType>(tag & 0xff) != kTypeMerge) {
+      break;
+    }
+
+    ++num_successive_merges;
+  }
+
+  return num_successive_merges;
+}
+
 }  // namespace rocksdb

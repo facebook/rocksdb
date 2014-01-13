@@ -788,6 +788,10 @@ void rocksdb_env_set_background_threads(rocksdb_env_t* env, int n) {
   env->rep->SetBackgroundThreads(n);
 }
 
+void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n) {
+  env->rep->SetBackgroundThreads(n, Env::HIGH);
+}
+
 void rocksdb_env_destroy(rocksdb_env_t* env) {
   if (!env->is_default) delete env->rep;
   delete env;

@@ -50,7 +50,7 @@ make release
     --num=$NUM \
     --writes=$NUM \
     --cache_size=6442450944 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
     --statistics=1 \
@@ -68,7 +68,7 @@ make release
     --num=$NUM \
     --writes=$((NUM / 10)) \
     --cache_size=6442450944 \
-    --cache_numshardbits=4  \
+    --cache_numshardbits=6  \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
     --statistics=1 \
@@ -87,7 +87,7 @@ make release
     --num=$NUM \
     --writes=$NUM \
     --cache_size=6442450944 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
     --statistics=1 \
@@ -106,7 +106,7 @@ make release
     --num=$NUM \
     --reads=$((NUM / 5)) \
     --cache_size=6442450944 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
     --disable_seek_compaction=1 \
@@ -126,7 +126,7 @@ make release
     --num=$NUM \
     --reads=$((NUM / 5)) \
     --cache_size=104857600 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
     --disable_seek_compaction=1 \
@@ -147,7 +147,7 @@ make release
     --reads=$((NUM / 5)) \
     --writes=512 \
     --cache_size=6442450944 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --write_buffer_size=1000000000 \
     --open_files=55000 \
@@ -169,7 +169,7 @@ make release
     --num=$((NUM / 4)) \
     --writes=$((NUM / 4)) \
     --cache_size=6442450944 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
     --statistics=1 \
@@ -178,6 +178,25 @@ make release
     --disable_wal=1 \
     --sync=0 \
     --threads=1 > /dev/null
+
+# dummy test just to compact the data
+./db_bench \
+    --benchmarks=readrandom \
+    --db=$DATA_DIR \
+    --use_existing_db=1 \
+    --bloom_bits=10 \
+    --num=$((NUM / 1000)) \
+    --reads=$((NUM / 1000)) \
+    --cache_size=6442450944 \
+    --cache_numshardbits=6 \
+    --table_cache_numshardbits=4 \
+    --open_files=55000 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0 \
+    --threads=16 > /dev/null
 
 # measure readrandom after load with filluniquerandom with 6GB block cache
 ./db_bench \
@@ -188,7 +207,7 @@ make release
     --num=$((NUM / 4)) \
     --reads=$((NUM / 4)) \
     --cache_size=6442450944 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
     --disable_seek_compaction=1 \
@@ -200,6 +219,28 @@ make release
     --sync=0 \
     --threads=16 > ${STAT_FILE}.readrandom_filluniquerandom
 
+# measure readwhilewriting after load with filluniquerandom with 6GB block cache
+./db_bench \
+    --benchmarks=readwhilewriting \
+    --db=$DATA_DIR \
+    --use_existing_db=1 \
+    --bloom_bits=10 \
+    --num=$((NUM / 4)) \
+    --reads=$((NUM / 4)) \
+    --writes_per_second=1000 \
+    --write_buffer_size=100000000 \
+    --cache_size=6442450944 \
+    --cache_numshardbits=6 \
+    --table_cache_numshardbits=4 \
+    --open_files=55000 \
+    --disable_seek_compaction=1 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0 \
+    --threads=16 > ${STAT_FILE}.readwhilewriting
+
 # measure memtable performance -- none of the data gets flushed to disk
 ./db_bench \
     --benchmarks=fillrandom,readrandom, \
@@ -208,7 +249,7 @@ make release
     --num=$((NUM / 10)) \
     --reads=$NUM \
     --cache_size=6442450944 \
-    --cache_numshardbits=4 \
+    --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --write_buffer_size=1000000000 \
     --open_files=55000 \
@@ -264,3 +305,4 @@ send_benchmark_to_ods readrandom readrandom_memtable_sst $STAT_FILE.readrandom_m
 send_benchmark_to_ods readrandom readrandom_fillunique_random $STAT_FILE.readrandom_filluniquerandom
 send_benchmark_to_ods fillrandom memtablefillrandom $STAT_FILE.memtablefillreadrandom
 send_benchmark_to_ods readrandom memtablereadrandom $STAT_FILE.memtablefillreadrandom
+send_benchmark_to_ods readwhilewriting readwhilewriting $STAT_FILE.readwhilewriting

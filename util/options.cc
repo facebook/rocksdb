@@ -128,7 +128,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       table_factory(options.table_factory),
       table_properties_collectors(options.table_properties_collectors),
       inplace_update_support(options.inplace_update_support),
-      inplace_update_num_locks(options.inplace_update_num_locks) {
+      inplace_update_num_locks(options.inplace_update_num_locks),
+      max_successive_merges(0) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -389,6 +390,8 @@ Options::Dump(Logger* log) const
         inplace_update_support);
     Log(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
+    Log(log, "                   Options.max_successive_merges: %zd",
+        max_successive_merges);
 }   // Options::Dump
 
 //

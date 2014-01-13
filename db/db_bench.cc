@@ -94,6 +94,8 @@ DEFINE_string(benchmarks,
               "\tmergerandom   -- same as updaterandom/appendrandom using merge"
               " operator. "
               "Must be used with merge_operator\n"
+              "\treadrandommergerandom -- perform N random read-or-merge "
+              "operations. Must be used with merge_operator\n"
               "\tseekrandom    -- N random seeks\n"
               "\tcrc32c        -- repeated crc32c of 4K of data\n"
               "\tacquireload   -- load N*1000 times\n"
@@ -111,6 +113,11 @@ DEFINE_int64(numdistinct, 1000,
              "Number of distinct keys to use. Used in RandomWithVerify to "
              "read/write on fewer keys so that gets are more likely to find the"
              " key and puts are more likely to update the same key");
+
+DEFINE_int64(merge_keys, -1,
+             "Number of distinct keys to use for MergeRandom and "
+             "ReadRandomMergeRandom. "
+             "If negative, there will be FLAGS_num keys.");
 
 DEFINE_int64(reads, -1, "Number of read operations to do.  "
              "If negative, do FLAGS_num reads.");
@@ -297,6 +304,11 @@ DEFINE_int32(readwritepercent, 90, "Ratio of reads to reads/writes (expressed"
              "default value 90 means 90% operations out of all reads and writes"
              " operations are reads. In other words, 9 gets for every 1 put.");
 
+DEFINE_int32(mergereadpercent, 70, "Ratio of merges to merges&reads (expressed"
+             " as percentage) for the ReadRandomMergeRandom workload. The"
+             " default value 70 means 70% out of all read and merge operations"
+             " are merges. In other words, 7 merges for every 3 gets.");
+
 DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
              "deletes (used in RandomWithVerify only). RandomWithVerify "
              "calculates writepercent as (100 - FLAGS_readwritepercent - "
@@ -445,6 +457,9 @@ DEFINE_uint64(bytes_per_sync,  rocksdb::Options().bytes_per_sync,
               " bytes_per_sync written. 0 turns it off.");
 DEFINE_bool(filter_deletes, false, " On true, deletes use bloom-filter and drop"
             " the delete if key not present");
+
+DEFINE_int32(max_successive_merges, 0, "Maximum number of successive merge"
+             " operations on a key in the memtable");
 
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   if (value < 0 || value>=2000000000) {
@@ -784,6 +799,7 @@ class Benchmark {
   long long reads_;
   long long writes_;
   long long readwrites_;
+  long long merge_keys_;
   int heap_counter_;
   char keyFormat_[100]; // will contain the format of key. e.g "%016d"
   void PrintHeader() {
@@ -958,6 +974,7 @@ class Benchmark {
     readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num :
                 ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)
                ),
+    merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
     heap_counter_(0) {
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
@@ -985,8 +1002,8 @@ class Benchmark {
   }
 
   unique_ptr<char []> GenerateKeyFromInt(long long v, const char* suffix = "") {
-    unique_ptr<char []> keyInStr(new char[kMaxKeySize]);
-    snprintf(keyInStr.get(), kMaxKeySize, keyFormat_, v, suffix);
+    unique_ptr<char []> keyInStr(new char[kMaxKeySize + 1]);
+    snprintf(keyInStr.get(), kMaxKeySize + 1, keyFormat_, v, suffix);
     return keyInStr;
   }
 
@@ -1087,6 +1104,14 @@ class Benchmark {
         method = &Benchmark::ReadWhileWriting;
       } else if (name == Slice("readrandomwriterandom")) {
         method = &Benchmark::ReadRandomWriteRandom;
+      } else if (name == Slice("readrandommergerandom")) {
+        if (FLAGS_merge_operator.empty()) {
+          fprintf(stdout, "%-12s : skipped (--merge_operator is unknown)\n",
+                  name.ToString().c_str());
+          method = nullptr;
+        } else {
+          method = &Benchmark::ReadRandomMergeRandom;
+        }
       } else if (name == Slice("updaterandom")) {
         method = &Benchmark::UpdateRandom;
       } else if (name == Slice("appendrandom")) {
@@ -1421,6 +1446,7 @@ class Benchmark {
               FLAGS_merge_operator.c_str());
       exit(1);
     }
+    options.max_successive_merges = FLAGS_max_successive_merges;
 
     // set universal style compaction configurations, if applicable
     if (FLAGS_universal_size_ratio != 0) {
@@ -2375,13 +2401,16 @@ class Benchmark {
   //
   // For example, use FLAGS_merge_operator="uint64add" and FLAGS_value_size=8
   // to simulate random additions over 64-bit integers using merge.
+  //
+  // The number of merges on the same key can be controlled by adjusting
+  // FLAGS_merge_keys.
   void MergeRandom(ThreadState* thread) {
     RandomGenerator gen;
 
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
-      const long long k = thread->rand.Next() % FLAGS_num;
+      const long long k = thread->rand.Next() % merge_keys_;
       unique_ptr<char []> key = GenerateKeyFromInt(k);
 
       Status s = db_->Merge(write_options_, key.get(),
@@ -2399,6 +2428,68 @@ class Benchmark {
     snprintf(msg, sizeof(msg), "( updates:%lld)", readwrites_);
     thread->stats.AddMessage(msg);
   }
+
+  // Read and merge random keys. The amount of reads and merges are controlled
+  // by adjusting FLAGS_num and FLAGS_mergereadpercent. The number of distinct
+  // keys (and thus also the number of reads and merges on the same key) can be
+  // adjusted with FLAGS_merge_keys.
+  //
+  // As with MergeRandom, the merge operator to use should be defined by
+  // FLAGS_merge_operator.
+  void ReadRandomMergeRandom(ThreadState* thread) {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    RandomGenerator gen;
+    std::string value;
+    long long num_hits = 0;
+    long long num_gets = 0;
+    long long num_merges = 0;
+    size_t max_length = 0;
+
+    // the number of iterations is the larger of read_ or write_
+    Duration duration(FLAGS_duration, readwrites_);
+
+    while (!duration.Done(1)) {
+      const long long k = thread->rand.Next() % merge_keys_;
+      unique_ptr<char []> key = GenerateKeyFromInt(k);
+
+      bool do_merge = int(thread->rand.Next() % 100) < FLAGS_mergereadpercent;
+
+      if (do_merge) {
+        Status s = db_->Merge(write_options_, key.get(),
+                              gen.Generate(value_size_));
+        if (!s.ok()) {
+          fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
+          exit(1);
+        }
+
+        num_merges++;
+
+      } else {
+        Status s = db_->Get(options, key.get(), &value);
+        if (value.length() > max_length)
+          max_length = value.length();
+
+        if (!s.ok() && !s.IsNotFound()) {
+          fprintf(stderr, "get error: %s\n", s.ToString().c_str());
+          // we continue after error rather than exiting so that we can
+          // find more errors if any
+        } else if (!s.IsNotFound()) {
+          num_hits++;
+        }
+
+        num_gets++;
+
+      }
+
+      thread->stats.FinishedSingleOp(db_);
+    }
+    char msg[100];
+    snprintf(msg, sizeof(msg),
+             "(reads:%lld merges:%lld total:%lld hits:%lld maxlength:%zu)",
+             num_gets, num_merges, readwrites_, num_hits, max_length);
+    thread->stats.AddMessage(msg);
+  }
+
 
   void Compact(ThreadState* thread) {
     db_->CompactRange(nullptr, nullptr);

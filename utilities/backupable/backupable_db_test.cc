@@ -307,7 +307,7 @@ class BackupableDBTest {
     CreateLoggerFromOptions(dbname_, backupdir_, env_,
                             Options(), &logger_);
     backupable_options_.reset(new BackupableDBOptions(
-        backupdir_, test_backup_env_.get(), logger_.get(), true));
+        backupdir_, test_backup_env_.get(), true, logger_.get(), true));
 
     // delete old files in db
     DestroyDB(dbname_, Options());
@@ -319,7 +319,8 @@ class BackupableDBTest {
     return db;
   }
 
-  void OpenBackupableDB(bool destroy_old_data = false, bool dummy = false) {
+  void OpenBackupableDB(bool destroy_old_data = false, bool dummy = false,
+                        bool share_table_files = true) {
     // reset all the defaults
     test_backup_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetLimitWrittenFiles(1000000);
@@ -333,6 +334,7 @@ class BackupableDBTest {
       ASSERT_OK(DB::Open(options_, dbname_, &db));
     }
     backupable_options_->destroy_old_data = destroy_old_data;
+    backupable_options_->share_table_files = share_table_files;
     db_.reset(new BackupableDB(db, *backupable_options_));
   }
 
@@ -659,6 +661,38 @@ TEST(BackupableDBTest, DeleteNewerBackups) {
   s = restore_db_->RestoreDBFromBackup(5, dbname_, dbname_);
   ASSERT_TRUE(s.IsNotFound());
   CloseRestoreDB();
+}
+
+TEST(BackupableDBTest, NoShareTableFiles) {
+  const int keys_iteration = 5000;
+  OpenBackupableDB(true, false, false);
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(db_->CreateNewBackup(!!(i % 2)));
+  }
+  CloseBackupableDB();
+
+  for (int i = 0; i < 5; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * 6);
+  }
+}
+
+TEST(BackupableDBTest, DeleteTmpFiles) {
+  OpenBackupableDB();
+  CloseBackupableDB();
+  std::string shared_tmp = backupdir_ + "/shared/00006.sst.tmp";
+  std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
+  std::string private_tmp_file = private_tmp_dir + "/00003.sst";
+  file_manager_->WriteToFile(shared_tmp, "tmp");
+  file_manager_->CreateDir(private_tmp_dir);
+  file_manager_->WriteToFile(private_tmp_file, "tmp");
+  ASSERT_EQ(true, file_manager_->FileExists(private_tmp_dir));
+  OpenBackupableDB();
+  CloseBackupableDB();
+  ASSERT_EQ(false, file_manager_->FileExists(shared_tmp));
+  ASSERT_EQ(false, file_manager_->FileExists(private_tmp_file));
+  ASSERT_EQ(false, file_manager_->FileExists(private_tmp_dir));
 }
 
 } // anon namespace

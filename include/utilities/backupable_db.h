@@ -31,6 +31,14 @@ struct BackupableDBOptions {
   // Default: nullptr
   Env* backup_env;
 
+  // If share_table_files == true, backup will assume that table files with
+  // same name have the same contents. This enables incremental backups and
+  // avoids unnecessary data copies.
+  // If share_table_files == false, each backup will be on its own and will
+  // not share any data with other backups.
+  // default: true
+  bool share_table_files;
+
   // Backup info and error messages will be written to info_log
   // if non-nullptr.
   // Default: nullptr
@@ -49,6 +57,7 @@ struct BackupableDBOptions {
 
   explicit BackupableDBOptions(const std::string& _backup_dir,
                                Env* _backup_env = nullptr,
+                               bool _share_table_files = true,
                                Logger* _info_log = nullptr,
                                bool _sync = true,
                                bool _destroy_old_data = false) :
@@ -93,6 +102,14 @@ class BackupableDB : public StackableDB {
   Status PurgeOldBackups(uint32_t num_backups_to_keep);
   // deletes a specific backup
   Status DeleteBackup(BackupID backup_id);
+  // Call this from another thread if you want to stop the backup
+  // that is currently happening. It will return immediatelly, will
+  // not wait for the backup to stop.
+  // The backup will stop ASAP and the call to CreateNewBackup will
+  // return Status::Incomplete(). It will not clean up after itself, but
+  // the state will remain consistent. The state will be cleaned up
+  // next time you create BackupableDB or RestoreBackupableDB.
+  void StopBackup();
 
  private:
   BackupEngine* backup_engine_;
@@ -108,9 +125,10 @@ class RestoreBackupableDB {
    void GetBackupInfo(std::vector<BackupInfo>* backup_info);
 
    // restore from backup with backup_id
-   // IMPORTANT -- if you restore from some backup that is not the latest,
-   // and you start creating new backups from the new DB, all the backups
-   // that were newer than the backup you restored from will be deleted
+   // IMPORTANT -- if options_.share_table_files == true and you restore DB
+   // from some backup that is not the latest, and you start creating new
+   // backups from the new DB, all the backups that were newer than the
+   // backup you restored from will be deleted
    //
    // Example: Let's say you have backups 1, 2, 3, 4, 5 and you restore 3.
    // If you try creating a new backup now, old backups 4 and 5 will be deleted
