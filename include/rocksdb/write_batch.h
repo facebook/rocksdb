@@ -88,7 +88,10 @@ class WriteBatch {
   Status Iterate(Handler* handler) const;
 
   // Retrieve the serialized version of this batch.
-  std::string Data() { return rep_; }
+  std::string Data() const { return rep_; }
+
+  // Retrieve data size of the batch.
+  size_t GetDataSize() const { return rep_.size(); }
 
   // Returns the number of updates in the batch
   int Count() const;
