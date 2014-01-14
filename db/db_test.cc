@@ -3397,7 +3397,7 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
   opts.create_if_missing = false;
   opts.num_levels = 2;
   s = DB::Open(opts, dbname, &db);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "Corruption") != nullptr);
+  ASSERT_TRUE(strstr(s.ToString().c_str(), "Invalid argument") != nullptr);
   ASSERT_TRUE(db == nullptr);
 }
 
