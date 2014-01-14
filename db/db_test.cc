@@ -4391,6 +4391,7 @@ TEST(DBTest, GroupCommitTest) {
       itr->Next();
     }
     ASSERT_TRUE(!itr->Valid());
+    delete itr;
 
   } while (ChangeOptions());
 }
