@@ -22,6 +22,7 @@
 #include "port/port.h"
 #include "util/stats_logger.h"
 #include "memtablelist.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -291,7 +292,8 @@ class DBImpl : public DB {
   // the superversion outside of mutex
   Status MakeRoomForWrite(bool force /* compact even if there is room? */,
                           SuperVersion** superversion_to_free);
-  WriteBatch* BuildBatchGroup(Writer** last_writer);
+  void BuildBatchGroup(Writer** last_writer,
+                       autovector<WriteBatch*>* write_batch_group);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(const FlushOptions& options);

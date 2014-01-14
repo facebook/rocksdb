@@ -4333,6 +4333,69 @@ TEST(DBTest, MultiThreaded) {
   } while (ChangeOptions());
 }
 
+// Group commit test:
+namespace {
+
+static const int kGCNumThreads = 4;
+static const int kGCNumKeys = 1000;
+
+struct GCThread {
+  DB* db;
+  int id;
+  std::atomic<bool> done;
+};
+
+static void GCThreadBody(void* arg) {
+  GCThread* t = reinterpret_cast<GCThread*>(arg);
+  int id = t->id;
+  DB* db = t->db;
+  WriteOptions wo;
+
+  for (int i = 0; i < kGCNumKeys; ++i) {
+    std::string kv(std::to_string(i + id * kGCNumKeys));
+    ASSERT_OK(db->Put(wo, kv, kv));
+  }
+  t->done = true;
+}
+
+}  // namespace
+
+TEST(DBTest, GroupCommitTest) {
+  do {
+    // Start threads
+    GCThread thread[kGCNumThreads];
+    for (int id = 0; id < kGCNumThreads; id++) {
+      thread[id].id = id;
+      thread[id].db = db_;
+      thread[id].done = false;
+      env_->StartThread(GCThreadBody, &thread[id]);
+    }
+
+    for (int id = 0; id < kGCNumThreads; id++) {
+      while (thread[id].done == false) {
+        env_->SleepForMicroseconds(100000);
+      }
+    }
+
+    std::vector<std::string> expected_db;
+    for (int i = 0; i < kGCNumThreads * kGCNumKeys; ++i) {
+      expected_db.push_back(std::to_string(i));
+    }
+    sort(expected_db.begin(), expected_db.end());
+
+    Iterator* itr = db_->NewIterator(ReadOptions());
+    itr->SeekToFirst();
+    for (auto x : expected_db) {
+      ASSERT_TRUE(itr->Valid());
+      ASSERT_EQ(itr->key().ToString(), x);
+      ASSERT_EQ(itr->value().ToString(), x);
+      itr->Next();
+    }
+    ASSERT_TRUE(!itr->Valid());
+
+  } while (ChangeOptions());
+}
+
 namespace {
 typedef std::map<std::string, std::string> KVMap;
 }
