@@ -3166,8 +3166,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       break;
     } else if (
         allow_delay &&
-        versions_->NumLevelFiles(0) >=
-          options_.level0_slowdown_writes_trigger) {
+        versions_->NeedSlowdownForNumLevel0Files()) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each

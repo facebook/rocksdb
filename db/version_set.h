@@ -250,6 +250,12 @@ class VersionSet {
   // Return the current version.
   Version* current() const { return current_; }
 
+  // A Flag indicating whether write needs to slowdown because of there are
+  // too many number of level0 files.
+  bool NeedSlowdownForNumLevel0Files() const {
+    return need_slowdown_for_num_level0_files;
+  }
+
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
@@ -488,6 +494,8 @@ class VersionSet {
   unique_ptr<log::Writer> descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_
+
+  bool need_slowdown_for_num_level0_files;
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.

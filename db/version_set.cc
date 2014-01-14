@@ -1148,6 +1148,7 @@ VersionSet::VersionSet(const std::string& dbname,
       num_levels_(options_->num_levels),
       dummy_versions_(this),
       current_(nullptr),
+      need_slowdown_for_num_level0_files(false),
       compactions_in_progress_(options_->num_levels),
       current_version_number_(0),
       last_observed_manifest_size_(0),
@@ -1199,6 +1200,9 @@ void VersionSet::AppendVersion(Version* v) {
     current_->Unref();
   }
   current_ = v;
+  need_slowdown_for_num_level0_files =
+      (options_->level0_slowdown_writes_trigger >= 0 && current_ != nullptr &&
+       NumLevelFiles(0) >= options_->level0_slowdown_writes_trigger);
   v->Ref();
 
   // Append to linked list
