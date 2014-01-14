@@ -132,14 +132,16 @@ $(SHARED3): $(LIBOBJECTS)
 
 endif  # PLATFORM_SHARED_EXT
 
-all: $(LIBRARY) $(PROGRAMS) $(SHARED)
+all: $(LIBRARY) $(PROGRAMS)
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
 	release tags valgrind_check whitebox_crash_test format
 
+# Will also generate shared libraries. 
 release:
 	$(MAKE) clean
-	OPT=-DNDEBUG $(MAKE) -j32
+	OPT=-DNDEBUG $(MAKE) all -j32
+	OPT=-DNDEBUG $(MAKE) $(SHARED) -j32
 
 coverage:
 	$(MAKE) clean
