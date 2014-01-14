@@ -135,7 +135,7 @@ endif  # PLATFORM_SHARED_EXT
 all: $(LIBRARY) $(PROGRAMS) $(SHARED)
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
-	release tags valgrind_check whitebox_crash_test
+	release tags valgrind_check whitebox_crash_test format
 
 release:
 	$(MAKE) clean
@@ -195,6 +195,9 @@ clean:
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
+
+format:
+	build_tools/format-diff.sh
 
 # ---------------------------------------------------------------------------
 # 	Unit tests and tools
@@ -411,6 +414,12 @@ DEPFILES = $(filter-out util/build_version.d,$(SOURCES:.cc=.d))
 
 depend: $(DEPFILES)
 
+# if the make goal is either "clean" or "format", we shouldn't
+# try to import the *.d files.
+# TODO(kailiu) The unfamiliarity of Make's conditions leads to the ugly
+# working solution.
 ifneq ($(MAKECMDGOALS),clean)
+ifneq ($(MAKECMDGOALS),format)
 -include $(DEPFILES)
+endif
 endif
