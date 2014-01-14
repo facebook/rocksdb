@@ -555,7 +555,7 @@ class DBTest {
             case kTypeDeletion:
               result += "DEL";
               break;
-            case kTypeLogData:
+            default:
               assert(false);
               break;
           }
@@ -704,6 +704,44 @@ class DBTest {
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), expected_key);
     delete iter;
+  }
+
+
+  // Used to test InplaceUpdate
+
+  // If previous value is nullptr or delta is > than previous value,
+  //   sets newValue with delta
+  // If previous value is not empty,
+  //   updates previous value with 'b' string of previous value size
+  static bool updateInPlace(char* prevValue, size_t prevSize,
+                            Slice delta, std::string* newValue) {
+    if (prevValue == nullptr || delta.size() > prevSize) {
+      *newValue = std::string(delta.size(), 'c');
+      return false;
+    } else {
+      std::string str_b = std::string(prevSize, 'b');
+      memcpy(prevValue, str_b.c_str(), str_b.size());
+      return true;
+    }
+  }
+
+  // Used to test InplaceUpdate
+  void validateNumberOfEntries(int numValues) {
+      Iterator* iter = dbfull()->TEST_NewInternalIterator();
+      iter->SeekToFirst();
+      ASSERT_EQ(iter->status().ok(), true);
+      int seq = numValues;
+      while (iter->Valid()) {
+        ParsedInternalKey ikey;
+        ikey.sequence = -1;
+        ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+
+        // checks sequence number for updates
+        ASSERT_EQ(ikey.sequence, (unsigned)seq--);
+        iter->Next();
+      }
+      delete iter;
+      ASSERT_EQ(0, seq);
   }
 };
 std::unique_ptr<const SliceTransform> DBTest::prefix_1_transform(
@@ -2391,9 +2429,9 @@ TEST(DBTest, InPlaceUpdate) {
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
+    Reopen(&options);
 
     // Update key with values of smaller size
-    Reopen(&options);
     int numValues = 10;
     for (int i = numValues; i > 0; i--) {
       std::string value = DummyString(i, 'a');
@@ -2401,50 +2439,92 @@ TEST(DBTest, InPlaceUpdate) {
       ASSERT_EQ(value, Get("key"));
     }
 
-    int count = 0;
-    Iterator* iter = dbfull()->TEST_NewInternalIterator();
-    iter->SeekToFirst();
-    ASSERT_EQ(iter->status().ok(), true);
-    while (iter->Valid()) {
-      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-      count++;
-      // All updates with the same sequence number.
-      ASSERT_EQ(ikey.sequence, (unsigned)1);
-      iter->Next();
-    }
     // Only 1 instance for that key.
-    ASSERT_EQ(count, 1);
-    delete iter;
+    validateNumberOfEntries(1);
+
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateLargeNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    Reopen(&options);
 
     // Update key with values of larger size
-    DestroyAndReopen(&options);
-    numValues = 10;
+    int numValues = 10;
     for (int i = 0; i < numValues; i++) {
       std::string value = DummyString(i, 'a');
       ASSERT_OK(Put("key", value));
       ASSERT_EQ(value, Get("key"));
     }
 
-    count = 0;
-    iter = dbfull()->TEST_NewInternalIterator();
-    iter->SeekToFirst();
-    ASSERT_EQ(iter->status().ok(), true);
-    int seq = numValues;
-    while (iter->Valid()) {
-      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-      count++;
-      // No inplace updates. All updates are puts with new seq number
-      ASSERT_EQ(ikey.sequence, (unsigned)seq--);
-      iter->Next();
-    }
     // All 10 updates exist in the internal iterator
-    ASSERT_EQ(count, numValues);
-    delete iter;
+    validateNumberOfEntries(numValues);
 
+  } while (ChangeCompactOptions());
+}
+
+
+TEST(DBTest, InPlaceUpdateCallback) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlace;
+    Reopen(&options);
+
+    // Update key with values of smaller size
+    int numValues = 10;
+    ASSERT_OK(Put("key", DummyString(numValues, 'a')));
+    ASSERT_EQ(DummyString(numValues, 'c'), Get("key"));
+
+    for (int i = numValues; i > 0; i--) {
+      ASSERT_OK(Put("key", DummyString(i, 'a')));
+      ASSERT_EQ(DummyString(numValues, 'b'), Get("key"));
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1);
+
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateCallbackNotFound) {
+  do {
+    //Test sst get/update/put
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlace;
+    Reopen(&options);
+
+    // Update key with values of larger size
+    int numValues = 10;
+    for (int i = 1; i <= numValues; i++) {
+      ASSERT_OK(Put("key", DummyString(i, 'a')));
+      ASSERT_EQ(DummyString(i, 'c'), Get("key"));
+    }
+
+    // No inplace updates. All updates are puts with new seq number
+    // All 10 updates exist in the internal iterator
+    validateNumberOfEntries(numValues);
 
   } while (ChangeCompactOptions());
 }

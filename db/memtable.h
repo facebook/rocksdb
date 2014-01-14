@@ -98,15 +98,30 @@ class MemTable {
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext& merge_context, const Options& options);
 
-  // Update the value and return status ok,
-  //   if key exists in current memtable
-  //     if new sizeof(new_value) <= sizeof(old_value) &&
-  //       old_value for that key is a put i.e. kTypeValue
-  //     else return false, and status - NotUpdatable()
-  //   else return false, and status - NotFound()
-  bool Update(SequenceNumber seq, ValueType type,
+  // Attempts to update the new_value inplace, else does normal Add
+  // Pseudocode
+  //   if key exists in current memtable && prev_value is of type kTypeValue
+  //     if new sizeof(new_value) <= sizeof(prev_value)
+  //       update inplace
+  //     else add(key, new_value)
+  //   else add(key, new_value)
+  void Update(SequenceNumber seq,
               const Slice& key,
               const Slice& value);
+
+  // If prev_value for key exits, attempts to update it inplace.
+  // else returns false
+  // Pseudocode
+  //   if key exists in current memtable && prev_value is of type kTypeValue
+  //     new_value = delta(prev_value)
+  //     if sizeof(new_value) <= sizeof(prev_value)
+  //       update inplace
+  //     else add(key, new_value)
+  //   else return false
+  bool UpdateCallback(SequenceNumber seq,
+                      const Slice& key,
+                      const Slice& delta,
+                      const Options& options);
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
@@ -149,7 +164,7 @@ class MemTable {
   bool flush_completed_;   // finished the flush
   uint64_t file_number_;    // filled up after flush is complete
 
-  // The udpates to be applied to the transaction log when this
+  // The updates to be applied to the transaction log when this
   // memtable is flushed to storage.
   VersionEdit edit_;
 

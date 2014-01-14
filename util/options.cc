@@ -102,6 +102,7 @@ Options::Options()
         std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       inplace_update_support(false),
       inplace_update_num_locks(10000),
+      inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(6) {
   assert(memtable_factory.get() != nullptr);

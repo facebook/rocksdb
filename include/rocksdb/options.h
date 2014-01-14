@@ -627,10 +627,13 @@ struct Options {
           TablePropertiesCollectors;
   TablePropertiesCollectors table_properties_collectors;
 
-  // Allows thread-safe inplace updates. Requires Updates iff
-  // * key exists in current memtable
-  // * new sizeof(new_value) <= sizeof(old_value)
-  // * old_value for that key is a put i.e. kTypeValue
+  // Allows thread-safe inplace updates.
+  // If inplace_callback function is not set,
+  //   Put(key, new_value) will update inplace the existing_value iff
+  //   * key exists in current memtable
+  //   * new sizeof(new_value) <= sizeof(existing_value)
+  //   * existing_value for that key is a put i.e. kTypeValue
+  // If inplace_callback function is set, check doc for inplace_callback.
   // Default: false.
   bool inplace_update_support;
 
@@ -638,13 +641,46 @@ struct Options {
   // Default: 10000, if inplace_update_support = true, else 0.
   size_t inplace_update_num_locks;
 
+
+  // * existing_value - pointer to previous value (from both memtable and sst).
+  //                    nullptr if key doesn't exist
+  // * existing_value_size - sizeof(existing_value). 0 if key doesn't exist
+  // * delta_value - Delta value to be merged with the 'existing_value'.
+  //                 Stored in transaction logs.
+  // * merged_value - Set when delta is applied on the previous value.
+
+  // Applicable only when inplace_update_support is true,
+  // this callback function is called at the time of updating the memtable
+  // as part of a Put operation, lets say Put(key, delta_value). It allows the
+  // 'delta_value' specified as part of the Put operation to be merged with
+  // an 'existing_value' of the 'key' in the database.
+
+  // If the merged value is smaller in size that the 'existing_value',
+  // then this function can update the 'existing_value' buffer inplace if it
+  // wishes to. The callback should return true in this case. (In this case,
+  // the snapshot-semantics of the rocksdb Iterator is not atomic anymore).
+
+  // If the application does not wish to modify the 'existing_value' buffer
+  // inplace, then it should allocate a new buffer and update it by merging the
+  // 'existing_value' and the Put 'delta_value' and set the 'merged_value'
+  // pointer to this buffer. The callback should return false in this case. It
+  // is upto the calling layer to manage the memory returned in 'merged_value'.
+
+  // Please remember that the original call from the application is Put(key,
+  // delta_value). So the transaction log (if enabled) will still contain
+  // (key, delta_value). The 'merged_value' is not stored in the transaction log
+  // Hence the inplace_callback function should be consistent across db reopens.
+
+  // Default: nullptr
+  bool (*inplace_callback)(char* existing_value, size_t existing_value_size,
+                           Slice delta_value, std::string* merged_value);
+
   // if prefix_extractor is set and bloom_bits is not 0, create prefix bloom
   // for memtable
   uint32_t memtable_prefix_bloom_bits;
 
   // number of hash probes per key
   uint32_t memtable_prefix_bloom_probes;
-
 };
 
 //

@@ -302,7 +302,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
           }
           break;
         }
-        case kTypeLogData:
+        default:
           assert(false);
           break;
       }
@@ -322,7 +322,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   return found_final_value;
 }
 
-bool MemTable::Update(SequenceNumber seq, ValueType type,
+void MemTable::Update(SequenceNumber seq,
                       const Slice& key,
                       const Slice& value) {
   LookupKey lkey(key, seq);
@@ -335,7 +335,7 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
 
   if (iter->Valid()) {
     // entry format is:
-    //    klength  varint32
+    //    key_length  varint32
     //    userkey  char[klength-8]
     //    tag      uint64
     //    vlength  varint32
@@ -352,37 +352,114 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
-          uint32_t vlength;
-          GetVarint32Ptr(key_ptr + key_length,
-                         key_ptr + key_length+5, &vlength);
+          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
+          uint32_t prev_value_size = prev_value.size();
+          uint32_t new_value_size = value.size();
+
           // Update value, if newValue size  <= curValue size
-          if (value.size() <= vlength) {
+          if (new_value_size <= prev_value_size ) {
             char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                     value.size());
+                                     new_value_size);
             WriteLock wl(GetLock(lkey.user_key()));
-            memcpy(p, value.data(), value.size());
+            memcpy(p, value.data(), new_value_size);
             assert(
-              (p + value.size()) - entry ==
+              (p + new_value_size) - entry ==
               (unsigned) (VarintLength(key_length) +
                           key_length +
-                          VarintLength(value.size()) +
-                          value.size())
+                          VarintLength(new_value_size) +
+                          new_value_size)
             );
             // no need to update bloom, as user key does not change.
-            return true;
+            return;
           }
         }
         default:
           // If the latest value is kTypeDeletion, kTypeMerge or kTypeLogData
-          // then we probably don't have enough space to update in-place
-          // Maybe do something later
-          // Return false, and do normal Add()
-          return false;
+          // we don't have enough space for update inplace
+            Add(seq, kTypeValue, key, value);
+            return;
       }
     }
   }
 
-  // Key doesn't exist
+  // key doesn't exist
+  Add(seq, kTypeValue, key, value);
+}
+
+bool MemTable::UpdateCallback(SequenceNumber seq,
+                      const Slice& key,
+                      const Slice& delta,
+                      const Options& options) {
+  LookupKey lkey(key, seq);
+  Slice memkey = lkey.memtable_key();
+
+  std::shared_ptr<MemTableRep::Iterator> iter(
+    table_->GetIterator(lkey.user_key()));
+  iter->Seek(key, memkey.data());
+
+  if (iter->Valid()) {
+    // entry format is:
+    //    key_length  varint32
+    //    userkey  char[klength-8]
+    //    tag      uint64
+    //    vlength  varint32
+    //    value    char[vlength]
+    // Check that it belongs to same user key.  We do not check the
+    // sequence number since the Seek() call above should have skipped
+    // all entries with overly large sequence numbers.
+    const char* entry = iter->key();
+    uint32_t key_length;
+    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    if (comparator_.comparator.user_comparator()->Compare(
+        Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
+      // Correct user key
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+      switch (static_cast<ValueType>(tag & 0xff)) {
+        case kTypeValue: {
+          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
+          uint32_t prev_value_size = prev_value.size();
+
+          WriteLock wl(GetLock(lkey.user_key()));
+          std::string str_value;
+          if (options.inplace_callback(const_cast<char*>(prev_value.data()),
+                                       prev_value_size, delta, &str_value)) {
+            // Value already updated by callback.
+            // TODO: Change size of value in memtable slice.
+            //   This works for leaf, since size is already encoded in the
+            //   value. It doesn't depend on rocksdb buffer size.
+            return true;
+          }
+          Slice slice_value = Slice(str_value);
+          uint32_t new_value_size = slice_value.size();
+
+          // Update value, if newValue size  <= curValue size
+          if (new_value_size <= prev_value_size ) {
+            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                     new_value_size);
+
+            memcpy(p, slice_value.data(), new_value_size);
+            assert(
+              (p + new_value_size) - entry ==
+              (unsigned) (VarintLength(key_length) +
+                          key_length +
+                          VarintLength(new_value_size) +
+                          new_value_size)
+            );
+            return true;
+          } else {
+            // If we don't have enough space to update in-place
+            // Return as NotUpdatable, and do normal Add()
+            Add(seq, kTypeValue, key, slice_value);
+            return true;
+          }
+        }
+        default:
+          break;
+      }
+    }
+  }
+  // If the latest value is not kTypeValue
+  // or key doesn't exist
   return false;
 }
 }  // namespace rocksdb
