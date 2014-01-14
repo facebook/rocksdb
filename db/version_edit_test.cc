@@ -15,7 +15,7 @@ namespace rocksdb {
 static void TestEncodeDecode(const VersionEdit& edit) {
   std::string encoded, encoded2;
   edit.EncodeTo(&encoded);
-  VersionEdit parsed();
+  VersionEdit parsed;
   Status s = parsed.DecodeFrom(encoded);
   ASSERT_TRUE(s.ok()) << s.ToString();
   parsed.EncodeTo(&encoded2);
@@ -27,7 +27,7 @@ class VersionEditTest { };
 TEST(VersionEditTest, EncodeDecode) {
   static const uint64_t kBig = 1ull << 50;
 
-  VersionEdit edit();
+  VersionEdit edit;
   for (int i = 0; i < 4; i++) {
     TestEncodeDecode(edit);
     edit.AddFile(3, kBig + 300 + i, kBig + 400 + i,
