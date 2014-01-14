@@ -35,7 +35,7 @@ struct SliceParts;
 
 class WriteBatch {
  public:
-  WriteBatch();
+  explicit WriteBatch(size_t reserved_bytes = 0);
   ~WriteBatch();
 
   // Store the mapping "key->value" in the database.
