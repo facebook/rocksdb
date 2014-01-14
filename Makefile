@@ -127,12 +127,12 @@ $(SHARED2): $(SHARED3)
 	ln -fs $(SHARED3) $(SHARED2)
 endif
 
-$(SHARED3):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(COVERAGEFLAGS) $(PLATFORM_SHARED_CFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
+$(SHARED3): $(LIBOBJECTS)
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LDFLAGS) $(SOURCES)-o $@
 
 endif  # PLATFORM_SHARED_EXT
 
-all: $(LIBRARY) $(PROGRAMS)
+all: $(LIBRARY) $(PROGRAMS) $(SHARED)
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
 	release tags valgrind_check whitebox_crash_test
