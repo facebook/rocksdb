@@ -34,10 +34,7 @@ struct FileMetaData {
 
 class VersionEdit {
  public:
-  explicit VersionEdit(int number_levels) :
-      number_levels_(number_levels) {
-    Clear();
-  }
+  VersionEdit() { Clear(); }
   ~VersionEdit() { }
 
   void Clear();
@@ -108,7 +105,7 @@ class VersionEdit {
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 
-  int number_levels_;
+  int max_level_;
   std::string comparator_;
   uint64_t log_number_;
   uint64_t prev_log_number_;
@@ -120,9 +117,9 @@ class VersionEdit {
   bool has_next_file_number_;
   bool has_last_sequence_;
 
-  std::vector< std::pair<int, InternalKey> > compact_pointers_;
+  std::vector<std::pair<int, InternalKey> > compact_pointers_;
   DeletedFileSet deleted_files_;
-  std::vector< std::pair<int, FileMetaData> > new_files_;
+  std::vector<std::pair<int, FileMetaData> > new_files_;
 };
 
 }  // namespace rocksdb

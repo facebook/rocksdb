@@ -33,6 +33,7 @@ enum Tag {
 
 void VersionEdit::Clear() {
   comparator_.clear();
+  max_level_ = 0;
   log_number_ = 0;
   prev_log_number_ = 0;
   last_sequence_ = 0;
@@ -107,14 +108,13 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
 
 bool VersionEdit::GetLevel(Slice* input, int* level, const char** msg) {
   uint32_t v;
-  if (GetVarint32(input, &v) &&
-      (int)v < number_levels_) {
+  if (GetVarint32(input, &v)) {
     *level = v;
+    if (max_level_ < *level) {
+      max_level_ = *level;
+    }
     return true;
   } else {
-    if ((int)v >= number_levels_) {
-      *msg = "db already has more levels than options.num_levels";
-    }
     return false;
   }
 }

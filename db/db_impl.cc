@@ -252,8 +252,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
     : env_(options.env),
       dbname_(dbname),
       internal_comparator_(options.comparator),
-      options_(SanitizeOptions(
-          dbname, &internal_comparator_, &internal_filter_policy_, options)),
+      options_(SanitizeOptions(dbname, &internal_comparator_,
+                               &internal_filter_policy_, options)),
       internal_filter_policy_(options.filter_policy),
       owns_info_log_(options_.info_log != options.info_log),
       db_lock_(nullptr),
@@ -261,8 +261,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
       mem_rep_factory_(options_.memtable_factory.get()),
-      mem_(new MemTable(internal_comparator_, mem_rep_factory_,
-        NumberLevels(), options_)),
+      mem_(new MemTable(internal_comparator_, options_)),
       logfile_number_(0),
       super_version_(nullptr),
       tmp_batch_(),
@@ -408,7 +407,7 @@ uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
 }
 
 Status DBImpl::NewDB() {
-  VersionEdit new_db(NumberLevels());
+  VersionEdit new_db;
   new_db.SetComparatorName(user_comparator()->Name());
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
@@ -864,7 +863,7 @@ void DBImpl::PurgeObsoleteWALFiles() {
 // If externalTable is set, then apply recovered transactions
 // to that table. This is used for readonly mode.
 Status DBImpl::Recover(VersionEdit* edit, MemTable* external_table,
-    bool error_if_log_file_exist) {
+                       bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
   assert(db_lock_ == nullptr);
@@ -1031,8 +1030,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number,
     WriteBatchInternal::SetContents(&batch, record);
 
     if (mem == nullptr) {
-      mem = new MemTable(internal_comparator_, mem_rep_factory_,
-        NumberLevels(), options_);
+      mem = new MemTable(internal_comparator_, options_);
       mem->Ref();
     }
     status = WriteBatchInternal::InsertInto(&batch, mem, &options_);
@@ -1358,7 +1356,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
     Log(options_.info_log, "Before refitting:\n%s",
         versions_->current()->DebugString().data());
 
-    VersionEdit edit(NumberLevels());
+    VersionEdit edit;
     for (const auto& f : versions_->current()->files_[level]) {
       edit.DeleteFile(level, f->number);
       edit.AddFile(to_level, f->number, f->file_size, f->smallest, f->largest,
@@ -3289,17 +3287,13 @@ Status DBImpl::MakeRoomForWrite(bool force,
         EnvOptions soptions(storage_options_);
         soptions.use_mmap_writes = false;
         DelayLoggingAndReset();
-        s = env_->NewWritableFile(
-            LogFileName(options_.wal_dir, new_log_number),
-            &lfile,
-            soptions
-          );
+        s = env_->NewWritableFile(LogFileName(options_.wal_dir, new_log_number),
+                                  &lfile, soptions);
         if (s.ok()) {
           // Our final size should be less than write_buffer_size
           // (compression, etc) but err on the side of caution.
           lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
-          memtmp = new MemTable(
-            internal_comparator_, mem_rep_factory_, NumberLevels(), options_);
+          memtmp = new MemTable(internal_comparator_, options_);
           new_superversion = new SuperVersion(options_.max_write_buffer_number);
         }
       }
@@ -3680,7 +3674,7 @@ Status DBImpl::DeleteFile(std::string name) {
   int level;
   FileMetaData metadata;
   int maxlevel = NumberLevels();
-  VersionEdit edit(maxlevel);
+  VersionEdit edit;
   DeletionState deletion_state(0, true);
   {
     MutexLock l(&mutex_);
@@ -3802,7 +3796,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     return s;
   }
   impl->mutex_.Lock();
-  VersionEdit edit(impl->NumberLevels());
+  VersionEdit edit;
   s = impl->Recover(&edit); // Handles create_if_missing, error_if_exists
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();

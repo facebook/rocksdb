@@ -765,10 +765,9 @@ TEST(DBTest, LevelLimitReopen) {
   options.num_levels = 1;
   options.max_bytes_for_level_multiplier_additional.resize(1, 1);
   Status s = TryReopen(&options);
-  ASSERT_EQ(s.IsCorruption(), true);
+  ASSERT_EQ(s.IsInvalidArgument(), true);
   ASSERT_EQ(s.ToString(),
-            "Corruption: VersionEdit: db already has "
-            "more levels than options.num_levels");
+            "Invalid argument: db has more levels than options.num_levels");
 
   options.num_levels = 10;
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);
@@ -4936,7 +4935,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
   EnvOptions sopt;
   VersionSet vset(dbname, &options, sopt, nullptr, &cmp);
   ASSERT_OK(vset.Recover());
-  VersionEdit vbase(vset.NumberLevels());
+  VersionEdit vbase;
   uint64_t fnum = 1;
   for (int i = 0; i < num_base_files; i++) {
     InternalKey start(MakeKey(2*fnum), 1, kTypeValue);
@@ -4948,7 +4947,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
   uint64_t start_micros = env->NowMicros();
 
   for (int i = 0; i < iters; i++) {
-    VersionEdit vedit(vset.NumberLevels());
+    VersionEdit vedit;
     vedit.DeleteFile(2, fnum);
     InternalKey start(MakeKey(2*fnum), 1, kTypeValue);
     InternalKey limit(MakeKey(2*fnum+1), 1, kTypeDeletion);

@@ -34,11 +34,8 @@ class MemTable {
 
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
-  explicit MemTable(
-    const InternalKeyComparator& comparator,
-    MemTableRepFactory* table_factory,
-    int numlevel = 7,
-    const Options& options = Options());
+  explicit MemTable(const InternalKeyComparator& comparator,
+                    const Options& options = Options());
 
   ~MemTable();
 

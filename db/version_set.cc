@@ -980,14 +980,12 @@ class VersionSet::Builder {
 #endif
   }
 
-  void CheckConsistencyForDeletes(
-    VersionEdit* edit,
-    unsigned int number,
-    int level) {
+  void CheckConsistencyForDeletes(VersionEdit* edit, unsigned int number,
+                                  int level) {
 #ifndef NDEBUG
       // a file to be deleted better exist in the previous version
       bool found = false;
-      for (int l = 0; !found && l < edit->number_levels_; l++) {
+      for (int l = 0; !found && l < vset_->NumberLevels(); l++) {
         const std::vector<FileMetaData*>& base_files = base_->files_[l];
         for (unsigned int i = 0; i < base_files.size(); i++) {
           FileMetaData* f = base_files[i];
@@ -1000,7 +998,7 @@ class VersionSet::Builder {
       // if the file did not exist in the previous version, then it
       // is possibly moved from lower level to higher level in current
       // version
-      for (int l = level+1; !found && l < edit->number_levels_; l++) {
+      for (int l = level+1; !found && l < vset_->NumberLevels(); l++) {
         const FileSet* added = levels_[l].added_files;
         for (FileSet::const_iterator added_iter = added->begin();
              added_iter != added->end(); ++added_iter) {
@@ -1213,7 +1211,7 @@ void VersionSet::AppendVersion(Version* v) {
 }
 
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
-    bool new_descriptor_log) {
+                               bool new_descriptor_log) {
   mu->AssertHeld();
 
   // queue our request
@@ -1383,7 +1381,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
 }
 
 void VersionSet::LogAndApplyHelper(Builder* builder, Version* v,
-  VersionEdit* edit, port::Mutex* mu) {
+                                   VersionEdit* edit, port::Mutex* mu) {
   mu->AssertHeld();
 
   if (edit->has_log_number_) {
@@ -1455,20 +1453,27 @@ Status VersionSet::Recover() {
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-      VersionEdit edit(NumberLevels());
+      VersionEdit edit;
       s = edit.DecodeFrom(record);
-      if (s.ok()) {
-        if (edit.has_comparator_ &&
-            edit.comparator_ != icmp_.user_comparator()->Name()) {
-          s = Status::InvalidArgument(icmp_.user_comparator()->Name(),
-                                      "does not match existing comparator " +
-                                      edit.comparator_);
-        }
+      if (!s.ok()) {
+        break;
       }
 
-      if (s.ok()) {
-        builder.Apply(&edit);
+      if (edit.max_level_ >= NumberLevels()) {
+        s = Status::InvalidArgument(
+            "db has more levels than options.num_levels");
+        break;
       }
+
+      if (edit.has_comparator_ &&
+          edit.comparator_ != icmp_.user_comparator()->Name()) {
+        s = Status::InvalidArgument(icmp_.user_comparator()->Name(),
+            "does not match existing comparator " +
+            edit.comparator_);
+        break;
+      }
+
+      builder.Apply(&edit);
 
       if (edit.has_log_number_) {
         log_number = edit.log_number_;
@@ -1577,7 +1582,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-      VersionEdit edit(NumberLevels());
+      VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (s.ok()) {
         if (edit.has_comparator_ &&
@@ -1832,7 +1837,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // Save metadata
-  VersionEdit edit(NumberLevels());
+  VersionEdit edit;
   edit.SetComparatorName(icmp_.user_comparator()->Name());
 
   // Save compaction pointers
@@ -2994,7 +2999,7 @@ Compaction::Compaction(int level, int out_level, uint64_t target_file_size,
       bottommost_level_(false),
       is_full_compaction_(false),
       level_ptrs_(std::vector<size_t>(number_levels)) {
-  edit_ = new VersionEdit(number_levels_);
+  edit_ = new VersionEdit();
   for (int i = 0; i < number_levels_; i++) {
     level_ptrs_[i] = 0;
   }

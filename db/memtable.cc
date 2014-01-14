@@ -33,24 +33,20 @@ struct hash<rocksdb::Slice> {
 
 namespace rocksdb {
 
-MemTable::MemTable(const InternalKeyComparator& cmp,
-                   MemTableRepFactory* table_factory,
-                   int numlevel,
-                   const Options& options)
+MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     : comparator_(cmp),
       refs_(0),
       arena_impl_(options.arena_block_size),
-      table_(table_factory->CreateMemTableRep(comparator_, &arena_impl_)),
+      table_(options.memtable_factory->CreateMemTableRep(comparator_,
+                                                         &arena_impl_)),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
-      edit_(numlevel),
       first_seqno_(0),
       mem_next_logfile_number_(0),
       mem_logfile_number_(0),
-      locks_(options.inplace_update_support
-             ? options.inplace_update_num_locks
-             : 0) { }
+      locks_(options.inplace_update_support ? options.inplace_update_num_locks
+                                            : 0) {}
 
 MemTable::~MemTable() {
   assert(refs_ == 0);
@@ -58,7 +54,7 @@ MemTable::~MemTable() {
 
 size_t MemTable::ApproximateMemoryUsage() {
   return arena_impl_.ApproximateMemoryUsage() +
-    table_->ApproximateMemoryUsage();
+         table_->ApproximateMemoryUsage();
 }
 
 int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)

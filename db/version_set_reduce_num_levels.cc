@@ -72,8 +72,8 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
   num_levels_ = new_levels;
   compact_pointer_ = new std::string[new_levels];
   Init(new_levels);
-  VersionEdit ve(new_levels);
-  st = LogAndApply(&ve , mu, true);
+  VersionEdit ve;
+  st = LogAndApply(&ve, mu, true);
   return st;
 }
 
