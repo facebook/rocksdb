@@ -970,7 +970,8 @@ Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
            &BlockBasedTable::BlockReader,
            const_cast<BlockBasedTable*>(this),
            options,
-           rep_->soptions
+           rep_->soptions,
+           rep_->options.env
          );
 }
 

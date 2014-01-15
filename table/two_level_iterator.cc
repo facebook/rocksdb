@@ -31,6 +31,7 @@ class TwoLevelIterator: public Iterator {
     void* arg,
     const ReadOptions& options,
     const EnvOptions& soptions,
+    const Env* env,
     bool for_compaction);
 
   virtual ~TwoLevelIterator();
@@ -76,6 +77,7 @@ class TwoLevelIterator: public Iterator {
   void* arg_;
   const ReadOptions options_;
   const EnvOptions& soptions_;
+  const Env* env_;
   Status status_;
   PeekingIteratorWrapper index_iter_;
   IteratorWrapper data_iter_; // May be nullptr
@@ -91,11 +93,13 @@ TwoLevelIterator::TwoLevelIterator(
     void* arg,
     const ReadOptions& options,
     const EnvOptions& soptions,
+    const Env *env,
     bool for_compaction)
     : block_function_(block_function),
       arg_(arg),
       options_(options),
       soptions_(soptions),
+      env_(env),
       index_iter_(index_iter),
       data_iter_(nullptr),
       for_compaction_(for_compaction) {
@@ -197,9 +201,10 @@ Iterator* NewTwoLevelIterator(
     void* arg,
     const ReadOptions& options,
     const EnvOptions& soptions,
+    const Env *env,
     bool for_compaction) {
   return new TwoLevelIterator(index_iter, block_function, arg,
-                              options, soptions, for_compaction);
+                              options, soptions, env, for_compaction);
 }
 
 }  // namespace rocksdb
