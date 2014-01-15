@@ -2715,6 +2715,7 @@ Compaction* VersionSet::PickCompaction() {
 bool VersionSet::ParentRangeInCompaction(const InternalKey* smallest,
   const InternalKey* largest, int level, int* parent_index) {
   std::vector<FileMetaData*> inputs;
+  assert(level + 1 < NumberLevels());
 
   current_->GetOverlappingInputs(level+1, smallest, largest,
                                  &inputs, *parent_index, parent_index);
@@ -2776,7 +2777,8 @@ void VersionSet::ExpandWhileOverlapping(Compaction* c) {
   // compaction, then we must drop/cancel this compaction.
   int parent_index = -1;
   if (FilesInCompaction(c->inputs_[0]) ||
-      ParentRangeInCompaction(&smallest, &largest, level, &parent_index)) {
+      (c->level() != c->output_level() &&
+       ParentRangeInCompaction(&smallest, &largest, level, &parent_index))) {
     c->inputs_[0].clear();
     c->inputs_[1].clear();
     delete c;
@@ -2790,7 +2792,9 @@ void VersionSet::ExpandWhileOverlapping(Compaction* c) {
 // user-key with another file.
 void VersionSet::SetupOtherInputs(Compaction* c) {
   // If inputs are empty, then there is nothing to expand.
-  if (c->inputs_[0].empty()) {
+  // If both input and output levels are the same, no need to consider
+  // files at level "level+1"
+  if (c->inputs_[0].empty() || c->level() == c->output_level()) {
     return;
   }
 
@@ -2918,11 +2922,13 @@ void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files) {
   obsolete_files_.clear();
 }
 
-Compaction* VersionSet::CompactRange(
-    int level,
-    const InternalKey* begin,
-    const InternalKey* end) {
+Compaction* VersionSet::CompactRange(int input_level,
+                                     int output_level,
+                                     const InternalKey* begin,
+                                     const InternalKey* end,
+                                     InternalKey** compaction_end) {
   std::vector<FileMetaData*> inputs;
+  bool covering_the_whole_range = true;
 
   // All files are 'overlapping' in universal style compaction.
   // We have to compact the entire range in one shot.
@@ -2930,7 +2936,7 @@ Compaction* VersionSet::CompactRange(
     begin = nullptr;
     end = nullptr;
   }
-  current_->GetOverlappingInputs(level, begin, end, &inputs);
+  current_->GetOverlappingInputs(input_level, begin, end, &inputs);
   if (inputs.empty()) {
     return nullptr;
   }
@@ -2939,24 +2945,26 @@ Compaction* VersionSet::CompactRange(
   // But we cannot do this for level-0 since level-0 files can overlap
   // and we must not pick one file and drop another older file if the
   // two files overlap.
-  if (level > 0) {
-    const uint64_t limit = MaxFileSizeForLevel(level) *
-                         options_->source_compaction_factor;
+  if (input_level > 0) {
+    const uint64_t limit =
+        MaxFileSizeForLevel(input_level) * options_->source_compaction_factor;
     uint64_t total = 0;
-    for (size_t i = 0; i < inputs.size(); ++i) {
+    for (size_t i = 0; i + 1 < inputs.size(); ++i) {
       uint64_t s = inputs[i]->file_size;
       total += s;
       if (total >= limit) {
+        **compaction_end = inputs[i + 1]->smallest;
+        covering_the_whole_range = false;
         inputs.resize(i + 1);
         break;
       }
     }
   }
-  int out_level = (options_->compaction_style == kCompactionStyleUniversal) ?
-                  level : level+1;
-
-  Compaction* c = new Compaction(level, out_level, MaxFileSizeForLevel(out_level),
-    MaxGrandParentOverlapBytes(level), NumberLevels());
+  Compaction* c = new Compaction(input_level,
+                                 output_level,
+                                 MaxFileSizeForLevel(output_level),
+                                 MaxGrandParentOverlapBytes(input_level),
+                                 NumberLevels());
 
   c->inputs_[0] = inputs;
   ExpandWhileOverlapping(c);
@@ -2968,6 +2976,10 @@ Compaction* VersionSet::CompactRange(
   c->input_version_ = current_;
   c->input_version_->Ref();
   SetupOtherInputs(c);
+
+  if (covering_the_whole_range) {
+    *compaction_end = nullptr;
+  }
 
   // These files that are to be manaully compacted do not trample
   // upon other files because manual compactions are processed when
@@ -3016,7 +3028,10 @@ bool Compaction::IsTrivialMove() const {
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require
   // a very expensive merge later on.
-  return (num_input_files(0) == 1 &&
+  // If level_== out_level_, the purpose is to force compaction filter to be
+  // applied to that level, and thus cannot be a trivia move.
+  return (level_ != out_level_ &&
+          num_input_files(0) == 1 &&
           num_input_files(1) == 0 &&
           TotalFileSize(grandparents_) <= maxGrandParentOverlapBytes_);
 }
@@ -3109,7 +3124,7 @@ void Compaction::SetupBottomMostLevel(bool isManual) {
   }
   bottommost_level_ = true;
   int num_levels = input_version_->vset_->NumberLevels();
-  for (int i = level() + 2; i < num_levels; i++) {
+  for (int i = output_level() + 1; i < num_levels; i++) {
     if (input_version_->vset_->NumLevelFiles(i) > 0) {
       bottommost_level_ = false;
       break;

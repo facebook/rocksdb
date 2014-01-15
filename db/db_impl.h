@@ -89,10 +89,17 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity);
 
+  void RunManualCompaction(int input_level,
+                           int output_level,
+                           const Slice* begin,
+                           const Slice* end);
+
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]
-  void TEST_CompactRange(int level, const Slice* begin, const Slice* end);
+  void TEST_CompactRange(int level,
+                         const Slice* begin,
+                         const Slice* end);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable();
@@ -406,7 +413,8 @@ class DBImpl : public DB {
 
   // Information for a manual compaction
   struct ManualCompaction {
-    int level;
+    int input_level;
+    int output_level;
     bool done;
     bool in_progress;           // compaction request being processed?
     const InternalKey* begin;   // nullptr means beginning of key range

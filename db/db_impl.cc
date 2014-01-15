@@ -1278,8 +1278,11 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   return s;
 }
 
-void DBImpl::CompactRange(const Slice* begin, const Slice* end,
-                          bool reduce_level, int target_level) {
+void DBImpl::CompactRange(const Slice* begin,
+                          const Slice* end,
+                          bool reduce_level,
+                          int target_level) {
+  FlushMemTable(FlushOptions());
   int max_level_with_files = 1;
   {
     MutexLock l(&mutex_);
@@ -1290,9 +1293,15 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end,
       }
     }
   }
-  TEST_FlushMemTable(); // TODO(sanjay): Skip if memtable does not overlap
-  for (int level = 0; level < max_level_with_files; level++) {
-    TEST_CompactRange(level, begin, end);
+  for (int level = 0; level <= max_level_with_files; level++) {
+    // in case the compaction is unversal or if we're compacting the
+    // bottom-most level, the output level will be the same as input one
+    if (options_.compaction_style == kCompactionStyleUniversal ||
+        level == max_level_with_files) {
+      RunManualCompaction(level, level, begin, end);
+    } else {
+      RunManualCompaction(level, level + 1, begin, end);
+    }
   }
 
   if (reduce_level) {
@@ -1591,13 +1600,17 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
   return status;
 }
 
-void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
-  assert(level >= 0);
+void DBImpl::RunManualCompaction(int input_level,
+                                 int output_level,
+                                 const Slice* begin,
+                                 const Slice* end) {
+  assert(input_level >= 0);
 
   InternalKey begin_storage, end_storage;
 
   ManualCompaction manual;
-  manual.level = level;
+  manual.input_level = input_level;
+  manual.output_level = output_level;
   manual.done = false;
   manual.in_progress = false;
   // For universal compaction, we enforce every manual compaction to compact
@@ -1625,11 +1638,11 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   // can compact any range of keys/files.
   //
   // bg_manual_only_ is non-zero when at least one thread is inside
-  // TEST_CompactRange(), i.e. during that time no other compaction will
+  // RunManualCompaction(), i.e. during that time no other compaction will
   // get scheduled (see MaybeScheduleFlushOrCompaction).
   //
   // Note that the following loop doesn't stop more that one thread calling
-  // TEST_CompactRange() from getting to the second while loop below.
+  // RunManualCompaction() from getting to the second while loop below.
   // However, only one of them will actually schedule compaction, while
   // others will wait on a condition variable until it completes.
 
@@ -1657,6 +1670,15 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,const Slice* end) {
   assert(!manual.in_progress);
   assert(bg_manual_only_ > 0);
   --bg_manual_only_;
+}
+
+void DBImpl::TEST_CompactRange(int level,
+                               const Slice* begin,
+                               const Slice* end) {
+  int output_level = (options_.compaction_style == kCompactionStyleUniversal)
+                         ? level
+                         : level + 1;
+  RunManualCompaction(level, output_level, begin, end);
 }
 
 Status DBImpl::FlushMemTable(const FlushOptions& options) {
@@ -1878,23 +1900,27 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   unique_ptr<Compaction> c;
   bool is_manual = (manual_compaction_ != nullptr) &&
                    (manual_compaction_->in_progress == false);
-  InternalKey manual_end;
+  InternalKey manual_end_storage;
+  InternalKey* manual_end = &manual_end_storage;
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
     assert(!m->in_progress);
     m->in_progress = true; // another thread cannot pick up the same work
-    c.reset(versions_->CompactRange(m->level, m->begin, m->end));
-    if (c) {
-      manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
-    } else {
+    c.reset(versions_->CompactRange(
+        m->input_level, m->output_level, m->begin, m->end, &manual_end));
+    if (!c) {
       m->done = true;
     }
     Log(options_.info_log,
-        "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
-        m->level,
+        "Manual compaction from level-%d to level-%d from %s .. %s; will stop "
+        "at %s\n",
+        m->input_level,
+        m->output_level,
         (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
         (m->end ? m->end->DebugString().c_str() : "(end)"),
-        (m->done ? "(end)" : manual_end.DebugString().c_str()));
+        ((m->done || manual_end == nullptr)
+             ? "(end)"
+             : manual_end->DebugString().c_str()));
   } else if (!options_.disable_auto_compactions) {
     c.reset(versions_->PickCompaction());
   }
@@ -1959,13 +1985,19 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     //   Also note that, if we don't stop here, then the current compaction
     //   writes a new file back to level 0, which will be used in successive
     //   compaction. Hence the manual compaction will never finish.
-    if (options_.compaction_style == kCompactionStyleUniversal) {
+    //
+    // Stop the compaction if manual_end points to nullptr -- this means
+    // that we compacted the whole range. manual_end should always point
+    // to nullptr in case of universal compaction
+    if (manual_end == nullptr) {
       m->done = true;
     }
     if (!m->done) {
       // We only compacted part of the requested range.  Update *m
       // to the range that is left to be compacted.
-      m->tmp_storage = manual_end;
+      // Universal compaction should always compact the whole range
+      assert(options_.compaction_style != kCompactionStyleUniversal);
+      m->tmp_storage = *manual_end;
       m->begin = &m->tmp_storage;
     }
     m->in_progress = false; // not being processed anymore
@@ -1997,14 +2029,14 @@ void DBImpl::CleanupCompaction(CompactionState* compact, Status status) {
 }
 
 // Allocate the file numbers for the output file. We allocate as
-// many output file numbers as there are files in level+1.
+// many output file numbers as there are files in level+1 (at least one)
 // Insert them into pending_outputs so that they do not get deleted.
 void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
   mutex_.AssertHeld();
   assert(compact != nullptr);
   assert(compact->builder == nullptr);
   int filesNeeded = compact->compaction->num_input_files(1);
-  for (int i = 0; i < filesNeeded; i++) {
+  for (int i = 0; i < std::max(filesNeeded, 1); i++) {
     uint64_t file_number = versions_->NewFileNumber();
     pending_outputs_.insert(file_number);
     compact->allocated_file_numbers.push_back(file_number);
@@ -2148,14 +2180,11 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 
   // Add compaction outputs
   compact->compaction->AddInputDeletions(compact->compaction->edit());
-  const int level = compact->compaction->level();
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
     compact->compaction->edit()->AddFile(
-        (options_.compaction_style == kCompactionStyleUniversal) ?
-          level : level + 1,
-        out.number, out.file_size, out.smallest, out.largest,
-        out.smallest_seqno, out.largest_seqno);
+        compact->compaction->output_level(), out.number, out.file_size,
+        out.smallest, out.largest, out.smallest_seqno, out.largest_seqno);
   }
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
@@ -2197,7 +2226,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       compact->compaction->num_input_files(0),
       compact->compaction->level(),
       compact->compaction->num_input_files(1),
-      compact->compaction->level() + 1,
+      compact->compaction->output_level(),
       compact->compaction->score(),
       options_.max_background_compactions - bg_compaction_scheduled_);
   char scratch[256];

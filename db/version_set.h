@@ -310,10 +310,18 @@ class VersionSet {
   // the specified level.  Returns nullptr if there is nothing in that
   // level that overlaps the specified range.  Caller should delete
   // the result.
-  Compaction* CompactRange(
-      int level,
-      const InternalKey* begin,
-      const InternalKey* end);
+  //
+  // The returned Compaction might not include the whole requested range.
+  // In that case, compaction_end will be set to the next key that needs
+  // compacting. In case the compaction will compact the whole range,
+  // compaction_end will be set to nullptr.
+  // Client is responsible for compaction_end storage -- when called,
+  // *compaction_end should point to valid InternalKey!
+  Compaction* CompactRange(int input_level,
+                           int output_level,
+                           const InternalKey* begin,
+                           const InternalKey* end,
+                           InternalKey** compaction_end);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.

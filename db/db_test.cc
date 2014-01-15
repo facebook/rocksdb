@@ -3309,34 +3309,46 @@ TEST(DBTest, ManualCompaction) {
   ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
       << "Need to update this test to match kMaxMemCompactLevel";
 
-  MakeTables(3, "p", "q");
-  ASSERT_EQ("1,1,1", FilesPerLevel());
+  // iter - 0 with 7 levels
+  // iter - 1 with 3 levels
+  for (int iter = 0; iter < 2; ++iter) {
+    MakeTables(3, "p", "q");
+    ASSERT_EQ("1,1,1", FilesPerLevel());
 
-  // Compaction range falls before files
-  Compact("", "c");
-  ASSERT_EQ("1,1,1", FilesPerLevel());
+    // Compaction range falls before files
+    Compact("", "c");
+    ASSERT_EQ("1,1,1", FilesPerLevel());
 
-  // Compaction range falls after files
-  Compact("r", "z");
-  ASSERT_EQ("1,1,1", FilesPerLevel());
+    // Compaction range falls after files
+    Compact("r", "z");
+    ASSERT_EQ("1,1,1", FilesPerLevel());
 
-  // Compaction range overlaps files
-  Compact("p1", "p9");
-  ASSERT_EQ("0,0,1", FilesPerLevel());
+    // Compaction range overlaps files
+    Compact("p1", "p9");
+    ASSERT_EQ("0,0,1", FilesPerLevel());
 
-  // Populate a different range
-  MakeTables(3, "c", "e");
-  ASSERT_EQ("1,1,2", FilesPerLevel());
+    // Populate a different range
+    MakeTables(3, "c", "e");
+    ASSERT_EQ("1,1,2", FilesPerLevel());
 
-  // Compact just the new range
-  Compact("b", "f");
-  ASSERT_EQ("0,0,2", FilesPerLevel());
+    // Compact just the new range
+    Compact("b", "f");
+    ASSERT_EQ("0,0,2", FilesPerLevel());
 
-  // Compact all
-  MakeTables(1, "a", "z");
-  ASSERT_EQ("0,1,2", FilesPerLevel());
-  db_->CompactRange(nullptr, nullptr);
-  ASSERT_EQ("0,0,1", FilesPerLevel());
+    // Compact all
+    MakeTables(1, "a", "z");
+    ASSERT_EQ("0,1,2", FilesPerLevel());
+    db_->CompactRange(nullptr, nullptr);
+    ASSERT_EQ("0,0,1", FilesPerLevel());
+
+    if (iter == 0) {
+      Options options = CurrentOptions();
+      options.num_levels = 3;
+      options.create_if_missing = true;
+      DestroyAndReopen(&options);
+    }
+  }
+
 }
 
 TEST(DBTest, DBOpen_Options) {
