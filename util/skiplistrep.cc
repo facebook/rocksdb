@@ -90,15 +90,15 @@ public:
   // Unhide default implementations of GetIterator
   using MemTableRep::GetIterator;
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() override {
-    return std::make_shared<SkipListRep::Iterator>(&skip_list_);
+  virtual MemTableRep::Iterator* GetIterator() override {
+    return new SkipListRep::Iterator(&skip_list_);
   }
 };
 }
 
-std::shared_ptr<MemTableRep> SkipListFactory::CreateMemTableRep (
-  MemTableRep::KeyComparator& compare, Arena* arena) {
-    return std::shared_ptr<MemTableRep>(new SkipListRep(compare, arena));
+MemTableRep* SkipListFactory::CreateMemTableRep(
+    MemTableRep::KeyComparator& compare, Arena* arena) {
+  return new SkipListRep(compare, arena);
 }
 
 } // namespace rocksdb

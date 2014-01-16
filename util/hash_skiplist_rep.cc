@@ -31,16 +31,14 @@ class HashSkipListRep : public MemTableRep {
 
   virtual ~HashSkipListRep();
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() override;
+  virtual MemTableRep::Iterator* GetIterator() override;
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator(
-      const Slice& slice) override;
+  virtual MemTableRep::Iterator* GetIterator(const Slice& slice) override;
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetPrefixIterator(
-      const Slice& prefix) override;
-
-  virtual std::shared_ptr<MemTableRep::Iterator> GetDynamicPrefixIterator()
+  virtual MemTableRep::Iterator* GetPrefixIterator(const Slice& prefix)
       override;
+
+  virtual MemTableRep::Iterator* GetDynamicPrefixIterator() override;
 
  private:
   friend class DynamicIterator;
@@ -208,18 +206,15 @@ class HashSkipListRep : public MemTableRep {
     virtual void SeekToLast() { }
    private:
   };
-
-  std::shared_ptr<EmptyIterator> empty_iterator_;
 };
 
 HashSkipListRep::HashSkipListRep(MemTableRep::KeyComparator& compare,
-    Arena* arena, const SliceTransform* transform, size_t bucket_size)
-  : bucket_size_(bucket_size),
-    transform_(transform),
-    compare_(compare),
-    arena_(arena),
-    empty_iterator_(std::make_shared<EmptyIterator>()) {
-
+                                 Arena* arena, const SliceTransform* transform,
+                                 size_t bucket_size)
+    : bucket_size_(bucket_size),
+      transform_(transform),
+      compare_(compare),
+      arena_(arena) {
   buckets_ = new port::AtomicPointer[bucket_size];
 
   for (size_t i = 0; i < bucket_size_; ++i) {
@@ -263,7 +258,7 @@ size_t HashSkipListRep::ApproximateMemoryUsage() {
   return sizeof(buckets_);
 }
 
-std::shared_ptr<MemTableRep::Iterator> HashSkipListRep::GetIterator() {
+MemTableRep::Iterator* HashSkipListRep::GetIterator() {
   auto list = new Bucket(compare_, arena_);
   for (size_t i = 0; i < bucket_size_; ++i) {
     auto bucket = GetBucket(i);
@@ -274,35 +269,30 @@ std::shared_ptr<MemTableRep::Iterator> HashSkipListRep::GetIterator() {
       }
     }
   }
-  return std::make_shared<Iterator>(list);
+  return new Iterator(list);
 }
 
-std::shared_ptr<MemTableRep::Iterator> HashSkipListRep::GetPrefixIterator(
-  const Slice& prefix) {
+MemTableRep::Iterator* HashSkipListRep::GetPrefixIterator(const Slice& prefix) {
   auto bucket = GetBucket(prefix);
   if (bucket == nullptr) {
-    return empty_iterator_;
+    return new EmptyIterator();
   }
-  return std::make_shared<Iterator>(bucket, false);
+  return new Iterator(bucket, false);
 }
 
-std::shared_ptr<MemTableRep::Iterator> HashSkipListRep::GetIterator(
-    const Slice& slice) {
+MemTableRep::Iterator* HashSkipListRep::GetIterator(const Slice& slice) {
   return GetPrefixIterator(transform_->Transform(slice));
 }
 
-std::shared_ptr<MemTableRep::Iterator>
-    HashSkipListRep::GetDynamicPrefixIterator() {
-  return std::make_shared<DynamicIterator>(*this);
+MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator() {
+  return new DynamicIterator(*this);
 }
 
 } // anon namespace
 
-std::shared_ptr<MemTableRep>
-HashSkipListRepFactory::CreateMemTableRep(MemTableRep::KeyComparator &compare,
-                                          Arena *arena) {
-  return std::make_shared<HashSkipListRep>(compare, arena, transform_,
-      bucket_count_);
+MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
+    MemTableRep::KeyComparator& compare, Arena* arena) {
+  return new HashSkipListRep(compare, arena, transform_, bucket_count_);
 }
 
 MemTableRepFactory* NewHashSkipListRepFactory(

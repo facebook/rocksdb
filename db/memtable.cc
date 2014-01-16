@@ -85,11 +85,11 @@ class MemTableIterator: public Iterator {
   MemTableIterator(MemTableRep* table, const ReadOptions& options)
     : iter_() {
     if (options.prefix) {
-      iter_ = table->GetPrefixIterator(*options.prefix);
+      iter_.reset(table->GetPrefixIterator(*options.prefix));
     } else if (options.prefix_seek) {
-      iter_ = table->GetDynamicPrefixIterator();
+      iter_.reset(table->GetDynamicPrefixIterator());
     } else {
-      iter_ = table->GetIterator();
+      iter_.reset(table->GetIterator());
     }
   }
 
@@ -110,7 +110,7 @@ class MemTableIterator: public Iterator {
   virtual Status status() const { return Status::OK(); }
 
  private:
-  std::shared_ptr<MemTableRep::Iterator> iter_;
+  std::unique_ptr<MemTableRep::Iterator> iter_;
   std::string tmp_;       // For passing to EncodeKey
 
   // No copying allowed
@@ -161,8 +161,8 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext& merge_context, const Options& options) {
   Slice memkey = key.memtable_key();
-  std::shared_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(key.user_key()));
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetIterator(key.user_key()));
   iter->Seek(memkey.data());
 
   bool merge_in_progress = s->IsMergeInProgress();
@@ -267,8 +267,8 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
-  std::shared_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(lkey.user_key()));
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetIterator(lkey.user_key()));
   iter->Seek(memkey.data());
 
   if (iter->Valid()) {
@@ -329,8 +329,8 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   // A total ordered iterator is costly for some memtablerep (prefix aware
   // reps). By passing in the user key, we allow efficient iterator creation.
   // The iterator only needs to be ordered within the same user key.
-  std::shared_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(key.user_key()));
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetIterator(key.user_key()));
   iter->Seek(memkey.data());
 
   size_t num_successive_merges = 0;

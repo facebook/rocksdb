@@ -143,7 +143,7 @@ class MemTable {
   KeyComparator comparator_;
   int refs_;
   ArenaImpl arena_impl_;
-  shared_ptr<MemTableRep> table_;
+  unique_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush

@@ -698,7 +698,7 @@ bool CompareSeqnoDescending(const Version::Fsize& first,
   return false;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 void Version::UpdateFilesBySize() {
   // No need to sort the highest level because it is never compacted.
