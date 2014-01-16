@@ -111,27 +111,23 @@ class MemTableRep {
   };
 
   // Return an iterator over the keys in this representation.
-  virtual std::shared_ptr<Iterator> GetIterator() = 0;
+  virtual Iterator* GetIterator() = 0;
 
   // Return an iterator over at least the keys with the specified user key. The
   // iterator may also allow access to other keys, but doesn't have to. Default:
   // GetIterator().
-  virtual std::shared_ptr<Iterator> GetIterator(const Slice& user_key) {
-    return GetIterator();
-  }
+  virtual Iterator* GetIterator(const Slice& user_key) { return GetIterator(); }
 
   // Return an iterator over at least the keys with the specified prefix. The
   // iterator may also allow access to other keys, but doesn't have to. Default:
   // GetIterator().
-  virtual std::shared_ptr<Iterator> GetPrefixIterator(const Slice& prefix) {
+  virtual Iterator* GetPrefixIterator(const Slice& prefix) {
     return GetIterator();
   }
 
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
-  virtual std::shared_ptr<Iterator> GetDynamicPrefixIterator() {
-    return GetIterator();
-  }
+  virtual Iterator* GetDynamicPrefixIterator() { return GetIterator(); }
 
  protected:
   // When *key is an internal key concatenated with the value, returns the
@@ -144,8 +140,8 @@ class MemTableRep {
 class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() { };
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena*) = 0;
+  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
+                                         Arena*) = 0;
   virtual const char* Name() const = 0;
 };
 
@@ -161,8 +157,8 @@ class VectorRepFactory : public MemTableRepFactory {
   const size_t count_;
 public:
   explicit VectorRepFactory(size_t count = 0) : count_(count) { }
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena*) override;
+  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
+                                         Arena*) override;
   virtual const char* Name() const override {
     return "VectorRepFactory";
   }
@@ -171,8 +167,8 @@ public:
 // This uses a skip list to store keys. It is the default.
 class SkipListFactory : public MemTableRepFactory {
 public:
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena*) override;
+ virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
+                                        Arena*) override;
   virtual const char* Name() const override {
     return "SkipListFactory";
   }
@@ -206,8 +202,8 @@ class TransformRepFactory : public MemTableRepFactory {
 
   virtual ~TransformRepFactory() { delete transform_; }
 
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena*) override;
+  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
+                                         Arena*) override;
 
   virtual const char* Name() const override {
     return "TransformRepFactory";
@@ -247,8 +243,8 @@ public:
     : TransformRepFactory(prefix_extractor, bucket_count, num_locks)
     { }
 
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-    MemTableRep::KeyComparator&, Arena*) override;
+  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
+                                         Arena*) override;
 
   virtual const char* Name() const override {
     return "PrefixHashRepFactory";

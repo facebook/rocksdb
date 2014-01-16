@@ -35,11 +35,8 @@ class MemTable {
 
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
-  explicit MemTable(
-    const InternalKeyComparator& comparator,
-    MemTableRepFactory* table_factory,
-    int numlevel = 7,
-    const Options& options = Options());
+  explicit MemTable(const InternalKeyComparator& comparator,
+                    const Options& options = Options());
 
   ~MemTable();
 
@@ -123,6 +120,11 @@ class MemTable {
                       const Slice& delta,
                       const Options& options);
 
+  // Returns the number of successive merge entries starting from the newest
+  // entry for the key up to the last non-merge entry or last entry for the
+  // key in the memtable.
+  size_t CountSuccessiveMergeEntries(const LookupKey& key);
+
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
@@ -157,7 +159,7 @@ class MemTable {
   KeyComparator comparator_;
   int refs_;
   ArenaImpl arena_impl_;
-  shared_ptr<MemTableRep> table_;
+  unique_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush

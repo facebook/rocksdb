@@ -91,10 +91,17 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity);
 
+  void RunManualCompaction(int input_level,
+                           int output_level,
+                           const Slice* begin,
+                           const Slice* end);
+
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]
-  void TEST_CompactRange(int level, const Slice* begin, const Slice* end);
+  void TEST_CompactRange(int level,
+                         const Slice* begin,
+                         const Slice* end);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable();
@@ -124,7 +131,7 @@ class DBImpl : public DB {
   void TEST_PurgeObsoleteteWAL();
 
   // get total level0 file size. Only for testing.
-  uint64_t TEST_GetLevel0TotalSize() { return versions_->NumLevelBytes(0);}
+  uint64_t TEST_GetLevel0TotalSize();
 
   void TEST_SetDefaultTimeToCheck(uint64_t default_interval_to_delete_obsolete_WAL)
   {
@@ -292,7 +299,8 @@ class DBImpl : public DB {
   // the superversion outside of mutex
   Status MakeRoomForWrite(bool force /* compact even if there is room? */,
                           SuperVersion** superversion_to_free);
-  WriteBatch* BuildBatchGroup(Writer** last_writer);
+  void BuildBatchGroup(Writer** last_writer,
+                       autovector<WriteBatch*>* write_batch_group);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(const FlushOptions& options);
@@ -405,7 +413,8 @@ class DBImpl : public DB {
 
   // Information for a manual compaction
   struct ManualCompaction {
-    int level;
+    int input_level;
+    int output_level;
     bool done;
     bool in_progress;           // compaction request being processed?
     const InternalKey* begin;   // nullptr means beginning of key range
@@ -589,5 +598,8 @@ extern Options SanitizeOptions(const std::string& db,
 // Otherwise, the compression type is determined based on options and level.
 CompressionType GetCompressionType(const Options& options, int level,
                                    const bool enable_compression);
+
+// Determine compression type for L0 file written by memtable flush.
+CompressionType GetCompressionFlush(const Options& options);
 
 }  // namespace rocksdb

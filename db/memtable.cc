@@ -35,27 +35,22 @@ struct hash<rocksdb::Slice> {
 
 namespace rocksdb {
 
-MemTable::MemTable(const InternalKeyComparator& cmp,
-                   MemTableRepFactory* table_factory,
-                   int numlevel,
-                   const Options& options)
+MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     : comparator_(cmp),
       refs_(0),
       arena_impl_(options.arena_block_size),
-      table_(table_factory->CreateMemTableRep(comparator_, &arena_impl_)),
+      table_(options.memtable_factory->CreateMemTableRep(comparator_,
+                                                         &arena_impl_)),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
-      edit_(numlevel),
       first_seqno_(0),
       mem_next_logfile_number_(0),
       mem_logfile_number_(0),
-      locks_(options.inplace_update_support
-             ? options.inplace_update_num_locks
-             : 0),
+      locks_(options.inplace_update_support ? options.inplace_update_num_locks
+                                            : 0),
       prefix_extractor_(options.prefix_extractor) {
-
-  if (prefix_extractor_ && options.memtable_prefix_bloom_bits > 0)  {
+  if (prefix_extractor_ && options.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(options.memtable_prefix_bloom_bits,
                                          options.memtable_prefix_bloom_probes));
   }
@@ -67,7 +62,7 @@ MemTable::~MemTable() {
 
 size_t MemTable::ApproximateMemoryUsage() {
   return arena_impl_.ApproximateMemoryUsage() +
-    table_->ApproximateMemoryUsage();
+         table_->ApproximateMemoryUsage();
 }
 
 int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)
@@ -98,12 +93,11 @@ class MemTableIterator: public Iterator {
   MemTableIterator(const MemTable& mem, const ReadOptions& options)
       : mem_(mem), iter_(), dynamic_prefix_seek_(false), valid_(false) {
     if (options.prefix) {
-      iter_ = mem_.table_->GetPrefixIterator(*options.prefix);
+      iter_.reset(mem_.table_->GetPrefixIterator(*options.prefix));
     } else if (options.prefix_seek) {
-      dynamic_prefix_seek_ = true;
-      iter_ = mem_.table_->GetDynamicPrefixIterator();
+      iter_.reset(mem_.table_->GetDynamicPrefixIterator());
     } else {
-      iter_ = mem_.table_->GetIterator();
+      iter_.reset(mem_.table_->GetIterator());
     }
   }
 
@@ -212,12 +206,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   Slice mem_key = key.memtable_key();
   Slice user_key = key.user_key();
 
-  std::shared_ptr<MemTableRep::Iterator> iter;
+  std::unique_ptr<MemTableRep::Iterator> iter;
   if (prefix_bloom_ &&
       !prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
     // iter is null if prefix bloom says the key does not exist
   } else {
-    iter = table_->GetIterator(user_key);
+    iter.reset(table_->GetIterator(user_key));
     iter->Seek(user_key, mem_key.data());
   }
 
@@ -328,10 +322,9 @@ void MemTable::Update(SequenceNumber seq,
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
 
-  std::shared_ptr<MemTableRep::Iterator> iter(
+  std::unique_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(lkey.user_key()));
   iter->Seek(key, mem_key.data());
-
 
   if (iter->Valid()) {
     // entry format is:
@@ -462,4 +455,37 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
   // or key doesn't exist
   return false;
 }
+
+size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
+  Slice memkey = key.memtable_key();
+
+  // A total ordered iterator is costly for some memtablerep (prefix aware
+  // reps). By passing in the user key, we allow efficient iterator creation.
+  // The iterator only needs to be ordered within the same user key.
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetIterator(key.user_key()));
+  iter->Seek(key.user_key(), memkey.data());
+
+  size_t num_successive_merges = 0;
+
+  for (; iter->Valid(); iter->Next()) {
+    const char* entry = iter->key();
+    uint32_t key_length;
+    const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    if (!comparator_.comparator.user_comparator()->Compare(
+        Slice(iter_key_ptr, key_length - 8), key.user_key()) == 0) {
+      break;
+    }
+
+    const uint64_t tag = DecodeFixed64(iter_key_ptr + key_length - 8);
+    if (static_cast<ValueType>(tag & 0xff) != kTypeMerge) {
+      break;
+    }
+
+    ++num_successive_merges;
+  }
+
+  return num_successive_merges;
+}
+
 }  // namespace rocksdb

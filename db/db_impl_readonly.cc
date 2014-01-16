@@ -86,7 +86,7 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 
   DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
   impl->mutex_.Lock();
-  VersionEdit edit(impl->NumberLevels());
+  VersionEdit edit;
   Status s = impl->Recover(&edit, impl->GetMemTable(),
                            error_if_log_file_exist);
   impl->mutex_.Unlock();

@@ -104,7 +104,8 @@ Options::Options()
       inplace_update_num_locks(10000),
       inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
-      memtable_prefix_bloom_probes(6) {
+      memtable_prefix_bloom_probes(6),
+      max_successive_merges(0) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -300,6 +301,8 @@ Options::Dump(Logger* log) const
         memtable_prefix_bloom_bits);
     Log(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
+    Log(log, "                   Options.max_successive_merges: %zd",
+        max_successive_merges);
 }   // Options::Dump
 
 //

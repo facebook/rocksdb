@@ -66,16 +66,14 @@ class HashLinkListRep : public MemTableRep {
 
   virtual ~HashLinkListRep();
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() override;
+  virtual MemTableRep::Iterator* GetIterator() override;
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator(
-      const Slice& slice) override;
+  virtual MemTableRep::Iterator* GetIterator(const Slice& slice) override;
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetPrefixIterator(
-      const Slice& prefix) override;
-
-  virtual std::shared_ptr<MemTableRep::Iterator> GetDynamicPrefixIterator()
+  virtual MemTableRep::Iterator* GetPrefixIterator(const Slice& prefix)
       override;
+
+  virtual MemTableRep::Iterator* GetDynamicPrefixIterator() override;
 
  private:
   friend class DynamicIterator;
@@ -298,8 +296,6 @@ class HashLinkListRep : public MemTableRep {
     virtual void SeekToLast() { }
    private:
   };
-
-  std::shared_ptr<EmptyIterator> empty_iterator_;
 };
 
 HashLinkListRep::HashLinkListRep(MemTableRep::KeyComparator& compare,
@@ -308,9 +304,7 @@ HashLinkListRep::HashLinkListRep(MemTableRep::KeyComparator& compare,
   : bucket_size_(bucket_size),
     transform_(transform),
     compare_(compare),
-    arena_(arena),
-    empty_iterator_(std::make_shared<EmptyIterator>()) {
-
+    arena_(arena) {
   char* mem = arena_->AllocateAligned(
       sizeof(port::AtomicPointer) * bucket_size);
 
@@ -389,7 +383,7 @@ size_t HashLinkListRep::ApproximateMemoryUsage() {
   return 0;
 }
 
-std::shared_ptr<MemTableRep::Iterator> HashLinkListRep::GetIterator() {
+MemTableRep::Iterator* HashLinkListRep::GetIterator() {
   auto list = new FullList(compare_, arena_);
   for (size_t i = 0; i < bucket_size_; ++i) {
     auto bucket = GetBucket(i);
@@ -400,26 +394,24 @@ std::shared_ptr<MemTableRep::Iterator> HashLinkListRep::GetIterator() {
       }
     }
   }
-  return std::make_shared<FullListIterator>(list);
+  return new FullListIterator(list);
 }
 
-std::shared_ptr<MemTableRep::Iterator> HashLinkListRep::GetPrefixIterator(
+MemTableRep::Iterator* HashLinkListRep::GetPrefixIterator(
   const Slice& prefix) {
   auto bucket = GetBucket(prefix);
   if (bucket == nullptr) {
-    return empty_iterator_;
+    return new EmptyIterator();
   }
-  return std::make_shared<Iterator>(this, bucket);
+  return new Iterator(this, bucket);
 }
 
-std::shared_ptr<MemTableRep::Iterator> HashLinkListRep::GetIterator(
-    const Slice& slice) {
+MemTableRep::Iterator* HashLinkListRep::GetIterator(const Slice& slice) {
   return GetPrefixIterator(transform_->Transform(slice));
 }
 
-std::shared_ptr<MemTableRep::Iterator>
-    HashLinkListRep::GetDynamicPrefixIterator() {
-  return std::make_shared<DynamicIterator>(*this);
+MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator() {
+  return new DynamicIterator(*this);
 }
 
 bool HashLinkListRep::BucketContains(Node* head, const Key& key) const {
@@ -450,10 +442,9 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 
 } // anon namespace
 
-std::shared_ptr<MemTableRep> HashLinkListRepFactory::CreateMemTableRep(
+MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
     MemTableRep::KeyComparator& compare, Arena* arena) {
-  return std::make_shared<HashLinkListRep>(compare, arena, transform_,
-                                           bucket_count_);
+  return new HashLinkListRep(compare, arena, transform_, bucket_count_);
 }
 
 MemTableRepFactory* NewHashLinkListRepFactory(

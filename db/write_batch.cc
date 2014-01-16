@@ -21,6 +21,7 @@
 
 #include "rocksdb/write_batch.h"
 #include "rocksdb/options.h"
+#include "rocksdb/merge_operator.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/memtable.h"
@@ -234,7 +235,62 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   virtual void Merge(const Slice& key, const Slice& value) {
-    mem_->Add(sequence_, kTypeMerge, key, value);
+    bool perform_merge = false;
+
+    if (options_->max_successive_merges > 0 && db_ != nullptr) {
+      LookupKey lkey(key, sequence_);
+
+      // Count the number of successive merges at the head
+      // of the key in the memtable
+      size_t num_merges = mem_->CountSuccessiveMergeEntries(lkey);
+
+      if (num_merges >= options_->max_successive_merges) {
+        perform_merge = true;
+      }
+    }
+
+    if (perform_merge) {
+      // 1) Get the existing value
+      std::string get_value;
+
+      // Pass in the sequence number so that we also include previous merge
+      // operations in the same batch.
+      SnapshotImpl read_from_snapshot;
+      read_from_snapshot.number_ = sequence_;
+      ReadOptions read_options;
+      read_options.snapshot = &read_from_snapshot;
+
+      db_->Get(read_options, key, &get_value);
+      Slice get_value_slice = Slice(get_value);
+
+      // 2) Apply this merge
+      auto merge_operator = options_->merge_operator.get();
+      assert(merge_operator);
+
+      std::deque<std::string> operands;
+      operands.push_front(value.ToString());
+      std::string new_value;
+      if (!merge_operator->FullMerge(key,
+                                     &get_value_slice,
+                                     operands,
+                                     &new_value,
+                                     options_->info_log.get())) {
+          // Failed to merge!
+          RecordTick(options_->statistics.get(), NUMBER_MERGE_FAILURES);
+
+          // Store the delta in memtable
+          perform_merge = false;
+      } else {
+        // 3) Add value to memtable
+        mem_->Add(sequence_, kTypeValue, key, new_value);
+      }
+    }
+
+    if (!perform_merge) {
+      // Add merge operator to memtable
+      mem_->Add(sequence_, kTypeMerge, key, value);
+    }
+
     sequence_++;
   }
   virtual void Delete(const Slice& key) {

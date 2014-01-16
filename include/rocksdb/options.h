@@ -44,15 +44,15 @@ using std::shared_ptr;
 enum CompressionType : char {
   // NOTE: do not change the values of existing entries, as these are
   // part of the persistent format on disk.
-  kNoCompression     = 0x0,
+  kNoCompression = 0x0,
   kSnappyCompression = 0x1,
   kZlibCompression = 0x2,
   kBZip2Compression = 0x3
 };
 
 enum CompactionStyle : char {
-  kCompactionStyleLevel       = 0x0, // level based compaction style
-  kCompactionStyleUniversal   = 0x1  // Universal compaction style
+  kCompactionStyleLevel = 0x0,     // level based compaction style
+  kCompactionStyleUniversal = 0x1  // Universal compaction style
 };
 
 // Compression options for different compression algorithms like Zlib
@@ -60,12 +60,9 @@ struct CompressionOptions {
   int window_bits;
   int level;
   int strategy;
-  CompressionOptions():window_bits(-14),
-                       level(-1),
-                       strategy(0){}
-  CompressionOptions(int wbits, int lev, int strategy):window_bits(wbits),
-                                                       level(lev),
-                                                       strategy(strategy){}
+  CompressionOptions() : window_bits(-14), level(-1), strategy(0) {}
+  CompressionOptions(int wbits, int lev, int strategy)
+      : window_bits(wbits), level(lev), strategy(strategy) {}
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -218,7 +215,6 @@ struct Options {
   // Default: 16
   int block_restart_interval;
 
-
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //
@@ -249,7 +245,7 @@ struct Options {
   // java/C api hard to construct.
   std::vector<CompressionType> compression_per_level;
 
-  //different options for compression algorithms
+  // different options for compression algorithms
   CompressionOptions compression_opts;
 
   // If non-nullptr, use the specified filter policy to reduce disk reads.
@@ -327,7 +323,6 @@ struct Options {
   // max_bytes_for_level_multiplier is 10, total data size for level-1
   // will be 20MB, total file size for level-2 will be 200MB,
   // and total file size for level-3 will be 2GB.
-
 
   // by default 'max_bytes_for_level_base' is 10MB.
   uint64_t max_bytes_for_level_base;
@@ -486,9 +481,18 @@ struct Options {
   // order.
   int table_cache_remove_scan_count_limit;
 
-  // size of one block in arena memory allocation.
-  // If <= 0, a proper value is automatically calculated (usually 1/10 of
+  // Size of one block in arena memory allocation.
+  //
+  // If <= 0, a proper value is automatically calculated (usually about 1/10 of
   // writer_buffer_size).
+  //
+  // There are two additonal restriction of the The specified size:
+  // (1) size should be in the range of [4096, 2 << 30] and
+  // (2) be the multiple of the CPU word (which helps with the memory
+  // alignment).
+  //
+  // We'll automatically check and adjust the size number to make sure it
+  // conforms to the restrictions.
   //
   // Default: 0
   size_t arena_block_size;
@@ -574,7 +578,12 @@ struct Options {
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
-  enum { NONE, NORMAL, SEQUENTIAL, WILLNEED } access_hint_on_compaction_start;
+  enum {
+    NONE,
+    NORMAL,
+    SEQUENTIAL,
+    WILLNEED
+  } access_hint_on_compaction_start;
 
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not
@@ -641,7 +650,6 @@ struct Options {
   // Default: 10000, if inplace_update_support = true, else 0.
   size_t inplace_update_num_locks;
 
-
   // * existing_value - pointer to previous value (from both memtable and sst).
   //                    nullptr if key doesn't exist
   // * existing_value_size - sizeof(existing_value). 0 if key doesn't exist
@@ -681,6 +689,17 @@ struct Options {
 
   // number of hash probes per key
   uint32_t memtable_prefix_bloom_probes;
+
+  // Maximum number of successive merge operations on a key in the memtable.
+  //
+  // When a merge operation is added to the memtable and the maximum number of
+  // successive merges is reached, the value of the key will be calculated and
+  // inserted into the memtable instead of the merge operation. This will
+  // ensure that there are never more than max_successive_merges merge
+  // operations in the memtable.
+  //
+  // Default: 0 (disabled)
+  size_t max_successive_merges;
 };
 
 //
@@ -691,7 +710,7 @@ struct Options {
 // the block cache. It will not page in data from the OS cache or data that
 // resides in storage.
 enum ReadTier {
-  kReadAllTier    = 0x0, // data in memtable, block cache, OS cache or storage
+  kReadAllTier = 0x0,    // data in memtable, block cache, OS cache or storage
   kBlockCacheTier = 0x1  // data in memtable or block cache
 };
 
@@ -744,13 +763,14 @@ struct ReadOptions {
         prefix_seek(false),
         snapshot(nullptr),
         prefix(nullptr),
-        read_tier(kReadAllTier) {
-  }
-  ReadOptions(bool cksum, bool cache) :
-              verify_checksums(cksum), fill_cache(cache),
-              prefix_seek(false), snapshot(nullptr), prefix(nullptr),
-              read_tier(kReadAllTier) {
-  }
+        read_tier(kReadAllTier) {}
+  ReadOptions(bool cksum, bool cache)
+      : verify_checksums(cksum),
+        fill_cache(cache),
+        prefix_seek(false),
+        snapshot(nullptr),
+        prefix(nullptr),
+        read_tier(kReadAllTier) {}
 };
 
 // Options that control write operations
@@ -777,10 +797,7 @@ struct WriteOptions {
   // and the write may got lost after a crash.
   bool disableWAL;
 
-  WriteOptions()
-      : sync(false),
-        disableWAL(false) {
-  }
+  WriteOptions() : sync(false), disableWAL(false) {}
 };
 
 // Options that control flush operations
@@ -789,9 +806,7 @@ struct FlushOptions {
   // Default: true
   bool wait;
 
-  FlushOptions()
-      : wait(true) {
-  }
+  FlushOptions() : wait(true) {}
 };
 
 }  // namespace rocksdb

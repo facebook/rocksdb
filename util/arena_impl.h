@@ -22,49 +22,54 @@ namespace rocksdb {
 
 class ArenaImpl : public Arena {
  public:
+  // No copying allowed
+  ArenaImpl(const ArenaImpl&) = delete;
+  void operator=(const ArenaImpl&) = delete;
+
+  static const size_t kMinBlockSize;
+  static const size_t kMaxBlockSize;
+
   explicit ArenaImpl(size_t block_size = kMinBlockSize);
   virtual ~ArenaImpl();
 
-  virtual char* Allocate(size_t bytes);
+  virtual char* Allocate(size_t bytes) override;
 
-  virtual char* AllocateAligned(size_t bytes);
+  virtual char* AllocateAligned(size_t bytes) override;
 
   // Returns an estimate of the total memory usage of data allocated
-  // by the arena (including space allocated but not yet used for user
+  // by the arena (exclude the space allocated but not yet used for future
   // allocations).
-  //
-  // TODO: Do we need to exclude space allocated but not used?
   virtual const size_t ApproximateMemoryUsage() {
-    return blocks_memory_ + blocks_.capacity() * sizeof(char*);
+    return blocks_memory_ + blocks_.capacity() * sizeof(char*) -
+           alloc_bytes_remaining_;
   }
 
-  virtual const size_t MemoryAllocatedBytes() {
+  virtual const size_t MemoryAllocatedBytes() override {
     return blocks_memory_;
   }
 
  private:
-  char* AllocateFallback(size_t bytes);
+  // Number of bytes allocated in one block
+  const size_t kBlockSize;
+  // Array of new[] allocated memory blocks
+  typedef std::vector<char*> Blocks;
+  Blocks blocks_;
+
+  // Stats for current active block.
+  // For each block, we allocate aligned memory chucks from one end and
+  // allocate unaligned memory chucks from the other end. Otherwise the
+  // memory waste for alignment will be higher if we allocate both types of
+  // memory from one direction.
+  char* unaligned_alloc_ptr_ = nullptr;
+  char* aligned_alloc_ptr_ = nullptr;
+  // How many bytes left in currently active block?
+  size_t alloc_bytes_remaining_ = 0;
+
+  char* AllocateFallback(size_t bytes, bool aligned);
   char* AllocateNewBlock(size_t block_bytes);
 
-  static const size_t kMinBlockSize = 4096;
-  static const size_t kMaxBlockSize = 2 << 30;
-
-  // Number of bytes allocated in one block
-  size_t block_size_;
-
-  // Allocation state
-  char* alloc_ptr_;
-  size_t alloc_bytes_remaining_;
-
-  // Array of new[] allocated memory blocks
-  std::vector<char*> blocks_;
-
   // Bytes of memory in blocks allocated so far
-  size_t blocks_memory_;
-
-  // No copying allowed
-  ArenaImpl(const ArenaImpl&);
-  void operator=(const ArenaImpl&);
+  size_t blocks_memory_ = 0;
 };
 
 inline char* ArenaImpl::Allocate(size_t bytes) {
@@ -73,12 +78,16 @@ inline char* ArenaImpl::Allocate(size_t bytes) {
   // them for our internal use).
   assert(bytes > 0);
   if (bytes <= alloc_bytes_remaining_) {
-    char* result = alloc_ptr_;
-    alloc_ptr_ += bytes;
+    unaligned_alloc_ptr_ -= bytes;
     alloc_bytes_remaining_ -= bytes;
-    return result;
+    return unaligned_alloc_ptr_;
   }
-  return AllocateFallback(bytes);
+  return AllocateFallback(bytes, false /* unaligned */);
 }
+
+// check and adjust the block_size so that the return value is
+//  1. in the range of [kMinBlockSize, kMaxBlockSize].
+//  2. the multiple of align unit.
+extern size_t OptimizeBlockSize(size_t block_size);
 
 }  // namespace rocksdb

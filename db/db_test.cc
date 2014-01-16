@@ -832,6 +832,156 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
             options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
 }
 
+TEST(DBTest, LevelLimitReopen) {
+  Options options = CurrentOptions();
+  Reopen(&options);
+
+  const std::string value(1024 * 1024, ' ');
+  int i = 0;
+  while (NumTableFilesAtLevel(2) == 0) {
+    ASSERT_OK(Put(Key(i++), value));
+  }
+
+  options.num_levels = 1;
+  options.max_bytes_for_level_multiplier_additional.resize(1, 1);
+  Status s = TryReopen(&options);
+  ASSERT_EQ(s.IsInvalidArgument(), true);
+  ASSERT_EQ(s.ToString(),
+            "Invalid argument: db has more levels than options.num_levels");
+
+  options.num_levels = 10;
+  options.max_bytes_for_level_multiplier_additional.resize(10, 1);
+  ASSERT_OK(TryReopen(&options));
+}
+
+TEST(DBTest, Preallocation) {
+  const std::string src = dbname_ + "/alloc_test";
+  unique_ptr<WritableFile> srcfile;
+  const EnvOptions soptions;
+  ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
+  srcfile->SetPreallocationBlockSize(1024 * 1024);
+
+  // No writes should mean no preallocation
+  size_t block_size, last_allocated_block;
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 0UL);
+
+  // Small write should preallocate one block
+  srcfile->Append("test");
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 1UL);
+
+  // Write an entire preallocation block, make sure we increased by two.
+  std::string buf(block_size, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 2UL);
+
+  // Write five more blocks at once, ensure we're where we need to be.
+  buf = std::string(block_size * 5, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 7UL);
+}
+
+TEST(DBTest, PutDeleteGet) {
+  do {
+    ASSERT_OK(db_->Put(WriteOptions(), "foo", "v1"));
+    ASSERT_EQ("v1", Get("foo"));
+    ASSERT_OK(db_->Put(WriteOptions(), "foo", "v2"));
+    ASSERT_EQ("v2", Get("foo"));
+    ASSERT_OK(db_->Delete(WriteOptions(), "foo"));
+    ASSERT_EQ("NOT_FOUND", Get("foo"));
+  } while (ChangeOptions());
+}
+
+
+TEST(DBTest, GetFromImmutableLayer) {
+  do {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.write_buffer_size = 100000;  // Small write buffer
+    Reopen(&options);
+
+    ASSERT_OK(Put("foo", "v1"));
+    ASSERT_EQ("v1", Get("foo"));
+
+    env_->delay_sstable_sync_.Release_Store(env_);   // Block sync calls
+    Put("k1", std::string(100000, 'x'));             // Fill memtable
+    Put("k2", std::string(100000, 'y'));             // Trigger compaction
+    ASSERT_EQ("v1", Get("foo"));
+    env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, GetFromVersions) {
+  do {
+    ASSERT_OK(Put("foo", "v1"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_EQ("v1", Get("foo"));
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, GetSnapshot) {
+  do {
+    // Try with both a short key and a long key
+    for (int i = 0; i < 2; i++) {
+      std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
+      ASSERT_OK(Put(key, "v1"));
+      const Snapshot* s1 = db_->GetSnapshot();
+      ASSERT_OK(Put(key, "v2"));
+      ASSERT_EQ("v2", Get(key));
+      ASSERT_EQ("v1", Get(key, s1));
+      dbfull()->TEST_FlushMemTable();
+      ASSERT_EQ("v2", Get(key));
+      ASSERT_EQ("v1", Get(key, s1));
+      db_->ReleaseSnapshot(s1);
+    }
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, GetLevel0Ordering) {
+  do {
+    // Check that we process level-0 files in correct order.  The code
+    // below generates two level-0 files where the earlier one comes
+    // before the later one in the level-0 file list since the earlier
+    // one has a smaller "smallest" key.
+    ASSERT_OK(Put("bar", "b"));
+    ASSERT_OK(Put("foo", "v1"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(Put("foo", "v2"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_EQ("v2", Get("foo"));
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, GetOrderedByLevels) {
+  do {
+    ASSERT_OK(Put("foo", "v1"));
+    Compact("a", "z");
+    ASSERT_EQ("v1", Get("foo"));
+    ASSERT_OK(Put("foo", "v2"));
+    ASSERT_EQ("v2", Get("foo"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_EQ("v2", Get("foo"));
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, GetPicksCorrectFile) {
+  do {
+    // Arrange to have multiple files in a non-level-0 level.
+    ASSERT_OK(Put("a", "va"));
+    Compact("a", "b");
+    ASSERT_OK(Put("x", "vx"));
+    Compact("x", "y");
+    ASSERT_OK(Put("f", "vf"));
+    Compact("f", "g");
+    ASSERT_EQ("va", Get("a"));
+    ASSERT_EQ("vf", Get("f"));
+    ASSERT_EQ("vx", Get("x"));
+  } while (ChangeOptions());
+}
+
 TEST(DBTest, GetEncountersEmptyLevel) {
   do {
     // Arrange for the following to happen:
@@ -3325,34 +3475,46 @@ TEST(DBTest, ManualCompaction) {
   ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
       << "Need to update this test to match kMaxMemCompactLevel";
 
-  MakeTables(3, "p", "q");
-  ASSERT_EQ("1,1,1", FilesPerLevel());
+  // iter - 0 with 7 levels
+  // iter - 1 with 3 levels
+  for (int iter = 0; iter < 2; ++iter) {
+    MakeTables(3, "p", "q");
+    ASSERT_EQ("1,1,1", FilesPerLevel());
 
-  // Compaction range falls before files
-  Compact("", "c");
-  ASSERT_EQ("1,1,1", FilesPerLevel());
+    // Compaction range falls before files
+    Compact("", "c");
+    ASSERT_EQ("1,1,1", FilesPerLevel());
 
-  // Compaction range falls after files
-  Compact("r", "z");
-  ASSERT_EQ("1,1,1", FilesPerLevel());
+    // Compaction range falls after files
+    Compact("r", "z");
+    ASSERT_EQ("1,1,1", FilesPerLevel());
 
-  // Compaction range overlaps files
-  Compact("p1", "p9");
-  ASSERT_EQ("0,0,1", FilesPerLevel());
+    // Compaction range overlaps files
+    Compact("p1", "p9");
+    ASSERT_EQ("0,0,1", FilesPerLevel());
 
-  // Populate a different range
-  MakeTables(3, "c", "e");
-  ASSERT_EQ("1,1,2", FilesPerLevel());
+    // Populate a different range
+    MakeTables(3, "c", "e");
+    ASSERT_EQ("1,1,2", FilesPerLevel());
 
-  // Compact just the new range
-  Compact("b", "f");
-  ASSERT_EQ("0,0,2", FilesPerLevel());
+    // Compact just the new range
+    Compact("b", "f");
+    ASSERT_EQ("0,0,2", FilesPerLevel());
 
-  // Compact all
-  MakeTables(1, "a", "z");
-  ASSERT_EQ("0,1,2", FilesPerLevel());
-  db_->CompactRange(nullptr, nullptr);
-  ASSERT_EQ("0,0,1", FilesPerLevel());
+    // Compact all
+    MakeTables(1, "a", "z");
+    ASSERT_EQ("0,1,2", FilesPerLevel());
+    db_->CompactRange(nullptr, nullptr);
+    ASSERT_EQ("0,0,1", FilesPerLevel());
+
+    if (iter == 0) {
+      Options options = CurrentOptions();
+      options.num_levels = 3;
+      options.create_if_missing = true;
+      DestroyAndReopen(&options);
+    }
+  }
+
 }
 
 TEST(DBTest, DBOpen_Options) {
@@ -3413,7 +3575,7 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
   opts.create_if_missing = false;
   opts.num_levels = 2;
   s = DB::Open(opts, dbname, &db);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "Corruption") != nullptr);
+  ASSERT_TRUE(strstr(s.ToString().c_str(), "Invalid argument") != nullptr);
   ASSERT_TRUE(db == nullptr);
 }
 
@@ -4348,6 +4510,70 @@ TEST(DBTest, MultiThreaded) {
   } while (ChangeOptions());
 }
 
+// Group commit test:
+namespace {
+
+static const int kGCNumThreads = 4;
+static const int kGCNumKeys = 1000;
+
+struct GCThread {
+  DB* db;
+  int id;
+  std::atomic<bool> done;
+};
+
+static void GCThreadBody(void* arg) {
+  GCThread* t = reinterpret_cast<GCThread*>(arg);
+  int id = t->id;
+  DB* db = t->db;
+  WriteOptions wo;
+
+  for (int i = 0; i < kGCNumKeys; ++i) {
+    std::string kv(std::to_string(i + id * kGCNumKeys));
+    ASSERT_OK(db->Put(wo, kv, kv));
+  }
+  t->done = true;
+}
+
+}  // namespace
+
+TEST(DBTest, GroupCommitTest) {
+  do {
+    // Start threads
+    GCThread thread[kGCNumThreads];
+    for (int id = 0; id < kGCNumThreads; id++) {
+      thread[id].id = id;
+      thread[id].db = db_;
+      thread[id].done = false;
+      env_->StartThread(GCThreadBody, &thread[id]);
+    }
+
+    for (int id = 0; id < kGCNumThreads; id++) {
+      while (thread[id].done == false) {
+        env_->SleepForMicroseconds(100000);
+      }
+    }
+
+    std::vector<std::string> expected_db;
+    for (int i = 0; i < kGCNumThreads * kGCNumKeys; ++i) {
+      expected_db.push_back(std::to_string(i));
+    }
+    sort(expected_db.begin(), expected_db.end());
+
+    Iterator* itr = db_->NewIterator(ReadOptions());
+    itr->SeekToFirst();
+    for (auto x : expected_db) {
+      ASSERT_TRUE(itr->Valid());
+      ASSERT_EQ(itr->key().ToString(), x);
+      ASSERT_EQ(itr->value().ToString(), x);
+      itr->Next();
+    }
+    ASSERT_TRUE(!itr->Valid());
+    delete itr;
+
+  } while (ChangeOptions());
+}
+
 namespace {
 typedef std::map<std::string, std::string> KVMap;
 }
@@ -4892,7 +5118,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
   EnvOptions sopt;
   VersionSet vset(dbname, &options, sopt, nullptr, &cmp);
   ASSERT_OK(vset.Recover());
-  VersionEdit vbase(vset.NumberLevels());
+  VersionEdit vbase;
   uint64_t fnum = 1;
   for (int i = 0; i < num_base_files; i++) {
     InternalKey start(MakeKey(2*fnum), 1, kTypeValue);
@@ -4904,7 +5130,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
   uint64_t start_micros = env->NowMicros();
 
   for (int i = 0; i < iters; i++) {
-    VersionEdit vedit(vset.NumberLevels());
+    VersionEdit vedit;
     vedit.DeleteFile(2, fnum);
     InternalKey start(MakeKey(2*fnum), 1, kTypeValue);
     InternalKey limit(MakeKey(2*fnum+1), 1, kTypeDeletion);

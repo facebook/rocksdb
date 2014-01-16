@@ -22,8 +22,8 @@ class HashLinkListRepFactory : public MemTableRepFactory {
 
   virtual ~HashLinkListRepFactory() { delete transform_; }
 
-  virtual std::shared_ptr<MemTableRep> CreateMemTableRep(
-      MemTableRep::KeyComparator& compare, Arena* arena) override;
+  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator& compare,
+                                         Arena* arena) override;
 
   virtual const char* Name() const override {
     return "HashLinkListRepFactory";

@@ -22,10 +22,11 @@ namespace rocksdb {
 static std::string PrintContents(WriteBatch* b) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
-  MemTable* mem = new MemTable(cmp, factory.get());
+  Options options;
+  options.memtable_factory = factory;
+  MemTable* mem = new MemTable(cmp, options);
   mem->Ref();
   std::string state;
-  Options options;
   Status s = WriteBatchInternal::InsertInto(b, mem, &options);
   int count = 0;
   Iterator* iter = mem->NewIterator();
