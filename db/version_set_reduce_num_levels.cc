@@ -25,7 +25,7 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
   }
 
   Version* current_version = current_;
-  int current_levels = NumberLevels();
+  int current_levels = current_version->NumberLevels();
 
   if (current_levels <= new_levels) {
     return Status::OK();
@@ -36,7 +36,7 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
   int first_nonempty_level = -1;
   int first_nonempty_level_filenum = 0;
   for (int i = new_levels - 1; i < current_levels; i++) {
-    int file_num = NumLevelFiles(i);
+    int file_num = current_version->NumLevelFiles(i);
     if (file_num != 0) {
       if (first_nonempty_level < 0) {
         first_nonempty_level = i;
@@ -65,6 +65,7 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
 
   delete[] current_version->files_;
   current_version->files_ = new_files_list;
+  current_version->num_levels_ = new_levels;
 
   delete[] compact_pointer_;
   delete[] max_file_size_;

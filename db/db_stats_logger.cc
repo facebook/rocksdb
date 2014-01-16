@@ -65,8 +65,9 @@ void DBImpl::LogDBDeployStats() {
 
   uint64_t file_total_size = 0;
   uint32_t file_total_num = 0;
-  for (int i = 0; i < versions_->NumberLevels(); i++) {
-    file_total_num += versions_->NumLevelFiles(i);
+  Version* current = versions_->current();
+  for (int i = 0; i < current->NumberLevels(); i++) {
+    file_total_num += current->NumLevelFiles(i);
     file_total_size += versions_->NumLevelBytes(i);
   }
 

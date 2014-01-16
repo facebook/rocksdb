@@ -1316,7 +1316,7 @@ int DBImpl::FindMinimumEmptyLevelFitting(int level) {
   int minimum_level = level;
   for (int i = level - 1; i > 0; --i) {
     // stop if level i is not empty
-    if (versions_->NumLevelFiles(i) > 0) break;
+    if (versions_->current()->NumLevelFiles(i) > 0) break;
 
     // stop if level i is too small (cannot fit the level files)
     if (versions_->MaxBytesForLevel(i) < versions_->NumLevelBytes(level)) break;
@@ -2233,7 +2233,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   compact->compaction->Summary(scratch, sizeof(scratch));
   Log(options_.info_log, "Compaction start summary: %s\n", scratch);
 
-  assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
+  assert(versions_->current()->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
   assert(!compact->outfile);
 
@@ -3207,7 +3207,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       {
         StopWatch sw(env_, options_.statistics.get(), STALL_L0_SLOWDOWN_COUNT);
         env_->SleepForMicroseconds(
-          SlowdownAmount(versions_->NumLevelFiles(0),
+          SlowdownAmount(versions_->current()->NumLevelFiles(0),
                          options_.level0_slowdown_writes_trigger,
                          options_.level0_stop_writes_trigger)
         );
@@ -3242,7 +3242,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
       stall_memtable_compaction_ += stall;
       stall_memtable_compaction_count_++;
-    } else if (versions_->NumLevelFiles(0) >=
+    } else if (versions_->current()->NumLevelFiles(0) >=
                options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
       DelayLoggingAndReset();
@@ -3372,6 +3372,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
   value->clear();
 
   MutexLock l(&mutex_);
+  Version* current = versions_->current();
   Slice in = property;
   Slice prefix("rocksdb.");
   if (!in.starts_with(prefix)) return false;
@@ -3386,7 +3387,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     } else {
       char buf[100];
       snprintf(buf, sizeof(buf), "%d",
-               versions_->NumLevelFiles(static_cast<int>(level)));
+               current->NumLevelFiles(static_cast<int>(level)));
       *value = buf;
       return true;
     }
@@ -3401,7 +3402,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       snprintf(buf, sizeof(buf),
                "%3d %8d %8.0f\n",
                level,
-               versions_->NumLevelFiles(level),
+               current->NumLevelFiles(level),
                versions_->NumLevelBytes(level) / 1048576.0);
       value->append(buf);
     }
@@ -3446,7 +3447,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
              );
     value->append(buf);
     for (int level = 0; level < NumberLevels(); level++) {
-      int files = versions_->NumLevelFiles(level);
+      int files = current->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
         int64_t bytes_read = stats_[level].bytes_readn +
                              stats_[level].bytes_readnp1;
@@ -3728,7 +3729,7 @@ Status DBImpl::DeleteFile(std::string name) {
     // This is to make sure that any deletion tombstones are not
     // lost. Check that the level passed is the last level.
     for (int i = level + 1; i < maxlevel; i++) {
-      if (versions_->NumLevelFiles(i) != 0) {
+      if (versions_->current()->NumLevelFiles(i) != 0) {
         Log(options_.info_log,
             "DeleteFile %s FAILED. File not in last level\n", name.c_str());
         return Status::InvalidArgument("File not in last level");
@@ -3853,12 +3854,11 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       impl->MaybeScheduleLogDBDeployStats();
     }
   }
-  impl->mutex_.Unlock();
 
-  if (impl->options_.compaction_style == kCompactionStyleUniversal) {
-    int num_files;
+  if (s.ok() && impl->options_.compaction_style == kCompactionStyleUniversal) {
+    Version* current = impl->versions_->current();
     for (int i = 1; i < impl->NumberLevels(); i++) {
-      num_files = impl->versions_->NumLevelFiles(i);
+      int num_files = current->NumLevelFiles(i);
       if (num_files > 0) {
         s = Status::InvalidArgument("Not all files are at level 0. Cannot "
           "open with universal compaction style.");
@@ -3866,6 +3866,8 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       }
     }
   }
+
+  impl->mutex_.Unlock();
 
   if (s.ok()) {
     *dbptr = impl;

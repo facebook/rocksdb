@@ -135,7 +135,10 @@ class Version {
   int PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                  const Slice& largest_user_key);
 
-  int NumFiles(int level) const { return files_[level].size(); }
+  int NumberLevels() const { return num_levels_; }
+
+  // REQUIRES: lock is held
+  int NumLevelFiles(int level) const { return files_[level].size(); }
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false) const;
@@ -161,6 +164,7 @@ class Version {
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
+  int num_levels_;              // Number of levels
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys
@@ -197,9 +201,6 @@ class Version {
   double max_compaction_score_; // max score in l1 to ln-1
   int max_compaction_score_level_; // level on which max score occurs
 
-  // The offset in the manifest file where this version is stored.
-  uint64_t offset_manifest_file_;
-
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
@@ -234,7 +235,7 @@ class VersionSet {
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
   Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
-      bool new_descriptor_log = false);
+                     bool new_descriptor_log = false);
 
   // Recover the last saved descriptor from persistent storage.
   Status Recover();
@@ -270,9 +271,6 @@ class VersionSet {
       next_file_number_ = file_number;
     }
   }
-
-  // Return the number of Table files at the specified level.
-  int NumLevelFiles(int level) const;
 
   // Return the combined file size of all files at the specified level.
   int64_t NumLevelBytes(int level) const;
@@ -400,7 +398,7 @@ class VersionSet {
   const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
 
   // Return the size of the current manifest file
-  const uint64_t ManifestFileSize() { return current_->offset_manifest_file_; }
+  uint64_t ManifestFileSize() const { return manifest_file_size_; }
 
   // For the specfied level, pick a compaction.
   // Returns nullptr if there is no compaction to be done.
@@ -524,9 +522,8 @@ class VersionSet {
   // Queue of writers to the manifest file
   std::deque<ManifestWriter*> manifest_writers_;
 
-  // Store the manifest file size when it is checked.
-  // Save us the cost of checking file size twice in LogAndApply
-  uint64_t last_observed_manifest_size_;
+  // Current size of manifest file
+  uint64_t manifest_file_size_;
 
   std::vector<FileMetaData*> obsolete_files_;
 
@@ -619,9 +616,9 @@ class Compaction {
   friend class Version;
   friend class VersionSet;
 
-  explicit Compaction(int level, int out_level, uint64_t target_file_size,
-    uint64_t max_grandparent_overlap_bytes, int number_levels,
-    bool seek_compaction = false, bool enable_compression = true);
+  Compaction(Version* input_version, int level, int out_level,
+             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
+             bool seek_compaction = false, bool enable_compression = true);
 
   int level_;
   int out_level_; // levels to which output files are stored
