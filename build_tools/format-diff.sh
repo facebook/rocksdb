@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 # If clang_format_diff.py command is not specfied, we assume we are able to
 # access directly without any path.
 if [ -z $CLANG_FORMAT_DIFF ]
@@ -12,7 +11,7 @@ if ! which $CLANG_FORMAT_DIFF &> /dev/null
 then
   echo "You didn't have clang-format-diff.py available in your computer!"
   echo "You can download it by running: "
-  echo "    curl https://fburl.com/clang-format-diff"
+  echo "    curl http://goo.gl/iUW1u2"
   exit 128
 fi
 
@@ -49,8 +48,22 @@ fi
 #   fi
 # fi
 
-# Check the format of recently changed lines,
-diffs=$(git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -p 1)
+set -e
+
+uncommitted_code=`git diff HEAD`
+
+# If there's no uncommitted changes, we assume user are doing post-commit
+# format check, in which case we'll check the modified lines from latest commit.
+# Otherwise, we'll check format of the uncommitted code only.
+format_last_commit=0
+if [ -z "$uncommitted_code" ]
+then
+  # Check the format of last commit
+  diffs=$(git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -p 1)
+else
+  # Check the format of uncommitted lines,
+  diffs=$(git diff -U0 HEAD | $CLANG_FORMAT_DIFF -p 1)
+fi
 
 if [ -z "$diffs" ]
 then
@@ -81,3 +94,16 @@ fi
 
 # Do in-place format adjustment.
 git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -i -p 1
+echo "Files reformatted!"
+
+# Amend to last commit if user do the post-commit format check
+if [ -z "$uncommitted_code" ]; then
+  echo -e "Would you like to amend the changes to last commit (`git log HEAD --oneline | head -1`)? (y/n): \c"
+  read to_amend
+
+  if [ "$to_amend" == "y" ]
+  then
+    git commit -a --amend --reuse-message HEAD
+    echo "Amended to last commit"
+  fi
+fi
