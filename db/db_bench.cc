@@ -242,6 +242,8 @@ DEFINE_int32(cache_remove_scan_count_limit, 32, "");
 DEFINE_bool(verify_checksum, false, "Verify checksum for every block read"
             " from storage");
 
+DEFINE_bool(prefetch, false, "Enable block prefetching in forward sequential reads");
+
 DEFINE_bool(statistics, false, "Database statistics");
 static class std::shared_ptr<rocksdb::Statistics> dbstats;
 
@@ -1627,7 +1629,9 @@ class Benchmark {
   }
 
   void ReadSequential(ThreadState* thread) {
-    Iterator* iter = db_->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
+    ReadOptions opts(FLAGS_verify_checksum, true);
+    opts.prefetch = FLAGS_prefetch;
+    Iterator* iter = db_->NewIterator(opts);
     long long i = 0;
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
