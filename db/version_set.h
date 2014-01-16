@@ -28,12 +28,14 @@
 #include "port/port.h"
 #include "db/table_cache.h"
 #include "db/compaction.h"
+#include "db/compaction_picker.h"
 
 namespace rocksdb {
 
 namespace log { class Writer; }
 
 class Compaction;
+class CompactionPicker;
 class Iterator;
 class MemTable;
 class TableCache;
@@ -185,6 +187,9 @@ class Version {
   friend class Compaction;
   friend class VersionSet;
   friend class DBImpl;
+  friend class CompactionPicker;
+  friend class LevelCompactionPicker;
+  friend class UniversalCompactionPicker;
 
   class LevelFileNumIterator;
   Iterator* NewConcatenatingIterator(const ReadOptions&,
@@ -407,35 +412,18 @@ class VersionSet {
   // Return the size of the current manifest file
   uint64_t ManifestFileSize() const { return manifest_file_size_; }
 
-  // For the specfied level, pick a compaction.
-  // Returns nullptr if there is no compaction to be done.
-  // If level is 0 and there is already a compaction on that level, this
-  // function will return nullptr.
-  Compaction* PickCompactionBySize(int level, double score);
-
-  // Pick files to compact in Universal mode
-  Compaction* PickCompactionUniversal(int level, double score);
-
-  // Pick Universal compaction to limit read amplification
-  Compaction* PickCompactionUniversalReadAmp(int level, double score,
-                unsigned int ratio, unsigned int num_files);
-
-  // Pick Universal compaction to limit space amplification.
-  Compaction* PickCompactionUniversalSizeAmp(int level, double score);
-
-  // Free up the files that were participated in a compaction
-  void ReleaseCompactionFiles(Compaction* c, Status status);
-
   // verify that the files that we started with for a compaction
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact.
   bool VerifyCompactionFileConsistency(Compaction* c);
 
+  double MaxBytesForLevel(int level);
+
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level);
 
-  double MaxBytesForLevel(int level);
+  void ReleaseCompactionFiles(Compaction* c, Status status);
 
   Status GetMetadataForFile(
     uint64_t number, int *filelevel, FileMetaData *metadata);
@@ -452,31 +440,12 @@ class VersionSet {
   friend class Compaction;
   friend class Version;
 
-  void Init(int num_levels);
-
-  void GetRange(const std::vector<FileMetaData*>& inputs,
-                InternalKey* smallest,
-                InternalKey* largest);
-
-  void GetRange2(const std::vector<FileMetaData*>& inputs1,
-                 const std::vector<FileMetaData*>& inputs2,
-                 InternalKey* smallest,
-                 InternalKey* largest);
-
-  void ExpandWhileOverlapping(Compaction* c);
-
-  void SetupOtherInputs(Compaction* c);
-
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);
 
   void AppendVersion(Version* v);
 
   bool ManifestContains(const std::string& record) const;
-
-  uint64_t ExpandedCompactionByteSizeLimit(int level);
-
-  uint64_t MaxGrandParentOverlapBytes(int level);
 
   Env* const env_;
   const std::string dbname_;
@@ -504,14 +473,9 @@ class VersionSet {
   // Either an empty string, or a valid InternalKey.
   std::string* compact_pointer_;
 
-  // Per-level target file size.
-  uint64_t* max_file_size_;
-
-  // Per-level max bytes
-  uint64_t* level_max_bytes_;
-
-  // record all the ongoing compactions for all levels
-  std::vector<std::set<Compaction*> > compactions_in_progress_;
+  // An object that keeps all the compaction stats
+  // and picks the next compaction
+  std::unique_ptr<CompactionPicker> compaction_picker_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;
@@ -534,17 +498,6 @@ class VersionSet {
   // No copying allowed
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);
-
-  // Return the total amount of data that is undergoing
-  // compactions per level
-  void SizeBeingCompacted(std::vector<uint64_t>&);
-
-  // Returns true if any one of the parent files are being compacted
-  bool ParentRangeInCompaction(const InternalKey* smallest,
-    const InternalKey* largest, int level, int* index);
-
-  // Returns true if any one of the specified files are being compacted
-  bool FilesInCompaction(std::vector<FileMetaData*>& files);
 
   void LogAndApplyHelper(Builder*b, Version* v,
                            VersionEdit* edit, port::Mutex* mu);
