@@ -1,0 +1,214 @@
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+//
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#include "db/compaction.h"
+
+namespace rocksdb {
+
+static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
+  uint64_t sum = 0;
+  for (size_t i = 0; i < files.size() && files[i]; i++) {
+    sum += files[i]->file_size;
+  }
+  return sum;
+}
+
+Compaction::Compaction(Version* input_version, int level, int out_level,
+                       uint64_t target_file_size,
+                       uint64_t max_grandparent_overlap_bytes,
+                       bool seek_compaction, bool enable_compression)
+    : level_(level),
+      out_level_(out_level),
+      max_output_file_size_(target_file_size),
+      maxGrandParentOverlapBytes_(max_grandparent_overlap_bytes),
+      input_version_(input_version),
+      number_levels_(input_version_->NumberLevels()),
+      seek_compaction_(seek_compaction),
+      enable_compression_(enable_compression),
+      grandparent_index_(0),
+      seen_key_(false),
+      overlapped_bytes_(0),
+      base_index_(-1),
+      parent_index_(-1),
+      score_(0),
+      bottommost_level_(false),
+      is_full_compaction_(false),
+      level_ptrs_(std::vector<size_t>(number_levels_)) {
+
+  input_version_->Ref();
+  edit_ = new VersionEdit();
+  for (int i = 0; i < number_levels_; i++) {
+    level_ptrs_[i] = 0;
+  }
+}
+
+Compaction::~Compaction() {
+  delete edit_;
+  if (input_version_ != nullptr) {
+    input_version_->Unref();
+  }
+}
+
+bool Compaction::IsTrivialMove() const {
+  // Avoid a move if there is lots of overlapping grandparent data.
+  // Otherwise, the move could create a parent file that will require
+  // a very expensive merge later on.
+  // If level_== out_level_, the purpose is to force compaction filter to be
+  // applied to that level, and thus cannot be a trivia move.
+  return (level_ != out_level_ &&
+          num_input_files(0) == 1 &&
+          num_input_files(1) == 0 &&
+          TotalFileSize(grandparents_) <= maxGrandParentOverlapBytes_);
+}
+
+void Compaction::AddInputDeletions(VersionEdit* edit) {
+  for (int which = 0; which < 2; which++) {
+    for (size_t i = 0; i < inputs_[which].size(); i++) {
+      edit->DeleteFile(level_ + which, inputs_[which][i]->number);
+    }
+  }
+}
+
+bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
+  if (input_version_->vset_->options_->compaction_style ==
+      kCompactionStyleUniversal) {
+    return bottommost_level_;
+  }
+  // Maybe use binary search to find right entry instead of linear search?
+  const Comparator* user_cmp = input_version_->vset_->icmp_.user_comparator();
+  for (int lvl = level_ + 2; lvl < number_levels_; lvl++) {
+    const std::vector<FileMetaData*>& files = input_version_->files_[lvl];
+    for (; level_ptrs_[lvl] < files.size(); ) {
+      FileMetaData* f = files[level_ptrs_[lvl]];
+      if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
+        // We've advanced far enough
+        if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+          // Key falls in this file's range, so definitely not base level
+          return false;
+        }
+        break;
+      }
+      level_ptrs_[lvl]++;
+    }
+  }
+  return true;
+}
+
+bool Compaction::ShouldStopBefore(const Slice& internal_key) {
+  // Scan to find earliest grandparent file that contains key.
+  const InternalKeyComparator* icmp = &input_version_->vset_->icmp_;
+  while (grandparent_index_ < grandparents_.size() &&
+      icmp->Compare(internal_key,
+                    grandparents_[grandparent_index_]->largest.Encode()) > 0) {
+    if (seen_key_) {
+      overlapped_bytes_ += grandparents_[grandparent_index_]->file_size;
+    }
+    assert(grandparent_index_ + 1 >= grandparents_.size() ||
+           icmp->Compare(grandparents_[grandparent_index_]->largest.Encode(),
+                         grandparents_[grandparent_index_+1]->smallest.Encode())
+                         < 0);
+    grandparent_index_++;
+  }
+  seen_key_ = true;
+
+  if (overlapped_bytes_ > maxGrandParentOverlapBytes_) {
+    // Too much overlap for current output; start new output
+    overlapped_bytes_ = 0;
+    return true;
+  } else {
+    return false;
+  }
+}
+
+// Mark (or clear) each file that is being compacted
+void Compaction::MarkFilesBeingCompacted(bool value) {
+  for (int i = 0; i < 2; i++) {
+    std::vector<FileMetaData*> v = inputs_[i];
+    for (unsigned int j = 0; j < inputs_[i].size(); j++) {
+      assert(value ? !inputs_[i][j]->being_compacted :
+                      inputs_[i][j]->being_compacted);
+      inputs_[i][j]->being_compacted = value;
+    }
+  }
+}
+
+// Is this compaction producing files at the bottommost level?
+void Compaction::SetupBottomMostLevel(bool isManual) {
+  if (input_version_->vset_->options_->compaction_style  ==
+         kCompactionStyleUniversal) {
+    // If universal compaction style is used and manual
+    // compaction is occuring, then we are guaranteed that
+    // all files will be picked in a single compaction
+    // run. We can safely set bottommost_level_ = true.
+    // If it is not manual compaction, then bottommost_level_
+    // is already set when the Compaction was created.
+    if (isManual) {
+      bottommost_level_ = true;
+    }
+    return;
+  }
+  bottommost_level_ = true;
+  int num_levels = input_version_->vset_->NumberLevels();
+  for (int i = output_level() + 1; i < num_levels; i++) {
+    if (input_version_->NumLevelFiles(i) > 0) {
+      bottommost_level_ = false;
+      break;
+    }
+  }
+}
+
+void Compaction::ReleaseInputs() {
+  if (input_version_ != nullptr) {
+    input_version_->Unref();
+    input_version_ = nullptr;
+  }
+}
+
+void Compaction::ResetNextCompactionIndex() {
+  input_version_->ResetNextCompactionIndex(level_);
+}
+
+static void InputSummary(std::vector<FileMetaData*>& files, char* output,
+                         int len) {
+  int write = 0;
+  for (unsigned int i = 0; i < files.size(); i++) {
+    int sz = len - write;
+    int ret = snprintf(output + write, sz, "%lu(%lu) ",
+        (unsigned long)files.at(i)->number,
+        (unsigned long)files.at(i)->file_size);
+    if (ret < 0 || ret >= sz)
+      break;
+    write += ret;
+  }
+}
+
+void Compaction::Summary(char* output, int len) {
+  int write = snprintf(output, len,
+      "Base version %lu Base level %d, seek compaction:%d, inputs:",
+      (unsigned long)input_version_->GetVersionNumber(),
+      level_,
+      seek_compaction_);
+  if (write < 0 || write > len) {
+    return;
+  }
+
+  char level_low_summary[100];
+  InputSummary(inputs_[0], level_low_summary, sizeof(level_low_summary));
+  char level_up_summary[100];
+  if (inputs_[1].size()) {
+    InputSummary(inputs_[1], level_up_summary, sizeof(level_up_summary));
+  } else {
+    level_up_summary[0] = '\0';
+  }
+
+  snprintf(output + write, len - write, "[%s],[%s]",
+      level_low_summary, level_up_summary);
+}
+
+}  // namespace rocksdb
