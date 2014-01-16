@@ -36,7 +36,6 @@ TEST(VersionEditTest, EncodeDecode) {
                  kBig + 500 + i,
                  kBig + 600 + i);
     edit.DeleteFile(4, kBig + 700 + i);
-    edit.SetCompactPointer(i, InternalKey("x", kBig + 900 + i, kTypeValue));
   }
 
   edit.SetComparatorName("foo");

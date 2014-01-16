@@ -1245,13 +1245,6 @@ class VersionSet::Builder {
   void Apply(VersionEdit* edit) {
     CheckConsistency(base_);
 
-    // Update compaction pointers
-    for (size_t i = 0; i < edit->compact_pointers_.size(); i++) {
-      const int level = edit->compact_pointers_[i].first;
-      vset_->compact_pointer_[level] =
-          edit->compact_pointers_[i].second.Encode().ToString();
-    }
-
     // Delete files
     const VersionEdit::DeletedFileSet& del = edit->deleted_files_;
     for (VersionEdit::DeletedFileSet::const_iterator iter = del.begin();
@@ -1365,7 +1358,6 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       manifest_file_size_(0),
       storage_options_(storage_options),
       storage_options_compactions_(storage_options_) {
-  compact_pointer_ = new std::string[options_->num_levels];
   if (options_->compaction_style == kCompactionStyleUniversal) {
     compaction_picker_.reset(new UniversalCompactionPicker(options_, &icmp_));
   } else {
@@ -1381,7 +1373,6 @@ VersionSet::~VersionSet() {
     delete file;
   }
   obsolete_files_.clear();
-  delete[] compact_pointer_;
 }
 
 void VersionSet::AppendVersion(Version* v) {
@@ -1880,15 +1871,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // Save metadata
   VersionEdit edit;
   edit.SetComparatorName(icmp_.user_comparator()->Name());
-
-  // Save compaction pointers
-  for (int level = 0; level < NumberLevels(); level++) {
-    if (!compact_pointer_[level].empty()) {
-      InternalKey key;
-      key.DecodeFrom(compact_pointer_[level]);
-      edit.SetCompactPointer(level, key);
-    }
-  }
 
   // Save files
   for (int level = 0; level < current_->NumberLevels(); level++) {

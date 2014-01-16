@@ -469,10 +469,6 @@ class VersionSet {
   // we have too many level 0 files
   bool need_slowdown_for_num_level0_files_;
 
-  // Per-level key at which the next compaction at that level should start.
-  // Either an empty string, or a valid InternalKey.
-  std::string* compact_pointer_;
-
   // An object that keeps all the compaction stats
   // and picks the next compaction
   std::unique_ptr<CompactionPicker> compaction_picker_;
