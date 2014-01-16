@@ -1313,13 +1313,13 @@ void DBImpl::CompactRange(const Slice* begin,
 // return the same level if it cannot be moved
 int DBImpl::FindMinimumEmptyLevelFitting(int level) {
   mutex_.AssertHeld();
+  Version* current = versions_->current();
   int minimum_level = level;
   for (int i = level - 1; i > 0; --i) {
     // stop if level i is not empty
-    if (versions_->current()->NumLevelFiles(i) > 0) break;
-
+    if (current->NumLevelFiles(i) > 0) break;
     // stop if level i is too small (cannot fit the level files)
-    if (versions_->MaxBytesForLevel(i) < versions_->NumLevelBytes(level)) break;
+    if (versions_->MaxBytesForLevel(i) < current->NumLevelBytes(level)) break;
 
     minimum_level = i;
   }
@@ -1826,6 +1826,11 @@ void DBImpl::TEST_PurgeObsoleteteWAL() {
   PurgeObsoleteWALFiles();
 }
 
+uint64_t DBImpl::TEST_GetLevel0TotalSize() {
+  MutexLock l(&mutex_);
+  return versions_->current()->NumLevelBytes(0);
+}
+
 void DBImpl::BackgroundCallCompaction() {
   bool madeProgress = false;
   DeletionState deletion_state(options_.max_write_buffer_number, true);
@@ -1939,13 +1944,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
                        f->smallest_seqno, f->largest_seqno);
     status = versions_->LogAndApply(c->edit(), &mutex_);
     InstallSuperVersion(deletion_state);
-    VersionSet::LevelSummaryStorage tmp;
+    Version::LevelSummaryStorage tmp;
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
-        static_cast<unsigned long long>(f->number),
-        c->level() + 1,
+        static_cast<unsigned long long>(f->number), c->level() + 1,
         static_cast<unsigned long long>(f->file_size),
-        status.ToString().c_str(),
-        versions_->LevelSummary(&tmp));
+        status.ToString().c_str(), versions_->current()->LevelSummary(&tmp));
     versions_->ReleaseCompactionFiles(c.get(), status);
     *madeProgress = true;
   } else {
@@ -2605,22 +2608,21 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     status = InstallCompactionResults(compact);
     InstallSuperVersion(deletion_state);
   }
-  VersionSet::LevelSummaryStorage tmp;
+  Version::LevelSummaryStorage tmp;
   Log(options_.info_log,
       "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s\n",
-      versions_->LevelSummary(&tmp),
+      versions_->current()->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
-          (double) stats.micros,
-      compact->compaction->output_level(),
-      stats.files_in_leveln, stats.files_in_levelnp1, stats.files_out_levelnp1,
-      stats.bytes_readn / 1048576.0,
-      stats.bytes_readnp1 / 1048576.0,
+          (double)stats.micros,
+      compact->compaction->output_level(), stats.files_in_leveln,
+      stats.files_in_levelnp1, stats.files_out_levelnp1,
+      stats.bytes_readn / 1048576.0, stats.bytes_readnp1 / 1048576.0,
       stats.bytes_written / 1048576.0,
       (stats.bytes_written + stats.bytes_readnp1 + stats.bytes_readn) /
-          (double) stats.bytes_readn,
-      stats.bytes_written / (double) stats.bytes_readn,
+          (double)stats.bytes_readn,
+      stats.bytes_written / (double)stats.bytes_readn,
       status.ToString().c_str());
 
   return status;
@@ -2701,7 +2703,7 @@ Iterator* DBImpl::TEST_NewInternalIterator() {
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
   MutexLock l(&mutex_);
-  return versions_->MaxNextLevelOverlappingBytes();
+  return versions_->current()->MaxNextLevelOverlappingBytes();
 }
 
 Status DBImpl::Get(const ReadOptions& options,
@@ -3193,9 +3195,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       // Yield previous error
       s = bg_error_;
       break;
-    } else if (
-        allow_delay &&
-        versions_->NeedSlowdownForNumLevel0Files()) {
+    } else if (allow_delay && versions_->NeedSlowdownForNumLevel0Files()) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -3403,7 +3403,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
                "%3d %8d %8.0f\n",
                level,
                current->NumLevelFiles(level),
-               versions_->NumLevelBytes(level) / 1048576.0);
+               current->NumLevelBytes(level) / 1048576.0);
       value->append(buf);
     }
     return true;
@@ -3446,7 +3446,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
              "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
              );
     value->append(buf);
-    for (int level = 0; level < NumberLevels(); level++) {
+    for (int level = 0; level < current->NumberLevels(); level++) {
       int files = current->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
         int64_t bytes_read = stats_[level].bytes_readn +
@@ -3468,8 +3468,8 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
             "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %10.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f %9lu\n",
             level,
             files,
-            versions_->NumLevelBytes(level) / 1048576.0,
-            versions_->NumLevelBytes(level) /
+            current->NumLevelBytes(level) / 1048576.0,
+            current->NumLevelBytes(level) /
                 versions_->MaxBytesForLevel(level),
             stats_[level].micros / 1e6,
             bytes_read / 1048576.0,

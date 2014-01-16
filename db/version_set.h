@@ -140,13 +140,34 @@ class Version {
   // REQUIRES: lock is held
   int NumLevelFiles(int level) const { return files_[level].size(); }
 
+  // Return the combined file size of all files at the specified level.
+  int64_t NumLevelBytes(int level) const;
+
+  // Return a human-readable short (single-line) summary of the number
+  // of files per level.  Uses *scratch as backing store.
+  struct LevelSummaryStorage {
+    char buffer[100];
+  };
+  struct FileSummaryStorage {
+    char buffer[1000];
+  };
+  const char* LevelSummary(LevelSummaryStorage* scratch) const;
+  // Return a human-readable short (single-line) summary of files
+  // in a specified level.  Uses *scratch as backing store.
+  const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
+
+  // Return the maximum overlapping data (in bytes) at next level for any
+  // file at a level >= 1.
+  int64_t MaxNextLevelOverlappingBytes();
+
+  // Add all files listed in the current version to *live.
+  void AddLiveFiles(std::set<uint64_t>* live);
+
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false) const;
 
   // Returns the version nuber of this version
-  uint64_t GetVersionNumber() {
-    return version_number_;
-  }
+  uint64_t GetVersionNumber() const { return version_number_; }
 
  private:
   friend class Compaction;
@@ -222,10 +243,8 @@ class Version {
 
 class VersionSet {
  public:
-  VersionSet(const std::string& dbname,
-             const Options* options,
-             const EnvOptions& storage_options,
-             TableCache* table_cache,
+  VersionSet(const std::string& dbname, const Options* options,
+             const EnvOptions& storage_options, TableCache* table_cache,
              const InternalKeyComparator*);
   ~VersionSet();
 
@@ -254,7 +273,7 @@ class VersionSet {
   // A Flag indicating whether write needs to slowdown because of there are
   // too many number of level0 files.
   bool NeedSlowdownForNumLevel0Files() const {
-    return need_slowdown_for_num_level0_files;
+    return need_slowdown_for_num_level0_files_;
   }
 
   // Return the current manifest file number
@@ -271,9 +290,6 @@ class VersionSet {
       next_file_number_ = file_number;
     }
   }
-
-  // Return the combined file size of all files at the specified level.
-  int64_t NumLevelBytes(int level) const;
 
   // Return the last sequence number.
   uint64_t LastSequence() const {
@@ -321,10 +337,6 @@ class VersionSet {
                            const InternalKey* end,
                            InternalKey** compaction_end);
 
-  // Return the maximum overlapping data (in bytes) at next level for any
-  // file at a level >= 1.
-  int64_t MaxNextLevelOverlappingBytes();
-
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   Iterator* MakeInputIterator(Compaction* c);
@@ -368,34 +380,13 @@ class VersionSet {
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<uint64_t>* live_list);
 
-  // Add all files listed in the current version to *live.
-  void AddLiveFilesCurrentVersion(std::set<uint64_t>* live);
-
   // Return the approximate offset in the database of the data for
   // "key" as of version "v".
   uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);
 
-  // Return a human-readable short (single-line) summary of the number
-  // of files per level.  Uses *scratch as backing store.
-  struct LevelSummaryStorage {
-    char buffer[100];
-  };
-  struct FileSummaryStorage {
-    char buffer[1000];
-  };
-  const char* LevelSummary(LevelSummaryStorage* scratch) const;
-
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
                       bool verbose, bool hex = false);
-
-  // Return a human-readable short (single-line) summary of the data size
-  // of files per level.  Uses *scratch as backing store.
-  const char* LevelDataSizeSummary(LevelSummaryStorage* scratch) const;
-
-  // Return a human-readable short (single-line) summary of files
-  // in a specified level.  Uses *scratch as backing store.
-  const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
 
   // Return the size of the current manifest file
   uint64_t ManifestFileSize() const { return manifest_file_size_; }
@@ -501,7 +492,9 @@ class VersionSet {
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;        // == dummy_versions_.prev_
 
-  bool need_slowdown_for_num_level0_files;
+  // A flag indicating whether we should delay writes because
+  // we have too many level 0 files
+  bool need_slowdown_for_num_level0_files_;
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.

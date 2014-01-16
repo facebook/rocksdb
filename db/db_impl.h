@@ -129,7 +129,7 @@ class DBImpl : public DB {
   void TEST_PurgeObsoleteteWAL();
 
   // get total level0 file size. Only for testing.
-  uint64_t TEST_GetLevel0TotalSize() { return versions_->NumLevelBytes(0);}
+  uint64_t TEST_GetLevel0TotalSize();
 
   void TEST_SetDefaultTimeToCheck(uint64_t default_interval_to_delete_obsolete_WAL)
   {

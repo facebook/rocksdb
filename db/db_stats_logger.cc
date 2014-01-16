@@ -68,11 +68,11 @@ void DBImpl::LogDBDeployStats() {
   Version* current = versions_->current();
   for (int i = 0; i < current->NumberLevels(); i++) {
     file_total_num += current->NumLevelFiles(i);
-    file_total_size += versions_->NumLevelBytes(i);
+    file_total_size += current->NumLevelBytes(i);
   }
 
-  VersionSet::LevelSummaryStorage scratch;
-  const char* file_num_summary = versions_->LevelSummary(&scratch);
+  Version::LevelSummaryStorage scratch;
+  const char* file_num_summary = current->LevelSummary(&scratch);
   std::string file_num_per_level(file_num_summary);
   std::string data_size_per_level(file_num_summary);
 

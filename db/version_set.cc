@@ -857,6 +857,67 @@ bool Version::HasOverlappingUserKey(
   return false;
 }
 
+int64_t Version::NumLevelBytes(int level) const {
+  assert(level >= 0);
+  assert(level < NumberLevels());
+  return TotalFileSize(files_[level]);
+}
+
+const char* Version::LevelSummary(LevelSummaryStorage* scratch) const {
+  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files[");
+  for (int i = 0; i < NumberLevels(); i++) {
+    int sz = sizeof(scratch->buffer) - len;
+    int ret = snprintf(scratch->buffer + len, sz, "%d ", int(files_[i].size()));
+    if (ret < 0 || ret >= sz) break;
+    len += ret;
+  }
+  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
+  return scratch->buffer;
+}
+
+const char* Version::LevelFileSummary(FileSummaryStorage* scratch,
+                                      int level) const {
+  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files_size[");
+  for (const auto& f : files_[level]) {
+    int sz = sizeof(scratch->buffer) - len;
+    int ret = snprintf(scratch->buffer + len, sz,
+                       "#%lu(seq=%lu,sz=%lu,%lu) ",
+                       (unsigned long)f->number,
+                       (unsigned long)f->smallest_seqno,
+                       (unsigned long)f->file_size,
+                       (unsigned long)f->being_compacted);
+    if (ret < 0 || ret >= sz)
+      break;
+    len += ret;
+  }
+  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
+  return scratch->buffer;
+}
+
+int64_t Version::MaxNextLevelOverlappingBytes() {
+  uint64_t result = 0;
+  std::vector<FileMetaData*> overlaps;
+  for (int level = 1; level < NumberLevels() - 1; level++) {
+    for (const auto& f : files_[level]) {
+      GetOverlappingInputs(level + 1, &f->smallest, &f->largest, &overlaps);
+      const uint64_t sum = TotalFileSize(overlaps);
+      if (sum > result) {
+        result = sum;
+      }
+    }
+  }
+  return result;
+}
+
+void Version::AddLiveFiles(std::set<uint64_t>* live) {
+  for (int level = 0; level < NumberLevels(); level++) {
+    const std::vector<FileMetaData*>& files = files_[level];
+    for (const auto& file : files) {
+      live->insert(file->number);
+    }
+  }
+}
+
 std::string Version::DebugString(bool hex) const {
   std::string r;
   for (int level = 0; level < num_levels_; level++) {
@@ -1145,7 +1206,7 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       num_levels_(options_->num_levels),
       dummy_versions_(this),
       current_(nullptr),
-      need_slowdown_for_num_level0_files(false),
+      need_slowdown_for_num_level0_files_(false),
       compactions_in_progress_(options_->num_levels),
       current_version_number_(0),
       manifest_file_size_(0),
@@ -1197,7 +1258,7 @@ void VersionSet::AppendVersion(Version* v) {
     current_->Unref();
   }
   current_ = v;
-  need_slowdown_for_num_level0_files =
+  need_slowdown_for_num_level0_files_ =
       (options_->level0_slowdown_writes_trigger >= 0 && current_ != nullptr &&
        v->NumLevelFiles(0) >= options_->level0_slowdown_writes_trigger);
   v->Ref();
@@ -1861,55 +1922,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   return log->AddRecord(record);
 }
 
-const char* VersionSet::LevelSummary(LevelSummaryStorage* scratch) const {
-  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files[");
-  for (int i = 0; i < current_->NumberLevels(); i++) {
-    int sz = sizeof(scratch->buffer) - len;
-    int ret = snprintf(scratch->buffer + len, sz, "%d ",
-        int(current_->files_[i].size()));
-    if (ret < 0 || ret >= sz)
-      break;
-    len += ret;
-  }
-  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
-  return scratch->buffer;
-}
-
-const char* VersionSet::LevelDataSizeSummary(LevelSummaryStorage* scratch)
-    const {
-  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files_size[");
-  for (int i = 0; i < current_->NumberLevels(); i++) {
-    int sz = sizeof(scratch->buffer) - len;
-    int ret = snprintf(scratch->buffer + len, sz, "%lu ",
-        (unsigned long)NumLevelBytes(i));
-    if (ret < 0 || ret >= sz)
-      break;
-    len += ret;
-  }
-  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
-  return scratch->buffer;
-}
-
-const char* VersionSet::LevelFileSummary(
-    FileSummaryStorage* scratch, int level) const {
-  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files_size[");
-  for (unsigned int i = 0; i < current_->files_[level].size(); i++) {
-    FileMetaData* f = current_->files_[level][i];
-    int sz = sizeof(scratch->buffer) - len;
-    int ret = snprintf(scratch->buffer + len, sz,
-                       "#%lu(seq=%lu,sz=%lu,%lu) ",
-                       (unsigned long)f->number,
-                       (unsigned long)f->smallest_seqno,
-                       (unsigned long)f->file_size,
-                       (unsigned long)f->being_compacted);
-    if (ret < 0 || ret >= sz)
-      break;
-    len += ret;
-  }
-  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
-  return scratch->buffer;
-}
-
 // Opens the mainfest file and reads all records
 // till it finds the record we are looking for.
 bool VersionSet::ManifestContains(const std::string& record) const {
@@ -1995,40 +2007,6 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
       }
     }
   }
-}
-
-void VersionSet::AddLiveFilesCurrentVersion(std::set<uint64_t>* live) {
-  Version* v = current_;
-  for (int level = 0; level < v->NumberLevels(); level++) {
-    const std::vector<FileMetaData*>& files = v->files_[level];
-    for (size_t i = 0; i < files.size(); i++) {
-      live->insert(files[i]->number);
-    }
-  }
-}
-
-int64_t VersionSet::NumLevelBytes(int level) const {
-  assert(level >= 0);
-  assert(level < current_->NumberLevels());
-  assert(current_);
-  return TotalFileSize(current_->files_[level]);
-}
-
-int64_t VersionSet::MaxNextLevelOverlappingBytes() {
-  uint64_t result = 0;
-  std::vector<FileMetaData*> overlaps;
-  for (int level = 1; level < current_->NumberLevels() - 1; level++) {
-    for (size_t i = 0; i < current_->files_[level].size(); i++) {
-      const FileMetaData* f = current_->files_[level][i];
-      current_->GetOverlappingInputs(level+1, &f->smallest, &f->largest,
-                                     &overlaps);
-      const uint64_t sum = TotalFileSize(overlaps);
-      if (sum > result) {
-        result = sum;
-      }
-    }
-  }
-  return result;
 }
 
 // Stores the minimal range that covers all entries in inputs in
@@ -2456,10 +2434,10 @@ Compaction* VersionSet::PickCompactionUniversal(int level, double score) {
     Log(options_->info_log, "Universal: nothing to do\n");
     return nullptr;
   }
-  VersionSet::FileSummaryStorage tmp;
+  Version::FileSummaryStorage tmp;
   Log(options_->info_log, "Universal: candidate files(%lu): %s\n",
       current_->files_[level].size(),
-      LevelFileSummary(&tmp, 0));
+      current_->LevelFileSummary(&tmp, 0));
 
   // Check for size amplification first.
   Compaction* c = PickCompactionUniversalSizeAmp(level, score);
