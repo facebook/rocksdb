@@ -590,6 +590,159 @@ bool Version::UpdateStats(const GetStats& stats) {
   return false;
 }
 
+void Version::Finalize(std::vector<uint64_t>& size_being_compacted) {
+  // Pre-sort level0 for Get()
+  if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
+    std::sort(files_[0].begin(), files_[0].end(), NewestFirstBySeqNo);
+  } else {
+    std::sort(files_[0].begin(), files_[0].end(), NewestFirst);
+  }
+
+  double max_score = 0;
+  int max_score_level = 0;
+
+  int num_levels_to_check =
+      (vset_->options_->compaction_style != kCompactionStyleUniversal)
+          ? NumberLevels() - 1
+          : 1;
+
+  for (int level = 0; level < num_levels_to_check; level++) {
+    double score;
+    if (level == 0) {
+      // We treat level-0 specially by bounding the number of files
+      // instead of number of bytes for two reasons:
+      //
+      // (1) With larger write-buffer sizes, it is nice not to do too
+      // many level-0 compactions.
+      //
+      // (2) The files in level-0 are merged on every read and
+      // therefore we wish to avoid too many files when the individual
+      // file size is small (perhaps because of a small write-buffer
+      // setting, or very high compression ratios, or lots of
+      // overwrites/deletions).
+      int numfiles = 0;
+      for (unsigned int i = 0; i < files_[level].size(); i++) {
+        if (!files_[level][i]->being_compacted) {
+          numfiles++;
+        }
+      }
+
+      // If we are slowing down writes, then we better compact that first
+      if (numfiles >= vset_->options_->level0_stop_writes_trigger) {
+        score = 1000000;
+        // Log(options_->info_log, "XXX score l0 = 1000000000 max");
+      } else if (numfiles >= vset_->options_->level0_slowdown_writes_trigger) {
+        score = 10000;
+        // Log(options_->info_log, "XXX score l0 = 1000000 medium");
+      } else {
+        score = static_cast<double>(numfiles) /
+                vset_->options_->level0_file_num_compaction_trigger;
+        if (score >= 1) {
+          // Log(options_->info_log, "XXX score l0 = %d least", (int)score);
+        }
+      }
+    } else {
+      // Compute the ratio of current size to size limit.
+      const uint64_t level_bytes =
+          TotalFileSize(files_[level]) - size_being_compacted[level];
+      score = static_cast<double>(level_bytes) / vset_->MaxBytesForLevel(level);
+      if (score > 1) {
+        // Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
+      }
+      if (max_score < score) {
+        max_score = score;
+        max_score_level = level;
+      }
+    }
+    compaction_level_[level] = level;
+    compaction_score_[level] = score;
+  }
+
+  // update the max compaction score in levels 1 to n-1
+  max_compaction_score_ = max_score;
+  max_compaction_score_level_ = max_score_level;
+
+  // sort all the levels based on their score. Higher scores get listed
+  // first. Use bubble sort because the number of entries are small.
+  for (int i = 0; i < NumberLevels() - 2; i++) {
+    for (int j = i + 1; j < NumberLevels() - 1; j++) {
+      if (compaction_score_[i] < compaction_score_[j]) {
+        double score = compaction_score_[i];
+        int level = compaction_level_[i];
+        compaction_score_[i] = compaction_score_[j];
+        compaction_level_[i] = compaction_level_[j];
+        compaction_score_[j] = score;
+        compaction_level_[j] = level;
+      }
+    }
+  }
+}
+
+namespace {
+
+// Compator that is used to sort files based on their size
+// In normal mode: descending size
+bool CompareSizeDescending(const Version::Fsize& first,
+                           const Version::Fsize& second) {
+  return (first.file->file_size > second.file->file_size);
+}
+// A static compator used to sort files based on their seqno
+// In universal style : descending seqno
+bool CompareSeqnoDescending(const Version::Fsize& first,
+                            const Version::Fsize& second) {
+  if (first.file->smallest_seqno > second.file->smallest_seqno) {
+    assert(first.file->largest_seqno > second.file->largest_seqno);
+    return true;
+  }
+  assert(first.file->largest_seqno <= second.file->largest_seqno);
+  return false;
+}
+
+} // anonymous namespace
+
+void Version::UpdateFilesBySize() {
+  // No need to sort the highest level because it is never compacted.
+  int max_level =
+      (vset_->options_->compaction_style == kCompactionStyleUniversal)
+          ? NumberLevels()
+          : NumberLevels() - 1;
+
+  for (int level = 0; level < max_level; level++) {
+    const std::vector<FileMetaData*>& files = files_[level];
+    std::vector<int>& files_by_size = files_by_size_[level];
+    assert(files_by_size.size() == 0);
+
+    // populate a temp vector for sorting based on size
+    std::vector<Fsize> temp(files.size());
+    for (unsigned int i = 0; i < files.size(); i++) {
+      temp[i].index = i;
+      temp[i].file = files[i];
+    }
+
+    // sort the top number_of_files_to_sort_ based on file size
+    if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
+      int num = temp.size();
+      std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+                        CompareSeqnoDescending);
+    } else {
+      int num = Version::number_of_files_to_sort_;
+      if (num > (int)temp.size()) {
+        num = temp.size();
+      }
+      std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+                        CompareSizeDescending);
+    }
+    assert(temp.size() == files.size());
+
+    // initialize files_by_size_
+    for (unsigned int i = 0; i < temp.size(); i++) {
+      files_by_size.push_back(temp[i].index);
+    }
+    next_file_to_compact_by_size_[level] = 0;
+    assert(files_[level].size() == files_by_size_[level].size());
+  }
+}
+
 void Version::Ref() {
   ++refs_;
 }
@@ -1344,8 +1497,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
 
     // The calls to Finalize and UpdateFilesBySize are cpu-heavy
     // and is best called outside the mutex.
-    Finalize(v, size_being_compacted);
-    UpdateFilesBySize(v);
+    v->Finalize(size_being_compacted);
+    v->UpdateFilesBySize();
 
     // Write new record to MANIFEST log
     if (s.ok()) {
@@ -1580,7 +1733,7 @@ Status VersionSet::Recover() {
     // Install recovered version
     std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
     SizeBeingCompacted(size_being_compacted);
-    Finalize(v, size_being_compacted);
+    v->Finalize(size_being_compacted);
 
     manifest_file_size_ = manifest_file_size;
     AppendVersion(v);
@@ -1712,7 +1865,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     // Install recovered version
     std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
     SizeBeingCompacted(size_being_compacted);
-    Finalize(v, size_being_compacted);
+    v->Finalize(size_being_compacted);
 
     AppendVersion(v);
     manifest_file_number_ = next_file;
@@ -1737,158 +1890,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
   if (next_file_number_ <= number) {
     next_file_number_ = number + 1;
-  }
-}
-
-void VersionSet::Finalize(Version* v,
-                          std::vector<uint64_t>& size_being_compacted) {
-  // Pre-sort level0 for Get()
-  if (options_->compaction_style == kCompactionStyleUniversal) {
-    std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirstBySeqNo);
-  } else {
-    std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirst);
-  }
-
-  double max_score = 0;
-  int max_score_level = 0;
-
-  int num_levels_to_check =
-      (options_->compaction_style != kCompactionStyleUniversal) ?
-          v->NumberLevels() - 1 : 1;
-
-  for (int level = 0; level < num_levels_to_check; level++) {
-
-    double score;
-    if (level == 0) {
-      // We treat level-0 specially by bounding the number of files
-      // instead of number of bytes for two reasons:
-      //
-      // (1) With larger write-buffer sizes, it is nice not to do too
-      // many level-0 compactions.
-      //
-      // (2) The files in level-0 are merged on every read and
-      // therefore we wish to avoid too many files when the individual
-      // file size is small (perhaps because of a small write-buffer
-      // setting, or very high compression ratios, or lots of
-      // overwrites/deletions).
-      int numfiles = 0;
-      for (unsigned int i = 0; i < v->files_[level].size(); i++) {
-        if (!v->files_[level][i]->being_compacted) {
-          numfiles++;
-        }
-      }
-
-      // If we are slowing down writes, then we better compact that first
-      if (numfiles >= options_->level0_stop_writes_trigger) {
-        score = 1000000;
-        // Log(options_->info_log, "XXX score l0 = 1000000000 max");
-      } else if (numfiles >= options_->level0_slowdown_writes_trigger) {
-        score = 10000;
-        // Log(options_->info_log, "XXX score l0 = 1000000 medium");
-      } else {
-        score = numfiles /
-          static_cast<double>(options_->level0_file_num_compaction_trigger);
-        if (score >= 1) {
-          // Log(options_->info_log, "XXX score l0 = %d least", (int)score);
-        }
-      }
-    } else {
-      // Compute the ratio of current size to size limit.
-      const uint64_t level_bytes = TotalFileSize(v->files_[level]) -
-                                   size_being_compacted[level];
-      score = static_cast<double>(level_bytes) / MaxBytesForLevel(level);
-      if (score > 1) {
-        // Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
-      }
-      if (max_score < score) {
-        max_score = score;
-        max_score_level = level;
-      }
-    }
-    v->compaction_level_[level] = level;
-    v->compaction_score_[level] = score;
-  }
-
-  // update the max compaction score in levels 1 to n-1
-  v->max_compaction_score_ = max_score;
-  v->max_compaction_score_level_ = max_score_level;
-
-  // sort all the levels based on their score. Higher scores get listed
-  // first. Use bubble sort because the number of entries are small.
-  for (int i = 0; i < v->NumberLevels() - 2; i++) {
-    for (int j = i + 1; j < v->NumberLevels() - 1; j++) {
-      if (v->compaction_score_[i] < v->compaction_score_[j]) {
-        double score = v->compaction_score_[i];
-        int level = v->compaction_level_[i];
-        v->compaction_score_[i] = v->compaction_score_[j];
-        v->compaction_level_[i] = v->compaction_level_[j];
-        v->compaction_score_[j] = score;
-        v->compaction_level_[j] = level;
-      }
-    }
-  }
-}
-
-// A static compator used to sort files based on their size
-// In normal mode: descending size
-static bool compareSizeDescending(const VersionSet::Fsize& first,
-  const VersionSet::Fsize& second) {
-  return (first.file->file_size > second.file->file_size);
-}
-// A static compator used to sort files based on their seqno
-// In universal style : descending seqno
-static bool compareSeqnoDescending(const VersionSet::Fsize& first,
-  const VersionSet::Fsize& second) {
-  if (first.file->smallest_seqno > second.file->smallest_seqno) {
-    assert(first.file->largest_seqno > second.file->largest_seqno);
-    return true;
-  }
-  assert(first.file->largest_seqno <= second.file->largest_seqno);
-  return false;
-}
-
-// sort all files in level1 to level(n-1) based on file size
-void VersionSet::UpdateFilesBySize(Version* v) {
-
-  // No need to sort the highest level because it is never compacted.
-  int max_level = (options_->compaction_style == kCompactionStyleUniversal)
-                      ? v->NumberLevels()
-                      : v->NumberLevels() - 1;
-
-  for (int level = 0; level < max_level; level++) {
-
-    const std::vector<FileMetaData*>& files = v->files_[level];
-    std::vector<int>& files_by_size = v->files_by_size_[level];
-    assert(files_by_size.size() == 0);
-
-    // populate a temp vector for sorting based on size
-    std::vector<Fsize> temp(files.size());
-    for (unsigned int i = 0; i < files.size(); i++) {
-      temp[i].index = i;
-      temp[i].file = files[i];
-    }
-
-    // sort the top number_of_files_to_sort_ based on file size
-    if (options_->compaction_style == kCompactionStyleUniversal) {
-      int num = temp.size();
-      std::partial_sort(temp.begin(),  temp.begin() + num,
-                        temp.end(), compareSeqnoDescending);
-    } else {
-      int num = Version::number_of_files_to_sort_;
-      if (num > (int)temp.size()) {
-        num = temp.size();
-      }
-      std::partial_sort(temp.begin(),  temp.begin() + num,
-                        temp.end(), compareSizeDescending);
-    }
-    assert(temp.size() == files.size());
-
-    // initialize files_by_size_
-    for (unsigned int i = 0; i < temp.size(); i++) {
-      files_by_size.push_back(temp[i].index);
-    }
-    v->next_file_to_compact_by_size_[level] = 0;
-    assert(v->files_[level].size() == v->files_by_size_[level].size());
   }
 }
 
@@ -2586,7 +2587,7 @@ Compaction* VersionSet::PickCompaction() {
   // and also in LogAndApply(), otherwise the values could be stale.
   std::vector<uint64_t> size_being_compacted(NumberLevels()-1);
   current_->vset_->SizeBeingCompacted(size_being_compacted);
-  Finalize(current_, size_being_compacted);
+  current_->Finalize(size_being_compacted);
 
   // In universal style of compaction, compact L0 files back into L0.
   if (options_->compaction_style ==  kCompactionStyleUniversal) {

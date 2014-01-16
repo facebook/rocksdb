@@ -87,6 +87,11 @@ class Version {
   // REQUIRES: lock is held
   bool UpdateStats(const GetStats& stats);
 
+  // Updates internal structures that keep track of compaction scores
+  // We use compaction scores to figure out which compaction to do next
+  // Also pre-sorts level0 files for Get()
+  void Finalize(std::vector<uint64_t>& size_being_compacted);
+
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
   void Ref();
@@ -170,6 +175,12 @@ class Version {
   // Returns the version nuber of this version
   uint64_t GetVersionNumber() const { return version_number_; }
 
+  // used to sort files by size
+  struct Fsize {
+    int index;
+    FileMetaData* file;
+  };
+
  private:
   friend class Compaction;
   friend class VersionSet;
@@ -181,6 +192,10 @@ class Version {
                                      int level) const;
   bool PrefixMayMatch(const ReadOptions& options, const EnvOptions& soptions,
                       const Slice& internal_prefix, Iterator* level_iter) const;
+
+  // Sort all files for this version based on their file size and
+  // record results in files_by_size_. The largest files are listed first.
+  void UpdateFilesBySize();
 
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
@@ -417,16 +432,6 @@ class VersionSet {
   // pick the same files to compact.
   bool VerifyCompactionFileConsistency(Compaction* c);
 
-  // used to sort files by size
-  typedef struct fsize {
-    int index;
-    FileMetaData* file;
-  } Fsize;
-
-  // Sort all files for this version based on their file size and
-  // record results in files_by_size_. The largest files are listed first.
-  void UpdateFilesBySize(Version *v);
-
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level);
 
@@ -448,8 +453,6 @@ class VersionSet {
   friend class Version;
 
   void Init(int num_levels);
-
-  void Finalize(Version* v, std::vector<uint64_t>&);
 
   void GetRange(const std::vector<FileMetaData*>& inputs,
                 InternalKey* smallest,
