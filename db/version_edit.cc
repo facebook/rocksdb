@@ -69,12 +69,6 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, last_sequence_);
   }
 
-  for (size_t i = 0; i < compact_pointers_.size(); i++) {
-    PutVarint32(dst, kCompactPointer);
-    PutVarint32(dst, compact_pointers_[i].first);  // level
-    PutLengthPrefixedSlice(dst, compact_pointers_[i].second.Encode());
-  }
-
   for (const auto& deleted : deleted_files_) {
     PutVarint32(dst, kDeletedFile);
     PutVarint32(dst, deleted.first /* level */);
@@ -176,7 +170,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       case kCompactPointer:
         if (GetLevel(&input, &level, &msg) &&
             GetInternalKey(&input, &key)) {
-          compact_pointers_.push_back(std::make_pair(level, key));
+          // we don't use compact pointers anymore,
+          // but we should not fail if they are still
+          // in manifest
         } else {
           if (!msg) {
             msg = "compaction pointer";
@@ -264,12 +260,6 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (has_last_sequence_) {
     r.append("\n  LastSeq: ");
     AppendNumberTo(&r, last_sequence_);
-  }
-  for (size_t i = 0; i < compact_pointers_.size(); i++) {
-    r.append("\n  CompactPointer: ");
-    AppendNumberTo(&r, compact_pointers_[i].first);
-    r.append(" ");
-    r.append(compact_pointers_[i].second.DebugString(hex_key));
   }
   for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
        iter != deleted_files_.end();

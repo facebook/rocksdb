@@ -76,6 +76,9 @@ class Compaction {
  private:
   friend class Version;
   friend class VersionSet;
+  friend class CompactionPicker;
+  friend class UniversalCompactionPicker;
+  friend class LevelCompactionPicker;
 
   Compaction(Version* input_version, int level, int out_level,
              uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,

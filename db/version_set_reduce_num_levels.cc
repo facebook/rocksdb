@@ -67,12 +67,8 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
   current_version->files_ = new_files_list;
   current_version->num_levels_ = new_levels;
 
-  delete[] compact_pointer_;
-  delete[] max_file_size_;
-  delete[] level_max_bytes_;
   num_levels_ = new_levels;
-  compact_pointer_ = new std::string[new_levels];
-  Init(new_levels);
+  compaction_picker_->ReduceNumberOfLevels(new_levels);
   VersionEdit ve;
   st = LogAndApply(&ve, mu, true);
   return st;
