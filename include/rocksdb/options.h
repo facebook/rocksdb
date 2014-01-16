@@ -65,6 +65,12 @@ struct CompressionOptions {
       : window_bits(wbits), level(lev), strategy(strategy) {}
 };
 
+enum UpdateStatus {    // Return status For inplace update callback
+  UPDATE_FAILED   = 0, // Nothing to update
+  UPDATED_INPLACE = 1, // Value updated inplace
+  UPDATED         = 2, // No inplace update. Merged value set
+};
+
 // Options to control the behavior of a database (passed to DB::Open)
 struct Options {
   // -------------------
@@ -650,38 +656,47 @@ struct Options {
   // Default: 10000, if inplace_update_support = true, else 0.
   size_t inplace_update_num_locks;
 
-  // * existing_value - pointer to previous value (from both memtable and sst).
-  //                    nullptr if key doesn't exist
-  // * existing_value_size - sizeof(existing_value). 0 if key doesn't exist
-  // * delta_value - Delta value to be merged with the 'existing_value'.
-  //                 Stored in transaction logs.
-  // * merged_value - Set when delta is applied on the previous value.
+  // existing_value - pointer to previous value (from both memtable and sst).
+  //                  nullptr if key doesn't exist
+  // existing_value_size - pointer to size of existing_value).
+  //                       nullptr if key doesn't exist
+  // delta_value - Delta value to be merged with the existing_value.
+  //               Stored in transaction logs.
+  // merged_value - Set when delta is applied on the previous value.
 
   // Applicable only when inplace_update_support is true,
   // this callback function is called at the time of updating the memtable
   // as part of a Put operation, lets say Put(key, delta_value). It allows the
   // 'delta_value' specified as part of the Put operation to be merged with
-  // an 'existing_value' of the 'key' in the database.
+  // an 'existing_value' of the key in the database.
 
   // If the merged value is smaller in size that the 'existing_value',
-  // then this function can update the 'existing_value' buffer inplace if it
-  // wishes to. The callback should return true in this case. (In this case,
-  // the snapshot-semantics of the rocksdb Iterator is not atomic anymore).
+  // then this function can update the 'existing_value' buffer inplace and
+  // the corresponding 'existing_value'_size pointer, if it wishes to.
+  // The callback should return UpdateStatus::UPDATED_INPLACE.
+  // In this case. (In this case, the snapshot-semantics of the rocksdb
+  // Iterator is not atomic anymore).
 
-  // If the application does not wish to modify the 'existing_value' buffer
-  // inplace, then it should allocate a new buffer and update it by merging the
-  // 'existing_value' and the Put 'delta_value' and set the 'merged_value'
-  // pointer to this buffer. The callback should return false in this case. It
-  // is upto the calling layer to manage the memory returned in 'merged_value'.
+  // If the merged value is larger in size than the 'existing_value' or the
+  // application does not wish to modify the 'existing_value' buffer inplace,
+  // then the merged value should be returned via *merge_value. It is set by
+  // merging the 'existing_value' and the Put 'delta_value'. The callback should
+  // return UpdateStatus::UPDATED in this case. This merged value will be added
+  // to the memtable.
+
+  // If merging fails or the application does not wish to take any action,
+  // then the callback should return UpdateStatus::UPDATE_FAILED.
 
   // Please remember that the original call from the application is Put(key,
-  // delta_value). So the transaction log (if enabled) will still contain
-  // (key, delta_value). The 'merged_value' is not stored in the transaction log
+  // delta_value). So the transaction log (if enabled) will still contain (key,
+  // delta_value). The 'merged_value' is not stored in the transaction log.
   // Hence the inplace_callback function should be consistent across db reopens.
 
   // Default: nullptr
-  bool (*inplace_callback)(char* existing_value, size_t existing_value_size,
-                           Slice delta_value, std::string* merged_value);
+  UpdateStatus (*inplace_callback)(char* existing_value,
+                                   uint32_t* existing_value_size,
+                                   Slice delta_value,
+                                   std::string* merged_value);
 
   // if prefix_extractor is set and bloom_bits is not 0, create prefix bloom
   // for memtable

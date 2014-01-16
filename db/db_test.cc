@@ -712,20 +712,49 @@ class DBTest {
   // If previous value is nullptr or delta is > than previous value,
   //   sets newValue with delta
   // If previous value is not empty,
-  //   updates previous value with 'b' string of previous value size
-  static bool updateInPlace(char* prevValue, size_t prevSize,
-                            Slice delta, std::string* newValue) {
-    if (prevValue == nullptr || delta.size() > prevSize) {
+  //   updates previous value with 'b' string of previous value size - 1.
+  static UpdateStatus
+      updateInPlaceSmallerSize(char* prevValue, uint32_t* prevSize,
+                               Slice delta, std::string* newValue) {
+    if (prevValue == nullptr) {
       *newValue = std::string(delta.size(), 'c');
-      return false;
+      return UpdateStatus::UPDATED;
     } else {
-      std::string str_b = std::string(prevSize, 'b');
+      *prevSize = *prevSize - 1;
+      std::string str_b = std::string(*prevSize, 'b');
       memcpy(prevValue, str_b.c_str(), str_b.size());
-      return true;
+      return UpdateStatus::UPDATED_INPLACE;
     }
   }
 
-  // Used to test InplaceUpdate
+  static UpdateStatus
+      updateInPlaceSmallerVarintSize(char* prevValue, uint32_t* prevSize,
+                                     Slice delta, std::string* newValue) {
+    if (prevValue == nullptr) {
+      *newValue = std::string(delta.size(), 'c');
+      return UpdateStatus::UPDATED;
+    } else {
+      *prevSize = 1;
+      std::string str_b = std::string(*prevSize, 'b');
+      memcpy(prevValue, str_b.c_str(), str_b.size());
+      return UpdateStatus::UPDATED_INPLACE;
+    }
+  }
+
+  static UpdateStatus
+      updateInPlaceLargerSize(char* prevValue, uint32_t* prevSize,
+                              Slice delta, std::string* newValue) {
+    *newValue = std::string(delta.size(), 'c');
+    return UpdateStatus::UPDATED;
+  }
+
+  static UpdateStatus
+      updateInPlaceNoAction(char* prevValue, uint32_t* prevSize,
+                            Slice delta, std::string* newValue) {
+    return UpdateStatus::UPDATE_FAILED;
+  }
+
+  // Utility method to test InplaceUpdate
   void validateNumberOfEntries(int numValues) {
       Iterator* iter = dbfull()->TEST_NewInternalIterator();
       iter->SeekToFirst();
@@ -2619,7 +2648,7 @@ TEST(DBTest, InPlaceUpdateLargeNewValue) {
 }
 
 
-TEST(DBTest, InPlaceUpdateCallback) {
+TEST(DBTest, InPlaceUpdateCallbackSmallerSize) {
   do {
     Options options = CurrentOptions();
     options.create_if_missing = true;
@@ -2628,7 +2657,7 @@ TEST(DBTest, InPlaceUpdateCallback) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-      rocksdb::DBTest::updateInPlace;
+      rocksdb::DBTest::updateInPlaceSmallerSize;
     Reopen(&options);
 
     // Update key with values of smaller size
@@ -2638,7 +2667,7 @@ TEST(DBTest, InPlaceUpdateCallback) {
 
     for (int i = numValues; i > 0; i--) {
       ASSERT_OK(Put("key", DummyString(i, 'a')));
-      ASSERT_EQ(DummyString(numValues, 'b'), Get("key"));
+      ASSERT_EQ(DummyString(i - 1, 'b'), Get("key"));
     }
 
     // Only 1 instance for that key.
@@ -2647,9 +2676,31 @@ TEST(DBTest, InPlaceUpdateCallback) {
   } while (ChangeCompactOptions());
 }
 
-TEST(DBTest, InPlaceUpdateCallbackNotFound) {
+TEST(DBTest, InPlaceUpdateCallbackSmallerVarintSize) {
   do {
-    //Test sst get/update/put
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlaceSmallerVarintSize;
+    Reopen(&options);
+
+    // Update key with values of smaller varint size
+    int numValues = 265;
+    ASSERT_OK(Put("key", DummyString(numValues, 'a')));
+    ASSERT_EQ(DummyString(numValues, 'c'), Get("key"));
+
+    for (int i = numValues; i > 0; i--) {
+      ASSERT_OK(Put("key", DummyString(i, 'a')));
+      ASSERT_EQ(DummyString(1, 'b'), Get("key"));
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1);
+
   } while (ChangeCompactOptions());
 }
 
@@ -2662,12 +2713,12 @@ TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-      rocksdb::DBTest::updateInPlace;
+      rocksdb::DBTest::updateInPlaceLargerSize;
     Reopen(&options);
 
     // Update key with values of larger size
     int numValues = 10;
-    for (int i = 1; i <= numValues; i++) {
+    for (int i = 0; i < numValues; i++) {
       ASSERT_OK(Put("key", DummyString(i, 'a')));
       ASSERT_EQ(DummyString(i, 'c'), Get("key"));
     }
@@ -2675,6 +2726,25 @@ TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
     // No inplace updates. All updates are puts with new seq number
     // All 10 updates exist in the internal iterator
     validateNumberOfEntries(numValues);
+
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateCallbackNoAction) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlaceNoAction;
+    Reopen(&options);
+
+    // Callback function requests no actions from db
+    ASSERT_OK(Put("key", DummyString(1, 'a')));
+    ASSERT_EQ(Get("key"), "NOT_FOUND");
 
   } while (ChangeCompactOptions());
 }

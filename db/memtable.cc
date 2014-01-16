@@ -346,21 +346,21 @@ void MemTable::Update(SequenceNumber seq,
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_value_size = prev_value.size();
-          uint32_t new_value_size = value.size();
+          uint32_t prev_size = prev_value.size();
+          uint32_t new_size = value.size();
 
-          // Update value, if newValue size  <= curValue size
-          if (new_value_size <= prev_value_size ) {
+          // Update value, if new value size  <= previous value size
+          if (new_size <= prev_size ) {
             char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                     new_value_size);
+                                     new_size);
             WriteLock wl(GetLock(lkey.user_key()));
-            memcpy(p, value.data(), new_value_size);
+            memcpy(p, value.data(), new_size);
             assert(
-              (p + new_value_size) - entry ==
+              (p + new_size) - entry ==
               (unsigned) (VarintLength(key_length) +
                           key_length +
-                          VarintLength(new_value_size) +
-                          new_value_size)
+                          VarintLength(new_size) +
+                          new_size)
             );
             // no need to update bloom, as user key does not change.
             return;
@@ -380,9 +380,9 @@ void MemTable::Update(SequenceNumber seq,
 }
 
 bool MemTable::UpdateCallback(SequenceNumber seq,
-                      const Slice& key,
-                      const Slice& delta,
-                      const Options& options) {
+                              const Slice& key,
+                              const Slice& delta,
+                              const Options& options) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
@@ -410,39 +410,35 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_value_size = prev_value.size();
+          uint32_t  prev_size = prev_value.size();
 
-          WriteLock wl(GetLock(lkey.user_key()));
+          char* prev_buffer = const_cast<char*>(prev_value.data());
+          uint32_t  new_prev_size = prev_size;
+
           std::string str_value;
-          if (options.inplace_callback(const_cast<char*>(prev_value.data()),
-                                       prev_value_size, delta, &str_value)) {
+          WriteLock wl(GetLock(lkey.user_key()));
+          auto status = options.inplace_callback(prev_buffer, &new_prev_size,
+                                                    delta, &str_value);
+          if (status == UpdateStatus::UPDATED_INPLACE) {
             // Value already updated by callback.
-            // TODO: Change size of value in memtable slice.
-            //   This works for leaf, since size is already encoded in the
-            //   value. It doesn't depend on rocksdb buffer size.
+            assert(new_prev_size <= prev_size);
+            if (new_prev_size < prev_size) {
+              // overwrite the new prev_size
+              char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                       new_prev_size);
+              if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
+                // shift the value buffer as well.
+                memcpy(p, prev_buffer, new_prev_size);
+              }
+            }
+            RecordTick(options.statistics.get(), NUMBER_KEYS_UPDATED);
             return true;
-          }
-          Slice slice_value = Slice(str_value);
-          uint32_t new_value_size = slice_value.size();
-
-          // Update value, if newValue size  <= curValue size
-          if (new_value_size <= prev_value_size ) {
-            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                     new_value_size);
-
-            memcpy(p, slice_value.data(), new_value_size);
-            assert(
-              (p + new_value_size) - entry ==
-              (unsigned) (VarintLength(key_length) +
-                          key_length +
-                          VarintLength(new_value_size) +
-                          new_value_size)
-            );
+          } else if (status == UpdateStatus::UPDATED) {
+            Add(seq, kTypeValue, key, Slice(str_value));
+            RecordTick(options.statistics.get(), NUMBER_KEYS_WRITTEN);
             return true;
-          } else {
-            // If we don't have enough space to update in-place
-            // Return as NotUpdatable, and do normal Add()
-            Add(seq, kTypeValue, key, slice_value);
+          } else if (status == UpdateStatus::UPDATE_FAILED) {
+            // No action required. Return.
             return true;
           }
         }

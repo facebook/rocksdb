@@ -203,9 +203,8 @@ class MemTableInserter : public WriteBatch::Handler {
       RecordTick(options_->statistics.get(), NUMBER_KEYS_UPDATED);
     } else {
       if (mem_->UpdateCallback(sequence_, key, value, *options_)) {
-        RecordTick(options_->statistics.get(), NUMBER_KEYS_UPDATED);
       } else {
-        // key not found in memtable. Do sst get/update/add
+        // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
         read_from_snapshot.number_ = sequence_;
         ReadOptions ropts;
@@ -215,22 +214,25 @@ class MemTableInserter : public WriteBatch::Handler {
         std::string merged_value;
         Status s = db_->Get(ropts, key, &prev_value);
         char* prev_buffer = const_cast<char*>(prev_value.c_str());
-        size_t prev_size = prev_value.size();
-        if (options_->inplace_callback(s.ok() ? prev_buffer: nullptr,
-                                       s.ok() ? prev_size: 0,
-                                       value, &merged_value)) {
+        uint32_t prev_size = prev_value.size();
+        auto status =
+          options_->inplace_callback(s.ok() ? prev_buffer: nullptr,
+                                     s.ok() ? &prev_size: nullptr,
+                                     value, &merged_value);
+        if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
           mem_->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
           RecordTick(options_->statistics.get(), NUMBER_KEYS_WRITTEN);
-        } else {
-          // merged_value contains the final value. Only add if not empty.
-          if (!merged_value.empty()) {
-            mem_->Add(sequence_, kTypeValue, key, Slice(merged_value));
-            RecordTick(options_->statistics.get(), NUMBER_KEYS_WRITTEN);
-          }
+        } else if (status == UpdateStatus::UPDATED) {
+          // merged_value contains the final value.
+          mem_->Add(sequence_, kTypeValue, key, Slice(merged_value));
+          RecordTick(options_->statistics.get(), NUMBER_KEYS_WRITTEN);
         }
       }
     }
+    // Since all Puts are logged in trasaction logs (if enabled), always bump
+    // sequence number. Even if the update eventually fails and does not result
+    // in memtable add/update.
     sequence_++;
   }
 
