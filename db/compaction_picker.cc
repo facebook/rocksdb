@@ -132,26 +132,16 @@ void CompactionPicker::GetRange(const std::vector<FileMetaData*>& inputs1,
   GetRange(all, smallest, largest);
 }
 
-// Add more files to the inputs on "level" to make sure that
-// no newer version of a key is compacted to "level+1" while leaving an older
-// version in a "level". Otherwise, any Get() will search "level" first,
-// and will likely return an old/stale value for the key, since it always
-// searches in increasing order of level to find the value. This could
-// also scramble the order of merge operands. This function should be
-// called any time a new Compaction is created, and its inputs_[0] are
-// populated.
-//
-// Will set c to nullptr if it is impossible to apply this compaction.
-void CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
+bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
   // If inputs are empty then there is nothing to expand.
   if (!c || c->inputs_[0].empty()) {
-    return;
+    return true;
   }
 
   // GetOverlappingInputs will always do the right thing for level-0.
   // So we don't need to do any expansion if level == 0.
   if (c->level() == 0) {
-    return;
+    return true;
   }
 
   const int level = c->level();
@@ -182,9 +172,9 @@ void CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
                                &parent_index))) {
     c->inputs_[0].clear();
     c->inputs_[1].clear();
-    delete c;
-    c = nullptr;
+    return false;
   }
+  return true;
 }
 
 uint64_t CompactionPicker::ExpandedCompactionByteSizeLimit(int level) {
@@ -341,8 +331,8 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
                                  MaxGrandParentOverlapBytes(input_level));
 
   c->inputs_[0] = inputs;
-  ExpandWhileOverlapping(c);
-  if (c == nullptr) {
+  if (ExpandWhileOverlapping(c) == false) {
+    delete c;
     Log(options_->info_log, "Could not compact due to expansion failure.\n");
     return nullptr;
   }
@@ -383,8 +373,10 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version) {
     level = version->compaction_level_[i];
     if ((version->compaction_score_[i] >= 1)) {
       c = PickCompactionBySize(version, level, version->compaction_score_[i]);
-      ExpandWhileOverlapping(c);
-      if (c != nullptr) {
+      if (ExpandWhileOverlapping(c) == false) {
+        delete c;
+        c = nullptr;
+      } else {
         break;
       }
     }
@@ -408,7 +400,9 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version) {
         c->inputs_[0].push_back(f);
         c->parent_index_ = parent_index;
         c->input_version_->file_to_compact_ = nullptr;
-        ExpandWhileOverlapping(c);
+        if (ExpandWhileOverlapping(c) == false) {
+          return nullptr;
+        }
       }
     }
   }
@@ -528,7 +522,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
   }
 
   // store where to start the iteration in the next call to PickCompaction
-  c->input_version_->next_file_to_compact_by_size_[level] = nextIndex;
+  version->next_file_to_compact_by_size_[level] = nextIndex;
 
   return c;
 }
