@@ -85,7 +85,17 @@ class CompactionPicker {
                 const std::vector<FileMetaData*>& inputs2,
                 InternalKey* smallest, InternalKey* largest);
 
-  void ExpandWhileOverlapping(Compaction* c);
+  // Add more files to the inputs on "level" to make sure that
+  // no newer version of a key is compacted to "level+1" while leaving an older
+  // version in a "level". Otherwise, any Get() will search "level" first,
+  // and will likely return an old/stale value for the key, since it always
+  // searches in increasing order of level to find the value. This could
+  // also scramble the order of merge operands. This function should be
+  // called any time a new Compaction is created, and its inputs_[0] are
+  // populated.
+  //
+  // Will return false if it is impossible to apply this compaction.
+  bool ExpandWhileOverlapping(Compaction* c);
 
   uint64_t ExpandedCompactionByteSizeLimit(int level);
 

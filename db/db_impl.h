@@ -293,7 +293,7 @@ class DBImpl : public DB {
   Status WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
                                 uint64_t* filenumber);
 
-  uint64_t SlowdownAmount(int n, int top, int bottom);
+  uint64_t SlowdownAmount(int n, double bottom, double top);
   // MakeRoomForWrite will return superversion_to_free through an arugment,
   // which the caller needs to delete. We do it because caller can delete
   // the superversion outside of mutex

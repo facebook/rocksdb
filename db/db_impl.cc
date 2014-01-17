@@ -3202,7 +3202,7 @@ void DBImpl::BuildBatchGroup(Writer** last_writer,
 // The goal of this formula is to gradually increase the rate at which writes
 // are slowed. We also tried linear delay (r * 1000), but it seemed to do
 // slightly worse. There is no other particular reason for choosing quadratic.
-uint64_t DBImpl::SlowdownAmount(int n, int top, int bottom) {
+uint64_t DBImpl::SlowdownAmount(int n, double bottom, double top) {
   uint64_t delay;
   if (n >= top) {
     delay = 1000;
@@ -3214,10 +3214,10 @@ uint64_t DBImpl::SlowdownAmount(int n, int top, int bottom) {
     // If we are here, we know that:
     //   level0_start_slowdown <= n < level0_slowdown
     // since the previous two conditions are false.
-    float how_much =
-      (float) (n - bottom) /
+    double how_much =
+      (double) (n - bottom) /
               (top - bottom);
-    delay = how_much * how_much * 1000;
+    delay = std::max(how_much * how_much * 1000, 100.0);
   }
   assert(delay <= 1000);
   return delay;
