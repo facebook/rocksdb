@@ -139,7 +139,6 @@ all: $(LIBRARY) $(PROGRAMS)
 # Will also generate shared libraries. 
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) -j32
 	OPT="-DNDEBUG -O2" $(MAKE) all -j32
 	OPT="-DNDEBUG -O2" $(MAKE) $(SHARED) -j32
 
