@@ -8,7 +8,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
-#include "util/statistics_imp.h"
+#include "util/statistics.h"
 #include <string>
 #include <stdio.h>
 

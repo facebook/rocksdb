@@ -2564,9 +2564,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
-  if (options_.statistics.get()) {
-    options_.statistics.get()->measureTime(COMPACTION_TIME, stats.micros);
-  }
+  MeasureTime(options_.statistics.get(), COMPACTION_TIME, stats.micros);
   stats.files_in_leveln = compact->compaction->num_input_files(0);
   stats.files_in_levelnp1 = compact->compaction->num_input_files(1);
 
@@ -3062,8 +3060,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
           // have succeeded in memtable but Status reports error for all writes.
           throw std::runtime_error("In memory WriteBatch corruption!");
         }
-        SetTickerCount(options_.statistics.get(),
-                       SEQUENCE_NUMBER, last_sequence);
+        SetTickerCount(options_.statistics.get(), SEQUENCE_NUMBER,
+                       last_sequence);
       }
       if (updates == &tmp_batch_) tmp_batch_.Clear();
       mutex_.Lock();

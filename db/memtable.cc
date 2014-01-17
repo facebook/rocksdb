@@ -20,7 +20,7 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/murmurhash.h"
-#include "util/statistics_imp.h"
+#include "util/statistics.h"
 
 namespace std {
 template <>

@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction_picker.h"
+#include "util/statistics.h"
 
 namespace rocksdb {
 
@@ -589,10 +590,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
   }
 
   // update statistics
-  if (options_->statistics != nullptr) {
-    options_->statistics->measureTime(NUM_FILES_IN_SINGLE_COMPACTION,
-                                      c->inputs_[0].size());
-  }
+  MeasureTime(options_->statistics.get(), NUM_FILES_IN_SINGLE_COMPACTION,
+              c->inputs_[0].size());
 
   // mark all the files that are being compacted
   c->MarkFilesBeingCompacted(true);

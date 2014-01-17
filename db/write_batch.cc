@@ -28,7 +28,7 @@
 #include "db/snapshot.h"
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
-#include "util/statistics_imp.h"
+#include "util/statistics.h"
 #include <stdexcept>
 
 namespace rocksdb {
