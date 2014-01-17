@@ -10,6 +10,7 @@
 #include <atomic>
 #include <deque>
 #include <set>
+#include <utility>
 #include <vector>
 #include "db/dbformat.h"
 #include "db/log_writer.h"
@@ -256,6 +257,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class TailingIterator;
   struct CompactionState;
   struct Writer;
 
@@ -359,6 +361,17 @@ class DBImpl : public DB {
   // hold the data set.
   void ReFitLevel(int level, int target_level = -1);
 
+  // Returns the current SuperVersion number.
+  uint64_t CurrentVersionNumber() const;
+
+  // Returns a pair of iterators (mutable-only and immutable-only) used
+  // internally by TailingIterator and stores CurrentVersionNumber() in
+  // *superversion_number. These iterators are always up-to-date, i.e. can
+  // be used to read new data.
+  std::pair<Iterator*, Iterator*> GetTailingIteratorPair(
+    const ReadOptions& options,
+    uint64_t* superversion_number);
+
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
   bool owns_info_log_;
@@ -380,6 +393,11 @@ class DBImpl : public DB {
   unique_ptr<log::Writer> log_;
 
   SuperVersion* super_version_;
+
+  // An ordinal representing the current SuperVersion. Updated by
+  // InstallSuperVersion(), i.e. incremented every time super_version_
+  // changes.
+  std::atomic<uint64_t> super_version_number_;
 
   std::string host_name_;
 

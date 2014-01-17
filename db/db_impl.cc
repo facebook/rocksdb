@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "db/builder.h"
@@ -32,6 +33,7 @@
 #include "db/prefix_filter_iterator.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
+#include "db/tailing_iter.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -264,6 +266,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       mem_(new MemTable(internal_comparator_, options_)),
       logfile_number_(0),
       super_version_(nullptr),
+      super_version_number_(0),
       tmp_batch_(),
       bg_compaction_scheduled_(0),
       bg_manual_only_(0),
@@ -1411,6 +1414,10 @@ int DBImpl::MaxMemCompactionLevel() {
 
 int DBImpl::Level0StopWriteTrigger() {
   return options_.level0_stop_writes_trigger;
+}
+
+uint64_t DBImpl::CurrentVersionNumber() const {
+  return super_version_number_.load();
 }
 
 Status DBImpl::Flush(const FlushOptions& options) {
@@ -2652,11 +2659,14 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
       deletion_state.memtables_to_free.push_back(m);
     }
   }
-  state->version->Unref();
+  if (state->version) {  // not set for memtable-only iterator
+    state->version->Unref();
+  }
   // fast path FindObsoleteFiles
   state->db->FindObsoleteFiles(deletion_state, false, true);
   state->mu->Unlock();
   state->db->PurgeObsoleteFiles(deletion_state);
+
   delete state;
 }
 }  // namespace
@@ -2678,7 +2688,6 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   for (unsigned int i = 0; i < immutables.size(); i++) {
     immutables[i]->Ref();
   }
-  // Collect iterators for files in L0 - Ln
   versions_->current()->Ref();
   version = versions_->current();
   mutex_.Unlock();
@@ -2686,10 +2695,13 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   std::vector<Iterator*> list;
   list.push_back(mutable_mem->NewIterator(options));
   cleanup->mem.push_back(mutable_mem);
+
+  // Collect all needed child iterators for immutable memtables
   for (MemTable* m : immutables) {
     list.push_back(m->NewIterator(options));
     cleanup->mem.push_back(m);
   }
+  // Collect iterators for files in L0 - Ln
   version->AddIterators(options, storage_options_, &list);
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
@@ -2704,6 +2716,66 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
 Iterator* DBImpl::TEST_NewInternalIterator() {
   SequenceNumber ignored;
   return NewInternalIterator(ReadOptions(), &ignored);
+}
+
+std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
+    const ReadOptions& options,
+    uint64_t* superversion_number) {
+
+  MemTable* mutable_mem;
+  std::vector<MemTable*> immutables;
+  Version* version;
+
+  immutables.reserve(options_.max_write_buffer_number);
+
+  // get all child iterators and bump their refcounts under lock
+  mutex_.Lock();
+  mutable_mem = mem_;
+  mutable_mem->Ref();
+  imm_.GetMemTables(&immutables);
+  for (size_t i = 0; i < immutables.size(); ++i) {
+    immutables[i]->Ref();
+  }
+  version = versions_->current();
+  version->Ref();
+  if (superversion_number != nullptr) {
+    *superversion_number = CurrentVersionNumber();
+  }
+  mutex_.Unlock();
+
+  Iterator* mutable_iter = mutable_mem->NewIterator(options);
+  IterState* mutable_cleanup = new IterState();
+  mutable_cleanup->mem.push_back(mutable_mem);
+  mutable_cleanup->db = this;
+  mutable_cleanup->mu = &mutex_;
+  mutable_iter->RegisterCleanup(CleanupIteratorState, mutable_cleanup, nullptr);
+
+  // create a DBIter that only uses memtable content; see NewIterator()
+  mutable_iter = NewDBIterator(&dbname_, env_, options_, user_comparator(),
+                               mutable_iter, kMaxSequenceNumber);
+
+  Iterator* immutable_iter;
+  IterState* immutable_cleanup = new IterState();
+  std::vector<Iterator*> list;
+  for (MemTable* m : immutables) {
+    list.push_back(m->NewIterator(options));
+    immutable_cleanup->mem.push_back(m);
+  }
+  version->AddIterators(options, storage_options_, &list);
+  immutable_cleanup->version = version;
+  immutable_cleanup->db = this;
+  immutable_cleanup->mu = &mutex_;
+
+  immutable_iter =
+    NewMergingIterator(&internal_comparator_, &list[0], list.size());
+  immutable_iter->RegisterCleanup(CleanupIteratorState, immutable_cleanup,
+                                  nullptr);
+
+  // create a DBIter that only uses memtable content; see NewIterator()
+  immutable_iter = NewDBIterator(&dbname_, env_, options_, user_comparator(),
+                                 immutable_iter, kMaxSequenceNumber);
+
+  return std::make_pair(mutable_iter, immutable_iter);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
@@ -2748,6 +2820,7 @@ DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
   new_superversion->Init(mem_, imm_, versions_->current());
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
+  ++super_version_number_;
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
     return old_superversion; // will let caller delete outside of mutex
@@ -2930,13 +3003,21 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
 }
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
-  SequenceNumber latest_snapshot;
-  Iterator* iter = NewInternalIterator(options, &latest_snapshot);
-  iter = NewDBIterator(
-             &dbname_, env_, options_, user_comparator(), iter,
-             (options.snapshot != nullptr
-              ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-              : latest_snapshot));
+  Iterator* iter;
+
+  if (options.tailing) {
+    iter = new TailingIterator(this, options, user_comparator());
+  } else {
+    SequenceNumber latest_snapshot;
+    iter = NewInternalIterator(options, &latest_snapshot);
+
+    iter = NewDBIterator(
+      &dbname_, env_, options_, user_comparator(), iter,
+      (options.snapshot != nullptr
+       ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+       : latest_snapshot));
+  }
+
   if (options.prefix) {
     // use extra wrapper to exclude any keys from the results which
     // don't begin with the prefix
