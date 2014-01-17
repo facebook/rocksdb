@@ -232,7 +232,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
     const char* entry = iter->key();
-    uint32_t key_length;
+    uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Compare(
         Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
@@ -337,7 +337,7 @@ void MemTable::Update(SequenceNumber seq,
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
     const char* entry = iter->key();
-    uint32_t key_length;
+    uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Compare(
         Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
@@ -401,7 +401,7 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
     const char* entry = iter->key();
-    uint32_t key_length;
+    uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (comparator_.comparator.user_comparator()->Compare(
         Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
@@ -466,7 +466,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
 
   for (; iter->Valid(); iter->Next()) {
     const char* entry = iter->key();
-    uint32_t key_length;
+    uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
     if (!comparator_.comparator.user_comparator()->Compare(
         Slice(iter_key_ptr, key_length - 8), key.user_key()) == 0) {

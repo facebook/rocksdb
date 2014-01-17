@@ -23,16 +23,16 @@ class DynamicBloom {
 
   explicit DynamicBloom(uint32_t total_bits, uint32_t num_probes = 6);
 
-  // Assuming single threaded access to Add
-  void Add(const Slice& key) { AddHash(hash_func_(key)); }
+  // Assuming single threaded access to this function.
+  void Add(const Slice& key);
 
-  // Assuming single threaded access to Add
+  // Assuming single threaded access to this function.
   void AddHash(uint32_t hash);
 
-  // Multithreaded access to MayContain is OK
+  // Multithreaded access to this function is OK
   bool MayContain(const Slice& key);
 
-  // Multithreaded access to MayContain is OK
+  // Multithreaded access to this function is OK
   bool MayContainHash(uint32_t hash);
 
  private:
@@ -41,6 +41,8 @@ class DynamicBloom {
   const uint32_t kNumProbes;
   std::unique_ptr<unsigned char[]> data_;
 };
+
+inline void DynamicBloom::Add(const Slice& key) { AddHash(hash_func_(key)); }
 
 inline bool DynamicBloom::MayContain(const Slice& key) {
   return (MayContainHash(hash_func_(key)));

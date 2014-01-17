@@ -405,7 +405,7 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
   uint64_t prefix_index_offset = bucket_value ^ kSubIndexMask;
 
   const char* index_ptr = sub_index_ + prefix_index_offset;
-  uint32_t upper_bound;
+  uint32_t upper_bound = 0;
   const uint32_t* base_ptr = (const uint32_t*) GetVarint32Ptr(index_ptr,
                                                               index_ptr + 4,
                                                               &upper_bound);
@@ -464,17 +464,17 @@ bool PlainTableReader::MayHavePrefix(uint32_t hash) {
 
 Status PlainTableReader::ReadKey(const char* row_ptr, Slice* key,
                                  size_t& bytes_read) {
-  const char* key_ptr;
+  const char* key_ptr = nullptr;
   bytes_read = 0;
-  size_t internal_key_size;
+  size_t internal_key_size = 0;
   if (IsFixedLength()) {
     internal_key_size = GetFixedInternalKeyLength();
     key_ptr = row_ptr;
   } else {
-    uint32_t key_size;
+    uint32_t key_size = 0;
     key_ptr = GetVarint32Ptr(row_ptr, file_data_.data() + data_end_offset_,
                              &key_size);
-    internal_key_size = (size_t) key_size;
+    internal_key_size = (size_t)key_size;
     bytes_read = key_ptr - row_ptr;
   }
   if (row_ptr + internal_key_size >= file_data_.data() + data_end_offset_) {

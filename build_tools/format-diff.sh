@@ -47,7 +47,6 @@ fi
 #     ln -s `git rev-parse --show-toplevel`/build_tools/format-diff.sh $PRE_COMMIT_SCRIPT_PATH
 #   fi
 # fi
-
 set -e
 
 uncommitted_code=`git diff HEAD`
@@ -55,7 +54,6 @@ uncommitted_code=`git diff HEAD`
 # If there's no uncommitted changes, we assume user are doing post-commit
 # format check, in which case we'll check the modified lines from latest commit.
 # Otherwise, we'll check format of the uncommitted code only.
-format_last_commit=0
 if [ -z "$uncommitted_code" ]
 then
   # Check the format of last commit
