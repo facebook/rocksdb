@@ -3200,15 +3200,15 @@ Status DBImpl::MakeRoomForWrite(bool force,
       // individual write by 0-1ms to reduce latency variance.  Also,
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
+      uint64_t slowdown =
+          SlowdownAmount(versions_->current()->NumLevelFiles(0),
+                         options_.level0_slowdown_writes_trigger,
+                         options_.level0_stop_writes_trigger);
       mutex_.Unlock();
       uint64_t delayed;
       {
         StopWatch sw(env_, options_.statistics.get(), STALL_L0_SLOWDOWN_COUNT);
-        env_->SleepForMicroseconds(
-          SlowdownAmount(versions_->current()->NumLevelFiles(0),
-                         options_.level0_slowdown_writes_trigger,
-                         options_.level0_stop_writes_trigger)
-        );
+        env_->SleepForMicroseconds(slowdown);
         delayed = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics.get(), STALL_L0_SLOWDOWN_MICROS, delayed);
