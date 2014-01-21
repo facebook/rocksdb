@@ -95,6 +95,7 @@ class MemTableIterator: public Iterator {
     if (options.prefix) {
       iter_.reset(mem_.table_->GetPrefixIterator(*options.prefix));
     } else if (options.prefix_seek) {
+      dynamic_prefix_seek_ = true;
       iter_.reset(mem_.table_->GetDynamicPrefixIterator());
     } else {
       iter_.reset(mem_.table_->GetIterator());
