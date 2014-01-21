@@ -14,6 +14,9 @@
 #include "table/block.h"
 #include "table/format.h"
 #include "table/iterator_wrapper.h"
+#include "port/port.h"
+#include "util/mutexlock.h"
+
 
 namespace rocksdb {
 
@@ -23,6 +26,14 @@ typedef Iterator* (*BlockFunction)(void*, const ReadOptions&,
                                    const EnvOptions& soptions, const Slice&,
                                    bool for_compaction);
 
+struct PrefetchState {
+  port::Mutex mu;
+  bool outstanding;
+  std::string data_block_handle_to_prefetch;
+
+  PrefetchState() : outstanding(false) {}
+};
+
 class TwoLevelIterator: public Iterator {
  public:
   TwoLevelIterator(
@@ -31,7 +42,9 @@ class TwoLevelIterator: public Iterator {
     void* arg,
     const ReadOptions& options,
     const EnvOptions& soptions,
-    bool for_compaction);
+    Env* env,
+    bool for_compaction,
+    bool can_prefetch);
 
   virtual ~TwoLevelIterator();
 
@@ -76,13 +89,20 @@ class TwoLevelIterator: public Iterator {
   void* arg_;
   const ReadOptions options_;
   const EnvOptions& soptions_;
+  Env* env_;
   Status status_;
-  IteratorWrapper index_iter_;
+  PeekingIteratorWrapper index_iter_;
   IteratorWrapper data_iter_; // May be nullptr
   // If data_iter_ is non-nullptr, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the data_iter_.
   std::string data_block_handle_;
   bool for_compaction_;
+  bool can_prefetch_;
+
+  PrefetchState* prefetch_;
+  void MaybeSchedulePrefetch();
+  void PrefetchThread();
+  static void PrefetchThreadEntry(void*);
 };
 
 TwoLevelIterator::TwoLevelIterator(
@@ -91,17 +111,40 @@ TwoLevelIterator::TwoLevelIterator(
     void* arg,
     const ReadOptions& options,
     const EnvOptions& soptions,
-    bool for_compaction)
+    Env *env,
+    bool for_compaction,
+    bool can_prefetch)
     : block_function_(block_function),
       arg_(arg),
       options_(options),
       soptions_(soptions),
+      env_(env),
       index_iter_(index_iter),
       data_iter_(nullptr),
-      for_compaction_(for_compaction) {
+      for_compaction_(for_compaction),
+      can_prefetch_(can_prefetch),
+      prefetch_(nullptr) {
 }
 
 TwoLevelIterator::~TwoLevelIterator() {
+  if (prefetch_ != nullptr) {
+    // Await completion of any outstanding background prefetching task, since
+    // it assumes existence of this
+    // FIXME: avoid spinlock
+    // FIXME: deadlocks if background thread pool size is 0.
+    //        env_->Schedule doesn't give any feedback if this is the case!
+    {
+      MutexLock l0(&prefetch_->mu);
+      prefetch_->data_block_handle_to_prefetch.clear();
+    }
+    while (true) {
+      MutexLock l1(&prefetch_->mu);
+      if (!prefetch_->outstanding) {
+        break;
+      }
+    }
+    delete prefetch_;
+  }
 }
 
 void TwoLevelIterator::Seek(const Slice& target) {
@@ -137,7 +180,6 @@ void TwoLevelIterator::Prev() {
   SkipEmptyDataBlocksBackward();
 }
 
-
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
   while (data_iter_.iter() == nullptr || (!data_iter_.Valid() &&
         !data_iter_.status().IsIncomplete())) {
@@ -147,6 +189,7 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
       return;
     }
     index_iter_.Next();
+    MaybeSchedulePrefetch();
     InitDataBlock();
     if (data_iter_.iter() != nullptr) data_iter_.SeekToFirst();
   }
@@ -189,6 +232,66 @@ void TwoLevelIterator::InitDataBlock() {
   }
 }
 
+void TwoLevelIterator::PrefetchThreadEntry(void* p) {
+  TwoLevelIterator* it = reinterpret_cast<TwoLevelIterator*>(p);
+  it->PrefetchThread();
+}
+
+// If called for, schedule prefetching (cache-priming) of the next data block
+void TwoLevelIterator::MaybeSchedulePrefetch() {
+  if (can_prefetch_ && options_.prefetch && !for_compaction_ && index_iter_.HasNext()) {
+    // peek at next data block handle
+    Slice next_data_block_handle = index_iter_.NextValue();
+    if (prefetch_ == nullptr) {
+      // lazy initialization of prefetch state
+      prefetch_ = new PrefetchState;
+    }
+    // Update the internal state to signal which block we'd like prefetched
+    MutexLock l(&prefetch_->mu);
+    prefetch_->data_block_handle_to_prefetch.assign(next_data_block_handle.data(),
+                                                    next_data_block_handle.size());
+    // Schedule a prefetching task if there is not already one outstanding.
+    // Note we do not wait for any outstanding prefetch task to complete,
+    // avoiding the need for additional synchronization here. However,
+    // depending on the speed of the iterator's consumer vs. the speed of
+    // prefetching, some prefetching effort may be wasted, and/or some
+    // prefetching opportunities may be missed. That's OK since this is just a
+    // cache-priming optimization.
+    if (!prefetch_->outstanding) {
+      env_->Schedule(&TwoLevelIterator::PrefetchThreadEntry, this, Env::Priority::LOW);
+      prefetch_->outstanding = true;
+    }
+  }
+}
+
+// The prefetching background task
+void TwoLevelIterator::PrefetchThread() {
+  std::string data_block_handle_to_prefetch;
+  assert(prefetch_);
+
+  while (true) {
+    // Loop for as long as we find a new block to prefetch.
+    { // scope MutexLock l
+      MutexLock l(&prefetch_->mu);
+      if (prefetch_->data_block_handle_to_prefetch.empty() || data_block_handle_to_prefetch == prefetch_->data_block_handle_to_prefetch) {
+        prefetch_->outstanding = false;
+        return;
+      }
+      data_block_handle_to_prefetch.assign(prefetch_->data_block_handle_to_prefetch);
+    }
+
+    // Open an iterator for the block and immediately throw it away, thus
+    // priming various caches: HDD, OS/filesystem, compressed blocks,
+    // uncompressed blocks. If the iterator ends up needing the block in the
+    // main thread before we finish prefetching it, it will duplicate some of
+    // our effort, especially decompression. However, we will at least have
+    // helped it by initiating any necessary disk read in advance.
+    Iterator* iter = (*block_function_)(arg_, options_, soptions_, Slice(data_block_handle_to_prefetch),
+                                          for_compaction_);
+    delete iter;
+  }
+}
+
 }  // namespace
 
 Iterator* NewTwoLevelIterator(
@@ -197,9 +300,11 @@ Iterator* NewTwoLevelIterator(
     void* arg,
     const ReadOptions& options,
     const EnvOptions& soptions,
-    bool for_compaction) {
+    Env *env,
+    bool for_compaction,
+    bool can_prefetch) {
   return new TwoLevelIterator(index_iter, block_function, arg,
-                              options, soptions, for_compaction);
+                              options, soptions, env, for_compaction, can_prefetch);
 }
 
 }  // namespace rocksdb

@@ -61,4 +61,68 @@ class IteratorWrapper {
   Slice key_;
 };
 
+// A variant of IteratorWrapper allowing peeks at the next key/value before
+// calling Next()
+class PeekingIteratorWrapper {
+ public:
+  PeekingIteratorWrapper(): iter_(nullptr), valid_(false), on_next_(false) { }
+  explicit PeekingIteratorWrapper(Iterator* iter): iter_(nullptr), on_next_(false) {
+    Set(iter);
+  }
+  ~PeekingIteratorWrapper() { delete iter_; }
+  //PeekingIterator* iter() const { return iter_; }
+
+  // Takes ownership of "iter" and will delete it when destroyed, or
+  // when Set() is invoked again.
+  void Set(Iterator* iter) {
+    delete iter_;
+    iter_ = iter;
+    if (iter_ == nullptr) {
+      valid_ = false;
+    } else {
+      Update();
+    }
+  }
+
+  // Iterator interface methods
+  bool Valid() const        { return valid_; }
+  bool HasNext()            { MaybeNext(); return iter_->Valid(); }
+  Slice key() const         { assert(Valid()); return key_; }
+  Slice value() const       { assert(Valid()); return value_; }
+  Slice NextKey()           { MaybeNext(); assert(HasNext()); return iter_->key(); }
+  Slice NextValue()         { MaybeNext(); assert(HasNext()); return iter_->value(); }
+  // Methods below require iter() != nullptr
+  Status status() const     { assert(iter_); return status_; }
+  void Next()               { assert(iter_); MaybeNext();                                Update(); }
+  void Prev()               { assert(iter_); iter_->Prev(); if (on_next_) iter_->Prev(); Update(); }
+  void Seek(const Slice& k) { assert(iter_); iter_->Seek(k);                             Update(); }
+  void SeekToFirst()        { assert(iter_); iter_->SeekToFirst();                       Update(); }
+  void SeekToLast()         { assert(iter_); iter_->SeekToLast();                        Update(); }
+
+ private:
+  void MaybeNext() {
+    if (!on_next_ && iter_->Valid()) {
+      iter_->Next();
+      on_next_ = true;
+    }
+  }
+
+  void Update() {
+    status_ = iter_->status();
+    valid_ = iter_->Valid();
+    if (valid_) {
+      key_ = iter_->key();
+      value_ = iter_->value();
+    }
+    on_next_ = false;
+  }
+
+  Iterator* iter_;
+  bool valid_;
+  Status status_;
+  bool on_next_;
+  Slice key_;
+  Slice value_;
+}; 
+
 }  // namespace rocksdb

@@ -749,6 +749,12 @@ void rocksdb_readoptions_set_snapshot(
   opt->rep.snapshot = (snap ? snap->rep : NULL);
 }
 
+void rocksdb_readoptions_set_prefetch(
+    rocksdb_readoptions_t* opt,
+    unsigned char v) {
+  opt->rep.prefetch = v;
+}
+
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
   return new rocksdb_writeoptions_t;
 }

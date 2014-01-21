@@ -24,6 +24,11 @@ struct ReadOptions;
 //
 // Uses a supplied function to convert an index_iter value into
 // an iterator over the contents of the corresponding block.
+//
+// If can_prefetch and options.prefetch are both true, then the two-level
+// iterator may env->Schedule() tasks on background threads to prefetch
+// upcoming lower-level blocks during forward iteration. In this case,
+// block_function must be thread-safe.
 extern Iterator* NewTwoLevelIterator(
     Iterator* index_iter,
     Iterator* (*block_function)(
@@ -35,6 +40,8 @@ extern Iterator* NewTwoLevelIterator(
     void* arg,
     const ReadOptions& options,
     const EnvOptions& soptions,
-    bool for_compaction = false);
+    Env* env,
+    bool for_compaction = false,
+    bool can_prefetch = false);
 
 }  // namespace rocksdb

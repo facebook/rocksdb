@@ -711,20 +711,28 @@ struct ReadOptions {
   // Default: kReadAllTier
   ReadTier read_tier;
 
+  // If true, forward-moving iterators will attempt to use a background thread
+  // to prime caches with upcoming blocks. Can reduce I/O and decompression
+  // stalls during bulk scans of large databases, especially on rotating
+  // disks.
+  bool prefetch;
+
   ReadOptions()
       : verify_checksums(false),
         fill_cache(true),
         prefix_seek(false),
         snapshot(nullptr),
         prefix(nullptr),
-        read_tier(kReadAllTier) {}
+        read_tier(kReadAllTier),
+        prefetch(false) {}
   ReadOptions(bool cksum, bool cache)
       : verify_checksums(cksum),
         fill_cache(cache),
         prefix_seek(false),
         snapshot(nullptr),
         prefix(nullptr),
-        read_tier(kReadAllTier) {}
+        read_tier(kReadAllTier),
+        prefetch(false) {}
 };
 
 // Options that control write operations

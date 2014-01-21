@@ -970,7 +970,10 @@ Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
            &BlockBasedTable::BlockReader,
            const_cast<BlockBasedTable*>(this),
            options,
-           rep_->soptions
+           rep_->soptions,
+           rep_->options.env,
+           false, // for_compaction
+           true   // can_prefetch: allow block prefetching if requested in options
          );
 }
 
