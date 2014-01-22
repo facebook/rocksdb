@@ -3946,7 +3946,7 @@ Status DB::OpenWithColumnFamilies(
     return s;
   }
   impl->mutex_.Lock();
-  s = impl->Recover(); // Handles create_if_missing, error_if_exists
+  s = impl->Recover(column_families); // Handles create_if_missing, error_if_exists
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
