@@ -26,7 +26,7 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
 
   // TODO this only works for default column family now
   Version* current_version = column_family_data_.find(0)->second->current;
-  int current_levels = NumberLevels();
+  int current_levels = current_version->NumberLevels();
 
   if (current_levels <= new_levels) {
     return Status::OK();
@@ -37,7 +37,7 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
   int first_nonempty_level = -1;
   int first_nonempty_level_filenum = 0;
   for (int i = new_levels - 1; i < current_levels; i++) {
-    int file_num = NumLevelFiles(i);
+    int file_num = current_version->NumLevelFiles(i);
     if (file_num != 0) {
       if (first_nonempty_level < 0) {
         first_nonempty_level = i;
@@ -66,15 +66,12 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
 
   delete[] current_version->files_;
   current_version->files_ = new_files_list;
+  current_version->num_levels_ = new_levels;
 
-  delete[] compact_pointer_;
-  delete[] max_file_size_;
-  delete[] level_max_bytes_;
   num_levels_ = new_levels;
-  compact_pointer_ = new std::string[new_levels];
-  Init(new_levels);
-  VersionEdit ve(new_levels);
-  st = LogAndApply(&ve , mu, true);
+  compaction_picker_->ReduceNumberOfLevels(new_levels);
+  VersionEdit ve;
+  st = LogAndApply(&ve, mu, true);
   return st;
 }
 

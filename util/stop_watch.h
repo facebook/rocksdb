@@ -5,7 +5,7 @@
 //
 #pragma once
 #include "rocksdb/env.h"
-#include "util/statistics_imp.h"
+#include "util/statistics.h"
 
 namespace rocksdb {
 // Auto-scoped.
@@ -28,11 +28,7 @@ class StopWatch {
     return env_->NowMicros() - start_time_;
   }
 
-  ~StopWatch() {
-    if (statistics_) {
-      statistics_->measureTime(histogram_name_, ElapsedMicros());
-    }
-  }
+  ~StopWatch() { MeasureTime(statistics_, histogram_name_, ElapsedMicros()); }
 
  private:
   Env* const env_;

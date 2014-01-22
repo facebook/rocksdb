@@ -34,11 +34,8 @@ class MemTable {
 
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
-  explicit MemTable(
-    const InternalKeyComparator& comparator,
-    MemTableRepFactory* table_factory,
-    int numlevel = 7,
-    const Options& options = Options());
+  explicit MemTable(const InternalKeyComparator& comparator,
+                    const Options& options = Options());
 
   ~MemTable();
 
@@ -146,7 +143,7 @@ class MemTable {
   KeyComparator comparator_;
   int refs_;
   ArenaImpl arena_impl_;
-  shared_ptr<MemTableRep> table_;
+  unique_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush

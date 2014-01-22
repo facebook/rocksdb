@@ -12,7 +12,8 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "db/db_statistics.h"
+#include "rocksdb/statistics.h"
+#include "util/statistics.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/cache.h"
@@ -370,7 +371,9 @@ class MemTableConstructor: public Constructor {
       : Constructor(cmp),
         internal_comparator_(cmp),
         table_factory_(new SkipListFactory) {
-    memtable_ = new MemTable(internal_comparator_, table_factory_.get());
+    Options options;
+    options.memtable_factory = table_factory_;
+    memtable_ = new MemTable(internal_comparator_, options);
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -378,7 +381,9 @@ class MemTableConstructor: public Constructor {
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     delete memtable_->Unref();
-    memtable_ = new MemTable(internal_comparator_, table_factory_.get());
+    Options memtable_options;
+    memtable_options.memtable_factory = table_factory_;
+    memtable_ = new MemTable(internal_comparator_, memtable_options);
     memtable_->Ref();
     int seq = 1;
     for (KVMap::const_iterator it = data.begin();
@@ -931,18 +936,12 @@ TEST(TableTest, NumBlockStat) {
 class BlockCacheProperties {
  public:
   explicit BlockCacheProperties(Statistics* statistics) {
-    block_cache_miss =
-      statistics->getTickerCount(BLOCK_CACHE_MISS);
-    block_cache_hit =
-      statistics->getTickerCount(BLOCK_CACHE_HIT);
-    index_block_cache_miss =
-      statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS);
-    index_block_cache_hit =
-      statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT);
-    data_block_cache_miss =
-      statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
-    data_block_cache_hit =
-      statistics->getTickerCount(BLOCK_CACHE_DATA_HIT);
+    block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_MISS);
+    block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_HIT);
+    index_block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS);
+    index_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT);
+    data_block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
+    data_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_DATA_HIT);
   }
 
   // Check if the fetched props matches the expected ones.
@@ -1268,10 +1267,11 @@ class MemTableTest { };
 TEST(MemTableTest, Simple) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto table_factory = std::make_shared<SkipListFactory>();
-  MemTable* memtable = new MemTable(cmp, table_factory.get());
+  Options options;
+  options.memtable_factory = table_factory;
+  MemTable* memtable = new MemTable(cmp, options);
   memtable->Ref();
   WriteBatch batch;
-  Options options;
   WriteBatchInternal::SetSequence(&batch, 100);
   batch.Put(std::string("k1"), std::string("v1"));
   batch.Put(std::string("k2"), std::string("v2"));

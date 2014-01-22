@@ -34,9 +34,7 @@ struct FileMetaData {
 
 class VersionEdit {
  public:
-  explicit VersionEdit(int number_levels) : number_levels_(number_levels) {
-    Clear();
-  }
+  VersionEdit() { Clear(); }
   ~VersionEdit() { }
 
   void Clear();
@@ -60,9 +58,6 @@ class VersionEdit {
   void SetLastSequence(SequenceNumber seq) {
     has_last_sequence_ = true;
     last_sequence_ = seq;
-  }
-  void SetCompactPointer(int level, const InternalKey& key) {
-    compact_pointers_.push_back(std::make_pair(level, key));
   }
 
   // Add the specified file at the specified number.
@@ -128,7 +123,7 @@ class VersionEdit {
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 
-  int number_levels_;
+  int max_level_;
   std::string comparator_;
   uint64_t log_number_;
   uint64_t prev_log_number_;
@@ -140,7 +135,6 @@ class VersionEdit {
   bool has_next_file_number_;
   bool has_last_sequence_;
 
-  std::vector< std::pair<int, InternalKey> > compact_pointers_;
   DeletedFileSet deleted_files_;
   std::vector< std::pair<int, FileMetaData> > new_files_;
 

@@ -26,7 +26,7 @@
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "db/db_statistics.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/cache.h"
 #include "utilities/utility_db.h"
 #include "rocksdb/env.h"

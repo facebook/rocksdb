@@ -85,7 +85,7 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 
   DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
   impl->mutex_.Lock();
-  VersionEdit edit(impl->NumberLevels());
+  VersionEdit edit;
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;

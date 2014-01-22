@@ -242,53 +242,10 @@ struct HistogramData {
   double standard_deviation;
 };
 
-
-class Histogram {
- public:
-  // clear's the histogram
-  virtual void Clear() = 0;
-  virtual ~Histogram();
-  // Add a value to be recorded in the histogram.
-  virtual void Add(uint64_t value) = 0;
-
-  virtual std::string ToString() const = 0;
-
-  // Get statistics
-  virtual double Median() const = 0;
-  virtual double Percentile(double p) const = 0;
-  virtual double Average() const = 0;
-  virtual double StandardDeviation() const = 0;
-  virtual void Data(HistogramData * const data) const = 0;
-
-};
-
-/**
- * A dumb ticker which keeps incrementing through its life time.
- * Thread safe. Locking managed by implementation of this interface.
- */
-class Ticker {
- public:
-  Ticker() : count_(0) { }
-
-  inline void setTickerCount(uint64_t count) {
-    count_ = count;
-  }
-
-  inline void recordTick(int count = 1) {
-    count_ += count;
-  }
-
-  inline uint64_t getCount() {
-    return count_;
-  }
-
- private:
-  std::atomic_uint_fast64_t count_;
-};
-
 // Analyze the performance of a db
 class Statistics {
  public:
+  virtual ~Statistics() {}
 
   virtual long getTickerCount(Tickers tickerType) = 0;
   virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;

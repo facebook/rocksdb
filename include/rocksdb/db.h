@@ -291,6 +291,7 @@ class DB {
   }
 
   // Compact the underlying storage for the key range [*begin,*end].
+  // The actual compaction interval might be superset of [*begin, *end].
   // In particular, deleted and overwritten versions are discarded,
   // and the data is rearranged to reduce the cost of operations
   // needed to access the data.  This operation should typically only

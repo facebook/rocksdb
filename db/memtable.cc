@@ -20,7 +20,7 @@
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/murmurhash.h"
-#include "util/statistics_imp.h"
+#include "util/statistics.h"
 
 namespace std {
 template <>
@@ -33,24 +33,20 @@ struct hash<rocksdb::Slice> {
 
 namespace rocksdb {
 
-MemTable::MemTable(const InternalKeyComparator& cmp,
-                   MemTableRepFactory* table_factory,
-                   int numlevel,
-                   const Options& options)
+MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     : comparator_(cmp),
       refs_(0),
       arena_impl_(options.arena_block_size),
-      table_(table_factory->CreateMemTableRep(comparator_, &arena_impl_)),
+      table_(options.memtable_factory->CreateMemTableRep(comparator_,
+                                                         &arena_impl_)),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
-      edit_(numlevel),
       first_seqno_(0),
       mem_next_logfile_number_(0),
       mem_logfile_number_(0),
-      locks_(options.inplace_update_support
-             ? options.inplace_update_num_locks
-             : 0) { }
+      locks_(options.inplace_update_support ? options.inplace_update_num_locks
+                                            : 0) {}
 
 MemTable::~MemTable() {
   assert(refs_ == 0);
@@ -58,7 +54,7 @@ MemTable::~MemTable() {
 
 size_t MemTable::ApproximateMemoryUsage() {
   return arena_impl_.ApproximateMemoryUsage() +
-    table_->ApproximateMemoryUsage();
+         table_->ApproximateMemoryUsage();
 }
 
 int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)
@@ -89,11 +85,11 @@ class MemTableIterator: public Iterator {
   MemTableIterator(MemTableRep* table, const ReadOptions& options)
     : iter_() {
     if (options.prefix) {
-      iter_ = table->GetPrefixIterator(*options.prefix);
+      iter_.reset(table->GetPrefixIterator(*options.prefix));
     } else if (options.prefix_seek) {
-      iter_ = table->GetDynamicPrefixIterator();
+      iter_.reset(table->GetDynamicPrefixIterator());
     } else {
-      iter_ = table->GetIterator();
+      iter_.reset(table->GetIterator());
     }
   }
 
@@ -114,7 +110,7 @@ class MemTableIterator: public Iterator {
   virtual Status status() const { return Status::OK(); }
 
  private:
-  std::shared_ptr<MemTableRep::Iterator> iter_;
+  std::unique_ptr<MemTableRep::Iterator> iter_;
   std::string tmp_;       // For passing to EncodeKey
 
   // No copying allowed
@@ -165,8 +161,8 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext& merge_context, const Options& options) {
   Slice memkey = key.memtable_key();
-  std::shared_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(key.user_key()));
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetIterator(key.user_key()));
   iter->Seek(memkey.data());
 
   bool merge_in_progress = s->IsMergeInProgress();
@@ -274,8 +270,8 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
-  std::shared_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(lkey.user_key()));
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetIterator(lkey.user_key()));
   iter->Seek(memkey.data());
 
   if (iter->Valid()) {
@@ -336,8 +332,8 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   // A total ordered iterator is costly for some memtablerep (prefix aware
   // reps). By passing in the user key, we allow efficient iterator creation.
   // The iterator only needs to be ordered within the same user key.
-  std::shared_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(key.user_key()));
+  std::unique_ptr<MemTableRep::Iterator> iter(
+      table_->GetIterator(key.user_key()));
   iter->Seek(memkey.data());
 
   size_t num_successive_merges = 0;

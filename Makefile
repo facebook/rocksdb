@@ -128,19 +128,21 @@ $(SHARED2): $(SHARED3)
 	ln -fs $(SHARED3) $(SHARED2)
 endif
 
-$(SHARED3):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(COVERAGEFLAGS) $(PLATFORM_SHARED_CFLAGS) $(SOURCES) -o $@ $(LDFLAGS)
+$(SHARED3): $(LIBOBJECTS)
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LDFLAGS) $(SOURCES)-o $@
 
 endif  # PLATFORM_SHARED_EXT
 
 all: $(LIBRARY) $(PROGRAMS)
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
-	release tags valgrind_check whitebox_crash_test
+	release tags valgrind_check whitebox_crash_test format
 
+# Will also generate shared libraries. 
 release:
 	$(MAKE) clean
-	OPT=-DNDEBUG $(MAKE) -j32
+	OPT=-DNDEBUG $(MAKE) all -j32
+	OPT=-DNDEBUG $(MAKE) $(SHARED) -j32
 
 coverage:
 	$(MAKE) clean
@@ -196,6 +198,9 @@ clean:
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
+
+format:
+	build_tools/format-diff.sh
 
 # ---------------------------------------------------------------------------
 # 	Unit tests and tools
@@ -415,6 +420,12 @@ DEPFILES = $(filter-out util/build_version.d,$(SOURCES:.cc=.d))
 
 depend: $(DEPFILES)
 
+# if the make goal is either "clean" or "format", we shouldn't
+# try to import the *.d files.
+# TODO(kailiu) The unfamiliarity of Make's conditions leads to the ugly
+# working solution.
 ifneq ($(MAKECMDGOALS),clean)
+ifneq ($(MAKECMDGOALS),format)
 -include $(DEPFILES)
+endif
 endif

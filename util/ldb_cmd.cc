@@ -1024,7 +1024,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   }
   int max = -1;
   for (int i = 0; i < versions.NumberLevels(); i++) {
-    if (versions.NumLevelFiles(i)) {
+    if (versions.current()->NumLevelFiles(i)) {
       max = i;
     }
   }

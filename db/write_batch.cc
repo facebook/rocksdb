@@ -31,7 +31,7 @@
 #include "db/snapshot.h"
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
-#include "util/statistics_imp.h"
+#include "util/statistics.h"
 #include <stdexcept>
 
 namespace rocksdb {
@@ -39,7 +39,8 @@ namespace rocksdb {
 // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
 static const size_t kHeader = 12;
 
-WriteBatch::WriteBatch() {
+WriteBatch::WriteBatch(size_t reserved_bytes) {
+  rep_.reserve((reserved_bytes > kHeader) ? reserved_bytes : kHeader);
   Clear();
 }
 

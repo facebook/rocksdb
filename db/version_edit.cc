@@ -38,6 +38,7 @@ enum Tag {
 
 void VersionEdit::Clear() {
   comparator_.clear();
+  max_level_ = 0;
   log_number_ = 0;
   prev_log_number_ = 0;
   last_sequence_ = 0;
@@ -75,12 +76,6 @@ void VersionEdit::EncodeTo(std::string* dst) const {
   if (has_last_sequence_) {
     PutVarint32(dst, kLastSequence);
     PutVarint64(dst, last_sequence_);
-  }
-
-  for (size_t i = 0; i < compact_pointers_.size(); i++) {
-    PutVarint32(dst, kCompactPointer);
-    PutVarint32(dst, compact_pointers_[i].first);  // level
-    PutLengthPrefixedSlice(dst, compact_pointers_[i].second.Encode());
   }
 
   for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
@@ -131,14 +126,13 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
 
 bool VersionEdit::GetLevel(Slice* input, int* level, const char** msg) {
   uint32_t v;
-  if (GetVarint32(input, &v) &&
-      (int)v < number_levels_) {
+  if (GetVarint32(input, &v)) {
     *level = v;
+    if (max_level_ < *level) {
+      max_level_ = *level;
+    }
     return true;
   } else {
-    if ((int)v >= number_levels_) {
-      *msg = "column family already has more levels than specified";
-    }
     return false;
   }
 }
@@ -202,7 +196,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       case kCompactPointer:
         if (GetLevel(&input, &level, &msg) &&
             GetInternalKey(&input, &key)) {
-          compact_pointers_.push_back(std::make_pair(level, key));
+          // we don't use compact pointers anymore,
+          // but we should not fail if they are still
+          // in manifest
         } else {
           if (!msg) {
             msg = "compaction pointer";
@@ -313,12 +309,6 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (has_last_sequence_) {
     r.append("\n  LastSeq: ");
     AppendNumberTo(&r, last_sequence_);
-  }
-  for (size_t i = 0; i < compact_pointers_.size(); i++) {
-    r.append("\n  CompactPointer: ");
-    AppendNumberTo(&r, compact_pointers_[i].first);
-    r.append(" ");
-    r.append(compact_pointers_[i].second.DebugString(hex_key));
   }
   for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
        iter != deleted_files_.end();

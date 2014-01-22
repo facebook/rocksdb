@@ -88,7 +88,7 @@ class VectorRep : public MemTableRep {
   using MemTableRep::GetIterator;
 
   // Return an iterator over the keys in this representation.
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() override;
+  virtual MemTableRep::Iterator* GetIterator() override;
 
  private:
   friend class Iterator;
@@ -228,22 +228,22 @@ void VectorRep::Iterator::SeekToLast() {
   }
 }
 
-std::shared_ptr<MemTableRep::Iterator> VectorRep::GetIterator() {
+MemTableRep::Iterator* VectorRep::GetIterator() {
   ReadLock l(&rwlock_);
   // Do not sort here. The sorting would be done the first time
   // a Seek is performed on the iterator.
   if (immutable_) {
-    return std::make_shared<Iterator>(this, bucket_, compare_);
+    return new Iterator(this, bucket_, compare_);
   } else {
     std::shared_ptr<Bucket> tmp;
     tmp.reset(new Bucket(*bucket_)); // make a copy
-    return std::make_shared<Iterator>(nullptr, tmp, compare_);
+    return new Iterator(nullptr, tmp, compare_);
   }
 }
 } // anon namespace
 
-std::shared_ptr<MemTableRep> VectorRepFactory::CreateMemTableRep(
-  MemTableRep::KeyComparator& compare, Arena* arena) {
-  return std::make_shared<VectorRep>(compare, arena, count_);
+MemTableRep* VectorRepFactory::CreateMemTableRep(
+    MemTableRep::KeyComparator& compare, Arena* arena) {
+  return new VectorRep(compare, arena, count_);
 }
 } // namespace rocksdb
