@@ -672,6 +672,31 @@ class DBTest {
     ASSERT_EQ(IterStatus(iter), expected_key);
     delete iter;
   }
+
+  void CopyFile(const std::string& source, const std::string& destination,
+                uint64_t size = 0) {
+    const EnvOptions soptions;
+    unique_ptr<SequentialFile> srcfile;
+    ASSERT_OK(env_->NewSequentialFile(source, &srcfile, soptions));
+    unique_ptr<WritableFile> destfile;
+    ASSERT_OK(env_->NewWritableFile(destination, &destfile, soptions));
+
+    if (size == 0) {
+      // default argument means copy everything
+      ASSERT_OK(env_->GetFileSize(source, &size));
+    }
+
+    char buffer[4096];
+    Slice slice;
+    while (size > 0) {
+      uint64_t one = std::min(uint64_t(sizeof(buffer)), size);
+      ASSERT_OK(srcfile->Read(one, &slice, buffer));
+      ASSERT_OK(destfile->Append(slice));
+      size -= slice.size();
+    }
+    ASSERT_OK(destfile->Close());
+  }
+
 };
 
 static std::string Key(int i) {
@@ -1471,6 +1496,82 @@ TEST(DBTest, Recover) {
     ASSERT_EQ("v4", Get("foo"));
     ASSERT_EQ("v2", Get("bar"));
     ASSERT_EQ("v5", Get("baz"));
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, IgnoreRecoveredLog) {
+  std::string backup_logs = dbname_ + "/backup_logs";
+
+  // delete old files in backup_logs directory
+  env_->CreateDirIfMissing(backup_logs);
+  std::vector<std::string> old_files;
+  env_->GetChildren(backup_logs, &old_files);
+  for (auto& file : old_files) {
+    if (file != "." && file != "..") {
+      env_->DeleteFile(backup_logs + "/" + file);
+    }
+  }
+
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+    options.wal_dir = dbname_ + "/logs";
+    DestroyAndReopen(&options);
+
+    // fill up the DB
+    std::string one, two;
+    PutFixed64(&one, 1);
+    PutFixed64(&two, 2);
+    ASSERT_OK(db_->Merge(WriteOptions(), Slice("foo"), Slice(one)));
+    ASSERT_OK(db_->Merge(WriteOptions(), Slice("foo"), Slice(one)));
+    ASSERT_OK(db_->Merge(WriteOptions(), Slice("bar"), Slice(one)));
+
+    // copy the logs to backup
+    std::vector<std::string> logs;
+    env_->GetChildren(options.wal_dir, &logs);
+    for (auto& log : logs) {
+      if (log != ".." && log != ".") {
+        CopyFile(options.wal_dir + "/" + log, backup_logs + "/" + log);
+      }
+    }
+
+    // recover the DB
+    Reopen(&options);
+    ASSERT_EQ(two, Get("foo"));
+    ASSERT_EQ(one, Get("bar"));
+    Close();
+
+    // copy the logs from backup back to wal dir
+    for (auto& log : logs) {
+      if (log != ".." && log != ".") {
+        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
+      }
+    }
+    // this should ignore the log files, recovery should not happen again
+    // if the recovery happens, the same merge operator would be called twice,
+    // leading to incorrect results
+    Reopen(&options);
+    ASSERT_EQ(two, Get("foo"));
+    ASSERT_EQ(one, Get("bar"));
+    Close();
+    Destroy(&options);
+
+    // copy the logs from backup back to wal dir
+    env_->CreateDirIfMissing(options.wal_dir);
+    for (auto& log : logs) {
+      if (log != ".." && log != ".") {
+        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
+        // we won't be needing this file no more
+        env_->DeleteFile(backup_logs + "/" + log);
+      }
+    }
+    // assert that we successfully recovered only from logs, even though we
+    // destroyed the DB
+    Reopen(&options);
+    ASSERT_EQ(two, Get("foo"));
+    ASSERT_EQ(one, Get("bar"));
+    Close();
   } while (ChangeOptions());
 }
 
@@ -3616,7 +3717,6 @@ TEST(DBTest, BloomFilter) {
 TEST(DBTest, SnapshotFiles) {
   do {
     Options options = CurrentOptions();
-    const EnvOptions soptions;
     options.write_buffer_size = 100000000;        // Large write buffer
     Reopen(&options);
 
@@ -3672,20 +3772,7 @@ TEST(DBTest, SnapshotFiles) {
           }
         }
       }
-      unique_ptr<SequentialFile> srcfile;
-      ASSERT_OK(env_->NewSequentialFile(src, &srcfile, soptions));
-      unique_ptr<WritableFile> destfile;
-      ASSERT_OK(env_->NewWritableFile(dest, &destfile, soptions));
-
-      char buffer[4096];
-      Slice slice;
-      while (size > 0) {
-        uint64_t one = std::min(uint64_t(sizeof(buffer)), size);
-        ASSERT_OK(srcfile->Read(one, &slice, buffer));
-        ASSERT_OK(destfile->Append(slice));
-        size -= slice.size();
-      }
-      ASSERT_OK(destfile->Close());
+      CopyFile(src, dest, size);
     }
 
     // release file snapshot

@@ -301,10 +301,8 @@ class DBImpl : public DB {
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
-  Status Recover(VersionEdit* edit,
-                 const std::vector<ColumnFamilyDescriptor>& column_families,
-                 MemTable* external_table = nullptr,
-                 bool error_if_log_file_exist = false);
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                 bool read_only = false, bool error_if_log_file_exist = false);
 
   void MaybeIgnoreError(Status* s) const;
 
@@ -318,10 +316,8 @@ class DBImpl : public DB {
   Status FlushMemTableToOutputFile(bool* madeProgress,
                                    DeletionState& deletion_state);
 
-  Status RecoverLogFile(uint64_t log_number,
-                        VersionEdit* edit,
-                        SequenceNumber* max_sequence,
-                        MemTable* external_table);
+  Status RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
+                        bool read_only);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used atdatabase RecoveryTime (when the

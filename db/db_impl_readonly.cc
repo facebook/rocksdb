@@ -85,14 +85,12 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 
   DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
   impl->mutex_.Lock();
-  VersionEdit edit;
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(default_column_family_name, cf_options));
-  Status s = impl->Recover(&edit, column_families, impl->GetMemTable(),
-                           error_if_log_file_exist);
+  Status s = impl->Recover(column_families, true /* read only */, error_if_log_file_exist);
   impl->mutex_.Unlock();
   if (s.ok()) {
     *dbptr = impl;
