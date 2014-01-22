@@ -69,7 +69,7 @@ TEST(ColumnFamilyTest, AddDrop) {
   Close();
 
   vector<string> families;
-  DB::ListColumnFamilies(db_options_, dbname_, &families);
+  ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &families));
   sort(families.begin(), families.end());
   ASSERT_TRUE(families == vector<string>({"default", "four", "one", "three"}));
 }

@@ -25,7 +25,7 @@ Status VersionSet::ReduceNumberOfLevels(int new_levels, port::Mutex* mu) {
   }
 
   // TODO this only works for default column family now
-  Version* current_version = column_family_data_.find(0)->second->current;
+  Version* current_version = column_family_set_->GetDefault()->current;
   int current_levels = current_version->NumberLevels();
 
   if (current_levels <= new_levels) {

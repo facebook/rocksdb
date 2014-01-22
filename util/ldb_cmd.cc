@@ -11,6 +11,7 @@
 #include "db/filename.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/column_family.h"
 #include "util/coding.h"
 
 #include <ctime>
@@ -1015,10 +1016,12 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   TableCache tc(db_path_, &opt, soptions, 10);
   const InternalKeyComparator cmp(opt.comparator);
   VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
+  std::vector<ColumnFamilyDescriptor> dummy;
+  dummy.push_back(ColumnFamilyDescriptor());
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change
   // (like LogAndApply) to the manifest file.
-  Status st = versions.Recover();
+  Status st = versions.Recover(dummy);
   if (!st.ok()) {
     return st;
   }
@@ -1072,10 +1075,12 @@ void ReduceDBLevelsCommand::DoCommand() {
   TableCache tc(db_path_, &opt, soptions, 10);
   const InternalKeyComparator cmp(opt.comparator);
   VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
+  std::vector<ColumnFamilyDescriptor> dummy;
+  dummy.push_back(ColumnFamilyDescriptor());
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change (like LogAndApply)
   // to the manifest file.
-  st = versions.Recover();
+  st = versions.Recover(dummy);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());
     return;

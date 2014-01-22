@@ -29,6 +29,8 @@
 #include "db/table_cache.h"
 #include "db/compaction.h"
 #include "db/compaction_picker.h"
+#include "db/column_family.h"
+#include "db/log_reader.h"
 
 namespace rocksdb {
 
@@ -42,6 +44,8 @@ class TableCache;
 class Version;
 class VersionSet;
 class MergeContext;
+struct ColumnFamilyData;
+class ColumnFamilySet;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.
@@ -263,38 +267,6 @@ class Version {
   void operator=(const Version&);
 };
 
-// column family metadata
-struct ColumnFamilyData {
-  std::string name;
-  Version dummy_versions;  // Head of circular doubly-linked list of versions.
-  Version* current;        // == dummy_versions.prev_
-  ColumnFamilyOptions options;
-  int refs;
-
-  void Ref() {
-    ++refs;
-  }
-
-  void Unref() {
-    assert(refs > 0);
-    if (refs == 1) {
-      delete this;
-    } else {
-      --refs;
-    }
-  }
-
-  ColumnFamilyData(const std::string& name,
-                   VersionSet* vset,
-                   const ColumnFamilyOptions& options)
-      : name(name),
-        dummy_versions(vset),
-        current(nullptr),
-        options(options),
-        refs(1) {}
-  ~ColumnFamilyData() {}
-};
-
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const Options* options,
@@ -315,12 +287,17 @@ class VersionSet {
   Status LogAndApply(VersionEdit* edit,
                      port::Mutex* mu,
                      bool new_descriptor_log = false) {
-    return LogAndApply(
-        column_family_data_.find(0)->second, edit, mu, new_descriptor_log);
+    return LogAndApply(column_family_set_->GetDefault(), edit, mu,
+                       new_descriptor_log);
   }
 
   // Recover the last saved descriptor from persistent storage.
-  Status Recover();
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families);
+
+  // Reads a manifest file and returns a list of column families in
+  // column_families.
+  static Status ListColumnFamilies(std::vector<std::string>* column_families,
+                                   const std::string& dbname, Env* env);
 
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
@@ -333,7 +310,7 @@ class VersionSet {
   // Return the current version.
   Version* current() const {
     // TODO this only works for default column family now
-    return column_family_data_.find(0)->second->current;
+    return column_family_set_->GetDefault()->current;
   }
 
   // A Flag indicating whether write needs to slowdown because of there are
@@ -418,7 +395,7 @@ class VersionSet {
     // TODO: improve this function to be accurate for universal
     //       compactions.
     // TODO this only works for default column family now
-    Version* version = column_family_data_.find(0)->second->current;
+    Version* version = column_family_set_->GetDefault()->current;
     int num_levels_to_check =
         (options_->compaction_style != kCompactionStyleUniversal) ?
             NumberLevels() - 1 : 1;
@@ -432,21 +409,21 @@ class VersionSet {
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const {
     // TODO this only works for default column family now
-    Version* version = column_family_data_.find(0)->second->current;
+    Version* version = column_family_set_->GetDefault()->current;
     return ((version->file_to_compact_ != nullptr) || NeedsSizeCompaction());
   }
 
   // Returns the maxmimum compaction score for levels 1 to max
   double MaxCompactionScore() const {
     // TODO this only works for default column family now
-    Version* version = column_family_data_.find(0)->second->current;
+    Version* version = column_family_set_->GetDefault()->current;
     return version->max_compaction_score_;
   }
 
   // See field declaration
   int MaxCompactionScoreLevel() const {
     // TODO this only works for default column family now
-    Version* version = column_family_data_.find(0)->second->current;
+    Version* version = column_family_set_->GetDefault()->current;
     return version->max_compaction_score_level_;
   }
 
@@ -490,9 +467,7 @@ class VersionSet {
 
   void DropColumnFamily(VersionEdit* edit);
 
-  std::unordered_map<std::string, uint32_t> column_families_;
-  std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
-  uint32_t max_column_family_;
+  ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
 
  private:
   class Builder;
@@ -501,12 +476,21 @@ class VersionSet {
   friend class Compaction;
   friend class Version;
 
+  struct LogReporter : public log::Reader::Reporter {
+    Status* status;
+    virtual void Corruption(size_t bytes, const Status& s) {
+      if (this->status->ok()) *this->status = s;
+    }
+  };
+
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   bool ManifestContains(const std::string& record) const;
+
+  std::unique_ptr<ColumnFamilySet> column_family_set_;
 
   Env* const env_;
   const std::string dbname_;

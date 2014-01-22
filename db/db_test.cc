@@ -5035,7 +5035,9 @@ void BM_LogAndApply(int iters, int num_base_files) {
   Options options;
   EnvOptions sopt;
   VersionSet vset(dbname, &options, sopt, nullptr, &cmp);
-  ASSERT_OK(vset.Recover());
+  std::vector<ColumnFamilyDescriptor> dummy;
+  dummy.push_back(ColumnFamilyDescriptor());
+  ASSERT_OK(vset.Recover(dummy));
   VersionEdit vbase;
   uint64_t fnum = 1;
   for (int i = 0; i < num_base_files; i++) {

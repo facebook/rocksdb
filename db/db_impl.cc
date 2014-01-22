@@ -913,21 +913,8 @@ Status DBImpl::Recover(
     }
   }
 
-  Status s = versions_->Recover();
+  Status s = versions_->Recover(column_families);
   if (s.ok()) {
-    if (column_families.size() != versions_->column_families_.size()) {
-      return Status::InvalidArgument("Column family specifications mismatch");
-    }
-    for (auto cf : column_families) {
-      auto cf_iter = versions_->column_families_.find(cf.name);
-      if (cf_iter == versions_->column_families_.end()) {
-        return Status::InvalidArgument("Column family specifications mismatch");
-      }
-      auto cf_data_iter = versions_->column_family_data_.find(cf_iter->second);
-      assert(cf_data_iter != versions_->column_family_data_.end());
-      cf_data_iter->second->options = cf.options;
-    }
-
     SequenceNumber max_sequence(0);
 
     // Recover from all newer log files than the ones named in the
@@ -2933,11 +2920,13 @@ std::vector<Status> DBImpl::MultiGet(
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                   const std::string& column_family_name,
                                   ColumnFamilyHandle* handle) {
+  if (!versions_->GetColumnFamilySet()->Exists(column_family_name)) {
+    return Status::InvalidArgument("Column family already exists");
+  }
   VersionEdit edit;
   edit.AddColumnFamily(column_family_name);
   MutexLock l(&mutex_);
-  ++versions_->max_column_family_;
-  handle->id = versions_->max_column_family_;
+  handle->id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
   edit.SetColumnFamily(handle->id);
   Status s = versions_->LogAndApply(&edit, &mutex_);
   if (s.ok()) {
@@ -2948,21 +2937,16 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
 }
 
 Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
-  // TODO this is not good. implement some sort of refcounting
-  // column family data and only delete when refcount goes to 0
-  // We don't want to delete column family if there is a compaction going on,
-  // or if there are some outstanding iterators
   if (column_family.id == 0) {
     return Status::InvalidArgument("Can't drop default column family");
+  }
+  MutexLock l(&mutex_);
+  if (!versions_->GetColumnFamilySet()->Exists(column_family.id)) {
+    return Status::NotFound("Column family not found");
   }
   VersionEdit edit;
   edit.DropColumnFamily();
   edit.SetColumnFamily(column_family.id);
-  MutexLock l(&mutex_);
-  auto data_iter = versions_->column_family_data_.find(column_family.id);
-  if (data_iter == versions_->column_family_data_.end()) {
-    return Status::NotFound("Column family not found");
-  }
   Status s = versions_->LogAndApply(&edit, &mutex_);
   if (s.ok()) {
     // remove from internal data structures
@@ -3968,10 +3952,16 @@ Status DB::OpenWithColumnFamilies(
       // set column family handles
       handles->clear();
       for (auto cf : column_families) {
-        auto cf_iter = impl->versions_->column_families_.find(cf.name);
-        assert(cf_iter != impl->versions_->column_families_.end());
-        handles->push_back(ColumnFamilyHandle(cf_iter->second));
+        if (!impl->versions_->GetColumnFamilySet()->Exists(cf.name)) {
+          s = Status::InvalidArgument("Column family not found: ", cf.name);
+          handles->clear();
+          break;
+        }
+        uint32_t id = impl->versions_->GetColumnFamilySet()->GetID(cf.name);
+        handles->push_back(ColumnFamilyHandle(id));
       }
+    }
+    if (s.ok()) {
       delete impl->InstallSuperVersion(new DBImpl::SuperVersion());
       impl->mem_->SetLogNumber(impl->logfile_number_);
       impl->DeleteObsoleteFiles();
@@ -4006,23 +3996,7 @@ Status DB::OpenWithColumnFamilies(
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
                               std::vector<std::string>* column_families) {
-  Options options(db_options, ColumnFamilyOptions());
-  InternalKeyComparator* icmp = new InternalKeyComparator(options.comparator);
-  TableCache* table_cache = new TableCache(name, &options, EnvOptions(options),
-                                           db_options.max_open_files - 10);
-  VersionSet* version_set =
-      new VersionSet(name, &options, EnvOptions(options), table_cache, icmp);
-
-  version_set->Recover();
-  column_families->clear();
-  for (auto cf : version_set->column_families_) {
-    column_families->push_back(cf.first);
-  }
-
-  delete version_set;
-  delete table_cache;
-  delete icmp;
-  return Status::NotSupported("Working on it");
+  return VersionSet::ListColumnFamilies(column_families, name, db_options.env);
 }
 
 Snapshot::~Snapshot() {

@@ -10,6 +10,7 @@
 #include "db/version_set.h"
 
 #include <algorithm>
+#include <map>
 #include <climits>
 #include <stdio.h>
 #include "db/filename.h"
@@ -751,9 +752,6 @@ void Version::Ref() {
 }
 
 void Version::Unref() {
-  for (auto cfd : vset_->column_family_data_) {
-    assert(this != &cfd.second->dummy_versions);
-  }
   assert(refs_ >= 1);
   --refs_;
   if (refs_ == 0) {
@@ -1344,7 +1342,8 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
                        const EnvOptions& storage_options,
                        TableCache* table_cache,
                        const InternalKeyComparator* cmp)
-    : env_(options->env),
+    : column_family_set_(new ColumnFamilySet()),
+      env_(options->env),
       dbname_(dbname),
       options_(options),
       table_cache_(table_cache),
@@ -1368,11 +1367,8 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
 }
 
 VersionSet::~VersionSet() {
-  for (auto cfd : column_family_data_) {
-    cfd.second->current->Unref();
-    // List must be empty
-    assert(cfd.second->dummy_versions.next_ == &cfd.second->dummy_versions);
-    cfd.second->Unref();
+  for (auto cfd : *column_family_set_) {
+    cfd->current->Unref();
   }
   for (auto file : obsolete_files_) {
     delete file;
@@ -1396,8 +1392,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
   v->Ref();
 
   // Append to linked list
-  v->prev_ = column_family_data->dummy_versions.prev_;
-  v->next_ = &column_family_data->dummy_versions;
+  v->prev_ = column_family_data->dummy_versions->prev_;
+  v->next_ = column_family_data->dummy_versions;
   v->prev_->next_ = v;
   v->next_->prev_ = v;
 }
@@ -1592,13 +1588,16 @@ void VersionSet::LogAndApplyHelper(Builder* builder, Version* v,
   builder->Apply(edit);
 }
 
-Status VersionSet::Recover() {
-  struct LogReporter : public log::Reader::Reporter {
-    Status* status;
-    virtual void Corruption(size_t bytes, const Status& s) {
-      if (this->status->ok()) *this->status = s;
-    }
-  };
+Status VersionSet::Recover(
+    const std::vector<ColumnFamilyDescriptor>& column_families) {
+  std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
+  for (auto cf : column_families) {
+    cf_name_to_options.insert({cf.name, cf.options});
+  }
+  // keeps track of column families in manifest that were not found in
+  // column families parameters. if those column families are not dropped
+  // by subsequent manifest records, Recover() will return failure status
+  std::set<int> column_families_not_found;
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string current;
@@ -1640,12 +1639,17 @@ Status VersionSet::Recover() {
   VersionEdit default_cf_edit;
   default_cf_edit.AddColumnFamily(default_column_family_name);
   default_cf_edit.SetColumnFamily(0);
-  ColumnFamilyData* default_cfd =
-      CreateColumnFamily(ColumnFamilyOptions(*options_), &default_cf_edit);
-  builders.insert({0, new Builder(this, default_cfd->current)});
+  auto default_cf_iter = cf_name_to_options.find(default_column_family_name);
+  if (default_cf_iter == cf_name_to_options.end()) {
+    column_families_not_found.insert(0);
+  } else {
+    ColumnFamilyData* default_cfd =
+        CreateColumnFamily(default_cf_iter->second, &default_cf_edit);
+    builders.insert({0, new Builder(this, default_cfd->current)});
+  }
 
   {
-    LogReporter reporter;
+    VersionSet::LogReporter reporter;
     reporter.status = &s;
     log::Reader reader(std::move(file), &reporter, true/*checksum*/,
                        0/*initial_offset*/);
@@ -1665,27 +1669,61 @@ Status VersionSet::Recover() {
         break;
       }
 
+      bool cf_in_not_found =
+          column_families_not_found.find(edit.column_family_) !=
+          column_families_not_found.end();
+      bool cf_in_builders =
+          builders.find(edit.column_family_) != builders.end();
+
+      // they can't both be true
+      assert(!(cf_in_not_found && cf_in_builders));
+
       if (edit.is_column_family_add_) {
-        ColumnFamilyData* new_cfd =
-            CreateColumnFamily(ColumnFamilyOptions(), &edit);
-        builders.insert(
-            {edit.column_family_, new Builder(this, new_cfd->current)});
+        if (cf_in_builders || cf_in_not_found) {
+          s = Status::Corruption(
+              "Manifest adding the same column family twice");
+          break;
+        }
+        auto cf_options = cf_name_to_options.find(edit.column_family_name_);
+        if (cf_options == cf_name_to_options.end()) {
+          column_families_not_found.insert(edit.column_family_);
+        } else {
+          ColumnFamilyData* new_cfd =
+              CreateColumnFamily(cf_options->second, &edit);
+          builders.insert(
+              {edit.column_family_, new Builder(this, new_cfd->current)});
+        }
       } else if (edit.is_column_family_drop_) {
-        auto builder = builders.find(edit.column_family_);
-        assert(builder != builders.end());
-        delete builder->second;
-        builders.erase(builder);
-        DropColumnFamily(&edit);
-      } else {
-        auto cfd = column_family_data_.find(edit.column_family_);
-        assert(cfd != column_family_data_.end());
-        if (edit.max_level_ >= cfd->second->current->NumberLevels()) {
+        if (cf_in_builders) {
+          auto builder = builders.find(edit.column_family_);
+          assert(builder != builders.end());
+          delete builder->second;
+          builders.erase(builder);
+          DropColumnFamily(&edit);
+        } else if (cf_in_not_found) {
+          column_families_not_found.erase(edit.column_family_);
+        } else {
+          s = Status::Corruption(
+              "Manifest - dropping non-existing column family");
+          break;
+        }
+      } else if (!cf_in_not_found) {
+        if (!cf_in_builders) {
+          s = Status::Corruption(
+              "Manifest record referencing unknown column family");
+          break;
+        }
+
+        auto cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+        // this should never happen since cf_in_builders is true
+        assert(cfd != nullptr);
+        if (edit.max_level_ >= cfd->current->NumberLevels()) {
           s = Status::InvalidArgument(
               "db has more levels than options.num_levels");
           break;
         }
 
-        // if it isn't column family add or column family drop,
+        // if it is not column family add or column family drop,
         // then it's a file add/delete, which should be forwarded
         // to builder
         auto builder = builders.find(edit.column_family_);
@@ -1733,16 +1771,24 @@ Status VersionSet::Recover() {
     MarkFileNumberUsed(log_number);
   }
 
+  // there were some column families in the MANIFEST that weren't specified
+  // in the argument
+  if (column_families_not_found.size() > 0) {
+    s = Status::InvalidArgument(
+        "Found unexpected column families. You have to specify all column "
+        "families when opening the DB");
+  }
+
   if (s.ok()) {
-    for (auto cfd : column_family_data_) {
+    for (auto cfd : *column_family_set_) {
       Version* v = new Version(this, current_version_number_++);
-      builders[cfd.first]->SaveTo(v);
+      builders[cfd->id]->SaveTo(v);
 
       // Install recovered version
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       compaction_picker_->SizeBeingCompacted(size_being_compacted);
       v->Finalize(size_being_compacted);
-      AppendVersion(cfd.second, v);
+      AppendVersion(cfd, v);
     }
 
     manifest_file_size_ = manifest_file_size;
@@ -1771,15 +1817,65 @@ Status VersionSet::Recover() {
   return s;
 }
 
+Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
+                                      const std::string& dbname, Env* env) {
+
+  // these are just for performance reasons, not correcntes,
+  // so we're fine using the defaults
+  EnvOptions soptions;
+  // Read "CURRENT" file, which contains a pointer to the current manifest file
+  std::string current;
+  Status s = ReadFileToString(env, CurrentFileName(dbname), &current);
+  if (!s.ok()) {
+    return s;
+  }
+  if (current.empty() || current[current.size()-1] != '\n') {
+    return Status::Corruption("CURRENT file does not end with newline");
+  }
+  current.resize(current.size() - 1);
+
+  std::string dscname = dbname + "/" + current;
+  unique_ptr<SequentialFile> file;
+  s = env->NewSequentialFile(dscname, &file, soptions);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::map<uint32_t, std::string> column_family_names;
+  // default column family is always implicitly there
+  column_family_names.insert({0, default_column_family_name});
+  VersionSet::LogReporter reporter;
+  reporter.status = &s;
+  log::Reader reader(std::move(file), &reporter, true /*checksum*/,
+                     0 /*initial_offset*/);
+  Slice record;
+  std::string scratch;
+  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+      VersionEdit edit;
+      s = edit.DecodeFrom(record);
+      if (!s.ok()) {
+        break;
+      }
+      if (edit.is_column_family_add_) {
+        column_family_names.insert(
+            {edit.column_family_, edit.column_family_name_});
+      } else if (edit.is_column_family_drop_) {
+        column_family_names.erase(edit.column_family_);
+      }
+  }
+
+  column_families->clear();
+  if (s.ok()) {
+    for (const auto& iter : column_family_names) {
+      column_families->push_back(iter.second);
+    }
+  }
+
+  return s;
+}
+
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
                                 bool verbose, bool hex) {
-  struct LogReporter : public log::Reader::Reporter {
-    Status* status;
-    virtual void Corruption(size_t bytes, const Status& s) {
-      if (this->status->ok()) *this->status = s;
-    }
-  };
-
   // Open the specified manifest file.
   unique_ptr<SequentialFile> file;
   Status s = options.env->NewSequentialFile(dscname, &file, storage_options_);
@@ -1797,11 +1893,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   uint64_t prev_log_number = 0;
   int count = 0;
   // TODO works only for default column family currently
-  VersionSet::Builder builder(this,
-                              column_family_data_.find(0)->second->current);
+  VersionSet::Builder builder(this, column_family_set_->GetDefault()->current);
 
   {
-    LogReporter reporter;
+    VersionSet::LogReporter reporter;
     reporter.status = &s;
     log::Reader reader(std::move(file), &reporter, true/*checksum*/,
                        0/*initial_offset*/);
@@ -1905,15 +2000,15 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 Status VersionSet::WriteSnapshot(log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
-  for (auto cfd : column_family_data_) {
+  for (auto cfd : *column_family_set_) {
     {
       // Store column family info
       VersionEdit edit;
-      if (cfd.first != 0) {
+      if (cfd->id != 0) {
         // default column family is always there,
         // no need to explicitly write it
-        edit.AddColumnFamily(cfd.second->name);
-        edit.SetColumnFamily(cfd.first);
+        edit.AddColumnFamily(cfd->name);
+        edit.SetColumnFamily(cfd->id);
         std::string record;
         edit.EncodeTo(&record);
         Status s = log->AddRecord(record);
@@ -1926,13 +2021,10 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     {
       // Save files
       VersionEdit edit;
-      edit.SetColumnFamily(cfd.first);
+      edit.SetColumnFamily(cfd->id);
 
       for (int level = 0; level < NumberLevels(); level++) {
-        const std::vector<FileMetaData*>& files =
-            cfd.second->current->files_[level];
-        for (size_t i = 0; i < files.size(); i++) {
-          const FileMetaData* f = files[i];
+        for (const auto& f : cfd->current->files_[level]) {
           edit.AddFile(level,
                        f->number,
                        f->file_size,
@@ -2025,9 +2117,9 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
 void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
   // pre-calculate space requirement
   int64_t total_files = 0;
-  for (auto cfd : column_family_data_) {
-    for (Version* v = cfd.second->dummy_versions.next_;
-         v != &cfd.second->dummy_versions; v = v->next_) {
+  for (auto cfd : *column_family_set_) {
+    for (Version* v = cfd->dummy_versions->next_; v != cfd->dummy_versions;
+         v = v->next_) {
       for (int level = 0; level < v->NumberLevels(); level++) {
         total_files += v->files_[level].size();
       }
@@ -2037,9 +2129,9 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
   // just one time extension to the right size
   live_list->reserve(live_list->size() + total_files);
 
-  for (auto cfd : column_family_data_) {
-    for (Version* v = cfd.second->dummy_versions.next_;
-         v != &cfd.second->dummy_versions; v = v->next_) {
+  for (auto cfd : *column_family_set_) {
+    for (Version* v = cfd->dummy_versions->next_; v != cfd->dummy_versions;
+         v = v->next_) {
       for (int level = 0; level < v->NumberLevels(); level++) {
         for (const auto& f : v->files_[level]) {
           live_list->push_back(f->number);
@@ -2051,7 +2143,7 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
 
 Compaction* VersionSet::PickCompaction() {
   // TODO this only works for default column family now
-  Version* version = column_family_data_.find(0)->second->current;
+  Version* version = column_family_set_->GetDefault()->current;
   return compaction_picker_->PickCompaction(version);
 }
 
@@ -2060,7 +2152,7 @@ Compaction* VersionSet::CompactRange(int input_level, int output_level,
                                      const InternalKey* end,
                                      InternalKey** compaction_end) {
   // TODO this only works for default column family now
-  Version* version = column_family_data_.find(0)->second->current;
+  Version* version = column_family_set_->GetDefault()->current;
   return compaction_picker_->CompactRange(version, input_level, output_level,
                                           begin, end, compaction_end);
 }
@@ -2112,7 +2204,7 @@ uint64_t VersionSet::MaxFileSizeForLevel(int level) {
 bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
 #ifndef NDEBUG
   // TODO this only works for default column family now
-  Version* version = column_family_data_.find(0)->second->current;
+  Version* version = column_family_set_->GetDefault()->current;
   if (c->input_version() != version) {
     Log(options_->info_log, "VerifyCompactionFileConsistency version mismatch");
   }
@@ -2163,13 +2255,12 @@ void VersionSet::ReleaseCompactionFiles(Compaction* c, Status status) {
 
 Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
                                       FileMetaData* meta) {
-  for (auto cfd : column_family_data_) {
-    Version* version = cfd.second->current;
+  for (auto cfd : *column_family_set_) {
+    Version* version = cfd->current;
     for (int level = 0; level < version->NumberLevels(); level++) {
-      const std::vector<FileMetaData*>& files = version->files_[level];
-      for (size_t i = 0; i < files.size(); i++) {
-        if (files[i]->number == number) {
-          *meta = *files[i];
+      for (const auto& file : version->files_[level]) {
+        if (file->number == number) {
+          *meta = *file;
           *filelevel = level;
           return Status::OK();
         }
@@ -2180,19 +2271,17 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
 }
 
 void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
-  for (auto cfd : column_family_data_) {
+  for (auto cfd : *column_family_set_) {
     for (int level = 0; level < NumberLevels(); level++) {
-      const std::vector<FileMetaData*>& files =
-          cfd.second->current->files_[level];
-      for (size_t i = 0; i < files.size(); i++) {
+      for (const auto& file : cfd->current->files_[level]) {
         LiveFileMetaData filemetadata;
-        filemetadata.name = TableFileName("", files[i]->number);
+        filemetadata.name = TableFileName("", file->number);
         filemetadata.level = level;
-        filemetadata.size = files[i]->file_size;
-        filemetadata.smallestkey = files[i]->smallest.user_key().ToString();
-        filemetadata.largestkey = files[i]->largest.user_key().ToString();
-        filemetadata.smallest_seqno = files[i]->smallest_seqno;
-        filemetadata.largest_seqno = files[i]->largest_seqno;
+        filemetadata.size = file->file_size;
+        filemetadata.smallestkey = file->smallest.user_key().ToString();
+        filemetadata.largestkey = file->largest.user_key().ToString();
+        filemetadata.smallest_seqno = file->smallest_seqno;
+        filemetadata.largest_seqno = file->largest_seqno;
         metadata->push_back(filemetadata);
       }
     }
@@ -2206,29 +2295,18 @@ void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files) {
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& options, VersionEdit* edit) {
-  assert(column_families_.find(edit->column_family_name_) ==
-         column_families_.end());
   assert(edit->is_column_family_add_);
 
-  column_families_.insert({edit->column_family_name_, edit->column_family_});
-  ColumnFamilyData* new_cfd =
-      new ColumnFamilyData(edit->column_family_name_, this, options);
-  column_family_data_.insert({edit->column_family_, new_cfd});
-  max_column_family_ = std::max(max_column_family_, edit->column_family_);
+  Version* dummy_versions = new Version(this);
+  auto new_cfd = column_family_set_->CreateColumnFamily(
+      edit->column_family_name_, edit->column_family_, dummy_versions, options);
+
   AppendVersion(new_cfd, new Version(this, current_version_number_++));
   return new_cfd;
 }
 
 void VersionSet::DropColumnFamily(VersionEdit* edit) {
-  auto cfd = column_family_data_.find(edit->column_family_);
-  assert(cfd != column_family_data_.end());
-  column_families_.erase(cfd->second->name);
-  cfd->second->current->Unref();
-  // List must be empty
-  assert(cfd->second->dummy_versions.next_ == &cfd->second->dummy_versions);
-  // might delete itself
-  cfd->second->Unref();
-  column_family_data_.erase(cfd);
+  column_family_set_->DropColumnFamily(edit->column_family_);
 }
 
 }  // namespace rocksdb

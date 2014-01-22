@@ -29,6 +29,8 @@ extern const ColumnFamilyHandle default_column_family;
 struct ColumnFamilyDescriptor {
   std::string name;
   ColumnFamilyOptions options;
+  ColumnFamilyDescriptor()
+      : name(default_column_family_name), options(ColumnFamilyOptions()) {}
   ColumnFamilyDescriptor(const std::string& name,
                          const ColumnFamilyOptions& options)
       : name(name), options(options) {}
