@@ -5,6 +5,7 @@
 //
 #include "util/statistics.h"
 #include "rocksdb/statistics.h"
+#include <algorithm>
 #include <cstdio>
 
 namespace rocksdb {
@@ -13,7 +14,11 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>();
 }
 
-StatisticsImpl::StatisticsImpl() {}
+StatisticsImpl::StatisticsImpl() {
+  // Fill tickers_ with "zero". To ensure plasform indepedent, we used
+  // uint_fast64_t() instead literal `0` to represent zero.
+  std::fill(tickers_, tickers_ + TICKER_ENUM_MAX, uint_fast64_t());
+}
 
 StatisticsImpl::~StatisticsImpl() {}
 
