@@ -4556,8 +4556,9 @@ class ModelDB: public DB {
       sizes[i] = 0;
     }
   }
-  virtual void CompactRange(const Slice* start, const Slice* end,
-                            bool reduce_level, int target_level) {
+  virtual Status CompactRange(const Slice* start, const Slice* end,
+                              bool reduce_level, int target_level) {
+    return Status::NotSupported("Not supported operation.");
   }
 
   virtual int NumberLevels()

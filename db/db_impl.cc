@@ -1288,11 +1288,16 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   return s;
 }
 
-void DBImpl::CompactRange(const Slice* begin,
-                          const Slice* end,
-                          bool reduce_level,
-                          int target_level) {
-  FlushMemTable(FlushOptions());
+Status DBImpl::CompactRange(const Slice* begin,
+                            const Slice* end,
+                            bool reduce_level,
+                            int target_level) {
+  Status s = FlushMemTable(FlushOptions());
+  if (!s.ok()) {
+    LogFlush(options_.info_log);
+    return s;
+  }
+
   int max_level_with_files = 1;
   {
     MutexLock l(&mutex_);
@@ -1308,16 +1313,22 @@ void DBImpl::CompactRange(const Slice* begin,
     // bottom-most level, the output level will be the same as input one
     if (options_.compaction_style == kCompactionStyleUniversal ||
         level == max_level_with_files) {
-      RunManualCompaction(level, level, begin, end);
+      s = RunManualCompaction(level, level, begin, end);
     } else {
-      RunManualCompaction(level, level + 1, begin, end);
+      s = RunManualCompaction(level, level + 1, begin, end);
+    }
+    if (!s.ok()) {
+      LogFlush(options_.info_log);
+      return s;
     }
   }
 
   if (reduce_level) {
-    ReFitLevel(max_level_with_files, target_level);
+    s = ReFitLevel(max_level_with_files, target_level);
   }
   LogFlush(options_.info_log);
+
+  return s;
 }
 
 // return the same level if it cannot be moved
@@ -1336,7 +1347,7 @@ int DBImpl::FindMinimumEmptyLevelFitting(int level) {
   return minimum_level;
 }
 
-void DBImpl::ReFitLevel(int level, int target_level) {
+Status DBImpl::ReFitLevel(int level, int target_level) {
   assert(level < NumberLevels());
 
   SuperVersion* superversion_to_free = nullptr;
@@ -1350,7 +1361,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
     mutex_.Unlock();
     Log(options_.info_log, "ReFitLevel: another thread is refitting");
     delete new_superversion;
-    return;
+    return Status::NotSupported("another thread is refitting");
   }
   refitting_level_ = true;
 
@@ -1371,6 +1382,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
 
   assert(to_level <= level);
 
+  Status status;
   if (to_level < level) {
     Log(options_.info_log, "Before refitting:\n%s",
         versions_->current()->DebugString().data());
@@ -1384,7 +1396,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
     Log(options_.info_log, "Apply version edit:\n%s",
         edit.DebugString().data());
 
-    auto status = versions_->LogAndApply(&edit, &mutex_);
+    status = versions_->LogAndApply(&edit, &mutex_);
     superversion_to_free = InstallSuperVersion(new_superversion);
     new_superversion = nullptr;
 
@@ -1402,6 +1414,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
   mutex_.Unlock();
   delete superversion_to_free;
   delete new_superversion;
+  return status;
 }
 
 int DBImpl::NumberLevels() {
@@ -1614,10 +1627,10 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
   return status;
 }
 
-void DBImpl::RunManualCompaction(int input_level,
-                                 int output_level,
-                                 const Slice* begin,
-                                 const Slice* end) {
+Status DBImpl::RunManualCompaction(int input_level,
+                                   int output_level,
+                                   const Slice* begin,
+                                   const Slice* end) {
   assert(input_level >= 0);
 
   InternalKey begin_storage, end_storage;
@@ -1684,15 +1697,16 @@ void DBImpl::RunManualCompaction(int input_level,
   assert(!manual.in_progress);
   assert(bg_manual_only_ > 0);
   --bg_manual_only_;
+  return manual.status;
 }
 
-void DBImpl::TEST_CompactRange(int level,
-                               const Slice* begin,
-                               const Slice* end) {
+Status DBImpl::TEST_CompactRange(int level,
+                                 const Slice* begin,
+                                 const Slice* end) {
   int output_level = (options_.compaction_style == kCompactionStyleUniversal)
                          ? level
                          : level + 1;
-  RunManualCompaction(level, output_level, begin, end);
+  return RunManualCompaction(level, output_level, begin, end);
 }
 
 Status DBImpl::FlushMemTable(const FlushOptions& options) {
@@ -1991,6 +2005,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
     if (!status.ok()) {
+      m->status = status;
       m->done = true;
     }
     // For universal compaction:

@@ -85,9 +85,9 @@ class StackableDB : public DB {
       return db_->GetApproximateSizes(r, n, sizes);
   }
 
-  virtual void CompactRange(const Slice* begin, const Slice* end,
-                            bool reduce_level = false,
-                            int target_level = -1) override {
+  virtual Status CompactRange(const Slice* begin, const Slice* end,
+                              bool reduce_level = false,
+                              int target_level = -1) override {
     return db_->CompactRange(begin, end, reduce_level, target_level);
   }
 

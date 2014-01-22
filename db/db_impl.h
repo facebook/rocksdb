@@ -64,8 +64,8 @@ class DBImpl : public DB {
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
   virtual bool GetProperty(const Slice& property, std::string* value);
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
-  virtual void CompactRange(const Slice* begin, const Slice* end,
-                            bool reduce_level = false, int target_level = -1);
+  virtual Status CompactRange(const Slice* begin, const Slice* end,
+                              bool reduce_level = false, int target_level = -1);
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
@@ -90,17 +90,17 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity);
 
-  void RunManualCompaction(int input_level,
-                           int output_level,
-                           const Slice* begin,
-                           const Slice* end);
+  Status RunManualCompaction(int input_level,
+                             int output_level,
+                             const Slice* begin,
+                             const Slice* end);
 
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]
-  void TEST_CompactRange(int level,
-                         const Slice* begin,
-                         const Slice* end);
+  Status TEST_CompactRange(int level,
+                           const Slice* begin,
+                           const Slice* end);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable();
@@ -359,7 +359,7 @@ class DBImpl : public DB {
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
   // hold the data set.
-  void ReFitLevel(int level, int target_level = -1);
+  Status ReFitLevel(int level, int target_level = -1);
 
   // Returns the current SuperVersion number.
   uint64_t CurrentVersionNumber() const;
@@ -430,6 +430,7 @@ class DBImpl : public DB {
     int input_level;
     int output_level;
     bool done;
+    Status status;
     bool in_progress;           // compaction request being processed?
     const InternalKey* begin;   // nullptr means beginning of key range
     const InternalKey* end;     // nullptr means end of key range
