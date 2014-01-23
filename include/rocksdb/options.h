@@ -136,7 +136,7 @@ struct Options {
   // errors.  This may have unforeseen ramifications: for example, a
   // corruption of one DB entry may cause a large number of entries to
   // become unreadable or for the entire DB to become unopenable.
-  // If any of the  writes to the database fails (Put, Delete, Merge, Write),
+  // If any of the writes to the database fails (Put, Delete, Merge, Write),
   // the database will switch to read-only mode and fail all other
   // Write operations.
   // Default: false
