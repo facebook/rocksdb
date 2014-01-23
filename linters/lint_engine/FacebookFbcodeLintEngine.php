@@ -49,10 +49,15 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
    // Currently we can't run cpplint in commit hook mode, because it
     // depends on having access to the working directory.
     if (!$this->getCommitHookMode()) {
-      $cpp_linter = new FbcodeCppLinter();
-      $cpp_linter2 = new PfffCppLinter();
-      $linters[] = $cpp_linter;
-      $linters[] = $cpp_linter2;
+      $cpp_linters = array();
+      $google_linter = new ArcanistCpplintLinter();
+      $google_linter->setConfig(array(
+        'lint.cpplint.prefix' => '',
+        'lint.cpplint.bin' => 'cpplint',
+      ));
+      $cpp_linters[] = $linters[] = $google_linter;
+      $cpp_linters[] = $linters[] = new FbcodeCppLinter();
+      $cpp_linters[] = $linters[] = new PfffCppLinter();
     }
 
     $spelling_linter = new ArcanistSpellingLinter();
@@ -93,13 +98,11 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
         $spelling_linter->addPath($path);
         $spelling_linter->addData($path, $this->loadData($path));
       }
-      if (isset($cpp_linter) && isset($cpp_linter2)  &&
-          preg_match('/\.(cpp|c|cc|cxx|h|hh|hpp|hxx|tcc)$/', $path)) {
-        $cpp_linter->addPath($path);
-        $cpp_linter->addData($path, $this->loadData($path));
-        $cpp_linter2->addPath($path);
-        $cpp_linter2->addData($path, $this->loadData($path));
-
+      if (preg_match('/\.(cpp|c|cc|cxx|h|hh|hpp|hxx|tcc)$/', $path)) {
+        foreach ($cpp_linters as &$linter) {
+          $linter->addPath($path);
+          $linter->addData($path, $this->loadData($path));
+        }
       }
 
       // Match *.py and contbuild config files
@@ -130,9 +133,6 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
           ));
         }
       }
-
-
-
     }
 
     $name_linter = new ArcanistFilenameLinter();
