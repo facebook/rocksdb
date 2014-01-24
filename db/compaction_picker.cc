@@ -45,15 +45,7 @@ CompactionPicker::CompactionPicker(const Options* options,
       options_(options),
       num_levels_(options->num_levels),
       icmp_(icmp) {
-  Init();
-}
 
-void CompactionPicker::ReduceNumberOfLevels(int new_levels) {
-  num_levels_ = new_levels;
-  Init();
-}
-
-void CompactionPicker::Init() {
   max_file_size_.reset(new uint64_t[NumberLevels()]);
   level_max_bytes_.reset(new uint64_t[NumberLevels()]);
   int target_file_size_multiplier = options_->target_file_size_multiplier;

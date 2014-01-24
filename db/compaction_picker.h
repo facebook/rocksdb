@@ -27,9 +27,6 @@ class CompactionPicker {
   CompactionPicker(const Options* options, const InternalKeyComparator* icmp);
   virtual ~CompactionPicker();
 
-  // See VersionSet::ReduceNumberOfLevels()
-  void ReduceNumberOfLevels(int new_levels);
-
   // Pick level and inputs for a new compaction.
   // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
@@ -120,8 +117,6 @@ class CompactionPicker {
 
   const Options* const options_;
  private:
-  void Init();
-
   int num_levels_;
 
   const InternalKeyComparator* const icmp_;

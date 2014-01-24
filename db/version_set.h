@@ -283,10 +283,16 @@ class VersionSet {
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
   // max level containing files.
+  // The call is static, since number of levels is immutable during
+  // the lifetime of a RocksDB instance. It reduces number of levels
+  // in a DB by applying changes to manifest.
   // For example, a db currently has 7 levels [0-6], and a call to
   // to reduce to 5 [0-4] can only be executed when only one level
   // among [4-6] contains files.
-  Status ReduceNumberOfLevels(int new_levels, port::Mutex* mu);
+  static Status ReduceNumberOfLevels(const std::string& dbname,
+                                     const Options* options,
+                                     const EnvOptions& storage_options,
+                                     int new_levels);
 
   // Return the current version.
   Version* current() const { return current_; }
