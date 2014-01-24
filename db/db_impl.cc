@@ -2668,9 +2668,11 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
   DBImpl::DeletionState deletion_state(state->db->GetOptions().
                                        max_write_buffer_number);
   state->mu->Lock();
-  MemTable* m = state->mem->Unref();
-  if (m != nullptr) {
-    deletion_state.memtables_to_free.push_back(m);
+  if (state->mem) { // not set for immutable iterator
+    MemTable* m = state->mem->Unref();
+    if (m != nullptr) {
+      deletion_state.memtables_to_free.push_back(m);
+    }
   }
   if (state->version) {  // not set for memtable-only iterator
     state->version->Unref();
