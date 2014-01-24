@@ -409,6 +409,9 @@ class ShardedLRUCache : public Cache {
   virtual size_t GetCapacity() {
     return capacity_;
   }
+  virtual void DisownData() {
+    shard_ = nullptr;
+  }
 };
 
 }  // end anonymous namespace

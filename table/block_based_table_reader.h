@@ -29,6 +29,7 @@ struct ReadOptions;
 class TableCache;
 class TableReader;
 class FilterBlockReader;
+struct BlockBasedTableOptions;
 
 using std::unique_ptr;
 
@@ -50,10 +51,9 @@ class BlockBasedTable : public TableReader {
   // to nullptr and returns a non-ok status.
   //
   // *file must remain live while this Table is in use.
-  static Status Open(const Options& options,
-                     const EnvOptions& soptions,
-                     unique_ptr<RandomAccessFile>&& file,
-                     uint64_t file_size,
+  static Status Open(const Options& db_options, const EnvOptions& env_options,
+                     const BlockBasedTableOptions& table_options,
+                     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
   bool PrefixMayMatch(const Slice& internal_prefix) override;

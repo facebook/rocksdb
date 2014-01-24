@@ -267,6 +267,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       bg_cv_(&mutex_),
       mem_rep_factory_(options_.memtable_factory.get()),
       mem_(new MemTable(internal_comparator_, options_)),
+      imm_(options_.min_write_buffer_number_to_merge),
       logfile_number_(0),
       super_version_(nullptr),
       super_version_number_(0),
@@ -363,7 +364,7 @@ DBImpl::~DBImpl() {
     delete mem_->Unref();
   }
 
-  imm_.UnrefAll(&to_delete);
+  imm_.current()->Unref(&to_delete);
   for (MemTable* m: to_delete) {
     delete m;
   }
@@ -511,7 +512,7 @@ bool DBImpl::SuperVersion::Unref() {
 
 void DBImpl::SuperVersion::Cleanup() {
   assert(refs.load(std::memory_order_relaxed) == 0);
-  imm.UnrefAll(&to_delete);
+  imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {
     to_delete.push_back(m);
@@ -519,13 +520,13 @@ void DBImpl::SuperVersion::Cleanup() {
   current->Unref();
 }
 
-void DBImpl::SuperVersion::Init(MemTable* new_mem, const MemTableList& new_imm,
+void DBImpl::SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
                                 Version* new_current) {
   mem = new_mem;
   imm = new_imm;
   current = new_current;
   mem->Ref();
-  imm.RefAll();
+  imm->Ref();
   current->Ref();
   refs.store(1, std::memory_order_relaxed);
 }
@@ -1226,7 +1227,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   mutex_.AssertHeld();
   assert(imm_.size() != 0);
 
-  if (!imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
+  if (!imm_.IsFlushPending()) {
     Log(options_.info_log, "FlushMemTableToOutputFile already in progress");
     Status s = Status::IOError("FlushMemTableToOutputFile already in progress");
     return s;
@@ -1767,8 +1768,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   } else if (shutting_down_.Acquire_Load()) {
     // DB is being deleted; no more background compactions
   } else {
-    bool is_flush_pending =
-      imm_.IsFlushPending(options_.min_write_buffer_number_to_merge);
+    bool is_flush_pending = imm_.IsFlushPending();
     if (is_flush_pending &&
         (bg_flush_scheduled_ < options_.max_background_flushes)) {
       // memtable flush needed
@@ -1803,8 +1803,7 @@ void DBImpl::BGWorkCompaction(void* db) {
 Status DBImpl::BackgroundFlush(bool* madeProgress,
                                DeletionState& deletion_state) {
   Status stat;
-  while (stat.ok() &&
-         imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
+  while (stat.ok() && imm_.IsFlushPending()) {
     Log(options_.info_log,
         "BackgroundCallFlush doing FlushMemTableToOutputFile, flush slots available %d",
         options_.max_background_flushes - bg_flush_scheduled_);
@@ -1924,7 +1923,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   mutex_.AssertHeld();
 
   // TODO: remove memtable flush from formal compaction
-  while (imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
+  while (imm_.IsFlushPending()) {
     Log(options_.info_log,
         "BackgroundCompaction doing FlushMemTableToOutputFile, compaction slots "
         "available %d",
@@ -2330,7 +2329,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       const uint64_t imm_start = env_->NowMicros();
       LogFlush(options_.info_log);
       mutex_.Lock();
-      if (imm_.IsFlushPending(options_.min_write_buffer_number_to_merge)) {
+      if (imm_.IsFlushPending()) {
         FlushMemTableToOutputFile(nullptr, deletion_state);
         bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
       }
@@ -2663,8 +2662,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 namespace {
 struct IterState {
   port::Mutex* mu;
-  Version* version;
-  std::vector<MemTable*> mem; // includes both mem_ and imm_
+  Version* version = nullptr;
+  MemTable* mem = nullptr;
+  MemTableListVersion* imm = nullptr;
   DBImpl *db;
 };
 
@@ -2673,14 +2673,15 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
   DBImpl::DeletionState deletion_state(state->db->GetOptions().
                                        max_write_buffer_number);
   state->mu->Lock();
-  for (unsigned int i = 0; i < state->mem.size(); i++) {
-    MemTable* m = state->mem[i]->Unref();
-    if (m != nullptr) {
-      deletion_state.memtables_to_free.push_back(m);
-    }
+  MemTable* m = state->mem->Unref();
+  if (m != nullptr) {
+    deletion_state.memtables_to_free.push_back(m);
   }
   if (state->version) {  // not set for memtable-only iterator
     state->version->Unref();
+  }
+  if (state->imm) {  // not set for memtable-only iterator
+    state->imm->Unref(&deletion_state.memtables_to_free);
   }
   // fast path FindObsoleteFiles
   state->db->FindObsoleteFiles(deletion_state, false, true);
@@ -2695,7 +2696,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       SequenceNumber* latest_snapshot) {
   IterState* cleanup = new IterState;
   MemTable* mutable_mem;
-  std::vector<MemTable*> immutables;
+  MemTableListVersion* immutable_mems;
   Version* version;
 
   // Collect together all needed child iterators for mem
@@ -2704,27 +2705,22 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   mem_->Ref();
   mutable_mem = mem_;
   // Collect together all needed child iterators for imm_
-  imm_.GetMemTables(&immutables);
-  for (unsigned int i = 0; i < immutables.size(); i++) {
-    immutables[i]->Ref();
-  }
+  immutable_mems = imm_.current();
+  immutable_mems->Ref();
   versions_->current()->Ref();
   version = versions_->current();
   mutex_.Unlock();
 
-  std::vector<Iterator*> list;
-  list.push_back(mutable_mem->NewIterator(options));
-  cleanup->mem.push_back(mutable_mem);
-
+  std::vector<Iterator*> iterator_list;
+  iterator_list.push_back(mutable_mem->NewIterator(options));
+  cleanup->mem = mutable_mem;
+  cleanup->imm = immutable_mems;
   // Collect all needed child iterators for immutable memtables
-  for (MemTable* m : immutables) {
-    list.push_back(m->NewIterator(options));
-    cleanup->mem.push_back(m);
-  }
+  immutable_mems->AddIterators(options, &iterator_list);
   // Collect iterators for files in L0 - Ln
-  version->AddIterators(options, storage_options_, &list);
-  Iterator* internal_iter =
-      NewMergingIterator(&internal_comparator_, &list[0], list.size());
+  version->AddIterators(options, storage_options_, &iterator_list);
+  Iterator* internal_iter = NewMergingIterator(
+      &internal_comparator_, &iterator_list[0], iterator_list.size());
   cleanup->version = version;
   cleanup->mu = &mutex_;
   cleanup->db = this;
@@ -2743,19 +2739,15 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
     uint64_t* superversion_number) {
 
   MemTable* mutable_mem;
-  std::vector<MemTable*> immutables;
+  MemTableListVersion* immutable_mems;
   Version* version;
-
-  immutables.reserve(options_.max_write_buffer_number);
 
   // get all child iterators and bump their refcounts under lock
   mutex_.Lock();
   mutable_mem = mem_;
   mutable_mem->Ref();
-  imm_.GetMemTables(&immutables);
-  for (size_t i = 0; i < immutables.size(); ++i) {
-    immutables[i]->Ref();
-  }
+  immutable_mems = imm_.current();
+  immutable_mems->Ref();
   version = versions_->current();
   version->Ref();
   if (superversion_number != nullptr) {
@@ -2765,7 +2757,7 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
 
   Iterator* mutable_iter = mutable_mem->NewIterator(options);
   IterState* mutable_cleanup = new IterState();
-  mutable_cleanup->mem.push_back(mutable_mem);
+  mutable_cleanup->mem = mutable_mem;
   mutable_cleanup->db = this;
   mutable_cleanup->mu = &mutex_;
   mutable_iter->RegisterCleanup(CleanupIteratorState, mutable_cleanup, nullptr);
@@ -2777,10 +2769,8 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
   Iterator* immutable_iter;
   IterState* immutable_cleanup = new IterState();
   std::vector<Iterator*> list;
-  for (MemTable* m : immutables) {
-    list.push_back(m->NewIterator(options));
-    immutable_cleanup->mem.push_back(m);
-  }
+  immutable_mems->AddIterators(options, &list);
+  immutable_cleanup->imm = immutable_mems;
   version->AddIterators(options, storage_options_, &list);
   immutable_cleanup->version = version;
   immutable_cleanup->db = this;
@@ -2837,7 +2827,7 @@ void DBImpl::InstallSuperVersion(DeletionState& deletion_state) {
 DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
     SuperVersion* new_superversion) {
   mutex_.AssertHeld();
-  new_superversion->Init(mem_, imm_, versions_->current());
+  new_superversion->Init(mem_, imm_.current(), versions_->current());
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
   ++super_version_number_;
@@ -2880,7 +2870,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   if (get_version->mem->Get(lkey, value, &s, merge_context, options_)) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
-  } else if (get_version->imm.Get(lkey, value, &s, merge_context, options_)) {
+  } else if (get_version->imm->Get(lkey, value, &s, merge_context, options_)) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
@@ -2936,10 +2926,10 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   MemTable* mem = mem_;
-  MemTableList imm = imm_;
+  MemTableListVersion* imm = imm_.current();
   Version* current = versions_->current();
   mem->Ref();
-  imm.RefAll();
+  imm->Ref();
   current->Ref();
 
   // Unlock while reading from files and memtables
@@ -2971,7 +2961,7 @@ std::vector<Status> DBImpl::MultiGet(
     LookupKey lkey(keys[i], snapshot);
     if (mem->Get(lkey, value, &s, merge_context, options_)) {
       // Done
-    } else if (imm.Get(lkey, value, &s, merge_context, options_)) {
+    } else if (imm->Get(lkey, value, &s, merge_context, options_)) {
       // Done
     } else {
       current->Get(options, lkey, value, &s, &merge_context, &stats, options_);
@@ -2990,7 +2980,7 @@ std::vector<Status> DBImpl::MultiGet(
     MaybeScheduleFlushOrCompaction();
   }
   MemTable* m = mem->Unref();
-  imm.UnrefAll(&to_delete);
+  imm->Unref(&to_delete);
   current->Unref();
   mutex_.Unlock();
 

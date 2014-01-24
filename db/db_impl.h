@@ -177,10 +177,10 @@ class DBImpl : public DB {
   // holds references to memtable, all immutable memtables and version
   struct SuperVersion {
     MemTable* mem;
-    MemTableList imm;
+    MemTableListVersion* imm;
     Version* current;
     std::atomic<uint32_t> refs;
-    // We need to_delete because during Cleanup(), imm.UnrefAll() returns
+    // We need to_delete because during Cleanup(), imm->Unref() returns
     // all memtables that we need to free through this vector. We then
     // delete all those memtables outside of mutex, during destruction
     std::vector<MemTable*> to_delete;
@@ -198,7 +198,7 @@ class DBImpl : public DB {
     // that needs to be deleted in to_delete vector. Unrefing those
     // objects needs to be done in the mutex
     void Cleanup();
-    void Init(MemTable* new_mem, const MemTableList& new_imm,
+    void Init(MemTable* new_mem, MemTableListVersion* new_imm,
               Version* new_current);
   };
 

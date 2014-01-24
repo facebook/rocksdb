@@ -104,6 +104,15 @@ class Cache {
   // returns the maximum configured capacity of the cache
   virtual size_t GetCapacity() = 0;
 
+  // Call this on shutdown if you want to speed it up. Cache will disown
+  // any underlying data and will not free it on delete. This call will leak
+  // memory - call this only if you're shutting down the process.
+  // Any attempts of using cache after this call will fail terribly.
+  // Always delete the DB object before calling this method!
+  virtual void DisownData() {
+    // default implementation is noop
+  };
+
  private:
   void LRU_Remove(Handle* e);
   void LRU_Append(Handle* e);

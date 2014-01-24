@@ -7,8 +7,10 @@
 #pragma once
 #include <string>
 #include <list>
-#include <deque>
+#include <vector>
 #include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/iterator.h"
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "memtable.h"
@@ -17,44 +19,71 @@ namespace rocksdb {
 
 class InternalKeyComparator;
 class Mutex;
-class MemTableListIterator;
 
-//
+// keeps a list of immutable memtables in a vector. the list is immutable
+// if refcount is bigger than one. It is used as a state for Get() and
+// Iterator code paths
+class MemTableListVersion {
+ public:
+  explicit MemTableListVersion(MemTableListVersion* old = nullptr);
+
+  void Ref();
+  void Unref(std::vector<MemTable*>* to_delete = nullptr);
+
+  int size() const;
+
+  // Search all the memtables starting from the most recent one.
+  // Return the most recent value found, if any.
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext& merge_context, const Options& options);
+
+  void AddIterators(const ReadOptions& options,
+                    std::vector<Iterator*>* iterator_list);
+
+  // REQUIRE: m is mutable memtable
+  void Add(MemTable* m);
+  // REQUIRE: m is mutable memtable
+  void Remove(MemTable* m);
+
+ private:
+  friend class MemTableList;
+  std::list<MemTable*> memlist_;
+  int size_ = 0;
+  int refs_ = 1;
+};
+
 // This class stores references to all the immutable memtables.
 // The memtables are flushed to L0 as soon as possible and in
 // any order. If there are more than one immutable memtable, their
 // flushes can occur concurrently.  However, they are 'committed'
 // to the manifest in FIFO order to maintain correctness and
 // recoverability from a crash.
-//
 class MemTableList {
  public:
   // A list of memtables.
-  MemTableList() : size_(0), num_flush_not_started_(0),
-    commit_in_progress_(false),
-    flush_requested_(false) {
+  explicit MemTableList(int min_write_buffer_number_to_merge)
+      : min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
+        current_(new MemTableListVersion()),
+        num_flush_not_started_(0),
+        commit_in_progress_(false),
+        flush_requested_(false) {
     imm_flush_needed.Release_Store(nullptr);
+    current_->Ref();
   }
-  ~MemTableList() {};
+  ~MemTableList() {}
+
+  MemTableListVersion* current() { return current_; }
 
   // so that backgrund threads can detect non-nullptr pointer to
   // determine whether this is anything more to start flushing.
   port::AtomicPointer imm_flush_needed;
 
-  // Increase reference count on all underling memtables
-  void RefAll();
-
-  // Drop reference count on all underling memtables. If the refcount
-  // on an underlying memtable drops to zero, then return it in
-  // to_delete vector.
-  void UnrefAll(std::vector<MemTable*>* to_delete);
-
   // Returns the total number of memtables in the list
-  int size();
+  int size() const;
 
   // Returns true if there is at least one memtable on which flush has
   // not yet started.
-  bool IsFlushPending(int min_write_buffer_number_to_merge);
+  bool IsFlushPending();
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
@@ -75,14 +104,6 @@ class MemTableList {
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
 
-  // Search all the memtables starting from the most recent one.
-  // Return the most recent value found, if any.
-  bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext& merge_context, const Options& options);
-
-  // Returns the list of underlying memtables.
-  void GetMemTables(std::vector<MemTable*>* list);
-
   // Request a flush of all existing memtables to storage
   void FlushRequested() { flush_requested_ = true; }
 
@@ -91,8 +112,12 @@ class MemTableList {
   // void operator=(const MemTableList&);
 
  private:
-  std::list<MemTable*> memlist_;
-  int size_;
+  // DB mutex held
+  void InstallNewVersion();
+
+  int min_write_buffer_number_to_merge_;
+
+  MemTableListVersion* current_;
 
   // the number of elements that still need flushing
   int num_flush_not_started_;

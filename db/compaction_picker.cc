@@ -22,6 +22,21 @@ uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
+// Multiple two operands. If they overflow, return op1.
+uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
+  if (op1 == 0) {
+    return 0;
+  }
+  if (op2 <= 0) {
+    return op1;
+  }
+  uint64_t casted_op2 = (uint64_t) op2;
+  if (std::numeric_limits<uint64_t>::max() / op1 < casted_op2) {
+    return op1;
+  }
+  return op1 * casted_op2;
+}
+
 }  // anonymous namespace
 
 CompactionPicker::CompactionPicker(const Options* options,
@@ -30,15 +45,7 @@ CompactionPicker::CompactionPicker(const Options* options,
       options_(options),
       num_levels_(options->num_levels),
       icmp_(icmp) {
-  Init();
-}
 
-void CompactionPicker::ReduceNumberOfLevels(int new_levels) {
-  num_levels_ = new_levels;
-  Init();
-}
-
-void CompactionPicker::Init() {
   max_file_size_.reset(new uint64_t[NumberLevels()]);
   level_max_bytes_.reset(new uint64_t[NumberLevels()]);
   int target_file_size_multiplier = options_->target_file_size_multiplier;
@@ -48,10 +55,11 @@ void CompactionPicker::Init() {
       max_file_size_[i] = ULLONG_MAX;
       level_max_bytes_[i] = options_->max_bytes_for_level_base;
     } else if (i > 1) {
-      max_file_size_[i] = max_file_size_[i - 1] * target_file_size_multiplier;
-      level_max_bytes_[i] =
-          level_max_bytes_[i - 1] * max_bytes_multiplier *
-          options_->max_bytes_for_level_multiplier_additional[i - 1];
+      max_file_size_[i] = MultiplyCheckOverflow(max_file_size_[i - 1],
+                                                target_file_size_multiplier);
+      level_max_bytes_[i] = MultiplyCheckOverflow(
+          MultiplyCheckOverflow(level_max_bytes_[i - 1], max_bytes_multiplier),
+          options_->max_bytes_for_level_multiplier_additional[i - 1]);
     } else {
       max_file_size_[i] = options_->target_file_size_base;
       level_max_bytes_[i] = options_->max_bytes_for_level_base;
