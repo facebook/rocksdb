@@ -873,11 +873,14 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   return result;
 }
 
-class TableTest { };
+// Tests against all kinds of tables
+class GeneralTableTest { };
+class BlockBasedTableTest { };
+class PlainTableTest { };
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
-TEST(TableTest, BasicTableProperties) {
+TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   TableConstructor c(BytewiseComparator());
 
   c.Add("a1", "val1");
@@ -921,48 +924,7 @@ TEST(TableTest, BasicTableProperties) {
   );
 }
 
-extern const uint64_t kPlainTableMagicNumber;
-TEST(TableTest, BasicPlainTableProperties) {
-  PlainTableFactory factory(8, 8, 0);
-  StringSink sink;
-  std::unique_ptr<TableBuilder> builder(factory.GetTableBuilder(
-      Options(),
-      &sink,
-      kNoCompression
-  ));
-
-  for (char c = 'a'; c <= 'z'; ++c) {
-    std::string key(16, c);
-    std::string value(28, c + 42);
-    builder->Add(key, value);
-  }
-  ASSERT_OK(builder->Finish());
-
-  StringSource source(sink.contents(), 72242, true);
-
-  TableProperties props;
-  auto s = ReadTableProperties(
-      &source,
-      sink.contents().size(),
-      kPlainTableMagicNumber,
-      Env::Default(),
-      nullptr,
-      &props
-  );
-  ASSERT_OK(s);
-
-  ASSERT_EQ(0ul, props.index_size);
-  ASSERT_EQ(0ul, props.filter_size);
-  ASSERT_EQ(16ul * 26, props.raw_key_size);
-  ASSERT_EQ(28ul * 26, props.raw_value_size);
-  ASSERT_EQ(26ul, props.num_entries);
-  ASSERT_EQ(1ul, props.num_data_blocks);
-
-  // User collected keys
-  // internal keys
-}
-
-TEST(TableTest, FilterPolicyNameProperties) {
+TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
   TableConstructor c(BytewiseComparator());
   c.Add("a1", "val1");
   std::vector<std::string> keys;
@@ -987,7 +949,7 @@ static std::string RandomString(Random* rnd, int len) {
 // It's very hard to figure out the index block size of a block accurately.
 // To make sure we get the index size, we just make sure as key number
 // grows, the filter block size also grows.
-TEST(TableTest, IndexSizeStat) {
+TEST(BlockBasedTableTest, IndexSizeStat) {
   uint64_t last_index_size = 0;
 
   // we need to use random keys since the pure human readable texts
@@ -1022,7 +984,7 @@ TEST(TableTest, IndexSizeStat) {
   }
 }
 
-TEST(TableTest, NumBlockStat) {
+TEST(BlockBasedTableTest, NumBlockStat) {
   Random rnd(test::RandomSeed());
   TableConstructor c(BytewiseComparator());
   Options options;
@@ -1085,7 +1047,7 @@ class BlockCacheProperties {
   long data_block_cache_hit = 0;
 };
 
-TEST(TableTest, BlockCacheTest) {
+TEST(BlockBasedTableTest, BlockCacheTest) {
   // -- Table construction
   Options options;
   options.create_if_missing = true;
@@ -1214,7 +1176,85 @@ TEST(TableTest, BlockCacheTest) {
   }
 }
 
-TEST(TableTest, ApproximateOffsetOfPlain) {
+TEST(BlockBasedTableTest, BlockCacheLeak) {
+  // Check that when we reopen a table we don't lose access to blocks already
+  // in the cache. This test checks whether the Table actually makes use of the
+  // unique ID from the file.
+
+  Options opt;
+  opt.block_size = 1024;
+  opt.compression = kNoCompression;
+  opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever
+                                               // lose cached values.
+
+  TableConstructor c(BytewiseComparator());
+  c.Add("k01", "hello");
+  c.Add("k02", "hello2");
+  c.Add("k03", std::string(10000, 'x'));
+  c.Add("k04", std::string(200000, 'x'));
+  c.Add("k05", std::string(300000, 'x'));
+  c.Add("k06", "hello3");
+  c.Add("k07", std::string(100000, 'x'));
+  std::vector<std::string> keys;
+  KVMap kvmap;
+  c.Finish(opt, &keys, &kvmap);
+
+  unique_ptr<Iterator> iter(c.NewIterator());
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->key();
+    iter->value();
+    iter->Next();
+  }
+  ASSERT_OK(iter->status());
+
+  ASSERT_OK(c.Reopen(opt));
+  for (const std::string& key: keys) {
+    ASSERT_TRUE(c.table_reader()->TEST_KeyInCache(ReadOptions(), key));
+  }
+}
+
+
+extern const uint64_t kPlainTableMagicNumber;
+TEST(PlainTableTest, BasicPlainTableProperties) {
+  PlainTableFactory factory(8, 8, 0);
+  StringSink sink;
+  std::unique_ptr<TableBuilder> builder(factory.GetTableBuilder(
+      Options(),
+      &sink,
+      kNoCompression
+  ));
+
+  for (char c = 'a'; c <= 'z'; ++c) {
+    std::string key(16, c);
+    std::string value(28, c + 42);
+    builder->Add(key, value);
+  }
+  ASSERT_OK(builder->Finish());
+
+  StringSource source(sink.contents(), 72242, true);
+
+  TableProperties props;
+  auto s = ReadTableProperties(
+      &source,
+      sink.contents().size(),
+      kPlainTableMagicNumber,
+      Env::Default(),
+      nullptr,
+      &props
+  );
+  ASSERT_OK(s);
+
+  ASSERT_EQ(0ul, props.index_size);
+  ASSERT_EQ(0ul, props.filter_size);
+  ASSERT_EQ(16ul * 26, props.raw_key_size);
+  ASSERT_EQ(28ul * 26, props.raw_value_size);
+  ASSERT_EQ(26ul, props.num_entries);
+  ASSERT_EQ(1ul, props.num_data_blocks);
+}
+
+
+TEST(GeneralTableTest, ApproximateOffsetOfPlain) {
   TableConstructor c(BytewiseComparator());
   c.Add("k01", "hello");
   c.Add("k02", "hello2");
@@ -1267,7 +1307,7 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),    4000,   6100));
 }
 
-TEST(TableTest, ApproximateOffsetOfCompressed) {
+TEST(GeneralTableTest, ApproximateOffsetOfCompressed) {
   CompressionType compression_state[2];
   int valid = 0;
   if (!SnappyCompressionSupported()) {
@@ -1289,44 +1329,6 @@ TEST(TableTest, ApproximateOffsetOfCompressed) {
     DoCompressionTest(compression_state[i]);
   }
 
-}
-
-TEST(TableTest, BlockCacheLeak) {
-  // Check that when we reopen a table we don't lose access to blocks already
-  // in the cache. This test checks whether the Table actually makes use of the
-  // unique ID from the file.
-
-  Options opt;
-  opt.block_size = 1024;
-  opt.compression = kNoCompression;
-  opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever
-                                               // lose cached values.
-
-  TableConstructor c(BytewiseComparator());
-  c.Add("k01", "hello");
-  c.Add("k02", "hello2");
-  c.Add("k03", std::string(10000, 'x'));
-  c.Add("k04", std::string(200000, 'x'));
-  c.Add("k05", std::string(300000, 'x'));
-  c.Add("k06", "hello3");
-  c.Add("k07", std::string(100000, 'x'));
-  std::vector<std::string> keys;
-  KVMap kvmap;
-  c.Finish(opt, &keys, &kvmap);
-
-  unique_ptr<Iterator> iter(c.NewIterator());
-  iter->SeekToFirst();
-  while (iter->Valid()) {
-    iter->key();
-    iter->value();
-    iter->Next();
-  }
-  ASSERT_OK(iter->status());
-
-  ASSERT_OK(c.Reopen(opt));
-  for (const std::string& key: keys) {
-    ASSERT_TRUE(c.table_reader()->TEST_KeyInCache(ReadOptions(), key));
-  }
 }
 
 TEST(Harness, Randomized) {
