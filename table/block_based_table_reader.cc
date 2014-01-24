@@ -26,6 +26,7 @@
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "table/block_based_table_options.h"
 
 namespace rocksdb {
 
@@ -45,9 +46,9 @@ struct BlockBasedTable::Rep {
   Status status;
   unique_ptr<RandomAccessFile> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t cache_key_prefix_size;
+  size_t cache_key_prefix_size = 0;
   char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t compressed_cache_key_prefix_size;
+  size_t compressed_cache_key_prefix_size = 0;
 
   // Handle to metaindex_block: saved from footer
   BlockHandle metaindex_handle;
@@ -220,20 +221,21 @@ Cache::Handle* GetFromBlockCache(
 
 } // end of anonymous namespace
 
-Status BlockBasedTable::Open(const Options& options,
-                             const EnvOptions& soptions,
-                             unique_ptr<RandomAccessFile> && file,
-                             uint64_t size,
+Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
+                             const BlockBasedTableOptions& table_options,
+                             unique_ptr<RandomAccessFile>&& file,
+                             uint64_t file_size,
                              unique_ptr<TableReader>* table_reader) {
   table_reader->reset();
-  if (size < Footer::kEncodedLength) {
+
+  if (file_size < Footer::kEncodedLength) {
     return Status::InvalidArgument("file is too short to be an sstable");
   }
 
   char footer_space[Footer::kEncodedLength];
   Slice footer_input;
-  Status s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
-                        &footer_input, footer_space);
+  Status s = file->Read(file_size - Footer::kEncodedLength,
+                        Footer::kEncodedLength, &footer_input, footer_space);
   if (!s.ok()) return s;
 
   // Check that we actually read the whole footer from the file. It may be
@@ -277,11 +279,21 @@ Status BlockBasedTable::Open(const Options& options,
     }
   }
 
-  // Initialize index/filter blocks. If block cache is not specified,
-  // these blocks will be kept in member variables in Rep, which will
-  // reside in the memory as long as this table object is alive; otherwise
-  // they will be added to block cache.
-  if (!options.block_cache) {
+  // Will use block cache for index/filter blocks access?
+  if (options.block_cache && table_options.cache_index_and_filter_blocks) {
+    // Call IndexBlockReader() to implicitly add index to the block_cache
+    unique_ptr<Iterator> iter(new_table->IndexBlockReader(ReadOptions()));
+    s = iter->status();
+
+    if (s.ok()) {
+      // Call GetFilter() to implicitly add filter to the block_cache
+      auto filter_entry = new_table->GetFilter();
+      filter_entry.Release(options.block_cache.get());
+    }
+  } else {
+    // If we don't use block cache for index/filter blocks access, we'll
+    // pre-load these blocks, which will kept in member variables in Rep
+    // and with a same life-time as this table object.
     Block* index_block = nullptr;
     // TODO: we never really verify check sum for index block
     s = ReadBlockFromFile(
@@ -309,18 +321,7 @@ Status BlockBasedTable::Open(const Options& options,
     } else {
       delete index_block;
     }
-  } else {
-    // Call IndexBlockReader() to implicitly add index to the block_cache
-    unique_ptr<Iterator> iter(
-        new_table->IndexBlockReader(ReadOptions())
-    );
-    s = iter->status();
 
-    if (s.ok()) {
-      // Call GetFilter() to implicitly add filter to the block_cache
-      auto filter_entry = new_table->GetFilter();
-      filter_entry.Release(options.block_cache.get());
-    }
   }
 
   if (s.ok()) {
@@ -836,7 +837,6 @@ BlockBasedTable::GetFilter(bool no_io) const {
 // Get the iterator from the index block.
 Iterator* BlockBasedTable::IndexBlockReader(const ReadOptions& options) const {
   if (rep_->index_block) {
-    assert (!rep_->options.block_cache);
     return rep_->index_block->NewIterator(rep_->options.comparator);
   }
 

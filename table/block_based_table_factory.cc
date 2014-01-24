@@ -20,10 +20,10 @@ namespace rocksdb {
 
 Status BlockBasedTableFactory::GetTableReader(
     const Options& options, const EnvOptions& soptions,
-    unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
-  return BlockBasedTable::Open(options, soptions, std::move(file), file_size,
-                               table_reader);
+  return BlockBasedTable::Open(options, soptions, table_options_,
+                               std::move(file), file_size, table_reader);
 }
 
 TableBuilder* BlockBasedTableFactory::GetTableBuilder(

@@ -17,6 +17,7 @@
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "table/block_based_table_factory.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
@@ -732,6 +733,9 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   options.filter_policy = filter_policy.get();
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
   DestroyAndReopen(&options);
 
   ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
