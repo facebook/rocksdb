@@ -309,13 +309,13 @@ class DB {
   // hosting all the files. In this case, client could set reduce_level
   // to true, to move the files back to the minimum level capable of holding
   // the data set or a given level (specified by non-negative target_level).
-  virtual void CompactRange(const ColumnFamilyHandle& column_family,
-                            const Slice* begin, const Slice* end,
-                            bool reduce_level = false,
-                            int target_level = -1) = 0;
-  void CompactRange(const Slice* begin, const Slice* end,
+  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+                              const Slice* begin, const Slice* end,
+                              bool reduce_level = false,
+                              int target_level = -1) = 0;
+  Status CompactRange(const Slice* begin, const Slice* end,
                     bool reduce_level = false, int target_level = -1) {
-    CompactRange(default_column_family, begin, end, reduce_level, target_level);
+    return CompactRange(default_column_family, begin, end, reduce_level, target_level);
   }
 
   // Number of levels used for this DB.

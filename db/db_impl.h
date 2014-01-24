@@ -10,6 +10,7 @@
 #include <atomic>
 #include <deque>
 #include <set>
+#include <utility>
 #include <vector>
 #include "db/dbformat.h"
 #include "db/log_writer.h"
@@ -92,9 +93,9 @@ class DBImpl : public DB {
   virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
                                    const Range* range, int n, uint64_t* sizes);
   using DB::CompactRange;
-  virtual void CompactRange(const ColumnFamilyHandle& column_family,
-                            const Slice* begin, const Slice* end,
-                            bool reduce_level = false, int target_level = -1);
+  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+                              const Slice* begin, const Slice* end,
+                              bool reduce_level = false, int target_level = -1);
 
   using DB::NumberLevels;
   virtual int NumberLevels(const ColumnFamilyHandle& column_family);
@@ -126,17 +127,17 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity);
 
-  void RunManualCompaction(int input_level,
-                           int output_level,
-                           const Slice* begin,
-                           const Slice* end);
+  Status RunManualCompaction(int input_level,
+                             int output_level,
+                             const Slice* begin,
+                             const Slice* end);
 
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]
-  void TEST_CompactRange(int level,
-                         const Slice* begin,
-                         const Slice* end);
+  Status TEST_CompactRange(int level,
+                           const Slice* begin,
+                           const Slice* end);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable();
@@ -293,6 +294,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class TailingIterator;
   struct CompactionState;
   struct Writer;
 
@@ -396,7 +398,18 @@ class DBImpl : public DB {
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
   // hold the data set.
-  void ReFitLevel(int level, int target_level = -1);
+  Status ReFitLevel(int level, int target_level = -1);
+
+  // Returns the current SuperVersion number.
+  uint64_t CurrentVersionNumber() const;
+
+  // Returns a pair of iterators (mutable-only and immutable-only) used
+  // internally by TailingIterator and stores CurrentVersionNumber() in
+  // *superversion_number. These iterators are always up-to-date, i.e. can
+  // be used to read new data.
+  std::pair<Iterator*, Iterator*> GetTailingIteratorPair(
+    const ReadOptions& options,
+    uint64_t* superversion_number);
 
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
@@ -419,6 +432,11 @@ class DBImpl : public DB {
   unique_ptr<log::Writer> log_;
 
   SuperVersion* super_version_;
+
+  // An ordinal representing the current SuperVersion. Updated by
+  // InstallSuperVersion(), i.e. incremented every time super_version_
+  // changes.
+  std::atomic<uint64_t> super_version_number_;
 
   std::string host_name_;
 
@@ -451,6 +469,7 @@ class DBImpl : public DB {
     int input_level;
     int output_level;
     bool done;
+    Status status;
     bool in_progress;           // compaction request being processed?
     const InternalKey* begin;   // nullptr means beginning of key range
     const InternalKey* end;     // nullptr means end of key range

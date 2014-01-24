@@ -4582,9 +4582,11 @@ class ModelDB: public DB {
     }
   }
   using DB::CompactRange;
-  virtual void CompactRange(const ColumnFamilyHandle& column_family,
-                            const Slice* start, const Slice* end,
-                            bool reduce_level, int target_level) {}
+  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+                              const Slice* start, const Slice* end,
+                              bool reduce_level, int target_level) {
+    return Status::NotSupported("Not supported operation.");
+  }
 
   using DB::NumberLevels;
   virtual int NumberLevels(const ColumnFamilyHandle& column_family) {
@@ -5065,6 +5067,118 @@ void BM_LogAndApply(int iters, int num_base_files) {
           "BM_LogAndApply/%-6s   %8d iters : %9u us (%7.0f us / iter)\n",
           buf, iters, us, ((float)us) / iters);
 }
+
+TEST(DBTest, TailingIteratorSingle) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->SeekToFirst();
+  ASSERT_TRUE(!iter->Valid());
+
+  // add a record and check that iter can see it
+  ASSERT_OK(db_->Put(WriteOptions(), "mirko", "fodor"));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "mirko");
+
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+}
+
+TEST(DBTest, TailingIteratorKeepAdding) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  std::string value(1024, 'a');
+
+  const int num_records = 10000;
+  for (int i = 0; i < num_records; ++i) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%016d", i);
+
+    Slice key(buf, 16);
+    ASSERT_OK(db_->Put(WriteOptions(), key, value));
+
+    iter->Seek(key);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(key), 0);
+  }
+}
+
+TEST(DBTest, TailingIteratorDeletes) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+  // write a single record, read it using the iterator, then delete it
+  ASSERT_OK(db_->Put(WriteOptions(), "0test", "test"));
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "0test");
+  ASSERT_OK(db_->Delete(WriteOptions(), "0test"));
+
+  // write many more records
+  const int num_records = 10000;
+  std::string value(1024, 'A');
+
+  for (int i = 0; i < num_records; ++i) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "1%015d", i);
+
+    Slice key(buf, 16);
+    ASSERT_OK(db_->Put(WriteOptions(), key, value));
+  }
+
+  // force a flush to make sure that no records are read from memtable
+  dbfull()->TEST_FlushMemTable();
+
+  // skip "0test"
+  iter->Next();
+
+  // make sure we can read all new records using the existing iterator
+  int count = 0;
+  for (; iter->Valid(); iter->Next(), ++count) ;
+
+  ASSERT_EQ(count, num_records);
+}
+
+TEST(DBTest, TailingIteratorPrefixSeek) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+  read_options.prefix_seek = true;
+
+  auto prefix_extractor = NewFixedPrefixTransform(2);
+
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.prefix_extractor = prefix_extractor;
+  options.memtable_factory.reset(NewHashSkipListRepFactory(prefix_extractor));
+  DestroyAndReopen(&options);
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  ASSERT_OK(db_->Put(WriteOptions(), "0101", "test"));
+
+  dbfull()->TEST_FlushMemTable();
+
+  ASSERT_OK(db_->Put(WriteOptions(), "0202", "test"));
+
+  // Seek(0102) shouldn't find any records since 0202 has a different prefix
+  iter->Seek("0102");
+  ASSERT_TRUE(!iter->Valid());
+
+  iter->Seek("0202");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "0202");
+
+  iter->Next();
+  ASSERT_TRUE(!iter->Valid());
+}
+
 
 }  // namespace rocksdb
 

@@ -68,9 +68,11 @@ public:
    return Status::NotSupported("Not supported operation in read only mode.");
  }
  using DBImpl::CompactRange;
- virtual void CompactRange(const ColumnFamilyHandle& column_family,
-                           const Slice* begin, const Slice* end,
-                           bool reduce_level = false, int target_level = -1) {}
+ virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+                             const Slice* begin, const Slice* end,
+                             bool reduce_level = false, int target_level = -1) {
+   return Status::NotSupported("Not supported operation in read only mode.");
+ }
  virtual Status DisableFileDeletions() {
    return Status::NotSupported("Not supported operation in read only mode.");
  }

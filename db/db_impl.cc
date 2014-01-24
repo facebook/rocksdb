@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "db/builder.h"
@@ -32,6 +33,7 @@
 #include "db/prefix_filter_iterator.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
+#include "db/tailing_iter.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -267,6 +269,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       mem_(new MemTable(internal_comparator_, options_)),
       logfile_number_(0),
       super_version_(nullptr),
+      super_version_number_(0),
       tmp_batch_(),
       bg_compaction_scheduled_(0),
       bg_manual_only_(0),
@@ -1290,10 +1293,15 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   return s;
 }
 
-void DBImpl::CompactRange(const ColumnFamilyHandle& column_family,
-                          const Slice* begin, const Slice* end,
-                          bool reduce_level, int target_level) {
-  FlushMemTable(FlushOptions());
+Status DBImpl::CompactRange(const ColumnFamilyHandle& column_family,
+                            const Slice* begin, const Slice* end,
+                            bool reduce_level, int target_level) {
+  Status s = FlushMemTable(FlushOptions());
+  if (!s.ok()) {
+    LogFlush(options_.info_log);
+    return s;
+  }
+
   int max_level_with_files = 1;
   {
     MutexLock l(&mutex_);
@@ -1309,16 +1317,22 @@ void DBImpl::CompactRange(const ColumnFamilyHandle& column_family,
     // bottom-most level, the output level will be the same as input one
     if (options_.compaction_style == kCompactionStyleUniversal ||
         level == max_level_with_files) {
-      RunManualCompaction(level, level, begin, end);
+      s = RunManualCompaction(level, level, begin, end);
     } else {
-      RunManualCompaction(level, level + 1, begin, end);
+      s = RunManualCompaction(level, level + 1, begin, end);
+    }
+    if (!s.ok()) {
+      LogFlush(options_.info_log);
+      return s;
     }
   }
 
   if (reduce_level) {
-    ReFitLevel(max_level_with_files, target_level);
+    s = ReFitLevel(max_level_with_files, target_level);
   }
   LogFlush(options_.info_log);
+
+  return s;
 }
 
 // return the same level if it cannot be moved
@@ -1337,7 +1351,7 @@ int DBImpl::FindMinimumEmptyLevelFitting(int level) {
   return minimum_level;
 }
 
-void DBImpl::ReFitLevel(int level, int target_level) {
+Status DBImpl::ReFitLevel(int level, int target_level) {
   assert(level < NumberLevels());
 
   SuperVersion* superversion_to_free = nullptr;
@@ -1351,7 +1365,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
     mutex_.Unlock();
     Log(options_.info_log, "ReFitLevel: another thread is refitting");
     delete new_superversion;
-    return;
+    return Status::NotSupported("another thread is refitting");
   }
   refitting_level_ = true;
 
@@ -1372,6 +1386,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
 
   assert(to_level <= level);
 
+  Status status;
   if (to_level < level) {
     Log(options_.info_log, "Before refitting:\n%s",
         versions_->current()->DebugString().data());
@@ -1385,7 +1400,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
     Log(options_.info_log, "Apply version edit:\n%s",
         edit.DebugString().data());
 
-    auto status = versions_->LogAndApply(&edit, &mutex_);
+    status = versions_->LogAndApply(&edit, &mutex_);
     superversion_to_free = InstallSuperVersion(new_superversion);
     new_superversion = nullptr;
 
@@ -1403,6 +1418,7 @@ void DBImpl::ReFitLevel(int level, int target_level) {
   mutex_.Unlock();
   delete superversion_to_free;
   delete new_superversion;
+  return status;
 }
 
 int DBImpl::NumberLevels(const ColumnFamilyHandle& column_family) {
@@ -1415,6 +1431,10 @@ int DBImpl::MaxMemCompactionLevel(const ColumnFamilyHandle& column_family) {
 
 int DBImpl::Level0StopWriteTrigger(const ColumnFamilyHandle& column_family) {
   return options_.level0_stop_writes_trigger;
+}
+
+uint64_t DBImpl::CurrentVersionNumber() const {
+  return super_version_number_.load();
 }
 
 Status DBImpl::Flush(const FlushOptions& options,
@@ -1612,10 +1632,10 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
   return status;
 }
 
-void DBImpl::RunManualCompaction(int input_level,
-                                 int output_level,
-                                 const Slice* begin,
-                                 const Slice* end) {
+Status DBImpl::RunManualCompaction(int input_level,
+                                   int output_level,
+                                   const Slice* begin,
+                                   const Slice* end) {
   assert(input_level >= 0);
 
   InternalKey begin_storage, end_storage;
@@ -1682,15 +1702,16 @@ void DBImpl::RunManualCompaction(int input_level,
   assert(!manual.in_progress);
   assert(bg_manual_only_ > 0);
   --bg_manual_only_;
+  return manual.status;
 }
 
-void DBImpl::TEST_CompactRange(int level,
-                               const Slice* begin,
-                               const Slice* end) {
+Status DBImpl::TEST_CompactRange(int level,
+                                 const Slice* begin,
+                                 const Slice* end) {
   int output_level = (options_.compaction_style == kCompactionStyleUniversal)
                          ? level
                          : level + 1;
-  RunManualCompaction(level, output_level, begin, end);
+  return RunManualCompaction(level, output_level, begin, end);
 }
 
 Status DBImpl::FlushMemTable(const FlushOptions& options) {
@@ -1989,6 +2010,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
     if (!status.ok()) {
+      m->status = status;
       m->done = true;
     }
     // For universal compaction:
@@ -2657,11 +2679,14 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
       deletion_state.memtables_to_free.push_back(m);
     }
   }
-  state->version->Unref();
+  if (state->version) {  // not set for memtable-only iterator
+    state->version->Unref();
+  }
   // fast path FindObsoleteFiles
   state->db->FindObsoleteFiles(deletion_state, false, true);
   state->mu->Unlock();
   state->db->PurgeObsoleteFiles(deletion_state);
+
   delete state;
 }
 }  // namespace
@@ -2683,7 +2708,6 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   for (unsigned int i = 0; i < immutables.size(); i++) {
     immutables[i]->Ref();
   }
-  // Collect iterators for files in L0 - Ln
   versions_->current()->Ref();
   version = versions_->current();
   mutex_.Unlock();
@@ -2691,10 +2715,13 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   std::vector<Iterator*> list;
   list.push_back(mutable_mem->NewIterator(options));
   cleanup->mem.push_back(mutable_mem);
+
+  // Collect all needed child iterators for immutable memtables
   for (MemTable* m : immutables) {
     list.push_back(m->NewIterator(options));
     cleanup->mem.push_back(m);
   }
+  // Collect iterators for files in L0 - Ln
   version->AddIterators(options, storage_options_, &list);
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
@@ -2709,6 +2736,66 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
 Iterator* DBImpl::TEST_NewInternalIterator() {
   SequenceNumber ignored;
   return NewInternalIterator(ReadOptions(), &ignored);
+}
+
+std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
+    const ReadOptions& options,
+    uint64_t* superversion_number) {
+
+  MemTable* mutable_mem;
+  std::vector<MemTable*> immutables;
+  Version* version;
+
+  immutables.reserve(options_.max_write_buffer_number);
+
+  // get all child iterators and bump their refcounts under lock
+  mutex_.Lock();
+  mutable_mem = mem_;
+  mutable_mem->Ref();
+  imm_.GetMemTables(&immutables);
+  for (size_t i = 0; i < immutables.size(); ++i) {
+    immutables[i]->Ref();
+  }
+  version = versions_->current();
+  version->Ref();
+  if (superversion_number != nullptr) {
+    *superversion_number = CurrentVersionNumber();
+  }
+  mutex_.Unlock();
+
+  Iterator* mutable_iter = mutable_mem->NewIterator(options);
+  IterState* mutable_cleanup = new IterState();
+  mutable_cleanup->mem.push_back(mutable_mem);
+  mutable_cleanup->db = this;
+  mutable_cleanup->mu = &mutex_;
+  mutable_iter->RegisterCleanup(CleanupIteratorState, mutable_cleanup, nullptr);
+
+  // create a DBIter that only uses memtable content; see NewIterator()
+  mutable_iter = NewDBIterator(&dbname_, env_, options_, user_comparator(),
+                               mutable_iter, kMaxSequenceNumber);
+
+  Iterator* immutable_iter;
+  IterState* immutable_cleanup = new IterState();
+  std::vector<Iterator*> list;
+  for (MemTable* m : immutables) {
+    list.push_back(m->NewIterator(options));
+    immutable_cleanup->mem.push_back(m);
+  }
+  version->AddIterators(options, storage_options_, &list);
+  immutable_cleanup->version = version;
+  immutable_cleanup->db = this;
+  immutable_cleanup->mu = &mutex_;
+
+  immutable_iter =
+    NewMergingIterator(&internal_comparator_, &list[0], list.size());
+  immutable_iter->RegisterCleanup(CleanupIteratorState, immutable_cleanup,
+                                  nullptr);
+
+  // create a DBIter that only uses memtable content; see NewIterator()
+  immutable_iter = NewDBIterator(&dbname_, env_, options_, user_comparator(),
+                                 immutable_iter, kMaxSequenceNumber);
+
+  return std::make_pair(mutable_iter, immutable_iter);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
@@ -2753,6 +2840,7 @@ DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
   new_superversion->Init(mem_, imm_, versions_->current());
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
+  ++super_version_number_;
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
     return old_superversion; // will let caller delete outside of mutex
@@ -2975,13 +3063,21 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options,
                               const ColumnFamilyHandle& column_family) {
-  SequenceNumber latest_snapshot;
-  Iterator* iter = NewInternalIterator(options, &latest_snapshot);
-  iter = NewDBIterator(
-             &dbname_, env_, options_, user_comparator(), iter,
-             (options.snapshot != nullptr
-              ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-              : latest_snapshot));
+  Iterator* iter;
+
+  if (options.tailing) {
+    iter = new TailingIterator(this, options, user_comparator());
+  } else {
+    SequenceNumber latest_snapshot;
+    iter = NewInternalIterator(options, &latest_snapshot);
+
+    iter = NewDBIterator(
+      &dbname_, env_, options_, user_comparator(), iter,
+      (options.snapshot != nullptr
+       ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+       : latest_snapshot));
+  }
+
   if (options.prefix) {
     // use extra wrapper to exclude any keys from the results which
     // don't begin with the prefix
