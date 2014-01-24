@@ -39,6 +39,7 @@ extern void PutLengthPrefixedSliceParts(std::string* dst,
 extern bool GetVarint32(Slice* input, uint32_t* value);
 extern bool GetVarint64(Slice* input, uint64_t* value);
 extern bool GetLengthPrefixedSlice(Slice* input, Slice* result);
+// This function assumes data is well-formed.
 extern Slice GetLengthPrefixedSlice(const char* data);
 
 extern Slice GetSliceUntil(Slice* slice, char delimiter);
@@ -249,16 +250,6 @@ inline bool GetVarint64(Slice* input, uint64_t* value) {
   }
 }
 
-inline const char* GetLengthPrefixedSlice(const char* p, const char* limit,
-                                          Slice* result) {
-  uint32_t len = 0;
-  p = GetVarint32Ptr(p, limit, &len);
-  if (p == nullptr) return nullptr;
-  if (p + len > limit) return nullptr;
-  *result = Slice(p, len);
-  return p + len;
-}
-
 inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   uint32_t len = 0;
   if (GetVarint32(input, &len) && input->size() >= len) {
@@ -272,8 +263,8 @@ inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
 
 inline Slice GetLengthPrefixedSlice(const char* data) {
   uint32_t len = 0;
-  const char* p = data;
-  p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted
+  // +5: we assume "data" is not corrupted
+  auto p = GetVarint32Ptr(data, data + 5 /* limit */, &len);
   return Slice(p, len);
 }
 
