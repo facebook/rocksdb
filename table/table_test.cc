@@ -6,6 +6,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <algorithm>
 #include <map>
 #include <string>
 #include <memory>
@@ -39,15 +40,12 @@
 namespace rocksdb {
 
 namespace {
+
 // Return reverse of "key".
 // Used to test non-lexicographic comparators.
-static std::string Reverse(const Slice& key) {
-  std::string str(key.ToString());
-  std::string rev("");
-  for (std::string::reverse_iterator rit = str.rbegin();
-       rit != str.rend(); ++rit) {
-    rev.push_back(*rit);
-  }
+std::string Reverse(const Slice& key) {
+  auto rev = key.ToString();
+  std::reverse(rev.begin(), rev.end());
   return rev;
 }
 
@@ -76,10 +74,10 @@ class ReverseKeyComparator : public Comparator {
     *key = Reverse(s);
   }
 };
-}  // namespace
-static ReverseKeyComparator reverse_key_comparator;
 
-static void Increment(const Comparator* cmp, std::string* key) {
+ReverseKeyComparator reverse_key_comparator;
+
+void Increment(const Comparator* cmp, std::string* key) {
   if (cmp == BytewiseComparator()) {
     key->push_back('\0');
   } else {
@@ -91,7 +89,6 @@ static void Increment(const Comparator* cmp, std::string* key) {
 }
 
 // An STL comparator that uses a Comparator
-namespace anon {
 struct STLLessThan {
   const Comparator* cmp;
 
@@ -101,6 +98,7 @@ struct STLLessThan {
     return cmp->Compare(Slice(a), Slice(b)) < 0;
   }
 };
+
 }  // namespace
 
 class StringSink: public WritableFile {
@@ -168,13 +166,13 @@ class StringSource: public RandomAccessFile {
   bool mmap_;
 };
 
-typedef std::map<std::string, std::string, anon::STLLessThan> KVMap;
+typedef std::map<std::string, std::string, STLLessThan> KVMap;
 
 // Helper class for tests to unify the interface between
 // BlockBuilder/TableBuilder and Block/Table.
 class Constructor {
  public:
-  explicit Constructor(const Comparator* cmp) : data_(anon::STLLessThan(cmp)) { }
+  explicit Constructor(const Comparator* cmp) : data_(STLLessThan(cmp)) {}
   virtual ~Constructor() { }
 
   void Add(const std::string& key, const Slice& value) {
@@ -520,61 +518,62 @@ struct TestArgs {
   CompressionType compression;
 };
 
-
 static std::vector<TestArgs> GenerateArgList() {
-  std::vector<TestArgs> ret;
-  TestType test_type[6] = { BLOCK_BASED_TABLE_TEST,
-      PLAIN_TABLE_SEMI_FIXED_PREFIX, PLAIN_TABLE_FULL_STR_PREFIX, BLOCK_TEST,
-      MEMTABLE_TEST, DB_TEST };
-  int test_type_len = 6;
-  bool reverse_compare[2] = {false, true};
-  int reverse_compare_len = 2;
-  int restart_interval[3] = {16, 1, 1024};
-  int restart_interval_len = 3;
+  std::vector<TestArgs> test_args;
+  std::vector<TestType> test_types = {
+      BLOCK_BASED_TABLE_TEST,      PLAIN_TABLE_SEMI_FIXED_PREFIX,
+      PLAIN_TABLE_FULL_STR_PREFIX, BLOCK_TEST,
+      MEMTABLE_TEST,               DB_TEST};
+  std::vector<bool> reverse_compare_types = {false, true};
+  std::vector<int> restart_intervals = {16, 1, 1024};
 
   // Only add compression if it is supported
-  std::vector<CompressionType> compression_types;
-  compression_types.push_back(kNoCompression);
+  std::vector<CompressionType> compression_types = {kNoCompression};
 #ifdef SNAPPY
-  if (SnappyCompressionSupported())
+  if (SnappyCompressionSupported()) {
     compression_types.push_back(kSnappyCompression);
+  }
 #endif
 
 #ifdef ZLIB
-  if (ZlibCompressionSupported())
+  if (ZlibCompressionSupported()) {
     compression_types.push_back(kZlibCompression);
+  }
 #endif
 
 #ifdef BZIP2
-  if (BZip2CompressionSupported())
+  if (BZip2CompressionSupported()) {
     compression_types.push_back(kBZip2Compression);
+  }
 #endif
 
-  for(int i =0; i < test_type_len; i++)
-    for (int j =0; j < reverse_compare_len; j++) {
-      if (test_type[i] == PLAIN_TABLE_SEMI_FIXED_PREFIX
-          || test_type[i] == PLAIN_TABLE_FULL_STR_PREFIX) {
+  for (auto test_type : test_types) {
+    for (auto reverse_compare : reverse_compare_types) {
+      if (test_type == PLAIN_TABLE_SEMI_FIXED_PREFIX ||
+          test_type == PLAIN_TABLE_FULL_STR_PREFIX) {
         // Plain table doesn't use restart index or compression.
         TestArgs one_arg;
-        one_arg.type = test_type[i];
-        one_arg.reverse_compare = reverse_compare[0];
-        one_arg.restart_interval = restart_interval[0];
+        one_arg.type = test_type;
+        one_arg.reverse_compare = reverse_compare;
+        one_arg.restart_interval = restart_intervals[0];
         one_arg.compression = compression_types[0];
-        ret.push_back(one_arg);
+        test_args.push_back(one_arg);
         continue;
       }
 
-      for (int k = 0; k < restart_interval_len; k++)
-        for (unsigned int n = 0; n < compression_types.size(); n++) {
+      for (auto restart_interval : restart_intervals) {
+        for (auto compression_type : compression_types) {
           TestArgs one_arg;
-          one_arg.type = test_type[i];
-          one_arg.reverse_compare = reverse_compare[j];
-          one_arg.restart_interval = restart_interval[k];
-          one_arg.compression = compression_types[n];
-          ret.push_back(one_arg);
+          one_arg.type = test_type;
+          one_arg.reverse_compare = reverse_compare;
+          one_arg.restart_interval = restart_interval;
+          one_arg.compression = compression_type;
+          test_args.push_back(one_arg);
         }
+      }
     }
-  return ret;
+  }
+  return test_args;
 }
 
 // In order to make all tests run for plain table format, including
@@ -1245,7 +1244,7 @@ TEST(TableTest, ApproximateOffsetOfPlain) {
 
 }
 
-static void Do_Compression_Test(CompressionType comp) {
+static void DoCompressionTest(CompressionType comp) {
   Random rnd(301);
   TableConstructor c(BytewiseComparator());
   std::string tmp;
@@ -1287,7 +1286,7 @@ TEST(TableTest, ApproximateOffsetOfCompressed) {
 
   for(int i =0; i < valid; i++)
   {
-    Do_Compression_Test(compression_state[i]);
+    DoCompressionTest(compression_state[i]);
   }
 
 }
@@ -1407,9 +1406,9 @@ TEST(MemTableTest, Simple) {
 
 // Test the empty key
 TEST(Harness, SimpleEmptyKey) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
+  auto args = GenerateArgList();
+  for (const auto& arg : args) {
+    Init(arg);
     Random rnd(test::RandomSeed() + 1);
     Add("", "v");
     Test(&rnd);
@@ -1417,9 +1416,9 @@ TEST(Harness, SimpleEmptyKey) {
 }
 
 TEST(Harness, SimpleSingle) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
+  auto args = GenerateArgList();
+  for (const auto& arg : args) {
+    Init(arg);
     Random rnd(test::RandomSeed() + 2);
     Add("abc", "v");
     Test(&rnd);
@@ -1427,9 +1426,9 @@ TEST(Harness, SimpleSingle) {
 }
 
 TEST(Harness, SimpleMulti) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
+  auto args = GenerateArgList();
+  for (const auto& arg : args) {
+    Init(arg);
     Random rnd(test::RandomSeed() + 3);
     Add("abc", "v");
     Add("abcd", "v");
@@ -1439,9 +1438,9 @@ TEST(Harness, SimpleMulti) {
 }
 
 TEST(Harness, SimpleSpecialKey) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
+  auto args = GenerateArgList();
+  for (const auto& arg : args) {
+    Init(arg);
     Random rnd(test::RandomSeed() + 4);
     Add("\xff\xff", "v3");
     Test(&rnd);
