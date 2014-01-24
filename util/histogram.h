@@ -52,9 +52,8 @@ class HistogramBucketMapper {
 
 class HistogramImpl {
  public:
-  HistogramImpl();
-  virtual ~HistogramImpl() {}
   virtual void Clear();
+  virtual bool Empty();
   virtual void Add(uint64_t value);
   void Merge(const HistogramImpl& other);
 
@@ -67,13 +66,14 @@ class HistogramImpl {
   virtual void Data(HistogramData * const data) const;
 
  private:
-  double min_;
-  double max_;
-  double num_;
-  double sum_;
-  double sum_squares_;
-  std::vector<uint64_t> buckets_;
-
+  // To be able to use HistogramImpl as thread local variable, its constructor
+  // has to be static. That's why we're using manually values from BucketMapper
+  double min_ = 1000000000;  // this is BucketMapper:LastValue()
+  double max_ = 0;
+  double num_ = 0;
+  double sum_ = 0;
+  double sum_squares_ = 0;
+  uint64_t buckets_[138] = {0};  // this is BucketMapper::BucketCount()
 };
 
 }  // namespace rocksdb

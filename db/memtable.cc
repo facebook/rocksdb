@@ -21,7 +21,7 @@
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
-#include "util/statistics_imp.h"
+#include "util/statistics.h"
 #include "util/stop_watch.h"
 
 namespace std {

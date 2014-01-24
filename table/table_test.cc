@@ -12,7 +12,8 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "db/db_statistics.h"
+#include "rocksdb/statistics.h"
+#include "util/statistics.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 
@@ -1048,18 +1049,12 @@ TEST(TableTest, NumBlockStat) {
 class BlockCacheProperties {
  public:
   explicit BlockCacheProperties(Statistics* statistics) {
-    block_cache_miss =
-      statistics->getTickerCount(BLOCK_CACHE_MISS);
-    block_cache_hit =
-      statistics->getTickerCount(BLOCK_CACHE_HIT);
-    index_block_cache_miss =
-      statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS);
-    index_block_cache_hit =
-      statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT);
-    data_block_cache_miss =
-      statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
-    data_block_cache_hit =
-      statistics->getTickerCount(BLOCK_CACHE_DATA_HIT);
+    block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_MISS);
+    block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_HIT);
+    index_block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS);
+    index_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT);
+    data_block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
+    data_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_DATA_HIT);
   }
 
   // Check if the fetched props matches the expected ones.

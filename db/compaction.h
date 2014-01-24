@@ -33,8 +33,13 @@ class Compaction {
   // "which" must be either 0 or 1
   int num_input_files(int which) const { return inputs_[which].size(); }
 
+  // Returns input version of the compaction
+  Version* input_version() const { return input_version_; }
+
   // Return the ith input file at "level()+which" ("which" must be 0 or 1).
   FileMetaData* input(int which, int i) const { return inputs_[which][i]; }
+
+  std::vector<FileMetaData*>* inputs(int which) { return &inputs_[which]; }
 
   // Maximum size of files to build during this compaction.
   uint64_t MaxOutputFileSize() const { return max_output_file_size_; }
@@ -74,8 +79,6 @@ class Compaction {
   bool IsFullCompaction() { return is_full_compaction_; }
 
  private:
-  friend class Version;
-  friend class VersionSet;
   friend class CompactionPicker;
   friend class UniversalCompactionPicker;
   friend class LevelCompactionPicker;
@@ -87,7 +90,7 @@ class Compaction {
   int level_;
   int out_level_; // levels to which output files are stored
   uint64_t max_output_file_size_;
-  uint64_t maxGrandParentOverlapBytes_;
+  uint64_t max_grandparent_overlap_bytes_;
   Version* input_version_;
   VersionEdit* edit_;
   int number_levels_;

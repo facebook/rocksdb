@@ -26,7 +26,7 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
     : level_(level),
       out_level_(out_level),
       max_output_file_size_(target_file_size),
-      maxGrandParentOverlapBytes_(max_grandparent_overlap_bytes),
+      max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
       input_version_(input_version),
       number_levels_(input_version_->NumberLevels()),
       seek_compaction_(seek_compaction),
@@ -64,7 +64,7 @@ bool Compaction::IsTrivialMove() const {
   return (level_ != out_level_ &&
           num_input_files(0) == 1 &&
           num_input_files(1) == 0 &&
-          TotalFileSize(grandparents_) <= maxGrandParentOverlapBytes_);
+          TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
 
 void Compaction::AddInputDeletions(VersionEdit* edit) {
@@ -117,7 +117,7 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
   }
   seen_key_ = true;
 
-  if (overlapped_bytes_ > maxGrandParentOverlapBytes_) {
+  if (overlapped_bytes_ > max_grandparent_overlap_bytes_) {
     // Too much overlap for current output; start new output
     overlapped_bytes_ = 0;
     return true;

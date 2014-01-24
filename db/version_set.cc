@@ -2025,22 +2025,21 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
-  const int space = (c->level() == 0 ? c->inputs_[0].size() + 1 : 2);
+  const int space = (c->level() == 0 ? c->inputs(0)->size() + 1 : 2);
   Iterator** list = new Iterator*[space];
   int num = 0;
   for (int which = 0; which < 2; which++) {
-    if (!c->inputs_[which].empty()) {
+    if (!c->inputs(which)->empty()) {
       if (c->level() + which == 0) {
-        const std::vector<FileMetaData*>& files = c->inputs_[which];
-        for (size_t i = 0; i < files.size(); i++) {
+        for (const auto& file : *c->inputs(which)) {
           list[num++] = table_cache_->NewIterator(
-              options, storage_options_compactions_,
-              *(files[i]), nullptr, true /* for compaction */);
+              options, storage_options_compactions_, *file, nullptr,
+              true /* for compaction */);
         }
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
-            new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
+            new Version::LevelFileNumIterator(icmp_, c->inputs(which)),
             &GetFileIterator, table_cache_, options, storage_options_,
             true /* for compaction */);
       }
@@ -2064,7 +2063,7 @@ uint64_t VersionSet::MaxFileSizeForLevel(int level) {
 // in the current version
 bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
 #ifndef NDEBUG
-  if (c->input_version_ != current_) {
+  if (c->input_version() != current_) {
     Log(options_->info_log, "VerifyCompactionFileConsistency version mismatch");
   }
 

@@ -11,26 +11,26 @@
 #include <set>
 #include <unistd.h>
 
-#include "rocksdb/db.h"
-#include "rocksdb/filter_policy.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
-#include "db/db_statistics.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/table.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/plain_table_factory.h"
+#include "rocksdb/table.h"
 #include "util/hash.h"
-#include "util/logging.h"
-#include "util/mutexlock.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 #include "util/hash_linklist_rep.h"
 #include "utilities/merge_operators.h"
+#include "util/logging.h"
+#include "util/mutexlock.h"
+#include "util/statistics.h"
+#include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -706,7 +706,6 @@ class DBTest {
     delete iter;
   }
 
-
   // Used to test InplaceUpdate
 
   // If previous value is nullptr or delta is > than previous value,
@@ -772,6 +771,31 @@ class DBTest {
       delete iter;
       ASSERT_EQ(0, seq);
   }
+
+  void CopyFile(const std::string& source, const std::string& destination,
+                uint64_t size = 0) {
+    const EnvOptions soptions;
+    unique_ptr<SequentialFile> srcfile;
+    ASSERT_OK(env_->NewSequentialFile(source, &srcfile, soptions));
+    unique_ptr<WritableFile> destfile;
+    ASSERT_OK(env_->NewWritableFile(destination, &destfile, soptions));
+
+    if (size == 0) {
+      // default argument means copy everything
+      ASSERT_OK(env_->GetFileSize(source, &size));
+    }
+
+    char buffer[4096];
+    Slice slice;
+    while (size > 0) {
+      uint64_t one = std::min(uint64_t(sizeof(buffer)), size);
+      ASSERT_OK(srcfile->Read(one, &slice, buffer));
+      ASSERT_OK(destfile->Append(slice));
+      size -= slice.size();
+    }
+    ASSERT_OK(destfile->Close());
+  }
+
 };
 std::unique_ptr<const SliceTransform> DBTest::prefix_1_transform(
     NewFixedPrefixTransform(1));
@@ -784,8 +808,11 @@ static std::string Key(int i) {
   return std::string(buf);
 }
 
-/*
-TEST(DBTest, GetFromImmutableLayer) {
+static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
+  return options.statistics->getTickerCount(ticker_type);
+}
+
+TEST(DBTest, Empty) {
   do {
     Options options = CurrentOptions();
     options.env = env_;
@@ -802,7 +829,6 @@ TEST(DBTest, GetFromImmutableLayer) {
     env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
   } while (ChangeOptions());
 }
-*/
 
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
@@ -819,14 +845,11 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   ASSERT_OK(dbfull()->Flush(FlushOptions()));
 
   // index/filter blocks added to block cache right after table creation.
-  ASSERT_EQ(1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_INDEX_MISS));
-  ASSERT_EQ(1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(2, /* only index/filter were added */
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
-  ASSERT_EQ(0,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_DATA_MISS));
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
 
   // Make sure filter block is in cache.
   std::string value;
@@ -834,31 +857,24 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   db_->KeyMayExist(ReadOptions(), "key", &value);
 
   // Miss count should remain the same.
-  ASSERT_EQ(1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
-  ASSERT_EQ(1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 
   db_->KeyMayExist(ReadOptions(), "key", &value);
-  ASSERT_EQ(1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
-  ASSERT_EQ(2,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 
   // Make sure index block is in cache.
-  auto index_block_hit =
-    options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT);
+  auto index_block_hit = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
   value = Get("key");
-  ASSERT_EQ(1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(index_block_hit + 1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 
   value = Get("key");
-  ASSERT_EQ(1,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(index_block_hit + 2,
-            options.statistics.get()->getTickerCount(BLOCK_CACHE_FILTER_HIT));
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 }
 
 TEST(DBTest, LevelLimitReopen) {
@@ -1073,47 +1089,39 @@ TEST(DBTest, KeyMayExist) {
     dbfull()->Flush(FlushOptions());
     value.clear();
 
-    long numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    long cache_added =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
+    long numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    long cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     ASSERT_TRUE(db_->KeyMayExist(ropts, "a", &value, &value_found));
     ASSERT_TRUE(!value_found);
     // assert that no new files were opened and no new blocks were
     // read into block cache.
-    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_added,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
+    ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
+    ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "a"));
 
-    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_added =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
+    numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
-    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_added,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
+    ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
+    ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
     dbfull()->Flush(FlushOptions());
     dbfull()->CompactRange(nullptr, nullptr);
 
-    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_added =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
+    numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "a", &value));
-    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_added,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
+    ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
+    ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
     ASSERT_OK(db_->Delete(WriteOptions(), "c"));
 
-    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_added =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
+    numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     ASSERT_TRUE(!db_->KeyMayExist(ropts, "c", &value));
-    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_added,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
+    ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
+    ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
     delete options.filter_policy;
 
@@ -1149,9 +1157,8 @@ TEST(DBTest, NonBlockingIteration) {
 
     // verify that a non-blocking iterator does not find any
     // kvs. Neither does it do any IOs to storage.
-    long numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    long cache_added =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
+    long numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    long cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     iter = db_->NewIterator(non_blocking_opts);
     count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -1159,18 +1166,16 @@ TEST(DBTest, NonBlockingIteration) {
     }
     ASSERT_EQ(count, 0);
     ASSERT_TRUE(iter->status().IsIncomplete());
-    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_added,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
+    ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
+    ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
     delete iter;
 
     // read in the specified block via a regular get
     ASSERT_EQ(Get("a"), "b");
 
     // verify that we can find it via a non-blocking scan
-    numopen = options.statistics.get()->getTickerCount(NO_FILE_OPENS);
-    cache_added =
-      options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD);
+    numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     iter = db_->NewIterator(non_blocking_opts);
     count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -1178,9 +1183,8 @@ TEST(DBTest, NonBlockingIteration) {
       count++;
     }
     ASSERT_EQ(count, 1);
-    ASSERT_EQ(numopen, options.statistics.get()->getTickerCount(NO_FILE_OPENS));
-    ASSERT_EQ(cache_added,
-              options.statistics.get()->getTickerCount(BLOCK_CACHE_ADD));
+    ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
+    ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
     delete iter;
 
     // This test verifies block cache behaviors, which is not used by plain
@@ -1398,12 +1402,10 @@ TEST(DBTest, IterReseek) {
   ASSERT_OK(Put("b",  "bone"));
   Iterator* iter = db_->NewIterator(ReadOptions());
   iter->SeekToFirst();
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 0);
   ASSERT_EQ(IterStatus(iter), "a->two");
   iter->Next();
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 0);
   ASSERT_EQ(IterStatus(iter), "b->bone");
   delete iter;
 
@@ -1414,8 +1416,7 @@ TEST(DBTest, IterReseek) {
   iter->SeekToFirst();
   ASSERT_EQ(IterStatus(iter), "a->three");
   iter->Next();
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 0);
   ASSERT_EQ(IterStatus(iter), "b->bone");
   delete iter;
 
@@ -1425,30 +1426,28 @@ TEST(DBTest, IterReseek) {
   iter = db_->NewIterator(ReadOptions());
   iter->SeekToFirst();
   ASSERT_EQ(IterStatus(iter), "a->four");
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 0);
   iter->Next();
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), 1);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 1);
   ASSERT_EQ(IterStatus(iter), "b->bone");
   delete iter;
 
   // Testing reverse iterator
   // At this point, we have three versions of "a" and one version of "b".
   // The reseek statistics is already at 1.
-  int num_reseeks = (int)options.statistics.get()->getTickerCount(
-                 NUMBER_OF_RESEEKS_IN_ITERATION);
+  int num_reseeks =
+      (int)TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION);
 
   // Insert another version of b and assert that reseek is not invoked
   ASSERT_OK(Put("b",  "btwo"));
   iter = db_->NewIterator(ReadOptions());
   iter->SeekToLast();
   ASSERT_EQ(IterStatus(iter), "b->btwo");
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION),
+            num_reseeks);
   iter->Prev();
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks+1);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION),
+            num_reseeks + 1);
   ASSERT_EQ(IterStatus(iter), "a->four");
   delete iter;
 
@@ -1459,13 +1458,13 @@ TEST(DBTest, IterReseek) {
   iter = db_->NewIterator(ReadOptions());
   iter->SeekToLast();
   ASSERT_EQ(IterStatus(iter), "b->bfour");
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks + 2);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION),
+            num_reseeks + 2);
   iter->Prev();
 
   // the previous Prev call should have invoked reseek
-  ASSERT_EQ(options.statistics.get()->getTickerCount(
-            NUMBER_OF_RESEEKS_IN_ITERATION), num_reseeks + 3);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION),
+            num_reseeks + 3);
   ASSERT_EQ(IterStatus(iter), "a->four");
   delete iter;
 }
@@ -1616,6 +1615,82 @@ TEST(DBTest, Recover) {
     ASSERT_EQ("v4", Get("foo"));
     ASSERT_EQ("v2", Get("bar"));
     ASSERT_EQ("v5", Get("baz"));
+  } while (ChangeOptions());
+}
+
+TEST(DBTest, IgnoreRecoveredLog) {
+  std::string backup_logs = dbname_ + "/backup_logs";
+
+  // delete old files in backup_logs directory
+  env_->CreateDirIfMissing(backup_logs);
+  std::vector<std::string> old_files;
+  env_->GetChildren(backup_logs, &old_files);
+  for (auto& file : old_files) {
+    if (file != "." && file != "..") {
+      env_->DeleteFile(backup_logs + "/" + file);
+    }
+  }
+
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+    options.wal_dir = dbname_ + "/logs";
+    DestroyAndReopen(&options);
+
+    // fill up the DB
+    std::string one, two;
+    PutFixed64(&one, 1);
+    PutFixed64(&two, 2);
+    ASSERT_OK(db_->Merge(WriteOptions(), Slice("foo"), Slice(one)));
+    ASSERT_OK(db_->Merge(WriteOptions(), Slice("foo"), Slice(one)));
+    ASSERT_OK(db_->Merge(WriteOptions(), Slice("bar"), Slice(one)));
+
+    // copy the logs to backup
+    std::vector<std::string> logs;
+    env_->GetChildren(options.wal_dir, &logs);
+    for (auto& log : logs) {
+      if (log != ".." && log != ".") {
+        CopyFile(options.wal_dir + "/" + log, backup_logs + "/" + log);
+      }
+    }
+
+    // recover the DB
+    Reopen(&options);
+    ASSERT_EQ(two, Get("foo"));
+    ASSERT_EQ(one, Get("bar"));
+    Close();
+
+    // copy the logs from backup back to wal dir
+    for (auto& log : logs) {
+      if (log != ".." && log != ".") {
+        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
+      }
+    }
+    // this should ignore the log files, recovery should not happen again
+    // if the recovery happens, the same merge operator would be called twice,
+    // leading to incorrect results
+    Reopen(&options);
+    ASSERT_EQ(two, Get("foo"));
+    ASSERT_EQ(one, Get("bar"));
+    Close();
+    Destroy(&options);
+
+    // copy the logs from backup back to wal dir
+    env_->CreateDirIfMissing(options.wal_dir);
+    for (auto& log : logs) {
+      if (log != ".." && log != ".") {
+        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
+        // we won't be needing this file no more
+        env_->DeleteFile(backup_logs + "/" + log);
+      }
+    }
+    // assert that we successfully recovered only from logs, even though we
+    // destroyed the DB
+    Reopen(&options);
+    ASSERT_EQ(two, Get("foo"));
+    ASSERT_EQ(one, Get("bar"));
+    Close();
   } while (ChangeOptions());
 }
 
@@ -2257,24 +2332,18 @@ TEST(DBTest, CompressedCache) {
     switch (iter) {
       case 0:
         // only uncompressed block cache
-        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_EQ(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
         break;
       case 1:
         // no block cache, only compressed cache
-        ASSERT_EQ(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_GT(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
         break;
       case 2:
         // both compressed and uncompressed block cache
-        ASSERT_GT(options.statistics.get()->getTickerCount(BLOCK_CACHE_MISS),
-                  0);
-        ASSERT_GT(options.statistics.get()->getTickerCount
-                  (BLOCK_CACHE_COMPRESSED_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
         break;
       default:
         ASSERT_TRUE(false);
@@ -3878,7 +3947,6 @@ TEST(DBTest, BloomFilter) {
 TEST(DBTest, SnapshotFiles) {
   do {
     Options options = CurrentOptions();
-    const EnvOptions soptions;
     options.write_buffer_size = 100000000;        // Large write buffer
     Reopen(&options);
 
@@ -3934,20 +4002,7 @@ TEST(DBTest, SnapshotFiles) {
           }
         }
       }
-      unique_ptr<SequentialFile> srcfile;
-      ASSERT_OK(env_->NewSequentialFile(src, &srcfile, soptions));
-      unique_ptr<WritableFile> destfile;
-      ASSERT_OK(env_->NewWritableFile(dest, &destfile, soptions));
-
-      char buffer[4096];
-      Slice slice;
-      while (size > 0) {
-        uint64_t one = std::min(uint64_t(sizeof(buffer)), size);
-        ASSERT_OK(srcfile->Read(one, &slice, buffer));
-        ASSERT_OK(destfile->Append(slice));
-        size -= slice.size();
-      }
-      ASSERT_OK(destfile->Close());
+      CopyFile(src, dest, size);
     }
 
     // release file snapshot
