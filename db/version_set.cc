@@ -1392,6 +1392,9 @@ VersionSet::~VersionSet() {
   for (auto cfd : *column_family_set_) {
     cfd->current->Unref();
   }
+  // we need to delete column_family_set_ because its destructor depends on
+  // VersionSet
+  column_family_set_.reset();
   for (auto file : obsolete_files_) {
     delete file;
   }
@@ -2401,6 +2404,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
       edit->column_family_name_, edit->column_family_, dummy_versions, options);
 
   AppendVersion(new_cfd, new Version(this, current_version_number_++));
+  new_cfd->CreateNewMemtable();
   return new_cfd;
 }
 

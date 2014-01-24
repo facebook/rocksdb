@@ -90,7 +90,8 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(default_column_family_name, cf_options));
-  Status s = impl->Recover(column_families, true /* read only */, error_if_log_file_exist);
+  Status s = impl->Recover(column_families, true /* read only */,
+                           error_if_log_file_exist);
   impl->mutex_.Unlock();
   if (s.ok()) {
     *dbptr = impl;

@@ -446,6 +446,8 @@ class VersionSet {
 
   friend class Compaction;
   friend class Version;
+  // TODO temporarily until we have what ColumnFamilyData needs (icmp_)
+  friend struct ColumnFamilyData;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;

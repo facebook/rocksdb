@@ -315,7 +315,8 @@ class DB {
                               int target_level = -1) = 0;
   Status CompactRange(const Slice* begin, const Slice* end,
                     bool reduce_level = false, int target_level = -1) {
-    return CompactRange(default_column_family, begin, end, reduce_level, target_level);
+    return CompactRange(default_column_family, begin, end, reduce_level,
+                        target_level);
   }
 
   // Number of levels used for this DB.

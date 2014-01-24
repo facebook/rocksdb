@@ -33,7 +33,8 @@ struct hash<rocksdb::Slice> {
 
 namespace rocksdb {
 
-MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
+MemTable::MemTable(const InternalKeyComparator& cmp,
+                   const ColumnFamilyOptions& options)
     : comparator_(cmp),
       refs_(0),
       arena_impl_(options.arena_block_size),

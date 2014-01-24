@@ -357,6 +357,21 @@ struct ColumnFamilyOptions {
   // order.
   int table_cache_remove_scan_count_limit;
 
+  // size of one block in arena memory allocation.
+  // If <= 0, a proper value is automatically calculated (usually 1/10 of
+  // writer_buffer_size).
+  //
+  // There are two additonal restriction of the The specified size:
+  // (1) size should be in the range of [4096, 2 << 30] and
+  // (2) be the multiple of the CPU word (which helps with the memory
+  // alignment).
+  //
+  // We'll automatically check and adjust the size number to make sure it
+  // conforms to the restrictions.
+  //
+  // Default: 0
+  size_t arena_block_size;
+
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family
   bool disable_auto_compactions;
@@ -561,21 +576,6 @@ struct DBOptions {
   // The older manifest file be deleted.
   // The default value is MAX_INT so that roll-over does not take place.
   uint64_t max_manifest_file_size;
-
-  // size of one block in arena memory allocation.
-  // If <= 0, a proper value is automatically calculated (usually 1/10 of
-  // writer_buffer_size).
-  //
-  // There are two additonal restriction of the The specified size:
-  // (1) size should be in the range of [4096, 2 << 30] and
-  // (2) be the multiple of the CPU word (which helps with the memory
-  // alignment).
-  //
-  // We'll automatically check and adjust the size number to make sure it
-  // conforms to the restrictions.
-  //
-  // Default: 0
-  size_t arena_block_size;
 
   // The following two fields affect how archived logs will be deleted.
   // 1. If both set to 0, logs will be deleted asap and will not get into

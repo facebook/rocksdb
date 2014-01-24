@@ -9,16 +9,47 @@
 
 #pragma once
 
-#include "rocksdb/options.h"
-
 #include <unordered_map>
 #include <string>
 #include <vector>
+
+#include "rocksdb/options.h"
+#include "db/memtablelist.h"
 
 namespace rocksdb {
 
 class Version;
 class VersionSet;
+class MemTable;
+class MemTableListVersion;
+
+// holds references to memtable, all immutable memtables and version
+struct SuperVersion {
+  MemTable* mem;
+  MemTableListVersion* imm;
+  Version* current;
+  std::atomic<uint32_t> refs;
+  // We need to_delete because during Cleanup(), imm->Unref() returns
+  // all memtables that we need to free through this vector. We then
+  // delete all those memtables outside of mutex, during destruction
+  std::vector<MemTable*> to_delete;
+
+  // should be called outside the mutex
+  explicit SuperVersion(const int num_memtables = 0);
+  ~SuperVersion();
+  SuperVersion* Ref();
+  // Returns true if this was the last reference and caller should
+  // call Clenaup() and delete the object
+  bool Unref();
+
+  // call these two methods with db mutex held
+  // Cleanup unrefs mem, imm and current. Also, it stores all memtables
+  // that needs to be deleted in to_delete vector. Unrefing those
+  // objects needs to be done in the mutex
+  void Cleanup();
+  void Init(MemTable* new_mem, MemTableListVersion* new_imm,
+            Version* new_current);
+};
 
 // column family metadata
 struct ColumnFamilyData {
@@ -28,27 +59,34 @@ struct ColumnFamilyData {
   Version* current;        // == dummy_versions->prev_
   ColumnFamilyOptions options;
 
+  MemTable* mem;
+  MemTableList imm;
+  SuperVersion* super_version;
+
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, const ColumnFamilyOptions& options);
   ~ColumnFamilyData();
+
+  void CreateNewMemtable();
 };
 
 class ColumnFamilySet {
  public:
-   class iterator {
-    public:
-     explicit iterator(
-         std::unordered_map<uint32_t, ColumnFamilyData*>::iterator itr)
-         : itr_(itr) {}
-     iterator& operator++() {
-       ++itr_;
-       return *this;
-     }
-     bool operator!=(const iterator& other) { return this->itr_ != other.itr_; }
-     ColumnFamilyData* operator*() { return itr_->second; }
-    private:
-     std::unordered_map<uint32_t, ColumnFamilyData*>::iterator itr_;
-   };
+  class iterator {
+   public:
+    explicit iterator(
+        std::unordered_map<uint32_t, ColumnFamilyData*>::iterator itr)
+        : itr_(itr) {}
+    iterator& operator++() {
+      ++itr_;
+      return *this;
+    }
+    bool operator!=(const iterator& other) { return this->itr_ != other.itr_; }
+    ColumnFamilyData* operator*() { return itr_->second; }
+
+   private:
+    std::unordered_map<uint32_t, ColumnFamilyData*>::iterator itr_;
+  };
 
   ColumnFamilySet();
   ~ColumnFamilySet();

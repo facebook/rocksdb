@@ -15,6 +15,7 @@
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
+#include "db/column_family.h"
 #include "db/version_edit.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -174,34 +175,6 @@ class DBImpl : public DB {
     default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
   }
 
-  // holds references to memtable, all immutable memtables and version
-  struct SuperVersion {
-    MemTable* mem;
-    MemTableListVersion* imm;
-    Version* current;
-    std::atomic<uint32_t> refs;
-    // We need to_delete because during Cleanup(), imm->Unref() returns
-    // all memtables that we need to free through this vector. We then
-    // delete all those memtables outside of mutex, during destruction
-    std::vector<MemTable*> to_delete;
-
-    // should be called outside the mutex
-    explicit SuperVersion(const int num_memtables = 0);
-    ~SuperVersion();
-    SuperVersion* Ref();
-    // Returns true if this was the last reference and caller should
-    // call Clenaup() and delete the object
-    bool Unref();
-
-    // call these two methods with db mutex held
-    // Cleanup unrefs mem, imm and current. Also, it stores all memtables
-    // that needs to be deleted in to_delete vector. Unrefing those
-    // objects needs to be done in the mutex
-    void Cleanup();
-    void Init(MemTable* new_mem, MemTableListVersion* new_imm,
-              Version* new_current);
-  };
-
   // needed for CleanupIteratorState
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
@@ -286,7 +259,8 @@ class DBImpl : public DB {
   }
 
   MemTable* GetMemTable() {
-    return mem_;
+    // TODO currently only works for default column family
+    return default_cfd_->mem;
   }
 
   Iterator* NewInternalIterator(const ReadOptions&,
@@ -425,13 +399,9 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   port::AtomicPointer shutting_down_;
   port::CondVar bg_cv_;          // Signalled when background work finishes
-  MemTableRepFactory* mem_rep_factory_;
-  MemTable* mem_;
-  MemTableList imm_;             // Memtable that are not changing
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
-
-  SuperVersion* super_version_;
+  ColumnFamilyData* default_cfd_;
 
   // An ordinal representing the current SuperVersion. Updated by
   // InstallSuperVersion(), i.e. incremented every time super_version_
@@ -625,11 +595,13 @@ class DBImpl : public DB {
   // Foreground threads call this function directly (they don't carry
   // deletion state and have to handle their own creation and deletion
   // of SuperVersion)
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion);
+  SuperVersion* InstallSuperVersion(ColumnFamilyData* cfd,
+                                    SuperVersion* new_superversion);
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function above. Background threads carry
   // deletion_state which can have new_superversion already allocated.
-  void InstallSuperVersion(DeletionState& deletion_state);
+  void InstallSuperVersion(ColumnFamilyData* cfd,
+                           DeletionState& deletion_state);
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here

@@ -8,6 +8,7 @@
 #include <string>
 #include "rocksdb/db.h"
 #include "db/memtable.h"
+#include "db/version_set.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "util/coding.h"

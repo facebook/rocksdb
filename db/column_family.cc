@@ -1,7 +1,63 @@
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+//
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
+
 #include "db/column_family.h"
+
+#include <vector>
+#include <string>
+#include <algorithm>
+
 #include "db/version_set.h"
 
 namespace rocksdb {
+
+SuperVersion::SuperVersion(const int num_memtables) {
+  to_delete.resize(num_memtables);
+}
+
+SuperVersion::~SuperVersion() {
+  for (auto td : to_delete) {
+    delete td;
+  }
+}
+
+SuperVersion* SuperVersion::Ref() {
+  refs.fetch_add(1, std::memory_order_relaxed);
+  return this;
+}
+
+bool SuperVersion::Unref() {
+  assert(refs > 0);
+  // fetch_sub returns the previous value of ref
+  return refs.fetch_sub(1, std::memory_order_relaxed) == 1;
+}
+
+void SuperVersion::Cleanup() {
+  assert(refs.load(std::memory_order_relaxed) == 0);
+  imm->Unref(&to_delete);
+  MemTable* m = mem->Unref();
+  if (m != nullptr) {
+    to_delete.push_back(m);
+  }
+  current->Unref();
+}
+
+void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
+                        Version* new_current) {
+  mem = new_mem;
+  imm = new_imm;
+  current = new_current;
+  mem->Ref();
+  imm->Ref();
+  current->Ref();
+  refs.store(1, std::memory_order_relaxed);
+}
 
 ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* dummy_versions,
@@ -10,12 +66,40 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       name(name),
       dummy_versions(dummy_versions),
       current(nullptr),
-      options(options) {}
+      options(options),
+      mem(nullptr),
+      imm(options.min_write_buffer_number_to_merge),
+      super_version(nullptr) {}
 
 ColumnFamilyData::~ColumnFamilyData() {
+  if (super_version != nullptr) {
+    bool is_last_reference __attribute__((unused));
+    is_last_reference = super_version->Unref();
+    assert(is_last_reference);
+    super_version->Cleanup();
+    delete super_version;
+  }
   // List must be empty
   assert(dummy_versions->next_ == dummy_versions);
   delete dummy_versions;
+
+  if (mem != nullptr) {
+    delete mem->Unref();
+  }
+  std::vector<MemTable*> to_delete;
+  imm.current()->Unref(&to_delete);
+  for (MemTable* m : to_delete) {
+    delete m;
+  }
+}
+
+void ColumnFamilyData::CreateNewMemtable() {
+  assert(current != nullptr);
+  if (mem != nullptr) {
+    delete mem->Unref();
+  }
+  mem = new MemTable(current->vset_->icmp_, options);
+  mem->Ref();
 }
 
 ColumnFamilySet::ColumnFamilySet() : max_column_family_(0) {}
@@ -31,7 +115,7 @@ ColumnFamilySet::~ColumnFamilySet() {
 
 ColumnFamilyData* ColumnFamilySet::GetDefault() const {
   auto ret = GetColumnFamily(0);
-  assert(ret != nullptr); // default column family should always exist
+  assert(ret != nullptr);  // default column family should always exist
   return ret;
 }
 

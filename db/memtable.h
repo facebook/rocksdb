@@ -13,7 +13,7 @@
 #include <deque>
 #include "db/dbformat.h"
 #include "db/skiplist.h"
-#include "db/version_set.h"
+#include "db/version_edit.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "util/arena_impl.h"
@@ -35,7 +35,7 @@ class MemTable {
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
   explicit MemTable(const InternalKeyComparator& comparator,
-                    const Options& options = Options());
+                    const ColumnFamilyOptions& options);
 
   ~MemTable();
 

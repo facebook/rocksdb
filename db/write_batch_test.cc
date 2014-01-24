@@ -24,7 +24,7 @@ static std::string PrintContents(WriteBatch* b) {
   auto factory = std::make_shared<SkipListFactory>();
   Options options;
   options.memtable_factory = factory;
-  MemTable* mem = new MemTable(cmp, options);
+  MemTable* mem = new MemTable(cmp, ColumnFamilyOptions(options));
   mem->Ref();
   std::string state;
   Status s = WriteBatchInternal::InsertInto(b, mem, &options);
