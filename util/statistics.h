@@ -8,6 +8,9 @@
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 
+#include <vector>
+#include <atomic>
+
 #define UNLIKELY(val) (__builtin_expect((val), 0))
 
 namespace rocksdb {
@@ -25,8 +28,8 @@ class StatisticsImpl : public Statistics {
                              HistogramData* const data);
 
  private:
-  std::atomic_uint_fast64_t tickers_[TICKER_ENUM_MAX];
-  HistogramImpl histograms_[HISTOGRAM_ENUM_MAX];
+  std::vector<std::atomic_uint_fast64_t> tickers_;
+  std::vector<HistogramImpl> histograms_;
 };
 
 // Utility functions
