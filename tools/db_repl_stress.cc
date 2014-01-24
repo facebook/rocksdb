@@ -87,9 +87,6 @@ DEFINE_uint64(wal_size_limit_MB, 10, "the wal size limit for the run"
               "(in MB)");
 
 int main(int argc, const char** argv) {
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-    " --num_inserts=<num_inserts> --wal_ttl_seconds=<WAL_ttl_seconds>" +
-    " --wal_size_limit_MB=<WAL_size_limit_MB>");
   google::ParseCommandLineFlags(&argc, const_cast<char***>(&argv), true);
 
   Env* env = Env::Default();

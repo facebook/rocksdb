@@ -11,13 +11,13 @@ if [ "$CENTOS_VERSION" = "6" ]; then
 else
   TOOLCHAIN_EXECUTABLES="/mnt/gvfs/third-party/$TOOLCHAIN_REV/centos5.2-native"
 fi
-TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.8.1-glibc-2.17"
+TOOLCHAIN_LIB_BASE="/mnt/gvfs/third-party/$TOOLCHAIN_REV/gcc-4.8.1-glibc-2.17-fb"
 
 # location of libhdfs libraries
 if test "$USE_HDFS"; then
   JAVA_HOME="/usr/local/jdk-6u22-64"
   JINCLUDE="-I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
-  GLIBC_RUNTIME_PATH="/usr/local/fbcode/gcc-4.8.1-glibc-2.17"
+  GLIBC_RUNTIME_PATH="/usr/local/fbcode/gcc-4.8.1-glibc-2.17-fb"
   HDFSLIB=" -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64 "
   HDFSLIB+=" -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib "
   HDFSLIB+=" -ldl -lverify -ljava -ljvm "

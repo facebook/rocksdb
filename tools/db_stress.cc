@@ -1488,8 +1488,6 @@ class StressTest {
 
 
 int main(int argc, char** argv) {
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                          " [OPTIONS]...");
   google::ParseCommandLineFlags(&argc, &argv, true);
 
   if (FLAGS_statistics) {
