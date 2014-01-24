@@ -2920,7 +2920,7 @@ std::vector<Status> DBImpl::MultiGet(
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                   const std::string& column_family_name,
                                   ColumnFamilyHandle* handle) {
-  if (!versions_->GetColumnFamilySet()->Exists(column_family_name)) {
+  if (versions_->GetColumnFamilySet()->Exists(column_family_name)) {
     return Status::InvalidArgument("Column family already exists");
   }
   VersionEdit edit;
