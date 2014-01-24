@@ -2531,6 +2531,8 @@ class Benchmark {
 
 int main(int argc, char** argv) {
   rocksdb::InstallStackTraceHandler();
+  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+                          " [OPTIONS]...");
   google::ParseCommandLineFlags(&argc, &argv, true);
 
   FLAGS_compaction_style_e = (rocksdb::CompactionStyle) FLAGS_compaction_style;
