@@ -1779,8 +1779,11 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   std::vector<FileMetaData*>* old_files_list = current_version->files_;
+  // we need to allocate an array with the old number of levels size to
+  // avoid SIGSEGV in WriteSnapshot()
+  // however, all levels bigger or equal to new_levels will be empty
   std::vector<FileMetaData*>* new_files_list =
-      new std::vector<FileMetaData*>[new_levels];
+      new std::vector<FileMetaData*>[current_levels];
   for (int i = 0; i < new_levels - 1; i++) {
     new_files_list[i] = old_files_list[i];
   }
