@@ -12,6 +12,8 @@
 
 #pragma once
 #include "rocksdb/iterator.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 
 namespace rocksdb {
 

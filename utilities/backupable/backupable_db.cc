@@ -21,6 +21,7 @@
 #include <string>
 #include <limits>
 #include <atomic>
+#include <unordered_map>
 
 namespace rocksdb {
 

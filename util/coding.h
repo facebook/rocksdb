@@ -16,6 +16,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <string>
+
+#include "rocksdb/write_batch.h"
 #include "port/port.h"
 
 namespace rocksdb {
