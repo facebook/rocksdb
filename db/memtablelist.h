@@ -49,7 +49,7 @@ class MemTableListVersion {
   friend class MemTableList;
   std::list<MemTable*> memlist_;
   int size_ = 0;
-  int refs_ = 1;
+  int refs_ = 0;
 };
 
 // This class stores references to all the immutable memtables.

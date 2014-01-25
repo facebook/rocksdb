@@ -31,6 +31,7 @@ MemTableListVersion::MemTableListVersion(MemTableListVersion* old) {
 void MemTableListVersion::Ref() { ++refs_; }
 
 void MemTableListVersion::Unref(std::vector<MemTable*>* to_delete) {
+  assert(refs_ >= 1);
   --refs_;
   if (refs_ == 0) {
     // if to_delete is equal to nullptr it means we're confident
@@ -255,6 +256,7 @@ void MemTableList::InstallNewVersion() {
     // somebody else holds the current version, we need to create new one
     MemTableListVersion* version = current_;
     current_ = new MemTableListVersion(current_);
+    current_->Ref();
     version->Unref();
   }
 }
