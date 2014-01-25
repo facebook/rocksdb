@@ -874,9 +874,9 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
 }
 
 // Tests against all kinds of tables
-class GeneralTableTest { };
-class BlockBasedTableTest { };
-class PlainTableTest { };
+class GeneralTableTest {};
+class BlockBasedTableTest {};
+class PlainTableTest {};
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
@@ -1184,8 +1184,9 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   Options opt;
   opt.block_size = 1024;
   opt.compression = kNoCompression;
-  opt.block_cache = NewLRUCache(16*1024*1024); // big enough so we don't ever
-                                               // lose cached values.
+  opt.block_cache =
+      NewLRUCache(16 * 1024 * 1024);  // big enough so we don't ever
+                                      // lose cached values.
 
   TableConstructor c(BytewiseComparator());
   c.Add("k01", "hello");
@@ -1209,21 +1210,17 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   ASSERT_OK(iter->status());
 
   ASSERT_OK(c.Reopen(opt));
-  for (const std::string& key: keys) {
+  for (const std::string& key : keys) {
     ASSERT_TRUE(c.table_reader()->TEST_KeyInCache(ReadOptions(), key));
   }
 }
-
 
 extern const uint64_t kPlainTableMagicNumber;
 TEST(PlainTableTest, BasicPlainTableProperties) {
   PlainTableFactory factory(8, 8, 0);
   StringSink sink;
-  std::unique_ptr<TableBuilder> builder(factory.GetTableBuilder(
-      Options(),
-      &sink,
-      kNoCompression
-  ));
+  std::unique_ptr<TableBuilder> builder(
+      factory.GetTableBuilder(Options(), &sink, kNoCompression));
 
   for (char c = 'a'; c <= 'z'; ++c) {
     std::string key(16, c);
@@ -1235,14 +1232,9 @@ TEST(PlainTableTest, BasicPlainTableProperties) {
   StringSource source(sink.contents(), 72242, true);
 
   TableProperties props;
-  auto s = ReadTableProperties(
-      &source,
-      sink.contents().size(),
-      kPlainTableMagicNumber,
-      Env::Default(),
-      nullptr,
-      &props
-  );
+  auto s = ReadTableProperties(&source, sink.contents().size(),
+                               kPlainTableMagicNumber, Env::Default(), nullptr,
+                               &props);
   ASSERT_OK(s);
 
   ASSERT_EQ(0ul, props.index_size);
@@ -1252,7 +1244,6 @@ TEST(PlainTableTest, BasicPlainTableProperties) {
   ASSERT_EQ(26ul, props.num_entries);
   ASSERT_EQ(1ul, props.num_data_blocks);
 }
-
 
 TEST(GeneralTableTest, ApproximateOffsetOfPlain) {
   TableConstructor c(BytewiseComparator());
