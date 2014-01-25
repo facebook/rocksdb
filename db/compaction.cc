@@ -194,7 +194,7 @@ static void FileSizeSummary(unsigned long long sz, char* output, int len) {
   }
 }
 
-static void InputSummary(std::vector<FileMetaData*>& files, char* output,
+static int InputSummary(std::vector<FileMetaData*>& files, char* output,
                          int len) {
   int write = 0;
   for (unsigned int i = 0; i < files.size(); i++) {
@@ -209,29 +209,37 @@ static void InputSummary(std::vector<FileMetaData*>& files, char* output,
       break;
     write += ret;
   }
+  return write;
 }
 
 void Compaction::Summary(char* output, int len) {
   int write = snprintf(output, len,
-      "Base version %lu Base level %d, seek compaction:%d, inputs:",
+      "Base version %lu Base level %d, seek compaction:%d, inputs: [",
       (unsigned long)input_version_->GetVersionNumber(),
       level_,
       seek_compaction_);
-  if (write < 0 || write > len) {
+  if (write < 0 || write >= len) {
     return;
   }
 
-  char level_low_summary[1024];
-  InputSummary(inputs_[0], level_low_summary, sizeof(level_low_summary));
-  char level_up_summary[1024];
-  if (inputs_[1].size()) {
-    InputSummary(inputs_[1], level_up_summary, sizeof(level_up_summary));
-  } else {
-    level_up_summary[0] = '\0';
+  write += InputSummary(inputs_[0], output+write, len-write);
+  if (write < 0 || write >= len) {
+    return;
   }
 
-  snprintf(output + write, len - write, "[%s],[%s]",
-      level_low_summary, level_up_summary);
+  write += snprintf(output+write, len-write, "],[");
+  if (write < 0 || write >= len) {
+    return;
+  }
+
+  if (inputs_[1].size()) {
+    write += InputSummary(inputs_[1], output+write, len-write);
+  }
+  if (write < 0 || write >= len) {
+    return;
+  }
+
+  snprintf(output+write, len-write, "]");
 }
 
 }  // namespace rocksdb

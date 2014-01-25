@@ -2051,6 +2051,7 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   options.level0_file_num_compaction_trigger = 4;
   options.compaction_options_universal.size_ratio = 10;
   options.compaction_options_universal.stop_style = kCompactionStopStyleSimilarSize;
+  options.num_levels=1;
   Reopen(&options);
 
   Random rnd(301);
@@ -2082,9 +2083,6 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   // (level0_file_num_compaction_trigger+1)=4 files and should have a big
   // file of size 4.
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
-  for (int i = 1; i < options.num_levels ; i++) {
-    ASSERT_EQ(NumTableFilesAtLevel(i), 0);
-  }
 
   // Stage 2:
   //   Now we have one file at level 0, with size 4. We also have some data in
@@ -2116,10 +2114,6 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   // Before compaction, we have 4 files at level 0, with size 4, 0.4, 1, 1.
   // After compaction, we should have 3 files, with size 4, 0.4, 2.
   ASSERT_EQ(NumTableFilesAtLevel(0), 3);
-  for (int i = 1; i < options.num_levels ; i++) {
-    ASSERT_EQ(NumTableFilesAtLevel(i), 0);
-  }
-
   // Stage 3:
   //   Now we have 3 files at level 0, with size 4, 0.4, 2. Generate one
   //   more file at level-0, which should trigger level-0 compaction.
@@ -2130,9 +2124,6 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   dbfull()->TEST_WaitForCompact();
   // Level-0 compaction is triggered, but no file will be picked up.
   ASSERT_EQ(NumTableFilesAtLevel(0), 4);
-  for (int i = 1; i < options.num_levels ; i++) {
-    ASSERT_EQ(NumTableFilesAtLevel(i), 0);
-  }
 }
 
 #if defined(SNAPPY) && defined(ZLIB) && defined(BZIP2)
