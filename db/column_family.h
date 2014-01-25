@@ -11,7 +11,7 @@
 
 #include "rocksdb/options.h"
 
-#include <map>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
