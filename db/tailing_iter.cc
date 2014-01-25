@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 #include "db/db_impl.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 
 namespace rocksdb {
 

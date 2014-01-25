@@ -31,6 +31,8 @@
 #include "utilities/utility_db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "port/port.h"
 #include "util/coding.h"

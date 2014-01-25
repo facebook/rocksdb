@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction_picker.h"
+
+#include <limits>
 #include "util/statistics.h"
 
 namespace rocksdb {
