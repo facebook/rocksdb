@@ -92,7 +92,11 @@ class HashLinkListRep : public MemTableRep {
   // immutable after construction
   Arena* const arena_;
 
-  bool BucketContains(Node* head, const Key& key) const;
+  bool BucketContains(Node* head, const Slice& key) const;
+
+  Slice GetPrefix(const Slice& internal_key) const {
+    return transform_->Transform(ExtractUserKey(internal_key));
+  }
 
   size_t GetHash(const Slice& slice) const {
     return MurmurHash(slice.data(), slice.size(), 0) % bucket_size_;
@@ -111,14 +115,25 @@ class HashLinkListRep : public MemTableRep {
     return new (mem) Node(key);
   }
 
+  bool Equal(const Slice& a, const Key& b) const {
+    return (compare_(b, a) == 0);
+  }
+
+
   bool Equal(const Key& a, const Key& b) const { return (compare_(a, b) == 0); }
+
+  bool KeyIsAfterNode(const Slice& internal_key, const Node* n) const {
+    // nullptr n is considered infinite
+    return (n != nullptr) && (compare_(n->key, internal_key) < 0);
+  }
 
   bool KeyIsAfterNode(const Key& key, const Node* n) const {
     // nullptr n is considered infinite
     return (n != nullptr) && (compare_(n->key, key) < 0);
   }
 
-  Node* FindGreaterOrEqualInBucket(Node* head, const Key& key) const;
+
+  Node* FindGreaterOrEqualInBucket(Node* head, const Slice& key) const;
 
   class FullListIterator : public MemTableRep::Iterator {
    public:
@@ -219,11 +234,8 @@ class HashLinkListRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& internal_key, const char* memtable_key) {
-      const char* encoded_key =
-          (memtable_key != nullptr) ?
-              memtable_key : EncodeKey(&tmp_, internal_key);
       node_ = hash_link_list_rep_->FindGreaterOrEqualInBucket(head_,
-                                                              encoded_key);
+                                                              internal_key);
     }
 
     // Position at the first entry in collection.
@@ -267,7 +279,7 @@ class HashLinkListRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& k, const char* memtable_key) {
-      auto transformed = memtable_rep_.transform_->Transform(k);
+      auto transformed = memtable_rep_.GetPrefix(k);
       Reset(memtable_rep_.GetBucket(transformed));
       HashLinkListRep::Iterator::Seek(k, memtable_key);
     }
@@ -320,7 +332,8 @@ HashLinkListRep::~HashLinkListRep() {
 
 void HashLinkListRep::Insert(const char* key) {
   assert(!Contains(key));
-  auto transformed = transform_->Transform(UserKey(key));
+  Slice internal_key = GetLengthPrefixedSlice(key);
+  auto transformed = GetPrefix(internal_key);
   auto& bucket = buckets_[GetHash(transformed)];
   Node* head = static_cast<Node*>(bucket.Acquire_Load());
 
@@ -344,7 +357,7 @@ void HashLinkListRep::Insert(const char* key) {
     // If x points to head_ or next points nullptr, it is trivially satisfied.
     assert((cur == head) || (next == nullptr) ||
            KeyIsAfterNode(next->key, cur));
-    if (KeyIsAfterNode(key, cur)) {
+    if (KeyIsAfterNode(internal_key, cur)) {
       // Keep searching in this list
       prev = cur;
       cur = next;
@@ -370,12 +383,14 @@ void HashLinkListRep::Insert(const char* key) {
 }
 
 bool HashLinkListRep::Contains(const char* key) const {
-  auto transformed = transform_->Transform(UserKey(key));
+  Slice internal_key = GetLengthPrefixedSlice(key);
+
+  auto transformed = GetPrefix(internal_key);
   auto bucket = GetBucket(transformed);
   if (bucket == nullptr) {
     return false;
   }
-  return BucketContains(bucket, key);
+  return BucketContains(bucket, internal_key);
 }
 
 size_t HashLinkListRep::ApproximateMemoryUsage() {
@@ -414,13 +429,13 @@ MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator() {
   return new DynamicIterator(*this);
 }
 
-bool HashLinkListRep::BucketContains(Node* head, const Key& key) const {
-  Node* x = FindGreaterOrEqualInBucket(head, key);
-  return (x != nullptr && Equal(key, x->key));
+bool HashLinkListRep::BucketContains(Node* head, const Slice& user_key) const {
+  Node* x = FindGreaterOrEqualInBucket(head, user_key);
+  return (x != nullptr && Equal(user_key, x->key));
 }
 
 Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
-                                                  const Key& key) const {
+                                                  const Slice& key) const {
   Node* x = head;
   while (true) {
     if (x == nullptr) {

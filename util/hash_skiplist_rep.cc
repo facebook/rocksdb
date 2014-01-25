@@ -170,7 +170,7 @@ class HashSkipListRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& k, const char* memtable_key) {
-      auto transformed = memtable_rep_.transform_->Transform(k);
+      auto transformed = memtable_rep_.transform_->Transform(ExtractUserKey(k));
       Reset(memtable_rep_.GetBucket(transformed));
       HashSkipListRep::Iterator::Seek(k, memtable_key);
     }
@@ -209,7 +209,8 @@ class HashSkipListRep : public MemTableRep {
     }
     virtual void Next() { }
     virtual void Prev() { }
-    virtual void Seek(const Slice& user_key, const char* memtable_key) { }
+    virtual void Seek(const Slice& internal_key,
+                      const char* memtable_key) { }
     virtual void SeekToFirst() { }
     virtual void SeekToLast() { }
    private:

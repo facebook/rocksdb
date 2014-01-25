@@ -51,7 +51,11 @@ class MemTableRep {
    public:
     // Compare a and b. Return a negative value if a is less than b, 0 if they
     // are equal, and a positive value if a is greater than b
-    virtual int operator()(const char* a, const char* b) const = 0;
+    virtual int operator()(const char* prefix_len_key1,
+                           const char* prefix_len_key2) const = 0;
+
+    virtual int operator()(const char* prefix_len_key,
+                           const Slice& key) const = 0;
 
     virtual ~KeyComparator() { }
   };

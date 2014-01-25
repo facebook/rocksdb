@@ -65,12 +65,20 @@ size_t MemTable::ApproximateMemoryUsage() {
          table_->ApproximateMemoryUsage();
 }
 
-int MemTable::KeyComparator::operator()(const char* aptr, const char* bptr)
+int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
+                                        const char* prefix_len_key2) const {
+  // Internal keys are encoded as length-prefixed strings.
+  Slice k1 = GetLengthPrefixedSlice(prefix_len_key1);
+  Slice k2 = GetLengthPrefixedSlice(prefix_len_key2);
+  return comparator.Compare(k1, k2);
+}
+
+int MemTable::KeyComparator::operator()(const char* prefix_len_key,
+                                        const Slice& key)
     const {
   // Internal keys are encoded as length-prefixed strings.
-  Slice a = GetLengthPrefixedSlice(aptr);
-  Slice b = GetLengthPrefixedSlice(bptr);
-  return comparator.Compare(a, b);
+  Slice a = GetLengthPrefixedSlice(prefix_len_key);
+  return comparator.Compare(a, key);
 }
 
 Slice MemTableRep::UserKey(const char* key) const {
@@ -213,7 +221,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     // iter is null if prefix bloom says the key does not exist
   } else {
     iter.reset(table_->GetIterator(user_key));
-    iter->Seek(user_key, mem_key.data());
+    iter->Seek(key.internal_key(), mem_key.data());
   }
 
   bool merge_in_progress = s->IsMergeInProgress();
@@ -325,7 +333,7 @@ void MemTable::Update(SequenceNumber seq,
 
   std::unique_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(lkey.user_key()));
-  iter->Seek(key, mem_key.data());
+  iter->Seek(lkey.internal_key(), mem_key.data());
 
   if (iter->Valid()) {
     // entry format is:
@@ -389,7 +397,7 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
 
   std::shared_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(lkey.user_key()));
-  iter->Seek(key, memkey.data());
+  iter->Seek(lkey.internal_key(), memkey.data());
 
   if (iter->Valid()) {
     // entry format is:
@@ -461,7 +469,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   // The iterator only needs to be ordered within the same user key.
   std::unique_ptr<MemTableRep::Iterator> iter(
       table_->GetIterator(key.user_key()));
-  iter->Seek(key.user_key(), memkey.data());
+  iter->Seek(key.internal_key(), memkey.data());
 
   size_t num_successive_merges = 0;
 
