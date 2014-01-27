@@ -867,6 +867,24 @@ class PosixRandomRWFile : public RandomRWFile {
 #endif
 };
 
+class PosixDirectory : public Directory {
+ public:
+  explicit PosixDirectory(int fd) : fd_(fd) {}
+  ~PosixDirectory() {
+    close(fd_);
+  }
+
+  virtual Status Fsync() {
+    if (fsync(fd_) == -1) {
+      return IOError("directory", errno);
+    }
+    return Status::OK();
+  }
+
+ private:
+  int fd_;
+};
+
 static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
   mutex_lockedFiles.Lock();
   if (lock) {
@@ -1036,6 +1054,18 @@ class PosixEnv : public Env {
       result->reset(new PosixRandomRWFile(fname, fd, options));
     }
     return s;
+  }
+
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) {
+    result->reset();
+    const int fd = open(name.c_str(), 0);
+    if (fd < 0) {
+      return IOError(name, errno);
+    } else {
+      result->reset(new PosixDirectory(fd));
+    }
+    return Status::OK();
   }
 
   virtual bool FileExists(const std::string& fname) {

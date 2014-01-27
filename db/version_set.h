@@ -288,15 +288,14 @@ class VersionSet {
   // current version.  Will release *mu while actually writing to the file.
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
-  Status LogAndApply(ColumnFamilyData* column_family_data,
-                     VersionEdit* edit,
-                     port::Mutex* mu,
+  Status LogAndApply(ColumnFamilyData* column_family_data, VersionEdit* edit,
+                     port::Mutex* mu, Directory* db_directory = nullptr,
                      bool new_descriptor_log = false);
 
-  Status LogAndApply(VersionEdit* edit,
-                     port::Mutex* mu,
+  Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
+                     Directory* db_directory = nullptr,
                      bool new_descriptor_log = false) {
-    return LogAndApply(column_family_set_->GetDefault(), edit, mu,
+    return LogAndApply(column_family_set_->GetDefault(), edit, mu, db_directory,
                        new_descriptor_log);
   }
 

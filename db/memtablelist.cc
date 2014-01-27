@@ -121,12 +121,10 @@ void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
 
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(
-                      const std::vector<MemTable*> &mems,
-                      VersionSet* vset, Status flushStatus,
-                      port::Mutex* mu, Logger* info_log,
-                      uint64_t file_number,
-                      std::set<uint64_t>& pending_outputs,
-                      std::vector<MemTable*>* to_delete) {
+    const std::vector<MemTable*>& mems, VersionSet* vset, Status flushStatus,
+    port::Mutex* mu, Logger* info_log, uint64_t file_number,
+    std::set<uint64_t>& pending_outputs, std::vector<MemTable*>* to_delete,
+    Directory* db_directory) {
   mu->AssertHeld();
 
   // If the flush was not successful, then just reset state.
@@ -178,7 +176,7 @@ Status MemTableList::InstallMemtableFlushResults(
         (unsigned long)m->file_number_);
 
     // this can release and reacquire the mutex.
-    s = vset->LogAndApply(&m->edit_, mu);
+    s = vset->LogAndApply(&m->edit_, mu, db_directory);
 
     // we will be changing the version in the next code path,
     // so we better create a new one, since versions are immutable

@@ -1421,8 +1421,8 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 }
 
 Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
-                               VersionEdit* edit,
-                               port::Mutex* mu,
+                               VersionEdit* edit, port::Mutex* mu,
+                               Directory* db_directory,
                                bool new_descriptor_log) {
   mu->AssertHeld();
 
@@ -1544,6 +1544,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         // we don't care about an error here, PurgeObsoleteFiles will take care
         // of it later
         env_->DeleteFile(DescriptorFileName(dbname_, old_manifest_file_number));
+      }
+      if (!options_->disableDataSync && db_directory != nullptr) {
+        db_directory->Fsync();
       }
     }
 
@@ -1967,7 +1970,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   VersionEdit ve;
   port::Mutex dummy_mutex;
   MutexLock l(&dummy_mutex);
-  return versions.LogAndApply(&ve, &dummy_mutex, true);
+  return versions.LogAndApply(&ve, &dummy_mutex, nullptr, true);
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
