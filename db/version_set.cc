@@ -1973,7 +1973,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   VersionEdit ve;
   port::Mutex dummy_mutex;
   MutexLock l(&dummy_mutex);
-  return versions.LogAndApply(&ve, &dummy_mutex, nullptr, true);
+  return versions.LogAndApply(versions.GetColumnFamilySet()->GetDefault(), &ve,
+                              &dummy_mutex, nullptr, true);
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,

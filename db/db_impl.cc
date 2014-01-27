@@ -1009,7 +1009,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
     // Since we already recovered log_number, we want all logs
     // with numbers `<= log_number` (includes this one) to be ignored
     edit.SetLogNumber(log_number + 1);
-    status = versions_->LogAndApply(&edit, &mutex_);
+    status = versions_->LogAndApply(default_cfd_, &edit, &mutex_);
   }
 
   return status;
@@ -1204,8 +1204,9 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   // Replace immutable memtable with the generated Table
   s = default_cfd_->imm.InstallMemtableFlushResults(
-      mems, versions_.get(), s, &mutex_, options_.info_log.get(), file_number,
-      pending_outputs_, &deletion_state.memtables_to_free, db_directory_.get());
+      default_cfd_, mems, versions_.get(), s, &mutex_, options_.info_log.get(),
+      file_number, pending_outputs_, &deletion_state.memtables_to_free,
+      db_directory_.get());
 
   if (s.ok()) {
     InstallSuperVersion(default_cfd_, deletion_state);
@@ -1333,7 +1334,8 @@ Status DBImpl::ReFitLevel(int level, int target_level) {
     Log(options_.info_log, "Apply version edit:\n%s",
         edit.DebugString().data());
 
-    status = versions_->LogAndApply(&edit, &mutex_, db_directory_.get());
+    status = versions_->LogAndApply(default_cfd_, &edit, &mutex_,
+                                    db_directory_.get());
     superversion_to_free = InstallSuperVersion(default_cfd_, new_superversion);
     new_superversion = nullptr;
 
@@ -1906,7 +1908,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     c->edit()->AddFile(c->level() + 1, f->number, f->file_size,
                        f->smallest, f->largest,
                        f->smallest_seqno, f->largest_seqno);
-    status = versions_->LogAndApply(c->edit(), &mutex_, db_directory_.get());
+    status = versions_->LogAndApply(default_cfd_, c->edit(), &mutex_,
+                                    db_directory_.get());
     InstallSuperVersion(default_cfd_, deletion_state);
 
     Version::LevelSummaryStorage tmp;
@@ -2155,8 +2158,8 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
         compact->compaction->output_level(), out.number, out.file_size,
         out.smallest, out.largest, out.smallest_seqno, out.largest_seqno);
   }
-  return versions_->LogAndApply(compact->compaction->edit(), &mutex_,
-                                db_directory_.get());
+  return versions_->LogAndApply(default_cfd_, compact->compaction->edit(),
+                                &mutex_, db_directory_.get());
 }
 
 //
@@ -2949,7 +2952,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   edit.AddColumnFamily(column_family_name);
   handle->id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
   edit.SetColumnFamily(handle->id);
-  Status s = versions_->LogAndApply(&edit, &mutex_);
+  Status s = versions_->LogAndApply(default_cfd_, &edit, &mutex_);
   if (s.ok()) {
     // add to internal data structures
     versions_->CreateColumnFamily(options, &edit);
@@ -2968,7 +2971,7 @@ Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
   VersionEdit edit;
   edit.DropColumnFamily();
   edit.SetColumnFamily(column_family.id);
-  Status s = versions_->LogAndApply(&edit, &mutex_);
+  Status s = versions_->LogAndApply(default_cfd_, &edit, &mutex_);
   if (s.ok()) {
     // remove from internal data structures
     versions_->DropColumnFamily(&edit);
@@ -3830,7 +3833,8 @@ Status DBImpl::DeleteFile(std::string name) {
       }
     }
     edit.DeleteFile(level, number);
-    status = versions_->LogAndApply(&edit, &mutex_, db_directory_.get());
+    status = versions_->LogAndApply(default_cfd_, &edit, &mutex_,
+                                    db_directory_.get());
     if (status.ok()) {
       InstallSuperVersion(default_cfd_, deletion_state);
     }
@@ -3977,7 +3981,7 @@ Status DB::OpenWithColumnFamilies(
       edit.SetLogNumber(new_log_number);
       impl->logfile_number_ = new_log_number;
       impl->log_.reset(new log::Writer(std::move(lfile)));
-      s = impl->versions_->LogAndApply(&edit, &impl->mutex_,
+      s = impl->versions_->LogAndApply(impl->default_cfd_, &edit, &impl->mutex_,
                                        impl->db_directory_.get());
     }
     if (s.ok()) {

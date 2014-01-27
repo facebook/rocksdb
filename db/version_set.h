@@ -292,13 +292,6 @@ class VersionSet {
                      port::Mutex* mu, Directory* db_directory = nullptr,
                      bool new_descriptor_log = false);
 
-  Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
-                     Directory* db_directory = nullptr,
-                     bool new_descriptor_log = false) {
-    return LogAndApply(column_family_set_->GetDefault(), edit, mu, db_directory,
-                       new_descriptor_log);
-  }
-
   // Recover the last saved descriptor from persistent storage.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families);
 

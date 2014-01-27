@@ -5046,6 +5046,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
   std::vector<ColumnFamilyDescriptor> dummy;
   dummy.push_back(ColumnFamilyDescriptor());
   ASSERT_OK(vset.Recover(dummy));
+  auto default_cfd = vset.GetColumnFamilySet()->GetDefault();
   VersionEdit vbase;
   uint64_t fnum = 1;
   for (int i = 0; i < num_base_files; i++) {
@@ -5053,7 +5054,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
     InternalKey limit(MakeKey(2*fnum+1), 1, kTypeDeletion);
     vbase.AddFile(2, fnum++, 1 /* file size */, start, limit, 1, 1);
   }
-  ASSERT_OK(vset.LogAndApply(&vbase, &mu));
+  ASSERT_OK(vset.LogAndApply(default_cfd, &vbase, &mu));
 
   uint64_t start_micros = env->NowMicros();
 
@@ -5063,7 +5064,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
     InternalKey start(MakeKey(2*fnum), 1, kTypeValue);
     InternalKey limit(MakeKey(2*fnum+1), 1, kTypeDeletion);
     vedit.AddFile(2, fnum++, 1 /* file size */, start, limit, 1, 1);
-    vset.LogAndApply(&vedit, &mu);
+    vset.LogAndApply(default_cfd, &vedit, &mu);
   }
   uint64_t stop_micros = env->NowMicros();
   unsigned int us = stop_micros - start_micros;

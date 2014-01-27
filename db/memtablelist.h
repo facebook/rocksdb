@@ -8,6 +8,7 @@
 #include <string>
 #include <list>
 #include <vector>
+#include <set>
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/iterator.h"
@@ -17,6 +18,7 @@
 
 namespace rocksdb {
 
+class ColumnFamilyData;
 class InternalKeyComparator;
 class Mutex;
 
@@ -90,13 +92,11 @@ class MemTableList {
   void PickMemtablesToFlush(std::vector<MemTable*>* mems);
 
   // Commit a successful flush in the manifest file
-  Status InstallMemtableFlushResults(const std::vector<MemTable*>& m,
-                                     VersionSet* vset, Status flushStatus,
-                                     port::Mutex* mu, Logger* info_log,
-                                     uint64_t file_number,
-                                     std::set<uint64_t>& pending_outputs,
-                                     std::vector<MemTable*>* to_delete,
-                                     Directory* db_directory);
+  Status InstallMemtableFlushResults(
+      ColumnFamilyData* cfd, const std::vector<MemTable*>& m, VersionSet* vset,
+      Status flushStatus, port::Mutex* mu, Logger* info_log,
+      uint64_t file_number, std::set<uint64_t>& pending_outputs,
+      std::vector<MemTable*>* to_delete, Directory* db_directory);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
