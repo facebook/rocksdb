@@ -1781,7 +1781,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // max_background_compactions hasn't been reached and, in case
     // bg_manual_only_ > 0, if it's a manual compaction.
     if ((manual_compaction_ ||
-         versions_->NeedsCompaction() ||
+         versions_->current()->NeedsCompaction() ||
          (is_flush_pending && (options_.max_background_flushes <= 0))) &&
         bg_compaction_scheduled_ < options_.max_background_compactions &&
         (!bg_manual_only_ || manual_compaction_)) {
@@ -3408,12 +3408,11 @@ Status DBImpl::MakeRoomForWrite(bool force,
       RecordTick(options_.statistics.get(), STALL_L0_NUM_FILES_MICROS, stall);
       stall_level0_num_files_ += stall;
       stall_level0_num_files_count_++;
-    } else if (
-        allow_hard_rate_limit_delay &&
-        options_.hard_rate_limit > 1.0 &&
-        (score = versions_->MaxCompactionScore()) > options_.hard_rate_limit) {
+    } else if (allow_hard_rate_limit_delay && options_.hard_rate_limit > 1.0 &&
+               (score = versions_->current()->MaxCompactionScore()) >
+                   options_.hard_rate_limit) {
       // Delay a write when the compaction score for any level is too large.
-      int max_level = versions_->MaxCompactionScoreLevel();
+      int max_level = versions_->current()->MaxCompactionScoreLevel();
       mutex_.Unlock();
       uint64_t delayed;
       {
@@ -3435,10 +3434,9 @@ Status DBImpl::MakeRoomForWrite(bool force,
         allow_hard_rate_limit_delay = false;
       }
       mutex_.Lock();
-    } else if (
-        allow_soft_rate_limit_delay &&
-        options_.soft_rate_limit > 0.0 &&
-        (score = versions_->MaxCompactionScore()) > options_.soft_rate_limit) {
+    } else if (allow_soft_rate_limit_delay && options_.soft_rate_limit > 0.0 &&
+               (score = versions_->current()->MaxCompactionScore()) >
+                   options_.soft_rate_limit) {
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
       mutex_.Unlock();

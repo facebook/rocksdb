@@ -31,6 +31,7 @@ MemTableListVersion::MemTableListVersion(MemTableListVersion* old) {
 void MemTableListVersion::Ref() { ++refs_; }
 
 void MemTableListVersion::Unref(std::vector<MemTable*>* to_delete) {
+  assert(refs_ >= 1);
   --refs_;
   if (refs_ == 0) {
     // if to_delete is equal to nullptr it means we're confident
@@ -75,17 +76,16 @@ void MemTableListVersion::AddIterators(const ReadOptions& options,
   }
 }
 
+// caller is responsible for referencing m
 void MemTableListVersion::Add(MemTable* m) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
-  m->Ref();
   memlist_.push_front(m);
   ++size_;
 }
 
+// caller is responsible for unreferencing m
 void MemTableListVersion::Remove(MemTable* m) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
-  MemTable* x __attribute__((unused)) = m->Unref();
-  assert(x == nullptr);  // it still needs to be alive!
   memlist_.remove(m);
   --size_;
 }
@@ -231,6 +231,11 @@ Status MemTableList::InstallMemtableFlushResults(
 void MemTableList::Add(MemTable* m) {
   assert(current_->size_ >= num_flush_not_started_);
   InstallNewVersion();
+  // this method is used to move mutable memtable into an immutable list.
+  // since mutable memtable is already refcounted by the DBImpl,
+  // and when moving to the imutable list we don't unref it,
+  // we don't have to ref the memtable here. we just take over the
+  // reference from the DBImpl.
   current_->Add(m);
   m->MarkImmutable();
   num_flush_not_started_++;
@@ -255,6 +260,7 @@ void MemTableList::InstallNewVersion() {
     // somebody else holds the current version, we need to create new one
     MemTableListVersion* version = current_;
     current_ = new MemTableListVersion(current_);
+    current_->Ref();
     version->Unref();
   }
 }

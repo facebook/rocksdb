@@ -40,16 +40,16 @@ class MemTableListVersion {
   void AddIterators(const ReadOptions& options,
                     std::vector<Iterator*>* iterator_list);
 
+ private:
   // REQUIRE: m is mutable memtable
   void Add(MemTable* m);
   // REQUIRE: m is mutable memtable
   void Remove(MemTable* m);
 
- private:
   friend class MemTableList;
   std::list<MemTable*> memlist_;
   int size_ = 0;
-  int refs_ = 1;
+  int refs_ = 0;
 };
 
 // This class stores references to all the immutable memtables.
