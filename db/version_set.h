@@ -284,6 +284,7 @@ class VersionSet {
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
   Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
+                     Directory* db_directory = nullptr,
                      bool new_descriptor_log = false);
 
   // Recover the last saved descriptor from persistent storage.

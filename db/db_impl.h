@@ -401,6 +401,8 @@ class DBImpl : public DB {
 
   std::string host_name_;
 
+  std::unique_ptr<Directory> db_directory_;
+
   // Queue of writers.
   std::deque<Writer*> writers_;
   WriteBatch tmp_batch_;

@@ -70,6 +70,9 @@ class HdfsEnv : public Env {
                                  unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options);
 
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result);
+
   virtual bool FileExists(const std::string& fname);
 
   virtual Status GetChildren(const std::string& path,
@@ -243,6 +246,11 @@ class HdfsEnv : public Env {
   virtual Status NewRandomRWFile(const std::string& fname,
                                  unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) {
+    return notsup;
+  }
+
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) {
     return notsup;
   }
 

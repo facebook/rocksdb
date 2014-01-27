@@ -881,6 +881,11 @@ Status DBImpl::Recover(bool read_only, bool error_if_log_file_exist) {
       return s;
     }
 
+    s = env_->NewDirectory(dbname_, &db_directory_);
+    if (!s.ok()) {
+      return s;
+    }
+
     s = env_->LockFile(LockFileName(dbname_), &db_lock_);
     if (!s.ok()) {
       return s;
@@ -1173,6 +1178,9 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
         (unsigned long) meta.number,
         (unsigned long) meta.file_size,
         s.ToString().c_str());
+    if (!options_.disableDataSync) {
+      db_directory_->Fsync();
+    }
     mutex_.Lock();
   }
   base->Unref();
@@ -1267,8 +1275,8 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   // Replace immutable memtable with the generated Table
   s = imm_.InstallMemtableFlushResults(
-    mems, versions_.get(), s, &mutex_, options_.info_log.get(),
-    file_number, pending_outputs_, &deletion_state.memtables_to_free);
+      mems, versions_.get(), s, &mutex_, options_.info_log.get(), file_number,
+      pending_outputs_, &deletion_state.memtables_to_free, db_directory_.get());
 
   if (s.ok()) {
     InstallSuperVersion(deletion_state);
@@ -1397,7 +1405,7 @@ Status DBImpl::ReFitLevel(int level, int target_level) {
     Log(options_.info_log, "Apply version edit:\n%s",
         edit.DebugString().data());
 
-    status = versions_->LogAndApply(&edit, &mutex_);
+    status = versions_->LogAndApply(&edit, &mutex_, db_directory_.get());
     superversion_to_free = InstallSuperVersion(new_superversion);
     new_superversion = nullptr;
 
@@ -1969,7 +1977,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     c->edit()->AddFile(c->level() + 1, f->number, f->file_size,
                        f->smallest, f->largest,
                        f->smallest_seqno, f->largest_seqno);
-    status = versions_->LogAndApply(c->edit(), &mutex_);
+    status = versions_->LogAndApply(c->edit(), &mutex_, db_directory_.get());
     InstallSuperVersion(deletion_state);
     Version::LevelSummaryStorage tmp;
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
@@ -2217,7 +2225,8 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
         compact->compaction->output_level(), out.number, out.file_size,
         out.smallest, out.largest, out.smallest_seqno, out.largest_seqno);
   }
-  return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
+  return versions_->LogAndApply(compact->compaction->edit(), &mutex_,
+                                db_directory_.get());
 }
 
 //
@@ -2590,6 +2599,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   }
   input.reset();
 
+  if (!options_.disableDataSync) {
+    db_directory_->Fsync();
+  }
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
   MeasureTime(options_.statistics.get(), COMPACTION_TIME, stats.micros);
@@ -3827,7 +3839,7 @@ Status DBImpl::DeleteFile(std::string name) {
       }
     }
     edit.DeleteFile(level, number);
-    status = versions_->LogAndApply(&edit, &mutex_);
+    status = versions_->LogAndApply(&edit, &mutex_, db_directory_.get());
     if (status.ok()) {
       InstallSuperVersion(deletion_state);
     }
@@ -3935,7 +3947,8 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       edit.SetLogNumber(new_log_number);
       impl->logfile_number_ = new_log_number;
       impl->log_.reset(new log::Writer(std::move(lfile)));
-      s = impl->versions_->LogAndApply(&edit, &impl->mutex_);
+      s = impl->versions_->LogAndApply(&edit, &impl->mutex_,
+                                       impl->db_directory_.get());
     }
     if (s.ok()) {
       delete impl->InstallSuperVersion(new DBImpl::SuperVersion());
@@ -3943,6 +3956,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleFlushOrCompaction();
       impl->MaybeScheduleLogDBDeployStats();
+      s = impl->db_directory_->Fsync();
     }
   }
 
