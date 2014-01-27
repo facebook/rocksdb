@@ -2507,8 +2507,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         // If this is the bottommost level (no files in lower levels)
         // and the earliest snapshot is larger than this seqno
         // then we can squash the seqno to zero.
-        if (options_.compaction_style == kCompactionStyleLevel &&
-            bottommost_level && ikey.sequence < earliest_snapshot &&
+        if (bottommost_level && ikey.sequence < earliest_snapshot &&
             ikey.type != kTypeMerge) {
           assert(ikey.type != kTypeDeletion);
           // make a copy because updating in place would cause problems
