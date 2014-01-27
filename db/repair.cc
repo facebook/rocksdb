@@ -222,10 +222,8 @@ class Repairer {
     FileMetaData meta;
     meta.number = next_file_number_++;
     Iterator* iter = mem->NewIterator();
-    status = BuildTable(dbname_, env_, options_, storage_options_,
-                        table_cache_, iter, &meta,
-                        icmp_.user_comparator(), 0, 0,
-                        kNoCompression);
+    status = BuildTable(dbname_, env_, options_, storage_options_, table_cache_,
+                        iter, &meta, icmp_, 0, 0, kNoCompression);
     delete iter;
     delete mem->Unref();
     mem = nullptr;
@@ -267,7 +265,7 @@ class Repairer {
     if (status.ok()) {
       FileMetaData dummy_meta(t->meta.number, t->meta.file_size);
       Iterator* iter = table_cache_->NewIterator(
-          ReadOptions(), storage_options_, dummy_meta);
+          ReadOptions(), storage_options_, icmp_, dummy_meta);
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;

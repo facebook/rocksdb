@@ -53,6 +53,7 @@ class TableFactory {
   // table_reader is the output table reader
   virtual Status NewTableReader(
       const Options& options, const EnvOptions& soptions,
+      const InternalKeyComparator& internal_comparator,
       unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table_reader) const = 0;
 
@@ -75,8 +76,8 @@ class TableFactory {
   // keep the file open and close the file after closing the table builder.
   // compression_type is the compression type to use in this table.
   virtual TableBuilder* NewTableBuilder(
-      const Options& options, WritableFile* file,
-      CompressionType compression_type) const = 0;
+      const Options& options, const InternalKeyComparator& internal_comparator,
+      WritableFile* file, CompressionType compression_type) const = 0;
 };
 
 }  // namespace rocksdb

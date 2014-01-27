@@ -60,6 +60,7 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 }
 
 Status TableCache::FindTable(const EnvOptions& toptions,
+                             const InternalKeyComparator& internal_comparator,
                              uint64_t file_number, uint64_t file_size,
                              Cache::Handle** handle, bool* table_io,
                              const bool no_io) {
@@ -84,7 +85,8 @@ Status TableCache::FindTable(const EnvOptions& toptions,
       }
       StopWatch sw(env_, options_->statistics.get(), TABLE_OPEN_IO_MICROS);
       s = options_->table_factory->NewTableReader(
-          *options_, toptions, std::move(file), file_size, &table_reader);
+          *options_, toptions, internal_comparator, std::move(file), file_size,
+          &table_reader);
     }
 
     if (!s.ok()) {
@@ -102,6 +104,7 @@ Status TableCache::FindTable(const EnvOptions& toptions,
 
 Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   const EnvOptions& toptions,
+                                  const InternalKeyComparator& icomparator,
                                   const FileMetaData& file_meta,
                                   TableReader** table_reader_ptr,
                                   bool for_compaction) {
@@ -111,8 +114,8 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   Cache::Handle* handle = file_meta.table_reader_handle;
   Status s;
   if (!handle) {
-    s = FindTable(toptions, file_meta.number, file_meta.file_size, &handle,
-                  nullptr, options.read_tier == kBlockCacheTier);
+    s = FindTable(toptions, icomparator, file_meta.number, file_meta.file_size,
+                  &handle, nullptr, options.read_tier == kBlockCacheTier);
   }
   if (!s.ok()) {
     return NewErrorIterator(s);
@@ -135,17 +138,17 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
 }
 
 Status TableCache::Get(const ReadOptions& options,
-                       const FileMetaData& file_meta,
-                       const Slice& k,
-                       void* arg,
-                       bool (*saver)(void*, const Slice&, const Slice&, bool),
-                       bool* table_io,
-                       void (*mark_key_may_exist)(void*)) {
+                       const InternalKeyComparator& internal_comparator,
+                       const FileMetaData& file_meta, const Slice& k, void* arg,
+                       bool (*saver)(void*, const ParsedInternalKey&,
+                                     const Slice&, bool),
+                       bool* table_io, void (*mark_key_may_exist)(void*)) {
   Cache::Handle* handle = file_meta.table_reader_handle;
   Status s;
   if (!handle) {
-    s = FindTable(storage_options_, file_meta.number, file_meta.file_size,
-                  &handle, table_io, options.read_tier == kBlockCacheTier);
+    s = FindTable(storage_options_, internal_comparator, file_meta.number,
+                  file_meta.file_size, &handle, table_io,
+                  options.read_tier == kBlockCacheTier);
   }
   if (s.ok()) {
     TableReader* t = GetTableReaderFromHandle(handle);
@@ -162,13 +165,12 @@ Status TableCache::Get(const ReadOptions& options,
 }
 
 bool TableCache::PrefixMayMatch(const ReadOptions& options,
-                                uint64_t file_number,
-                                uint64_t file_size,
-                                const Slice& internal_prefix,
-                                bool* table_io) {
+                                const InternalKeyComparator& icomparator,
+                                uint64_t file_number, uint64_t file_size,
+                                const Slice& internal_prefix, bool* table_io) {
   Cache::Handle* handle = nullptr;
-  Status s = FindTable(storage_options_, file_number,
-                       file_size, &handle, table_io);
+  Status s = FindTable(storage_options_, icomparator, file_number, file_size,
+                       &handle, table_io);
   bool may_match = true;
   if (s.ok()) {
     TableReader* t = GetTableReaderFromHandle(handle);

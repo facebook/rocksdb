@@ -35,7 +35,8 @@ class FilterPolicy;
 //      (StartBlock AddKey*)* Finish
 class FilterBlockBuilder {
  public:
-  explicit FilterBlockBuilder(const Options& opt);
+  explicit FilterBlockBuilder(const Options& opt,
+                              const Comparator* internal_comparator);
 
   void StartBlock(uint64_t block_offset);
   void AddKey(const Slice& key);

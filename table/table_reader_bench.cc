@@ -34,8 +34,8 @@ static std::string MakeKey(int i, int j, bool through_db) {
   return key.Encode().ToString();
 }
 
-static bool DummySaveValue(void* arg, const Slice& ikey, const Slice& v,
-                           bool didIO) {
+static bool DummySaveValue(void* arg, const ParsedInternalKey& ikey,
+                           const Slice& v, bool didIO) {
   return false;
 }
 
@@ -237,6 +237,8 @@ int main(int argc, char** argv) {
   rocksdb::EnvOptions env_options;
   options.create_if_missing = true;
   options.compression = rocksdb::CompressionType::kNoCompression;
+  options.internal_comparator =
+      new rocksdb::InternalKeyComparator(options.comparator);
 
   if (FLAGS_plain_table) {
     options.allow_mmap_reads = true;

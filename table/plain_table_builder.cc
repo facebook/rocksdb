@@ -11,6 +11,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "table/plain_table_factory.h"
+#include "db/dbformat.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"
@@ -67,20 +69,32 @@ PlainTableBuilder::~PlainTableBuilder() {
 }
 
 void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
-  assert(user_key_len_ == 0 || key.size() == user_key_len_ + 8);
+  size_t user_key_size = key.size() - 8;
+  assert(user_key_len_ == 0 || user_key_size == user_key_len_);
 
   if (!IsFixedLength()) {
     // Write key length
-    int key_size = key.size();
     key_size_str_.clear();
-    PutVarint32(&key_size_str_, key_size);
+    PutVarint32(&key_size_str_, user_key_size);
     file_->Append(key_size_str_);
     offset_ += key_size_str_.length();
   }
 
   // Write key
-  file_->Append(key);
-  offset_ += key.size();
+  ParsedInternalKey parsed_key;
+  if (!ParseInternalKey(key, &parsed_key)) {
+    status_ = Status::Corruption(Slice());
+    return;
+  }
+  if (parsed_key.sequence == 0 && parsed_key.type == kTypeValue) {
+    file_->Append(Slice(key.data(), user_key_size));
+    char tmp_char = PlainTableFactory::kValueTypeSeqId0;
+    file_->Append(Slice(&tmp_char, 1));
+    offset_ += key.size() - 7;
+  } else {
+    file_->Append(key);
+    offset_ += key.size();
+  }
 
   // Write value length
   value_size_str_.clear();
@@ -105,9 +119,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   );
 }
 
-Status PlainTableBuilder::status() const {
-  return Status::OK();
-}
+Status PlainTableBuilder::status() const { return status_; }
 
 Status PlainTableBuilder::Finish() {
   assert(!closed_);

@@ -26,6 +26,7 @@ class BlockBasedTableBuilder : public TableBuilder {
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
   BlockBasedTableBuilder(const Options& options,
+                         const InternalKeyComparator& internal_comparator,
                          WritableFile* file,
                          FlushBlockPolicyFactory* flush_block_policy_factory,
                          CompressionType compression_type);

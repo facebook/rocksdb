@@ -51,6 +51,7 @@ class BlockBasedTable : public TableReader {
   // *file must remain live while this Table is in use.
   static Status Open(const Options& db_options, const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
+                     const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
@@ -63,10 +64,11 @@ class BlockBasedTable : public TableReader {
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              void* handle_context,
-             bool (*result_handler)(void* handle_context, const Slice& k,
-                                    const Slice& v, bool didIO),
-             void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
-      override;
+             bool (*result_handler)(void* handle_context,
+                                    const ParsedInternalKey& k, const Slice& v,
+                                    bool didIO),
+             void (*mark_key_may_exist_handler)(void* handle_context) =
+                 nullptr) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -97,8 +99,9 @@ class BlockBasedTable : public TableReader {
   bool compaction_optimized_;
 
   static Iterator* BlockReader(void*, const ReadOptions&,
-                               const EnvOptions& soptions, const Slice&,
-                               bool for_compaction);
+                               const EnvOptions& soptions,
+                               const InternalKeyComparator& icomparator,
+                               const Slice&, bool for_compaction);
 
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
                                bool* didIO, bool for_compaction = false);

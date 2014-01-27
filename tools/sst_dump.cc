@@ -71,7 +71,6 @@ SstFileReader::SstFileReader(const std::string& file_path,
 }
 
 Status SstFileReader::NewTableReader(const std::string& file_path) {
-  table_options_.comparator = &internal_comparator_;
   Status s = table_options_.env->NewRandomAccessFile(file_path, &file_,
                                                     soptions_);
   if (!s.ok()) {
@@ -81,7 +80,8 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
   table_options_.env->GetFileSize(file_path, &file_size);
   unique_ptr<TableFactory> table_factory;
   s = table_options_.table_factory->NewTableReader(
-      table_options_, soptions_, std::move(file_), file_size, &table_reader_);
+      table_options_, soptions_, internal_comparator_, std::move(file_),
+      file_size, &table_reader_);
   return s;
 }
 

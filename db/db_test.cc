@@ -11,6 +11,7 @@
 #include <set>
 #include <unistd.h>
 
+#include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"

@@ -32,9 +32,12 @@ class BlockTest {};
 TEST(BlockTest, SimpleTest) {
   Random rnd(301);
   Options options = Options();
+  std::unique_ptr<InternalKeyComparator> ic;
+  ic.reset(new test::PlainInternalKeyComparator(options.comparator));
+
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(options);
+  BlockBuilder builder(options, ic.get());
   int num_records = 100000;
   char buf[10];
   char* p = &buf[0];

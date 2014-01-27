@@ -12,6 +12,7 @@
 namespace rocksdb {
 
 class Iterator;
+class ParsedInternalKey;
 class Slice;
 struct ReadOptions;
 struct TableProperties;
@@ -62,7 +63,7 @@ class TableReader {
   // key is the key to search for
   virtual Status Get(
       const ReadOptions& readOptions, const Slice& key, void* handle_context,
-      bool (*result_handler)(void* handle_context, const Slice& k,
+      bool (*result_handler)(void* arg, const ParsedInternalKey& k,
                              const Slice& v, bool didIO),
       void (*mark_key_may_exist_handler)(void* handle_context) = nullptr) = 0;
 };

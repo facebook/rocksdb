@@ -191,11 +191,10 @@ class Version::LevelFileNumIterator : public Iterator {
   mutable char value_buf_[16];
 };
 
-static Iterator* GetFileIterator(void* arg,
-                                 const ReadOptions& options,
+static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const EnvOptions& soptions,
-                                 const Slice& file_value,
-                                 bool for_compaction) {
+                                 const InternalKeyComparator& icomparator,
+                                 const Slice& file_value, bool for_compaction) {
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
   if (file_value.size() != 16) {
     return NewErrorIterator(
@@ -210,11 +209,9 @@ static Iterator* GetFileIterator(void* arg,
     }
     FileMetaData meta(DecodeFixed64(file_value.data()),
                       DecodeFixed64(file_value.data() + 8));
-    return cache->NewIterator(options.prefix ? options_copy : options,
-                              soptions,
-                              meta,
-                              nullptr /* don't need reference to table*/,
-                              for_compaction);
+    return cache->NewIterator(
+        options.prefix ? options_copy : options, soptions, icomparator, meta,
+        nullptr /* don't need reference to table*/, for_compaction);
   }
 }
 
@@ -234,10 +231,9 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
     may_match = true;
   } else {
     may_match = vset_->table_cache_->PrefixMayMatch(
-                           options,
-                           DecodeFixed64(level_iter->value().data()),
-                           DecodeFixed64(level_iter->value().data() + 8),
-                           internal_prefix, nullptr);
+        options, vset_->icmp_, DecodeFixed64(level_iter->value().data()),
+        DecodeFixed64(level_iter->value().data() + 8), internal_prefix,
+        nullptr);
   }
   return may_match;
 }
@@ -255,8 +251,8 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
       return NewEmptyIterator();
     }
   }
-  return NewTwoLevelIterator(level_iter, &GetFileIterator,
-                             vset_->table_cache_, options, soptions);
+  return NewTwoLevelIterator(level_iter, &GetFileIterator, vset_->table_cache_,
+                             options, soptions, vset_->icmp_);
 }
 
 void Version::AddIterators(const ReadOptions& options,
@@ -265,7 +261,7 @@ void Version::AddIterators(const ReadOptions& options,
   // Merge all level zero files together since they may overlap
   for (const FileMetaData* file : files_[0]) {
     iters->push_back(vset_->table_cache_->NewIterator(options, soptions,
-                                                      *file));
+                                                      vset_->icmp_, *file));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -315,80 +311,73 @@ static void MarkKeyMayExist(void* arg) {
   }
 }
 
-static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
+static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
+                      const Slice& v, bool didIO) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   MergeContext* merge_contex = s->merge_context;
   std::string merge_result;  // temporary area for merge results later
 
   assert(s != nullptr && merge_contex != nullptr);
 
-  ParsedInternalKey parsed_key;
   // TODO: didIO and Merge?
   s->didIO = didIO;
-  if (!ParseInternalKey(ikey, &parsed_key)) {
-    // TODO: what about corrupt during Merge?
-    s->state = kCorrupt;
-  } else {
-    if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
-      // Key matches. Process it
-      switch (parsed_key.type) {
-        case kTypeValue:
-          if (kNotFound == s->state) {
-            s->state = kFound;
-            s->value->assign(v.data(), v.size());
-          } else if (kMerge == s->state) {
-            assert(s->merge_operator != nullptr);
-            s->state = kFound;
-            if (!s->merge_operator->FullMerge(s->user_key, &v,
-                                              merge_contex->GetOperands(),
-                                              s->value, s->logger)) {
-              RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-              s->state = kCorrupt;
-            }
-          } else {
-            assert(false);
+  if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
+    // Key matches. Process it
+    switch (parsed_key.type) {
+      case kTypeValue:
+        if (kNotFound == s->state) {
+          s->state = kFound;
+          s->value->assign(v.data(), v.size());
+        } else if (kMerge == s->state) {
+          assert(s->merge_operator != nullptr);
+          s->state = kFound;
+          if (!s->merge_operator->FullMerge(s->user_key, &v,
+                                            merge_contex->GetOperands(),
+                                            s->value, s->logger)) {
+            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
+            s->state = kCorrupt;
           }
-          return false;
+        } else {
+          assert(false);
+        }
+        return false;
 
-        case kTypeDeletion:
-          if (kNotFound == s->state) {
-            s->state = kDeleted;
-          } else if (kMerge == s->state) {
-            s->state = kFound;
+      case kTypeDeletion:
+        if (kNotFound == s->state) {
+          s->state = kDeleted;
+        } else if (kMerge == s->state) {
+          s->state = kFound;
           if (!s->merge_operator->FullMerge(s->user_key, nullptr,
                                             merge_contex->GetOperands(),
                                             s->value, s->logger)) {
-              RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-              s->state = kCorrupt;
-            }
-          } else {
-            assert(false);
+            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
+            s->state = kCorrupt;
           }
-          return false;
-
-        case kTypeMerge:
-          assert(s->state == kNotFound || s->state == kMerge);
-          s->state = kMerge;
-          merge_contex->PushOperand(v);
-          while (merge_contex->GetNumOperands() >= 2) {
-            // Attempt to merge operands together via user associateive merge
-            if (s->merge_operator->PartialMerge(s->user_key,
-                                                merge_contex->GetOperand(0),
-                                                merge_contex->GetOperand(1),
-                                                &merge_result,
-                                                s->logger)) {
-              merge_contex->PushPartialMergeResult(merge_result);
-            } else {
-              // Associative merge returns false ==> stack the operands
-              break;
-            }
-          }
-          return true;
-
-        case kTypeLogData:
+        } else {
           assert(false);
+        }
+        return false;
+
+      case kTypeMerge:
+        assert(s->state == kNotFound || s->state == kMerge);
+        s->state = kMerge;
+        merge_contex->PushOperand(v);
+        while (merge_contex->GetNumOperands() >= 2) {
+          // Attempt to merge operands together via user associateive merge
+          if (s->merge_operator->PartialMerge(
+                  s->user_key, merge_contex->GetOperand(0),
+                  merge_contex->GetOperand(1), &merge_result, s->logger)) {
+            merge_contex->PushPartialMergeResult(merge_result);
+          } else {
+            // Associative merge returns false ==> stack the operands
           break;
+          }
       }
+      return true;
+
+      default:
+        assert(false);
+        break;
     }
   }
 
@@ -521,8 +510,9 @@ void Version::Get(const ReadOptions& options,
       prev_file = f;
 #endif
       bool tableIO = false;
-      *status = vset_->table_cache_->Get(options, *f, ikey, &saver, SaveValue,
-                                         &tableIO, MarkKeyMayExist);
+      *status =
+          vset_->table_cache_->Get(options, vset_->icmp_, *f, ikey, &saver,
+                                   SaveValue, &tableIO, MarkKeyMayExist);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;
@@ -1355,9 +1345,8 @@ class VersionSet::Builder {
       for (auto& file_meta : *(levels_[level].added_files)) {
         assert (!file_meta->table_reader_handle);
         bool table_io;
-        vset_->table_cache_->FindTable(vset_->storage_options_,
-                                       file_meta->number,
-                                       file_meta->file_size,
+        vset_->table_cache_->FindTable(vset_->storage_options_, vset_->icmp_,
+                                       file_meta->number, file_meta->file_size,
                                        &file_meta->table_reader_handle,
                                        &table_io, false);
       }
@@ -2069,8 +2058,9 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
         // "ikey" falls in the range for this table.  Add the
         // approximate offset of "ikey" within the table.
         TableReader* table_reader_ptr;
-        Iterator* iter = table_cache_->NewIterator(
-            ReadOptions(), storage_options_, *(files[i]), &table_reader_ptr);
+        Iterator* iter =
+            table_cache_->NewIterator(ReadOptions(), storage_options_, icmp_,
+                                      *(files[i]), &table_reader_ptr);
         if (table_reader_ptr != nullptr) {
           result += table_reader_ptr->ApproximateOffsetOf(ikey.Encode());
         }
@@ -2134,14 +2124,14 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
       if (c->level() + which == 0) {
         for (const auto& file : *c->inputs(which)) {
           list[num++] = table_cache_->NewIterator(
-              options, storage_options_compactions_, *file, nullptr,
+              options, storage_options_compactions_, icmp_, *file, nullptr,
               true /* for compaction */);
         }
       } else {
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
             new Version::LevelFileNumIterator(icmp_, c->inputs(which)),
-            &GetFileIterator, table_cache_, options, storage_options_,
+            &GetFileIterator, table_cache_, options, storage_options_, icmp_,
             true /* for compaction */);
       }
     }

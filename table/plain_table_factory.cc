@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <stdint.h>
+#include "db/dbformat.h"
 #include "table/plain_table_builder.h"
 #include "table/plain_table_reader.h"
 #include "port/port.h"
@@ -14,16 +15,18 @@ namespace rocksdb {
 
 Status PlainTableFactory::NewTableReader(const Options& options,
                                          const EnvOptions& soptions,
+                                         const InternalKeyComparator& icomp,
                                          unique_ptr<RandomAccessFile>&& file,
                                          uint64_t file_size,
                                          unique_ptr<TableReader>* table) const {
-  return PlainTableReader::Open(options, soptions, std::move(file), file_size,
-                                table, bloom_bits_per_key_, hash_table_ratio_);
+  return PlainTableReader::Open(options, soptions, icomp, std::move(file),
+                                file_size, table, bloom_bits_per_key_,
+                                hash_table_ratio_);
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
-    const Options& options, WritableFile* file,
-    CompressionType compression_type) const {
+    const Options& options, const InternalKeyComparator& internal_comparator,
+    WritableFile* file, CompressionType compression_type) const {
   return new PlainTableBuilder(options, file, user_key_len_);
 }
 

@@ -35,12 +35,13 @@ class BlockBasedTableFactory : public TableFactory {
   const char* Name() const override { return "BlockBasedTable"; }
 
   Status NewTableReader(const Options& options, const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_comparator,
                         unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const override;
 
-  TableBuilder* NewTableBuilder(const Options& options, WritableFile* file,
-                                CompressionType compression_type)
-      const override;
+  TableBuilder* NewTableBuilder(
+      const Options& options, const InternalKeyComparator& internal_comparator,
+      WritableFile* file, CompressionType compression_type) const override;
 
  private:
   BlockBasedTableOptions table_options_;

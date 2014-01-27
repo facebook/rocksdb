@@ -4,8 +4,7 @@
 
 #include "table/plain_table_reader.h"
 
-#include <unordered_map>
-#include <map>
+#include <string>
 
 #include "db/dbformat.h"
 
@@ -77,6 +76,7 @@ class PlainTableIterator : public Iterator {
   Slice key_;
   Slice value_;
   Status status_;
+  std::string tmp_str_;
   // No copying allowed
   PlainTableIterator(const PlainTableIterator&) = delete;
   void operator=(const Iterator&) = delete;
@@ -84,10 +84,12 @@ class PlainTableIterator : public Iterator {
 
 extern const uint64_t kPlainTableMagicNumber;
 PlainTableReader::PlainTableReader(const EnvOptions& storage_options,
+                                   const InternalKeyComparator& icomparator,
                                    uint64_t file_size, int bloom_bits_per_key,
                                    double hash_table_ratio,
                                    const TableProperties& table_properties)
     : soptions_(storage_options),
+      internal_comparator_(icomparator),
       file_size_(file_size),
       kHashTableRatio(hash_table_ratio),
       kBloomBitsPerKey(bloom_bits_per_key),
@@ -103,6 +105,7 @@ PlainTableReader::~PlainTableReader() {
 
 Status PlainTableReader::Open(const Options& options,
                               const EnvOptions& soptions,
+                              const InternalKeyComparator& internal_comparator,
                               unique_ptr<RandomAccessFile>&& file,
                               uint64_t file_size,
                               unique_ptr<TableReader>* table_reader,
@@ -122,9 +125,9 @@ Status PlainTableReader::Open(const Options& options,
     return s;
   }
 
-  std::unique_ptr<PlainTableReader> new_reader(
-      new PlainTableReader(soptions, file_size, bloom_bits_per_key,
-                           hash_table_ratio, table_properties));
+  std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
+      soptions, internal_comparator, file_size, bloom_bits_per_key,
+      hash_table_ratio, table_properties));
   new_reader->file_ = std::move(file);
   new_reader->options_ = options;
 
@@ -215,10 +218,10 @@ int PlainTableReader::PopulateIndexRecordList(IndexRecordList* record_list) {
   int num_prefixes = 0;
   while (pos < data_end_offset_) {
     uint32_t key_offset = pos;
-    Slice key_slice;
+    ParsedInternalKey key;
     Slice value_slice;
-    status_ = Next(pos, &key_slice, &value_slice, pos);
-    Slice key_prefix_slice = GetPrefix(key_slice);
+    status_ = Next(pos, &key, &value_slice, pos);
+    Slice key_prefix_slice = GetPrefix(key);
 
     if (is_first_record || prev_key_prefix_slice != key_prefix_slice) {
       ++num_prefixes;
@@ -413,7 +416,11 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
                                                               index_ptr + 4,
                                                               &upper_bound);
   uint32_t high = upper_bound;
-  Slice mid_key;
+  ParsedInternalKey mid_key;
+  ParsedInternalKey parsed_target;
+  if (!ParseInternalKey(target, &parsed_target)) {
+    return Status::Corruption(Slice());
+  }
 
   // The key is between [low, high). Do a binary search between it.
   while (high - low > 1) {
@@ -424,8 +431,8 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
     if (!s.ok()) {
       return s;
     }
-    int cmp_result = options_.comparator->Compare(target, mid_key);
-    if (cmp_result > 0) {
+    int cmp_result = internal_comparator_.Compare(mid_key, parsed_target);
+    if (cmp_result < 0) {
       low = mid;
     } else {
       if (cmp_result == 0) {
@@ -442,7 +449,7 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
   // Both of the key at the position low or low+1 could share the same
   // prefix as target. We need to rule out one of them to avoid to go
   // to the wrong prefix.
-  Slice low_key;
+  ParsedInternalKey low_key;
   size_t tmp;
   uint32_t low_key_offset = base_ptr[low];
   Status s = ReadKey(file_data_.data() + low_key_offset, &low_key, tmp);
@@ -465,31 +472,53 @@ bool PlainTableReader::MayHavePrefix(uint32_t hash) {
   return bloom_ == nullptr || bloom_->MayContainHash(hash);
 }
 
-Status PlainTableReader::ReadKey(const char* row_ptr, Slice* key,
+Slice PlainTableReader::GetPrefix(const ParsedInternalKey& target) {
+  return options_.prefix_extractor->Transform(target.user_key);
+}
+
+Status PlainTableReader::ReadKey(const char* row_ptr, ParsedInternalKey* key,
                                  size_t& bytes_read) {
   const char* key_ptr = nullptr;
   bytes_read = 0;
-  size_t internal_key_size = 0;
+  size_t user_key_size = 0;
   if (IsFixedLength()) {
-    internal_key_size = GetFixedInternalKeyLength();
+    user_key_size = user_key_len_;
     key_ptr = row_ptr;
   } else {
-    uint32_t key_size = 0;
+    uint32_t tmp_size = 0;
     key_ptr = GetVarint32Ptr(row_ptr, file_data_.data() + data_end_offset_,
-                             &key_size);
-    internal_key_size = (size_t)key_size;
+                             &tmp_size);
+    if (key_ptr == nullptr) {
+      return Status::Corruption("Unable to read the next key");
+    }
+    user_key_size = (size_t)tmp_size;
     bytes_read = key_ptr - row_ptr;
   }
-  if (row_ptr + internal_key_size >= file_data_.data() + data_end_offset_) {
+  if (key_ptr + user_key_size + 1 >= file_data_.data() + data_end_offset_) {
     return Status::Corruption("Unable to read the next key");
   }
-  *key = Slice(key_ptr, internal_key_size);
-  bytes_read += internal_key_size;
+
+  if (*(key_ptr + user_key_size) == PlainTableFactory::kValueTypeSeqId0) {
+    // Special encoding for the row with seqID=0
+    key->user_key = Slice(key_ptr, user_key_size);
+    key->sequence = 0;
+    key->type = kTypeValue;
+    bytes_read += user_key_size + 1;
+  } else {
+    if (row_ptr + user_key_size + 8 >= file_data_.data() + data_end_offset_) {
+      return Status::Corruption("Unable to read the next key");
+    }
+    if (!ParseInternalKey(Slice(key_ptr, user_key_size + 8), key)) {
+      return Status::Corruption(Slice());
+    }
+    bytes_read += user_key_size + 8;
+  }
+
   return Status::OK();
 }
 
-Status PlainTableReader::Next(uint32_t offset, Slice* key, Slice* value,
-                              uint32_t& next_offset) {
+Status PlainTableReader::Next(uint32_t offset, ParsedInternalKey* key,
+                              Slice* value, uint32_t& next_offset) {
   if (offset == data_end_offset_) {
     next_offset = data_end_offset_;
     return Status::OK();
@@ -518,10 +547,11 @@ Status PlainTableReader::Next(uint32_t offset, Slice* key, Slice* value,
   return Status::OK();
 }
 
-Status PlainTableReader::Get(
-    const ReadOptions& ro, const Slice& target, void* arg,
-    bool (*saver)(void*, const Slice&, const Slice&, bool),
-    void (*mark_key_may_exist)(void*)) {
+Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
+                             void* arg,
+                             bool (*saver)(void*, const ParsedInternalKey&,
+                                           const Slice&, bool),
+                             void (*mark_key_may_exist)(void*)) {
   // Check bloom filter first.
   Slice prefix_slice = GetPrefix(target);
   uint32_t prefix_hash = GetSliceHash(prefix_slice);
@@ -534,7 +564,12 @@ Status PlainTableReader::Get(
   if (!s.ok()) {
     return s;
   }
-  Slice found_key;
+  ParsedInternalKey found_key;
+  ParsedInternalKey parsed_target;
+  if (!ParseInternalKey(target, &parsed_target)) {
+    return Status::Corruption(Slice());
+  }
+
   Slice found_value;
   while (offset < data_end_offset_) {
     Status s = Next(offset, &found_key, &found_value, offset);
@@ -549,9 +584,10 @@ Status PlainTableReader::Get(
       }
       prefix_match = true;
     }
-    if (options_.comparator->Compare(found_key, target) >= 0
-        && !(*saver)(arg, found_key, found_value, true)) {
-      break;
+    if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
+      if (!(*saver)(arg, found_key, found_value, true)) {
+        break;
+      }
     }
   }
   return Status::OK();
@@ -612,7 +648,7 @@ void PlainTableIterator::Seek(const Slice& target) {
         }
         prefix_match = true;
       }
-      if (table_->options_.comparator->Compare(key(), target) >= 0) {
+      if (table_->internal_comparator_.Compare(key(), target) >= 0) {
         break;
       }
     }
@@ -623,8 +659,19 @@ void PlainTableIterator::Seek(const Slice& target) {
 
 void PlainTableIterator::Next() {
   offset_ = next_offset_;
-  Slice tmp_slice;
-  status_ = table_->Next(next_offset_, &key_, &value_, next_offset_);
+  if (offset_ < table_->data_end_offset_) {
+    Slice tmp_slice;
+    ParsedInternalKey parsed_key;
+    status_ = table_->Next(next_offset_, &parsed_key, &value_, next_offset_);
+    if (status_.ok()) {
+      // Make a copy in this case. TODO optimize.
+      tmp_str_.clear();
+      AppendInternalKey(&tmp_str_, parsed_key);
+      key_ = Slice(tmp_str_);
+    } else {
+      offset_ = next_offset_ = table_->data_end_offset_;
+    }
+  }
 }
 
 void PlainTableIterator::Prev() {
@@ -632,10 +679,12 @@ void PlainTableIterator::Prev() {
 }
 
 Slice PlainTableIterator::key() const {
+  assert(Valid());
   return key_;
 }
 
 Slice PlainTableIterator::value() const {
+  assert(Valid());
   return value_;
 }
 

@@ -57,7 +57,7 @@ static std::string PrintContents(WriteBatch* b) {
         state.append(")");
         count++;
         break;
-      case kTypeLogData:
+      default:
         assert(false);
         break;
     }

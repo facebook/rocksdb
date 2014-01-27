@@ -57,12 +57,16 @@ class PlainTableFactory : public TableFactory {
         hash_table_ratio_(hash_table_ratio) {}
   const char* Name() const override { return "PlainTable"; }
   Status NewTableReader(const Options& options, const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_comparator,
                         unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table) const override;
+  TableBuilder* NewTableBuilder(const Options& options,
+                                const InternalKeyComparator& icomparator,
+                                WritableFile* file,
+                                CompressionType compression_type) const
+      override;
 
-  TableBuilder* NewTableBuilder(const Options& options, WritableFile* file,
-                                CompressionType compression_type)
-      const override;
+  static const char kValueTypeSeqId0 = 0xFF;
 
  private:
   uint32_t user_key_len_;

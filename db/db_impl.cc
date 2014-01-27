@@ -127,7 +127,6 @@ Options SanitizeOptions(const std::string& dbname,
                         const InternalFilterPolicy* ipolicy,
                         const Options& src) {
   Options result = src;
-  result.comparator = icmp;
   result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
   // result.max_open_files means an "infinite" open files.
   if (result.max_open_files != -1) {
@@ -1107,9 +1106,8 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
   {
     mutex_.Unlock();
     s = BuildTable(dbname_, env_, options_, storage_options_,
-                   table_cache_.get(), iter, &meta,
-                   user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable,
+                   table_cache_.get(), iter, &meta, internal_comparator_,
+                   newest_snapshot, earliest_seqno_in_memtable,
                    GetCompressionFlush(options_));
     LogFlush(options_.info_log);
     mutex_.Lock();
@@ -1173,9 +1171,9 @@ Status DBImpl::WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
         (unsigned long)meta.number);
 
     s = BuildTable(dbname_, env_, options_, storage_options_,
-                   table_cache_.get(), iter, &meta,
-                   user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable, GetCompressionFlush(options_));
+                   table_cache_.get(), iter, &meta, internal_comparator_,
+                   newest_snapshot, earliest_seqno_in_memtable,
+                   GetCompressionFlush(options_));
     LogFlush(options_.info_log);
     delete iter;
     Log(options_.info_log, "Level-0 flush table #%lu: %lu bytes %s",
@@ -2137,8 +2135,9 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
         options_, compact->compaction->output_level(),
         compact->compaction->enable_compression());
 
-    compact->builder.reset(
-        NewTableBuilder(options_, compact->outfile.get(), compression_type));
+    compact->builder.reset(NewTableBuilder(options_, internal_comparator_,
+                                           compact->outfile.get(),
+                                           compression_type));
   }
   LogFlush(options_.info_log);
   return s;
@@ -2186,9 +2185,8 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
     FileMetaData meta(output_number, current_bytes);
-    Iterator* iter = table_cache_->NewIterator(ReadOptions(),
-                                               storage_options_,
-                                               meta);
+    Iterator* iter = table_cache_->NewIterator(ReadOptions(), storage_options_,
+                                               internal_comparator_, meta);
     s = iter->status();
     delete iter;
     if (s.ok()) {
@@ -2522,8 +2520,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         // If this is the bottommost level (no files in lower levels)
         // and the earliest snapshot is larger than this seqno
         // then we can squash the seqno to zero.
-        if (options_.compaction_style == kCompactionStyleLevel &&
-            bottommost_level && ikey.sequence < earliest_snapshot &&
+        if (bottommost_level && ikey.sequence < earliest_snapshot &&
             ikey.type != kTypeMerge) {
           assert(ikey.type != kTypeDeletion);
           // make a copy because updating in place would cause problems

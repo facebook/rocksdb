@@ -6,8 +6,10 @@
 #include <unordered_map>
 #include <memory>
 #include <vector>
+#include <string>
 #include <stdint.h>
 
+#include "db/dbformat.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
@@ -27,6 +29,7 @@ struct ReadOptions;
 class TableCache;
 class TableReader;
 class DynamicBloom;
+class InternalKeyComparator;
 
 using std::unique_ptr;
 using std::unordered_map;
@@ -43,6 +46,7 @@ extern const uint32_t kPlainTableVariableLength;
 class PlainTableReader: public TableReader {
  public:
   static Status Open(const Options& options, const EnvOptions& soptions,
+                     const InternalKeyComparator& internal_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio);
@@ -51,10 +55,10 @@ class PlainTableReader: public TableReader {
 
   Iterator* NewIterator(const ReadOptions&);
 
-  Status Get(
-      const ReadOptions&, const Slice& key, void* arg,
-      bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
-      void (*mark_key_may_exist)(void*) = nullptr);
+  Status Get(const ReadOptions&, const Slice& key, void* arg,
+             bool (*result_handler)(void* arg, const ParsedInternalKey& k,
+                                    const Slice& v, bool),
+             void (*mark_key_may_exist)(void*) = nullptr);
 
   uint64_t ApproximateOffsetOf(const Slice& key);
 
@@ -62,8 +66,10 @@ class PlainTableReader: public TableReader {
 
   const TableProperties& GetTableProperties() { return table_properties_; }
 
-  PlainTableReader(const EnvOptions& storage_options, uint64_t file_size,
-                   int bloom_bits_per_key, double hash_table_ratio,
+  PlainTableReader(const EnvOptions& storage_options,
+                   const InternalKeyComparator& internal_comparator,
+                   uint64_t file_size, int bloom_num_bits,
+                   double hash_table_ratio,
                    const TableProperties& table_properties);
   ~PlainTableReader();
 
@@ -77,6 +83,7 @@ class PlainTableReader: public TableReader {
 
   Options options_;
   const EnvOptions& soptions_;
+  const InternalKeyComparator internal_comparator_;
   Status status_;
   unique_ptr<RandomAccessFile> file_;
 
@@ -184,11 +191,13 @@ class PlainTableReader: public TableReader {
   // too.
   bool MayHavePrefix(uint32_t hash);
 
-  Status ReadKey(const char* row_ptr, Slice* key, size_t& bytes_read);
+  Status ReadKey(const char* row_ptr, ParsedInternalKey* key,
+                 size_t& bytes_read);
   // Read the key and value at offset to key and value.
   // tmp_slice is a tmp slice.
   // return next_offset as the offset for the next key.
-  Status Next(uint32_t offset, Slice* key, Slice* value, uint32_t& next_offset);
+  Status Next(uint32_t offset, ParsedInternalKey* key, Slice* value,
+              uint32_t& next_offset);
   // Get file offset for key target.
   // return value prefix_matched is set to true if the offset is confirmed
   // for a key with the same prefix as target.
@@ -201,6 +210,8 @@ class PlainTableReader: public TableReader {
     return options_.prefix_extractor->Transform(
         Slice(target.data(), target.size() - 8));
   }
+
+  Slice GetPrefix(const ParsedInternalKey& target);
 
   // No copying allowed
   explicit PlainTableReader(const TableReader&) = delete;

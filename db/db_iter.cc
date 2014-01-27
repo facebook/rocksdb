@@ -235,7 +235,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
             valid_ = true;
             MergeValuesNewToOld();  // Go to a different state machine
             return;
-          case kTypeLogData:
+          default:
             assert(false);
             break;
         }

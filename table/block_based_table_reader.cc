@@ -39,12 +39,13 @@ const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
 using std::unique_ptr;
 
 struct BlockBasedTable::Rep {
-  Rep(const EnvOptions& storage_options) :
-    soptions(storage_options) {
-  }
+  Rep(const EnvOptions& storage_options,
+      const InternalKeyComparator& internal_comparator)
+      : soptions(storage_options), internal_comparator_(internal_comparator) {}
 
   Options options;
   const EnvOptions& soptions;
+  const InternalKeyComparator& internal_comparator_;
   Status status;
   unique_ptr<RandomAccessFile> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
@@ -225,6 +226,7 @@ Cache::Handle* GetFromBlockCache(
 
 Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
                              const BlockBasedTableOptions& table_options,
+                             const InternalKeyComparator& internal_comparator,
                              unique_ptr<RandomAccessFile>&& file,
                              uint64_t file_size,
                              unique_ptr<TableReader>* table_reader) {
@@ -236,7 +238,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
 
   // We've successfully read the footer and the index block: we're
   // ready to serve requests.
-  Rep* rep = new BlockBasedTable::Rep(soptions);
+  Rep* rep = new BlockBasedTable::Rep(soptions, internal_comparator);
   rep->options = options;
   rep->file = std::move(file);
   rep->metaindex_handle = footer.metaindex_handle();
@@ -661,7 +663,7 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
 
   Iterator* iter;
   if (block != nullptr) {
-    iter = block->NewIterator(table->rep_->options.comparator);
+    iter = block->NewIterator(&(table->rep_->internal_comparator_));
     if (cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
     } else {
@@ -734,7 +736,7 @@ BlockBasedTable::GetFilter(bool no_io) const {
 // Get the iterator from the index block.
 Iterator* BlockBasedTable::IndexBlockReader(const ReadOptions& options) const {
   if (rep_->index_block) {
-    return rep_->index_block->NewIterator(rep_->options.comparator);
+    return rep_->index_block->NewIterator(&(rep_->internal_comparator_));
   }
 
   // get index block from cache
@@ -755,7 +757,7 @@ Iterator* BlockBasedTable::IndexBlockReader(const ReadOptions& options) const {
 
   Iterator* iter;
   if (entry.value != nullptr) {
-    iter = entry.value->NewIterator(rep_->options.comparator);
+    iter = entry.value->NewIterator(&(rep_->internal_comparator_));
     if (entry.cache_handle) {
       iter->RegisterCleanup(
           &ReleaseBlock, rep_->options.block_cache.get(), entry.cache_handle
@@ -769,9 +771,9 @@ Iterator* BlockBasedTable::IndexBlockReader(const ReadOptions& options) const {
   return iter;
 }
 
-Iterator* BlockBasedTable::BlockReader(void* arg,
-                                       const ReadOptions& options,
+Iterator* BlockBasedTable::BlockReader(void* arg, const ReadOptions& options,
                                        const EnvOptions& soptions,
+                                       const InternalKeyComparator& icomparator,
                                        const Slice& index_value,
                                        bool for_compaction) {
   return BlockReader(arg, options, index_value, nullptr, for_compaction);
@@ -862,20 +864,15 @@ Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
     }
   }
 
-  return NewTwoLevelIterator(
-           IndexBlockReader(options),
-           &BlockBasedTable::BlockReader,
-           const_cast<BlockBasedTable*>(this),
-           options,
-           rep_->soptions
-         );
+  return NewTwoLevelIterator(IndexBlockReader(options),
+                             &BlockBasedTable::BlockReader,
+                             const_cast<BlockBasedTable*>(this), options,
+                             rep_->soptions, rep_->internal_comparator_);
 }
 
 Status BlockBasedTable::Get(
-    const ReadOptions& readOptions,
-    const Slice& key,
-    void* handle_context,
-    bool (*result_handler)(void* handle_context, const Slice& k,
+    const ReadOptions& readOptions, const Slice& key, void* handle_context,
+    bool (*result_handler)(void* handle_context, const ParsedInternalKey& k,
                            const Slice& v, bool didIO),
     void (*mark_key_may_exist_handler)(void* handle_context)) {
   Status s;
@@ -913,8 +910,13 @@ Status BlockBasedTable::Get(
 
       // Call the *saver function on each entry/block until it returns false
       for (block_iter->Seek(key); block_iter->Valid(); block_iter->Next()) {
-        if (!(*result_handler)(handle_context, block_iter->key(),
-                               block_iter->value(), didIO)) {
+        ParsedInternalKey parsed_key;
+        if (!ParseInternalKey(block_iter->key(), &parsed_key)) {
+          s = Status::Corruption(Slice());
+        }
+
+        if (!(*result_handler)(handle_context, parsed_key, block_iter->value(),
+                               didIO)) {
           done = true;
           break;
         }
@@ -931,7 +933,8 @@ Status BlockBasedTable::Get(
   return s;
 }
 
-bool SaveDidIO(void* arg, const Slice& key, const Slice& value, bool didIO) {
+bool SaveDidIO(void* arg, const ParsedInternalKey& key, const Slice& value,
+               bool didIO) {
   *reinterpret_cast<bool*>(arg) = didIO;
   return false;
 }

@@ -27,8 +27,6 @@
 
 namespace rocksdb {
 
-class TableFactory;
-
 // -- Block-based Table
 class FlushBlockPolicyFactory;
 

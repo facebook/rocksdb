@@ -83,13 +83,13 @@ class DumbLogger : public Logger {
 };
 
 // Utilities test functions
-void MakeBuilder(
-    const Options& options,
-    std::unique_ptr<FakeWritableFile>* writable,
-    std::unique_ptr<TableBuilder>* builder) {
+void MakeBuilder(const Options& options,
+                 const InternalKeyComparator& internal_comparator,
+                 std::unique_ptr<FakeWritableFile>* writable,
+                 std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
   builder->reset(options.table_factory->NewTableBuilder(
-      options, writable->get(), options.compression));
+      options, internal_comparator, writable->get(), options.compression));
 }
 
 // Collects keys that starts with "A" in a table.
@@ -127,9 +127,8 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
 extern uint64_t kBlockBasedTableMagicNumber;
 extern uint64_t kPlainTableMagicNumber;
 void TestCustomizedTablePropertiesCollector(
-    uint64_t magic_number,
-    bool encode_as_internal,
-    const Options& options) {
+    uint64_t magic_number, bool encode_as_internal, const Options& options,
+    const InternalKeyComparator& internal_comparator) {
   // make sure the entries will be inserted with order.
   std::map<std::string, std::string> kvs = {
     {"About   ", "val5"},  // starts with 'A'
@@ -144,7 +143,7 @@ void TestCustomizedTablePropertiesCollector(
   // -- Step 1: build table
   std::unique_ptr<TableBuilder> builder;
   std::unique_ptr<FakeWritableFile> writable;
-  MakeBuilder(options, &writable, &builder);
+  MakeBuilder(options, internal_comparator, &writable, &builder);
 
   for (const auto& kv : kvs) {
     if (encode_as_internal) {
@@ -193,11 +192,9 @@ TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
       options.table_properties_collectors.resize(1);
       options.table_properties_collectors[0].reset(collector);
     }
-    TestCustomizedTablePropertiesCollector(
-        kBlockBasedTableMagicNumber,
-        encode_as_internal,
-        options
-    );
+    test::PlainInternalKeyComparator ikc(options.comparator);
+    TestCustomizedTablePropertiesCollector(kBlockBasedTableMagicNumber,
+                                           encode_as_internal, options, ikc);
   }
 
   // test plain table
@@ -206,9 +203,9 @@ TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
       std::make_shared<RegularKeysStartWithA>()
   );
   options.table_factory = std::make_shared<PlainTableFactory>(8, 8, 0);
-  TestCustomizedTablePropertiesCollector(
-      kPlainTableMagicNumber, true, options
-  );
+  test::PlainInternalKeyComparator ikc(options.comparator);
+  TestCustomizedTablePropertiesCollector(kPlainTableMagicNumber, true, options,
+                                         ikc);
 }
 
 void TestInternalKeyPropertiesCollector(
@@ -228,6 +225,8 @@ void TestInternalKeyPropertiesCollector(
   std::unique_ptr<TableBuilder> builder;
   std::unique_ptr<FakeWritableFile> writable;
   Options options;
+  test::PlainInternalKeyComparator pikc(options.comparator);
+
   options.table_factory = table_factory;
   if (sanitized) {
     options.table_properties_collectors = {
@@ -239,12 +238,9 @@ void TestInternalKeyPropertiesCollector(
     // HACK: Set options.info_log to avoid writing log in
     // SanitizeOptions().
     options.info_log = std::make_shared<DumbLogger>();
-    options = SanitizeOptions(
-        "db",  // just a place holder
-        nullptr,  // with skip internal key comparator
-        nullptr,  // don't care filter policy
-        options
-    );
+    options = SanitizeOptions("db",            // just a place holder
+                              &pikc, nullptr,  // don't care filter policy
+                              options);
     options.comparator = comparator;
   } else {
     options.table_properties_collectors = {
@@ -252,7 +248,7 @@ void TestInternalKeyPropertiesCollector(
     };
   }
 
-  MakeBuilder(options, &writable, &builder);
+  MakeBuilder(options, pikc, &writable, &builder);
   for (const auto& k : keys) {
     builder->Add(k.Encode(), "val");
   }

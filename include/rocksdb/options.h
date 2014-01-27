@@ -34,6 +34,7 @@ class TablePropertiesCollector;
 class Slice;
 class SliceTransform;
 class Statistics;
+class InternalKeyComparator;
 
 using std::shared_ptr;
 

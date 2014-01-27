@@ -21,6 +21,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "db/dbformat.h"
 #include "table/block_based_table_reader.h"
 #include "table/block.h"
 #include "table/block_builder.h"
@@ -52,6 +53,7 @@ extern const uint64_t kBlockBasedTableMagicNumber
 
 struct BlockBasedTableBuilder::Rep {
   Options options;
+  const InternalKeyComparator& internal_comparator;
   WritableFile* file;
   uint64_t offset = 0;
   Status status;
@@ -71,31 +73,30 @@ struct BlockBasedTableBuilder::Rep {
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
-  Rep(const Options& opt,
-      WritableFile* f,
-      FlushBlockPolicyFactory* flush_block_policy_factory,
+  Rep(const Options& opt, const InternalKeyComparator& icomparator,
+      WritableFile* f, FlushBlockPolicyFactory* flush_block_policy_factory,
       CompressionType compression_type)
       : options(opt),
+        internal_comparator(icomparator),
         file(f),
-        data_block(options),
+        data_block(options, &internal_comparator),
         // To avoid linear scan, we make the block_restart_interval to be `1`
         // in index block builder
-        index_block(1 /* block_restart_interval */, options.comparator),
+        index_block(1 /* block_restart_interval */, &internal_comparator),
         compression_type(compression_type),
-        filter_block(opt.filter_policy == nullptr ? nullptr
-                     : new FilterBlockBuilder(opt)),
+        filter_block(opt.filter_policy == nullptr
+                         ? nullptr
+                         : new FilterBlockBuilder(opt, &internal_comparator)),
         flush_block_policy(
-            flush_block_policy_factory->NewFlushBlockPolicy(data_block)) {
-  }
+            flush_block_policy_factory->NewFlushBlockPolicy(data_block)) {}
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
-    const Options& options,
-    WritableFile* file,
-    FlushBlockPolicyFactory* flush_block_policy_factory,
+    const Options& options, const InternalKeyComparator& internal_comparator,
+    WritableFile* file, FlushBlockPolicyFactory* flush_block_policy_factory,
     CompressionType compression_type)
-    : rep_(new Rep(options,
-                   file, flush_block_policy_factory, compression_type)) {
+    : rep_(new Rep(options, internal_comparator, file,
+                   flush_block_policy_factory, compression_type)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
@@ -118,7 +119,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(!r->closed);
   if (!ok()) return;
   if (r->props.num_entries > 0) {
-    assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
+    assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
   }
 
   auto should_flush = r->flush_block_policy->Update(key, value);
@@ -135,7 +136,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     // entries in the first block and < all entries in subsequent
     // blocks.
     if (ok()) {
-      r->options.comparator->FindShortestSeparator(&r->last_key, key);
+      r->internal_comparator.FindShortestSeparator(&r->last_key, key);
       std::string handle_encoding;
       r->pending_handle.EncodeTo(&handle_encoding);
       r->index_block.Add(r->last_key, Slice(handle_encoding));
@@ -339,7 +340,7 @@ Status BlockBasedTableBuilder::Finish() {
   // block, we will finish writing all index entries here and flush them
   // to storage after metaindex block is written.
   if (ok() && !empty_data_block) {
-    r->options.comparator->FindShortSuccessor(&r->last_key);
+    r->internal_comparator.FindShortSuccessor(&r->last_key);
 
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
