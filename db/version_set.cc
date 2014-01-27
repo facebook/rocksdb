@@ -1923,7 +1923,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
     return status;
   }
 
-  Version* current_version = versions.current();
+  Version* current_version =
+      versions.GetColumnFamilySet()->GetDefault()->current;
   int current_levels = current_version->NumberLevels();
 
   if (current_levels <= new_levels) {
@@ -2357,14 +2358,16 @@ void VersionSet::ReleaseCompactionFiles(Compaction* c, Status status) {
 }
 
 Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
-                                      FileMetaData* meta) {
-  for (auto cfd : *column_family_set_) {
-    Version* version = cfd->current;
+                                      FileMetaData* meta,
+                                      ColumnFamilyData** cfd) {
+  for (auto cfd_iter : *column_family_set_) {
+    Version* version = cfd_iter->current;
     for (int level = 0; level < version->NumberLevels(); level++) {
       for (const auto& file : version->files_[level]) {
         if (file->number == number) {
           *meta = *file;
           *filelevel = level;
+          *cfd = cfd_iter;
           return Status::OK();
         }
       }

@@ -258,10 +258,7 @@ class DBImpl : public DB {
     return internal_comparator_.user_comparator();
   }
 
-  MemTable* GetMemTable() {
-    // TODO currently only works for default column family
-    return default_cfd_->mem;
-  }
+  ColumnFamilyData* GetDefaultColumnFamily() { return default_cfd_; }
 
   Iterator* NewInternalIterator(const ReadOptions&,
                                 SequenceNumber* latest_snapshot);

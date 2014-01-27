@@ -314,12 +314,6 @@ class VersionSet {
                                      const EnvOptions& storage_options,
                                      int new_levels);
 
-  // Return the current version.
-  Version* current() const {
-    // TODO this only works for default column family now
-    return column_family_set_->GetDefault()->current;
-  }
-
   // A Flag indicating whether write needs to slowdown because of there are
   // too many number of level0 files.
   bool NeedSlowdownForNumLevel0Files() const {
@@ -418,8 +412,8 @@ class VersionSet {
 
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
-  Status GetMetadataForFile(
-    uint64_t number, int *filelevel, FileMetaData *metadata);
+  Status GetMetadataForFile(uint64_t number, int* filelevel,
+                            FileMetaData* metadata, ColumnFamilyData** cfd);
 
   void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);

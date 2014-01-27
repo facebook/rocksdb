@@ -56,8 +56,8 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
                            const ColumnFamilyHandle& column_family,
                            const Slice& key, std::string* value) {
   Status s;
-  MemTable* mem = GetMemTable();
-  Version* current = versions_->current();
+  MemTable* mem = GetDefaultColumnFamily()->mem;
+  Version* current = GetDefaultColumnFamily()->current;
   SequenceNumber snapshot = versions_->LastSequence();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
