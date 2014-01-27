@@ -756,6 +756,28 @@ void Version::Unref() {
   }
 }
 
+bool Version::NeedsCompaction() const {
+  if (file_to_compact_ != nullptr) {
+    return true;
+  }
+  // In universal compaction case, this check doesn't really
+  // check the compaction condition, but checks num of files threshold
+  // only. We are not going to miss any compaction opportunity
+  // but it's likely that more compactions are scheduled but
+  // ending up with nothing to do. We can improve it later.
+  // TODO(sdong): improve this function to be accurate for universal
+  //              compactions.
+  int num_levels_to_check =
+    (vset_->options_->compaction_style != kCompactionStyleUniversal) ?
+    NumberLevels() - 1 : 1;
+  for (int i = 0; i < num_levels_to_check; i++) {
+    if (compaction_score_[i] >= 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool Version::OverlapInLevel(int level,
                              const Slice* smallest_user_key,
                              const Slice* largest_user_key) {

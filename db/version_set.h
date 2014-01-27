@@ -99,6 +99,15 @@ class Version {
   void Ref();
   void Unref();
 
+  // Returns true iff some level needs a compaction.
+  bool NeedsCompaction() const;
+
+  // Returns the maxmimum compaction score for levels 1 to max
+  double MaxCompactionScore() const { return max_compaction_score_; }
+
+  // See field declaration
+  int MaxCompactionScoreLevel() const { return max_compaction_score_level_; }
+
   void GetOverlappingInputs(
       int level,
       const InternalKey* begin,         // nullptr means before all keys
@@ -367,42 +376,6 @@ class VersionSet {
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   Iterator* MakeInputIterator(Compaction* c);
-
-  // Returns true iff some level needs a compaction because it has
-  // exceeded its target size.
-  bool NeedsSizeCompaction() const {
-    // In universal compaction case, this check doesn't really
-    // check the compaction condition, but checks num of files threshold
-    // only. We are not going to miss any compaction opportunity
-    // but it's likely that more compactions are scheduled but
-    // ending up with nothing to do. We can improve it later.
-    // TODO: improve this function to be accurate for universal
-    //       compactions.
-    int num_levels_to_check =
-        (options_->compaction_style != kCompactionStyleUniversal) ?
-            NumberLevels() - 1 : 1;
-    for (int i = 0; i < num_levels_to_check; i++) {
-      if (current_->compaction_score_[i] >= 1) {
-        return true;
-      }
-    }
-    return false;
-  }
-  // Returns true iff some level needs a compaction.
-  bool NeedsCompaction() const {
-    return ((current_->file_to_compact_ != nullptr) ||
-            NeedsSizeCompaction());
-  }
-
-  // Returns the maxmimum compaction score for levels 1 to max
-  double MaxCompactionScore() const {
-    return current_->max_compaction_score_;
-  }
-
-  // See field declaration
-  int MaxCompactionScoreLevel() const {
-    return current_->max_compaction_score_level_;
-  }
 
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<uint64_t>* live_list);
