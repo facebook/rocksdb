@@ -154,7 +154,6 @@ class TestEnv : public EnvWrapper {
   Status NewSequentialFile(const std::string& f,
                            unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) {
-    opened_files_.push_back(f);
     if (dummy_sequential_file_) {
       r->reset(new TestEnv::DummySequentialFile());
       return Status::OK();
@@ -165,6 +164,7 @@ class TestEnv : public EnvWrapper {
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
                          const EnvOptions& options) {
+    written_files_.push_back(f);
     if (limit_written_files_ <= 0) {
       return Status::IOError("Sorry, can't do this");
     }
@@ -172,14 +172,14 @@ class TestEnv : public EnvWrapper {
     return EnvWrapper::NewWritableFile(f, r, options);
   }
 
-  void AssertOpenedFiles(std::vector<std::string>& should_have_opened) {
-    sort(should_have_opened.begin(), should_have_opened.end());
-    sort(opened_files_.begin(), opened_files_.end());
-    ASSERT_TRUE(opened_files_ == should_have_opened);
+  void AssertWrittenFiles(std::vector<std::string>& should_have_written) {
+    sort(should_have_written.begin(), should_have_written.end());
+    sort(written_files_.begin(), written_files_.end());
+    ASSERT_TRUE(written_files_ == should_have_written);
   }
 
-  void ClearOpenedFiles() {
-    opened_files_.clear();
+  void ClearWrittenFiles() {
+    written_files_.clear();
   }
 
   void SetLimitWrittenFiles(uint64_t limit) {
@@ -192,7 +192,7 @@ class TestEnv : public EnvWrapper {
 
  private:
   bool dummy_sequential_file_ = false;
-  std::vector<std::string> opened_files_;
+  std::vector<std::string> written_files_;
   uint64_t limit_written_files_ = 1000000;
 }; // TestEnv
 
@@ -239,6 +239,46 @@ class FileManager : public EnvWrapper {
     return s;
   }
 
+  Status CorruptChecksum(const std::string& fname, bool appear_valid) {
+    std::string metadata;
+    Status s = ReadFileToString(this, fname, &metadata);
+    if (!s.ok()) {
+      return s;
+    }
+    s = DeleteFile(fname);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::vector<int64_t> positions;
+    auto pos = metadata.find(" crc32 ");
+    if (pos == std::string::npos) {
+      return Status::Corruption("checksum not found");
+    }
+    do {
+      positions.push_back(pos);
+      pos = metadata.find(" crc32 ", pos + 6);
+    } while (pos != std::string::npos);
+
+    pos = positions[rnd_.Next() % positions.size()];
+    if (metadata.size() < pos + 7) {
+      return Status::Corruption("bad CRC32 checksum value");
+    }
+
+    if (appear_valid) {
+      if (metadata[pos + 8] == '\n') {
+        // single digit value, safe to insert one more digit
+        metadata.insert(pos + 8, 1, '0');
+      } else {
+        metadata.erase(pos + 8, 1);
+      }
+    } else {
+      metadata[pos + 7] = 'a';
+    }
+
+    return WriteToFile(fname, metadata);
+  }
+
   Status WriteToFile(const std::string& fname, const std::string& data) {
     unique_ptr<WritableFile> file;
     EnvOptions env_options;
@@ -249,6 +289,7 @@ class FileManager : public EnvWrapper {
     }
     return file->Append(Slice(data));
   }
+
  private:
   Random rnd_;
 }; // FileManager
@@ -412,30 +453,43 @@ TEST(BackupableDBTest, NoDoubleCopy) {
 
   // should write 5 DB files + LATEST_BACKUP + one meta file
   test_backup_env_->SetLimitWrittenFiles(7);
-  test_db_env_->ClearOpenedFiles();
+  test_backup_env_->ClearWrittenFiles();
   test_db_env_->SetLimitWrittenFiles(0);
   dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
   ASSERT_OK(db_->CreateNewBackup(false));
-  std::vector<std::string> should_have_openened = dummy_db_->live_files_;
-  should_have_openened.push_back("/00011.log");
-  AppendPath(dbname_, should_have_openened);
-  test_db_env_->AssertOpenedFiles(should_have_openened);
+  std::vector<std::string> should_have_written = {
+    "/shared/00010.sst.tmp",
+    "/shared/00011.sst.tmp",
+    "/private/1.tmp/CURRENT",
+    "/private/1.tmp/MANIFEST-01",
+    "/private/1.tmp/00011.log",
+    "/meta/1.tmp",
+    "/LATEST_BACKUP.tmp"
+  };
+  AppendPath(dbname_ + "_backup", should_have_written);
+  test_backup_env_->AssertWrittenFiles(should_have_written);
 
   // should write 4 new DB files + LATEST_BACKUP + one meta file
   // should not write/copy 00010.sst, since it's already there!
   test_backup_env_->SetLimitWrittenFiles(6);
-  test_db_env_->ClearOpenedFiles();
+  test_backup_env_->ClearWrittenFiles();
   dummy_db_->live_files_ = { "/00010.sst", "/00015.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
   ASSERT_OK(db_->CreateNewBackup(false));
   // should not open 00010.sst - it's already there
-  should_have_openened = { "/00015.sst",   "/CURRENT",
-                           "/MANIFEST-01", "/00011.log" };
-  AppendPath(dbname_, should_have_openened);
-  test_db_env_->AssertOpenedFiles(should_have_openened);
+  should_have_written = {
+    "/shared/00015.sst.tmp",
+    "/private/2.tmp/CURRENT",
+    "/private/2.tmp/MANIFEST-01",
+    "/private/2.tmp/00011.log",
+    "/meta/2.tmp",
+    "/LATEST_BACKUP.tmp"
+  };
+  AppendPath(dbname_ + "_backup", should_have_written);
+  test_backup_env_->AssertWrittenFiles(should_have_written);
 
   ASSERT_OK(db_->DeleteBackup(1));
   ASSERT_EQ(true,
@@ -463,6 +517,8 @@ TEST(BackupableDBTest, NoDoubleCopy) {
 // 3. Corrupted backup meta file or missing backuped file - we should
 //      not be able to open that backup, but all other backups should be
 //      fine
+// 4. Corrupted checksum value - if the checksum is not a valid uint32_t,
+//      db open should fail, otherwise, it aborts during the restore process.
 TEST(BackupableDBTest, CorruptionsTest) {
   const int keys_iteration = 5000;
   Random rnd(6);
@@ -519,12 +575,29 @@ TEST(BackupableDBTest, CorruptionsTest) {
   CloseRestoreDB();
   ASSERT_TRUE(!s.ok());
 
-  // new backup should be 4!
+  // --------- case 4. corrupted checksum value ----
+  ASSERT_OK(file_manager_->CorruptChecksum(backupdir_ + "/meta/3", false));
+  // checksum of backup 3 is an invalid value, this can be detected at
+  // db open time, and it reverts to the previous backup automatically
+  AssertBackupConsistency(0, 0, keys_iteration * 2, keys_iteration * 5);
+  // checksum of the backup 2 appears to be valid, this can cause checksum
+  // mismatch and abort restore process
+  ASSERT_OK(file_manager_->CorruptChecksum(backupdir_ + "/meta/2", true));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  OpenRestoreDB();
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  s = restore_db_->RestoreDBFromBackup(2, dbname_, dbname_);
+  ASSERT_TRUE(!s.ok());
+  ASSERT_OK(restore_db_->DeleteBackup(2));
+  CloseRestoreDB();
+  AssertBackupConsistency(0, 0, keys_iteration * 1, keys_iteration * 5);
+
+  // new backup should be 2!
   OpenBackupableDB();
-  FillDB(db_.get(), keys_iteration * 3, keys_iteration * 4);
+  FillDB(db_.get(), keys_iteration * 1, keys_iteration * 2);
   ASSERT_OK(db_->CreateNewBackup(!!(rnd.Next() % 2)));
   CloseBackupableDB();
-  AssertBackupConsistency(4, 0, keys_iteration * 4, keys_iteration * 5);
+  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
 }
 
 // open DB, write, close DB, backup, restore, repeat
