@@ -230,17 +230,19 @@ class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
   MemTable* mem_;
+  ColumnFamilyMemTables* cf_mems_;
   const Options* options_;
   DBImpl* db_;
   const bool filter_deletes_;
 
   MemTableInserter(SequenceNumber sequence, MemTable* mem, const Options* opts,
                    DB* db, const bool filter_deletes)
-    : sequence_(sequence),
-      mem_(mem),
-      options_(opts),
-      db_(reinterpret_cast<DBImpl*>(db)),
-      filter_deletes_(filter_deletes) {
+      : sequence_(sequence),
+        mem_(mem),
+        cf_mems_(nullptr),
+        options_(opts),
+        db_(reinterpret_cast<DBImpl*>(db)),
+        filter_deletes_(filter_deletes) {
     assert(mem_);
     if (filter_deletes_) {
       assert(options_);
@@ -248,18 +250,50 @@ class MemTableInserter : public WriteBatch::Handler {
     }
   }
 
+  MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
+                   const Options* opts, DB* db, const bool filter_deletes)
+      : sequence_(sequence),
+        mem_(nullptr),
+        cf_mems_(cf_mems),
+        options_(opts),
+        db_(reinterpret_cast<DBImpl*>(db)),
+        filter_deletes_(filter_deletes) {
+    assert(cf_mems);
+    if (filter_deletes_) {
+      assert(options_);
+      assert(db_);
+    }
+  }
+
+  // returns nullptr if the update to the column family is not needed
+  MemTable* GetMemTable(uint32_t column_family_id) {
+    if (mem_ != nullptr) {
+      return (column_family_id == 0) ? mem_ : nullptr;
+    } else {
+      return cf_mems_->GetMemTable(column_family_id);
+    }
+  }
+
   virtual void PutCF(uint32_t column_family_id, const Slice& key,
                      const Slice& value) {
-    if (options_->inplace_update_support
-        && mem_->Update(sequence_, kTypeValue, key, value)) {
+    MemTable* mem = GetMemTable(column_family_id);
+    if (mem == nullptr) {
+      return;
+    }
+    if (options_->inplace_update_support &&
+        mem->Update(sequence_, kTypeValue, key, value)) {
       RecordTick(options_->statistics.get(), NUMBER_KEYS_UPDATED);
     } else {
-      mem_->Add(sequence_, kTypeValue, key, value);
+      mem->Add(sequence_, kTypeValue, key, value);
     }
     sequence_++;
   }
   virtual void MergeCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) {
+    MemTable* mem = GetMemTable(column_family_id);
+    if (mem == nullptr) {
+      return;
+    }
     bool perform_merge = false;
 
     if (options_->max_successive_merges > 0 && db_ != nullptr) {
@@ -267,7 +301,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
       // Count the number of successive merges at the head
       // of the key in the memtable
-      size_t num_merges = mem_->CountSuccessiveMergeEntries(lkey);
+      size_t num_merges = mem->CountSuccessiveMergeEntries(lkey);
 
       if (num_merges >= options_->max_successive_merges) {
         perform_merge = true;
@@ -307,18 +341,22 @@ class MemTableInserter : public WriteBatch::Handler {
           perform_merge = false;
       } else {
         // 3) Add value to memtable
-        mem_->Add(sequence_, kTypeValue, key, new_value);
+        mem->Add(sequence_, kTypeValue, key, new_value);
       }
     }
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      mem_->Add(sequence_, kTypeMerge, key, value);
+      mem->Add(sequence_, kTypeMerge, key, value);
     }
 
     sequence_++;
   }
   virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
+    MemTable* mem = GetMemTable(column_family_id);
+    if (mem == nullptr) {
+      return;
+    }
     if (filter_deletes_) {
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;
@@ -330,7 +368,7 @@ class MemTableInserter : public WriteBatch::Handler {
         return;
       }
     }
-    mem_->Add(sequence_, kTypeDeletion, key, Slice());
+    mem->Add(sequence_, kTypeDeletion, key, Slice());
     sequence_++;
   }
 };
@@ -341,6 +379,15 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* mem,
                                       const bool filter_deletes) {
   MemTableInserter inserter(WriteBatchInternal::Sequence(b), mem, opts, db,
                             filter_deletes);
+  return b->Iterate(&inserter);
+}
+
+Status WriteBatchInternal::InsertInto(const WriteBatch* b,
+                                      ColumnFamilyMemTables* memtables,
+                                      const Options* opts, DB* db,
+                                      const bool filter_deletes) {
+  MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables, opts,
+                            db, filter_deletes);
   return b->Iterate(&inserter);
 }
 

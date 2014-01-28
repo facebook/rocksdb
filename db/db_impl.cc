@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -309,6 +310,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
   versions_.reset(new VersionSet(dbname_, &options_, storage_options_,
                                  table_cache_.get(), &internal_comparator_));
+  column_family_memtables_.reset(
+      new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
   dumpLeveldbBuildVersion(options_.info_log.get());
   options_.Dump(options_.info_log.get());
@@ -494,7 +497,7 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
 
   // store the current filenum, lognum, etc
   deletion_state.manifest_file_number = versions_->ManifestFileNumber();
-  deletion_state.log_number = versions_->LogNumber();
+  deletion_state.log_number = versions_->MinLogNumber();
   deletion_state.prev_log_number = versions_->PrevLogNumber();
 
   if (!doing_the_full_scan && !deletion_state.HaveSomethingToDelete()) {
@@ -860,7 +863,7 @@ Status DBImpl::Recover(
     // Note that PrevLogNumber() is no longer used, but we pay
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
-    const uint64_t min_log = versions_->LogNumber();
+    const uint64_t min_log = versions_->MinLogNumber();
     const uint64_t prev_log = versions_->PrevLogNumber();
     std::vector<std::string> filenames;
     s = env_->GetChildren(options_.wal_dir, &filenames);
@@ -924,7 +927,12 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
 
   mutex_.AssertHeld();
 
-  VersionEdit edit;
+  std::unordered_map<int, VersionEdit> version_edits;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    VersionEdit edit;
+    edit.SetColumnFamily(cfd->id);
+    version_edits.insert({cfd->id, edit});
+  }
 
   // Open the log file
   std::string fname = LogFileName(options_.wal_dir, log_number);
@@ -955,7 +963,6 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
   std::string scratch;
   Slice record;
   WriteBatch batch;
-  bool memtable_empty = true;
   while (reader.ReadRecord(&record, &scratch)) {
     if (record.size() < 12) {
       reporter.Corruption(
@@ -964,9 +971,13 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
     }
     WriteBatchInternal::SetContents(&batch, record);
 
-    status =
-        WriteBatchInternal::InsertInto(&batch, default_cfd_->mem, &options_);
-    memtable_empty = false;
+    // filter out all the column families that have already
+    // flushed memtables with log_number
+    column_family_memtables_->SetLogNumber(log_number);
+    status = WriteBatchInternal::InsertInto(
+        &batch, column_family_memtables_.get(), &options_);
+    column_family_memtables_->SetLogNumber(0);
+
     MaybeIgnoreError(&status);
     if (!status.ok()) {
       return status;
@@ -978,38 +989,52 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
       *max_sequence = last_seq;
     }
 
-    if (!read_only && default_cfd_->mem->ApproximateMemoryUsage() >
-                          options_.write_buffer_size) {
-      status = WriteLevel0TableForRecovery(default_cfd_->mem, &edit);
-      // we still want to clear memtable, even if the recovery failed
-      default_cfd_->CreateNewMemtable();
-      memtable_empty = true;
-      if (!status.ok()) {
-        // Reflect errors immediately so that conditions like full
-        // file-systems cause the DB::Open() to fail.
-        return status;
+    if (!read_only) {
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        if (cfd->mem->ApproximateMemoryUsage() >
+            cfd->options.write_buffer_size) {
+          auto iter = version_edits.find(cfd->id);
+          assert(iter != version_edits.end());
+          VersionEdit* edit = &iter->second;
+          status = WriteLevel0TableForRecovery(cfd->mem, edit);
+          // we still want to clear the memtable, even if the recovery failed
+          cfd->CreateNewMemtable();
+          if (!status.ok()) {
+            // Reflect errors immediately so that conditions like full
+            // file-systems cause the DB::Open() to fail.
+            return status;
+          }
+        }
       }
     }
   }
 
-  if (!memtable_empty && !read_only) {
-    status = WriteLevel0TableForRecovery(default_cfd_->mem, &edit);
-    default_cfd_->CreateNewMemtable();
-    if (!status.ok()) {
-      return status;
-    }
-  }
+  if (!read_only) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      auto iter = version_edits.find(cfd->id);
+      assert(iter != version_edits.end());
+      VersionEdit* edit = &iter->second;
 
-  if (edit.NumEntries() > 0) {
-    // if read_only, NumEntries() will be 0
-    assert(!read_only);
-    // writing log number in the manifest means that any log file
-    // with number strongly less than (log_number + 1) is already
-    // recovered and should be ignored on next reincarnation.
-    // Since we already recovered log_number, we want all logs
-    // with numbers `<= log_number` (includes this one) to be ignored
-    edit.SetLogNumber(log_number + 1);
-    status = versions_->LogAndApply(default_cfd_, &edit, &mutex_);
+      // flush the final memtable
+      status = WriteLevel0TableForRecovery(cfd->mem, edit);
+      // we still want to clear the memtable, even if the recovery failed
+      cfd->CreateNewMemtable();
+      if (!status.ok()) {
+        return status;
+      }
+
+      // write MANIFEST with update
+      // writing log number in the manifest means that any log file
+      // with number strongly less than (log_number + 1) is already
+      // recovered and should be ignored on next reincarnation.
+      // Since we already recovered log_number, we want all logs
+      // with numbers `<= log_number` (includes this one) to be ignored
+      edit->SetLogNumber(log_number + 1);
+      status = versions_->LogAndApply(cfd, edit, &mutex_);
+      if (!status.ok()) {
+        return status;
+      }
+    }
   }
 
   return status;
@@ -2737,7 +2762,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
 Status DBImpl::Get(const ReadOptions& options,
                    const ColumnFamilyHandle& column_family, const Slice& key,
                    std::string* value) {
-  return GetImpl(options, key, value);
+  return GetImpl(options, column_family, key, value);
 }
 
 // DeletionState gets created and destructed outside of the lock -- we
@@ -2784,12 +2809,19 @@ SuperVersion* DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::GetImpl(const ReadOptions& options,
-                       const Slice& key,
-                       std::string* value,
+                       const ColumnFamilyHandle& column_family,
+                       const Slice& key, std::string* value,
                        bool* value_found) {
-  Status s;
-
   StopWatch sw(env_, options_.statistics.get(), DB_GET, false);
+
+  mutex_.Lock();
+  auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  // this is asserting because client calling Get() with undefined
+  // ColumnFamilyHandle is undefined behavior.
+  assert(cfd != nullptr);
+  SuperVersion* get_version = cfd->super_version->Ref();
+  mutex_.Unlock();
+
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
@@ -2797,17 +2829,13 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     snapshot = versions_->LastSequence();
   }
 
-  // This can be replaced by using atomics and spinlock instead of big mutex
-  mutex_.Lock();
-  SuperVersion* get_version = default_cfd_->super_version->Ref();
-  mutex_.Unlock();
-
   bool have_stat_update = false;
   Version::GetStats stats;
 
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
 
+  Status s;
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
@@ -2957,6 +2985,8 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
     // add to internal data structures
     versions_->CreateColumnFamily(options, &edit);
   }
+  Log(options_.info_log, "Created column family %s\n",
+      column_family_name.c_str());
   return s;
 }
 
@@ -2976,6 +3006,9 @@ Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
     // remove from internal data structures
     versions_->DropColumnFamily(&edit);
   }
+  // TODO(icanadi) PurgeObsoletetFiles here
+  Log(options_.info_log, "Dropped column family with id %u\n",
+      column_family.id);
   return s;
 }
 
@@ -2989,7 +3022,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
   }
   ReadOptions roptions = options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
-  auto s = GetImpl(roptions, key, value, value_found);
+  auto s = GetImpl(roptions, column_family, key, value, value_found);
 
   // If options.block_cache != nullptr and the index block of the table didn't
   // not present in block_cache, the return value will be Status::Incomplete.
@@ -3102,7 +3135,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
     // and protects against concurrent loggers and concurrent writes
-    // into default_cfd_->mem.
+    // into memtables
     {
       mutex_.Unlock();
       WriteBatch* updates = nullptr;
@@ -3148,9 +3181,14 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         }
       }
       if (status.ok()) {
-        status = WriteBatchInternal::InsertInto(updates, default_cfd_->mem,
-                                                &options_, this,
-                                                options_.filter_deletes);
+        // TODO(icanadi) this accesses column_family_set_ without any lock.
+        // We'll need to add a spinlock for reading that we also lock when we
+        // write to a column family (only on column family add/drop, which is
+        // a very rare action)
+        status = WriteBatchInternal::InsertInto(
+            updates, column_family_memtables_.get(), &options_, this,
+            options_.filter_deletes);
+
         if (!status.ok()) {
           // Panic for in-memory corruptions
           // Note that existing logic was not sound. Any partial failure writing
@@ -3995,9 +4033,12 @@ Status DB::OpenWithColumnFamilies(
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * impl->options_.write_buffer_size);
       VersionEdit edit;
-      edit.SetLogNumber(new_log_number);
       impl->logfile_number_ = new_log_number;
       impl->log_.reset(new log::Writer(std::move(lfile)));
+      // We use this LogAndApply just to store the next file number, the one
+      // that we used by calling impl->versions_->NewFileNumber()
+      // The used log number are already written to manifest in RecoverLogFile()
+      // method
       s = impl->versions_->LogAndApply(impl->default_cfd_, &edit, &impl->mutex_,
                                        impl->db_directory_.get());
     }

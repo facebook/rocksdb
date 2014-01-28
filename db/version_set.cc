@@ -1567,6 +1567,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     manifest_file_size_ = new_manifest_file_size;
     AppendVersion(column_family_data, v);
     log_number_ = edit->log_number_;
+    column_family_data->log_number = edit->log_number_;
     prev_log_number_ = edit->prev_log_number_;
 
   } else {
@@ -1753,6 +1754,10 @@ Status VersionSet::Recover(
           break;
         }
 
+        if (edit.has_log_number_) {
+          cfd->log_number = edit.log_number_;
+        }
+
         // if it is not column family add or column family drop,
         // then it's a file add/delete, which should be forwarded
         // to builder
@@ -1838,6 +1843,11 @@ Status VersionSet::Recover(
         (unsigned long)last_sequence_,
         (unsigned long)log_number_,
         (unsigned long)prev_log_number_);
+
+    for (auto cfd : *column_family_set_) {
+      Log(options_->info_log, "Column family \"%s\", log number is %lu\n",
+          cfd->name.c_str(), cfd->log_number);
+    }
   }
 
   for (auto builder : builders) {
@@ -2140,6 +2150,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
                        f->largest_seqno);
         }
       }
+      edit.SetLogNumber(cfd->log_number);
       std::string record;
       edit.EncodeTo(&record);
       Status s = log->AddRecord(record);

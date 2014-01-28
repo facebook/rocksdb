@@ -349,12 +349,25 @@ class VersionSet {
   // Mark the specified file number as used.
   void MarkFileNumberUsed(uint64_t number);
 
-  // Return the current log file number.
+  // Return the current log file number. This is the biggest log_number from
+  // all column families
   uint64_t LogNumber() const { return log_number_; }
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
   uint64_t PrevLogNumber() const { return prev_log_number_; }
+
+  // Returns the minimum log number such that all
+  // log numbers less than or equal to it can be deleted
+  uint64_t MinLogNumber() const {
+    uint64_t min_log_num = 0;
+    for (auto cfd : *column_family_set_) {
+      if (min_log_num == 0 || min_log_num > cfd->log_number) {
+        min_log_num = cfd->log_number;
+      }
+    }
+    return min_log_num;
+  }
 
   int NumberLevels() const { return num_levels_; }
 
@@ -433,7 +446,7 @@ class VersionSet {
 
   friend class Compaction;
   friend class Version;
-  // TODO temporarily until we have what ColumnFamilyData needs (icmp_)
+  // TODO(icanadi) temporarily until we have what ColumnFamilyData needs (icmp_)
   friend struct ColumnFamilyData;
 
   struct LogReporter : public log::Reader::Reporter {

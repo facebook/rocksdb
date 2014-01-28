@@ -17,6 +17,11 @@ namespace rocksdb {
 
 class MemTable;
 
+class ColumnFamilyMemTables {
+ public:
+  virtual MemTable* GetMemTable(uint32_t column_family_id) = 0;
+};
+
 // WriteBatchInternal provides static methods for manipulating a
 // WriteBatch that we don't want in the public WriteBatch interface.
 class WriteBatchInternal {
@@ -48,6 +53,11 @@ class WriteBatchInternal {
   // Drops deletes in batch if filter_del is set to true and
   // db->KeyMayExist returns false
   static Status InsertInto(const WriteBatch* batch, MemTable* memtable,
+                           const Options* opts, DB* db = nullptr,
+                           const bool filter_del = false);
+
+  static Status InsertInto(const WriteBatch* batch,
+                           ColumnFamilyMemTables* memtables,
                            const Options* opts, DB* db = nullptr,
                            const bool filter_del = false);
 

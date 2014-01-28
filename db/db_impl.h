@@ -399,6 +399,7 @@ class DBImpl : public DB {
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
   ColumnFamilyData* default_cfd_;
+  unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
 
   // An ordinal representing the current SuperVersion. Updated by
   // InstallSuperVersion(), i.e. incremented every time super_version_
@@ -603,9 +604,8 @@ class DBImpl : public DB {
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options,
-                 const Slice& key,
-                 std::string* value,
-                 bool* value_found = nullptr);
+                 const ColumnFamilyHandle& column_family, const Slice& key,
+                 std::string* value, bool* value_found = nullptr);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

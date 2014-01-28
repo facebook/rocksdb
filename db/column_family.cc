@@ -69,7 +69,8 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       options(options),
       mem(nullptr),
       imm(options.min_write_buffer_number_to_merge),
-      super_version(nullptr) {}
+      super_version(nullptr),
+      log_number(0) {}
 
 ColumnFamilyData::~ColumnFamilyData() {
   if (super_version != nullptr) {
@@ -165,6 +166,20 @@ void ColumnFamilySet::DropColumnFamily(uint32_t id) {
   cfd->second->current->Unref();
   droppped_column_families_.push_back(cfd->second);
   column_family_data_.erase(cfd);
+}
+
+MemTable* ColumnFamilyMemTablesImpl::GetMemTable(uint32_t column_family_id) {
+  auto cfd = column_family_set_->GetColumnFamily(column_family_id);
+  // TODO(icanadi): this should not be asserting. Rather, it should somehow
+  // return Corruption status back to the Iterator. This will require
+  // API change in WriteBatch::Handler, which is a public API
+  assert(cfd != nullptr);
+
+  if (log_number_ == 0 || log_number_ >= cfd->log_number) {
+    return cfd->mem;
+  } else {
+    return nullptr;
+  }
 }
 
 }  // namespace rocksdb

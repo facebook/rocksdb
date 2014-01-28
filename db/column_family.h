@@ -15,6 +15,7 @@
 
 #include "rocksdb/options.h"
 #include "db/memtablelist.h"
+#include "db/write_batch_internal.h"
 
 namespace rocksdb {
 
@@ -62,6 +63,11 @@ struct ColumnFamilyData {
   MemTable* mem;
   MemTableList imm;
   SuperVersion* super_version;
+
+  // This is the earliest log file number that contains data from this
+  // Column Family. All earlier log files must be ignored and not
+  // recovered from
+  uint64_t log_number;
 
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, const ColumnFamilyOptions& options);
@@ -120,6 +126,26 @@ class ColumnFamilySet {
   // all of column family data members (options for example)
   std::vector<ColumnFamilyData*> droppped_column_families_;
   uint32_t max_column_family_;
+};
+
+class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
+ public:
+  explicit ColumnFamilyMemTablesImpl(ColumnFamilySet* column_family_set)
+      : column_family_set_(column_family_set), log_number_(0) {}
+
+  // If column_family_data->log_number is bigger than log_number,
+  // the memtable will not be returned.
+  // If log_number == 0, the memtable will be always returned
+  void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
+
+  // Returns the column families memtable if log_number == 0 || log_number <=
+  // column_family_data->log_number.
+  // If column family doesn't exist, it asserts
+  virtual MemTable* GetMemTable(uint32_t column_family_id) override;
+
+ private:
+  ColumnFamilySet* column_family_set_;
+  uint64_t log_number_;
 };
 
 }  // namespace rocksdb
