@@ -6,14 +6,8 @@
 #ifndef STORAGE_ROCKSDB_UNIVERSAL_COMPACTION_OPTIONS_H
 #define STORAGE_ROCKSDB_UNIVERSAL_COMPACTION_OPTIONS_H
 
-#include <stddef.h>
-#include <string>
-#include <memory>
-#include <vector>
 #include <stdint.h>
 #include <climits>
-#include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
 
 namespace rocksdb {
 

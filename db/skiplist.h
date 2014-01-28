@@ -35,6 +35,7 @@
 #include <stdlib.h>
 #include "port/port.h"
 #include "util/random.h"
+#include "rocksdb/arena.h"
 
 namespace rocksdb {
 

@@ -134,13 +134,12 @@ endif  # PLATFORM_SHARED_EXT
 all: $(LIBRARY) $(PROGRAMS)
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
-	release tags valgrind_check whitebox_crash_test format
+	release tags valgrind_check whitebox_crash_test format shared_lib
 
 # Will also generate shared libraries. 
 release:
 	$(MAKE) clean
 	OPT="-DNDEBUG -O2" $(MAKE) all -j32
-	OPT="-DNDEBUG -O2" $(MAKE) $(SHARED) -j32
 
 coverage:
 	$(MAKE) clean
@@ -199,6 +198,8 @@ tags:
 
 format:
 	build_tools/format-diff.sh
+
+shared_lib: $(SHARED)
 
 # ---------------------------------------------------------------------------
 # 	Unit tests and tools

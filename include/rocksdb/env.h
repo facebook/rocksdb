@@ -33,6 +33,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class RandomRWFile;
+class Directory;
 struct Options;
 
 using std::unique_ptr;
@@ -121,6 +122,16 @@ class Env {
   virtual Status NewRandomRWFile(const std::string& fname,
                                  unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) = 0;
+
+  // Create an object that represents a directory. Will fail if directory
+  // doesn't exist. If the directory exists, it will open the directory
+  // and create a new Directory object.
+  //
+  // On success, stores a pointer to the new Directory in
+  // *result and returns OK. On failure stores nullptr in *result and
+  // returns non-OK.
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) = 0;
 
   // Returns true iff the named file exists.
   virtual bool FileExists(const std::string& fname) = 0;
@@ -488,6 +499,15 @@ class RandomRWFile {
   void operator=(const RandomRWFile&);
 };
 
+// Directory object represents collection of files and implements
+// filesystem operations that can be executed on directories.
+class Directory {
+ public:
+  virtual ~Directory() {}
+  // Fsync directory
+  virtual Status Fsync() = 0;
+};
+
 // An interface for writing log messages.
 class Logger {
  public:
@@ -577,6 +597,10 @@ class EnvWrapper : public Env {
   Status NewRandomRWFile(const std::string& f, unique_ptr<RandomRWFile>* r,
                          const EnvOptions& options) {
     return target_->NewRandomRWFile(f, r, options);
+  }
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) {
+    return target_->NewDirectory(name, result);
   }
   bool FileExists(const std::string& f) { return target_->FileExists(f); }
   Status GetChildren(const std::string& dir, std::vector<std::string>* r) {

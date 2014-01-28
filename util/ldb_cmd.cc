@@ -1069,23 +1069,8 @@ void ReduceDBLevelsCommand::DoCommand() {
   CloseDB();
 
   EnvOptions soptions;
-  TableCache tc(db_path_, &opt, soptions, 10);
-  const InternalKeyComparator cmp(opt.comparator);
-  VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
-  // We rely the VersionSet::Recover to tell us the internal data structures
-  // in the db. And the Recover() should never do any change (like LogAndApply)
-  // to the manifest file.
-  st = versions.Recover();
-  if (!st.ok()) {
-    exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());
-    return;
-  }
 
-  port::Mutex mu;
-  mu.Lock();
-  st = versions.ReduceNumberOfLevels(new_levels_, &mu);
-  mu.Unlock();
-
+  st = VersionSet::ReduceNumberOfLevels(db_path_, &opt, soptions, new_levels_);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());
     return;

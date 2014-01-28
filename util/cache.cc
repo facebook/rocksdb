@@ -417,6 +417,7 @@ class ShardedLRUCache : public Cache {
   virtual size_t GetCapacity() const {
     return capacity_;
   }
+
   virtual size_t GetUsage() const {
     // We will not lock the cache when getting the usage from shards.
     // for (size_t i = 0; i < num_shard_bits_; ++i)
@@ -426,6 +427,10 @@ class ShardedLRUCache : public Cache {
       usage += shards_[s].GetUsage();
     }
     return usage;
+  }
+
+  virtual void DisownData() {
+    shards_ = nullptr;
   }
 };
 

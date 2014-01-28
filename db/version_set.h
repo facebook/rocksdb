@@ -101,6 +101,15 @@ class Version {
   // and return true. Otherwise, return false.
   bool Unref();
 
+  // Returns true iff some level needs a compaction.
+  bool NeedsCompaction() const;
+
+  // Returns the maxmimum compaction score for levels 1 to max
+  double MaxCompactionScore() const { return max_compaction_score_; }
+
+  // See field declaration
+  int MaxCompactionScoreLevel() const { return max_compaction_score_level_; }
+
   void GetOverlappingInputs(
       int level,
       const InternalKey* begin,         // nullptr means before all keys
@@ -277,6 +286,7 @@ class VersionSet {
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
   Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
+                     Directory* db_directory = nullptr,
                      bool new_descriptor_log = false);
 
   // Recover the last saved descriptor from persistent storage.
@@ -285,10 +295,16 @@ class VersionSet {
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
   // max level containing files.
+  // The call is static, since number of levels is immutable during
+  // the lifetime of a RocksDB instance. It reduces number of levels
+  // in a DB by applying changes to manifest.
   // For example, a db currently has 7 levels [0-6], and a call to
   // to reduce to 5 [0-4] can only be executed when only one level
   // among [4-6] contains files.
-  Status ReduceNumberOfLevels(int new_levels, port::Mutex* mu);
+  static Status ReduceNumberOfLevels(const std::string& dbname,
+                                     const Options* options,
+                                     const EnvOptions& storage_options,
+                                     int new_levels);
 
   // Return the current version.
   Version* current() const { return current_; }
@@ -363,42 +379,6 @@ class VersionSet {
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   Iterator* MakeInputIterator(Compaction* c);
-
-  // Returns true iff some level needs a compaction because it has
-  // exceeded its target size.
-  bool NeedsSizeCompaction() const {
-    // In universal compaction case, this check doesn't really
-    // check the compaction condition, but checks num of files threshold
-    // only. We are not going to miss any compaction opportunity
-    // but it's likely that more compactions are scheduled but
-    // ending up with nothing to do. We can improve it later.
-    // TODO: improve this function to be accurate for universal
-    //       compactions.
-    int num_levels_to_check =
-        (options_->compaction_style != kCompactionStyleUniversal) ?
-            NumberLevels() - 1 : 1;
-    for (int i = 0; i < num_levels_to_check; i++) {
-      if (current_->compaction_score_[i] >= 1) {
-        return true;
-      }
-    }
-    return false;
-  }
-  // Returns true iff some level needs a compaction.
-  bool NeedsCompaction() const {
-    return ((current_->file_to_compact_ != nullptr) ||
-            NeedsSizeCompaction());
-  }
-
-  // Returns the maxmimum compaction score for levels 1 to max
-  double MaxCompactionScore() const {
-    return current_->max_compaction_score_;
-  }
-
-  // See field declaration
-  int MaxCompactionScoreLevel() const {
-    return current_->max_compaction_score_level_;
-  }
 
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<uint64_t>* live_list);

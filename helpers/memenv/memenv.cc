@@ -221,6 +221,11 @@ class WritableFileImpl : public WritableFile {
   FileState* file_;
 };
 
+class InMemoryDirectory : public Directory {
+ public:
+  virtual Status Fsync() { return Status::OK(); }
+};
+
 class InMemoryEnv : public EnvWrapper {
  public:
   explicit InMemoryEnv(Env* base_env) : EnvWrapper(base_env) { }
@@ -271,6 +276,12 @@ class InMemoryEnv : public EnvWrapper {
     file_map_[fname] = file;
 
     result->reset(new WritableFileImpl(file));
+    return Status::OK();
+  }
+
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) {
+    result->reset(new InMemoryDirectory());
     return Status::OK();
   }
 

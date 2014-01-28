@@ -293,14 +293,11 @@ class KeyConvertingIterator: public Iterator {
 
 class TableConstructor: public Constructor {
  public:
-  explicit TableConstructor(
-      const Comparator* cmp, bool convert_to_internal_key = false)
-      : Constructor(cmp),
-        convert_to_internal_key_(convert_to_internal_key)  {
-  }
-  ~TableConstructor() {
-    Reset();
-  }
+  explicit TableConstructor(const Comparator* cmp,
+                            bool convert_to_internal_key = false)
+      : Constructor(cmp), convert_to_internal_key_(convert_to_internal_key) {}
+  ~TableConstructor() { Reset(); }
+
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     Reset();
     sink_.reset(new StringSink());
@@ -329,14 +326,11 @@ class TableConstructor: public Constructor {
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
-    source_.reset(
-        new StringSource(sink_->contents(), uniq_id_,
-                         options.allow_mmap_reads));
-    unique_ptr<TableFactory> table_factory;
-    return options.table_factory->GetTableReader(options, soptions,
-                                                 std::move(source_),
-                                                 sink_->contents().size(),
-                                                 &table_reader_);
+    source_.reset(new StringSource(sink_->contents(), uniq_id_,
+                                   options.allow_mmap_reads));
+    return options.table_factory->GetTableReader(
+        options, soptions, std::move(source_), sink_->contents().size(),
+        &table_reader_);
   }
 
   virtual Iterator* NewIterator() const {
@@ -630,7 +624,7 @@ class Harness {
     internal_comparator_.reset(new InternalKeyComparator(options_.comparator));
     support_prev_ = true;
     only_support_prefix_seek_ = false;
-    BlockBasedTableFactory::TableOptions table_options;
+    BlockBasedTableOptions table_options;
     switch (args.type) {
       case BLOCK_BASED_TABLE_TEST:
         table_options.flush_block_policy_factory.reset(
@@ -1053,6 +1047,11 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
   options.block_cache = NewLRUCache(1024);
+
+  // Enable the cache for index/filter blocks
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
   KVMap kvmap;
 

@@ -761,6 +761,28 @@ bool Version::Unref() {
   return false;
 }
 
+bool Version::NeedsCompaction() const {
+  if (file_to_compact_ != nullptr) {
+    return true;
+  }
+  // In universal compaction case, this check doesn't really
+  // check the compaction condition, but checks num of files threshold
+  // only. We are not going to miss any compaction opportunity
+  // but it's likely that more compactions are scheduled but
+  // ending up with nothing to do. We can improve it later.
+  // TODO(sdong): improve this function to be accurate for universal
+  //              compactions.
+  int num_levels_to_check =
+    (vset_->options_->compaction_style != kCompactionStyleUniversal) ?
+    NumberLevels() - 1 : 1;
+  for (int i = 0; i < num_levels_to_check; i++) {
+    if (compaction_score_[i] >= 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool Version::OverlapInLevel(int level,
                              const Slice* smallest_user_key,
                              const Slice* largest_user_key) {
@@ -1418,6 +1440,7 @@ void VersionSet::AppendVersion(Version* v) {
 }
 
 Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
+                               Directory* db_directory,
                                bool new_descriptor_log) {
   mu->AssertHeld();
 
@@ -1545,6 +1568,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
         // we don't care about an error here, PurgeObsoleteFiles will take care
         // of it later
         env_->DeleteFile(DescriptorFileName(dbname_, old_manifest_file_number));
+      }
+      if (!options_->disableDataSync && db_directory != nullptr) {
+        db_directory->Fsync();
       }
     }
 
@@ -1760,6 +1786,78 @@ Status VersionSet::Recover() {
   }
 
   return s;
+}
+
+Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
+                                        const Options* options,
+                                        const EnvOptions& storage_options,
+                                        int new_levels) {
+  if (new_levels <= 1) {
+    return Status::InvalidArgument(
+        "Number of levels needs to be bigger than 1");
+  }
+
+  const InternalKeyComparator cmp(options->comparator);
+  TableCache tc(dbname, options, storage_options, 10);
+  VersionSet versions(dbname, options, storage_options, &tc, &cmp);
+  Status status;
+
+  status = versions.Recover();
+  if (!status.ok()) {
+    return status;
+  }
+
+  Version* current_version = versions.current();
+  int current_levels = current_version->NumberLevels();
+
+  if (current_levels <= new_levels) {
+    return Status::OK();
+  }
+
+  // Make sure there are file only on one level from
+  // (new_levels-1) to (current_levels-1)
+  int first_nonempty_level = -1;
+  int first_nonempty_level_filenum = 0;
+  for (int i = new_levels - 1; i < current_levels; i++) {
+    int file_num = current_version->NumLevelFiles(i);
+    if (file_num != 0) {
+      if (first_nonempty_level < 0) {
+        first_nonempty_level = i;
+        first_nonempty_level_filenum = file_num;
+      } else {
+        char msg[255];
+        snprintf(msg, sizeof(msg),
+                 "Found at least two levels containing files: "
+                 "[%d:%d],[%d:%d].\n",
+                 first_nonempty_level, first_nonempty_level_filenum, i,
+                 file_num);
+        return Status::InvalidArgument(msg);
+      }
+    }
+  }
+
+  std::vector<FileMetaData*>* old_files_list = current_version->files_;
+  // we need to allocate an array with the old number of levels size to
+  // avoid SIGSEGV in WriteSnapshot()
+  // however, all levels bigger or equal to new_levels will be empty
+  std::vector<FileMetaData*>* new_files_list =
+      new std::vector<FileMetaData*>[current_levels];
+  for (int i = 0; i < new_levels - 1; i++) {
+    new_files_list[i] = old_files_list[i];
+  }
+
+  if (first_nonempty_level > 0) {
+    new_files_list[new_levels - 1] = old_files_list[first_nonempty_level];
+  }
+
+  delete[] current_version->files_;
+  current_version->files_ = new_files_list;
+  current_version->num_levels_ = new_levels;
+
+  VersionEdit ve;
+  port::Mutex dummy_mutex;
+  MutexLock l(&dummy_mutex);
+  return versions.LogAndApply(&ve, &dummy_mutex, nullptr, true);
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,

@@ -8,7 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/coding.h"
+
 #include <algorithm>
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 
 namespace rocksdb {
 

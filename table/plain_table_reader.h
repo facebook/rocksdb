@@ -10,6 +10,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/plain_table_factory.h"
 
 namespace rocksdb {
@@ -38,7 +39,7 @@ using std::unordered_map;
 class PlainTableReader: public TableReader {
  public:
   static Status Open(const Options& options, const EnvOptions& soptions,
-                     unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+                     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table, const int bloom_num_bits,
                      double hash_table_ratio);
 
@@ -196,7 +197,7 @@ class PlainTableReader: public TableReader {
                    uint32_t& ret_offset);
 
   Slice GetPrefix(const Slice& target) {
-    assert(target.size() >= 8); // target is internal key
+    assert(target.size() >= 8);  // target is internal key
     return options_.prefix_extractor->Transform(
         Slice(target.data(), target.size() - 8));
   }

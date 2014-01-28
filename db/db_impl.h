@@ -11,6 +11,7 @@
 #include <atomic>
 #include <deque>
 #include <set>
+#include <utility>
 #include <vector>
 
 #include "db/dbformat.h"
@@ -65,8 +66,8 @@ class DBImpl : public DB {
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
   virtual bool GetProperty(const Slice& property, std::string* value);
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
-  virtual void CompactRange(const Slice* begin, const Slice* end,
-                            bool reduce_level = false, int target_level = -1);
+  virtual Status CompactRange(const Slice* begin, const Slice* end,
+                              bool reduce_level = false, int target_level = -1);
   virtual int NumberLevels();
   virtual int MaxMemCompactionLevel();
   virtual int Level0StopWriteTrigger();
@@ -91,17 +92,17 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity);
 
-  void RunManualCompaction(int input_level,
-                           int output_level,
-                           const Slice* begin,
-                           const Slice* end);
+  Status RunManualCompaction(int input_level,
+                             int output_level,
+                             const Slice* begin,
+                             const Slice* end);
 
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]
-  void TEST_CompactRange(int level,
-                         const Slice* begin,
-                         const Slice* end);
+  Status TEST_CompactRange(int level,
+                           const Slice* begin,
+                           const Slice* end);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable();
@@ -141,10 +142,10 @@ class DBImpl : public DB {
   // holds references to memtable, all immutable memtables and version
   struct SuperVersion {
     MemTable* mem;
-    MemTableList imm;
+    MemTableListVersion* imm;
     Version* current;
     std::atomic<uint32_t> refs;
-    // We need to_delete because during Cleanup(), imm.UnrefAll() returns
+    // We need to_delete because during Cleanup(), imm->Unref() returns
     // all memtables that we need to free through this vector. We then
     // delete all those memtables outside of mutex, during destruction
     autovector<MemTable*> to_delete;
@@ -162,7 +163,7 @@ class DBImpl : public DB {
     // that needs to be deleted in to_delete vector. Unrefing those
     // objects needs to be done in the mutex
     void Cleanup();
-    void Init(MemTable* new_mem, const MemTableList& new_imm,
+    void Init(MemTable* new_mem, MemTableListVersion* new_imm,
               Version* new_current);
   };
 
@@ -256,6 +257,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class TailingIterator;
   struct CompactionState;
   struct Writer;
 
@@ -357,7 +359,18 @@ class DBImpl : public DB {
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
   // hold the data set.
-  void ReFitLevel(int level, int target_level = -1);
+  Status ReFitLevel(int level, int target_level = -1);
+
+  // Returns the current SuperVersion number.
+  uint64_t CurrentVersionNumber() const;
+
+  // Returns a pair of iterators (mutable-only and immutable-only) used
+  // internally by TailingIterator and stores CurrentVersionNumber() in
+  // *superversion_number. These iterators are always up-to-date, i.e. can
+  // be used to read new data.
+  std::pair<Iterator*, Iterator*> GetTailingIteratorPair(
+    const ReadOptions& options,
+    uint64_t* superversion_number);
 
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
@@ -381,7 +394,14 @@ class DBImpl : public DB {
 
   SuperVersion* super_version_;
 
+  // An ordinal representing the current SuperVersion. Updated by
+  // InstallSuperVersion(), i.e. incremented every time super_version_
+  // changes.
+  std::atomic<uint64_t> super_version_number_;
+
   std::string host_name_;
+
+  std::unique_ptr<Directory> db_directory_;
 
   // Queue of writers.
   std::deque<Writer*> writers_;
@@ -412,6 +432,7 @@ class DBImpl : public DB {
     int input_level;
     int output_level;
     bool done;
+    Status status;
     bool in_progress;           // compaction request being processed?
     const InternalKey* begin;   // nullptr means beginning of key range
     const InternalKey* end;     // nullptr means end of key range

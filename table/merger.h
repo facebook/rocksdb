@@ -23,7 +23,8 @@ class Env;
 // key is present in K child iterators, it will be yielded K times.
 //
 // REQUIRES: n >= 0
-extern Iterator* NewMergingIterator(
-    Env* const env, const Comparator* comparator, Iterator** children, int n);
+extern Iterator* NewMergingIterator(Env* const env,
+                                    const Comparator* comparator,
+                                    Iterator** children, int n);
 
 }  // namespace rocksdb

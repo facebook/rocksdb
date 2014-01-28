@@ -11,6 +11,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/table_properties.h"
 #include "table/block_builder.h"
 
 namespace rocksdb {
