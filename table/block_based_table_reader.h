@@ -14,8 +14,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/table_properties.h"
-#include "rocksdb/table.h"
+#include "table/table_reader.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -62,14 +61,12 @@ class BlockBasedTable : public TableReader {
   // call one of the Seek methods on the iterator before using it).
   Iterator* NewIterator(const ReadOptions&) override;
 
-  Status Get(
-        const ReadOptions& readOptions,
-        const Slice& key,
-        void* handle_context,
-        bool (*result_handler)(void* handle_context, const Slice& k,
-                               const Slice& v, bool didIO),
-        void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
-    override;
+  Status Get(const ReadOptions& readOptions, const Slice& key,
+             void* handle_context,
+             bool (*result_handler)(void* handle_context, const Slice& k,
+                                    const Slice& v, bool didIO),
+             void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
+      override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -81,13 +78,13 @@ class BlockBasedTable : public TableReader {
 
   // Returns true if the block for the specified key is in cache.
   // REQUIRES: key is in this table.
-  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key) override;
+  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   void SetupForCompaction() override;
 
-  TableProperties& GetTableProperties() override;
+  const TableProperties& GetTableProperties() override;
 
   ~BlockBasedTable();
 

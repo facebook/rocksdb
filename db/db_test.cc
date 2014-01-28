@@ -21,7 +21,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/perf_context.h"
-#include "rocksdb/plain_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"

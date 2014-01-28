@@ -12,7 +12,7 @@
 #include "db/dbformat.h"
 #include "port/atomic_pointer.h"
 #include "table/block_based_table_factory.h"
-#include "rocksdb/plain_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -71,7 +71,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   Status s;
   if (!through_db) {
     env->NewWritableFile(file_name, &file, env_options);
-    tb = opts.table_factory->GetTableBuilder(opts, file.get(),
+    tb = opts.table_factory->NewTableBuilder(opts, file.get(),
                                              CompressionType::kNoCompression);
   } else {
     s = DB::Open(opts, dbname, &db);
@@ -102,7 +102,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     Status s = env->NewRandomAccessFile(file_name, &raf, env_options);
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
-    s = opts.table_factory->GetTableReader(opts, env_options, std::move(raf),
+    s = opts.table_factory->NewTableReader(opts, env_options, std::move(raf),
                                            file_size, &table_reader);
   }
 

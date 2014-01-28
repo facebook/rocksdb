@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/plain_table_factory.h"
+#include "table/plain_table_factory.h"
 
 #include <memory>
 #include <stdint.h>
@@ -12,19 +12,26 @@
 
 namespace rocksdb {
 
-Status PlainTableFactory::GetTableReader(const Options& options,
+Status PlainTableFactory::NewTableReader(const Options& options,
                                          const EnvOptions& soptions,
-                                         unique_ptr<RandomAccessFile> && file,
+                                         unique_ptr<RandomAccessFile>&& file,
                                          uint64_t file_size,
-                                         unique_ptr<TableReader>* table)
-     const {
+                                         unique_ptr<TableReader>* table) const {
   return PlainTableReader::Open(options, soptions, std::move(file), file_size,
-                                table, bloom_num_bits_, hash_table_ratio_);
+                                table, bloom_bits_per_key_, hash_table_ratio_);
 }
 
-TableBuilder* PlainTableFactory::GetTableBuilder(
+TableBuilder* PlainTableFactory::NewTableBuilder(
     const Options& options, WritableFile* file,
     CompressionType compression_type) const {
   return new PlainTableBuilder(options, file, user_key_len_);
 }
+
+extern TableFactory* NewPlainTableFactory(uint32_t user_key_len,
+                                          int bloom_bits_per_key,
+                                          double hash_table_ratio) {
+  return new PlainTableFactory(user_key_len, bloom_bits_per_key,
+                               hash_table_ratio);
+}
+
 }  // namespace rocksdb

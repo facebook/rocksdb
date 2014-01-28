@@ -16,10 +16,11 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
-#include "rocksdb/merge_operator.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
 

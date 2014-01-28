@@ -22,6 +22,8 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
+#include "table/table_builder.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -91,8 +93,6 @@ public:
       void (*mark_key_may_exist)(void*) = nullptr) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key) override;
-
-  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key) override;
 
   void SetupForCompaction() override;
 
@@ -294,11 +294,6 @@ Status SimpleTableReader::Get(
   s = iter->status();
   delete iter;
   return s;
-}
-
-bool SimpleTableReader::TEST_KeyInCache(const ReadOptions& options,
-                                        const Slice& key) {
-  return false;
 }
 
 uint64_t SimpleTableReader::ApproximateOffsetOf(const Slice& key) {
@@ -541,25 +536,24 @@ public:
   const char* Name() const override {
     return "SimpleTable";
   }
-  Status GetTableReader(const Options& options, const EnvOptions& soptions,
-                        unique_ptr<RandomAccessFile> && file,
-                        uint64_t file_size,
+  Status NewTableReader(const Options& options, const EnvOptions& soptions,
+                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const;
 
-  TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
+  TableBuilder* NewTableBuilder(const Options& options, WritableFile* file,
                                 CompressionType compression_type) const;
 };
 
-Status SimpleTableFactory::GetTableReader(
+Status SimpleTableFactory::NewTableReader(
     const Options& options, const EnvOptions& soptions,
-    unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
 
   return SimpleTableReader::Open(options, soptions, std::move(file), file_size,
                                  table_reader);
 }
 
-TableBuilder* SimpleTableFactory::GetTableBuilder(
+TableBuilder* SimpleTableFactory::NewTableBuilder(
     const Options& options, WritableFile* file,
     CompressionType compression_type) const {
   return new SimpleTableBuilder(options, file, compression_type);

@@ -48,9 +48,10 @@
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merger.h"
+#include "table/table_builder.h"
 #include "table/two_level_iterator.h"
-#include "util/autovector.h"
 #include "util/auto_roll_logger.h"
+#include "util/autovector.h"
 #include "util/build_version.h"
 #include "util/coding.h"
 #include "util/hash_skiplist_rep.h"
@@ -58,7 +59,6 @@
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
-#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -2138,7 +2138,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
         compact->compaction->enable_compression());
 
     compact->builder.reset(
-        GetTableBuilder(options_, compact->outfile.get(), compression_type));
+        NewTableBuilder(options_, compact->outfile.get(), compression_type));
   }
   LogFlush(options_.info_log);
   return s;

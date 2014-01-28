@@ -18,7 +18,7 @@
 
 namespace rocksdb {
 
-Status BlockBasedTableFactory::GetTableReader(
+Status BlockBasedTableFactory::NewTableReader(
     const Options& options, const EnvOptions& soptions,
     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
@@ -26,7 +26,7 @@ Status BlockBasedTableFactory::GetTableReader(
                                std::move(file), file_size, table_reader);
 }
 
-TableBuilder* BlockBasedTableFactory::GetTableBuilder(
+TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const Options& options, WritableFile* file,
     CompressionType compression_type) const {
   auto flush_block_policy_factory = 
@@ -61,6 +61,11 @@ TableBuilder* BlockBasedTableFactory::GetTableBuilder(
   }
 
   return table_builder;
+}
+
+TableFactory* NewBlockBasedTableFactory(
+    const BlockBasedTableOptions& table_options) {
+  return new BlockBasedTableFactory(table_options);
 }
 
 }  // namespace rocksdb

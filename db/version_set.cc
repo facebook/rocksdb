@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <climits>
 #include <stdio.h>
+
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -21,7 +22,7 @@
 #include "db/compaction.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/table.h"
+#include "table/table_reader.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"

@@ -15,13 +15,13 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/plain_table_factory.h"
 
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
+#include "table/plain_table_factory.h"
 
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
@@ -103,10 +103,10 @@ PlainTableReader::~PlainTableReader() {
 
 Status PlainTableReader::Open(const Options& options,
                               const EnvOptions& soptions,
-                              unique_ptr<RandomAccessFile> && file,
+                              unique_ptr<RandomAccessFile>&& file,
                               uint64_t file_size,
                               unique_ptr<TableReader>* table_reader,
-                              const int bloom_num_bits,
+                              const int bloom_bits_per_key,
                               double hash_table_ratio) {
   assert(options.allow_mmap_reads);
 
@@ -122,8 +122,9 @@ Status PlainTableReader::Open(const Options& options,
     return s;
   }
 
-  std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
-      soptions, file_size, bloom_num_bits, hash_table_ratio, table_properties));
+  std::unique_ptr<PlainTableReader> new_reader(
+      new PlainTableReader(soptions, file_size, bloom_bits_per_key,
+                           hash_table_ratio, table_properties));
   new_reader->file_ = std::move(file);
   new_reader->options_ = options;
 
@@ -554,11 +555,6 @@ Status PlainTableReader::Get(
     }
   }
   return Status::OK();
-}
-
-bool PlainTableReader::TEST_KeyInCache(const ReadOptions& options,
-                                       const Slice& key) {
-  return false;
 }
 
 uint64_t PlainTableReader::ApproximateOffsetOf(const Slice& key) {

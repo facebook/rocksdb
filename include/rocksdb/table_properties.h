@@ -1,23 +1,20 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
 #include <string>
 #include <unordered_map>
-
 #include "rocksdb/status.h"
 
 namespace rocksdb {
 
+// -- Table Properties
 // Other than basic table properties, each table may also have the user
 // collected properties.
 // The value of the user-collected properties are encoded as raw bytes --
 // users have to interprete these values by themselves.
-typedef
-  std::unordered_map<std::string, std::string>
-  UserCollectedProperties;
+typedef std::unordered_map<std::string, std::string> UserCollectedProperties;
 
 // TableProperties contains a bunch of read-only properties of its associated
 // table.
@@ -51,9 +48,8 @@ struct TableProperties {
 
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.
-  std::string ToString(
-      const std::string& prop_delim = "; ",
-      const std::string& kv_delim = "=") const;
+  std::string ToString(const std::string& prop_delim = "; ",
+                       const std::string& kv_delim = "=") const;
 };
 
 // table properties' human-readable names in the property block.
@@ -77,7 +73,7 @@ extern const std::string kPropertiesBlock;
 //  of callback functions that will be invoked during table building.
 class TablePropertiesCollector {
  public:
-  virtual ~TablePropertiesCollector() { }
+  virtual ~TablePropertiesCollector() {}
 
   // Add() will be called when a new key/value pair is inserted into the table.
   // @params key    the original key that is inserted into the table.

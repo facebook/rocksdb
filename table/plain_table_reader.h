@@ -7,11 +7,14 @@
 #include <memory>
 #include <vector>
 #include <stdint.h>
+
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/plain_table_factory.h"
+#include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
+#include "table/table_reader.h"
+#include "table/plain_table_factory.h"
 
 namespace rocksdb {
 
@@ -27,6 +30,7 @@ class DynamicBloom;
 
 using std::unique_ptr;
 using std::unordered_map;
+extern const uint32_t kPlainTableVariableLength;
 
 // Based on following output file format shown in plain_table_factory.h
 // When opening the output file, IndexedTableReader creates a hash table
@@ -40,8 +44,8 @@ class PlainTableReader: public TableReader {
  public:
   static Status Open(const Options& options, const EnvOptions& soptions,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-                     unique_ptr<TableReader>* table, const int bloom_num_bits,
-                     double hash_table_ratio);
+                     unique_ptr<TableReader>* table,
+                     const int bloom_bits_per_key, double hash_table_ratio);
 
   bool PrefixMayMatch(const Slice& internal_prefix);
 
@@ -54,16 +58,12 @@ class PlainTableReader: public TableReader {
 
   uint64_t ApproximateOffsetOf(const Slice& key);
 
-  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
-
   void SetupForCompaction();
 
-  TableProperties& GetTableProperties() {
-    return table_properties_;
-  }
+  const TableProperties& GetTableProperties() { return table_properties_; }
 
   PlainTableReader(const EnvOptions& storage_options, uint64_t file_size,
-                   int bloom_num_bits, double hash_table_ratio,
+                   int bloom_bits_per_key, double hash_table_ratio,
                    const TableProperties& table_properties);
   ~PlainTableReader();
 
@@ -104,7 +104,7 @@ class PlainTableReader: public TableReader {
   static const size_t kIndexIntervalForSamePrefixKeys = 16;
 
   bool IsFixedLength() const {
-    return user_key_len_ != PlainTableFactory::kVariableLength;
+    return user_key_len_ != kPlainTableVariableLength;
   }
 
   size_t GetFixedInternalKeyLength() const {

@@ -12,11 +12,13 @@
 #pragma once
 #include <string>
 #include <stdint.h>
+
 #include "db/dbformat.h"
-#include "rocksdb/env.h"
-#include "rocksdb/cache.h"
 #include "port/port.h"
-#include "rocksdb/table.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/env.h"
+#include "table/table_factory.h"
+#include "table/table_reader.h"
 
 namespace rocksdb {
 

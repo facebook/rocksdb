@@ -24,8 +24,7 @@ class VersionEdit;
 class TableBuilder;
 class WritableFile;
 
-
-extern TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
+extern TableBuilder* NewTableBuilder(const Options& options, WritableFile* file,
                                      CompressionType compression_type);
 
 // Build a Table file from the contents of *iter.  The generated file

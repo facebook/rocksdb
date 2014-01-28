@@ -7,7 +7,7 @@
 
 #include <map>
 
-#include "rocksdb/table_properties.h"
+#include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/format.h"
 #include "util/coding.h"

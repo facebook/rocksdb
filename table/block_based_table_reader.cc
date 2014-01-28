@@ -27,7 +27,6 @@
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
-#include "table/block_based_table_options.h"
 
 namespace rocksdb {
 
@@ -338,7 +337,7 @@ void BlockBasedTable::SetupForCompaction() {
   compaction_optimized_ = true;
 }
 
-TableProperties& BlockBasedTable::GetTableProperties() {
+const TableProperties& BlockBasedTable::GetTableProperties() {
   return rep_->table_properties;
 }
 

@@ -80,9 +80,8 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
   uint64_t file_size;
   table_options_.env->GetFileSize(file_path, &file_size);
   unique_ptr<TableFactory> table_factory;
-  s = table_options_.table_factory->GetTableReader(table_options_, soptions_,
-                                                  std::move(file_), file_size,
-                                                  &table_reader_);
+  s = table_options_.table_factory->NewTableReader(
+      table_options_, soptions_, std::move(file_), file_size, &table_reader_);
   return s;
 }
 

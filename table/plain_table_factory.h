@@ -8,6 +8,7 @@
 
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "table/table_factory.h"
 
 namespace rocksdb {
 
@@ -37,40 +38,35 @@ class TableBuilder;
 // |                                            |
 // |        ......                              |
 // +-----------------+--------------------------+
-// If user_key_length = kVariableLength, it means the key is variable length,
-// there will be an extra field for key size encoded before every key.
-class PlainTableFactory: public TableFactory {
-public:
-  ~PlainTableFactory() {
-  }
+// If user_key_length = kPlainTableVariableLength, it means the key is variable
+// length, there will be an extra field for key size encoded before every key.
+class PlainTableFactory : public TableFactory {
+ public:
+  ~PlainTableFactory() {}
   // user_key_size is the length of the user key. If it is set to be
-  // kVariableLength, then it means variable length. Otherwise, all the
-  // keys need to have the fix length of this value. bloom_num_bits is
+  // kPlainTableVariableLength, then it means variable length. Otherwise, all
+  // the keys need to have the fix length of this value. bloom_bits_per_key is
   // number of bits used for bloom filer per key. hash_table_ratio is
   // the desired utilization of the hash table used for prefix hashing.
   // hash_table_ratio = number of prefixes / #buckets in the hash table
-  explicit PlainTableFactory(uint32_t user_key_len = kVariableLength,
-                             int bloom_num_bits = 0,
-                             double hash_table_ratio = 0.75) :
-      user_key_len_(user_key_len), bloom_num_bits_(bloom_num_bits),
-      hash_table_ratio_(hash_table_ratio) {
-  }
-  const char* Name() const override {
-    return "PlainTable";
-  }
-  Status GetTableReader(const Options& options, const EnvOptions& soptions,
-                        unique_ptr<RandomAccessFile> && file,
-                        uint64_t file_size,
+  explicit PlainTableFactory(uint32_t user_key_len = kPlainTableVariableLength,
+                             int bloom_bits_per_key = 0,
+                             double hash_table_ratio = 0.75)
+      : user_key_len_(user_key_len),
+        bloom_bits_per_key_(bloom_bits_per_key),
+        hash_table_ratio_(hash_table_ratio) {}
+  const char* Name() const override { return "PlainTable"; }
+  Status NewTableReader(const Options& options, const EnvOptions& soptions,
+                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table) const override;
 
-  TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
-                                CompressionType compression_type) const
-                                    override;
+  TableBuilder* NewTableBuilder(const Options& options, WritableFile* file,
+                                CompressionType compression_type)
+      const override;
 
-  static const uint32_t kVariableLength = 0;
-private:
+ private:
   uint32_t user_key_len_;
-  int bloom_num_bits_;
+  int bloom_bits_per_key_;
   double hash_table_ratio_;
 };
 

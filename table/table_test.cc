@@ -20,19 +20,18 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
-#include "rocksdb/plain_table_factory.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
-#include "table/meta_blocks.h"
-#include "rocksdb/plain_table_factory.h"
+#include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
-#include "table/block.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
+#include "table/plain_table_factory.h"
 
 #include "util/random.h"
 #include "util/testharness.h"
@@ -303,9 +302,8 @@ class TableConstructor: public Constructor {
     Reset();
     sink_.reset(new StringSink());
     unique_ptr<TableBuilder> builder;
-    builder.reset(
-        options.table_factory->GetTableBuilder(options, sink_.get(),
-                                               options.compression));
+    builder.reset(options.table_factory->NewTableBuilder(options, sink_.get(),
+                                                         options.compression));
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -329,7 +327,7 @@ class TableConstructor: public Constructor {
     uniq_id_ = cur_uniq_id_++;
     source_.reset(new StringSource(sink_->contents(), uniq_id_,
                                    options.allow_mmap_reads));
-    return options.table_factory->GetTableReader(
+    return options.table_factory->NewTableReader(
         options, soptions, std::move(source_), sink_->contents().size(),
         &table_reader_);
   }
@@ -351,10 +349,9 @@ class TableConstructor: public Constructor {
     source_.reset(
         new StringSource(sink_->contents(), uniq_id_,
                          options.allow_mmap_reads));
-    return options.table_factory->GetTableReader(options, soptions,
-                                                 std::move(source_),
-                                                 sink_->contents().size(),
-                                                 &table_reader_);
+    return options.table_factory->NewTableReader(
+        options, soptions, std::move(source_), sink_->contents().size(),
+        &table_reader_);
   }
 
   virtual TableReader* table_reader() {
@@ -1210,8 +1207,9 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   ASSERT_OK(iter->status());
 
   ASSERT_OK(c.Reopen(opt));
+  auto table_reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
   for (const std::string& key : keys) {
-    ASSERT_TRUE(c.table_reader()->TEST_KeyInCache(ReadOptions(), key));
+    ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
 }
 
@@ -1220,7 +1218,7 @@ TEST(PlainTableTest, BasicPlainTableProperties) {
   PlainTableFactory factory(8, 8, 0);
   StringSink sink;
   std::unique_ptr<TableBuilder> builder(
-      factory.GetTableBuilder(Options(), &sink, kNoCompression));
+      factory.NewTableBuilder(Options(), &sink, kNoCompression));
 
   for (char c = 'a'; c <= 'z'; ++c) {
     std::string key(16, c);

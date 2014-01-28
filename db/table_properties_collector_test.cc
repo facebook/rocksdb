@@ -7,14 +7,14 @@
 #include <memory>
 #include <string>
 
-#include "db/dbformat.h"
 #include "db/db_impl.h"
+#include "db/dbformat.h"
 #include "db/table_properties_collector.h"
-#include "rocksdb/table_properties.h"
 #include "rocksdb/table.h"
-#include "rocksdb/plain_table_factory.h"
 #include "table/block_based_table_factory.h"
 #include "table/meta_blocks.h"
+#include "table/plain_table_factory.h"
+#include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -88,9 +88,8 @@ void MakeBuilder(
     std::unique_ptr<FakeWritableFile>* writable,
     std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
-  builder->reset(
-      options.table_factory->GetTableBuilder(options, writable->get(),
-                                             options.compression));
+  builder->reset(options.table_factory->NewTableBuilder(
+      options, writable->get(), options.compression));
 }
 
 // Collects keys that starts with "A" in a table.

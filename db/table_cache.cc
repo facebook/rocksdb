@@ -13,7 +13,7 @@
 #include "db/version_edit.h"
 
 #include "rocksdb/statistics.h"
-#include "rocksdb/table.h"
+#include "table/table_reader.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
@@ -83,9 +83,8 @@ Status TableCache::FindTable(const EnvOptions& toptions,
         file->Hint(RandomAccessFile::RANDOM);
       }
       StopWatch sw(env_, options_->statistics.get(), TABLE_OPEN_IO_MICROS);
-      s = options_->table_factory->GetTableReader(*options_, toptions,
-                                                  std::move(file), file_size,
-                                                  &table_reader);
+      s = options_->table_factory->NewTableReader(
+          *options_, toptions, std::move(file), file_size, &table_reader);
     }
 
     if (!s.ok()) {

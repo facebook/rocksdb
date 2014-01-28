@@ -12,7 +12,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table.h"
+#include "table/table_builder.h"
 
 namespace rocksdb {
 
