@@ -188,8 +188,8 @@ class BackupEngineImpl : public BackupEngine {
   static const size_t copy_file_buffer_size_ = 5 * 1024 * 1024LL; // 5MB
 };
 
-BackupEngine* CreateNewBackupEngine(Env* db_env,
-                                    const BackupableDBOptions& options) {
+BackupEngine* BackupEngine::NewBackupEngine(
+    Env* db_env, const BackupableDBOptions& options) {
   return new BackupEngineImpl(db_env, options);
 }
 

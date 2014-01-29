@@ -85,6 +85,9 @@ class BackupEngine {
  public:
   virtual ~BackupEngine() {}
 
+  static BackupEngine* NewBackupEngine(Env* db_env,
+                                       const BackupableDBOptions& options);
+
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false) = 0;
   virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
   virtual Status DeleteBackup(BackupID backup_id) = 0;
@@ -99,9 +102,6 @@ class BackupEngine {
 
   virtual void DeleteBackupsNewerThan(uint64_t sequence_number) = 0;
 };
-
-extern BackupEngine* CreateNewBackupEngine(Env* db_env,
-                                           const BackupableDBOptions& options);
 
 // Stack your DB with BackupableDB to be able to backup the DB
 class BackupableDB : public StackableDB {
