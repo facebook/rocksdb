@@ -74,7 +74,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   // Make a set of all of the live *.sst files
   std::set<uint64_t> live;
-  default_cfd_->current->AddLiveFiles(&live);
+  default_cfd_->current()->AddLiveFiles(&live);
 
   ret.clear();
   ret.reserve(live.size() + 2); //*.sst + CURRENT + MANIFEST

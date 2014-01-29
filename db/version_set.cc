@@ -1390,7 +1390,7 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
 
 VersionSet::~VersionSet() {
   for (auto cfd : *column_family_set_) {
-    cfd->current->Unref();
+    cfd->current()->Unref();
   }
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
@@ -1405,20 +1405,21 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
   // Make "v" current
   assert(v->refs_ == 0);
-  assert(v != column_family_data->current);
-  if (column_family_data->current != nullptr) {
-    assert(column_family_data->current->refs_ > 0);
-    column_family_data->current->Unref();
+  Version* current = column_family_data->current();
+  assert(v != current);
+  if (current != nullptr) {
+    assert(current->refs_ > 0);
+    current->Unref();
   }
-  column_family_data->current = v;
+  column_family_data->SetCurrent(v);
   need_slowdown_for_num_level0_files_ =
       (options_->level0_slowdown_writes_trigger >= 0 &&
        v->NumLevelFiles(0) >= options_->level0_slowdown_writes_trigger);
   v->Ref();
 
   // Append to linked list
-  v->prev_ = column_family_data->dummy_versions->prev_;
-  v->next_ = column_family_data->dummy_versions;
+  v->prev_ = column_family_data->dummy_versions()->prev_;
+  v->next_ = column_family_data->dummy_versions();
   v->prev_->next_ = v;
   v->next_->prev_ = v;
 }
@@ -1441,7 +1442,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
   std::vector<VersionEdit*> batch_edits;
   Version* v = new Version(this, current_version_number_++);
-  Builder builder(this, column_family_data->current);
+  Builder builder(this, column_family_data->current());
 
   // process all requests in the queue
   ManifestWriter* last_writer = &w;
@@ -1567,7 +1568,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     manifest_file_size_ = new_manifest_file_size;
     AppendVersion(column_family_data, v);
     log_number_ = edit->log_number_;
-    column_family_data->log_number = edit->log_number_;
+    column_family_data->SetLogNumber(edit->log_number_);
     prev_log_number_ = edit->prev_log_number_;
 
   } else {
@@ -1676,7 +1677,7 @@ Status VersionSet::Recover(
   } else {
     ColumnFamilyData* default_cfd =
         CreateColumnFamily(default_cf_iter->second, &default_cf_edit);
-    builders.insert({0, new Builder(this, default_cfd->current)});
+    builders.insert({0, new Builder(this, default_cfd->current())});
   }
 
   {
@@ -1722,7 +1723,7 @@ Status VersionSet::Recover(
           ColumnFamilyData* new_cfd =
               CreateColumnFamily(cf_options->second, &edit);
           builders.insert(
-              {edit.column_family_, new Builder(this, new_cfd->current)});
+              {edit.column_family_, new Builder(this, new_cfd->current())});
         }
       } else if (edit.is_column_family_drop_) {
         if (cf_in_builders) {
@@ -1748,14 +1749,14 @@ Status VersionSet::Recover(
         auto cfd = column_family_set_->GetColumnFamily(edit.column_family_);
         // this should never happen since cf_in_builders is true
         assert(cfd != nullptr);
-        if (edit.max_level_ >= cfd->current->NumberLevels()) {
+        if (edit.max_level_ >= cfd->current()->NumberLevels()) {
           s = Status::InvalidArgument(
               "db has more levels than options.num_levels");
           break;
         }
 
         if (edit.has_log_number_) {
-          cfd->log_number = edit.log_number_;
+          cfd->SetLogNumber(edit.log_number_);
         }
 
         // if it is not column family add or column family drop,
@@ -1817,7 +1818,7 @@ Status VersionSet::Recover(
   if (s.ok()) {
     for (auto cfd : *column_family_set_) {
       Version* v = new Version(this, current_version_number_++);
-      builders[cfd->id]->SaveTo(v);
+      builders[cfd->GetID()]->SaveTo(v);
 
       // Install recovered version
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
@@ -1846,7 +1847,7 @@ Status VersionSet::Recover(
 
     for (auto cfd : *column_family_set_) {
       Log(options_->info_log, "Column family \"%s\", log number is %lu\n",
-          cfd->name.c_str(), cfd->log_number);
+          cfd->GetName().c_str(), cfd->GetLogNumber());
     }
   }
 
@@ -1936,7 +1937,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   Version* current_version =
-      versions.GetColumnFamilySet()->GetDefault()->current;
+      versions.GetColumnFamilySet()->GetDefault()->current();
   int current_levels = current_version->NumberLevels();
 
   if (current_levels <= new_levels) {
@@ -2009,7 +2010,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   uint64_t prev_log_number = 0;
   int count = 0;
   // TODO works only for default column family currently
-  VersionSet::Builder builder(this, column_family_set_->GetDefault()->current);
+  VersionSet::Builder builder(this,
+                              column_family_set_->GetDefault()->current());
 
   {
     VersionSet::LogReporter reporter;
@@ -2120,11 +2122,11 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     {
       // Store column family info
       VersionEdit edit;
-      if (cfd->id != 0) {
+      if (cfd->GetID() != 0) {
         // default column family is always there,
         // no need to explicitly write it
-        edit.AddColumnFamily(cfd->name);
-        edit.SetColumnFamily(cfd->id);
+        edit.AddColumnFamily(cfd->GetName());
+        edit.SetColumnFamily(cfd->GetID());
         std::string record;
         edit.EncodeTo(&record);
         Status s = log->AddRecord(record);
@@ -2137,10 +2139,10 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     {
       // Save files
       VersionEdit edit;
-      edit.SetColumnFamily(cfd->id);
+      edit.SetColumnFamily(cfd->GetID());
 
       for (int level = 0; level < NumberLevels(); level++) {
-        for (const auto& f : cfd->current->files_[level]) {
+        for (const auto& f : cfd->current()->files_[level]) {
           edit.AddFile(level,
                        f->number,
                        f->file_size,
@@ -2150,7 +2152,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
                        f->largest_seqno);
         }
       }
-      edit.SetLogNumber(cfd->log_number);
+      edit.SetLogNumber(cfd->GetLogNumber());
       std::string record;
       edit.EncodeTo(&record);
       Status s = log->AddRecord(record);
@@ -2235,7 +2237,8 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
   // pre-calculate space requirement
   int64_t total_files = 0;
   for (auto cfd : *column_family_set_) {
-    for (Version* v = cfd->dummy_versions->next_; v != cfd->dummy_versions;
+    Version* dummy_versions = cfd->dummy_versions();
+    for (Version* v = dummy_versions->next_; v != dummy_versions;
          v = v->next_) {
       for (int level = 0; level < v->NumberLevels(); level++) {
         total_files += v->files_[level].size();
@@ -2247,7 +2250,8 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
   live_list->reserve(live_list->size() + total_files);
 
   for (auto cfd : *column_family_set_) {
-    for (Version* v = cfd->dummy_versions->next_; v != cfd->dummy_versions;
+    Version* dummy_versions = cfd->dummy_versions();
+    for (Version* v = dummy_versions->next_; v != dummy_versions;
          v = v->next_) {
       for (int level = 0; level < v->NumberLevels(); level++) {
         for (const auto& f : v->files_[level]) {
@@ -2260,7 +2264,7 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
 
 Compaction* VersionSet::PickCompaction() {
   // TODO this only works for default column family now
-  Version* version = column_family_set_->GetDefault()->current;
+  Version* version = column_family_set_->GetDefault()->current();
   return compaction_picker_->PickCompaction(version);
 }
 
@@ -2269,7 +2273,7 @@ Compaction* VersionSet::CompactRange(int input_level, int output_level,
                                      const InternalKey* end,
                                      InternalKey** compaction_end) {
   // TODO this only works for default column family now
-  Version* version = column_family_set_->GetDefault()->current;
+  Version* version = column_family_set_->GetDefault()->current();
   return compaction_picker_->CompactRange(version, input_level, output_level,
                                           begin, end, compaction_end);
 }
@@ -2321,7 +2325,7 @@ uint64_t VersionSet::MaxFileSizeForLevel(int level) {
 bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
 #ifndef NDEBUG
   // TODO this only works for default column family now
-  Version* version = column_family_set_->GetDefault()->current;
+  Version* version = column_family_set_->GetDefault()->current();
   if (c->input_version() != version) {
     Log(options_->info_log, "VerifyCompactionFileConsistency version mismatch");
   }
@@ -2374,7 +2378,7 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
                                       FileMetaData* meta,
                                       ColumnFamilyData** cfd) {
   for (auto cfd_iter : *column_family_set_) {
-    Version* version = cfd_iter->current;
+    Version* version = cfd_iter->current();
     for (int level = 0; level < version->NumberLevels(); level++) {
       for (const auto& file : version->files_[level]) {
         if (file->number == number) {
@@ -2392,7 +2396,7 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
 void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   for (auto cfd : *column_family_set_) {
     for (int level = 0; level < NumberLevels(); level++) {
-      for (const auto& file : cfd->current->files_[level]) {
+      for (const auto& file : cfd->current()->files_[level]) {
         LiveFileMetaData filemetadata;
         filemetadata.name = TableFileName("", file->number);
         filemetadata.level = level;

@@ -62,45 +62,59 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
 ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* dummy_versions,
                                    const ColumnFamilyOptions& options)
-    : id(id),
-      name(name),
-      dummy_versions(dummy_versions),
-      current(nullptr),
-      options(options),
-      mem(nullptr),
-      imm(options.min_write_buffer_number_to_merge),
-      super_version(nullptr),
-      log_number(0) {}
+    : id_(id),
+      name_(name),
+      dummy_versions_(dummy_versions),
+      current_(nullptr),
+      options_(options),
+      mem_(nullptr),
+      imm_(options.min_write_buffer_number_to_merge),
+      super_version_(nullptr),
+      super_version_number_(0),
+      log_number_(0) {}
 
 ColumnFamilyData::~ColumnFamilyData() {
-  if (super_version != nullptr) {
+  if (super_version_ != nullptr) {
     bool is_last_reference __attribute__((unused));
-    is_last_reference = super_version->Unref();
+    is_last_reference = super_version_->Unref();
     assert(is_last_reference);
-    super_version->Cleanup();
-    delete super_version;
+    super_version_->Cleanup();
+    delete super_version_;
   }
   // List must be empty
-  assert(dummy_versions->next_ == dummy_versions);
-  delete dummy_versions;
+  assert(dummy_versions_->next_ == dummy_versions_);
+  delete dummy_versions_;
 
-  if (mem != nullptr) {
-    delete mem->Unref();
+  if (mem_ != nullptr) {
+    delete mem_->Unref();
   }
   std::vector<MemTable*> to_delete;
-  imm.current()->Unref(&to_delete);
+  imm_.current()->Unref(&to_delete);
   for (MemTable* m : to_delete) {
     delete m;
   }
 }
 
 void ColumnFamilyData::CreateNewMemtable() {
-  assert(current != nullptr);
-  if (mem != nullptr) {
-    delete mem->Unref();
+  assert(current_ != nullptr);
+  if (mem_ != nullptr) {
+    delete mem_->Unref();
   }
-  mem = new MemTable(current->vset_->icmp_, options);
-  mem->Ref();
+  mem_ = new MemTable(current_->vset_->icmp_, options_);
+  mem_->Ref();
+}
+
+SuperVersion* ColumnFamilyData::InstallSuperVersion(
+    SuperVersion* new_superversion) {
+  new_superversion->Init(mem_, imm_.current(), current_);
+  SuperVersion* old_superversion = super_version_;
+  super_version_ = new_superversion;
+  ++super_version_number_;
+  if (old_superversion != nullptr && old_superversion->Unref()) {
+    old_superversion->Cleanup();
+    return old_superversion;  // will let caller delete outside of mutex
+  }
+  return nullptr;
 }
 
 ColumnFamilySet::ColumnFamilySet() : max_column_family_(0) {}
@@ -162,8 +176,8 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
 void ColumnFamilySet::DropColumnFamily(uint32_t id) {
   auto cfd = column_family_data_.find(id);
   assert(cfd != column_family_data_.end());
-  column_families_.erase(cfd->second->name);
-  cfd->second->current->Unref();
+  column_families_.erase(cfd->second->GetName());
+  cfd->second->current()->Unref();
   droppped_column_families_.push_back(cfd->second);
   column_family_data_.erase(cfd);
 }
@@ -175,8 +189,8 @@ MemTable* ColumnFamilyMemTablesImpl::GetMemTable(uint32_t column_family_id) {
   // API change in WriteBatch::Handler, which is a public API
   assert(cfd != nullptr);
 
-  if (log_number_ == 0 || log_number_ >= cfd->log_number) {
-    return cfd->mem;
+  if (log_number_ == 0 || log_number_ >= cfd->GetLogNumber()) {
+    return cfd->mem();
   } else {
     return nullptr;
   }

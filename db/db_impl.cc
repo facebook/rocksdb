@@ -267,7 +267,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
       logfile_number_(0),
-      super_version_number_(0),
       tmp_batch_(),
       bg_compaction_scheduled_(0),
       bg_manual_only_(0),
@@ -331,7 +330,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish
-  if (flush_on_destroy_ && default_cfd_->mem->GetFirstSequenceNumber() != 0) {
+  if (flush_on_destroy_ && default_cfd_->mem()->GetFirstSequenceNumber() != 0) {
     FlushMemTable(FlushOptions());
   }
   mutex_.Lock();
@@ -930,8 +929,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
   std::unordered_map<int, VersionEdit> version_edits;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     VersionEdit edit;
-    edit.SetColumnFamily(cfd->id);
-    version_edits.insert({cfd->id, edit});
+    edit.SetColumnFamily(cfd->GetID());
+    version_edits.insert({cfd->GetID(), edit});
   }
 
   // Open the log file
@@ -991,12 +990,12 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
 
     if (!read_only) {
       for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->mem->ApproximateMemoryUsage() >
-            cfd->options.write_buffer_size) {
-          auto iter = version_edits.find(cfd->id);
+        if (cfd->mem()->ApproximateMemoryUsage() >
+            cfd->options()->write_buffer_size) {
+          auto iter = version_edits.find(cfd->GetID());
           assert(iter != version_edits.end());
           VersionEdit* edit = &iter->second;
-          status = WriteLevel0TableForRecovery(cfd->mem, edit);
+          status = WriteLevel0TableForRecovery(cfd->mem(), edit);
           // we still want to clear the memtable, even if the recovery failed
           cfd->CreateNewMemtable();
           if (!status.ok()) {
@@ -1011,12 +1010,12 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
 
   if (!read_only) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      auto iter = version_edits.find(cfd->id);
+      auto iter = version_edits.find(cfd->GetID());
       assert(iter != version_edits.end());
       VersionEdit* edit = &iter->second;
 
       // flush the final memtable
-      status = WriteLevel0TableForRecovery(cfd->mem, edit);
+      status = WriteLevel0TableForRecovery(cfd->mem(), edit);
       // we still want to clear the memtable, even if the recovery failed
       cfd->CreateNewMemtable();
       if (!status.ok()) {
@@ -1104,7 +1103,7 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mems[0]->GetFirstSequenceNumber();
-  Version* base = default_cfd_->current;
+  Version* base = default_cfd_->current();
   base->Ref();          // it is likely that we do not need this reference
   Status s;
   {
@@ -1141,7 +1140,7 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
 
 
   // re-acquire the most current version
-  base = default_cfd_->current;
+  base = default_cfd_->current();
 
   // There could be multiple threads writing to its own level-0 file.
   // The pending_outputs cannot be cleared here, otherwise this newly
@@ -1182,9 +1181,9 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
 Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
                                          DeletionState& deletion_state) {
   mutex_.AssertHeld();
-  assert(default_cfd_->imm.size() != 0);
+  assert(default_cfd_->imm()->size() != 0);
 
-  if (!default_cfd_->imm.IsFlushPending()) {
+  if (!default_cfd_->imm()->IsFlushPending()) {
     Log(options_.info_log, "FlushMemTableToOutputFile already in progress");
     Status s = Status::IOError("FlushMemTableToOutputFile already in progress");
     return s;
@@ -1193,7 +1192,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   // Save the contents of the earliest memtable as a new Table
   uint64_t file_number;
   std::vector<MemTable*> mems;
-  default_cfd_->imm.PickMemtablesToFlush(&mems);
+  default_cfd_->imm()->PickMemtablesToFlush(&mems);
   if (mems.empty()) {
     Log(options_.info_log, "Nothing in memstore to flush");
     Status s = Status::IOError("Nothing in memstore to flush");
@@ -1228,7 +1227,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   }
 
   // Replace immutable memtable with the generated Table
-  s = default_cfd_->imm.InstallMemtableFlushResults(
+  s = default_cfd_->imm()->InstallMemtableFlushResults(
       default_cfd_, mems, versions_.get(), s, &mutex_, options_.info_log.get(),
       file_number, pending_outputs_, &deletion_state.memtables_to_free,
       db_directory_.get());
@@ -1264,7 +1263,7 @@ Status DBImpl::CompactRange(const ColumnFamilyHandle& column_family,
   int max_level_with_files = 1;
   {
     MutexLock l(&mutex_);
-    Version* base = default_cfd_->current;
+    Version* base = default_cfd_->current();
     for (int level = 1; level < NumberLevels(); level++) {
       if (base->OverlapInLevel(level, begin, end)) {
         max_level_with_files = level;
@@ -1297,7 +1296,7 @@ Status DBImpl::CompactRange(const ColumnFamilyHandle& column_family,
 // return the same level if it cannot be moved
 int DBImpl::FindMinimumEmptyLevelFitting(int level) {
   mutex_.AssertHeld();
-  Version* current = default_cfd_->current;
+  Version* current = default_cfd_->current();
   int minimum_level = level;
   for (int i = level - 1; i > 0; --i) {
     // stop if level i is not empty
@@ -1348,10 +1347,10 @@ Status DBImpl::ReFitLevel(int level, int target_level) {
   Status status;
   if (to_level < level) {
     Log(options_.info_log, "Before refitting:\n%s",
-        default_cfd_->current->DebugString().data());
+        default_cfd_->current()->DebugString().data());
 
     VersionEdit edit;
-    for (const auto& f : default_cfd_->current->files_[level]) {
+    for (const auto& f : default_cfd_->current()->files_[level]) {
       edit.DeleteFile(level, f->number);
       edit.AddFile(to_level, f->number, f->file_size, f->smallest, f->largest,
                    f->smallest_seqno, f->largest_seqno);
@@ -1361,14 +1360,14 @@ Status DBImpl::ReFitLevel(int level, int target_level) {
 
     status = versions_->LogAndApply(default_cfd_, &edit, &mutex_,
                                     db_directory_.get());
-    superversion_to_free = InstallSuperVersion(default_cfd_, new_superversion);
+    superversion_to_free = default_cfd_->InstallSuperVersion(new_superversion);
     new_superversion = nullptr;
 
     Log(options_.info_log, "LogAndApply: %s\n", status.ToString().data());
 
     if (status.ok()) {
       Log(options_.info_log, "After refitting:\n%s",
-          default_cfd_->current->DebugString().data());
+          default_cfd_->current()->DebugString().data());
     }
   }
 
@@ -1394,7 +1393,7 @@ int DBImpl::Level0StopWriteTrigger(const ColumnFamilyHandle& column_family) {
 }
 
 uint64_t DBImpl::CurrentVersionNumber() const {
-  return super_version_number_.load();
+  return default_cfd_->GetSuperVersionNumber();
 }
 
 Status DBImpl::Flush(const FlushOptions& options,
@@ -1688,10 +1687,10 @@ Status DBImpl::WaitForFlushMemTable() {
   Status s;
   // Wait until the compaction completes
   MutexLock l(&mutex_);
-  while (default_cfd_->imm.size() > 0 && bg_error_.ok()) {
+  while (default_cfd_->imm()->size() > 0 && bg_error_.ok()) {
     bg_cv_.Wait();
   }
-  if (default_cfd_->imm.size() != 0) {
+  if (default_cfd_->imm()->size() != 0) {
     s = bg_error_;
   }
   return s;
@@ -1727,7 +1726,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   } else if (shutting_down_.Acquire_Load()) {
     // DB is being deleted; no more background compactions
   } else {
-    bool is_flush_pending = default_cfd_->imm.IsFlushPending();
+    bool is_flush_pending = default_cfd_->imm()->IsFlushPending();
     if (is_flush_pending &&
         (bg_flush_scheduled_ < options_.max_background_flushes)) {
       // memtable flush needed
@@ -1739,7 +1738,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // flush, but the HIGH pool is not enabled). Do it only if
     // max_background_compactions hasn't been reached and, in case
     // bg_manual_only_ > 0, if it's a manual compaction.
-    if ((manual_compaction_ || default_cfd_->current->NeedsCompaction() ||
+    if ((manual_compaction_ || default_cfd_->current()->NeedsCompaction() ||
          (is_flush_pending && (options_.max_background_flushes <= 0))) &&
         bg_compaction_scheduled_ < options_.max_background_compactions &&
         (!bg_manual_only_ || manual_compaction_)) {
@@ -1761,7 +1760,7 @@ void DBImpl::BGWorkCompaction(void* db) {
 Status DBImpl::BackgroundFlush(bool* madeProgress,
                                DeletionState& deletion_state) {
   Status stat;
-  while (stat.ok() && default_cfd_->imm.IsFlushPending()) {
+  while (stat.ok() && default_cfd_->imm()->IsFlushPending()) {
     Log(options_.info_log,
         "BackgroundCallFlush doing FlushMemTableToOutputFile, flush slots available %d",
         options_.max_background_flushes - bg_flush_scheduled_);
@@ -1818,7 +1817,7 @@ void DBImpl::TEST_PurgeObsoleteteWAL() {
 
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   MutexLock l(&mutex_);
-  return default_cfd_->current->NumLevelBytes(0);
+  return default_cfd_->current()->NumLevelBytes(0);
 }
 
 void DBImpl::BackgroundCallCompaction() {
@@ -1881,7 +1880,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   mutex_.AssertHeld();
 
   // TODO: remove memtable flush from formal compaction
-  while (default_cfd_->imm.IsFlushPending()) {
+  while (default_cfd_->imm()->IsFlushPending()) {
     Log(options_.info_log,
         "BackgroundCompaction doing FlushMemTableToOutputFile, compaction slots "
         "available %d",
@@ -1940,7 +1939,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
         static_cast<unsigned long long>(f->number), c->level() + 1,
         static_cast<unsigned long long>(f->file_size),
-        status.ToString().c_str(), default_cfd_->current->LevelSummary(&tmp));
+        status.ToString().c_str(), default_cfd_->current()->LevelSummary(&tmp));
     versions_->ReleaseCompactionFiles(c.get(), status);
     *madeProgress = true;
   } else {
@@ -2287,11 +2286,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
     // Prioritize immutable compaction work
     // TODO: remove memtable flush from normal compaction work
-    if (default_cfd_->imm.imm_flush_needed.NoBarrier_Load() != nullptr) {
+    if (default_cfd_->imm()->imm_flush_needed.NoBarrier_Load() != nullptr) {
       const uint64_t imm_start = env_->NowMicros();
       LogFlush(options_.info_log);
       mutex_.Lock();
-      if (default_cfd_->imm.IsFlushPending()) {
+      if (default_cfd_->imm()->IsFlushPending()) {
         FlushMemTableToOutputFile(nullptr, deletion_state);
         bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
       }
@@ -2669,11 +2668,11 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   // Collect together all needed child iterators for mem
   mutex_.Lock();
   *latest_snapshot = versions_->LastSequence();
-  mutable_mem = default_cfd_->mem;
+  mutable_mem = default_cfd_->mem();
   mutable_mem->Ref();
-  immutable_mems = default_cfd_->imm.current();
+  immutable_mems = default_cfd_->imm()->current();
   immutable_mems->Ref();
-  version = default_cfd_->current;
+  version = default_cfd_->current();
   version->Ref();
   mutex_.Unlock();
 
@@ -2710,11 +2709,11 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
 
   // get all child iterators and bump their refcounts under lock
   mutex_.Lock();
-  mutable_mem = default_cfd_->mem;
+  mutable_mem = default_cfd_->mem();
   mutable_mem->Ref();
-  immutable_mems = default_cfd_->imm.current();
+  immutable_mems = default_cfd_->imm()->current();
   immutable_mems->Ref();
-  version = default_cfd_->current;
+  version = default_cfd_->current();
   version->Ref();
   if (superversion_number != nullptr) {
     *superversion_number = CurrentVersionNumber();
@@ -2756,7 +2755,7 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
   MutexLock l(&mutex_);
-  return default_cfd_->current->MaxNextLevelOverlappingBytes();
+  return default_cfd_->current()->MaxNextLevelOverlappingBytes();
 }
 
 Status DBImpl::Get(const ReadOptions& options,
@@ -2777,11 +2776,12 @@ Status DBImpl::Get(const ReadOptions& options,
 // for superversion_to_free
 void DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
                                  DeletionState& deletion_state) {
+  mutex_.AssertHeld();
   // if new_superversion == nullptr, it means somebody already used it
   SuperVersion* new_superversion =
     (deletion_state.new_superversion != nullptr) ?
     deletion_state.new_superversion : new SuperVersion();
-  SuperVersion* old_superversion = InstallSuperVersion(cfd, new_superversion);
+  SuperVersion* old_superversion = cfd->InstallSuperVersion(new_superversion);
   deletion_state.new_superversion = nullptr;
   if (deletion_state.superversion_to_free != nullptr) {
     // somebody already put it there
@@ -2789,23 +2789,6 @@ void DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
   } else {
     deletion_state.superversion_to_free = old_superversion;
   }
-}
-
-SuperVersion* DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
-                                          SuperVersion* new_superversion) {
-  mutex_.AssertHeld();
-  new_superversion->Init(cfd->mem, cfd->imm.current(), cfd->current);
-  SuperVersion* old_superversion = cfd->super_version;
-  cfd->super_version = new_superversion;
-  if (cfd->id == 0) {
-    // TODO this is only for default column family for now
-    ++super_version_number_;
-  }
-  if (old_superversion != nullptr && old_superversion->Unref()) {
-    old_superversion->Cleanup();
-    return old_superversion; // will let caller delete outside of mutex
-  }
-  return nullptr;
 }
 
 Status DBImpl::GetImpl(const ReadOptions& options,
@@ -2819,7 +2802,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // this is asserting because client calling Get() with undefined
   // ColumnFamilyHandle is undefined behavior.
   assert(cfd != nullptr);
-  SuperVersion* get_version = cfd->super_version->Ref();
+  SuperVersion* get_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
 
   SequenceNumber snapshot;
@@ -2899,9 +2882,9 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   // TODO only works for default column family
-  MemTable* mem = default_cfd_->mem;
-  MemTableListVersion* imm = default_cfd_->imm.current();
-  Version* current = default_cfd_->current;
+  MemTable* mem = default_cfd_->mem();
+  MemTableListVersion* imm = default_cfd_->imm()->current();
+  Version* current = default_cfd_->current();
   mem->Ref();
   imm->Ref();
   current->Ref();
@@ -3340,7 +3323,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       uint64_t slowdown =
-          SlowdownAmount(default_cfd_->current->NumLevelFiles(0),
+          SlowdownAmount(default_cfd_->current()->NumLevelFiles(0),
                          options_.level0_slowdown_writes_trigger,
                          options_.level0_stop_writes_trigger);
       mutex_.Unlock();
@@ -3356,14 +3339,14 @@ Status DBImpl::MakeRoomForWrite(bool force,
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
       delayed_writes_++;
-    } else if (!force && (default_cfd_->mem->ApproximateMemoryUsage() <=
+    } else if (!force && (default_cfd_->mem()->ApproximateMemoryUsage() <=
                           options_.write_buffer_size)) {
       // There is room in current memtable
       if (allow_delay) {
         DelayLoggingAndReset();
       }
       break;
-    } else if (default_cfd_->imm.size() ==
+    } else if (default_cfd_->imm()->size() ==
                options_.max_write_buffer_number - 1) {
       // We have filled up the current memtable, but the previous
       // ones are still being compacted, so we wait.
@@ -3380,7 +3363,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
       stall_memtable_compaction_ += stall;
       stall_memtable_compaction_count_++;
-    } else if (default_cfd_->current->NumLevelFiles(0) >=
+    } else if (default_cfd_->current()->NumLevelFiles(0) >=
                options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
       DelayLoggingAndReset();
@@ -3396,10 +3379,10 @@ Status DBImpl::MakeRoomForWrite(bool force,
       stall_level0_num_files_ += stall;
       stall_level0_num_files_count_++;
     } else if (allow_hard_rate_limit_delay && options_.hard_rate_limit > 1.0 &&
-               (score = default_cfd_->current->MaxCompactionScore()) >
+               (score = default_cfd_->current()->MaxCompactionScore()) >
                    options_.hard_rate_limit) {
       // Delay a write when the compaction score for any level is too large.
-      int max_level = default_cfd_->current->MaxCompactionScoreLevel();
+      int max_level = default_cfd_->current()->MaxCompactionScoreLevel();
       mutex_.Unlock();
       uint64_t delayed;
       {
@@ -3422,7 +3405,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       }
       mutex_.Lock();
     } else if (allow_soft_rate_limit_delay && options_.soft_rate_limit > 0.0 &&
-               (score = default_cfd_->current->MaxCompactionScore()) >
+               (score = default_cfd_->current()->MaxCompactionScore()) >
                    options_.soft_rate_limit) {
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
@@ -3473,21 +3456,20 @@ Status DBImpl::MakeRoomForWrite(bool force,
       }
       logfile_number_ = new_log_number;
       log_.reset(new log::Writer(std::move(lfile)));
-      default_cfd_->mem->SetNextLogNumber(logfile_number_);
-      default_cfd_->imm.Add(default_cfd_->mem);
+      default_cfd_->mem()->SetNextLogNumber(logfile_number_);
+      default_cfd_->imm()->Add(default_cfd_->mem());
       if (force) {
-        default_cfd_->imm.FlushRequested();
+        default_cfd_->imm()->FlushRequested();
       }
-      default_cfd_->mem = memtmp;
-      default_cfd_->mem->Ref();
-      Log(options_.info_log,
-          "New memtable created with log file: #%lu\n",
+      memtmp->Ref();
+      memtmp->SetLogNumber(logfile_number_);
+      default_cfd_->SetMemtable(memtmp);
+      Log(options_.info_log, "New memtable created with log file: #%lu\n",
           (unsigned long)logfile_number_);
-      default_cfd_->mem->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
       *superversion_to_free =
-          InstallSuperVersion(default_cfd_, new_superversion);
+          default_cfd_->InstallSuperVersion(new_superversion);
     }
   }
   return s;
@@ -3511,7 +3493,7 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
   value->clear();
 
   MutexLock l(&mutex_);
-  Version* current = default_cfd_->current;
+  Version* current = default_cfd_->current();
   Slice in = property;
   Slice prefix("rocksdb.");
   if (!in.starts_with(prefix)) return false;
@@ -3792,10 +3774,10 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
 
     return true;
   } else if (in == "sstables") {
-    *value = default_cfd_->current->DebugString();
+    *value = default_cfd_->current()->DebugString();
     return true;
   } else if (in == "num-immutable-mem-table") {
-    *value = std::to_string(default_cfd_->imm.size());
+    *value = std::to_string(default_cfd_->imm()->size());
     return true;
   }
 
@@ -3808,7 +3790,7 @@ void DBImpl::GetApproximateSizes(const ColumnFamilyHandle& column_family,
   Version* v;
   {
     MutexLock l(&mutex_);
-    v = default_cfd_->current;
+    v = default_cfd_->current();
     v->Ref();
   }
 
@@ -3885,7 +3867,7 @@ Status DBImpl::DeleteFile(std::string name) {
     // This is to make sure that any deletion tombstones are not
     // lost. Check that the level passed is the last level.
     for (int i = level + 1; i < maxlevel; i++) {
-      if (cfd->current->NumLevelFiles(i) != 0) {
+      if (cfd->current()->NumLevelFiles(i) != 0) {
         Log(options_.info_log,
             "DeleteFile %s FAILED. File not in last level\n", name.c_str());
         return Status::InvalidArgument("File not in last level");
@@ -4060,8 +4042,8 @@ Status DB::OpenWithColumnFamilies(
     }
     if (s.ok()) {
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-        delete impl->InstallSuperVersion(cfd, new SuperVersion());
-        cfd->mem->SetLogNumber(impl->logfile_number_);
+        delete cfd->InstallSuperVersion(new SuperVersion());
+        cfd->mem()->SetLogNumber(impl->logfile_number_);
       }
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleFlushOrCompaction();
@@ -4071,7 +4053,7 @@ Status DB::OpenWithColumnFamilies(
   }
 
   if (s.ok() && impl->options_.compaction_style == kCompactionStyleUniversal) {
-    Version* current = impl->default_cfd_->current;
+    Version* current = impl->default_cfd_->current();
     for (int i = 1; i < impl->NumberLevels(); i++) {
       int num_files = current->NumLevelFiles(i);
       if (num_files > 0) {

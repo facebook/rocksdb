@@ -363,8 +363,8 @@ class VersionSet {
   uint64_t MinLogNumber() const {
     uint64_t min_log_num = 0;
     for (auto cfd : *column_family_set_) {
-      if (min_log_num == 0 || min_log_num > cfd->log_number) {
-        min_log_num = cfd->log_number;
+      if (min_log_num == 0 || min_log_num > cfd->GetLogNumber()) {
+        min_log_num = cfd->GetLogNumber();
       }
     }
     return min_log_num;
@@ -448,7 +448,7 @@ class VersionSet {
   friend class Compaction;
   friend class Version;
   // TODO(icanadi) temporarily until we have what ColumnFamilyData needs (icmp_)
-  friend struct ColumnFamilyData;
+  friend class ColumnFamilyData;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;

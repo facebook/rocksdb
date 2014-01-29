@@ -401,11 +401,6 @@ class DBImpl : public DB {
   ColumnFamilyData* default_cfd_;
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
 
-  // An ordinal representing the current SuperVersion. Updated by
-  // InstallSuperVersion(), i.e. incremented every time super_version_
-  // changes.
-  std::atomic<uint64_t> super_version_number_;
-
   std::string host_name_;
 
   std::unique_ptr<Directory> db_directory_;
@@ -587,16 +582,8 @@ class DBImpl : public DB {
     std::vector<SequenceNumber>& snapshots,
     SequenceNumber* prev_snapshot);
 
-  // will return a pointer to SuperVersion* if previous SuperVersion
-  // if its reference count is zero and needs deletion or nullptr if not
-  // As argument takes a pointer to allocated SuperVersion
-  // Foreground threads call this function directly (they don't carry
-  // deletion state and have to handle their own creation and deletion
-  // of SuperVersion)
-  SuperVersion* InstallSuperVersion(ColumnFamilyData* cfd,
-                                    SuperVersion* new_superversion);
   // Background threads call this function, which is just a wrapper around
-  // the InstallSuperVersion() function above. Background threads carry
+  // the cfd->InstallSuperVersion() function. Background threads carry
   // deletion_state which can have new_superversion already allocated.
   void InstallSuperVersion(ColumnFamilyData* cfd,
                            DeletionState& deletion_state);

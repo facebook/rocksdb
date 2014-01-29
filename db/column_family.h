@@ -52,30 +52,63 @@ struct SuperVersion {
             Version* new_current);
 };
 
-// column family metadata
-struct ColumnFamilyData {
-  uint32_t id;
-  std::string name;
-  Version* dummy_versions; // Head of circular doubly-linked list of versions.
-  Version* current;        // == dummy_versions->prev_
-  ColumnFamilyOptions options;
-
-  MemTable* mem;
-  MemTableList imm;
-  SuperVersion* super_version;
-
-  // This is the earliest log file number that contains data from this
-  // Column Family. All earlier log files must be ignored and not
-  // recovered from
-  uint64_t log_number;
-
+// column family metadata. not thread-safe. should be protected by db_mutex
+class ColumnFamilyData {
+ public:
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, const ColumnFamilyOptions& options);
   ~ColumnFamilyData();
 
+  uint32_t GetID() const { return id_; }
+  const std::string& GetName() { return name_; }
+
+  void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
+  uint64_t GetLogNumber() const { return log_number_; }
+
+  ColumnFamilyOptions* options() { return &options_; }
+
+  MemTableList* imm() { return &imm_; }
+  MemTable* mem() { return mem_; }
+  Version* current() { return current_; }
+  Version* dummy_versions() { return dummy_versions_; }
+  void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
+  void SetCurrent(Version* current) { current_ = current; }
   void CreateNewMemtable();
+
+  SuperVersion* GetSuperVersion() const { return super_version_; }
+  uint64_t GetSuperVersionNumber() const {
+    return super_version_number_.load();
+  }
+  // will return a pointer to SuperVersion* if previous SuperVersion
+  // if its reference count is zero and needs deletion or nullptr if not
+  // As argument takes a pointer to allocated SuperVersion to enable
+  // the clients to allocate SuperVersion outside of mutex.
+  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion);
+
+ private:
+  uint32_t id_;
+  const std::string name_;
+  Version* dummy_versions_;  // Head of circular doubly-linked list of versions.
+  Version* current_;         // == dummy_versions->prev_
+  ColumnFamilyOptions options_;
+
+  MemTable* mem_;
+  MemTableList imm_;
+  SuperVersion* super_version_;
+
+  // An ordinal representing the current SuperVersion. Updated by
+  // InstallSuperVersion(), i.e. incremented every time super_version_
+  // changes.
+  std::atomic<uint64_t> super_version_number_;
+
+  // This is the earliest log file number that contains data from this
+  // Column Family. All earlier log files must be ignored and not
+  // recovered from
+  uint64_t log_number_;
 };
 
+// Thread safe only for reading without a writer. All access should be
+// locked when adding or dropping column family
 class ColumnFamilySet {
  public:
   class iterator {
