@@ -250,17 +250,15 @@ class FileManager : public EnvWrapper {
       return s;
     }
 
-    std::vector<int64_t> positions;
-    auto pos = metadata.find(" crc32 ");
+    auto pos = metadata.find("private");
+    if (pos == std::string::npos) {
+      return Status::Corruption("private file is expected");
+    }
+    pos = metadata.find(" crc32 ", pos + 6);
     if (pos == std::string::npos) {
       return Status::Corruption("checksum not found");
     }
-    do {
-      positions.push_back(pos);
-      pos = metadata.find(" crc32 ", pos + 6);
-    } while (pos != std::string::npos);
 
-    pos = positions[rnd_.Next() % positions.size()];
     if (metadata.size() < pos + 7) {
       return Status::Corruption("bad CRC32 checksum value");
     }
