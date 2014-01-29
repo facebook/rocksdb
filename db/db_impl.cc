@@ -2994,7 +2994,7 @@ Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
   if (column_family.id == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
-  MutexLock l(&mutex_);
+  mutex_.Lock();
   if (!versions_->GetColumnFamilySet()->Exists(column_family.id)) {
     return Status::NotFound("Column family not found");
   }
@@ -3006,7 +3006,10 @@ Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
     // remove from internal data structures
     versions_->DropColumnFamily(&edit);
   }
-  // TODO(icanadi) PurgeObsoletetFiles here
+  DeletionState deletion_state;
+  FindObsoleteFiles(deletion_state, false, true);
+  mutex_.Unlock();
+  PurgeObsoleteFiles(deletion_state);
   Log(options_.info_log, "Dropped column family with id %u\n",
       column_family.id);
   return s;
