@@ -167,7 +167,8 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
   string backup_logs = dbname_ + "/backup_logs";
 
   // delete old files in backup_logs directory
-  env_->CreateDirIfMissing(backup_logs);
+  ASSERT_OK(env_->CreateDirIfMissing(dbname_));
+  ASSERT_OK(env_->CreateDirIfMissing(backup_logs));
   vector<string> old_files;
   env_->GetChildren(backup_logs, &old_files);
   for (auto& file : old_files) {
