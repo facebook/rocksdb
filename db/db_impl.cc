@@ -1232,8 +1232,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   if (!imm_.IsFlushPending()) {
     Log(options_.info_log, "FlushMemTableToOutputFile already in progress");
-    Status s = Status::IOError("FlushMemTableToOutputFile already in progress");
-    return s;
+    return Status::IOError("FlushMemTableToOutputFile already in progress");
   }
 
   // Save the contents of the earliest memtable as a new Table
@@ -1242,8 +1241,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   imm_.PickMemtablesToFlush(&mems);
   if (mems.empty()) {
     Log(options_.info_log, "Nothing in memstore to flush");
-    Status s = Status::IOError("Nothing in memstore to flush");
-    return s;
+    return Status::IOError("Nothing in memstore to flush");
   }
 
   // record the logfile_number_ before we release the mutex
@@ -1925,6 +1923,13 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   *madeProgress = false;
   mutex_.AssertHeld();
 
+  bool is_manual = (manual_compaction_ != nullptr) &&
+                   (manual_compaction_->in_progress == false);
+  if (is_manual) {
+    // another thread cannot pick up the same work
+    manual_compaction_->in_progress = true;
+  }
+
   // TODO: remove memtable flush from formal compaction
   while (imm_.IsFlushPending()) {
     Log(options_.info_log,
@@ -1933,19 +1938,22 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         options_.max_background_compactions - bg_compaction_scheduled_);
     Status stat = FlushMemTableToOutputFile(madeProgress, deletion_state);
     if (!stat.ok()) {
+      if (is_manual) {
+        manual_compaction_->status = stat;
+        manual_compaction_->done = true;
+        manual_compaction_->in_progress = false;
+        manual_compaction_ = nullptr;
+      }
       return stat;
     }
   }
 
   unique_ptr<Compaction> c;
-  bool is_manual = (manual_compaction_ != nullptr) &&
-                   (manual_compaction_->in_progress == false);
   InternalKey manual_end_storage;
   InternalKey* manual_end = &manual_end_storage;
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
-    assert(!m->in_progress);
-    m->in_progress = true; // another thread cannot pick up the same work
+    assert(m->in_progress);
     c.reset(versions_->CompactRange(
         m->input_level, m->output_level, m->begin, m->end, &manual_end));
     if (!c) {
