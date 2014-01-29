@@ -5,6 +5,11 @@
 #  of patent rights can be found in the PATENTS file in the same directory.
 
 set -e
+if [ -z "$GIT" ]
+then
+  GIT="git"
+fi
+
 # Print out the colored progress info so that it can be brainlessly 
 # distinguished by users.
 function title() {
@@ -27,35 +32,13 @@ if [ $GIT_BRANCH != "master" ]; then
   echo "Error: Current branch is '$GIT_BRANCH', Please switch to master branch."
 fi
 
-# --Step 1: cutting new tag
 title "Adding new tag for this release ..."
-git tag -a "$ROCKSDB_VERSION.fb" -m "Rocksdb $ROCKSDB_VERSION"
+$TAG="$ROCKSDB_VERSION.fb"
+$GIT tag -a "$TAG" -m "Rocksdb $ROCKSDB_VERSION"
 
 # Setting up the proxy for remote repo access
-export http_proxy=http://172.31.255.99:8080
-export https_proxy="$http_proxy";
-
 title "Pushing new tag to remote repo ..."
-proxycmd.sh git push origin --tags
+$GIT push origin --tags
 
-# --Step 2: Update README.fb
-title "Updating the latest version info in README.fb ..."
-sed -i "s/Latest release is [0-9]\+.[0-9]\+.fb/Latest release is $ROCKSDB_VERSION.fb/" README.fb
-git commit README.fb -m "update the latest version in README.fb to $ROCKSDB_VERSION"
-proxycmd.sh git push
-
-# --Step 3: Prepare this repo for 3rd release
-title "Cleaning up repo ..."
-make clean
-git clean -fxd
-
-title "Generating the build info ..."
-# Comment out the call of `build_detection_version` so that the SHA number and build date of this
-# release will remain constant. Otherwise everytime we run "make" util/build_version.cc will be 
-# overridden.
-sed -i 's/^\$PWD\/build_tools\/build_detect_version$//' build_tools/build_detect_platform
-
-# Generate util/build_version.cc
-build_tools/build_detect_version
-
-title "Done!"
+title "Tag $TAG is pushed to github; if you want to delete it, please run"
+title "git tags -d $TAG && git push origin :refs/tags/$TAG"
