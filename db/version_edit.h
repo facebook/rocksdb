@@ -11,6 +11,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <string>
 #include "db/dbformat.h"
 
 namespace rocksdb {

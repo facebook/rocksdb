@@ -31,7 +31,7 @@ enum Tag {
   // these are new formats divergent from open source leveldb
   kNewFile2             = 100,  // store smallest & largest seqno
 
-  kColumnFamily         = 200, // specify column family for version edit
+  kColumnFamily         = 200,  // specify column family for version edit
   kColumnFamilyAdd      = 201,
   kColumnFamilyDrop     = 202,
 };

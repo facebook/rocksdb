@@ -92,7 +92,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
   while (!input.empty() && handler->Continue()) {
     char tag = input[0];
     input.remove_prefix(1);
-    uint32_t column_family = 0; // default
+    uint32_t column_family = 0;  // default
     switch (tag) {
       case kTypeColumnFamilyValue:
         if (!GetVarint32(&input, &column_family)) {

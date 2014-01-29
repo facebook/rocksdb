@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <climits>
 #include <stdio.h>
 #include "db/filename.h"

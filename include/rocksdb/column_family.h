@@ -8,6 +8,7 @@
 
 #pragma once
 #include "rocksdb/slice.h"
+#include <string>
 
 namespace rocksdb {
 
@@ -21,11 +22,10 @@ struct ColumnFamilyHandle {
   uint32_t id;
   // default
   ColumnFamilyHandle() : id() {}
-  /* implicit */
-  ColumnFamilyHandle(uint32_t _id) : id(_id) {}
+  explicit ColumnFamilyHandle(uint32_t _id) : id(_id) {}
 };
 
 const ColumnFamilyHandle default_column_family = ColumnFamilyHandle();
 extern const std::string default_column_family_name;
 
-}
+}  // namespace rocksdb
