@@ -3540,8 +3540,8 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
     // Pardon the long line but I think it is easier to read this way.
     snprintf(buf, sizeof(buf),
              "                               Compactions\n"
-             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) RW-Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count  Ln-stall Stall-cnt\n"
-             "--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
+             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) RW-Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count   msComp   msStall  Ln-stall Stall-cnt\n"
+             "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
              );
     value->append(buf);
     for (int level = 0; level < current->NumberLevels(); level++) {
@@ -3561,9 +3561,21 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
         total_bytes_read += bytes_read;
         total_bytes_written += stats_[level].bytes_written;
 
+        uint64_t stalls = level == 0 ?
+            (stall_level0_slowdown_count_ +
+             stall_level0_num_files_count_ +
+             stall_memtable_compaction_count_) :
+            stall_leveln_slowdown_count_[level];
+
+        double stall_us = level == 0 ?
+            (stall_level0_slowdown_ +
+             stall_level0_num_files_ +
+             stall_memtable_compaction_) :
+            stall_leveln_slowdown_[level];
+
         snprintf(
             buf, sizeof(buf),
-            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %10.1f %9.1f %11.1f %8d %8d %8d %8d %8d %9.1f %9lu\n",
+            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %10.1f %9.1f %11.1f %8d %8d %8d %8d %8d %8d %9.1f %9.1f %9lu\n",
             level,
             files,
             current->NumLevelBytes(level) / 1048576.0,
@@ -3585,8 +3597,13 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
             stats_[level].files_out_levelnp1,
             stats_[level].files_out_levelnp1 - stats_[level].files_in_levelnp1,
             stats_[level].count,
-            stall_leveln_slowdown_[level] / 1000000.0,
-            (unsigned long) stall_leveln_slowdown_count_[level]);
+            (int) ((double) stats_[level].micros /
+                   1000.0 /
+                   (stats_[level].count + 1)),
+            (double) stall_us / 1000.0 / (stalls + 1),
+            stall_us / 1000000.0,
+            (unsigned long) stalls);
+
         total_slowdown += stall_leveln_slowdown_[level];
         total_slowdown_count += stall_leveln_slowdown_count_[level];
         value->append(buf);

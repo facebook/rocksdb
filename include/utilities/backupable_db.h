@@ -68,8 +68,6 @@ struct BackupableDBOptions {
       destroy_old_data(_destroy_old_data) { }
 };
 
-class BackupEngine;
-
 typedef uint32_t BackupID;
 
 struct BackupInfo {
@@ -80,6 +78,29 @@ struct BackupInfo {
   BackupInfo() {}
   BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size)
       : backup_id(_backup_id), timestamp(_timestamp), size(_size) {}
+};
+
+// Please see the documentation in BackupableDB and RestoreBackupableDB
+class BackupEngine {
+ public:
+  virtual ~BackupEngine() {}
+
+  static BackupEngine* NewBackupEngine(Env* db_env,
+                                       const BackupableDBOptions& options);
+
+  virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false) = 0;
+  virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
+  virtual Status DeleteBackup(BackupID backup_id) = 0;
+  virtual void StopBackup() = 0;
+
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  virtual Status RestoreDBFromBackup(BackupID backup_id,
+                                     const std::string& db_dir,
+                                     const std::string& wal_dir) = 0;
+  virtual Status RestoreDBFromLatestBackup(const std::string& db_dir,
+                                           const std::string& wal_dir) = 0;
+
+  virtual void DeleteBackupsNewerThan(uint64_t sequence_number) = 0;
 };
 
 // Stack your DB with BackupableDB to be able to backup the DB
