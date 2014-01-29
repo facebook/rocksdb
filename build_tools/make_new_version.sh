@@ -5,6 +5,11 @@
 #  of patent rights can be found in the PATENTS file in the same directory.
 
 set -e
+if [ -z "$GIT" ]
+then
+  GIT="git"
+fi
+
 # Print out the colored progress info so that it can be brainlessly 
 # distinguished by users.
 function title() {
@@ -28,13 +33,12 @@ if [ $GIT_BRANCH != "master" ]; then
 fi
 
 title "Adding new tag for this release ..."
-git tag -a "$ROCKSDB_VERSION.fb" -m "Rocksdb $ROCKSDB_VERSION"
+$TAG="$ROCKSDB_VERSION.fb"
+$GIT tag -a "$TAG" -m "Rocksdb $ROCKSDB_VERSION"
 
 # Setting up the proxy for remote repo access
-export http_proxy=http://172.31.255.99:8080
-export https_proxy="$http_proxy";
-
 title "Pushing new tag to remote repo ..."
-proxycmd.sh git push origin --tags
+$GIT push origin --tags
 
-title "Done!"
+title "Tag $TAG is pushed to github; if you want to delete it, please run"
+title "git tags -d $TAG && git push origin :refs/tags/$TAG"
