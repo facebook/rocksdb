@@ -1547,8 +1547,10 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       }
     }
 
-    // find offset in manifest file where this version is stored.
-    new_manifest_file_size = descriptor_log_->file()->GetFileSize();
+    if (s.ok()) {
+      // find offset in manifest file where this version is stored.
+      new_manifest_file_size = descriptor_log_->file()->GetFileSize();
+    }
 
     LogFlush(options_->info_log);
     mu->Lock();
