@@ -1298,8 +1298,7 @@ Status DBImpl::ReFitLevel(int level, int target_level) {
   assert(level < NumberLevels());
 
   SuperVersion* superversion_to_free = nullptr;
-  SuperVersion* new_superversion =
-      new SuperVersion(options_.max_write_buffer_number);
+  SuperVersion* new_superversion = new SuperVersion();
 
   mutex_.Lock();
 
@@ -2949,6 +2948,13 @@ std::vector<Status> DBImpl::MultiGet(
   return statList;
 }
 
+// TODO(icanadi) creating column family while writing will cause a data race.
+// In write code path, we iterate through column families and call
+// MakeRoomForWrite() for each. MakeRoomForWrite() can unlock the mutex
+// and wait (delay the write). If we create or drop a column family when
+// that mutex is unlocked for delay, that's bad.
+// Solution TODO: enable iteration by chaining column families in
+// circular linked lists
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                   const std::string& column_family_name,
                                   ColumnFamilyHandle* handle) {
@@ -3106,9 +3112,14 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_SELF, 1);
   }
 
-  // May temporarily unlock and wait.
-  SuperVersion* superversion_to_free = nullptr;
-  Status status = MakeRoomForWrite(my_batch == nullptr, &superversion_to_free);
+  Status status;
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    // May temporarily unlock and wait.
+    status = MakeRoomForWrite(cfd, my_batch == nullptr);
+    if (!status.ok()) {
+      break;
+    }
+  }
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && my_batch != nullptr) {  // nullptr batch is for compactions
@@ -3209,7 +3220,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     writers_.front()->cv.Signal();
   }
   mutex_.Unlock();
-  delete superversion_to_free;
   return status;
 }
 
@@ -3295,8 +3305,7 @@ uint64_t DBImpl::SlowdownAmount(int n, double bottom, double top) {
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::MakeRoomForWrite(bool force,
-                                SuperVersion** superversion_to_free) {
+Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
   bool allow_delay = !force;
@@ -3305,14 +3314,13 @@ Status DBImpl::MakeRoomForWrite(bool force,
   uint64_t rate_limit_delay_millis = 0;
   Status s;
   double score;
-  *superversion_to_free = nullptr;
 
   while (true) {
     if (!bg_error_.ok()) {
       // Yield previous error
       s = bg_error_;
       break;
-    } else if (allow_delay && versions_->NeedSlowdownForNumLevel0Files()) {
+    } else if (allow_delay && cfd->NeedSlowdownForNumLevel0Files()) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -3320,9 +3328,9 @@ Status DBImpl::MakeRoomForWrite(bool force,
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       uint64_t slowdown =
-          SlowdownAmount(default_cfd_->current()->NumLevelFiles(0),
-                         options_.level0_slowdown_writes_trigger,
-                         options_.level0_stop_writes_trigger);
+          SlowdownAmount(cfd->current()->NumLevelFiles(0),
+                         cfd->options()->level0_slowdown_writes_trigger,
+                         cfd->options()->level0_stop_writes_trigger);
       mutex_.Unlock();
       uint64_t delayed;
       {
@@ -3335,15 +3343,15 @@ Status DBImpl::MakeRoomForWrite(bool force,
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
       delayed_writes_++;
-    } else if (!force && (default_cfd_->mem()->ApproximateMemoryUsage() <=
-                          options_.write_buffer_size)) {
+    } else if (!force && (cfd->mem()->ApproximateMemoryUsage() <=
+                          cfd->options()->write_buffer_size)) {
       // There is room in current memtable
       if (allow_delay) {
         DelayLoggingAndReset();
       }
       break;
-    } else if (default_cfd_->imm()->size() ==
-               options_.max_write_buffer_number - 1) {
+    } else if (cfd->imm()->size() ==
+               cfd->options()->max_write_buffer_number - 1) {
       // We have filled up the current memtable, but the previous
       // ones are still being compacted, so we wait.
       DelayLoggingAndReset();
@@ -3351,7 +3359,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       uint64_t stall;
       {
         StopWatch sw(env_, options_.statistics.get(),
-          STALL_MEMTABLE_COMPACTION_COUNT);
+                     STALL_MEMTABLE_COMPACTION_COUNT);
         bg_cv_.Wait();
         stall = sw.ElapsedMicros();
       }
@@ -3359,8 +3367,8 @@ Status DBImpl::MakeRoomForWrite(bool force,
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
       internal_stats_.RecordWriteStall(InternalStats::MEMTABLE_COMPACTION,
                                        stall);
-    } else if (default_cfd_->current()->NumLevelFiles(0) >=
-               options_.level0_stop_writes_trigger) {
+    } else if (cfd->current()->NumLevelFiles(0) >=
+               cfd->options()->level0_stop_writes_trigger) {
       // There are too many level-0 files.
       DelayLoggingAndReset();
       Log(options_.info_log, "wait for fewer level0 files...\n");
@@ -3374,10 +3382,10 @@ Status DBImpl::MakeRoomForWrite(bool force,
       RecordTick(options_.statistics.get(), STALL_L0_NUM_FILES_MICROS, stall);
       internal_stats_.RecordWriteStall(InternalStats::LEVEL0_NUM_FILES, stall);
     } else if (allow_hard_rate_limit_delay && options_.hard_rate_limit > 1.0 &&
-               (score = default_cfd_->current()->MaxCompactionScore()) >
-                   options_.hard_rate_limit) {
+               (score = cfd->current()->MaxCompactionScore()) >
+                   cfd->options()->hard_rate_limit) {
       // Delay a write when the compaction score for any level is too large.
-      int max_level = default_cfd_->current()->MaxCompactionScoreLevel();
+      int max_level = cfd->current()->MaxCompactionScoreLevel();
       mutex_.Unlock();
       uint64_t delayed;
       {
@@ -3392,26 +3400,25 @@ Status DBImpl::MakeRoomForWrite(bool force,
       rate_limit_delay_millis += rate_limit;
       RecordTick(options_.statistics.get(),
                  RATE_LIMIT_DELAY_MILLIS, rate_limit);
-      if (options_.rate_limit_delay_max_milliseconds > 0 &&
+      if (cfd->options()->rate_limit_delay_max_milliseconds > 0 &&
           rate_limit_delay_millis >=
-          (unsigned)options_.rate_limit_delay_max_milliseconds) {
+              (unsigned)cfd->options()->rate_limit_delay_max_milliseconds) {
         allow_hard_rate_limit_delay = false;
       }
       mutex_.Lock();
-    } else if (allow_soft_rate_limit_delay && options_.soft_rate_limit > 0.0 &&
-               (score = default_cfd_->current()->MaxCompactionScore()) >
-                   options_.soft_rate_limit) {
+    } else if (allow_soft_rate_limit_delay &&
+               cfd->options()->soft_rate_limit > 0.0 &&
+               (score = cfd->current()->MaxCompactionScore()) >
+                   cfd->options()->soft_rate_limit) {
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
       mutex_.Unlock();
       {
         StopWatch sw(env_, options_.statistics.get(),
                      SOFT_RATE_LIMIT_DELAY_COUNT);
-        env_->SleepForMicroseconds(SlowdownAmount(
-          score,
-          options_.soft_rate_limit,
-          options_.hard_rate_limit)
-        );
+        env_->SleepForMicroseconds(
+            SlowdownAmount(score, cfd->options()->soft_rate_limit,
+                           cfd->options()->hard_rate_limit));
         rate_limit_delay_millis += sw.ElapsedMicros();
       }
       allow_soft_rate_limit_delay = false;
@@ -3436,9 +3443,10 @@ Status DBImpl::MakeRoomForWrite(bool force,
         if (s.ok()) {
           // Our final size should be less than write_buffer_size
           // (compression, etc) but err on the side of caution.
-          lfile->SetPreallocationBlockSize(1.1 * options_.write_buffer_size);
-          memtmp = new MemTable(internal_comparator_, options_);
-          new_superversion = new SuperVersion(options_.max_write_buffer_number);
+          lfile->SetPreallocationBlockSize(1.1 *
+                                           cfd->options()->write_buffer_size);
+          memtmp = new MemTable(internal_comparator_, *cfd->options());
+          new_superversion = new SuperVersion();
         }
       }
       mutex_.Lock();
@@ -3450,20 +3458,19 @@ Status DBImpl::MakeRoomForWrite(bool force,
       }
       logfile_number_ = new_log_number;
       log_.reset(new log::Writer(std::move(lfile)));
-      default_cfd_->mem()->SetNextLogNumber(logfile_number_);
-      default_cfd_->imm()->Add(default_cfd_->mem());
+      cfd->mem()->SetNextLogNumber(logfile_number_);
+      cfd->imm()->Add(cfd->mem());
       if (force) {
-        default_cfd_->imm()->FlushRequested();
+        cfd->imm()->FlushRequested();
       }
       memtmp->Ref();
       memtmp->SetLogNumber(logfile_number_);
-      default_cfd_->SetMemtable(memtmp);
+      cfd->SetMemtable(memtmp);
       Log(options_.info_log, "New memtable created with log file: #%lu\n",
           (unsigned long)logfile_number_);
       force = false;   // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
-      *superversion_to_free =
-          default_cfd_->InstallSuperVersion(new_superversion);
+      delete cfd->InstallSuperVersion(new_superversion);
     }
   }
   return s;

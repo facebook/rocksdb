@@ -1377,7 +1377,6 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       log_number_(0),
       prev_log_number_(0),
       num_levels_(options_->num_levels),
-      need_slowdown_for_num_level0_files_(false),
       current_version_number_(0),
       manifest_file_size_(0),
       storage_options_(storage_options),
@@ -1413,9 +1412,6 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
     current->Unref();
   }
   column_family_data->SetCurrent(v);
-  need_slowdown_for_num_level0_files_ =
-      (options_->level0_slowdown_writes_trigger >= 0 &&
-       v->NumLevelFiles(0) >= options_->level0_slowdown_writes_trigger);
   v->Ref();
 
   // Append to linked list

@@ -36,7 +36,7 @@ struct SuperVersion {
   std::vector<MemTable*> to_delete;
 
   // should be called outside the mutex
-  explicit SuperVersion(const int num_memtables = 0);
+  SuperVersion();
   ~SuperVersion();
   SuperVersion* Ref();
   // Returns true if this was the last reference and caller should
@@ -72,7 +72,7 @@ class ColumnFamilyData {
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
-  void SetCurrent(Version* current) { current_ = current; }
+  void SetCurrent(Version* current);
   void CreateNewMemtable();
 
   SuperVersion* GetSuperVersion() const { return super_version_; }
@@ -84,6 +84,12 @@ class ColumnFamilyData {
   // As argument takes a pointer to allocated SuperVersion to enable
   // the clients to allocate SuperVersion outside of mutex.
   SuperVersion* InstallSuperVersion(SuperVersion* new_superversion);
+
+  // A Flag indicating whether write needs to slowdown because of there are
+  // too many number of level0 files.
+  bool NeedSlowdownForNumLevel0Files() const {
+    return need_slowdown_for_num_level0_files_;
+  }
 
  private:
   uint32_t id_;
@@ -105,6 +111,10 @@ class ColumnFamilyData {
   // Column Family. All earlier log files must be ignored and not
   // recovered from
   uint64_t log_number_;
+
+  // A flag indicating whether we should delay writes because
+  // we have too many level 0 files
+  bool need_slowdown_for_num_level0_files_;
 };
 
 // Thread safe only for reading without a writer. All access should be

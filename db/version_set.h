@@ -315,12 +315,6 @@ class VersionSet {
                                      const EnvOptions& storage_options,
                                      int new_levels);
 
-  // A Flag indicating whether write needs to slowdown because of there are
-  // too many number of level0 files.
-  bool NeedSlowdownForNumLevel0Files() const {
-    return need_slowdown_for_num_level0_files_;
-  }
-
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
@@ -481,10 +475,6 @@ class VersionSet {
 
   // Opened lazily
   unique_ptr<log::Writer> descriptor_log_;
-
-  // A flag indicating whether we should delay writes because
-  // we have too many level 0 files
-  bool need_slowdown_for_num_level0_files_;
 
   // An object that keeps all the compaction stats
   // and picks the next compaction

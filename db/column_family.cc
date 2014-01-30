@@ -17,9 +17,7 @@
 
 namespace rocksdb {
 
-SuperVersion::SuperVersion(const int num_memtables) {
-  to_delete.resize(num_memtables);
-}
+SuperVersion::SuperVersion() {}
 
 SuperVersion::~SuperVersion() {
   for (auto td : to_delete) {
@@ -71,7 +69,8 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
       super_version_number_(0),
-      log_number_(0) {}
+      log_number_(0),
+      need_slowdown_for_num_level0_files_(false) {}
 
 ColumnFamilyData::~ColumnFamilyData() {
   if (super_version_ != nullptr) {
@@ -93,6 +92,13 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (MemTable* m : to_delete) {
     delete m;
   }
+}
+
+void ColumnFamilyData::SetCurrent(Version* current) {
+  current_ = current;
+  need_slowdown_for_num_level0_files_ =
+      (options_.level0_slowdown_writes_trigger >= 0 &&
+       current_->NumLevelFiles(0) >= options_.level0_slowdown_writes_trigger);
 }
 
 void ColumnFamilyData::CreateNewMemtable() {

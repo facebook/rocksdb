@@ -201,9 +201,9 @@ class DBImpl : public DB {
     // a list of memtables to be free
     std::vector<MemTable *> memtables_to_free;
 
-    SuperVersion* superversion_to_free; // if nullptr nothing to free
+    SuperVersion* superversion_to_free;  // if nullptr nothing to free
 
-    SuperVersion* new_superversion; // if nullptr no new superversion
+    SuperVersion* new_superversion;  // if nullptr no new superversion
 
     // the current manifest_file_number, log_number and prev_log_number
     // that corresponds to the set of files in 'live'.
@@ -216,8 +216,7 @@ class DBImpl : public DB {
       prev_log_number = 0;
       memtables_to_free.reserve(num_memtables);
       superversion_to_free = nullptr;
-      new_superversion =
-          create_superversion ? new SuperVersion(num_memtables) : nullptr;
+      new_superversion = create_superversion ? new SuperVersion() : nullptr;
     }
 
     ~DeletionState() {
@@ -303,11 +302,8 @@ class DBImpl : public DB {
                                 uint64_t* filenumber);
 
   uint64_t SlowdownAmount(int n, double bottom, double top);
-  // MakeRoomForWrite will return superversion_to_free through an arugment,
-  // which the caller needs to delete. We do it because caller can delete
-  // the superversion outside of mutex
-  Status MakeRoomForWrite(bool force /* compact even if there is room? */,
-                          SuperVersion** superversion_to_free);
+  Status MakeRoomForWrite(ColumnFamilyData* cfd,
+                          bool force /* flush even if there is room? */);
   void BuildBatchGroup(Writer** last_writer,
                        autovector<WriteBatch*>* write_batch_group);
 
