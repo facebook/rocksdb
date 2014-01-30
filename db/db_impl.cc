@@ -279,28 +279,15 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       purge_wal_files_last_run_(0),
       last_stats_dump_time_microsec_(0),
       default_interval_to_delete_obsolete_WAL_(600),
-      stall_level0_slowdown_(0),
-      stall_memtable_compaction_(0),
-      stall_level0_num_files_(0),
-      stall_level0_slowdown_count_(0),
-      stall_memtable_compaction_count_(0),
-      stall_level0_num_files_count_(0),
-      started_at_(options.env->NowMicros()),
       flush_on_destroy_(false),
-      stats_(options.num_levels),
+      internal_stats_(options.num_levels, options.env,
+                      options.statistics.get()),
       delayed_writes_(0),
       storage_options_(options),
       bg_work_gate_closed_(false),
       refitting_level_(false) {
 
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
-
-  stall_leveln_slowdown_.resize(options.num_levels);
-  stall_leveln_slowdown_count_.resize(options.num_levels);
-  for (int i = 0; i < options.num_levels; ++i) {
-    stall_leveln_slowdown_[i] = 0;
-    stall_leveln_slowdown_count_[i] = 0;
-  }
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   const int table_cache_size = options_.max_open_files - 10;
@@ -1081,11 +1068,11 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
                   meta.smallest_seqno, meta.largest_seqno);
   }
 
-  CompactionStats stats;
+  InternalStats::CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.file_size;
   stats.files_out_levelnp1 = 1;
-  stats_[level].Add(stats);
+  internal_stats_.AddCompactionStats(level, stats);
   RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES, meta.file_size);
   return s;
 }
@@ -1170,10 +1157,10 @@ Status DBImpl::WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
                   meta.smallest_seqno, meta.largest_seqno);
   }
 
-  CompactionStats stats;
+  InternalStats::CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.file_size;
-  stats_[level].Add(stats);
+  internal_stats_.AddCompactionStats(level, stats);
   RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES, meta.file_size);
   return s;
 }
@@ -1185,8 +1172,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   if (!default_cfd_->imm()->IsFlushPending()) {
     Log(options_.info_log, "FlushMemTableToOutputFile already in progress");
-    Status s = Status::IOError("FlushMemTableToOutputFile already in progress");
-    return s;
+    return Status::IOError("FlushMemTableToOutputFile already in progress");
   }
 
   // Save the contents of the earliest memtable as a new Table
@@ -1195,8 +1181,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   default_cfd_->imm()->PickMemtablesToFlush(&mems);
   if (mems.empty()) {
     Log(options_.info_log, "Nothing in memstore to flush");
-    Status s = Status::IOError("Nothing in memstore to flush");
-    return s;
+    return Status::IOError("Nothing in memstore to flush");
   }
 
   // record the logfile_number_ before we release the mutex
@@ -1879,6 +1864,13 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   *madeProgress = false;
   mutex_.AssertHeld();
 
+  bool is_manual = (manual_compaction_ != nullptr) &&
+                   (manual_compaction_->in_progress == false);
+  if (is_manual) {
+    // another thread cannot pick up the same work
+    manual_compaction_->in_progress = true;
+  }
+
   // TODO: remove memtable flush from formal compaction
   while (default_cfd_->imm()->IsFlushPending()) {
     Log(options_.info_log,
@@ -1887,19 +1879,22 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         options_.max_background_compactions - bg_compaction_scheduled_);
     Status stat = FlushMemTableToOutputFile(madeProgress, deletion_state);
     if (!stat.ok()) {
+      if (is_manual) {
+        manual_compaction_->status = stat;
+        manual_compaction_->done = true;
+        manual_compaction_->in_progress = false;
+        manual_compaction_ = nullptr;
+      }
       return stat;
     }
   }
 
   unique_ptr<Compaction> c;
-  bool is_manual = (manual_compaction_ != nullptr) &&
-                   (manual_compaction_->in_progress == false);
   InternalKey manual_end_storage;
   InternalKey* manual_end = &manual_end_storage;
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
-    assert(!m->in_progress);
-    m->in_progress = true; // another thread cannot pick up the same work
+    assert(m->in_progress);
     c.reset(versions_->CompactRange(
         m->input_level, m->output_level, m->begin, m->end, &manual_end));
     if (!c) {
@@ -2559,7 +2554,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   if (!options_.disableDataSync) {
     db_directory_->Fsync();
   }
-  CompactionStats stats;
+
+  InternalStats::CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
   MeasureTime(options_.statistics.get(), COMPACTION_TIME, stats.micros);
   stats.files_in_leveln = compact->compaction->num_input_files(0);
@@ -2593,7 +2589,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   LogFlush(options_.info_log);
   mutex_.Lock();
-  stats_[compact->compaction->output_level()].Add(stats);
+  internal_stats_.AddCompactionStats(compact->compaction->output_level(),
+                                     stats);
 
   // if there were any unused file number (mostly in case of
   // compaction error), free up the entry from pending_putputs
@@ -3334,8 +3331,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
         delayed = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics.get(), STALL_L0_SLOWDOWN_MICROS, delayed);
-      stall_level0_slowdown_ += delayed;
-      stall_level0_slowdown_count_++;
+      internal_stats_.RecordWriteStall(InternalStats::LEVEL0_SLOWDOWN, delayed);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
       delayed_writes_++;
@@ -3361,8 +3357,8 @@ Status DBImpl::MakeRoomForWrite(bool force,
       }
       RecordTick(options_.statistics.get(),
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
-      stall_memtable_compaction_ += stall;
-      stall_memtable_compaction_count_++;
+      internal_stats_.RecordWriteStall(InternalStats::MEMTABLE_COMPACTION,
+                                       stall);
     } else if (default_cfd_->current()->NumLevelFiles(0) >=
                options_.level0_stop_writes_trigger) {
       // There are too many level-0 files.
@@ -3376,8 +3372,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
         stall = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics.get(), STALL_L0_NUM_FILES_MICROS, stall);
-      stall_level0_num_files_ += stall;
-      stall_level0_num_files_count_++;
+      internal_stats_.RecordWriteStall(InternalStats::LEVEL0_NUM_FILES, stall);
     } else if (allow_hard_rate_limit_delay && options_.hard_rate_limit > 1.0 &&
                (score = default_cfd_->current()->MaxCompactionScore()) >
                    options_.hard_rate_limit) {
@@ -3391,8 +3386,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
         env_->SleepForMicroseconds(1000);
         delayed = sw.ElapsedMicros();
       }
-      stall_leveln_slowdown_[max_level] += delayed;
-      stall_leveln_slowdown_count_[max_level]++;
+      internal_stats_.RecordLevelNSlowdown(max_level, delayed);
       // Make sure the following value doesn't round to zero.
       uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
       rate_limit_delay_millis += rate_limit;
@@ -3491,297 +3485,10 @@ const Options& DBImpl::GetOptions(const ColumnFamilyHandle& column_family)
 bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
                          const Slice& property, std::string* value) {
   value->clear();
-
   MutexLock l(&mutex_);
-  Version* current = default_cfd_->current();
-  Slice in = property;
-  Slice prefix("rocksdb.");
-  if (!in.starts_with(prefix)) return false;
-  in.remove_prefix(prefix.size());
-
-  if (in.starts_with("num-files-at-level")) {
-    in.remove_prefix(strlen("num-files-at-level"));
-    uint64_t level;
-    bool ok = ConsumeDecimalNumber(&in, &level) && in.empty();
-    if (!ok || (int)level >= NumberLevels()) {
-      return false;
-    } else {
-      char buf[100];
-      snprintf(buf, sizeof(buf), "%d",
-               current->NumLevelFiles(static_cast<int>(level)));
-      *value = buf;
-      return true;
-    }
-  } else if (in == "levelstats") {
-    char buf[1000];
-    snprintf(buf, sizeof(buf),
-             "Level Files Size(MB)\n"
-             "--------------------\n");
-    value->append(buf);
-
-    for (int level = 0; level < NumberLevels(); level++) {
-      snprintf(buf, sizeof(buf),
-               "%3d %8d %8.0f\n",
-               level,
-               current->NumLevelFiles(level),
-               current->NumLevelBytes(level) / 1048576.0);
-      value->append(buf);
-    }
-    return true;
-
-  } else if (in == "stats") {
-    char buf[1000];
-
-    uint64_t wal_bytes = 0;
-    uint64_t wal_synced = 0;
-    uint64_t user_bytes_written = 0;
-    uint64_t write_other = 0;
-    uint64_t write_self = 0;
-    uint64_t write_with_wal = 0;
-    uint64_t total_bytes_written = 0;
-    uint64_t total_bytes_read = 0;
-    uint64_t micros_up = env_->NowMicros() - started_at_;
-    // Add "+1" to make sure seconds_up is > 0 and avoid NaN later
-    double seconds_up = (micros_up + 1) / 1000000.0;
-    uint64_t total_slowdown = 0;
-    uint64_t total_slowdown_count = 0;
-    uint64_t interval_bytes_written = 0;
-    uint64_t interval_bytes_read = 0;
-    uint64_t interval_bytes_new = 0;
-    double   interval_seconds_up = 0;
-
-    Statistics* s = options_.statistics.get();
-    if (s) {
-      wal_bytes = s->getTickerCount(WAL_FILE_BYTES);
-      wal_synced = s->getTickerCount(WAL_FILE_SYNCED);
-      user_bytes_written = s->getTickerCount(BYTES_WRITTEN);
-      write_other = s->getTickerCount(WRITE_DONE_BY_OTHER);
-      write_self = s->getTickerCount(WRITE_DONE_BY_SELF);
-      write_with_wal = s->getTickerCount(WRITE_WITH_WAL);
-    }
-
-    // Pardon the long line but I think it is easier to read this way.
-    snprintf(buf, sizeof(buf),
-             "                               Compactions\n"
-             "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB)  Rnp1(MB)  Wnew(MB) RW-Amplify Read(MB/s) Write(MB/s)      Rn     Rnp1     Wnp1     NewW    Count   msComp   msStall  Ln-stall Stall-cnt\n"
-             "------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n"
-             );
-    value->append(buf);
-    for (int level = 0; level < current->NumberLevels(); level++) {
-      int files = current->NumLevelFiles(level);
-      if (stats_[level].micros > 0 || files > 0) {
-        int64_t bytes_read = stats_[level].bytes_readn +
-                             stats_[level].bytes_readnp1;
-        int64_t bytes_new = stats_[level].bytes_written -
-                            stats_[level].bytes_readnp1;
-        double amplify = (stats_[level].bytes_readn == 0)
-            ? 0.0
-            : (stats_[level].bytes_written +
-               stats_[level].bytes_readnp1 +
-               stats_[level].bytes_readn) /
-                (double) stats_[level].bytes_readn;
-
-        total_bytes_read += bytes_read;
-        total_bytes_written += stats_[level].bytes_written;
-
-        uint64_t stalls = level == 0 ?
-            (stall_level0_slowdown_count_ +
-             stall_level0_num_files_count_ +
-             stall_memtable_compaction_count_) :
-            stall_leveln_slowdown_count_[level];
-
-        double stall_us = level == 0 ?
-            (stall_level0_slowdown_ +
-             stall_level0_num_files_ +
-             stall_memtable_compaction_) :
-            stall_leveln_slowdown_[level];
-
-        snprintf(
-            buf, sizeof(buf),
-            "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f %10.1f %9.1f %11.1f %8d %8d %8d %8d %8d %8d %9.1f %9.1f %9lu\n",
-            level,
-            files,
-            current->NumLevelBytes(level) / 1048576.0,
-            current->NumLevelBytes(level) /
-                versions_->MaxBytesForLevel(level),
-            stats_[level].micros / 1e6,
-            bytes_read / 1048576.0,
-            stats_[level].bytes_written / 1048576.0,
-            stats_[level].bytes_readn / 1048576.0,
-            stats_[level].bytes_readnp1 / 1048576.0,
-            bytes_new / 1048576.0,
-            amplify,
-            // +1 to avoid division by 0
-            (bytes_read / 1048576.0) / ((stats_[level].micros+1) / 1000000.0),
-            (stats_[level].bytes_written / 1048576.0) /
-                ((stats_[level].micros+1) / 1000000.0),
-            stats_[level].files_in_leveln,
-            stats_[level].files_in_levelnp1,
-            stats_[level].files_out_levelnp1,
-            stats_[level].files_out_levelnp1 - stats_[level].files_in_levelnp1,
-            stats_[level].count,
-            (int) ((double) stats_[level].micros /
-                   1000.0 /
-                   (stats_[level].count + 1)),
-            (double) stall_us / 1000.0 / (stalls + 1),
-            stall_us / 1000000.0,
-            (unsigned long) stalls);
-
-        total_slowdown += stall_leveln_slowdown_[level];
-        total_slowdown_count += stall_leveln_slowdown_count_[level];
-        value->append(buf);
-      }
-    }
-
-    interval_bytes_new = user_bytes_written - last_stats_.ingest_bytes_;
-    interval_bytes_read = total_bytes_read - last_stats_.compaction_bytes_read_;
-    interval_bytes_written =
-        total_bytes_written - last_stats_.compaction_bytes_written_;
-    interval_seconds_up = seconds_up - last_stats_.seconds_up_;
-
-    snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
-             seconds_up, interval_seconds_up);
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-             "Writes cumulative: %llu total, %llu batches, "
-             "%.1f per batch, %.2f ingest GB\n",
-             (unsigned long long) (write_other + write_self),
-             (unsigned long long) write_self,
-             (write_other + write_self) / (double) (write_self + 1),
-             user_bytes_written / (1048576.0 * 1024));
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-             "WAL cumulative: %llu WAL writes, %llu WAL syncs, "
-             "%.2f writes per sync, %.2f GB written\n",
-             (unsigned long long) write_with_wal,
-             (unsigned long long ) wal_synced,
-             write_with_wal / (double) (wal_synced + 1),
-             wal_bytes / (1048576.0 * 1024));
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-             "Compaction IO cumulative (GB): "
-             "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
-             user_bytes_written / (1048576.0 * 1024),
-             total_bytes_read / (1048576.0 * 1024),
-             total_bytes_written / (1048576.0 * 1024),
-             (total_bytes_read + total_bytes_written) / (1048576.0 * 1024));
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-             "Compaction IO cumulative (MB/sec): "
-             "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
-             user_bytes_written / 1048576.0 / seconds_up,
-             total_bytes_read / 1048576.0 / seconds_up,
-             total_bytes_written / 1048576.0 / seconds_up,
-             (total_bytes_read + total_bytes_written) / 1048576.0 / seconds_up);
-    value->append(buf);
-
-    // +1 to avoid divide by 0 and NaN
-    snprintf(buf, sizeof(buf),
-             "Amplification cumulative: %.1f write, %.1f compaction\n",
-             (double) (total_bytes_written + wal_bytes)
-                 / (user_bytes_written + 1),
-             (double) (total_bytes_written + total_bytes_read + wal_bytes)
-                 / (user_bytes_written + 1));
-    value->append(buf);
-
-    uint64_t interval_write_other = write_other - last_stats_.write_other_;
-    uint64_t interval_write_self = write_self - last_stats_.write_self_;
-
-    snprintf(buf, sizeof(buf),
-             "Writes interval: %llu total, %llu batches, "
-             "%.1f per batch, %.1f ingest MB\n",
-             (unsigned long long) (interval_write_other + interval_write_self),
-             (unsigned long long) interval_write_self,
-             (double) (interval_write_other + interval_write_self)
-                 / (interval_write_self + 1),
-             (user_bytes_written - last_stats_.ingest_bytes_) /  1048576.0);
-    value->append(buf);
-
-    uint64_t interval_write_with_wal =
-        write_with_wal - last_stats_.write_with_wal_;
-
-    uint64_t interval_wal_synced = wal_synced - last_stats_.wal_synced_;
-    uint64_t interval_wal_bytes = wal_bytes - last_stats_.wal_bytes_;
-
-    snprintf(buf, sizeof(buf),
-             "WAL interval: %llu WAL writes, %llu WAL syncs, "
-             "%.2f writes per sync, %.2f MB written\n",
-             (unsigned long long) interval_write_with_wal,
-             (unsigned long long ) interval_wal_synced,
-             interval_write_with_wal / (double) (interval_wal_synced + 1),
-             interval_wal_bytes / (1048576.0 * 1024));
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-             "Compaction IO interval (MB): "
-             "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
-             interval_bytes_new / 1048576.0,
-             interval_bytes_read/ 1048576.0,
-             interval_bytes_written / 1048576.0,
-             (interval_bytes_read + interval_bytes_written) / 1048576.0);
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-             "Compaction IO interval (MB/sec): "
-             "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
-             interval_bytes_new / 1048576.0 / interval_seconds_up,
-             interval_bytes_read / 1048576.0 / interval_seconds_up,
-             interval_bytes_written / 1048576.0 / interval_seconds_up,
-             (interval_bytes_read + interval_bytes_written)
-                 / 1048576.0 / interval_seconds_up);
-    value->append(buf);
-
-    // +1 to avoid divide by 0 and NaN
-    snprintf(buf, sizeof(buf),
-             "Amplification interval: %.1f write, %.1f compaction\n",
-             (double) (interval_bytes_written + wal_bytes)
-                 / (interval_bytes_new + 1),
-             (double) (interval_bytes_written + interval_bytes_read + wal_bytes)
-                 / (interval_bytes_new + 1));
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-            "Stalls(secs): %.3f level0_slowdown, %.3f level0_numfiles, "
-            "%.3f memtable_compaction, %.3f leveln_slowdown\n",
-            stall_level0_slowdown_ / 1000000.0,
-            stall_level0_num_files_ / 1000000.0,
-            stall_memtable_compaction_ / 1000000.0,
-            total_slowdown / 1000000.0);
-    value->append(buf);
-
-    snprintf(buf, sizeof(buf),
-            "Stalls(count): %lu level0_slowdown, %lu level0_numfiles, "
-            "%lu memtable_compaction, %lu leveln_slowdown\n",
-            (unsigned long) stall_level0_slowdown_count_,
-            (unsigned long) stall_level0_num_files_count_,
-            (unsigned long) stall_memtable_compaction_count_,
-            (unsigned long) total_slowdown_count);
-    value->append(buf);
-
-    last_stats_.compaction_bytes_read_ = total_bytes_read;
-    last_stats_.compaction_bytes_written_ = total_bytes_written;
-    last_stats_.ingest_bytes_ = user_bytes_written;
-    last_stats_.seconds_up_ = seconds_up;
-    last_stats_.wal_bytes_ = wal_bytes;
-    last_stats_.wal_synced_ = wal_synced;
-    last_stats_.write_with_wal_ = write_with_wal;
-    last_stats_.write_other_ = write_other;
-    last_stats_.write_self_ = write_self;
-
-    return true;
-  } else if (in == "sstables") {
-    *value = default_cfd_->current()->DebugString();
-    return true;
-  } else if (in == "num-immutable-mem-table") {
-    *value = std::to_string(default_cfd_->imm()->size());
-    return true;
-  }
-
-  return false;
+  return internal_stats_.GetProperty(property, value, versions_.get(),
+                                     default_cfd_->current(),
+                                     default_cfd_->imm()->size());
 }
 
 void DBImpl::GetApproximateSizes(const ColumnFamilyHandle& column_family,

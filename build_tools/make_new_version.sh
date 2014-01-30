@@ -16,7 +16,7 @@ function title() {
   echo -e "\033[1;32m$*\033[0m"
 }
 
-usage="Create new rocksdb version and prepare it for the release process\n"
+usage="Create new RocksDB version and prepare it for the release process\n"
 usage+="USAGE: ./make_new_version.sh <version>"
 
 # -- Pre-check
@@ -33,8 +33,8 @@ if [ $GIT_BRANCH != "master" ]; then
 fi
 
 title "Adding new tag for this release ..."
-$TAG="$ROCKSDB_VERSION.fb"
-$GIT tag -a "$TAG" -m "Rocksdb $ROCKSDB_VERSION"
+TAG="$ROCKSDB_VERSION.fb"
+$GIT tag -a "$TAG" -m "RocksDB $ROCKSDB_VERSION"
 
 # Setting up the proxy for remote repo access
 title "Pushing new tag to remote repo ..."

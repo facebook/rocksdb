@@ -28,8 +28,18 @@ class StatisticsImpl : public Statistics {
                              HistogramData* const data);
 
  private:
-  std::vector<std::atomic_uint_fast64_t> tickers_;
-  std::vector<HistogramImpl> histograms_;
+  struct Ticker {
+    Ticker() : value(uint_fast64_t()) {}
+
+    std::atomic_uint_fast64_t value;
+    // Pad the structure to make it size of 64 bytes. A plain array of
+    // std::atomic_uint_fast64_t results in huge performance degradataion
+    // due to false sharing.
+    char padding[64 - sizeof(std::atomic_uint_fast64_t)];
+  };
+
+  Ticker tickers_[TICKER_ENUM_MAX] __attribute__((aligned(64)));
+  HistogramImpl histograms_[HISTOGRAM_ENUM_MAX] __attribute__((aligned(64)));
 };
 
 // Utility functions
