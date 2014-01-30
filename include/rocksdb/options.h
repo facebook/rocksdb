@@ -672,7 +672,7 @@ enum ReadTier {
 struct ReadOptions {
   // If true, all data read from underlying storage will be
   // verified against corresponding checksums.
-  // Default: false
+  // Default: true
   bool verify_checksums;
 
   // Should the "data block"/"index block"/"filter block" read for this
@@ -713,11 +713,13 @@ struct ReadOptions {
 
   // Specify to create a tailing iterator -- a special iterator that has a
   // view of the complete database (i.e. it can also be used to read newly
-  // added data) and is optimized for sequential reads.
+  // added data) and is optimized for sequential reads. It will return records
+  // that were inserted into the database after the creation of the iterator.
+  // Default: false
   bool tailing;
 
   ReadOptions()
-      : verify_checksums(false),
+      : verify_checksums(true),
         fill_cache(true),
         prefix_seek(false),
         snapshot(nullptr),

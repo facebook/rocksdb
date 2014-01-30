@@ -2088,7 +2088,6 @@ Compaction* VersionSet::CompactRange(int input_level, int output_level,
 
 Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   ReadOptions options;
-  options.verify_checksums = options_->paranoid_checks;
   options.fill_cache = false;
 
   // Level-0 files have to be merged together.  For other levels,
