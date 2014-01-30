@@ -96,7 +96,9 @@ BENCHMARKS = db_bench_sqlite3 db_bench_tree_db table_reader_bench
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
-LIBNAME = librocksdb
+ifeq ($(LIBNAME),)
+        LIBNAME=librocksdb
+endif
 LIBRARY = ${LIBNAME}.a
 MEMENVLIBRARY = libmemenv.a
 

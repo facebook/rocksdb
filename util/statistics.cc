@@ -14,25 +14,23 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>();
 }
 
-StatisticsImpl::StatisticsImpl()
-    : tickers_(TICKER_ENUM_MAX),
-      histograms_(HISTOGRAM_ENUM_MAX) {}
+StatisticsImpl::StatisticsImpl() {}
 
 StatisticsImpl::~StatisticsImpl() {}
 
 long StatisticsImpl::getTickerCount(Tickers tickerType) {
   assert(tickerType < TICKER_ENUM_MAX);
-  return tickers_[tickerType];
+  return tickers_[tickerType].value;
 }
 
 void StatisticsImpl::setTickerCount(Tickers tickerType, uint64_t count) {
   assert(tickerType < TICKER_ENUM_MAX);
-  tickers_[tickerType] = count;
+  tickers_[tickerType].value = count;
 }
 
 void StatisticsImpl::recordTick(Tickers tickerType, uint64_t count) {
   assert(tickerType < TICKER_ENUM_MAX);
-  tickers_[tickerType] += count;
+  tickers_[tickerType].value += count;
 }
 
 void StatisticsImpl::measureTime(Histograms histogramType, uint64_t value) {

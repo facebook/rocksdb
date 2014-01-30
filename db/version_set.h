@@ -23,6 +23,7 @@
 #include <set>
 #include <vector>
 #include <deque>
+#include <atomic>
 #include "db/dbformat.h"
 #include "db/version_edit.h"
 #include "port/port.h"
