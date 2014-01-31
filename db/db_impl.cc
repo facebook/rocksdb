@@ -1312,7 +1312,10 @@ int DBImpl::FindMinimumEmptyLevelFitting(int level) {
     // stop if level i is not empty
     if (current->NumLevelFiles(i) > 0) break;
     // stop if level i is too small (cannot fit the level files)
-    if (versions_->MaxBytesForLevel(i) < current->NumLevelBytes(level)) break;
+    if (default_cfd_->compaction_picker()->MaxBytesForLevel(i) <
+        current->NumLevelBytes(level)) {
+      break;
+    }
 
     minimum_level = i;
   }
@@ -1943,8 +1946,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
     assert(m->in_progress);
-    c.reset(versions_->CompactRange(
-        m->input_level, m->output_level, m->begin, m->end, &manual_end));
+    c.reset(default_cfd_->CompactRange(m->input_level, m->output_level,
+                                       m->begin, m->end, &manual_end));
     if (!c) {
       m->done = true;
     }
@@ -1959,7 +1962,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
              ? "(end)"
              : manual_end->DebugString().c_str()));
   } else if (!options_.disable_auto_compactions) {
-    c.reset(versions_->PickCompaction());
+    c.reset(default_cfd_->PickCompaction());
   }
 
   Status status;
@@ -1983,14 +1986,14 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         static_cast<unsigned long long>(f->number), c->level() + 1,
         static_cast<unsigned long long>(f->file_size),
         status.ToString().c_str(), default_cfd_->current()->LevelSummary(&tmp));
-    versions_->ReleaseCompactionFiles(c.get(), status);
+    default_cfd_->compaction_picker()->ReleaseCompactionFiles(c.get(), status);
     *madeProgress = true;
   } else {
     MaybeScheduleFlushOrCompaction(); // do more compaction work in parallel.
     CompactionState* compact = new CompactionState(c.get());
     status = DoCompactionWork(compact, deletion_state);
     CleanupCompaction(compact, status);
-    versions_->ReleaseCompactionFiles(c.get(), status);
+    default_cfd_->compaction_picker()->ReleaseCompactionFiles(c.get(), status);
     c->ReleaseInputs();
     *madeProgress = true;
   }
@@ -2121,7 +2124,8 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
     // Over-estimate slightly so we don't end up just barely crossing
     // the threshold.
     compact->outfile->SetPreallocationBlockSize(
-      1.1 * versions_->MaxFileSizeForLevel(compact->compaction->output_level()));
+        1.1 * default_cfd_->compaction_picker()->MaxFileSizeForLevel(
+                  compact->compaction->output_level()));
 
     CompressionType compression_type = GetCompressionType(
         options_, compact->compaction->output_level(),
@@ -3534,9 +3538,7 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
                          const Slice& property, std::string* value) {
   value->clear();
   MutexLock l(&mutex_);
-  return internal_stats_.GetProperty(property, value, versions_.get(),
-                                     default_cfd_->current(),
-                                     default_cfd_->imm()->size());
+  return internal_stats_.GetProperty(property, value, default_cfd_);
 }
 
 void DBImpl::GetApproximateSizes(const ColumnFamilyHandle& column_family,

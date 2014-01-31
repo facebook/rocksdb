@@ -8,14 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/internal_stats.h"
+#include "db/column_family.h"
 
 #include <vector>
 
 namespace rocksdb {
 
 bool InternalStats::GetProperty(const Slice& property, std::string* value,
-                                VersionSet* version_set, Version* current,
-                                int immsize) {
+                                ColumnFamilyData* cfd) {
   Slice in = property;
   Slice prefix("rocksdb.");
   if (!in.starts_with(prefix)) return false;
@@ -30,7 +30,7 @@ bool InternalStats::GetProperty(const Slice& property, std::string* value,
     } else {
       char buf[100];
       snprintf(buf, sizeof(buf), "%d",
-               current->NumLevelFiles(static_cast<int>(level)));
+               cfd->current()->NumLevelFiles(static_cast<int>(level)));
       *value = buf;
       return true;
     }
@@ -43,8 +43,8 @@ bool InternalStats::GetProperty(const Slice& property, std::string* value,
 
     for (int level = 0; level < number_levels_; level++) {
       snprintf(buf, sizeof(buf), "%3d %8d %8.0f\n", level,
-               current->NumLevelFiles(level),
-               current->NumLevelBytes(level) / 1048576.0);
+               cfd->current()->NumLevelFiles(level),
+               cfd->current()->NumLevelBytes(level) / 1048576.0);
       value->append(buf);
     }
     return true;
@@ -87,7 +87,7 @@ bool InternalStats::GetProperty(const Slice& property, std::string* value,
              );
     value->append(buf);
     for (int level = 0; level < number_levels_; level++) {
-      int files = current->NumLevelFiles(level);
+      int files = cfd->current()->NumLevelFiles(level);
       if (compaction_stats_[level].micros > 0 || files > 0) {
         int64_t bytes_read = compaction_stats_[level].bytes_readn +
                              compaction_stats_[level].bytes_readnp1;
@@ -117,9 +117,9 @@ bool InternalStats::GetProperty(const Slice& property, std::string* value,
                  "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f "
                  "%10.1f %9.1f %11.1f %8d %8d %8d %8d %8d %8d %9.1f %9.1f "
                  "%9lu\n",
-                 level, files, current->NumLevelBytes(level) / 1048576.0,
-                 current->NumLevelBytes(level) /
-                     version_set->MaxBytesForLevel(level),
+                 level, files, cfd->current()->NumLevelBytes(level) / 1048576.0,
+                 cfd->current()->NumLevelBytes(level) /
+                     cfd->compaction_picker()->MaxBytesForLevel(level),
                  compaction_stats_[level].micros / 1e6, bytes_read / 1048576.0,
                  compaction_stats_[level].bytes_written / 1048576.0,
                  compaction_stats_[level].bytes_readn / 1048576.0,
@@ -285,10 +285,10 @@ bool InternalStats::GetProperty(const Slice& property, std::string* value,
 
     return true;
   } else if (in == "sstables") {
-    *value = current->DebugString();
+    *value = cfd->current()->DebugString();
     return true;
   } else if (in == "num-immutable-mem-table") {
-    *value = std::to_string(immsize);
+    *value = std::to_string(cfd->imm()->size());
     return true;
   }
 

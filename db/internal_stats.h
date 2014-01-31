@@ -16,6 +16,8 @@
 #include <vector>
 #include <string>
 
+class ColumnFamilyData;
+
 namespace rocksdb {
 class InternalStats {
  public:
@@ -100,7 +102,7 @@ class InternalStats {
   }
 
   bool GetProperty(const Slice& property, std::string* value,
-                   VersionSet* version_set, Version* current, int immsize);
+                   ColumnFamilyData* cfd);
 
  private:
   std::vector<CompactionStats> compaction_stats_;

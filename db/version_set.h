@@ -217,6 +217,7 @@ class Version {
   // record results in files_by_size_. The largest files are listed first.
   void UpdateFilesBySize();
 
+  ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
@@ -262,7 +263,7 @@ class Version {
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
-  explicit Version(VersionSet* vset, uint64_t version_number = 0);
+  Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
 
   ~Version();
 
@@ -362,29 +363,6 @@ class VersionSet {
 
   int NumberLevels() const { return num_levels_; }
 
-  // Pick level and inputs for a new compaction.
-  // Returns nullptr if there is no compaction to be done.
-  // Otherwise returns a pointer to a heap-allocated object that
-  // describes the compaction.  Caller should delete the result.
-  Compaction* PickCompaction();
-
-  // Return a compaction object for compacting the range [begin,end] in
-  // the specified level.  Returns nullptr if there is nothing in that
-  // level that overlaps the specified range.  Caller should delete
-  // the result.
-  //
-  // The returned Compaction might not include the whole requested range.
-  // In that case, compaction_end will be set to the next key that needs
-  // compacting. In case the compaction will compact the whole range,
-  // compaction_end will be set to nullptr.
-  // Client is responsible for compaction_end storage -- when called,
-  // *compaction_end should point to valid InternalKey!
-  Compaction* CompactRange(int input_level,
-                           int output_level,
-                           const InternalKey* begin,
-                           const InternalKey* end,
-                           InternalKey** compaction_end);
-
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   Iterator* MakeInputIterator(Compaction* c);
@@ -408,13 +386,6 @@ class VersionSet {
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact.
   bool VerifyCompactionFileConsistency(Compaction* c);
-
-  double MaxBytesForLevel(int level);
-
-  // Get the max file size in a given level.
-  uint64_t MaxFileSizeForLevel(int level);
-
-  void ReleaseCompactionFiles(Compaction* c, Status status);
 
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData* metadata, ColumnFamilyData** cfd);
@@ -470,10 +441,6 @@ class VersionSet {
 
   // Opened lazily
   unique_ptr<log::Writer> descriptor_log_;
-
-  // An object that keeps all the compaction stats
-  // and picks the next compaction
-  std::unique_ptr<CompactionPicker> compaction_picker_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;

@@ -23,6 +23,9 @@ class Version;
 class VersionSet;
 class MemTable;
 class MemTableListVersion;
+class CompactionPicker;
+class Compaction;
+class InternalKey;
 
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {
@@ -62,6 +65,8 @@ class ColumnFamilyData {
   uint32_t GetID() const { return id_; }
   const std::string& GetName() { return name_; }
 
+  int NumberLevels() const { return options_.num_levels; }
+
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
@@ -74,6 +79,17 @@ class ColumnFamilyData {
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
   void SetCurrent(Version* current);
   void CreateNewMemtable();
+
+  // See documentation in compaction_picker.h
+  Compaction* PickCompaction();
+  Compaction* CompactRange(int input_level, int output_level,
+                           const InternalKey* begin, const InternalKey* end,
+                           InternalKey** compaction_end);
+
+  CompactionPicker* compaction_picker() const {
+    return compaction_picker_.get();
+  }
+  const InternalKeyComparator& internal_comparator() const { return icmp_; }
 
   SuperVersion* GetSuperVersion() const { return super_version_; }
   uint64_t GetSuperVersionNumber() const {
@@ -102,6 +118,8 @@ class ColumnFamilyData {
   Version* current_;         // == dummy_versions->prev_
   ColumnFamilyOptions options_;
 
+  const InternalKeyComparator icmp_;
+
   MemTable* mem_;
   MemTableList imm_;
   SuperVersion* super_version_;
@@ -124,6 +142,10 @@ class ColumnFamilyData {
   // A flag indicating whether we should delay writes because
   // we have too many level 0 files
   bool need_slowdown_for_num_level0_files_;
+
+  // An object that keeps all the compaction stats
+  // and picks the next compaction
+  std::unique_ptr<CompactionPicker> compaction_picker_;
 };
 
 // Thread safe only for reading without a writer. All access should be

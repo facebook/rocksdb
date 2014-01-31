@@ -41,7 +41,7 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
 
 }  // anonymous namespace
 
-CompactionPicker::CompactionPicker(const Options* options,
+CompactionPicker::CompactionPicker(const ColumnFamilyOptions* options,
                                    const InternalKeyComparator* icmp)
     : compactions_in_progress_(options->num_levels),
       options_(options),

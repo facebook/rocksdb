@@ -14,6 +14,7 @@
 #include <algorithm>
 
 #include "db/version_set.h"
+#include "db/compaction_picker.h"
 
 namespace rocksdb {
 
@@ -65,6 +66,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       dummy_versions_(dummy_versions),
       current_(nullptr),
       options_(options),
+      icmp_(options_.comparator),
       mem_(nullptr),
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -72,7 +74,13 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      need_slowdown_for_num_level0_files_(false) {}
+      need_slowdown_for_num_level0_files_(false) {
+  if (options_.compaction_style == kCompactionStyleUniversal) {
+    compaction_picker_.reset(new UniversalCompactionPicker(&options_, &icmp_));
+  } else {
+    compaction_picker_.reset(new LevelCompactionPicker(&options_, &icmp_));
+  }
+}
 
 ColumnFamilyData::~ColumnFamilyData() {
   if (super_version_ != nullptr) {
@@ -112,6 +120,18 @@ void ColumnFamilyData::CreateNewMemtable() {
   }
   mem_ = new MemTable(current_->vset_->icmp_, options_);
   mem_->Ref();
+}
+
+Compaction* ColumnFamilyData::PickCompaction() {
+  return compaction_picker_->PickCompaction(current_);
+}
+
+Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
+                                           const InternalKey* begin,
+                                           const InternalKey* end,
+                                           InternalKey** compaction_end) {
+  return compaction_picker_->CompactRange(current_, input_level, output_level,
+                                          begin, end, compaction_end);
 }
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
