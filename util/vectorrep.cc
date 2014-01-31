@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <type_traits>
 
-#include "rocksdb/arena.h"
+#include "util/arena.h"
 #include "db/memtable.h"
 #include "port/port.h"
 #include "util/mutexlock.h"

@@ -17,6 +17,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/slice_transform.h"
+#include "util/arena.h"
 #include "util/coding.h"
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"
@@ -38,9 +40,8 @@ namespace rocksdb {
 MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     : comparator_(cmp),
       refs_(0),
-      arena_impl_(options.arena_block_size),
-      table_(options.memtable_factory->CreateMemTableRep(comparator_,
-                                                         &arena_impl_)),
+      arena_(options.arena_block_size),
+      table_(options.memtable_factory->CreateMemTableRep(comparator_, &arena_)),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
@@ -61,8 +62,7 @@ MemTable::~MemTable() {
 }
 
 size_t MemTable::ApproximateMemoryUsage() {
-  return arena_impl_.ApproximateMemoryUsage() +
-         table_->ApproximateMemoryUsage();
+  return arena_.ApproximateMemoryUsage() + table_->ApproximateMemoryUsage();
 }
 
 int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
@@ -184,7 +184,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   const size_t encoded_len =
       VarintLength(internal_key_size) + internal_key_size +
       VarintLength(val_size) + val_size;
-  char* buf = arena_impl_.Allocate(encoded_len);
+  char* buf = arena_.Allocate(encoded_len);
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
   p += key_size;

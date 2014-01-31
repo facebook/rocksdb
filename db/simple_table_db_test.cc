@@ -31,6 +31,7 @@
 
 using std::unique_ptr;
 
+// IS THIS FILE STILL NEEDED?
 namespace rocksdb {
 
 // SimpleTable is a simple table format for UNIT TEST ONLY. It is not built

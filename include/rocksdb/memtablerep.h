@@ -33,11 +33,9 @@
 // iteration over the entire collection is rare since doing so requires all the
 // keys to be copied into a sorted data structure.
 
-#ifndef STORAGE_ROCKSDB_DB_MEMTABLEREP_H_
-#define STORAGE_ROCKSDB_DB_MEMTABLEREP_H_
+#pragma once
 
 #include <memory>
-#include "rocksdb/slice_transform.h"
 
 namespace rocksdb {
 
@@ -199,5 +197,3 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
     const SliceTransform* transform, size_t bucket_count = 50000);
 
 }
-
-#endif // STORAGE_ROCKSDB_DB_MEMTABLEREP_H_

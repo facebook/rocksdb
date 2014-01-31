@@ -291,9 +291,9 @@ int main(int argc, char** argv) {
             "Table Properties:\n"
             "------------------------------\n"
             "  %s", table_properties.ToString("\n  ", ": ").c_str());
-        fprintf(stdout, "# deleted keys: %lu\n",
-            rocksdb::GetDeletedKeys(
-                table_properties.user_collected_properties));
+        fprintf(stdout, "# deleted keys: %zd\n",
+                rocksdb::GetDeletedKeys(
+                    table_properties.user_collected_properties));
       }
     }
   }

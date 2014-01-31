@@ -11,17 +11,18 @@
 #include <algorithm>
 #include <set>
 
-#include "rocksdb/db.h"
-#include "rocksdb/filter_policy.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/table.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/plain_table_factory.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"

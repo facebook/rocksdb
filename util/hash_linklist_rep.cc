@@ -7,7 +7,7 @@
 #include "util/hash_linklist_rep.h"
 
 #include "rocksdb/memtablerep.h"
-#include "rocksdb/arena.h"
+#include "util/arena.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "port/port.h"

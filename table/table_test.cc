@@ -23,6 +23,7 @@
 #include "rocksdb/plain_table_factory.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
 #include "table/meta_blocks.h"
 #include "rocksdb/plain_table_factory.h"

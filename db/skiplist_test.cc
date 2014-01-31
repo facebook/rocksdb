@@ -10,7 +10,7 @@
 #include "db/skiplist.h"
 #include <set>
 #include "rocksdb/env.h"
-#include "util/arena_impl.h"
+#include "util/arena.h"
 #include "util/hash.h"
 #include "util/random.h"
 #include "util/testharness.h"
@@ -34,9 +34,9 @@ struct TestComparator {
 class SkipTest { };
 
 TEST(SkipTest, Empty) {
-  ArenaImpl arena_impl;
+  Arena arena;
   TestComparator cmp;
-  SkipList<Key, TestComparator> list(cmp, &arena_impl);
+  SkipList<Key, TestComparator> list(cmp, &arena);
   ASSERT_TRUE(!list.Contains(10));
 
   SkipList<Key, TestComparator>::Iterator iter(&list);
@@ -54,9 +54,9 @@ TEST(SkipTest, InsertAndLookup) {
   const int R = 5000;
   Random rnd(1000);
   std::set<Key> keys;
-  ArenaImpl arena_impl;
+  Arena arena;
   TestComparator cmp;
-  SkipList<Key, TestComparator> list(cmp, &arena_impl);
+  SkipList<Key, TestComparator> list(cmp, &arena);
   for (int i = 0; i < N; i++) {
     Key key = rnd.Next() % R;
     if (keys.insert(key).second) {
@@ -209,14 +209,14 @@ class ConcurrentTest {
   // Current state of the test
   State current_;
 
-  ArenaImpl arena_impl_;
+  Arena arena_;
 
   // SkipList is not protected by mu_.  We just use a single writer
   // thread to modify it.
   SkipList<Key, TestComparator> list_;
 
  public:
-  ConcurrentTest() : list_(TestComparator(), &arena_impl_) { }
+  ConcurrentTest() : list_(TestComparator(), &arena_) {}
 
   // REQUIRES: External synchronization
   void WriteStep(Random* rnd) {

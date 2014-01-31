@@ -16,7 +16,7 @@
 #include "db/version_set.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena_impl.h"
+#include "util/arena.h"
 #include "util/dynamic_bloom.h"
 
 namespace rocksdb {
@@ -161,7 +161,7 @@ class MemTable {
 
   KeyComparator comparator_;
   int refs_;
-  ArenaImpl arena_impl_;
+  Arena arena_;
   unique_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage
