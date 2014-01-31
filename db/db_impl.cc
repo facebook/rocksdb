@@ -1066,6 +1066,11 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
     // Since we already recovered log_number, we want all logs
     // with numbers `<= log_number` (includes this one) to be ignored
     edit.SetLogNumber(log_number + 1);
+    // we must mark the next log number as used, even though it's
+    // not actually used. that is because VersionSet assumes
+    // VersionSet::next_file_number_ always to be strictly greater than any log
+    // number
+    versions_->MarkFileNumberUsed(log_number + 1);
     status = versions_->LogAndApply(&edit, &mutex_);
   }
 
