@@ -2948,13 +2948,6 @@ std::vector<Status> DBImpl::MultiGet(
   return statList;
 }
 
-// TODO(icanadi) creating column family while writing will cause a data race.
-// In write code path, we iterate through column families and call
-// MakeRoomForWrite() for each. MakeRoomForWrite() can unlock the mutex
-// and wait (delay the write). If we create or drop a column family when
-// that mutex is unlocked for delay, that's bad.
-// Solution TODO: enable iteration by chaining column families in
-// circular linked lists
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                   const std::string& column_family_name,
                                   ColumnFamilyHandle* handle) {

@@ -92,6 +92,10 @@ class ColumnFamilyData {
   }
 
  private:
+  friend class ColumnFamilySet;
+
+  ColumnFamilyData* next() { return next_.load(); }
+
   uint32_t id_;
   const std::string name_;
   Version* dummy_versions_;  // Head of circular doubly-linked list of versions.
@@ -106,6 +110,11 @@ class ColumnFamilyData {
   // InstallSuperVersion(), i.e. incremented every time super_version_
   // changes.
   std::atomic<uint64_t> super_version_number_;
+
+  // pointers for a circular linked list. we use it to support iterations
+  // that can be concurrent with writes
+  std::atomic<ColumnFamilyData*> next_;
+  std::atomic<ColumnFamilyData*> prev_;
 
   // This is the earliest log file number that contains data from this
   // Column Family. All earlier log files must be ignored and not
@@ -123,18 +132,19 @@ class ColumnFamilySet {
  public:
   class iterator {
    public:
-    explicit iterator(
-        std::unordered_map<uint32_t, ColumnFamilyData*>::iterator itr)
-        : itr_(itr) {}
+    explicit iterator(ColumnFamilyData* cfd)
+        : current_(cfd) {}
     iterator& operator++() {
-      ++itr_;
+      current_ = current_->next();
       return *this;
     }
-    bool operator!=(const iterator& other) { return this->itr_ != other.itr_; }
-    ColumnFamilyData* operator*() { return itr_->second; }
+    bool operator!=(const iterator& other) {
+      return this->current_ != other.current_;
+    }
+    ColumnFamilyData* operator*() { return current_; }
 
    private:
-    std::unordered_map<uint32_t, ColumnFamilyData*>::iterator itr_;
+    ColumnFamilyData* current_;
   };
 
   ColumnFamilySet();
@@ -159,8 +169,8 @@ class ColumnFamilySet {
                                        const ColumnFamilyOptions& options);
   void DropColumnFamily(uint32_t id);
 
-  iterator begin() { return iterator(column_family_data_.begin()); }
-  iterator end() { return iterator(column_family_data_.end()); }
+  iterator begin() { return iterator(dummy_cfd_->next()); }
+  iterator end() { return iterator(dummy_cfd_); }
 
  private:
   std::unordered_map<std::string, uint32_t> column_families_;
@@ -169,6 +179,7 @@ class ColumnFamilySet {
   // all of column family data members (options for example)
   std::vector<ColumnFamilyData*> droppped_column_families_;
   uint32_t max_column_family_;
+  ColumnFamilyData* dummy_cfd_;
 };
 
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {

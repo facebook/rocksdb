@@ -69,6 +69,8 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
       super_version_number_(0),
+      next_(nullptr),
+      prev_(nullptr),
       log_number_(0),
       need_slowdown_for_num_level0_files_(false) {}
 
@@ -80,9 +82,11 @@ ColumnFamilyData::~ColumnFamilyData() {
     super_version_->Cleanup();
     delete super_version_;
   }
-  // List must be empty
-  assert(dummy_versions_->next_ == dummy_versions_);
-  delete dummy_versions_;
+  if (dummy_versions_ != nullptr) {
+    // List must be empty
+    assert(dummy_versions_->next_ == dummy_versions_);
+    delete dummy_versions_;
+  }
 
   if (mem_ != nullptr) {
     delete mem_->Unref();
@@ -123,7 +127,13 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   return nullptr;
 }
 
-ColumnFamilySet::ColumnFamilySet() : max_column_family_(0) {}
+ColumnFamilySet::ColumnFamilySet()
+    : max_column_family_(0),
+      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, ColumnFamilyOptions())) {
+  // initialize linked list
+  dummy_cfd_->prev_.store(dummy_cfd_);
+  dummy_cfd_->next_.store(dummy_cfd_);
+}
 
 ColumnFamilySet::~ColumnFamilySet() {
   for (auto& cfd : column_family_data_) {
@@ -132,12 +142,14 @@ ColumnFamilySet::~ColumnFamilySet() {
   for (auto& cfd : droppped_column_families_) {
     delete cfd;
   }
+  delete dummy_cfd_;
 }
 
 ColumnFamilyData* ColumnFamilySet::GetDefault() const {
-  auto ret = GetColumnFamily(0);
-  assert(ret != nullptr);  // default column family should always exist
-  return ret;
+  auto cfd = GetColumnFamily(0);
+  // default column family should always exist
+  assert(cfd != nullptr);
+  return cfd;
 }
 
 ColumnFamilyData* ColumnFamilySet::GetColumnFamily(uint32_t id) const {
@@ -176,16 +188,29 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
       new ColumnFamilyData(id, name, dummy_versions, options);
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);
+  // add to linked list
+  new_cfd->next_.store(dummy_cfd_);
+  auto prev = dummy_cfd_->prev_.load();
+  new_cfd->prev_.store(prev);
+  prev->next_.store(new_cfd);
+  dummy_cfd_->prev_.store(new_cfd);
   return new_cfd;
 }
 
 void ColumnFamilySet::DropColumnFamily(uint32_t id) {
-  auto cfd = column_family_data_.find(id);
-  assert(cfd != column_family_data_.end());
-  column_families_.erase(cfd->second->GetName());
-  cfd->second->current()->Unref();
-  droppped_column_families_.push_back(cfd->second);
-  column_family_data_.erase(cfd);
+  assert(id != 0);
+  auto cfd_iter = column_family_data_.find(id);
+  assert(cfd_iter != column_family_data_.end());
+  auto cfd = cfd_iter->second;
+  column_families_.erase(cfd->GetName());
+  cfd->current()->Unref();
+  droppped_column_families_.push_back(cfd);
+  column_family_data_.erase(cfd_iter);
+  // remove from linked list
+  auto prev = cfd->prev_.load();
+  auto next = cfd->next_.load();
+  prev->next_.store(next);
+  next->prev_.store(prev);
 }
 
 MemTable* ColumnFamilyMemTablesImpl::GetMemTable(uint32_t column_family_id) {
