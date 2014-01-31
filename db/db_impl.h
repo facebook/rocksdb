@@ -286,7 +286,7 @@ class DBImpl : public DB {
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status FlushMemTableToOutputFile(bool* madeProgress,
+  Status FlushMemTableToOutputFile(ColumnFamilyData* cfd, bool* madeProgress,
                                    DeletionState& deletion_state);
 
   Status RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
@@ -298,8 +298,8 @@ class DBImpl : public DB {
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit);
-  Status WriteLevel0Table(std::vector<MemTable*> &mems, VersionEdit* edit,
-                                uint64_t* filenumber);
+  Status WriteLevel0Table(ColumnFamilyData* cfd, std::vector<MemTable*>& mems,
+                          VersionEdit* edit, uint64_t* filenumber);
 
   uint64_t SlowdownAmount(int n, double bottom, double top);
   Status MakeRoomForWrite(ColumnFamilyData* cfd,
@@ -308,10 +308,10 @@ class DBImpl : public DB {
                        autovector<WriteBatch*>* write_batch_group);
 
   // Force current memtable contents to be flushed.
-  Status FlushMemTable(const FlushOptions& options);
+  Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options);
 
   // Wait for memtable flushed
-  Status WaitForFlushMemTable();
+  Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
   void MaybeScheduleLogDBDeployStats();
   static void BGLogDBDeployStats(void* db);

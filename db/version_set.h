@@ -344,10 +344,6 @@ class VersionSet {
   // Mark the specified file number as used.
   void MarkFileNumberUsed(uint64_t number);
 
-  // Return the current log file number. This is the biggest log_number from
-  // all column families
-  uint64_t LogNumber() const { return log_number_; }
-
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
   uint64_t PrevLogNumber() const { return prev_log_number_; }
@@ -468,7 +464,6 @@ class VersionSet {
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;
-  uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   int num_levels_;
@@ -502,8 +497,8 @@ class VersionSet {
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);
 
-  void LogAndApplyHelper(Builder*b, Version* v,
-                           VersionEdit* edit, port::Mutex* mu);
+  void LogAndApplyHelper(ColumnFamilyData* cfd, Builder* b, Version* v,
+                         VersionEdit* edit, port::Mutex* mu);
 };
 
 }  // namespace rocksdb

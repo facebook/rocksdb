@@ -1130,10 +1130,12 @@ struct VersionSet::ManifestWriter {
   Status status;
   bool done;
   port::CondVar cv;
+  ColumnFamilyData* cfd;
   VersionEdit* edit;
 
-  explicit ManifestWriter(port::Mutex* mu, VersionEdit* e) :
-             done(false), cv(mu), edit(e) {}
+  explicit ManifestWriter(port::Mutex* mu, ColumnFamilyData* cfd,
+                          VersionEdit* e)
+      : done(false), cv(mu), cfd(cfd), edit(e) {}
 };
 
 // A helper class so we can efficiently apply a whole sequence
@@ -1374,7 +1376,6 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       last_sequence_(0),
-      log_number_(0),
       prev_log_number_(0),
       num_levels_(options_->num_levels),
       current_version_number_(0),
@@ -1428,7 +1429,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   mu->AssertHeld();
 
   // queue our request
-  ManifestWriter w(mu, edit);
+  ManifestWriter w(mu, column_family_data, edit);
   manifest_writers_.push_back(&w);
   while (!w.done && &w != manifest_writers_.front()) {
     w.cv.Wait();
@@ -1447,8 +1448,12 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   assert(manifest_writers_.front() == &w);
   std::deque<ManifestWriter*>::iterator iter = manifest_writers_.begin();
   for (; iter != manifest_writers_.end(); ++iter) {
+    if ((*iter)->cfd->GetID() != column_family_data->GetID()) {
+      // group commits across column families are not yet supported
+      break;
+    }
     last_writer = *iter;
-    LogAndApplyHelper(&builder, v, last_writer->edit, mu);
+    LogAndApplyHelper(column_family_data, &builder, v, last_writer->edit, mu);
     batch_edits.push_back(last_writer->edit);
   }
   builder.SaveTo(v);
@@ -1564,7 +1569,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   if (s.ok()) {
     manifest_file_size_ = new_manifest_file_size;
     AppendVersion(column_family_data, v);
-    log_number_ = edit->log_number_;
     column_family_data->SetLogNumber(edit->log_number_);
     prev_log_number_ = edit->prev_log_number_;
 
@@ -1596,15 +1600,16 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   return s;
 }
 
-void VersionSet::LogAndApplyHelper(Builder* builder, Version* v,
-                                   VersionEdit* edit, port::Mutex* mu) {
+void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd, Builder* builder,
+                                   Version* v, VersionEdit* edit,
+                                   port::Mutex* mu) {
   mu->AssertHeld();
 
   if (edit->has_log_number_) {
-    assert(edit->log_number_ >= log_number_);
+    assert(edit->log_number_ >= cfd->GetLogNumber());
     assert(edit->log_number_ < next_file_number_);
   } else {
-    edit->SetLogNumber(log_number_);
+    edit->SetLogNumber(cfd->GetLogNumber());
   }
 
   if (!edit->has_prev_log_number_) {
@@ -1754,6 +1759,7 @@ Status VersionSet::Recover(
 
         if (edit.has_log_number_) {
           cfd->SetLogNumber(edit.log_number_);
+          have_log_number = true;
         }
 
         // if it is not column family add or column family drop,
@@ -1762,11 +1768,6 @@ Status VersionSet::Recover(
         auto builder = builders.find(edit.column_family_);
         assert(builder != builders.end());
         builder->second->Apply(&edit);
-      }
-
-      if (edit.has_log_number_) {
-        log_number = edit.log_number_;
-        have_log_number = true;
       }
 
       if (edit.has_prev_log_number_) {
@@ -1828,7 +1829,6 @@ Status VersionSet::Recover(
     manifest_file_number_ = next_file;
     next_file_number_ = next_file + 1;
     last_sequence_ = last_sequence;
-    log_number_ = log_number;
     prev_log_number_ = prev_log_number;
 
     Log(options_->info_log, "Recovered from manifest file:%s succeeded,"
@@ -1839,7 +1839,7 @@ Status VersionSet::Recover(
         (unsigned long)manifest_file_number_,
         (unsigned long)next_file_number_,
         (unsigned long)last_sequence_,
-        (unsigned long)log_number_,
+        (unsigned long)log_number,
         (unsigned long)prev_log_number_);
 
     for (auto cfd : *column_family_set_) {
@@ -2041,7 +2041,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
 
       if (edit.has_log_number_) {
-        log_number = edit.log_number_;
+        log_number = std::max(log_number, edit.log_number_);
         have_log_number = true;
       }
 
@@ -2090,7 +2090,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     manifest_file_number_ = next_file;
     next_file_number_ = next_file + 1;
     last_sequence_ = last_sequence;
-    log_number_ = log_number;
     prev_log_number_ = prev_log_number;
 
     printf("manifest_file_number %lu next_file_number %lu last_sequence "

@@ -66,6 +66,9 @@ class ColumnFamilyTest {
   Status Merge(int cf, const string& key, const string& value) {
     return db_->Merge(WriteOptions(), handles_[cf], Slice(key), Slice(value));
   }
+  Status Flush(int cf) {
+    return db_->Flush(FlushOptions(), handles_[cf]);
+  }
 
   string Get(int cf, const string& key) {
     ReadOptions options;
@@ -237,6 +240,40 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
     }
   }
 }
+
+TEST(ColumnFamilyTest, FlushTest) {
+  ASSERT_OK(Open({"default"}));
+  CreateColumnFamilies({"one", "two"});
+  Close();
+  ASSERT_OK(Open({"default", "one", "two"}));
+  ASSERT_OK(Put(0, "foo", "v1"));
+  ASSERT_OK(Put(0, "bar", "v2"));
+  ASSERT_OK(Put(1, "mirko", "v3"));
+  ASSERT_OK(Put(0, "foo", "v2"));
+  ASSERT_OK(Put(2, "fodor", "v5"));
+  for (int i = 0; i < 3; ++i) {
+    Flush(i);
+  }
+  Close();
+  ASSERT_OK(Open({"default", "one", "two"}));
+
+  for (int iter = 0; iter <= 2; ++iter) {
+    ASSERT_EQ("v2", Get(0, "foo"));
+    ASSERT_EQ("v2", Get(0, "bar"));
+    ASSERT_EQ("v3", Get(1, "mirko"));
+    ASSERT_EQ("v5", Get(2, "fodor"));
+    ASSERT_EQ("NOT_FOUND", Get(0, "fodor"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "fodor"));
+    ASSERT_EQ("NOT_FOUND", Get(2, "foo"));
+    if (iter <= 1) {
+      // reopen
+      Close();
+      ASSERT_OK(Open({"default", "one", "two"}));
+    }
+  }
+  Close();
+}
+
 
 }  // namespace rocksdb
 
