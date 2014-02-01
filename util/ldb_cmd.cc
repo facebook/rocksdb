@@ -1017,7 +1017,9 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   const InternalKeyComparator cmp(opt.comparator);
   VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
   std::vector<ColumnFamilyDescriptor> dummy;
-  dummy.push_back(ColumnFamilyDescriptor());
+  ColumnFamilyDescriptor dummy_descriptor(default_column_family_name,
+                                          ColumnFamilyOptions(opt));
+  dummy.push_back(dummy_descriptor);
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change
   // (like LogAndApply) to the manifest file.

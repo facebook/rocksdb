@@ -1929,7 +1929,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
-  dummy.push_back(ColumnFamilyDescriptor());
+  ColumnFamilyDescriptor dummy_descriptor(default_column_family_name, ColumnFamilyOptions(*options));
+  dummy.push_back(dummy_descriptor);
   status = versions.Recover(dummy);
   if (!status.ok()) {
     return status;
