@@ -95,7 +95,12 @@ class CorruptionTest {
     int bad_values = 0;
     int correct = 0;
     std::string value_space;
-    Iterator* iter = db_->NewIterator(ReadOptions());
+    // Do not verify checksums. If we verify checksums then the
+    // db itself will raise errors because data is corrupted.
+    // Instead, we want the reads to be successful and this test
+    // will detect whether the appropriate corruptions have
+    // occured.
+    Iterator* iter = db_->NewIterator(ReadOptions(false, true));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       uint64_t key;
       Slice in(iter->key());

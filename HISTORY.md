@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 
+## Unreleased
+* By default, checksums are verified on every read from database
+
+
 ## 2.7.0 (01/28/2014)
 
 ### Public API changes
