@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction.h"
+#include "db/column_family.h"
 
 namespace rocksdb {
 
@@ -29,6 +30,7 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
       max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
       input_version_(input_version),
       number_levels_(input_version_->NumberLevels()),
+      cfd_(input_version_->cfd_),
       seek_compaction_(seek_compaction),
       enable_compression_(enable_compression),
       grandparent_index_(0),
@@ -43,6 +45,7 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
 
   input_version_->Ref();
   edit_ = new VersionEdit();
+  edit_->SetColumnFamily(cfd_->GetID());
   for (int i = 0; i < number_levels_; i++) {
     level_ptrs_[i] = 0;
   }
@@ -168,6 +171,10 @@ void Compaction::ReleaseInputs() {
     input_version_->Unref();
     input_version_ = nullptr;
   }
+}
+
+void Compaction::ReleaseCompactionFiles(Status status) {
+  cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
 }
 
 void Compaction::ResetNextCompactionIndex() {

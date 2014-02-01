@@ -241,7 +241,8 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
 Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
                                             const EnvOptions& soptions,
                                             int level) const {
-  Iterator* level_iter = new LevelFileNumIterator(vset_->icmp_, &files_[level]);
+  Iterator* level_iter =
+      new LevelFileNumIterator(cfd_->internal_comparator(), &files_[level]);
   if (options.prefix) {
     InternalKey internal_prefix(*options.prefix, 0, kTypeValue);
     if (!PrefixMayMatch(options, soptions,
@@ -2283,7 +2284,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
             new Version::LevelFileNumIterator(
-                c->input_version()->cfd_->internal_comparator(),
+                c->column_family_data()->internal_comparator(),
                 c->inputs(which)),
             &GetFileIterator, table_cache_, options, storage_options_,
             true /* for compaction */);
@@ -2291,7 +2292,8 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     }
   }
   assert(num <= space);
-  Iterator* result = NewMergingIterator(&icmp_, list, num);
+  Iterator* result = NewMergingIterator(
+      &c->column_family_data()->internal_comparator(), list, num);
   delete[] list;
   return result;
 }
@@ -2300,8 +2302,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
 // in the current version
 bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
 #ifndef NDEBUG
-  // TODO this only works for default column family now
-  Version* version = column_family_set_->GetDefault()->current();
+  Version* version = c->column_family_data()->current();
   if (c->input_version() != version) {
     Log(options_->info_log, "VerifyCompactionFileConsistency version mismatch");
   }

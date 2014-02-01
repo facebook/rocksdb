@@ -129,9 +129,8 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity);
 
-  Status RunManualCompaction(int input_level,
-                             int output_level,
-                             const Slice* begin,
+  Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
+                             int output_level, const Slice* begin,
                              const Slice* end);
 
   // Extra methods (for testing) that are not in the public DB interface
@@ -361,12 +360,12 @@ class DBImpl : public DB {
 
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
-  int FindMinimumEmptyLevelFitting(int level);
+  int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd, int level);
 
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
   // hold the data set.
-  Status ReFitLevel(int level, int target_level = -1);
+  Status ReFitLevel(ColumnFamilyData* cfd, int level, int target_level = -1);
 
   // Returns the current SuperVersion number.
   uint64_t CurrentVersionNumber() const;
@@ -428,6 +427,7 @@ class DBImpl : public DB {
 
   // Information for a manual compaction
   struct ManualCompaction {
+    ColumnFamilyData* cfd;
     int input_level;
     int output_level;
     bool done;
