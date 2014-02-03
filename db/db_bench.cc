@@ -1526,14 +1526,14 @@ class Benchmark {
       ++count;
       char* tab = std::find(linep, linep + bufferLen, columnSeparator);
       if (tab == linep + bufferLen) {
-        fprintf(stderr, "[Error] No Key delimiter TAB at line %ld\n", count);
+        fprintf(stderr, "[Error] No Key delimiter TAB at line %zu\n", count);
         continue;
       }
       Slice key(linep, tab - linep);
       tab++;
       char* endLine = std::find(tab, linep + bufferLen, lineSeparator);
       if (endLine  == linep + bufferLen) {
-        fprintf(stderr, "[Error] No ENTER at end of line # %ld\n", count);
+        fprintf(stderr, "[Error] No ENTER at end of line # %zu\n", count);
         continue;
       }
       Slice value(tab, endLine - tab);
