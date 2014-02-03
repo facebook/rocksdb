@@ -257,10 +257,8 @@ class DBImpl : public DB {
     return internal_comparator_.user_comparator();
   }
 
-  ColumnFamilyData* GetDefaultColumnFamily() { return default_cfd_; }
-
-  Iterator* NewInternalIterator(const ReadOptions&,
-                                SequenceNumber* latest_snapshot);
+  Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
+                                SuperVersion* super_version);
 
  private:
   friend class DB;
@@ -367,16 +365,13 @@ class DBImpl : public DB {
   // hold the data set.
   Status ReFitLevel(ColumnFamilyData* cfd, int level, int target_level = -1);
 
-  // Returns the current SuperVersion number.
-  uint64_t CurrentVersionNumber() const;
-
   // Returns a pair of iterators (mutable-only and immutable-only) used
-  // internally by TailingIterator and stores CurrentVersionNumber() in
+  // internally by TailingIterator and stores cfd->GetSuperVersionNumber() in
   // *superversion_number. These iterators are always up-to-date, i.e. can
   // be used to read new data.
   std::pair<Iterator*, Iterator*> GetTailingIteratorPair(
-    const ReadOptions& options,
-    uint64_t* superversion_number);
+      const ReadOptions& options, ColumnFamilyData* cfd,
+      uint64_t* superversion_number);
 
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;

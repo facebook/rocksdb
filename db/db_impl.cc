@@ -1423,10 +1423,6 @@ int DBImpl::Level0StopWriteTrigger(const ColumnFamilyHandle& column_family) {
   return cfd->options()->level0_stop_writes_trigger;
 }
 
-uint64_t DBImpl::CurrentVersionNumber() const {
-  return default_cfd_->GetSuperVersionNumber();
-}
-
 Status DBImpl::Flush(const FlushOptions& options,
                      const ColumnFamilyHandle& column_family) {
   mutex_.Lock();
@@ -2724,12 +2720,8 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 }  // namespace
 
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
-                                      SequenceNumber* latest_snapshot) {
-  mutex_.Lock();
-  *latest_snapshot = versions_->LastSequence();
-  SuperVersion* super_version = default_cfd_->GetSuperVersion()->Ref();
-  mutex_.Unlock();
-
+                                      ColumnFamilyData* cfd,
+                                      SuperVersion* super_version) {
   std::vector<Iterator*> iterator_list;
   // Collect iterator for mutable mem
   iterator_list.push_back(super_version->mem->NewIterator(options));
@@ -2738,9 +2730,8 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   // Collect iterators for files in L0 - Ln
   super_version->current->AddIterators(options, storage_options_,
                                        &iterator_list);
-  Iterator* internal_iter =
-      NewMergingIterator(&default_cfd_->internal_comparator(),
-                         &iterator_list[0], iterator_list.size());
+  Iterator* internal_iter = NewMergingIterator(
+      &cfd->internal_comparator(), &iterator_list[0], iterator_list.size());
 
   IterState* cleanup = new IterState(this, &mutex_, super_version);
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
@@ -2749,18 +2740,20 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
 }
 
 Iterator* DBImpl::TEST_NewInternalIterator() {
-  SequenceNumber ignored;
-  return NewInternalIterator(ReadOptions(), &ignored);
+  mutex_.Lock();
+  SuperVersion* super_version = default_cfd_->GetSuperVersion()->Ref();
+  mutex_.Unlock();
+  return NewInternalIterator(ReadOptions(), default_cfd_, super_version);
 }
 
 std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
-    const ReadOptions& options,
+    const ReadOptions& options, ColumnFamilyData* cfd,
     uint64_t* superversion_number) {
 
   mutex_.Lock();
-  SuperVersion* super_version = default_cfd_->GetSuperVersion()->Ref();
+  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   if (superversion_number != nullptr) {
-    *superversion_number = CurrentVersionNumber();
+    *superversion_number = cfd->GetSuperVersionNumber();
   }
   mutex_.Unlock();
 
@@ -2772,8 +2765,8 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
   std::vector<Iterator*> list;
   super_version->imm->AddIterators(options, &list);
   super_version->current->AddIterators(options, storage_options_, &list);
-  Iterator* immutable_iter = NewMergingIterator(
-      &default_cfd_->internal_comparator(), &list[0], list.size());
+  Iterator* immutable_iter =
+      NewMergingIterator(&cfd->internal_comparator(), &list[0], list.size());
 
   // create a DBIter that only uses memtable content; see NewIterator()
   immutable_iter = NewDBIterator(&dbname_, env_, options_, user_comparator(),
@@ -2910,84 +2903,106 @@ std::vector<Status> DBImpl::MultiGet(
   StopWatch sw(env_, options_.statistics.get(), DB_MULTIGET, false);
   SequenceNumber snapshot;
 
+  struct MultiGetColumnFamilyData {
+    SuperVersion* super_version;
+    Version::GetStats stats;
+    bool have_stat_update = false;
+  };
+  std::unordered_map<uint32_t, MultiGetColumnFamilyData*> multiget_cf_data;
+  // fill up and allocate outside of mutex
+  for (auto cf : column_family) {
+    if (multiget_cf_data.find(cf.id) == multiget_cf_data.end()) {
+      multiget_cf_data.insert({cf.id, new MultiGetColumnFamilyData()});
+    }
+  }
+
   mutex_.Lock();
   if (options.snapshot != nullptr) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
   } else {
     snapshot = versions_->LastSequence();
   }
-
-  SuperVersion* get_version = default_cfd_->GetSuperVersion()->Ref();
+  for (auto mgd_iter : multiget_cf_data) {
+    auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(mgd_iter.first);
+    assert(cfd != nullptr);
+    mgd_iter.second->super_version = cfd->GetSuperVersion()->Ref();
+  }
   mutex_.Unlock();
-
-  bool have_stat_update = false;
-  Version::GetStats stats;
 
   // Contain a list of merge operations if merge occurs.
   MergeContext merge_context;
 
   // Note: this always resizes the values array
-  int numKeys = keys.size();
-  std::vector<Status> statList(numKeys);
-  values->resize(numKeys);
+  size_t num_keys = keys.size();
+  std::vector<Status> stat_list(num_keys);
+  values->resize(num_keys);
 
   // Keep track of bytes that we read for statistics-recording later
-  uint64_t bytesRead = 0;
+  uint64_t bytes_read = 0;
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
-  for (int i=0; i<numKeys; ++i) {
+  for (size_t i = 0; i < num_keys; ++i) {
     merge_context.Clear();
-    Status& s = statList[i];
+    Status& s = stat_list[i];
     std::string* value = &(*values)[i];
 
     LookupKey lkey(keys[i], snapshot);
-    if (get_version->mem->Get(lkey, value, &s, merge_context, options_)) {
+    auto mgd_iter = multiget_cf_data.find(column_family[i].id);
+    assert(mgd_iter != multiget_cf_data.end());
+    auto mgd = mgd_iter->second;
+    auto super_version = mgd->super_version;
+    if (super_version->mem->Get(lkey, value, &s, merge_context, options_)) {
       // Done
-    } else if (get_version->imm->Get(lkey, value, &s, merge_context,
-                                     options_)) {
+    } else if (super_version->imm->Get(lkey, value, &s, merge_context,
+                                       options_)) {
       // Done
     } else {
-      get_version->current->Get(options, lkey, value, &s, &merge_context,
-                                &stats, options_);
-      have_stat_update = true;
+      super_version->current->Get(options, lkey, value, &s, &merge_context,
+                                  &mgd->stats, options_);
+      mgd->have_stat_update = true;
     }
 
     if (s.ok()) {
-      bytesRead += value->size();
+      bytes_read += value->size();
     }
   }
 
-  bool delete_get_version = false;
-  if (!options_.disable_seek_compaction && have_stat_update) {
-    mutex_.Lock();
-    if (get_version->current->UpdateStats(stats)) {
-      MaybeScheduleFlushOrCompaction();
+  autovector<SuperVersion*> superversions_to_delete;
+
+  bool schedule_flush_or_compaction = false;
+  mutex_.Lock();
+  for (auto mgd_iter : multiget_cf_data) {
+    auto mgd = mgd_iter.second;
+    if (!options_.disable_seek_compaction && mgd->have_stat_update) {
+      if (mgd->super_version->current->UpdateStats(mgd->stats)) {
+        schedule_flush_or_compaction = true;
+      }
     }
-    if (get_version->Unref()) {
-      get_version->Cleanup();
-      delete_get_version = true;
-    }
-    mutex_.Unlock();
-  } else {
-    if (get_version->Unref()) {
-      mutex_.Lock();
-      get_version->Cleanup();
-      mutex_.Unlock();
-      delete_get_version = true;
+    if (mgd->super_version->Unref()) {
+      mgd->super_version->Cleanup();
+      superversions_to_delete.push_back(mgd->super_version);
     }
   }
-  if (delete_get_version) {
-    delete get_version;
+  if (schedule_flush_or_compaction) {
+    MaybeScheduleFlushOrCompaction();
+  }
+  mutex_.Unlock();
+
+  for (auto td : superversions_to_delete) {
+    delete td;
+  }
+  for (auto mgd : multiget_cf_data) {
+    delete mgd.second;
   }
 
   RecordTick(options_.statistics.get(), NUMBER_MULTIGET_CALLS);
-  RecordTick(options_.statistics.get(), NUMBER_MULTIGET_KEYS_READ, numKeys);
-  RecordTick(options_.statistics.get(), NUMBER_MULTIGET_BYTES_READ, bytesRead);
+  RecordTick(options_.statistics.get(), NUMBER_MULTIGET_KEYS_READ, num_keys);
+  RecordTick(options_.statistics.get(), NUMBER_MULTIGET_BYTES_READ, bytes_read);
 
-  return statList;
+  return stat_list;
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
@@ -3056,19 +3071,28 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options,
                               const ColumnFamilyHandle& column_family) {
-  Iterator* iter;
+  SequenceNumber latest_snapshot = 0;
+  SuperVersion* super_version = nullptr;
+  mutex_.Lock();
+  auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  assert(cfd != nullptr);
+  if (!options.tailing) {
+    super_version = cfd->GetSuperVersion()->Ref();
+    latest_snapshot = versions_->LastSequence();
+  }
+  mutex_.Unlock();
 
+  Iterator* iter;
   if (options.tailing) {
-    iter = new TailingIterator(this, options, user_comparator());
+    iter = new TailingIterator(this, options, cfd);
   } else {
-    SequenceNumber latest_snapshot;
-    iter = NewInternalIterator(options, &latest_snapshot);
+    iter = NewInternalIterator(options, cfd, super_version);
 
     iter = NewDBIterator(
-      &dbname_, env_, options_, user_comparator(), iter,
-      (options.snapshot != nullptr
-       ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-       : latest_snapshot));
+        &dbname_, env_, options_, cfd->user_comparator(), iter,
+        (options.snapshot != nullptr
+             ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+             : latest_snapshot));
   }
 
   if (options.prefix) {
@@ -3529,6 +3553,7 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
   value->clear();
   MutexLock l(&mutex_);
   auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  assert(cfd != nullptr);
   return internal_stats_.GetProperty(property, value, cfd);
 }
 
@@ -3538,7 +3563,10 @@ void DBImpl::GetApproximateSizes(const ColumnFamilyHandle& column_family,
   Version* v;
   {
     MutexLock l(&mutex_);
-    v = default_cfd_->current();
+    auto cfd =
+        versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+    assert(cfd != nullptr);
+    v = cfd->current();
     v->Ref();
   }
 

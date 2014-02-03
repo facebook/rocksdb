@@ -29,6 +29,7 @@
 #include "db/write_batch_internal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/column_family.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/merge_operator.h"
@@ -57,7 +58,8 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
                            const Slice& key, std::string* value) {
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
-  SuperVersion* super_version = GetDefaultColumnFamily()->GetSuperVersion();
+  auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
   if (super_version->mem->Get(lkey, value, &s, merge_context, options_)) {
@@ -69,14 +71,18 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   return s;
 }
 
-Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options) {
-  SequenceNumber latest_snapshot;
-  Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
+Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options,
+                                      const ColumnFamilyHandle& column_family) {
+  auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  assert(cfd != nullptr);
+  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
+  SequenceNumber latest_snapshot = versions_->LastSequence();
+  Iterator* internal_iter = NewInternalIterator(options, cfd, super_version);
   return NewDBIterator(
-    &dbname_, env_, options_,  user_comparator(),internal_iter,
+      &dbname_, env_, options_, user_comparator(), internal_iter,
       (options.snapshot != nullptr
-      ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-      : latest_snapshot));
+           ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+           : latest_snapshot));
 }
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,

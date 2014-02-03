@@ -12,6 +12,8 @@
 
 #include <deque>
 #include <set>
+#include <vector>
+#include <string>
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
@@ -23,79 +25,80 @@
 namespace rocksdb {
 
 class DBImplReadOnly : public DBImpl {
-public:
+ public:
   DBImplReadOnly(const Options& options, const std::string& dbname);
- virtual ~DBImplReadOnly();
+  virtual ~DBImplReadOnly();
 
- // Implementations of the DB interface
- using DB::Get;
- virtual Status Get(const ReadOptions& options,
-                    const ColumnFamilyHandle& column_family, const Slice& key,
-                    std::string* value);
+  // Implementations of the DB interface
+  using DB::Get;
+  virtual Status Get(const ReadOptions& options,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     std::string* value);
 
- // TODO: Implement ReadOnly MultiGet?
+  // TODO: Implement ReadOnly MultiGet?
 
- using DBImpl::NewIterator;
- virtual Iterator* NewIterator(const ReadOptions&);
+  using DBImpl::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions&,
+                                const ColumnFamilyHandle& column_family);
 
- virtual Status NewIterators(
-     const ReadOptions& options,
-     const std::vector<ColumnFamilyHandle>& column_family,
-     std::vector<Iterator*>* iterators) {
+  virtual Status NewIterators(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle>& column_family,
+      std::vector<Iterator*>* iterators) {
    // TODO
-   return Status::NotSupported("Not supported yet.");
- }
+    return Status::NotSupported("Not supported yet.");
+  }
 
- using DBImpl::Put;
- virtual Status Put(const WriteOptions& options,
-                    const ColumnFamilyHandle& column_family, const Slice& key,
-                    const Slice& value) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- using DBImpl::Merge;
- virtual Status Merge(const WriteOptions& options,
-                      const ColumnFamilyHandle& column_family, const Slice& key,
-                      const Slice& value) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- using DBImpl::Delete;
- virtual Status Delete(const WriteOptions& options,
+  using DBImpl::Put;
+  virtual Status Put(const WriteOptions& options,
+                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     const Slice& value) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  using DBImpl::Merge;
+  virtual Status Merge(const WriteOptions& options,
                        const ColumnFamilyHandle& column_family,
-                       const Slice& key) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- virtual Status Write(const WriteOptions& options, WriteBatch* updates) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- using DBImpl::CompactRange;
- virtual Status CompactRange(const ColumnFamilyHandle& column_family,
-                             const Slice* begin, const Slice* end,
-                             bool reduce_level = false, int target_level = -1) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- virtual Status DisableFileDeletions() {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- virtual Status EnableFileDeletions(bool force) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- virtual Status GetLiveFiles(std::vector<std::string>&,
-                             uint64_t* manifest_file_size,
-                             bool flush_memtable = true) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
- using DBImpl::Flush;
- virtual Status Flush(const FlushOptions& options,
-                      const ColumnFamilyHandle& column_family) {
-   return Status::NotSupported("Not supported operation in read only mode.");
- }
+                       const Slice& key, const Slice& value) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  using DBImpl::Delete;
+  virtual Status Delete(const WriteOptions& options,
+                        const ColumnFamilyHandle& column_family,
+                        const Slice& key) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  virtual Status Write(const WriteOptions& options, WriteBatch* updates) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  using DBImpl::CompactRange;
+  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+                              const Slice* begin, const Slice* end,
+                              bool reduce_level = false,
+                              int target_level = -1) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  virtual Status DisableFileDeletions() {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  virtual Status EnableFileDeletions(bool force) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  virtual Status GetLiveFiles(std::vector<std::string>&,
+                              uint64_t* manifest_file_size,
+                              bool flush_memtable = true) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  using DBImpl::Flush;
+  virtual Status Flush(const FlushOptions& options,
+                       const ColumnFamilyHandle& column_family) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
 
-private:
- friend class DB;
+ private:
+  friend class DB;
 
- // No copying allowed
- DBImplReadOnly(const DBImplReadOnly&);
- void operator=(const DBImplReadOnly&);
+  // No copying allowed
+  DBImplReadOnly(const DBImplReadOnly&);
+  void operator=(const DBImplReadOnly&);
 };
-
 }
