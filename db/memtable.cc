@@ -148,7 +148,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p += 8;
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
-  assert((p + val_size) - buf == (unsigned)encoded_len);
+  assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   table_->Insert(buf);
 
   // The first sequence number inserted into the memtable
@@ -299,13 +299,9 @@ bool MemTable::Update(SequenceNumber seq, ValueType type,
                                      value.size());
             WriteLock wl(GetLock(lkey.user_key()));
             memcpy(p, value.data(), value.size());
-            assert(
-              (p + value.size()) - entry ==
-              (unsigned) (VarintLength(key_length) +
-                          key_length +
-                          VarintLength(value.size()) +
-                          value.size())
-            );
+            assert((unsigned)((p + value.size()) - entry) ==
+                   (unsigned)(VarintLength(key_length) + key_length +
+                              VarintLength(value.size()) + value.size()));
             return true;
           }
         }
