@@ -1423,9 +1423,6 @@ class PosixEnv : public Env {
                          nullptr,
                          &ThreadPool::BGThreadWrapper,
                          this));
-        fprintf(stdout,
-                "Created bg thread 0x%lx\n",
-                (unsigned long)t);
 
         // Set the thread name to aid debugging
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
