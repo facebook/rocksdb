@@ -79,12 +79,11 @@ void Compaction::AddInputDeletions(VersionEdit* edit) {
 }
 
 bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
-  if (input_version_->vset_->options_->compaction_style ==
-      kCompactionStyleUniversal) {
+  if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     return bottommost_level_;
   }
   // Maybe use binary search to find right entry instead of linear search?
-  const Comparator* user_cmp = input_version_->vset_->icmp_.user_comparator();
+  const Comparator* user_cmp = cfd_->user_comparator();
   for (int lvl = level_ + 2; lvl < number_levels_; lvl++) {
     const std::vector<FileMetaData*>& files = input_version_->files_[lvl];
     for (; level_ptrs_[lvl] < files.size(); ) {
@@ -105,7 +104,7 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
 
 bool Compaction::ShouldStopBefore(const Slice& internal_key) {
   // Scan to find earliest grandparent file that contains key.
-  const InternalKeyComparator* icmp = &input_version_->vset_->icmp_;
+  const InternalKeyComparator* icmp = &cfd_->internal_comparator();
   while (grandparent_index_ < grandparents_.size() &&
       icmp->Compare(internal_key,
                     grandparents_[grandparent_index_]->largest.Encode()) > 0) {
@@ -143,8 +142,7 @@ void Compaction::MarkFilesBeingCompacted(bool value) {
 
 // Is this compaction producing files at the bottommost level?
 void Compaction::SetupBottomMostLevel(bool isManual) {
-  if (input_version_->vset_->options_->compaction_style  ==
-         kCompactionStyleUniversal) {
+  if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     // If universal compaction style is used and manual
     // compaction is occuring, then we are guaranteed that
     // all files will be picked in a single compaction
@@ -157,8 +155,7 @@ void Compaction::SetupBottomMostLevel(bool isManual) {
     return;
   }
   bottommost_level_ = true;
-  int num_levels = input_version_->vset_->NumberLevels();
-  for (int i = output_level() + 1; i < num_levels; i++) {
+  for (int i = output_level() + 1; i < number_levels_; i++) {
     if (input_version_->NumLevelFiles(i) > 0) {
       bottommost_level_ = false;
       break;

@@ -294,8 +294,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
   table_cache_.reset(new TableCache(dbname_, &options_,
                                     storage_options_, table_cache_size));
 
-  versions_.reset(new VersionSet(dbname_, &options_, storage_options_,
-                                 table_cache_.get(), &internal_comparator_));
+  versions_.reset(
+      new VersionSet(dbname_, &options_, storage_options_, table_cache_.get()));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -1127,8 +1127,8 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
           (unsigned long)m->GetLogNumber());
       list.push_back(m->NewIterator());
     }
-    Iterator* iter = NewMergingIterator(&internal_comparator_, &list[0],
-                                        list.size());
+    Iterator* iter =
+        NewMergingIterator(&cfd->internal_comparator(), &list[0], list.size());
     Log(options_.info_log,
         "Level-0 flush table #%lu: started",
         (unsigned long)meta.number);
@@ -1290,7 +1290,7 @@ Status DBImpl::CompactRange(const ColumnFamilyHandle& column_family,
   for (int level = 0; level <= max_level_with_files; level++) {
     // in case the compaction is unversal or if we're compacting the
     // bottom-most level, the output level will be the same as input one
-    if (options_.compaction_style == kCompactionStyleUniversal ||
+    if (cfd->options()->compaction_style == kCompactionStyleUniversal ||
         level == max_level_with_files) {
       s = RunManualCompaction(cfd, level, level, begin, end);
     } else {
@@ -1400,15 +1400,27 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 }
 
 int DBImpl::NumberLevels(const ColumnFamilyHandle& column_family) {
-  return options_.num_levels;
+  mutex_.Lock();
+  auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  mutex_.Unlock();
+  assert(cfd != nullptr);
+  return cfd->NumberLevels();
 }
 
 int DBImpl::MaxMemCompactionLevel(const ColumnFamilyHandle& column_family) {
-  return options_.max_mem_compaction_level;
+  mutex_.Lock();
+  auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  mutex_.Unlock();
+  assert(cfd != nullptr);
+  return cfd->options()->max_mem_compaction_level;
 }
 
 int DBImpl::Level0StopWriteTrigger(const ColumnFamilyHandle& column_family) {
-  return options_.level0_stop_writes_trigger;
+  mutex_.Lock();
+  auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
+  mutex_.Unlock();
+  assert(cfd != nullptr);
+  return cfd->options()->level0_stop_writes_trigger;
 }
 
 uint64_t DBImpl::CurrentVersionNumber() const {
@@ -1630,7 +1642,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
-      options_.compaction_style == kCompactionStyleUniversal) {
+      cfd->options()->compaction_style == kCompactionStyleUniversal) {
     manual.begin = nullptr;
   } else {
     begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
@@ -2742,8 +2754,9 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   immutable_mems->AddIterators(options, &iterator_list);
   // Collect iterators for files in L0 - Ln
   version->AddIterators(options, storage_options_, &iterator_list);
-  Iterator* internal_iter = NewMergingIterator(
-      &internal_comparator_, &iterator_list[0], iterator_list.size());
+  Iterator* internal_iter =
+      NewMergingIterator(&default_cfd_->internal_comparator(),
+                         &iterator_list[0], iterator_list.size());
   cleanup->version = version;
   cleanup->mu = &mutex_;
   cleanup->db = this;
@@ -2799,8 +2812,8 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
   immutable_cleanup->db = this;
   immutable_cleanup->mu = &mutex_;
 
-  immutable_iter =
-    NewMergingIterator(&internal_comparator_, &list[0], list.size());
+  immutable_iter = NewMergingIterator(&default_cfd_->internal_comparator(),
+                                      &list[0], list.size());
   immutable_iter->RegisterCleanup(CleanupIteratorState, immutable_cleanup,
                                   nullptr);
 
@@ -3500,7 +3513,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
           // (compression, etc) but err on the side of caution.
           lfile->SetPreallocationBlockSize(1.1 *
                                            cfd->options()->write_buffer_size);
-          memtmp = new MemTable(internal_comparator_, *cfd->options());
+          memtmp = new MemTable(cfd->internal_comparator(), *cfd->options());
           new_superversion = new SuperVersion();
         }
       }
@@ -3610,7 +3623,6 @@ Status DBImpl::DeleteFile(std::string name) {
 
   int level;
   FileMetaData metadata;
-  int maxlevel = NumberLevels();
   ColumnFamilyData* cfd;
   VersionEdit edit;
   DeletionState deletion_state(0, true);
@@ -3622,7 +3634,7 @@ Status DBImpl::DeleteFile(std::string name) {
                              name.c_str());
       return Status::InvalidArgument("File not found");
     }
-    assert((level > 0) && (level < maxlevel));
+    assert((level > 0) && (level < cfd->NumberLevels()));
 
     // If the file is being compacted no need to delete.
     if (metadata.being_compacted) {
@@ -3634,7 +3646,7 @@ Status DBImpl::DeleteFile(std::string name) {
     // Only the files in the last level can be deleted externally.
     // This is to make sure that any deletion tombstones are not
     // lost. Check that the level passed is the last level.
-    for (int i = level + 1; i < maxlevel; i++) {
+    for (int i = level + 1; i < cfd->NumberLevels(); i++) {
       if (cfd->current()->NumLevelFiles(i) != 0) {
         Log(options_.info_log,
             "DeleteFile %s FAILED. File not in last level\n", name.c_str());
@@ -3820,13 +3832,20 @@ Status DB::OpenWithColumnFamilies(
     }
   }
 
-  if (s.ok() && impl->options_.compaction_style == kCompactionStyleUniversal) {
-    Version* current = impl->default_cfd_->current();
-    for (int i = 1; i < impl->NumberLevels(); i++) {
-      int num_files = current->NumLevelFiles(i);
-      if (num_files > 0) {
-        s = Status::InvalidArgument("Not all files are at level 0. Cannot "
-          "open with universal compaction style.");
+  if (s.ok()) {
+    for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
+      if (cfd->options()->compaction_style == kCompactionStyleUniversal) {
+        Version* current = cfd->current();
+        for (int i = 1; i < current->NumberLevels(); ++i) {
+          int num_files = current->NumLevelFiles(i);
+          if (num_files > 0) {
+            s = Status::InvalidArgument("Not all files are at level 0. Cannot "
+                "open with universal compaction style.");
+            break;
+          }
+        }
+      }
+      if (!s.ok()) {
         break;
       }
     }

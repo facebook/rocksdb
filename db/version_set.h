@@ -201,7 +201,7 @@ class Version {
   friend class Compaction;
   friend class VersionSet;
   friend class DBImpl;
-  friend struct ColumnFamilyData;
+  friend class ColumnFamilyData;
   friend class CompactionPicker;
   friend class LevelCompactionPicker;
   friend class UniversalCompactionPicker;
@@ -232,7 +232,7 @@ class Version {
   // but files in each level are now sorted based on file
   // size. The file with the largest size is at the front.
   // This vector stores the index of the file from files_.
-  std::vector< std::vector<int> > files_by_size_;
+  std::vector<std::vector<int>> files_by_size_;
 
   // An index into files_by_size_ that specifies the first
   // file that is not yet compacted
@@ -281,8 +281,7 @@ class Version {
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const Options* options,
-             const EnvOptions& storage_options, TableCache* table_cache,
-             const InternalKeyComparator*);
+             const EnvOptions& storage_options, TableCache* table_cache);
   ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -361,8 +360,6 @@ class VersionSet {
     return min_log_num;
   }
 
-  int NumberLevels() const { return num_levels_; }
-
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   Iterator* MakeInputIterator(Compaction* c);
@@ -406,10 +403,7 @@ class VersionSet {
   class Builder;
   struct ManifestWriter;
 
-  friend class Compaction;
   friend class Version;
-  // TODO(icanadi) temporarily until we have what ColumnFamilyData needs (icmp_)
-  friend class ColumnFamilyData;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
@@ -431,13 +425,10 @@ class VersionSet {
   const std::string dbname_;
   const Options* const options_;
   TableCache* const table_cache_;
-  const InternalKeyComparator icmp_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
-
-  int num_levels_;
 
   // Opened lazily
   unique_ptr<log::Writer> descriptor_log_;

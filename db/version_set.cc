@@ -417,7 +417,8 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       next_(this),
       prev_(this),
       refs_(0),
-      num_levels_(vset->num_levels_),
+      // cfd is nullptr if Version is dummy
+      num_levels_(cfd == nullptr ? 0 : cfd->NumberLevels()),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
@@ -1372,19 +1373,16 @@ class VersionSet::Builder {
 
 VersionSet::VersionSet(const std::string& dbname, const Options* options,
                        const EnvOptions& storage_options,
-                       TableCache* table_cache,
-                       const InternalKeyComparator* cmp)
+                       TableCache* table_cache)
     : column_family_set_(new ColumnFamilySet()),
       env_(options->env),
       dbname_(dbname),
       options_(options),
       table_cache_(table_cache),
-      icmp_(*cmp),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       last_sequence_(0),
       prev_log_number_(0),
-      num_levels_(options_->num_levels),
       current_version_number_(0),
       manifest_file_size_(0),
       storage_options_(storage_options),
@@ -1698,17 +1696,17 @@ Status VersionSet::Recover(
       if (!s.ok()) {
         break;
       }
-      if (edit.has_comparator_ &&
-          edit.comparator_ != icmp_.user_comparator()->Name()) {
-        s = Status::InvalidArgument(
-            icmp_.user_comparator()->Name(),
-            "does not match existing comparator " + edit.comparator_);
-        break;
-      }
 
+      // Not found means that user didn't supply that column
+      // family option AND we encountered column family add
+      // record. Once we encounter column family drop record,
+      // we will delete the column family from
+      // column_families_not_found.
       bool cf_in_not_found =
           column_families_not_found.find(edit.column_family_) !=
           column_families_not_found.end();
+      // in builders means that user supplied that column family
+      // option AND that we encountered column family add record
       bool cf_in_builders =
           builders.find(edit.column_family_) != builders.end();
 
@@ -1729,6 +1727,13 @@ Status VersionSet::Recover(
               CreateColumnFamily(cf_options->second, &edit);
           builders.insert(
               {edit.column_family_, new Builder(new_cfd, new_cfd->current())});
+          if (edit.has_comparator_ &&
+              edit.comparator_ != new_cfd->user_comparator()->Name()) {
+            s = Status::InvalidArgument(
+                new_cfd->user_comparator()->Name(),
+                "does not match existing comparator " + edit.comparator_);
+            break;
+          }
         }
       } else if (edit.is_column_family_drop_) {
         if (cf_in_builders) {
@@ -1763,6 +1768,13 @@ Status VersionSet::Recover(
         if (edit.has_log_number_) {
           cfd->SetLogNumber(edit.log_number_);
           have_log_number = true;
+        }
+        if (edit.has_comparator_ &&
+            edit.comparator_ != cfd->user_comparator()->Name()) {
+          s = Status::InvalidArgument(
+              cfd->user_comparator()->Name(),
+              "does not match existing comparator " + edit.comparator_);
+          break;
         }
 
         // if it is not column family add or column family drop,
@@ -1924,9 +1936,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
         "Number of levels needs to be bigger than 1");
   }
 
-  const InternalKeyComparator cmp(options->comparator);
   TableCache tc(dbname, options, storage_options, 10);
-  VersionSet versions(dbname, options, storage_options, &tc, &cmp);
+  VersionSet versions(dbname, options, storage_options, &tc);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -2011,8 +2022,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   uint64_t prev_log_number = 0;
   int count = 0;
   // TODO works only for default column family currently
-  VersionSet::Builder builder(column_family_set_->GetDefault(),
-                              column_family_set_->GetDefault()->current());
+  ColumnFamilyData* default_cfd = column_family_set_->GetDefault();
+  VersionSet::Builder builder(default_cfd, default_cfd->current());
 
   {
     VersionSet::LogReporter reporter;
@@ -2025,11 +2036,11 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       VersionEdit edit;
       s = edit.DecodeFrom(record);
       if (s.ok()) {
-        if (edit.has_comparator_ &&
-            edit.comparator_ != icmp_.user_comparator()->Name()) {
-          s = Status::InvalidArgument(icmp_.user_comparator()->Name(),
-                                      "does not match existing comparator " +
-                                      edit.comparator_);
+        if (edit.column_family_ == 0 && edit.has_comparator_ &&
+            edit.comparator_ != default_cfd->user_comparator()->Name()) {
+          s = Status::InvalidArgument(
+              default_cfd->user_comparator()->Name(),
+              "does not match existing comparator " + edit.comparator_);
         }
       }
 
@@ -2127,12 +2138,14 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
         // no need to explicitly write it
         edit.AddColumnFamily(cfd->GetName());
         edit.SetColumnFamily(cfd->GetID());
-        std::string record;
-        edit.EncodeTo(&record);
-        Status s = log->AddRecord(record);
-        if (!s.ok()) {
-          return s;
-        }
+      }
+      edit.SetComparatorName(
+          cfd->internal_comparator().user_comparator()->Name());
+      std::string record;
+      edit.EncodeTo(&record);
+      Status s = log->AddRecord(record);
+      if (!s.ok()) {
+        return s;
       }
     }
 
@@ -2141,7 +2154,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
 
-      for (int level = 0; level < NumberLevels(); level++) {
+      for (int level = 0; level < cfd->NumberLevels(); level++) {
         for (const auto& f : cfd->current()->files_[level]) {
           edit.AddFile(level,
                        f->number,
@@ -2162,13 +2175,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     }
   }
 
-  // Save metadata
-  VersionEdit edit;
-  edit.SetComparatorName(icmp_.user_comparator()->Name());
-
-  std::string record;
-  edit.EncodeTo(&record);
-  return log->AddRecord(record);
+  return Status::OK();
 }
 
 // Opens the mainfest file and reads all records
@@ -2205,10 +2212,12 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   for (int level = 0; level < v->NumberLevels(); level++) {
     const std::vector<FileMetaData*>& files = v->files_[level];
     for (size_t i = 0; i < files.size(); i++) {
-      if (icmp_.Compare(files[i]->largest, ikey) <= 0) {
+      if (v->cfd_->internal_comparator().Compare(files[i]->largest, ikey) <=
+          0) {
         // Entire file is before "ikey", so just add the file size
         result += files[i]->file_size;
-      } else if (icmp_.Compare(files[i]->smallest, ikey) > 0) {
+      } else if (v->cfd_->internal_comparator().Compare(files[i]->smallest,
+                                                        ikey) > 0) {
         // Entire file is after "ikey", so ignore
         if (level > 0) {
           // Files other than level 0 are sorted by meta->smallest, so
@@ -2368,7 +2377,7 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
 
 void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   for (auto cfd : *column_family_set_) {
-    for (int level = 0; level < NumberLevels(); level++) {
+    for (int level = 0; level < cfd->NumberLevels(); level++) {
       for (const auto& file : cfd->current()->files_[level]) {
         LiveFileMetaData filemetadata;
         filemetadata.name = TableFileName("", file->number);

@@ -5039,10 +5039,9 @@ void BM_LogAndApply(int iters, int num_base_files) {
   port::Mutex mu;
   MutexLock l(&mu);
 
-  InternalKeyComparator cmp(BytewiseComparator());
   Options options;
   EnvOptions sopt;
-  VersionSet vset(dbname, &options, sopt, nullptr, &cmp);
+  VersionSet vset(dbname, &options, sopt, nullptr);
   std::vector<ColumnFamilyDescriptor> dummy;
   dummy.push_back(ColumnFamilyDescriptor());
   ASSERT_OK(vset.Recover(dummy));

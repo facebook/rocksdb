@@ -536,10 +536,8 @@ void ManifestDumpCommand::DoCommand() {
   std::string file(manifestfile);
   std::string dbname("dummy");
   TableCache* tc = new TableCache(dbname, &options, sopt, 10);
-  const InternalKeyComparator* cmp =
-    new InternalKeyComparator(options.comparator);
 
-  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc, cmp);
+  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc);
   Status s = versions->DumpManifest(options, file, verbose_, is_key_hex_);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
@@ -1015,7 +1013,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   EnvOptions soptions;
   TableCache tc(db_path_, &opt, soptions, 10);
   const InternalKeyComparator cmp(opt.comparator);
-  VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
+  VersionSet versions(db_path_, &opt, soptions, &tc);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(default_column_family_name,
                                           ColumnFamilyOptions(opt));
@@ -1029,7 +1027,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   }
   int max = -1;
   auto default_cfd = versions.GetColumnFamilySet()->GetDefault();
-  for (int i = 0; i < versions.NumberLevels(); i++) {
+  for (int i = 0; i < default_cfd->NumberLevels(); i++) {
     if (default_cfd->current()->NumLevelFiles(i)) {
       max = i;
     }

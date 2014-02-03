@@ -89,6 +89,7 @@ class ColumnFamilyData {
   CompactionPicker* compaction_picker() const {
     return compaction_picker_.get();
   }
+  const Comparator* user_comparator() const { return icmp_.user_comparator(); }
   const InternalKeyComparator& internal_comparator() const { return icmp_; }
 
   SuperVersion* GetSuperVersion() const { return super_version_; }

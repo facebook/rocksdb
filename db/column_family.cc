@@ -118,7 +118,7 @@ void ColumnFamilyData::CreateNewMemtable() {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  mem_ = new MemTable(current_->vset_->icmp_, options_);
+  mem_ = new MemTable(icmp_, options_);
   mem_->Ref();
 }
 
