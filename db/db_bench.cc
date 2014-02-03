@@ -99,6 +99,7 @@ DEFINE_string(benchmarks,
               "Must be used with merge_operator\n"
               "\treadrandommergerandom -- perform N random read-or-merge "
               "operations. Must be used with merge_operator\n"
+              "\tnewiterator   -- repeated iterator creation\n"
               "\tseekrandom    -- N random seeks\n"
               "\tcrc32c        -- repeated crc32c of 4K of data\n"
               "\tacquireload   -- load N*1000 times\n"
@@ -1089,6 +1090,8 @@ class Benchmark {
         method = &Benchmark::ReadRandom;
       } else if (name == Slice("readmissing")) {
         method = &Benchmark::ReadMissing;
+      } else if (name == Slice("newiterator")) {
+        method = &Benchmark::IteratorCreation;
       } else if (name == Slice("seekrandom")) {
         method = &Benchmark::SeekRandom;
       } else if (name == Slice("readhot")) {
@@ -1526,14 +1529,14 @@ class Benchmark {
       ++count;
       char* tab = std::find(linep, linep + bufferLen, columnSeparator);
       if (tab == linep + bufferLen) {
-        fprintf(stderr, "[Error] No Key delimiter TAB at line %ld\n", count);
+        fprintf(stderr, "[Error] No Key delimiter TAB at line %zu\n", count);
         continue;
       }
       Slice key(linep, tab - linep);
       tab++;
       char* endLine = std::find(tab, linep + bufferLen, lineSeparator);
       if (endLine  == linep + bufferLen) {
-        fprintf(stderr, "[Error] No ENTER at end of line # %ld\n", count);
+        fprintf(stderr, "[Error] No ENTER at end of line # %zu\n", count);
         continue;
       }
       Slice value(tab, endLine - tab);
@@ -1875,6 +1878,16 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%lld of %lld found)", found, reads_);
     thread->stats.AddMessage(msg);
+  }
+
+  void IteratorCreation(ThreadState* thread) {
+    Duration duration(FLAGS_duration, reads_);
+    ReadOptions options(FLAGS_verify_checksum, true);
+    while (!duration.Done(1)) {
+      Iterator* iter = db_->NewIterator(options);
+      delete iter;
+      thread->stats.FinishedSingleOp(db_);
+    }
   }
 
   void SeekRandom(ThreadState* thread) {

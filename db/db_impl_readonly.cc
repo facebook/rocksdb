@@ -56,15 +56,15 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
                            const ColumnFamilyHandle& column_family,
                            const Slice& key, std::string* value) {
   Status s;
-  MemTable* mem = GetDefaultColumnFamily()->mem();
-  Version* current = GetDefaultColumnFamily()->current();
   SequenceNumber snapshot = versions_->LastSequence();
+  SuperVersion* super_version = GetDefaultColumnFamily()->GetSuperVersion();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, merge_context, options_)) {
+  if (super_version->mem->Get(lkey, value, &s, merge_context, options_)) {
   } else {
     Version::GetStats stats;
-    current->Get(options, lkey, value, &s, &merge_context, &stats, options_);
+    super_version->current->Get(options, lkey, value, &s, &merge_context,
+                                &stats, options_);
   }
   return s;
 }
@@ -92,6 +92,11 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(default_column_family_name, cf_options));
   Status s = impl->Recover(column_families, true /* read only */,
                            error_if_log_file_exist);
+  if (s.ok()) {
+    for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
+      delete cfd->InstallSuperVersion(new SuperVersion());
+    }
+  }
   impl->mutex_.Unlock();
   if (s.ok()) {
     *dbptr = impl;

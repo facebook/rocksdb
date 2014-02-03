@@ -551,7 +551,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
     return nullptr;
   }
   Version::FileSummaryStorage tmp;
-  Log(options_->info_log, "Universal: candidate files(%lu): %s\n",
+  Log(options_->info_log, "Universal: candidate files(%zu): %s\n",
       version->files_[level].size(),
       version->LevelFileSummary(&tmp, 0));
 

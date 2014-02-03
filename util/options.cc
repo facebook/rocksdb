@@ -263,11 +263,11 @@ Options::Dump(Logger* log) const
     Log(log,"            Options.num_levels: %d", num_levels);
     Log(log,"       Options.disableDataSync: %d", disableDataSync);
     Log(log,"             Options.use_fsync: %d", use_fsync);
-    Log(log,"     Options.max_log_file_size: %ld", max_log_file_size);
+    Log(log,"     Options.max_log_file_size: %zu", max_log_file_size);
     Log(log,"Options.max_manifest_file_size: %lu",
         (unsigned long)max_manifest_file_size);
-    Log(log,"     Options.log_file_time_to_roll: %ld", log_file_time_to_roll);
-    Log(log,"     Options.keep_log_file_num: %ld", keep_log_file_num);
+    Log(log,"     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
+    Log(log,"     Options.keep_log_file_num: %zu", keep_log_file_num);
     Log(log," Options.db_stats_log_interval: %d",
         db_stats_log_interval);
     Log(log,"       Options.allow_os_buffer: %d", allow_os_buffer);
@@ -323,7 +323,7 @@ Options::Dump(Logger* log) const
         table_cache_numshardbits);
     Log(log,"    Options.table_cache_remove_scan_count_limit: %d",
         table_cache_remove_scan_count_limit);
-    Log(log,"                       Options.arena_block_size: %ld",
+    Log(log,"                       Options.arena_block_size: %zu",
         arena_block_size);
     Log(log,"    Options.delete_obsolete_files_period_micros: %lu",
         (unsigned long)delete_obsolete_files_period_micros);
@@ -343,7 +343,7 @@ Options::Dump(Logger* log) const
         (unsigned long)WAL_ttl_seconds);
     Log(log,"                      Options.WAL_size_limit_MB: %lu",
         (unsigned long)WAL_size_limit_MB);
-    Log(log,"            Options.manifest_preallocation_size: %ld",
+    Log(log,"            Options.manifest_preallocation_size: %zu",
         manifest_preallocation_size);
     Log(log,"         Options.purge_redundant_kvs_while_flush: %d",
         purge_redundant_kvs_while_flush);
