@@ -14,6 +14,10 @@
 #include <string.h>
 #include "util/logging.h"
 
+#if defined(LZ4) || defined(LZ4HC)
+#include "../lz4/lz4.c"
+#endif
+
 namespace rocksdb {
 namespace port {
 
@@ -80,6 +84,43 @@ void RWMutex::Unlock() { PthreadCall("unlock", pthread_rwlock_unlock(&mu_)); }
 
 void InitOnce(OnceType* once, void (*initializer)()) {
   PthreadCall("once", pthread_once(once, initializer));
+}
+
+bool LZ4_Compress(const CompressionOptions& opts, const char* input,
+                  size_t length, ::std::string* output) {
+#ifdef LZ4
+  int compressBound = LZ4_compressBound(length);
+  output->resize(8 + compressBound);
+  char* p = const_cast<char*>(output->c_str());
+  memcpy(p, &length, sizeof(length));
+  size_t outlen;
+  outlen = LZ4_compress_limitedOutput(input, p + 8, length, compressBound);
+  if (outlen == 0) {
+    return false;
+  }
+  output->resize(8 + outlen);
+  return true;
+#endif
+  return false;
+}
+
+char* LZ4_Uncompress(const char* input_data, size_t input_length,
+                     int* decompress_size) {
+#ifdef LZ4
+  if (input_length < 8) {
+    return nullptr;
+  }
+  int output_len;
+  memcpy(&output_len, input_data, sizeof(output_len));
+  char* output = new char[output_len];
+  *decompress_size = LZ4_decompress_safe_partial(input_data + 8, output, input_length - 8, output_len, output_len);
+  if (*decompress_size < 0) {
+    delete[] output;
+    return nullptr;
+  }
+  return output;
+#endif
+  return nullptr;
 }
 
 }  // namespace port

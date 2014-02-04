@@ -478,6 +478,26 @@ static bool BZip2CompressionSupported() {
 }
 #endif
 
+#ifdef LZ4
+static bool LZ4CompressionSupported() {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4_Compress(Options().compression_opts,
+                            in.data(), in.size(),
+                            &out);
+}
+#endif
+
+#ifdef LZ4HC
+static bool LZ4HCCompressionSupported() {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4HC_Compress(Options().compression_opts,
+                              in.data(), in.size(),
+                              &out);
+}
+#endif
+
 enum TestType {
   TABLE_TEST,
   BLOCK_TEST,
@@ -518,6 +538,16 @@ static std::vector<TestArgs> GenerateArgList() {
 #ifdef BZIP2
   if (BZip2CompressionSupported())
     compression_types.push_back(kBZip2Compression);
+#endif
+
+#ifdef LZ4
+  if (LZ4CompressionSupported())
+    compression_types.push_back(kLZ4Compression);
+#endif
+
+#ifdef LZ4HC
+  if (LZ4HCCompressionSupported())
+    compression_types.push_back(kLZ4HCCompression);
 #endif
 
   for(int i =0; i < test_type_len; i++)
@@ -1172,6 +1202,27 @@ TEST(TableTest, ApproximateOffsetOfCompressed) {
     fprintf(stderr, "skipping zlib compression tests\n");
   } else {
     compression_state[valid] = kZlibCompression;
+    valid++;
+  }
+
+  if (!BZip2CompressionSupported()) {
+    fprintf(stderr, "skipping bzip2 compression tests\n");
+  } else {
+    compression_state[valid] = kBZip2Compression;
+    valid++;
+  }
+
+  if (!LZ4CompressionSupported()) {
+    fprintf(stderr, "skipping lz4 compression tests\n");
+  } else {
+    compression_state[valid] = kLZ4Compression;
+    valid++;
+  }
+
+  if (!LZ4CompressionSupported()) {
+    fprintf(stderr, "skipping lz4hc compression tests\n");
+  } else {
+    compression_state[valid] = kLZ4HCCompression;
     valid++;
   }
 
