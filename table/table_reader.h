@@ -12,7 +12,7 @@
 namespace rocksdb {
 
 class Iterator;
-class ParsedInternalKey;
+struct ParsedInternalKey;
 class Slice;
 struct ReadOptions;
 struct TableProperties;
