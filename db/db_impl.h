@@ -253,10 +253,6 @@ class DBImpl : public DB {
   const InternalKeyComparator internal_comparator_;
   const Options options_;  // options_.comparator == &internal_comparator_
 
-  const Comparator* user_comparator() const {
-    return internal_comparator_.user_comparator();
-  }
-
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
                                 SuperVersion* super_version);
 
@@ -294,7 +290,8 @@ class DBImpl : public DB {
   // database is opened) and is heavyweight because it holds the mutex
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.
-  Status WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit);
+  Status WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
+                                     VersionEdit* edit);
   Status WriteLevel0Table(ColumnFamilyData* cfd, std::vector<MemTable*>& mems,
                           VersionEdit* edit, uint64_t* filenumber);
 
@@ -375,7 +372,6 @@ class DBImpl : public DB {
 
   // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
-  bool owns_info_log_;
 
   // table_cache_ provides its own synchronization
   unique_ptr<TableCache> table_cache_;

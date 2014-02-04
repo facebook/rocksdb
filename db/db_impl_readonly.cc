@@ -79,7 +79,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options,
   SequenceNumber latest_snapshot = versions_->LastSequence();
   Iterator* internal_iter = NewInternalIterator(options, cfd, super_version);
   return NewDBIterator(
-      &dbname_, env_, options_, user_comparator(), internal_iter,
+      &dbname_, env_, options_, cfd->user_comparator(), internal_iter,
       (options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
            : latest_snapshot));

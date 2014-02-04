@@ -261,7 +261,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       options_(SanitizeOptions(dbname, &internal_comparator_,
                                &internal_filter_policy_, options)),
       internal_filter_policy_(options.filter_policy),
-      owns_info_log_(options_.info_log != options.info_log),
       db_lock_(nullptr),
       mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
@@ -377,7 +376,7 @@ uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
-  new_db.SetComparatorName(user_comparator()->Name());
+  new_db.SetComparatorName(internal_comparator_.user_comparator()->Name());
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
@@ -989,7 +988,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
           auto iter = version_edits.find(cfd->GetID());
           assert(iter != version_edits.end());
           VersionEdit* edit = &iter->second;
-          status = WriteLevel0TableForRecovery(cfd->mem(), edit);
+          status = WriteLevel0TableForRecovery(cfd, cfd->mem(), edit);
           // we still want to clear the memtable, even if the recovery failed
           cfd->CreateNewMemtable();
           if (!status.ok()) {
@@ -1020,7 +1019,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
 
       // flush the final memtable (if non-empty)
       if (cfd->mem()->GetFirstSequenceNumber() != 0) {
-        status = WriteLevel0TableForRecovery(cfd->mem(), edit);
+        status = WriteLevel0TableForRecovery(cfd, cfd->mem(), edit);
       }
       // we still want to clear the memtable, even if the recovery failed
       cfd->CreateNewMemtable();
@@ -1051,7 +1050,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
   return status;
 }
 
-Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
+Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
+                                           VersionEdit* edit) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
@@ -1068,9 +1068,8 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
   {
     mutex_.Unlock();
     s = BuildTable(dbname_, env_, options_, storage_options_,
-                   table_cache_.get(), iter, &meta,
-                   user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable,
+                   table_cache_.get(), iter, &meta, cfd->user_comparator(),
+                   newest_snapshot, earliest_seqno_in_memtable,
                    GetCompressionFlush(options_));
     LogFlush(options_.info_log);
     mutex_.Lock();
@@ -1134,9 +1133,9 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
         (unsigned long)meta.number);
 
     s = BuildTable(dbname_, env_, options_, storage_options_,
-                   table_cache_.get(), iter, &meta,
-                   user_comparator(), newest_snapshot,
-                   earliest_seqno_in_memtable, GetCompressionFlush(options_));
+                   table_cache_.get(), iter, &meta, cfd->user_comparator(),
+                   newest_snapshot, earliest_seqno_in_memtable,
+                   GetCompressionFlush(options_));
     LogFlush(options_.info_log);
     delete iter;
     Log(options_.info_log, "Level-0 flush table #%lu: %lu bytes %s",
@@ -2339,7 +2338,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
   std::string compaction_filter_value;
   std::vector<char> delete_key; // for compaction filter
-  MergeHelper merge(user_comparator(), options_.merge_operator.get(),
+  MergeHelper merge(cfd->user_comparator(), options_.merge_operator.get(),
                     options_.info_log.get(),
                     false /* internal key corruption is expected */);
   auto compaction_filter = cfd->options()->compaction_filter;
@@ -2390,8 +2389,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       visible_in_snapshot = kMaxSequenceNumber;
     } else {
       if (!has_current_user_key ||
-          user_comparator()->Compare(ikey.user_key,
-                                     Slice(current_user_key)) != 0) {
+          cfd->user_comparator()->Compare(ikey.user_key,
+                                          Slice(current_user_key)) != 0) {
         // First occurrence of this user key
         current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
         has_current_user_key = true;
@@ -2759,7 +2758,7 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
 
   Iterator* mutable_iter = super_version->mem->NewIterator(options);
   // create a DBIter that only uses memtable content; see NewIterator()
-  mutable_iter = NewDBIterator(&dbname_, env_, options_, user_comparator(),
+  mutable_iter = NewDBIterator(&dbname_, env_, options_, cfd->user_comparator(),
                                mutable_iter, kMaxSequenceNumber);
 
   std::vector<Iterator*> list;
@@ -2769,8 +2768,9 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
       NewMergingIterator(&cfd->internal_comparator(), &list[0], list.size());
 
   // create a DBIter that only uses memtable content; see NewIterator()
-  immutable_iter = NewDBIterator(&dbname_, env_, options_, user_comparator(),
-                                 immutable_iter, kMaxSequenceNumber);
+  immutable_iter =
+      NewDBIterator(&dbname_, env_, options_, cfd->user_comparator(),
+                    immutable_iter, kMaxSequenceNumber);
 
   // register cleanups
   mutable_iter->RegisterCleanup(CleanupIteratorState,
