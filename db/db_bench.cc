@@ -336,6 +336,10 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kZlibCompression;
   else if (!strcasecmp(ctype, "bzip2"))
     return rocksdb::kBZip2Compression;
+  else if (!strcasecmp(ctype, "lz4"))
+    return rocksdb::kLZ4Compression;
+  else if (!strcasecmp(ctype, "lz4hc"))
+    return rocksdb::kLZ4HCCompression;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
@@ -833,6 +837,12 @@ class Benchmark {
       case rocksdb::kBZip2Compression:
         fprintf(stdout, "Compression: bzip2\n");
         break;
+      case rocksdb::kLZ4Compression:
+        fprintf(stdout, "Compression: lz4\n");
+        break;
+      case rocksdb::kLZ4HCCompression:
+        fprintf(stdout, "Compression: lz4hc\n");
+        break;
     }
 
     switch (FLAGS_rep_factory) {
@@ -886,6 +896,16 @@ class Benchmark {
           result = port::BZip2_Compress(Options().compression_opts, text,
                                         strlen(text), &compressed);
           name = "BZip2";
+          break;
+        case kLZ4Compression:
+          result = port::LZ4_Compress(Options().compression_opts, text,
+                                      strlen(text), &compressed);
+          name = "LZ4";
+          break;
+        case kLZ4HCCompression:
+          result = port::LZ4HC_Compress(Options().compression_opts, text,
+                                        strlen(text), &compressed);
+          name = "LZ4HC";
           break;
         case kNoCompression:
           assert(false); // cannot happen
@@ -1297,9 +1317,28 @@ class Benchmark {
     int64_t produced = 0;
     bool ok = true;
     std::string compressed;
-    while (ok && bytes < 1024 * 1048576) {  // Compress 1G
-      ok = port::Snappy_Compress(Options().compression_opts, input.data(),
-                                 input.size(), &compressed);
+    while (ok && bytes < int64_t(4)<<30) {  // Compress 1G
+      switch (FLAGS_compression_type_e) {
+        case rocksdb::kSnappyCompression:
+          ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+            input.size(), &compressed);
+          break;
+        case rocksdb::kZlibCompression:
+          ok = port::Zlib_Compress(Options().compression_opts, input.data(),
+            input.size(), &compressed);
+          break;
+        case rocksdb::kBZip2Compression:
+          ok = port::BZip2_Compress(Options().compression_opts, input.data(),
+            input.size(), &compressed);
+          break;
+        case rocksdb::kLZ4Compression:
+          ok = port::LZ4_Compress(Options().compression_opts, input.data(),
+            input.size(), &compressed);
+          break;
+        default:
+          ok = false;
+
+      }
       produced += compressed.size();
       bytes += input.size();
       thread->stats.FinishedSingleOp(nullptr);
@@ -1320,13 +1359,24 @@ class Benchmark {
     RandomGenerator gen;
     Slice input = gen.Generate(Options().block_size);
     std::string compressed;
+#if 1
     bool ok = port::Snappy_Compress(Options().compression_opts, input.data(),
                                     input.size(), &compressed);
+#else
+    bool ok = port::LZ4_Compress(Options().compression_opts, input.data(),
+                                 input.size(), &compressed);
+#endif
     int64_t bytes = 0;
     char* uncompressed = new char[input.size()];
     while (ok && bytes < 1024 * 1048576) {  // Compress 1G
+#if 1
       ok =  port::Snappy_Uncompress(compressed.data(), compressed.size(),
                                     uncompressed);
+#else
+      int decompress_size;
+      char* ubuf = port::LZ4_Uncompress(compressed.data(), compressed.size(), &decompress_size);
+      delete[] ubuf;
+#endif
       bytes += input.size();
       thread->stats.FinishedSingleOp(nullptr);
     }

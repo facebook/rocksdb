@@ -47,7 +47,9 @@ enum CompressionType : char {
   kNoCompression = 0x0,
   kSnappyCompression = 0x1,
   kZlibCompression = 0x2,
-  kBZip2Compression = 0x3
+  kBZip2Compression = 0x3,
+  kLZ4Compression = 0x4,
+  kLZ4HCCompression = 0x5
 };
 
 enum CompactionStyle : char {

@@ -244,6 +244,10 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       opt.compression = kZlibCompression;
     } else if (comp == "bzip2") {
       opt.compression = kBZip2Compression;
+    } else if (comp == "lz4") {
+      opt.compression = kLZ4Compression;
+    } else if (comp == "lz4hc") {
+      opt.compression = kLZ4HCCompression;
     } else {
       // Unknown compression.
       exec_state_ = LDBCommandExecuteResult::FAILED(

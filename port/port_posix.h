@@ -46,6 +46,14 @@
 #include <bzlib.h>
 #endif
 
+#ifdef LZ4
+#include "../lz4/lz4.h"
+#endif
+
+#ifdef LZ4HC
+#include "../lz4/lz4hc.h"
+#endif
+
 #include <stdint.h>
 #include <string>
 #include <string.h>
@@ -354,7 +362,7 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
   return false;
 }
 
-inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
+inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
     int* decompress_size) {
 #ifdef BZIP2
   bz_stream _stream;
@@ -408,6 +416,22 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
   BZ2_bzDecompressEnd(&_stream);
   return output;
 #endif
+  return nullptr;
+}
+
+bool LZ4_Compress(const CompressionOptions& opts, const char* input,
+                  size_t length, ::std::string* output);
+
+char* LZ4_Uncompress(const char* input_data, size_t input_length,
+                     int* decompress_size);
+
+inline bool LZ4HC_Compress(const CompressionOptions& opts, const char* input,
+                           size_t length, ::std::string* output) {
+  return false;
+}
+
+inline char* LZ4HC_Uncompress(const char* input_data, size_t input_length,
+                              int* decompress_size) {
   return nullptr;
 }
 
