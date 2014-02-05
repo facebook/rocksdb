@@ -227,8 +227,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       last_stats_dump_time_microsec_(0),
       default_interval_to_delete_obsolete_WAL_(600),
       flush_on_destroy_(false),
-      internal_stats_(options.num_levels, options.env,
-                      options.statistics.get()),
       delayed_writes_(0),
       storage_options_(options),
       bg_work_gate_closed_(false),
@@ -1044,7 +1042,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.file_size;
   stats.files_out_levelnp1 = 1;
-  internal_stats_.AddCompactionStats(level, stats);
+  cfd->internal_stats()->AddCompactionStats(level, stats);
   RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES, meta.file_size);
   return s;
 }
@@ -1132,7 +1130,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
   InternalStats::CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.file_size;
-  internal_stats_.AddCompactionStats(level, stats);
+  cfd->internal_stats()->AddCompactionStats(level, stats);
   RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES, meta.file_size);
   return s;
 }
@@ -2608,8 +2606,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   LogFlush(options_.info_log);
   mutex_.Lock();
-  internal_stats_.AddCompactionStats(compact->compaction->output_level(),
-                                     stats);
+  cfd->internal_stats()->AddCompactionStats(compact->compaction->output_level(),
+                                            stats);
 
   // if there were any unused file number (mostly in case of
   // compaction error), free up the entry from pending_putputs
@@ -3349,7 +3347,8 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
         delayed = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics.get(), STALL_L0_SLOWDOWN_MICROS, delayed);
-      internal_stats_.RecordWriteStall(InternalStats::LEVEL0_SLOWDOWN, delayed);
+      cfd->internal_stats()->RecordWriteStall(InternalStats::LEVEL0_SLOWDOWN,
+                                              delayed);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
       delayed_writes_++;
@@ -3375,8 +3374,8 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       }
       RecordTick(options_.statistics.get(),
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
-      internal_stats_.RecordWriteStall(InternalStats::MEMTABLE_COMPACTION,
-                                       stall);
+      cfd->internal_stats()->RecordWriteStall(
+          InternalStats::MEMTABLE_COMPACTION, stall);
     } else if (cfd->current()->NumLevelFiles(0) >=
                cfd->options()->level0_stop_writes_trigger) {
       // There are too many level-0 files.
@@ -3390,7 +3389,8 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
         stall = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics.get(), STALL_L0_NUM_FILES_MICROS, stall);
-      internal_stats_.RecordWriteStall(InternalStats::LEVEL0_NUM_FILES, stall);
+      cfd->internal_stats()->RecordWriteStall(InternalStats::LEVEL0_NUM_FILES,
+                                              stall);
     } else if (allow_hard_rate_limit_delay && options_.hard_rate_limit > 1.0 &&
                (score = cfd->current()->MaxCompactionScore()) >
                    cfd->options()->hard_rate_limit) {
@@ -3404,7 +3404,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
         env_->SleepForMicroseconds(1000);
         delayed = sw.ElapsedMicros();
       }
-      internal_stats_.RecordLevelNSlowdown(max_level, delayed);
+      cfd->internal_stats()->RecordLevelNSlowdown(max_level, delayed);
       // Make sure the following value doesn't round to zero.
       uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
       rate_limit_delay_millis += rate_limit;
@@ -3505,7 +3505,7 @@ bool DBImpl::GetProperty(const ColumnFamilyHandle& column_family,
   MutexLock l(&mutex_);
   auto cfd = versions_->GetColumnFamilySet()->GetColumnFamily(column_family.id);
   assert(cfd != nullptr);
-  return internal_stats_.GetProperty(property, value, cfd);
+  return cfd->internal_stats()->GetProperty(property, value, cfd);
 }
 
 void DBImpl::GetApproximateSizes(const ColumnFamilyHandle& column_family,

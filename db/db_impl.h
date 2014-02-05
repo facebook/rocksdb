@@ -460,8 +460,6 @@ class DBImpl : public DB {
 
   bool flush_on_destroy_; // Used when disableWAL is true.
 
-  InternalStats internal_stats_;
-
   static const int KEEP_LOG_FILE_NUM = 1000;
   std::string db_absolute_path_;
 

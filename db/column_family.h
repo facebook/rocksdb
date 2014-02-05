@@ -27,6 +27,7 @@ class MemTableListVersion;
 class CompactionPicker;
 class Compaction;
 class InternalKey;
+class InternalStats;
 
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {
@@ -65,7 +66,7 @@ class ColumnFamilyData {
  public:
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, const ColumnFamilyOptions& options,
-                   Logger* logger);
+                   const Options* db_options);
   ~ColumnFamilyData();
 
   uint32_t GetID() const { return id_; }
@@ -77,6 +78,7 @@ class ColumnFamilyData {
   uint64_t GetLogNumber() const { return log_number_; }
 
   ColumnFamilyOptions* options() { return &options_; }
+  InternalStats* internal_stats();
 
   MemTableList* imm() { return &imm_; }
   MemTable* mem() { return mem_; }
@@ -133,6 +135,8 @@ class ColumnFamilyData {
 
   ColumnFamilyOptions options_;
 
+  std::unique_ptr<InternalStats> internal_stats_;
+
   MemTable* mem_;
   MemTableList imm_;
   SuperVersion* super_version_;
@@ -182,7 +186,7 @@ class ColumnFamilySet {
     ColumnFamilyData* current_;
   };
 
-  explicit ColumnFamilySet(Logger* logger);
+  explicit ColumnFamilySet(const Options* db_options_);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -215,7 +219,8 @@ class ColumnFamilySet {
   std::vector<ColumnFamilyData*> droppped_column_families_;
   uint32_t max_column_family_;
   ColumnFamilyData* dummy_cfd_;
-  Logger* logger_;
+  // TODO(icanadi) change to DBOptions
+  const Options* const db_options_;
 };
 
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {

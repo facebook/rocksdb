@@ -1374,7 +1374,7 @@ class VersionSet::Builder {
 VersionSet::VersionSet(const std::string& dbname, const Options* options,
                        const EnvOptions& storage_options,
                        TableCache* table_cache)
-    : column_family_set_(new ColumnFamilySet(options->info_log.get())),
+    : column_family_set_(new ColumnFamilySet(options)),
       env_(options->env),
       dbname_(dbname),
       options_(options),

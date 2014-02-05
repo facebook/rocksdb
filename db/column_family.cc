@@ -14,6 +14,7 @@
 #include <algorithm>
 
 #include "db/version_set.h"
+#include "db/internal_stats.h"
 #include "db/compaction_picker.h"
 #include "db/table_properties_collector.h"
 #include "util/hash_skiplist_rep.h"
@@ -130,7 +131,7 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
 ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* dummy_versions,
                                    const ColumnFamilyOptions& options,
-                                   Logger* logger)
+                                   const Options* db_options)
     : id_(id),
       name_(name),
       dummy_versions_(dummy_versions),
@@ -147,12 +148,16 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       prev_(nullptr),
       log_number_(0),
       need_slowdown_for_num_level0_files_(false) {
-  if (options_.compaction_style == kCompactionStyleUniversal) {
-    compaction_picker_.reset(new UniversalCompactionPicker(
-        &options_, &internal_comparator_, logger));
-  } else {
-    compaction_picker_.reset(
-        new LevelCompactionPicker(&options_, &internal_comparator_, logger));
+  if (db_options != nullptr) {
+    internal_stats_.reset(new InternalStats(options.num_levels, db_options->env,
+                                            db_options->statistics.get()));
+    if (options_.compaction_style == kCompactionStyleUniversal) {
+      compaction_picker_.reset(new UniversalCompactionPicker(
+          &options_, &internal_comparator_, db_options->info_log.get()));
+    } else {
+      compaction_picker_.reset(new LevelCompactionPicker(
+          &options_, &internal_comparator_, db_options->info_log.get()));
+    }
   }
 }
 
@@ -178,6 +183,10 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (MemTable* m : to_delete) {
     delete m;
   }
+}
+
+InternalStats* ColumnFamilyData::internal_stats() {
+  return internal_stats_.get();
 }
 
 void ColumnFamilyData::SetCurrent(Version* current) {
@@ -221,11 +230,11 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   return nullptr;
 }
 
-ColumnFamilySet::ColumnFamilySet(Logger* logger)
+ColumnFamilySet::ColumnFamilySet(const Options* db_options)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(0, "", nullptr, ColumnFamilyOptions(),
                                       nullptr)),
-      logger_(logger) {
+      db_options_(db_options) {
   // initialize linked list
   dummy_cfd_->prev_.store(dummy_cfd_);
   dummy_cfd_->next_.store(dummy_cfd_);
@@ -281,7 +290,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   column_families_.insert({name, id});
   ColumnFamilyData* new_cfd =
-      new ColumnFamilyData(id, name, dummy_versions, options, logger_);
+      new ColumnFamilyData(id, name, dummy_versions, options, db_options_);
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);
   // add to linked list
