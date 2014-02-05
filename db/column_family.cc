@@ -15,8 +15,76 @@
 
 #include "db/version_set.h"
 #include "db/compaction_picker.h"
+#include "db/table_properties_collector.h"
+#include "util/hash_skiplist_rep.h"
 
 namespace rocksdb {
+
+namespace {
+// Fix user-supplied options to be reasonable
+template <class T, class V>
+static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
+  if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
+  if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+}
+}  // anonymous namespace
+
+ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
+                                    const InternalFilterPolicy* ipolicy,
+                                    const ColumnFamilyOptions& src) {
+  ColumnFamilyOptions result = src;
+  result.comparator = icmp;
+  result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
+  ClipToRange(&result.write_buffer_size,
+              ((size_t)64) << 10, ((size_t)64) << 30);
+  // if user sets arena_block_size, we trust user to use this value. Otherwise,
+  // calculate a proper value from writer_buffer_size;
+  if (result.arena_block_size <= 0) {
+    result.arena_block_size = result.write_buffer_size / 10;
+  }
+  result.min_write_buffer_number_to_merge =
+      std::min(result.min_write_buffer_number_to_merge,
+               result.max_write_buffer_number - 1);
+  if (result.block_cache == nullptr && !result.no_block_cache) {
+    result.block_cache = NewLRUCache(8 << 20);
+  }
+  result.compression_per_level = src.compression_per_level;
+  if (result.block_size_deviation < 0 || result.block_size_deviation > 100) {
+    result.block_size_deviation = 0;
+  }
+  if (result.max_mem_compaction_level >= result.num_levels) {
+    result.max_mem_compaction_level = result.num_levels - 1;
+  }
+  if (result.soft_rate_limit > result.hard_rate_limit) {
+    result.soft_rate_limit = result.hard_rate_limit;
+  }
+  if (result.prefix_extractor) {
+    // If a prefix extractor has been supplied and a HashSkipListRepFactory is
+    // being used, make sure that the latter uses the former as its transform
+    // function.
+    auto factory =
+        dynamic_cast<HashSkipListRepFactory*>(result.memtable_factory.get());
+    if (factory && factory->GetTransform() != result.prefix_extractor) {
+      result.memtable_factory = std::make_shared<SkipListFactory>();
+    }
+  }
+
+  // -- Sanitize the table properties collector
+  // All user defined properties collectors will be wrapped by
+  // UserKeyTablePropertiesCollector since for them they only have the
+  // knowledge of the user keys; internal keys are invisible to them.
+  auto& collectors = result.table_properties_collectors;
+  for (size_t i = 0; i < result.table_properties_collectors.size(); ++i) {
+    assert(collectors[i]);
+    collectors[i] =
+        std::make_shared<UserKeyTablePropertiesCollector>(collectors[i]);
+  }
+  // Add collector to collect internal key statistics
+  collectors.push_back(std::make_shared<InternalKeyPropertiesCollector>());
+
+  return result;
+}
+
 
 SuperVersion::SuperVersion() {}
 
@@ -61,13 +129,16 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
 
 ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* dummy_versions,
-                                   const ColumnFamilyOptions& options)
+                                   const ColumnFamilyOptions& options,
+                                   Logger* logger)
     : id_(id),
       name_(name),
       dummy_versions_(dummy_versions),
       current_(nullptr),
-      options_(options),
-      icmp_(options_.comparator),
+      internal_comparator_(options.comparator),
+      internal_filter_policy_(options.filter_policy),
+      options_(SanitizeOptions(&internal_comparator_, &internal_filter_policy_,
+                               options)),
       mem_(nullptr),
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -77,9 +148,11 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       log_number_(0),
       need_slowdown_for_num_level0_files_(false) {
   if (options_.compaction_style == kCompactionStyleUniversal) {
-    compaction_picker_.reset(new UniversalCompactionPicker(&options_, &icmp_));
+    compaction_picker_.reset(new UniversalCompactionPicker(
+        &options_, &internal_comparator_, logger));
   } else {
-    compaction_picker_.reset(new LevelCompactionPicker(&options_, &icmp_));
+    compaction_picker_.reset(
+        new LevelCompactionPicker(&options_, &internal_comparator_, logger));
   }
 }
 
@@ -119,7 +192,7 @@ void ColumnFamilyData::CreateNewMemtable() {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  mem_ = new MemTable(icmp_, options_);
+  mem_ = new MemTable(internal_comparator_, options_);
   mem_->Ref();
 }
 
@@ -148,9 +221,11 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   return nullptr;
 }
 
-ColumnFamilySet::ColumnFamilySet()
+ColumnFamilySet::ColumnFamilySet(Logger* logger)
     : max_column_family_(0),
-      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, ColumnFamilyOptions())) {
+      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, ColumnFamilyOptions(),
+                                      nullptr)),
+      logger_(logger) {
   // initialize linked list
   dummy_cfd_->prev_.store(dummy_cfd_);
   dummy_cfd_->next_.store(dummy_cfd_);
@@ -206,7 +281,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   column_families_.insert({name, id});
   ColumnFamilyData* new_cfd =
-      new ColumnFamilyData(id, name, dummy_versions, options);
+      new ColumnFamilyData(id, name, dummy_versions, options, logger_);
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);
   // add to linked list

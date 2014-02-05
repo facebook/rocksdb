@@ -344,7 +344,7 @@ class BackupableDBTest {
     options_.wal_dir = dbname_;
     // set up backup db options
     CreateLoggerFromOptions(dbname_, backupdir_, env_,
-                            Options(), &logger_);
+                            DBOptions(), &logger_);
     backupable_options_.reset(new BackupableDBOptions(
         backupdir_, test_backup_env_.get(), true, logger_.get(), true));
 

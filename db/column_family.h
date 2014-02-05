@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "rocksdb/options.h"
+#include "rocksdb/env.h"
 #include "db/memtablelist.h"
 #include "db/write_batch_internal.h"
 
@@ -55,11 +56,16 @@ struct SuperVersion {
             Version* new_current);
 };
 
+extern ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
+                                           const InternalFilterPolicy* ipolicy,
+                                           const ColumnFamilyOptions& src);
+
 // column family metadata. not thread-safe. should be protected by db_mutex
 class ColumnFamilyData {
  public:
   ColumnFamilyData(uint32_t id, const std::string& name,
-                   Version* dummy_versions, const ColumnFamilyOptions& options);
+                   Version* dummy_versions, const ColumnFamilyOptions& options,
+                   Logger* logger);
   ~ColumnFamilyData();
 
   uint32_t GetID() const { return id_; }
@@ -89,8 +95,12 @@ class ColumnFamilyData {
   CompactionPicker* compaction_picker() const {
     return compaction_picker_.get();
   }
-  const Comparator* user_comparator() const { return icmp_.user_comparator(); }
-  const InternalKeyComparator& internal_comparator() const { return icmp_; }
+  const Comparator* user_comparator() const {
+    return internal_comparator_.user_comparator();
+  }
+  const InternalKeyComparator& internal_comparator() const {
+    return internal_comparator_;
+  }
 
   SuperVersion* GetSuperVersion() const { return super_version_; }
   uint64_t GetSuperVersionNumber() const {
@@ -117,9 +127,11 @@ class ColumnFamilyData {
   const std::string name_;
   Version* dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;         // == dummy_versions->prev_
-  ColumnFamilyOptions options_;
 
-  const InternalKeyComparator icmp_;
+  const InternalKeyComparator internal_comparator_;
+  const InternalFilterPolicy internal_filter_policy_;
+
+  ColumnFamilyOptions options_;
 
   MemTable* mem_;
   MemTableList imm_;
@@ -170,7 +182,7 @@ class ColumnFamilySet {
     ColumnFamilyData* current_;
   };
 
-  ColumnFamilySet();
+  explicit ColumnFamilySet(Logger* logger);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -203,6 +215,7 @@ class ColumnFamilySet {
   std::vector<ColumnFamilyData*> droppped_column_families_;
   uint32_t max_column_family_;
   ColumnFamilyData* dummy_cfd_;
+  Logger* logger_;
 };
 
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {

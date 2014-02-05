@@ -120,32 +120,28 @@ struct DBImpl::CompactionState {
   }
 };
 
+namespace {
 // Fix user-supplied options to be reasonable
 template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
+}  // anonymous namespace
+
 Options SanitizeOptions(const std::string& dbname,
                         const InternalKeyComparator* icmp,
                         const InternalFilterPolicy* ipolicy,
                         const Options& src) {
-  Options result = src;
-  result.comparator = icmp;
-  result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
-  ClipToRange(&result.max_open_files,            20,     1000000);
-  ClipToRange(&result.write_buffer_size,         ((size_t)64)<<10,
-                                                 ((size_t)64)<<30);
-  ClipToRange(&result.block_size,                1<<10,  4<<20);
+  auto db_options = SanitizeOptions(dbname, DBOptions(src));
+  auto cf_options = SanitizeOptions(icmp, ipolicy, ColumnFamilyOptions(src));
+  return Options(db_options, cf_options);
+}
 
-  // if user sets arena_block_size, we trust user to use this value. Otherwise,
-  // calculate a proper value from writer_buffer_size;
-  if (result.arena_block_size <= 0) {
-    result.arena_block_size = result.write_buffer_size / 10;
-  }
+DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
+  DBOptions result = src;
+  ClipToRange(&result.max_open_files, 20, 1000000);
 
-  result.min_write_buffer_number_to_merge = std::min(
-    result.min_write_buffer_number_to_merge, result.max_write_buffer_number-1);
   if (result.info_log == nullptr) {
     Status s = CreateLoggerFromOptions(dbname, result.db_log_dir, src.env,
                                        result, &result.info_log);
@@ -154,59 +150,11 @@ Options SanitizeOptions(const std::string& dbname,
       result.info_log = nullptr;
     }
   }
-  if (result.block_cache == nullptr && !result.no_block_cache) {
-    result.block_cache = NewLRUCache(8 << 20);
-  }
-  result.compression_per_level = src.compression_per_level;
-  if (result.block_size_deviation < 0 || result.block_size_deviation > 100) {
-    result.block_size_deviation = 0;
-  }
-  if (result.max_mem_compaction_level >= result.num_levels) {
-    result.max_mem_compaction_level = result.num_levels - 1;
-  }
-  if (result.soft_rate_limit > result.hard_rate_limit) {
-    result.soft_rate_limit = result.hard_rate_limit;
-  }
-  if (result.compaction_filter) {
-    Log(result.info_log, "Compaction filter specified, ignore factory");
-  }
-  if (result.prefix_extractor) {
-    // If a prefix extractor has been supplied and a HashSkipListRepFactory is
-    // being used, make sure that the latter uses the former as its transform
-    // function.
-    auto factory = dynamic_cast<HashSkipListRepFactory*>(
-      result.memtable_factory.get());
-    if (factory &&
-        factory->GetTransform() != result.prefix_extractor) {
-      Log(result.info_log, "A prefix hash representation factory was supplied "
-          "whose prefix extractor does not match options.prefix_extractor. "
-          "Falling back to skip list representation factory");
-      result.memtable_factory = std::make_shared<SkipListFactory>();
-    } else if (factory) {
-      Log(result.info_log, "Prefix hash memtable rep is in use.");
-    }
-  }
 
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;
   }
-
-  // -- Sanitize the table properties collector
-  // All user defined properties collectors will be wrapped by
-  // UserKeyTablePropertiesCollector since for them they only have the
-  // knowledge of the user keys; internal keys are invisible to them.
-  auto& collectors = result.table_properties_collectors;
-  for (size_t i = 0; i < result.table_properties_collectors.size(); ++i) {
-    assert(collectors[i]);
-    collectors[i] =
-      std::make_shared<UserKeyTablePropertiesCollector>(collectors[i]);
-  }
-
-  // Add collector to collect internal key statistics
-  collectors.push_back(
-      std::make_shared<InternalKeyPropertiesCollector>()
-  );
 
   return result;
 }
@@ -1979,6 +1927,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       c.reset(cfd->PickCompaction());
       if (c != nullptr) {
+        // update statistics
+        MeasureTime(options_.statistics.get(), NUM_FILES_IN_SINGLE_COMPACTION,
+                    c->inputs(0)->size());
         break;
       }
     }

@@ -10,7 +10,6 @@
 #include "db/compaction_picker.h"
 
 #include <limits>
-#include "util/statistics.h"
 
 namespace rocksdb {
 
@@ -42,8 +41,10 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
 }  // anonymous namespace
 
 CompactionPicker::CompactionPicker(const ColumnFamilyOptions* options,
-                                   const InternalKeyComparator* icmp)
+                                   const InternalKeyComparator* icmp,
+                                   Logger* logger)
     : compactions_in_progress_(options->num_levels),
+      logger_(logger),
       options_(options),
       num_levels_(options->num_levels),
       icmp_(icmp) {
@@ -269,17 +270,13 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
                                               &c->parent_index_);
       if (expanded1.size() == c->inputs_[1].size() &&
           !FilesInCompaction(expanded1)) {
-        Log(options_->info_log,
+        Log(logger_,
             "Expanding@%lu %lu+%lu (%lu+%lu bytes) to %lu+%lu (%lu+%lu bytes)"
             "\n",
-            (unsigned long)level,
-            (unsigned long)(c->inputs_[0].size()),
-            (unsigned long)(c->inputs_[1].size()),
-            (unsigned long)inputs0_size,
-            (unsigned long)inputs1_size,
-            (unsigned long)(expanded0.size()),
-            (unsigned long)(expanded1.size()),
-            (unsigned long)expanded0_size,
+            (unsigned long)level, (unsigned long)(c->inputs_[0].size()),
+            (unsigned long)(c->inputs_[1].size()), (unsigned long)inputs0_size,
+            (unsigned long)inputs1_size, (unsigned long)(expanded0.size()),
+            (unsigned long)(expanded1.size()), (unsigned long)expanded0_size,
             (unsigned long)inputs1_size);
         smallest = new_start;
         largest = new_limit;
@@ -344,7 +341,7 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
   c->inputs_[0] = inputs;
   if (ExpandWhileOverlapping(c) == false) {
     delete c;
-    Log(options_->info_log, "Could not compact due to expansion failure.\n");
+    Log(logger_, "Could not compact due to expansion failure.\n");
     return nullptr;
   }
 
@@ -511,7 +508,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
     }
 
     //if (i > Version::number_of_files_to_sort_) {
-    //  Log(options_->info_log, "XXX Looking at index %d", i);
+    //  Log(logger_, "XXX Looking at index %d", i);
     //}
 
     // Do not pick this file if its parents at level+1 are being compacted.
@@ -547,13 +544,12 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
 
   if ((version->files_[level].size() <
        (unsigned int)options_->level0_file_num_compaction_trigger)) {
-    Log(options_->info_log, "Universal: nothing to do\n");
+    Log(logger_, "Universal: nothing to do\n");
     return nullptr;
   }
   Version::FileSummaryStorage tmp;
-  Log(options_->info_log, "Universal: candidate files(%zu): %s\n",
-      version->files_[level].size(),
-      version->LevelFileSummary(&tmp, 0));
+  Log(logger_, "Universal: candidate files(%zu): %s\n",
+      version->files_[level].size(), version->LevelFileSummary(&tmp, 0));
 
   // Check for size amplification first.
   Compaction* c = PickCompactionUniversalSizeAmp(version, score);
@@ -598,10 +594,6 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
   if (c->inputs_[0][c->inputs_[0].size()-1] == last_file) {
     c->bottommost_level_ = true;
   }
-
-  // update statistics
-  MeasureTime(options_->statistics.get(), NUM_FILES_IN_SINGLE_COMPACTION,
-              c->inputs_[0].size());
 
   // mark all the files that are being compacted
   c->MarkFilesBeingCompacted(true);
@@ -658,8 +650,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
         candidate_count = 1;
         break;
       }
-      Log(options_->info_log,
-          "Universal: file %lu[%d] being compacted, skipping",
+      Log(logger_, "Universal: file %lu[%d] being compacted, skipping",
           (unsigned long)f->number, loop);
       f = nullptr;
     }
@@ -668,7 +659,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     // first candidate to be compacted.
     uint64_t candidate_size =  f != nullptr? f->file_size : 0;
     if (f != nullptr) {
-      Log(options_->info_log, "Universal: Possible candidate file %lu[%d].",
+      Log(logger_, "Universal: Possible candidate file %lu[%d].",
           (unsigned long)f->number, loop);
     }
 
@@ -701,11 +692,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
            i < loop + candidate_count && i < file_by_time.size(); i++) {
        int index = file_by_time[i];
        FileMetaData* f = version->files_[level][index];
-       Log(options_->info_log,
-           "Universal: Skipping file %lu[%d] with size %lu %d\n",
-           (unsigned long)f->number,
-           i,
-           (unsigned long)f->file_size,
+       Log(logger_, "Universal: Skipping file %lu[%d] with size %lu %d\n",
+           (unsigned long)f->number, i, (unsigned long)f->file_size,
            f->being_compacted);
       }
     }
@@ -740,10 +728,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     int index = file_by_time[i];
     FileMetaData* f = c->input_version_->files_[level][index];
     c->inputs_[0].push_back(f);
-    Log(options_->info_log, "Universal: Picking file %lu[%d] with size %lu\n",
-        (unsigned long)f->number,
-        i,
-        (unsigned long)f->file_size);
+    Log(logger_, "Universal: Picking file %lu[%d] with size %lu\n",
+        (unsigned long)f->number, i, (unsigned long)f->file_size);
   }
   return c;
 }
@@ -779,9 +765,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
       start_index = loop;         // Consider this as the first candidate.
       break;
     }
-    Log(options_->info_log, "Universal: skipping file %lu[%d] compacted %s",
-        (unsigned long)f->number,
-        loop,
+    Log(logger_, "Universal: skipping file %lu[%d] compacted %s",
+        (unsigned long)f->number, loop,
         " cannot be a candidate to reduce size amp.\n");
     f = nullptr;
   }
@@ -789,10 +774,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
     return nullptr;             // no candidate files
   }
 
-  Log(options_->info_log, "Universal: First candidate file %lu[%d] %s",
-      (unsigned long)f->number,
-      start_index,
-      " to reduce size amp.\n");
+  Log(logger_, "Universal: First candidate file %lu[%d] %s",
+      (unsigned long)f->number, start_index, " to reduce size amp.\n");
 
   // keep adding up all the remaining files
   for (unsigned int loop = start_index; loop < file_by_time.size() - 1;
@@ -800,10 +783,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
     int index = file_by_time[loop];
     f = version->files_[level][index];
     if (f->being_compacted) {
-      Log(options_->info_log,
-          "Universal: Possible candidate file %lu[%d] %s.",
-          (unsigned long)f->number,
-          loop,
+      Log(logger_, "Universal: Possible candidate file %lu[%d] %s.",
+          (unsigned long)f->number, loop,
           " is already being compacted. No size amp reduction possible.\n");
       return nullptr;
     }
@@ -820,18 +801,16 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
 
   // size amplification = percentage of additional size
   if (candidate_size * 100 < ratio * earliest_file_size) {
-    Log(options_->info_log,
+    Log(logger_,
         "Universal: size amp not needed. newer-files-total-size %lu "
         "earliest-file-size %lu",
-        (unsigned long)candidate_size,
-        (unsigned long)earliest_file_size);
+        (unsigned long)candidate_size, (unsigned long)earliest_file_size);
     return nullptr;
   } else {
-    Log(options_->info_log,
+    Log(logger_,
         "Universal: size amp needed. newer-files-total-size %lu "
         "earliest-file-size %lu",
-        (unsigned long)candidate_size,
-        (unsigned long)earliest_file_size);
+        (unsigned long)candidate_size, (unsigned long)earliest_file_size);
   }
   assert(start_index >= 0 && start_index < file_by_time.size() - 1);
 
@@ -845,11 +824,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
     int index = file_by_time[loop];
     f = c->input_version_->files_[level][index];
     c->inputs_[0].push_back(f);
-    Log(options_->info_log,
-        "Universal: size amp picking file %lu[%d] with size %lu",
-        (unsigned long)f->number,
-        index,
-        (unsigned long)f->file_size);
+    Log(logger_, "Universal: size amp picking file %lu[%d] with size %lu",
+        (unsigned long)f->number, index, (unsigned long)f->file_size);
   }
   return c;
 }

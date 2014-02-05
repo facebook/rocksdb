@@ -12,6 +12,7 @@
 #include "db/compaction.h"
 #include "rocksdb/status.h"
 #include "rocksdb/options.h"
+#include "rocksdb/env.h"
 
 #include <vector>
 #include <memory>
@@ -25,7 +26,7 @@ class Version;
 class CompactionPicker {
  public:
   CompactionPicker(const ColumnFamilyOptions* options,
-                   const InternalKeyComparator* icmp);
+                   const InternalKeyComparator* icmp, Logger* logger);
   virtual ~CompactionPicker();
 
   // Pick level and inputs for a new compaction.
@@ -116,7 +117,9 @@ class CompactionPicker {
   // Per-level max bytes
   std::unique_ptr<uint64_t[]> level_max_bytes_;
 
+  Logger* logger_;
   const ColumnFamilyOptions* const options_;
+
  private:
   int num_levels_;
 
@@ -126,8 +129,8 @@ class CompactionPicker {
 class UniversalCompactionPicker : public CompactionPicker {
  public:
   UniversalCompactionPicker(const ColumnFamilyOptions* options,
-                            const InternalKeyComparator* icmp)
-      : CompactionPicker(options, icmp) {}
+                            const InternalKeyComparator* icmp, Logger* logger)
+      : CompactionPicker(options, icmp, logger) {}
   virtual Compaction* PickCompaction(Version* version) override;
 
  private:
@@ -143,8 +146,8 @@ class UniversalCompactionPicker : public CompactionPicker {
 class LevelCompactionPicker : public CompactionPicker {
  public:
   LevelCompactionPicker(const ColumnFamilyOptions* options,
-                        const InternalKeyComparator* icmp)
-      : CompactionPicker(options, icmp) {}
+                        const InternalKeyComparator* icmp, Logger* logger)
+      : CompactionPicker(options, icmp, logger) {}
   virtual Compaction* PickCompaction(Version* version) override;
 
  private:

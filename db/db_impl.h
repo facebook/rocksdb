@@ -510,7 +510,7 @@ extern Options SanitizeOptions(const std::string& db,
                                const InternalKeyComparator* icmp,
                                const InternalFilterPolicy* ipolicy,
                                const Options& src);
-
+extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 
 // Determine compression type, based on user options, level of the output
 // file and whether compression is disabled.
