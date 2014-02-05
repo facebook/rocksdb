@@ -396,7 +396,6 @@ inline char*  BZip2_Uncompress(const char* input_data, size_t input_length,
         _stream.next_out = (char *)(output + old_sz);
         _stream.avail_out = output_len - old_sz;
         break;
-      case Z_BUF_ERROR:
       default:
         delete[] output;
         BZ2_bzDecompressEnd(&_stream);
