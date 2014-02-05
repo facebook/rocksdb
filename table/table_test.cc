@@ -6,6 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#include <inttypes.h>
+#include <stdio.h>
 #include <algorithm>
 #include <map>
 #include <string>
@@ -25,6 +28,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
 #include "table/block.h"
+#include "table/meta_blocks.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
@@ -945,10 +949,7 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
     block_builder.Add(item.first, item.second);
   }
   Slice content = block_builder.Finish();
-  ASSERT_EQ(
-      content.size() + kBlockTrailerSize,
-      props.data_size
-  );
+  ASSERT_EQ(content.size() + kBlockTrailerSize, props.data_size);
 }
 
 TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
@@ -957,9 +958,7 @@ TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
   std::vector<std::string> keys;
   KVMap kvmap;
   Options options;
-  std::unique_ptr<const FilterPolicy> filter_policy(
-    NewBloomFilterPolicy(10)
-  );
+  std::unique_ptr<const FilterPolicy> filter_policy(NewBloomFilterPolicy(10));
   options.filter_policy = filter_policy.get();
 
   c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
@@ -1031,10 +1030,8 @@ TEST(BlockBasedTableTest, NumBlockStat) {
   KVMap kvmap;
   c.Finish(options, GetPlainInternalComparator(options.comparator), &ks,
            &kvmap);
-  ASSERT_EQ(
-      kvmap.size(),
-      c.table_reader()->GetTableProperties().num_data_blocks
-  );
+  ASSERT_EQ(kvmap.size(),
+            c.table_reader()->GetTableProperties().num_data_blocks);
 }
 
 class BlockCacheProperties {
@@ -1049,32 +1046,26 @@ class BlockCacheProperties {
   }
 
   // Check if the fetched props matches the expected ones.
-  void AssertEqual(
-      long index_block_cache_miss,
-      long index_block_cache_hit,
-      long data_block_cache_miss,
-      long data_block_cache_hit) const {
+  void AssertEqual(int64_t index_block_cache_miss,
+                   int64_t index_block_cache_hit, int64_t data_block_cache_miss,
+                   int64_t data_block_cache_hit) const {
     ASSERT_EQ(index_block_cache_miss, this->index_block_cache_miss);
     ASSERT_EQ(index_block_cache_hit, this->index_block_cache_hit);
     ASSERT_EQ(data_block_cache_miss, this->data_block_cache_miss);
     ASSERT_EQ(data_block_cache_hit, this->data_block_cache_hit);
-    ASSERT_EQ(
-        index_block_cache_miss + data_block_cache_miss,
-        this->block_cache_miss
-    );
-    ASSERT_EQ(
-        index_block_cache_hit + data_block_cache_hit,
-        this->block_cache_hit
-    );
+    ASSERT_EQ(index_block_cache_miss + data_block_cache_miss,
+              this->block_cache_miss);
+    ASSERT_EQ(index_block_cache_hit + data_block_cache_hit,
+              this->block_cache_hit);
   }
 
  private:
-  long block_cache_miss = 0;
-  long block_cache_hit = 0;
-  long index_block_cache_miss = 0;
-  long index_block_cache_hit = 0;
-  long data_block_cache_miss = 0;
-  long data_block_cache_hit = 0;
+  int64_t block_cache_miss = 0;
+  int64_t block_cache_hit = 0;
+  int64_t index_block_cache_miss = 0;
+  int64_t index_block_cache_hit = 0;
+  int64_t data_block_cache_miss = 0;
+  int64_t data_block_cache_hit = 0;
 };
 
 TEST(BlockBasedTableTest, BlockCacheTest) {
@@ -1104,12 +1095,8 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   {
     BlockCacheProperties props(options.statistics.get());
     // index will be added to block cache.
-    props.AssertEqual(
-        1,  // index block miss
-        0,
-        0,
-        0
-    );
+    props.AssertEqual(1,  // index block miss
+                      0, 0, 0);
   }
 
   // Only index block will be accessed
@@ -1119,24 +1106,16 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
     // NOTE: to help better highlight the "detla" of each ticker, I use
     // <last_value> + <added_value> to indicate the increment of changed
     // value; other numbers remain the same.
-    props.AssertEqual(
-        1,
-        0 + 1,  // index block hit
-        0,
-        0
-    );
+    props.AssertEqual(1, 0 + 1,  // index block hit
+                      0, 0);
   }
 
   // Only data block will be accessed
   {
     iter->SeekToFirst();
     BlockCacheProperties props(options.statistics.get());
-    props.AssertEqual(
-        1,
-        1,
-        0 + 1,  // data block miss
-        0
-    );
+    props.AssertEqual(1, 1, 0 + 1,  // data block miss
+                      0);
   }
 
   // Data block will be in cache
@@ -1144,12 +1123,8 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
     iter.reset(c.NewIterator());
     iter->SeekToFirst();
     BlockCacheProperties props(options.statistics.get());
-    props.AssertEqual(
-        1,
-        1 + 1,  // index block hit
-        1,
-        0 + 1  // data block hit
-    );
+    props.AssertEqual(1, 1 + 1, /* index block hit */
+                      1, 0 + 1 /* data block hit */);
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
@@ -1175,12 +1150,8 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   c.Reopen(options);
   {
     BlockCacheProperties props(options.statistics.get());
-    props.AssertEqual(
-        1,  // index block miss
-        0,
-        0,
-        0
-    );
+    props.AssertEqual(1,  // index block miss
+                      0, 0, 0);
   }
 
 
@@ -1190,12 +1161,9 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
     // is only 1, index block will be purged after data block is inserted.
     iter.reset(c.NewIterator());
     BlockCacheProperties props(options.statistics.get());
-    props.AssertEqual(
-        1 + 1,  // index block miss
-        0,
-        0,  // data block miss
-        0
-    );
+    props.AssertEqual(1 + 1,  // index block miss
+                      0, 0,   // data block miss
+                      0);
   }
 
   {
@@ -1203,12 +1171,8 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
     // block's cache miss.
     iter->SeekToFirst();
     BlockCacheProperties props(options.statistics.get());
-    props.AssertEqual(
-        2,
-        0,
-        0 + 1,  // data block miss
-        0
-    );
+    props.AssertEqual(2, 0, 0 + 1,  // data block miss
+                      0);
   }
 }
 
@@ -1315,7 +1279,6 @@ TEST(GeneralTableTest, ApproximateOffsetOfPlain) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k06"),  510000, 511000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k07"),  510000, 511000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),  610000, 612000));
-
 }
 
 static void DoCompressionTest(CompressionType comp) {
@@ -1359,11 +1322,9 @@ TEST(GeneralTableTest, ApproximateOffsetOfCompressed) {
     valid++;
   }
 
-  for(int i =0; i < valid; i++)
-  {
+  for (int i = 0; i < valid; i++) {
     DoCompressionTest(compression_state[i]);
   }
-
 }
 
 TEST(Harness, Randomized) {
@@ -1374,8 +1335,8 @@ TEST(Harness, Randomized) {
     for (int num_entries = 0; num_entries < 2000;
          num_entries += (num_entries < 50 ? 1 : 200)) {
       if ((num_entries % 10) == 0) {
-        fprintf(stderr, "case %d of %d: num_entries = %d\n",
-                (i + 1), int(args.size()), num_entries);
+        fprintf(stderr, "case %d of %d: num_entries = %d\n", (i + 1),
+                static_cast<int>(args.size()), num_entries);
       }
       for (int e = 0; e < num_entries; e++) {
         std::string v;

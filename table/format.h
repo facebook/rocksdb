@@ -21,6 +21,9 @@ class Block;
 class RandomAccessFile;
 struct ReadOptions;
 
+// the length of the magic number in bytes.
+const int kMagicNumberLengthByte = 8;
+
 // BlockHandle is a pointer to the extent of a file that stores a data
 // block or a meta block.
 class BlockHandle {
@@ -63,12 +66,16 @@ class BlockHandle {
 // end of every table file.
 class Footer {
  public:
+  // Constructs a footer without specifying its table magic number.
+  // In such case, the table magic number of such footer should be
+  // initialized via @ReadFooterFromFile().
+  Footer() : Footer(kInvalidTableMagicNumber) {}
+
   // @table_magic_number serves two purposes:
   //  1. Identify different types of the tables.
   //  2. Help us to identify if a given file is a valid sst.
-  Footer(uint64_t table_magic_number) :
-      kTableMagicNumber(table_magic_number) {
-  }
+  explicit Footer(uint64_t table_magic_number)
+      : table_magic_number_(table_magic_number) {}
 
   // The block handle for the metaindex block of the table
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
@@ -78,24 +85,52 @@ class Footer {
   const BlockHandle& index_handle() const {
     return index_handle_;
   }
+
   void set_index_handle(const BlockHandle& h) {
     index_handle_ = h;
   }
 
+  uint64_t table_magic_number() const { return table_magic_number_; }
+
   void EncodeTo(std::string* dst) const;
+
+  // Set the current footer based on the input slice.  If table_magic_number_
+  // is not set (i.e., HasInitializedTableMagicNumber() is true), then this
+  // function will also initialize table_magic_number_.  Otherwise, this
+  // function will verify whether the magic number specified in the input
+  // slice matches table_magic_number_ and update the current footer only
+  // when the test passes.
   Status DecodeFrom(Slice* input);
 
   // Encoded length of a Footer.  Note that the serialization of a
   // Footer will always occupy exactly this many bytes.  It consists
   // of two block handles and a magic number.
   enum {
-    kEncodedLength = 2*BlockHandle::kMaxEncodedLength + 8
+    kEncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8
   };
 
+  const uint64_t kInvalidTableMagicNumber = 0;
+
  private:
+  // Set the table_magic_number only when it was not previously
+  // initialized.  Return true on success.
+  bool set_table_magic_number(uint64_t magic_number) {
+    if (HasInitializedTableMagicNumber()) {
+      table_magic_number_ = magic_number;
+      return true;
+    }
+    return false;
+  }
+
+  // return true if @table_magic_number_ is set to a value different
+  // from @kInvalidTableMagicNumber.
+  bool HasInitializedTableMagicNumber() const {
+    return (table_magic_number_ != kInvalidTableMagicNumber);
+  }
+
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
-  const uint64_t kTableMagicNumber;
+  uint64_t table_magic_number_;
 };
 
 // Read the footer from file

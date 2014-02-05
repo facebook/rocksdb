@@ -2,12 +2,13 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-
 #include "table/meta_blocks.h"
 
 #include <map>
+#include <string>
 
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
 #include "table/block.h"
 #include "table/format.h"
 #include "util/coding.h"
@@ -104,9 +105,8 @@ bool NotifyCollectTableCollectorsOnAdd(
     Status s = collector->Add(key, value);
     all_succeeded = all_succeeded && s.ok();
     if (!s.ok()) {
-      LogPropertiesCollectionError(
-          info_log, "Add", /* method */ collector->Name()
-      );
+      LogPropertiesCollectionError(info_log, "Add" /* method */,
+                                   collector->Name());
     }
   }
   return all_succeeded;
@@ -123,9 +123,8 @@ bool NotifyCollectTableCollectorsOnFinish(
 
     all_succeeded = all_succeeded && s.ok();
     if (!s.ok()) {
-      LogPropertiesCollectionError(
-          info_log, "Finish", /* method */ collector->Name()
-      );
+      LogPropertiesCollectionError(info_log, "Finish" /* method */,
+                                   collector->Name());
     } else {
       builder->Add(user_collected_properties);
     }
@@ -151,14 +150,8 @@ Status ReadProperties(
   BlockContents block_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  Status s = ReadBlockContents(
-      file,
-      read_options,
-      handle,
-      &block_contents,
-      env,
-      false
-  );
+  Status s = ReadBlockContents(file, read_options, handle, &block_contents, env,
+                               false);
 
   if (!s.ok()) {
     return s;
@@ -166,22 +159,20 @@ Status ReadProperties(
 
   Block properties_block(block_contents);
   std::unique_ptr<Iterator> iter(
-      properties_block.NewIterator(BytewiseComparator())
-  );
+      properties_block.NewIterator(BytewiseComparator()));
 
   // All pre-defined properties of type uint64_t
   std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
-    { TablePropertiesNames::kDataSize, &table_properties->data_size },
-    { TablePropertiesNames::kIndexSize, &table_properties->index_size },
-    { TablePropertiesNames::kFilterSize, &table_properties->filter_size },
-    { TablePropertiesNames::kRawKeySize, &table_properties->raw_key_size },
-    { TablePropertiesNames::kRawValueSize, &table_properties->raw_value_size },
-    { TablePropertiesNames::kNumDataBlocks,
-      &table_properties->num_data_blocks },
-    { TablePropertiesNames::kNumEntries, &table_properties->num_entries },
-    { TablePropertiesNames::kFormatVersion, &table_properties->format_version },
-    { TablePropertiesNames::kFixedKeyLen, &table_properties->fixed_key_len },
-  };
+      {TablePropertiesNames::kDataSize, &table_properties->data_size},
+      {TablePropertiesNames::kIndexSize, &table_properties->index_size},
+      {TablePropertiesNames::kFilterSize, &table_properties->filter_size},
+      {TablePropertiesNames::kRawKeySize, &table_properties->raw_key_size},
+      {TablePropertiesNames::kRawValueSize, &table_properties->raw_value_size},
+      {TablePropertiesNames::kNumDataBlocks,
+       &table_properties->num_data_blocks},
+      {TablePropertiesNames::kNumEntries, &table_properties->num_entries},
+      {TablePropertiesNames::kFormatVersion, &table_properties->format_version},
+      {TablePropertiesNames::kFixedKeyLen, &table_properties->fixed_key_len}};
 
   std::string last_key;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -192,10 +183,8 @@ Status ReadProperties(
 
     auto key = iter->key().ToString();
     // properties block is strictly sorted with no duplicate key.
-    assert(
-        last_key.empty() ||
-        BytewiseComparator()->Compare(key, last_key) > 0
-    );
+    assert(last_key.empty() ||
+           BytewiseComparator()->Compare(key, last_key) > 0);
     last_key = key;
 
     auto raw_val = iter->value();
@@ -218,8 +207,7 @@ Status ReadProperties(
     } else {
       // handle user-collected properties
       table_properties->user_collected_properties.insert(
-          std::make_pair(key, raw_val.ToString())
-      );
+          {key, raw_val.ToString()});
     }
   }
 
@@ -244,21 +232,14 @@ Status ReadTableProperties(
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  s = ReadBlockContents(
-      file,
-      read_options,
-      metaindex_handle,
-      &metaindex_contents,
-      env,
-      false
-  );
+  s = ReadBlockContents(file, read_options, metaindex_handle,
+                        &metaindex_contents, env, false);
   if (!s.ok()) {
     return s;
   }
   Block metaindex_block(metaindex_contents);
   std::unique_ptr<Iterator> meta_iter(
-      metaindex_block.NewIterator(BytewiseComparator())
-  );
+      metaindex_block.NewIterator(BytewiseComparator()));
 
   // -- Read property block
   meta_iter->Seek(kPropertiesBlock);
@@ -266,21 +247,39 @@ Status ReadTableProperties(
   if (meta_iter->Valid() &&
       meta_iter->key() == kPropertiesBlock &&
       meta_iter->status().ok()) {
-    s = ReadProperties(
-        meta_iter->value(),
-        file,
-        env,
-        info_log,
-        properties
-    );
+    s = ReadProperties(meta_iter->value(), file, env, info_log, properties);
   } else {
     s = Status::Corruption(
-        "Unable to read the property block from the plain table"
-    );
+        "Unable to read the property block from the plain table");
   }
 
   return s;
 }
 
+Status ReadTableMagicNumber(const std::string& file_path,
+                            const Options& options,
+                            const EnvOptions& env_options,
+                            uint64_t* table_magic_number) {
+  unique_ptr<RandomAccessFile> file;
+  Status s = options.env->NewRandomAccessFile(file_path, &file, env_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  uint64_t file_size;
+  options.env->GetFileSize(file_path, &file_size);
+  if (file_size < Footer::kEncodedLength) {
+    return Status::InvalidArgument("file is too short to be an sstable");
+  }
+
+  Footer footer;
+  s = ReadFooterFromFile(file.get(), file_size, &footer);
+  if (!s.ok()) {
+    return s;
+  }
+
+  *table_magic_number = footer.table_magic_number();
+  return Status::OK();
+}
 
 }  // namespace rocksdb

@@ -40,50 +40,31 @@ std::string TableProperties::ToString(
   result.reserve(1024);
 
   // Basic Info
-  AppendProperty(
-      result, "# data blocks", num_data_blocks, prop_delim, kv_delim
-  );
+  AppendProperty(result, "# data blocks", num_data_blocks, prop_delim,
+                 kv_delim);
   AppendProperty(result, "# entries", num_entries, prop_delim, kv_delim);
 
   AppendProperty(result, "raw key size", raw_key_size, prop_delim, kv_delim);
-  AppendProperty(
-      result,
-      "raw average key size",
-      num_entries != 0 ?  1.0 * raw_key_size / num_entries : 0.0,
-      prop_delim,
-      kv_delim
-  );
-  AppendProperty(
-      result, "raw value size", raw_value_size, prop_delim, kv_delim
-  );
-  AppendProperty(
-      result,
-      "raw average value size",
-      num_entries != 0 ?  1.0 * raw_value_size / num_entries : 0.0,
-      prop_delim,
-      kv_delim
-  );
+  AppendProperty(result, "raw average key size",
+                 num_entries != 0 ? 1.0 * raw_key_size / num_entries : 0.0,
+                 prop_delim, kv_delim);
+  AppendProperty(result, "raw value size", raw_value_size, prop_delim,
+                 kv_delim);
+  AppendProperty(result, "raw average value size",
+                 num_entries != 0 ? 1.0 * raw_value_size / num_entries : 0.0,
+                 prop_delim, kv_delim);
 
   AppendProperty(result, "data block size", data_size, prop_delim, kv_delim);
   AppendProperty(result, "index block size", index_size, prop_delim, kv_delim);
-  AppendProperty(
-      result, "filter block size", filter_size, prop_delim, kv_delim
-  );
-  AppendProperty(
-      result,
-      "(estimated) table size",
-      data_size + index_size + filter_size,
-      prop_delim,
-      kv_delim
-  );
+  AppendProperty(result, "filter block size", filter_size, prop_delim,
+                 kv_delim);
+  AppendProperty(result, "(estimated) table size",
+                 data_size + index_size + filter_size, prop_delim, kv_delim);
 
   AppendProperty(
-      result,
-      "filter policy name",
+      result, "filter policy name",
       filter_policy_name.empty() ? std::string("N/A") : filter_policy_name,
-      prop_delim,
-      kv_delim
-  );
+      prop_delim, kv_delim);
 
   return result;
 }

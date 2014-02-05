@@ -14,10 +14,14 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "table/block_based_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "table/block.h"
 #include "table/block_builder.h"
+#include "table/meta_blocks.h"
 #include "table/format.h"
 #include "util/ldb_cmd.h"
 #include "util/random.h"
@@ -44,6 +48,9 @@ class SstFileReader {
 
  private:
   Status NewTableReader(const std::string& file_path);
+  Status SetTableOptionsByMagicNumber(uint64_t table_magic_number,
+                                      RandomAccessFile* file,
+                                      uint64_t file_size);
 
   std::string file_name_;
   uint64_t read_num_;
@@ -54,9 +61,9 @@ class SstFileReader {
   Status init_result_;
   unique_ptr<TableReader> table_reader_;
   unique_ptr<RandomAccessFile> file_;
-  // table_options_ and internal_comparator_ will also be used in
+  // options_ and internal_comparator_ will also be used in
   // ReadSequential internally (specifically, seek-related operations)
-  Options table_options_;
+  Options options_;
   InternalKeyComparator internal_comparator_;
 };
 
@@ -70,19 +77,66 @@ SstFileReader::SstFileReader(const std::string& file_path,
   init_result_ = NewTableReader(file_name_);
 }
 
+extern uint64_t kBlockBasedTableMagicNumber;
+extern uint64_t kPlainTableMagicNumber;
+
 Status SstFileReader::NewTableReader(const std::string& file_path) {
-  Status s = table_options_.env->NewRandomAccessFile(file_path, &file_,
-                                                    soptions_);
+  uint64_t magic_number;
+  Status s =
+      ReadTableMagicNumber(file_path, options_, soptions_, &magic_number);
+  if (!s.ok()) {
+    return s;
+  }
+  if (magic_number == kPlainTableMagicNumber) {
+    soptions_.use_mmap_reads = true;
+  }
+  options_.comparator = &internal_comparator_;
+
+  s = options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
   if (!s.ok()) {
     return s;
   }
   uint64_t file_size;
-  table_options_.env->GetFileSize(file_path, &file_size);
-  unique_ptr<TableFactory> table_factory;
-  s = table_options_.table_factory->NewTableReader(
-      table_options_, soptions_, internal_comparator_, std::move(file_),
-      file_size, &table_reader_);
+  options_.env->GetFileSize(file_path, &file_size);
+  s = SetTableOptionsByMagicNumber(magic_number, file_.get(), file_size);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = options_.table_factory->NewTableReader(
+      options_, soptions_, internal_comparator_, std::move(file_), file_size,
+      &table_reader_);
   return s;
+}
+
+Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
+                                                   RandomAccessFile* file,
+                                                   uint64_t file_size) {
+  TableProperties table_properties;
+  Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,
+                                          options_.env, options_.info_log.get(),
+                                          &table_properties);
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (table_magic_number == kBlockBasedTableMagicNumber) {
+    options_.table_factory = std::make_shared<BlockBasedTableFactory>();
+    fprintf(stdout, "Sst file format: block-based\n");
+  } else if (table_magic_number == kPlainTableMagicNumber) {
+    options_.allow_mmap_reads = true;
+    options_.table_factory = std::make_shared<PlainTableFactory>(
+        table_properties.fixed_key_len, 2, 0.8);
+    options_.prefix_extractor = NewNoopTransform();
+    fprintf(stdout, "Sst file format: plain table\n");
+  } else {
+    char error_msg_buffer[80];
+    snprintf(error_msg_buffer, sizeof(error_msg_buffer) - 1,
+             "Unsupported table magic number --- %lx)", table_magic_number);
+    return Status::InvalidArgument(error_msg_buffer);
+  }
+
+  return Status::OK();
 }
 
 Status SstFileReader::ReadSequential(bool print_kv,
