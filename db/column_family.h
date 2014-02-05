@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "db/memtablelist.h"
 #include "db/write_batch_internal.h"
+#include "db/table_cache.h"
 
 namespace rocksdb {
 
@@ -64,11 +65,6 @@ extern ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
 // column family metadata. not thread-safe. should be protected by db_mutex
 class ColumnFamilyData {
  public:
-  ColumnFamilyData(uint32_t id, const std::string& name,
-                   Version* dummy_versions, const ColumnFamilyOptions& options,
-                   const Options* db_options);
-  ~ColumnFamilyData();
-
   uint32_t GetID() const { return id_; }
   const std::string& GetName() { return name_; }
 
@@ -87,6 +83,8 @@ class ColumnFamilyData {
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
   void SetCurrent(Version* current);
   void CreateNewMemtable();
+
+  TableCache* table_cache() const { return table_cache_.get(); }
 
   // See documentation in compaction_picker.h
   Compaction* PickCompaction();
@@ -122,6 +120,12 @@ class ColumnFamilyData {
 
  private:
   friend class ColumnFamilySet;
+  ColumnFamilyData(const std::string& dbname, uint32_t id,
+                   const std::string& name, Version* dummy_versions,
+                   Cache* table_cache, const ColumnFamilyOptions& options,
+                   const Options* db_options,
+                   const EnvOptions& storage_options);
+  ~ColumnFamilyData();
 
   ColumnFamilyData* next() { return next_.load(); }
 
@@ -134,6 +138,8 @@ class ColumnFamilyData {
   const InternalFilterPolicy internal_filter_policy_;
 
   ColumnFamilyOptions options_;
+
+  std::unique_ptr<TableCache> table_cache_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 
@@ -186,7 +192,8 @@ class ColumnFamilySet {
     ColumnFamilyData* current_;
   };
 
-  explicit ColumnFamilySet(const Options* db_options_);
+  ColumnFamilySet(const std::string& dbname, const Options* db_options_,
+                  const EnvOptions& storage_options, Cache* table_cache);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -219,8 +226,12 @@ class ColumnFamilySet {
   std::vector<ColumnFamilyData*> droppped_column_families_;
   uint32_t max_column_family_;
   ColumnFamilyData* dummy_cfd_;
+
+  const std::string db_name_;
   // TODO(icanadi) change to DBOptions
   const Options* const db_options_;
+  const EnvOptions storage_options_;
+  Cache* table_cache_;
 };
 
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {

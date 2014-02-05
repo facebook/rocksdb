@@ -251,7 +251,7 @@ class DBImpl : public DB {
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
   const InternalKeyComparator internal_comparator_;
-  const Options options_;  // options_.comparator == &internal_comparator_
+  const Options options_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
                                 SuperVersion* super_version);
@@ -370,11 +370,10 @@ class DBImpl : public DB {
       const ReadOptions& options, ColumnFamilyData* cfd,
       uint64_t* superversion_number);
 
-  // Constant after construction
   const InternalFilterPolicy internal_filter_policy_;
 
   // table_cache_ provides its own synchronization
-  unique_ptr<TableCache> table_cache_;
+  std::shared_ptr<Cache> table_cache_;
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;

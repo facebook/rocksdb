@@ -41,7 +41,6 @@ class Compaction;
 class CompactionPicker;
 class Iterator;
 class MemTable;
-class TableCache;
 class Version;
 class VersionSet;
 class MergeContext;
@@ -281,7 +280,7 @@ class Version {
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const Options* options,
-             const EnvOptions& storage_options, TableCache* table_cache);
+             const EnvOptions& storage_options, Cache* table_cache);
   ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -424,7 +423,6 @@ class VersionSet {
   Env* const env_;
   const std::string dbname_;
   const Options* const options_;
-  TableCache* const table_cache_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;

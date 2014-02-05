@@ -12,6 +12,7 @@
 #include "db/write_batch_internal.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/column_family.h"
+#include "rocksdb/cache.h"
 #include "util/coding.h"
 
 #include <ctime>
@@ -535,9 +536,10 @@ void ManifestDumpCommand::DoCommand() {
   EnvOptions sopt;
   std::string file(manifestfile);
   std::string dbname("dummy");
-  TableCache* tc = new TableCache(dbname, &options, sopt, 10);
-
-  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc);
+  std::shared_ptr<Cache> tc(NewLRUCache(
+      options.max_open_files - 10, options.table_cache_numshardbits,
+      options.table_cache_remove_scan_count_limit));
+  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc.get());
   Status s = versions->DumpManifest(options, file, verbose_, is_key_hex_);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
@@ -1011,9 +1013,11 @@ Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
     int* levels) {
   EnvOptions soptions;
-  TableCache tc(db_path_, &opt, soptions, 10);
+  std::shared_ptr<Cache> tc(
+      NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits,
+                  opt.table_cache_remove_scan_count_limit));
   const InternalKeyComparator cmp(opt.comparator);
-  VersionSet versions(db_path_, &opt, soptions, &tc);
+  VersionSet versions(db_path_, &opt, soptions, tc.get());
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(default_column_family_name,
                                           ColumnFamilyOptions(opt));

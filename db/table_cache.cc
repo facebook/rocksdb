@@ -34,18 +34,16 @@ static Slice GetSliceForFileNumber(uint64_t* file_number) {
                sizeof(*file_number));
 }
 
-TableCache::TableCache(const std::string& dbname,
-                       const Options* options,
-                       const EnvOptions& storage_options,
-                       int entries)
-    : env_(options->env),
+// TODO(icanadi) Options -> DBOptions
+TableCache::TableCache(const std::string& dbname, const Options* db_options,
+                       const ColumnFamilyOptions* cf_options,
+                       const EnvOptions& storage_options, Cache* const cache)
+    : env_(db_options->env),
       dbname_(dbname),
-      options_(options),
+      db_options_(db_options),
+      cf_options_(cf_options),
       storage_options_(storage_options),
-      cache_(
-        NewLRUCache(entries, options->table_cache_numshardbits,
-                    options->table_cache_remove_scan_count_limit)) {
-}
+      cache_(cache) {}
 
 TableCache::~TableCache() {
 }
@@ -68,20 +66,21 @@ Status TableCache::FindTable(const EnvOptions& toptions,
     unique_ptr<RandomAccessFile> file;
     unique_ptr<TableReader> table_reader;
     s = env_->NewRandomAccessFile(fname, &file, toptions);
-    RecordTick(options_->statistics.get(), NO_FILE_OPENS);
+    RecordTick(db_options_->statistics.get(), NO_FILE_OPENS);
     if (s.ok()) {
-      if (options_->advise_random_on_open) {
+      if (db_options_->advise_random_on_open) {
         file->Hint(RandomAccessFile::RANDOM);
       }
-      StopWatch sw(env_, options_->statistics.get(), TABLE_OPEN_IO_MICROS);
-      s = options_->table_factory->GetTableReader(*options_, toptions,
-                                                  std::move(file), file_size,
-                                                  &table_reader);
+      StopWatch sw(env_, db_options_->statistics.get(), TABLE_OPEN_IO_MICROS);
+      // TODO(icanadi) terrible hack. fix this
+      Options options(DBOptions(*db_options_), *cf_options_);
+      s = cf_options_->table_factory->GetTableReader(
+          options, toptions, std::move(file), file_size, &table_reader);
     }
 
     if (!s.ok()) {
       assert(table_reader == nullptr);
-      RecordTick(options_->statistics.get(), NO_FILE_ERRORS);
+      RecordTick(db_options_->statistics.get(), NO_FILE_ERRORS);
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
@@ -112,7 +111,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   TableReader* table_reader =
     reinterpret_cast<TableReader*>(cache_->Value(handle));
   Iterator* result = table_reader->NewIterator(options);
-  result->RegisterCleanup(&UnrefEntry, cache_.get(), handle);
+  result->RegisterCleanup(&UnrefEntry, cache_, handle);
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = table_reader;
   }
@@ -167,8 +166,8 @@ bool TableCache::PrefixMayMatch(const ReadOptions& options,
   return may_match;
 }
 
-void TableCache::Evict(uint64_t file_number) {
-  cache_->Erase(GetSliceForFileNumber(&file_number));
+void TableCache::Evict(Cache* cache, uint64_t file_number) {
+  cache->Erase(GetSliceForFileNumber(&file_number));
 }
 
 }  // namespace rocksdb

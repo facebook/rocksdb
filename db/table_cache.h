@@ -24,8 +24,9 @@ class Env;
 
 class TableCache {
  public:
-  TableCache(const std::string& dbname, const Options* options,
-             const EnvOptions& storage_options, int entries);
+  TableCache(const std::string& dbname, const Options* db_options,
+             const ColumnFamilyOptions* cf_options,
+             const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -61,14 +62,15 @@ class TableCache {
                       bool* table_io);
 
   // Evict any entry for the specified file number
-  void Evict(uint64_t file_number);
+  static void Evict(Cache* cache, uint64_t file_number);
 
  private:
   Env* const env_;
   const std::string dbname_;
-  const Options* options_;
+  const Options* db_options_;
+  const ColumnFamilyOptions* cf_options_;
   const EnvOptions& storage_options_;
-  std::shared_ptr<Cache> cache_;
+  Cache* const cache_;
 
   Status FindTable(const EnvOptions& toptions, uint64_t file_number,
                    uint64_t file_size, Cache::Handle**, bool* table_io=nullptr,

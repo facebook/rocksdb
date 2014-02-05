@@ -229,11 +229,10 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
     // key() will always be the biggest value for this SST?
     may_match = true;
   } else {
-    may_match = vset_->table_cache_->PrefixMayMatch(
-                           options,
-                           DecodeFixed64(level_iter->value().data()),
-                           DecodeFixed64(level_iter->value().data() + 8),
-                           internal_prefix, nullptr);
+    may_match = cfd_->table_cache()->PrefixMayMatch(
+        options, DecodeFixed64(level_iter->value().data()),
+        DecodeFixed64(level_iter->value().data() + 8), internal_prefix,
+        nullptr);
   }
   return may_match;
 }
@@ -252,8 +251,8 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
       return NewEmptyIterator();
     }
   }
-  return NewTwoLevelIterator(level_iter, &GetFileIterator,
-                             vset_->table_cache_, options, soptions);
+  return NewTwoLevelIterator(level_iter, &GetFileIterator, cfd_->table_cache(),
+                             options, soptions);
 }
 
 void Version::AddIterators(const ReadOptions& options,
@@ -261,9 +260,8 @@ void Version::AddIterators(const ReadOptions& options,
                            std::vector<Iterator*>* iters) {
   // Merge all level zero files together since they may overlap
   for (const FileMetaData* file : files_[0]) {
-    iters->push_back(
-        vset_->table_cache_->NewIterator(
-            options, soptions, file->number, file->file_size));
+    iters->push_back(cfd_->table_cache()->NewIterator(
+        options, soptions, file->number, file->file_size));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -526,8 +524,8 @@ void Version::Get(const ReadOptions& options,
       prev_file = f;
 #endif
       bool tableIO = false;
-      *status = vset_->table_cache_->Get(options, f->number, f->file_size,
-                                         ikey, &saver, SaveValue, &tableIO,
+      *status = cfd_->table_cache()->Get(options, f->number, f->file_size, ikey,
+                                         &saver, SaveValue, &tableIO,
                                          MarkKeyMayExist);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
@@ -1372,13 +1370,12 @@ class VersionSet::Builder {
 };
 
 VersionSet::VersionSet(const std::string& dbname, const Options* options,
-                       const EnvOptions& storage_options,
-                       TableCache* table_cache)
-    : column_family_set_(new ColumnFamilySet(options)),
+                       const EnvOptions& storage_options, Cache* table_cache)
+    : column_family_set_(new ColumnFamilySet(dbname, options, storage_options,
+                                             table_cache)),
       env_(options->env),
       dbname_(dbname),
       options_(options),
-      table_cache_(table_cache),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       last_sequence_(0),
@@ -1386,8 +1383,7 @@ VersionSet::VersionSet(const std::string& dbname, const Options* options,
       current_version_number_(0),
       manifest_file_size_(0),
       storage_options_(storage_options),
-      storage_options_compactions_(storage_options_) {
-}
+      storage_options_compactions_(storage_options_) {}
 
 VersionSet::~VersionSet() {
   for (auto cfd : *column_family_set_) {
@@ -1936,8 +1932,11 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
         "Number of levels needs to be bigger than 1");
   }
 
-  TableCache tc(dbname, options, storage_options, 10);
-  VersionSet versions(dbname, options, storage_options, &tc);
+  ColumnFamilyOptions cf_options(*options);
+  std::shared_ptr<Cache> tc(NewLRUCache(
+      options->max_open_files - 10, options->table_cache_numshardbits,
+      options->table_cache_remove_scan_count_limit));
+  VersionSet versions(dbname, options, storage_options, tc.get());
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
@@ -2229,7 +2228,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
         // "ikey" falls in the range for this table.  Add the
         // approximate offset of "ikey" within the table.
         TableReader* table_reader_ptr;
-        Iterator* iter = table_cache_->NewIterator(
+        Iterator* iter = v->cfd_->table_cache()->NewIterator(
             ReadOptions(), storage_options_, files[i]->number,
             files[i]->file_size, &table_reader_ptr);
         if (table_reader_ptr != nullptr) {
@@ -2285,7 +2284,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     if (!c->inputs(which)->empty()) {
       if (c->level() + which == 0) {
         for (const auto& file : *c->inputs(which)) {
-          list[num++] = table_cache_->NewIterator(
+          list[num++] = c->column_family_data()->table_cache()->NewIterator(
               options, storage_options_compactions_, file->number,
               file->file_size, nullptr, true /* for compaction */);
         }
@@ -2295,8 +2294,8 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
             new Version::LevelFileNumIterator(
                 c->column_family_data()->internal_comparator(),
                 c->inputs(which)),
-            &GetFileIterator, table_cache_, options, storage_options_,
-            true /* for compaction */);
+            &GetFileIterator, c->column_family_data()->table_cache(), options,
+            storage_options_, true /* for compaction */);
       }
     }
   }

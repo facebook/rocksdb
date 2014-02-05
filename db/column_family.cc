@@ -128,10 +128,12 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
   refs.store(1, std::memory_order_relaxed);
 }
 
-ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
-                                   Version* dummy_versions,
+ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
+                                   const std::string& name,
+                                   Version* dummy_versions, Cache* table_cache,
                                    const ColumnFamilyOptions& options,
-                                   const Options* db_options)
+                                   const Options* db_options,
+                                   const EnvOptions& storage_options)
     : id_(id),
       name_(name),
       dummy_versions_(dummy_versions),
@@ -148,9 +150,12 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       prev_(nullptr),
       log_number_(0),
       need_slowdown_for_num_level0_files_(false) {
+  // if db_options is nullptr, then this is a dummy column family.
   if (db_options != nullptr) {
     internal_stats_.reset(new InternalStats(options.num_levels, db_options->env,
                                             db_options->statistics.get()));
+    table_cache_.reset(new TableCache(dbname, db_options, &options_,
+                                      storage_options, table_cache));
     if (options_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(new UniversalCompactionPicker(
           &options_, &internal_comparator_, db_options->info_log.get()));
@@ -230,11 +235,18 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   return nullptr;
 }
 
-ColumnFamilySet::ColumnFamilySet(const Options* db_options)
+ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
+                                 const Options* db_options,
+                                 const EnvOptions& storage_options,
+                                 Cache* table_cache)
     : max_column_family_(0),
-      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, ColumnFamilyOptions(),
-                                      nullptr)),
-      db_options_(db_options) {
+      dummy_cfd_(new ColumnFamilyData(dbname, 0, "", nullptr, nullptr,
+                                      ColumnFamilyOptions(), nullptr,
+                                      storage_options_)),
+      db_name_(dbname),
+      db_options_(db_options),
+      storage_options_(storage_options),
+      table_cache_(table_cache) {
   // initialize linked list
   dummy_cfd_->prev_.store(dummy_cfd_);
   dummy_cfd_->next_.store(dummy_cfd_);
@@ -290,7 +302,8 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   column_families_.insert({name, id});
   ColumnFamilyData* new_cfd =
-      new ColumnFamilyData(id, name, dummy_versions, options, db_options_);
+      new ColumnFamilyData(db_name_, id, name, dummy_versions, table_cache_,
+                           options, db_options_, storage_options_);
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);
   // add to linked list

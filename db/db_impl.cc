@@ -39,6 +39,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/column_family.h"
@@ -209,6 +210,10 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       options_(SanitizeOptions(dbname, &internal_comparator_,
                                &internal_filter_policy_, options)),
       internal_filter_policy_(options.filter_policy),
+      // Reserve ten files or so for other uses and give the rest to TableCache.
+      table_cache_(NewLRUCache(options_.max_open_files - 10,
+                               options_.table_cache_numshardbits,
+                               options_.table_cache_remove_scan_count_limit)),
       db_lock_(nullptr),
       mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
@@ -233,11 +238,6 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       refitting_level_(false) {
 
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
-
-  // Reserve ten files or so for other uses and give the rest to TableCache.
-  const int table_cache_size = options_.max_open_files - 10;
-  table_cache_.reset(new TableCache(dbname_, &options_,
-                                    storage_options_, table_cache_size));
 
   versions_.reset(
       new VersionSet(dbname_, &options_, storage_options_, table_cache_.get()));
@@ -551,7 +551,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       if (!keep) {
         if (type == kTableFile) {
           // evict from cache
-          table_cache_->Evict(number);
+          TableCache::Evict(table_cache_.get(), number);
         }
         std::string fname = ((type == kLogFile) ? options_.wal_dir : dbname_) +
             "/" + state.all_files[i];
@@ -1014,7 +1014,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   {
     mutex_.Unlock();
     s = BuildTable(dbname_, env_, options_, storage_options_,
-                   table_cache_.get(), iter, &meta, cfd->user_comparator(),
+                   cfd->table_cache(), iter, &meta, cfd->user_comparator(),
                    newest_snapshot, earliest_seqno_in_memtable,
                    GetCompressionFlush(options_));
     LogFlush(options_.info_log);
@@ -1079,7 +1079,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
         (unsigned long)meta.number);
 
     s = BuildTable(dbname_, env_, options_, storage_options_,
-                   table_cache_.get(), iter, &meta, cfd->user_comparator(),
+                   cfd->table_cache(), iter, &meta, cfd->user_comparator(),
                    newest_snapshot, earliest_seqno_in_memtable,
                    GetCompressionFlush(options_));
     LogFlush(options_.info_log);
@@ -2031,7 +2031,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact, Status status) {
     // If this file was inserted into the table cache then remove
     // them here because this compaction was not committed.
     if (!status.ok()) {
-      table_cache_->Evict(out.number);
+      TableCache::Evict(table_cache_.get(), out.number);
     }
   }
   delete compact;
@@ -2148,10 +2148,9 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
 
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
-    Iterator* iter = table_cache_->NewIterator(ReadOptions(),
-                                               storage_options_,
-                                               output_number,
-                                               current_bytes);
+    ColumnFamilyData* cfd = compact->compaction->column_family_data();
+    Iterator* iter = cfd->table_cache()->NewIterator(
+        ReadOptions(), storage_options_, output_number, current_bytes);
     s = iter->status();
     delete iter;
     if (s.ok()) {

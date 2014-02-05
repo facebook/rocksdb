@@ -55,14 +55,21 @@ class Repairer {
         icmp_(options.comparator),
         ipolicy_(options.filter_policy),
         options_(SanitizeOptions(dbname, &icmp_, &ipolicy_, options)),
+        cf_options_(ColumnFamilyOptions(options_)),
+        raw_table_cache_(
+            // TableCache can be small since we expect each table to be opened
+            // once.
+            NewLRUCache(10, options_.table_cache_numshardbits,
+                        options_.table_cache_remove_scan_count_limit)),
         next_file_number_(1) {
-    // TableCache can be small since we expect each table to be opened once.
-    table_cache_ = new TableCache(dbname_, &options_, storage_options_, 10);
+    table_cache_ = new TableCache(dbname_, &options_, &cf_options_,
+                                  storage_options_, raw_table_cache_.get());
     edit_ = new VersionEdit();
   }
 
   ~Repairer() {
     delete table_cache_;
+    raw_table_cache_.reset();
     delete edit_;
   }
 
@@ -102,6 +109,8 @@ class Repairer {
   InternalKeyComparator const icmp_;
   InternalFilterPolicy const ipolicy_;
   Options const options_;
+  ColumnFamilyOptions const cf_options_;
+  std::shared_ptr<Cache> raw_table_cache_;
   TableCache* table_cache_;
   VersionEdit* edit_;
 
