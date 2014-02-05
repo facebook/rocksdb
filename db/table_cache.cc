@@ -35,13 +35,11 @@ static Slice GetSliceForFileNumber(uint64_t* file_number) {
 }
 
 // TODO(icanadi) Options -> DBOptions
-TableCache::TableCache(const std::string& dbname, const Options* db_options,
-                       const ColumnFamilyOptions* cf_options,
+TableCache::TableCache(const std::string& dbname, const Options* options,
                        const EnvOptions& storage_options, Cache* const cache)
-    : env_(db_options->env),
+    : env_(options->env),
       dbname_(dbname),
-      db_options_(db_options),
-      cf_options_(cf_options),
+      options_(options),
       storage_options_(storage_options),
       cache_(cache) {}
 
@@ -66,21 +64,19 @@ Status TableCache::FindTable(const EnvOptions& toptions,
     unique_ptr<RandomAccessFile> file;
     unique_ptr<TableReader> table_reader;
     s = env_->NewRandomAccessFile(fname, &file, toptions);
-    RecordTick(db_options_->statistics.get(), NO_FILE_OPENS);
+    RecordTick(options_->statistics.get(), NO_FILE_OPENS);
     if (s.ok()) {
-      if (db_options_->advise_random_on_open) {
+      if (options_->advise_random_on_open) {
         file->Hint(RandomAccessFile::RANDOM);
       }
-      StopWatch sw(env_, db_options_->statistics.get(), TABLE_OPEN_IO_MICROS);
-      // TODO(icanadi) terrible hack. fix this
-      Options options(DBOptions(*db_options_), *cf_options_);
-      s = cf_options_->table_factory->GetTableReader(
-          options, toptions, std::move(file), file_size, &table_reader);
+      StopWatch sw(env_, options_->statistics.get(), TABLE_OPEN_IO_MICROS);
+      s = options_->table_factory->GetTableReader(
+          *options_, toptions, std::move(file), file_size, &table_reader);
     }
 
     if (!s.ok()) {
       assert(table_reader == nullptr);
-      RecordTick(db_options_->statistics.get(), NO_FILE_ERRORS);
+      RecordTick(options_->statistics.get(), NO_FILE_ERRORS);
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {

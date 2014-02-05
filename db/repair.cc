@@ -55,15 +55,14 @@ class Repairer {
         icmp_(options.comparator),
         ipolicy_(options.filter_policy),
         options_(SanitizeOptions(dbname, &icmp_, &ipolicy_, options)),
-        cf_options_(ColumnFamilyOptions(options_)),
         raw_table_cache_(
             // TableCache can be small since we expect each table to be opened
             // once.
             NewLRUCache(10, options_.table_cache_numshardbits,
                         options_.table_cache_remove_scan_count_limit)),
         next_file_number_(1) {
-    table_cache_ = new TableCache(dbname_, &options_, &cf_options_,
-                                  storage_options_, raw_table_cache_.get());
+    table_cache_ = new TableCache(dbname_, &options_, storage_options_,
+                                  raw_table_cache_.get());
     edit_ = new VersionEdit();
   }
 

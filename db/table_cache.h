@@ -24,8 +24,7 @@ class Env;
 
 class TableCache {
  public:
-  TableCache(const std::string& dbname, const Options* db_options,
-             const ColumnFamilyOptions* cf_options,
+  TableCache(const std::string& dbname, const Options* options,
              const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
@@ -67,8 +66,7 @@ class TableCache {
  private:
   Env* const env_;
   const std::string dbname_;
-  const Options* db_options_;
-  const ColumnFamilyOptions* cf_options_;
+  const Options* options_;
   const EnvOptions& storage_options_;
   Cache* const cache_;
 

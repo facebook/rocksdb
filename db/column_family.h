@@ -73,7 +73,8 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  ColumnFamilyOptions* options() { return &options_; }
+  const ColumnFamilyOptions* options() const { return &options_; }
+  const Options* full_options() const { return &full_options_; }
   InternalStats* internal_stats();
 
   MemTableList* imm() { return &imm_; }
@@ -137,7 +138,8 @@ class ColumnFamilyData {
   const InternalKeyComparator internal_comparator_;
   const InternalFilterPolicy internal_filter_policy_;
 
-  ColumnFamilyOptions options_;
+  ColumnFamilyOptions const options_;
+  Options const full_options_;
 
   std::unique_ptr<TableCache> table_cache_;
 

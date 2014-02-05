@@ -142,6 +142,7 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       internal_filter_policy_(options.filter_policy),
       options_(SanitizeOptions(&internal_comparator_, &internal_filter_policy_,
                                options)),
+      full_options_(DBOptions(*db_options), options_),
       mem_(nullptr),
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -150,12 +151,12 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       prev_(nullptr),
       log_number_(0),
       need_slowdown_for_num_level0_files_(false) {
-  // if db_options is nullptr, then this is a dummy column family.
-  if (db_options != nullptr) {
+  // if dummy_versions is nullptr, then this is a dummy column family.
+  if (dummy_versions != nullptr) {
     internal_stats_.reset(new InternalStats(options.num_levels, db_options->env,
                                             db_options->statistics.get()));
-    table_cache_.reset(new TableCache(dbname, db_options, &options_,
-                                      storage_options, table_cache));
+    table_cache_.reset(
+        new TableCache(dbname, &full_options_, storage_options, table_cache));
     if (options_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(new UniversalCompactionPicker(
           &options_, &internal_comparator_, db_options->info_log.get()));
@@ -241,7 +242,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  Cache* table_cache)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(dbname, 0, "", nullptr, nullptr,
-                                      ColumnFamilyOptions(), nullptr,
+                                      ColumnFamilyOptions(), db_options,
                                       storage_options_)),
       db_name_(dbname),
       db_options_(db_options),
