@@ -3745,7 +3745,6 @@ Status DB::OpenWithColumnFamilies(
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);
   if (s.ok()) {
-    lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
     soptions.use_mmap_writes = false;
@@ -3755,6 +3754,7 @@ Status DB::OpenWithColumnFamilies(
       soptions
     );
     if (s.ok()) {
+      lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
       VersionEdit edit;
       impl->logfile_number_ = new_log_number;
       impl->log_.reset(new log::Writer(std::move(lfile)));
