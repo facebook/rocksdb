@@ -173,7 +173,7 @@ bool FilterBlockReader::MayMatch(uint64_t block_offset, const Slice& entry) {
   if (index < num_) {
     uint32_t start = DecodeFixed32(offset_ + index*4);
     uint32_t limit = DecodeFixed32(offset_ + index*4 + 4);
-    if (start <= limit && limit <= (offset_ - data_)) {
+    if (start <= limit && limit <= (uint32_t)(offset_ - data_)) {
       Slice filter = Slice(data_ + start, limit - start);
       return policy_->KeyMayMatch(entry, filter);
     } else if (start == limit) {
