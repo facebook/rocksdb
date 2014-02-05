@@ -132,7 +132,7 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
                                    const std::string& name,
                                    Version* dummy_versions, Cache* table_cache,
                                    const ColumnFamilyOptions& options,
-                                   const Options* db_options,
+                                   const DBOptions* db_options,
                                    const EnvOptions& storage_options)
     : id_(id),
       name_(name),
@@ -142,7 +142,7 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       internal_filter_policy_(options.filter_policy),
       options_(SanitizeOptions(&internal_comparator_, &internal_filter_policy_,
                                options)),
-      full_options_(DBOptions(*db_options), options_),
+      full_options_(*db_options, options_),
       mem_(nullptr),
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -237,7 +237,7 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
-                                 const Options* db_options,
+                                 const DBOptions* db_options,
                                  const EnvOptions& storage_options,
                                  Cache* table_cache)
     : max_column_family_(0),

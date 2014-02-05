@@ -26,7 +26,7 @@ namespace rocksdb {
 
 class DBImplReadOnly : public DBImpl {
  public:
-  DBImplReadOnly(const Options& options, const std::string& dbname);
+  DBImplReadOnly(const DBOptions& options, const std::string& dbname);
   virtual ~DBImplReadOnly();
 
   // Implementations of the DB interface

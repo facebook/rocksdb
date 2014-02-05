@@ -124,7 +124,7 @@ class ColumnFamilyData {
   ColumnFamilyData(const std::string& dbname, uint32_t id,
                    const std::string& name, Version* dummy_versions,
                    Cache* table_cache, const ColumnFamilyOptions& options,
-                   const Options* db_options,
+                   const DBOptions* db_options,
                    const EnvOptions& storage_options);
   ~ColumnFamilyData();
 
@@ -194,7 +194,7 @@ class ColumnFamilySet {
     ColumnFamilyData* current_;
   };
 
-  ColumnFamilySet(const std::string& dbname, const Options* db_options_,
+  ColumnFamilySet(const std::string& dbname, const DBOptions* db_options,
                   const EnvOptions& storage_options, Cache* table_cache);
   ~ColumnFamilySet();
 
@@ -230,8 +230,7 @@ class ColumnFamilySet {
   ColumnFamilyData* dummy_cfd_;
 
   const std::string db_name_;
-  // TODO(icanadi) change to DBOptions
-  const Options* const db_options_;
+  const DBOptions* const db_options_;
   const EnvOptions storage_options_;
   Cache* table_cache_;
 };

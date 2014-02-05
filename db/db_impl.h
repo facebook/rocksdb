@@ -37,7 +37,7 @@ class VersionSet;
 
 class DBImpl : public DB {
  public:
-  DBImpl(const Options& options, const std::string& dbname);
+  DBImpl(const DBOptions& options, const std::string& dbname);
   virtual ~DBImpl();
 
   // Implementations of the DB interface
@@ -250,8 +250,7 @@ class DBImpl : public DB {
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
-  const InternalKeyComparator internal_comparator_;
-  const Options options_;
+  const DBOptions options_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
                                 SuperVersion* super_version);
@@ -369,8 +368,6 @@ class DBImpl : public DB {
   std::pair<Iterator*, Iterator*> GetTailingIteratorPair(
       const ReadOptions& options, ColumnFamilyData* cfd,
       uint64_t* superversion_number);
-
-  const InternalFilterPolicy internal_filter_policy_;
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;

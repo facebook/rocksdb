@@ -43,8 +43,8 @@
 
 namespace rocksdb {
 
-DBImplReadOnly::DBImplReadOnly(const Options& options,
-    const std::string& dbname)
+DBImplReadOnly::DBImplReadOnly(const DBOptions& options,
+                               const std::string& dbname)
     : DBImpl(options, dbname) {
   Log(options_.info_log, "Opening the db in read only mode");
 }
@@ -62,11 +62,12 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, merge_context, options_)) {
+  if (super_version->mem->Get(lkey, value, &s, merge_context,
+                              *cfd->full_options())) {
   } else {
     Version::GetStats stats;
     super_version->current->Get(options, lkey, value, &s, &merge_context,
-                                &stats, options_);
+                                &stats, *cfd->full_options());
   }
   return s;
 }
@@ -79,7 +80,8 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options,
   SequenceNumber latest_snapshot = versions_->LastSequence();
   Iterator* internal_iter = NewInternalIterator(options, cfd, super_version);
   return NewDBIterator(
-      &dbname_, env_, options_, cfd->user_comparator(), internal_iter,
+      &dbname_, env_, *cfd->full_options(), cfd->user_comparator(),
+      internal_iter,
       (options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
            : latest_snapshot));
@@ -89,13 +91,14 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool error_if_log_file_exist) {
   *dbptr = nullptr;
 
-  DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
-  impl->mutex_.Lock();
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(default_column_family_name, cf_options));
+
+  DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
+  impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
                            error_if_log_file_exist);
   if (s.ok()) {

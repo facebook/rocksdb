@@ -1369,7 +1369,7 @@ class VersionSet::Builder {
   }
 };
 
-VersionSet::VersionSet(const std::string& dbname, const Options* options,
+VersionSet::VersionSet(const std::string& dbname, const DBOptions* options,
                        const EnvOptions& storage_options, Cache* table_cache)
     : column_family_set_(new ColumnFamilySet(dbname, options, storage_options,
                                              table_cache)),

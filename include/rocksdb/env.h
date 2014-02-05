@@ -34,7 +34,7 @@ class Slice;
 class WritableFile;
 class RandomRWFile;
 class Directory;
-struct Options;
+struct DBOptions;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -47,7 +47,7 @@ struct EnvOptions {
   EnvOptions();
 
   // construct from Options
-  explicit EnvOptions(const Options& options);
+  explicit EnvOptions(const DBOptions& options);
 
   // If true, then allow caching of data in environment buffers
   bool use_os_buffer = true;

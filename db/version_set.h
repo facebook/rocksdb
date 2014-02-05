@@ -279,7 +279,7 @@ class Version {
 
 class VersionSet {
  public:
-  VersionSet(const std::string& dbname, const Options* options,
+  VersionSet(const std::string& dbname, const DBOptions* options,
              const EnvOptions& storage_options, Cache* table_cache);
   ~VersionSet();
 
@@ -422,7 +422,7 @@ class VersionSet {
 
   Env* const env_;
   const std::string dbname_;
-  const Options* const options_;
+  const DBOptions* const options_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;

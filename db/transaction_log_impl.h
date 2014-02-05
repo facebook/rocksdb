@@ -66,12 +66,11 @@ class LogFileImpl : public LogFile {
 
 class TransactionLogIteratorImpl : public TransactionLogIterator {
  public:
-  TransactionLogIteratorImpl(const std::string& dir,
-                             const Options* options,
+  TransactionLogIteratorImpl(const std::string& dir, const DBOptions* options,
                              const EnvOptions& soptions,
                              const SequenceNumber seqNum,
                              std::unique_ptr<VectorLogPtr> files,
-                             DBImpl const * const dbimpl);
+                             DBImpl const* const dbimpl);
 
   virtual bool Valid();
 
@@ -83,7 +82,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
  private:
   const std::string& dir_;
-  const Options* options_;
+  const DBOptions* options_;
   const EnvOptions& soptions_;
   SequenceNumber startingSequenceNumber_;
   std::unique_ptr<VectorLogPtr> files_;

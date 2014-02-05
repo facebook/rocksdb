@@ -9,23 +9,20 @@
 namespace rocksdb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
-                           const std::string& dir,
-                           const Options* options,
-                           const EnvOptions& soptions,
-                           const SequenceNumber seq,
-                           std::unique_ptr<VectorLogPtr> files,
-                           DBImpl const * const dbimpl) :
-    dir_(dir),
-    options_(options),
-    soptions_(soptions),
-    startingSequenceNumber_(seq),
-    files_(std::move(files)),
-    started_(false),
-    isValid_(false),
-    currentFileIndex_(0),
-    currentBatchSeq_(0),
-    currentLastSeq_(0),
-    dbimpl_(dbimpl) {
+    const std::string& dir, const DBOptions* options,
+    const EnvOptions& soptions, const SequenceNumber seq,
+    std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl)
+    : dir_(dir),
+      options_(options),
+      soptions_(soptions),
+      startingSequenceNumber_(seq),
+      files_(std::move(files)),
+      started_(false),
+      isValid_(false),
+      currentFileIndex_(0),
+      currentBatchSeq_(0),
+      currentLastSeq_(0),
+      dbimpl_(dbimpl) {
   assert(files_ != nullptr);
   assert(dbimpl_ != nullptr);
 
