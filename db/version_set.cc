@@ -14,6 +14,7 @@
 #include <set>
 #include <climits>
 #include <stdio.h>
+
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -23,7 +24,7 @@
 #include "db/compaction.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/table.h"
+#include "table/table_reader.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
@@ -54,6 +55,10 @@ Version::~Version() {
       assert(f->refs > 0);
       f->refs--;
       if (f->refs <= 0) {
+        if (f->table_reader_handle) {
+          cfd_->table_cache()->ReleaseHandle(f->table_reader_handle);
+          f->table_reader_handle = nullptr;
+        }
         vset_->obsolete_files_.push_back(f);
       }
     }
@@ -188,11 +193,10 @@ class Version::LevelFileNumIterator : public Iterator {
   mutable char value_buf_[16];
 };
 
-static Iterator* GetFileIterator(void* arg,
-                                 const ReadOptions& options,
+static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const EnvOptions& soptions,
-                                 const Slice& file_value,
-                                 bool for_compaction) {
+                                 const InternalKeyComparator& icomparator,
+                                 const Slice& file_value, bool for_compaction) {
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
   if (file_value.size() != 16) {
     return NewErrorIterator(
@@ -205,12 +209,11 @@ static Iterator* GetFileIterator(void* arg,
       options_copy = options;
       options_copy.prefix = nullptr;
     }
-    return cache->NewIterator(options.prefix ? options_copy : options,
-                              soptions,
-                              DecodeFixed64(file_value.data()),
-                              DecodeFixed64(file_value.data() + 8),
-                              nullptr /* don't need reference to table*/,
-                              for_compaction);
+    FileMetaData meta(DecodeFixed64(file_value.data()),
+                      DecodeFixed64(file_value.data() + 8));
+    return cache->NewIterator(
+        options.prefix ? options_copy : options, soptions, icomparator, meta,
+        nullptr /* don't need reference to table*/, for_compaction);
   }
 }
 
@@ -230,7 +233,8 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
     may_match = true;
   } else {
     may_match = cfd_->table_cache()->PrefixMayMatch(
-        options, DecodeFixed64(level_iter->value().data()),
+        options, cfd_->internal_comparator(),
+        DecodeFixed64(level_iter->value().data()),
         DecodeFixed64(level_iter->value().data() + 8), internal_prefix,
         nullptr);
   }
@@ -252,7 +256,7 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
     }
   }
   return NewTwoLevelIterator(level_iter, &GetFileIterator, cfd_->table_cache(),
-                             options, soptions);
+                             options, soptions, cfd_->internal_comparator());
 }
 
 void Version::AddIterators(const ReadOptions& options,
@@ -261,7 +265,7 @@ void Version::AddIterators(const ReadOptions& options,
   // Merge all level zero files together since they may overlap
   for (const FileMetaData* file : files_[0]) {
     iters->push_back(cfd_->table_cache()->NewIterator(
-        options, soptions, file->number, file->file_size));
+        options, soptions, cfd_->internal_comparator(), *file));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -311,83 +315,73 @@ static void MarkKeyMayExist(void* arg) {
   }
 }
 
-static bool SaveValue(void* arg, const Slice& ikey, const Slice& v, bool didIO){
+static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
+                      const Slice& v, bool didIO) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   MergeContext* merge_contex = s->merge_context;
   std::string merge_result;  // temporary area for merge results later
 
   assert(s != nullptr && merge_contex != nullptr);
 
-  ParsedInternalKey parsed_key;
   // TODO: didIO and Merge?
   s->didIO = didIO;
-  if (!ParseInternalKey(ikey, &parsed_key)) {
-    // TODO: what about corrupt during Merge?
-    s->state = kCorrupt;
-  } else {
-    if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
-      // Key matches. Process it
-      switch (parsed_key.type) {
-        case kTypeValue:
-          if (kNotFound == s->state) {
-            s->state = kFound;
-            s->value->assign(v.data(), v.size());
-          } else if (kMerge == s->state) {
-            assert(s->merge_operator != nullptr);
-            s->state = kFound;
-            if (!s->merge_operator->FullMerge(s->user_key, &v,
-                                              merge_contex->GetOperands(),
-                                              s->value, s->logger)) {
-              RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-              s->state = kCorrupt;
-            }
-          } else {
-            assert(false);
+  if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
+    // Key matches. Process it
+    switch (parsed_key.type) {
+      case kTypeValue:
+        if (kNotFound == s->state) {
+          s->state = kFound;
+          s->value->assign(v.data(), v.size());
+        } else if (kMerge == s->state) {
+          assert(s->merge_operator != nullptr);
+          s->state = kFound;
+          if (!s->merge_operator->FullMerge(s->user_key, &v,
+                                            merge_contex->GetOperands(),
+                                            s->value, s->logger)) {
+            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
+            s->state = kCorrupt;
           }
-          return false;
+        } else {
+          assert(false);
+        }
+        return false;
 
-        case kTypeDeletion:
-          if (kNotFound == s->state) {
-            s->state = kDeleted;
-          } else if (kMerge == s->state) {
-            s->state = kFound;
+      case kTypeDeletion:
+        if (kNotFound == s->state) {
+          s->state = kDeleted;
+        } else if (kMerge == s->state) {
+          s->state = kFound;
           if (!s->merge_operator->FullMerge(s->user_key, nullptr,
                                             merge_contex->GetOperands(),
                                             s->value, s->logger)) {
-              RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-              s->state = kCorrupt;
-            }
-          } else {
-            assert(false);
+            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
+            s->state = kCorrupt;
           }
-          return false;
-
-        case kTypeMerge:
-          assert(s->state == kNotFound || s->state == kMerge);
-          s->state = kMerge;
-          merge_contex->PushOperand(v);
-          while (merge_contex->GetNumOperands() >= 2) {
-            // Attempt to merge operands together via user associateive merge
-            if (s->merge_operator->PartialMerge(s->user_key,
-                                                merge_contex->GetOperand(0),
-                                                merge_contex->GetOperand(1),
-                                                &merge_result,
-                                                s->logger)) {
-              merge_contex->PushPartialMergeResult(merge_result);
-            } else {
-              // Associative merge returns false ==> stack the operands
-              break;
-            }
-          }
-          return true;
-
-        case kTypeColumnFamilyDeletion:
-        case kTypeColumnFamilyValue:
-        case kTypeColumnFamilyMerge:
-        case kTypeLogData:
+        } else {
           assert(false);
+        }
+        return false;
+
+      case kTypeMerge:
+        assert(s->state == kNotFound || s->state == kMerge);
+        s->state = kMerge;
+        merge_contex->PushOperand(v);
+        while (merge_contex->GetNumOperands() >= 2) {
+          // Attempt to merge operands together via user associateive merge
+          if (s->merge_operator->PartialMerge(
+                  s->user_key, merge_contex->GetOperand(0),
+                  merge_contex->GetOperand(1), &merge_result, s->logger)) {
+            merge_contex->PushPartialMergeResult(merge_result);
+          } else {
+            // Associative merge returns false ==> stack the operands
           break;
+          }
       }
+      return true;
+
+      default:
+        assert(false);
+        break;
     }
   }
 
@@ -524,8 +518,8 @@ void Version::Get(const ReadOptions& options,
       prev_file = f;
 #endif
       bool tableIO = false;
-      *status = cfd_->table_cache()->Get(options, f->number, f->file_size, ikey,
-                                         &saver, SaveValue, &tableIO,
+      *status = cfd_->table_cache()->Get(options, cfd_->internal_comparator(),
+                                         *f, ikey, &saver, SaveValue, &tableIO,
                                          MarkKeyMayExist);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
@@ -707,7 +701,7 @@ bool CompareSeqnoDescending(const Version::Fsize& first,
   return false;
 }
 
-}  // anonymous namespace
+} // anonymous namespace
 
 void Version::UpdateFilesBySize() {
   // No need to sort the highest level because it is never compacted.
@@ -756,12 +750,14 @@ void Version::Ref() {
   ++refs_;
 }
 
-void Version::Unref() {
+bool Version::Unref() {
   assert(refs_ >= 1);
   --refs_;
   if (refs_ == 0) {
     delete this;
+    return true;
   }
+  return false;
 }
 
 bool Version::NeedsCompaction() const {
@@ -1200,10 +1196,15 @@ class VersionSet::Builder {
         FileMetaData* f = to_unref[i];
         f->refs--;
         if (f->refs <= 0) {
+          if (f->table_reader_handle) {
+            cfd_->table_cache()->ReleaseHandle(f->table_reader_handle);
+            f->table_reader_handle = nullptr;
+          }
           delete f;
         }
       }
     }
+
     delete[] levels_;
     base_->Unref();
   }
@@ -1280,19 +1281,17 @@ class VersionSet::Builder {
 
     // Delete files
     const VersionEdit::DeletedFileSet& del = edit->deleted_files_;
-    for (VersionEdit::DeletedFileSet::const_iterator iter = del.begin();
-         iter != del.end();
-         ++iter) {
-      const int level = iter->first;
-      const uint64_t number = iter->second;
+    for (const auto& del_file : del) {
+      const auto level = del_file.first;
+      const auto number = del_file.second;
       levels_[level].deleted_files.insert(number);
       CheckConsistencyForDeletes(edit, number, level);
     }
 
     // Add new files
-    for (size_t i = 0; i < edit->new_files_.size(); i++) {
-      const int level = edit->new_files_[i].first;
-      FileMetaData* f = new FileMetaData(edit->new_files_[i].second);
+    for (const auto& new_file : edit->new_files_) {
+      const int level = new_file.first;
+      FileMetaData* f = new FileMetaData(new_file.second);
       f->refs = 1;
 
       // We arrange to automatically compact this file after
@@ -1325,23 +1324,21 @@ class VersionSet::Builder {
     for (int level = 0; level < base_->NumberLevels(); level++) {
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
-      const std::vector<FileMetaData*>& base_files = base_->files_[level];
-      std::vector<FileMetaData*>::const_iterator base_iter = base_files.begin();
-      std::vector<FileMetaData*>::const_iterator base_end = base_files.end();
-      const FileSet* added = levels_[level].added_files;
-      v->files_[level].reserve(base_files.size() + added->size());
-      for (FileSet::const_iterator added_iter = added->begin();
-           added_iter != added->end();
-           ++added_iter) {
+      const auto& base_files = base_->files_[level];
+      auto base_iter = base_files.begin();
+      auto base_end = base_files.end();
+      const auto& added_files = *levels_[level].added_files;
+      v->files_[level].reserve(base_files.size() + added_files.size());
+
+      for (const auto& added : added_files) {
         // Add all smaller files listed in base_
-        for (std::vector<FileMetaData*>::const_iterator bpos
-                 = std::upper_bound(base_iter, base_end, *added_iter, cmp);
+        for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
              base_iter != bpos;
              ++base_iter) {
           MaybeAddFile(v, level, *base_iter);
         }
 
-        MaybeAddFile(v, level, *added_iter);
+        MaybeAddFile(v, level, added);
       }
 
       // Add remaining base files
@@ -1353,11 +1350,24 @@ class VersionSet::Builder {
     CheckConsistency(v);
   }
 
+  void LoadTableHandlers() {
+    for (int level = 0; level < cfd_->NumberLevels(); level++) {
+      for (auto& file_meta : *(levels_[level].added_files)) {
+        assert (!file_meta->table_reader_handle);
+        bool table_io;
+        cfd_->table_cache()->FindTable(
+            base_->vset_->storage_options_, cfd_->internal_comparator(),
+            file_meta->number, file_meta->file_size,
+            &file_meta->table_reader_handle, &table_io, false);
+      }
+    }
+  }
+
   void MaybeAddFile(Version* v, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->number) > 0) {
       // File is deleted: do nothing
     } else {
-      std::vector<FileMetaData*>* files = &v->files_[level];
+      auto* files = &v->files_[level];
       if (level > 0 && !files->empty()) {
         // Must not overlap
         assert(cfd_->internal_comparator().Compare(
@@ -1442,13 +1452,12 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   ManifestWriter* last_writer = &w;
   assert(!manifest_writers_.empty());
   assert(manifest_writers_.front() == &w);
-  std::deque<ManifestWriter*>::iterator iter = manifest_writers_.begin();
-  for (; iter != manifest_writers_.end(); ++iter) {
-    if ((*iter)->cfd->GetID() != column_family_data->GetID()) {
+  for (const auto& writer : manifest_writers_) {
+    if (writer->cfd->GetID() != column_family_data->GetID()) {
       // group commits across column families are not yet supported
       break;
     }
-    last_writer = *iter;
+    last_writer = writer;
     LogAndApplyHelper(column_family_data, &builder, v, last_writer->edit, mu);
     batch_edits.push_back(last_writer->edit);
   }
@@ -1456,7 +1465,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
-  std::string new_manifest_file;
+  std::string new_manifest_filename;
   uint64_t new_manifest_file_size = 0;
   Status s;
   // we will need this if we are creating new manifest
@@ -1470,11 +1479,11 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   }
 
   if (new_descriptor_log) {
-    new_manifest_file = DescriptorFileName(dbname_, manifest_file_number_);
+    new_manifest_filename = DescriptorFileName(dbname_, manifest_file_number_);
     edit->SetNextFile(next_file_number_);
   }
 
-  // Unlock during expensive MANIFEST log write. New writes cannot get here
+  // Unlock during expensive operations. New writes cannot get here
   // because &w is ensuring that all new writes get queued.
   {
     // calculate the amount of data being compacted at every level
@@ -1484,11 +1493,18 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     mu->Unlock();
 
+    if (options_->max_open_files == -1) {
+      // unlimited table cache. Pre-load table handle now.
+      // Need to do it out of the mutex.
+      builder.LoadTableHandlers();
+    }
+
     // This is fine because everything inside of this block is serialized --
     // only one thread can be here at the same time
-    if (!new_manifest_file.empty()) {
+    if (!new_manifest_filename.empty()) {
       unique_ptr<WritableFile> descriptor_file;
-      s = env_->NewWritableFile(new_manifest_file, &descriptor_file,
+      s = env_->NewWritableFile(new_manifest_filename,
+                                &descriptor_file,
                                 storage_options_);
       if (s.ok()) {
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
@@ -1536,7 +1552,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
-    if (s.ok() && !new_manifest_file.empty()) {
+    if (s.ok() && !new_manifest_filename.empty()) {
       s = SetCurrentFile(env_, dbname_, manifest_file_number_);
       if (s.ok() && old_manifest_file_number < manifest_file_number_) {
         // delete old manifest file
@@ -1573,9 +1589,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     Log(options_->info_log, "Error in committing version %lu",
         (unsigned long)v->GetVersionNumber());
     delete v;
-    if (!new_manifest_file.empty()) {
+    if (!new_manifest_filename.empty()) {
       descriptor_log_.reset();
-      env_->DeleteFile(new_manifest_file);
+      env_->DeleteFile(new_manifest_filename);
     }
   }
 
@@ -1631,27 +1647,33 @@ Status VersionSet::Recover(
   std::set<int> column_families_not_found;
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
-  std::string current;
-  Status s = ReadFileToString(env_, CurrentFileName(dbname_), &current);
+  std::string manifest_filename;
+  Status s = ReadFileToString(
+      env_, CurrentFileName(dbname_), &manifest_filename
+  );
   if (!s.ok()) {
     return s;
   }
-  if (current.empty() || current[current.size()-1] != '\n') {
+  if (manifest_filename.empty() ||
+      manifest_filename.back() != '\n') {
     return Status::Corruption("CURRENT file does not end with newline");
   }
-  current.resize(current.size() - 1);
+  // remove the trailing '\n'
+  manifest_filename.resize(manifest_filename.size() - 1);
 
   Log(options_->info_log, "Recovering from manifest file:%s\n",
-      current.c_str());
+      manifest_filename.c_str());
 
-  std::string dscname = dbname_ + "/" + current;
-  unique_ptr<SequentialFile> file;
-  s = env_->NewSequentialFile(dscname, &file, storage_options_);
+  manifest_filename = dbname_ + "/" + manifest_filename;
+  unique_ptr<SequentialFile> manifest_file;
+  s = env_->NewSequentialFile(
+      manifest_filename, &manifest_file, storage_options_
+  );
   if (!s.ok()) {
     return s;
   }
   uint64_t manifest_file_size;
-  s = env_->GetFileSize(dscname, &manifest_file_size);
+  s = env_->GetFileSize(manifest_filename, &manifest_file_size);
   if (!s.ok()) {
     return s;
   }
@@ -1682,8 +1704,8 @@ Status VersionSet::Recover(
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(std::move(file), &reporter, true/*checksum*/,
-                       0/*initial_offset*/);
+    log::Reader reader(std::move(manifest_file), &reporter, true /*checksum*/,
+                       0 /*initial_offset*/);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -1797,7 +1819,6 @@ Status VersionSet::Recover(
       }
     }
   }
-  file.reset();
 
   if (s.ok()) {
     if (!have_next_file) {
@@ -1846,7 +1867,7 @@ Status VersionSet::Recover(
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu\n",
-        current.c_str(),
+        manifest_filename.c_str(),
         (unsigned long)manifest_file_number_,
         (unsigned long)next_file_number_,
         (unsigned long)last_sequence_,
@@ -2229,8 +2250,8 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
         // approximate offset of "ikey" within the table.
         TableReader* table_reader_ptr;
         Iterator* iter = v->cfd_->table_cache()->NewIterator(
-            ReadOptions(), storage_options_, files[i]->number,
-            files[i]->file_size, &table_reader_ptr);
+            ReadOptions(), storage_options_, v->cfd_->internal_comparator(),
+            *(files[i]), &table_reader_ptr);
         if (table_reader_ptr != nullptr) {
           result += table_reader_ptr->ApproximateOffsetOf(ikey.Encode());
         }
@@ -2285,8 +2306,9 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
       if (c->level() + which == 0) {
         for (const auto& file : *c->inputs(which)) {
           list[num++] = c->column_family_data()->table_cache()->NewIterator(
-              options, storage_options_compactions_, file->number,
-              file->file_size, nullptr, true /* for compaction */);
+              options, storage_options_compactions_,
+              c->column_family_data()->internal_comparator(), *file, nullptr,
+              true /* for compaction */);
         }
       } else {
         // Create concatenating iterator for the files from this level
@@ -2295,13 +2317,14 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
                 c->column_family_data()->internal_comparator(),
                 c->inputs(which)),
             &GetFileIterator, c->column_family_data()->table_cache(), options,
-            storage_options_, true /* for compaction */);
+            storage_options_, c->column_family_data()->internal_comparator(),
+            true /* for compaction */);
       }
     }
   }
   assert(num <= space);
   Iterator* result = NewMergingIterator(
-      &c->column_family_data()->internal_comparator(), list, num);
+      env_, &c->column_family_data()->internal_comparator(), list, num);
   delete[] list;
   return result;
 }
@@ -2356,14 +2379,14 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
 }
 
 Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
-                                      FileMetaData* meta,
+                                      FileMetaData** meta,
                                       ColumnFamilyData** cfd) {
   for (auto cfd_iter : *column_family_set_) {
     Version* version = cfd_iter->current();
     for (int level = 0; level < version->NumberLevels(); level++) {
       for (const auto& file : version->files_[level]) {
         if (file->number == number) {
-          *meta = *file;
+          *meta = file;
           *filelevel = level;
           *cfd = cfd_iter;
           return Status::OK();

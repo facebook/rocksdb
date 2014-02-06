@@ -12,7 +12,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table.h"
+#include "table/table_builder.h"
 
 namespace rocksdb {
 
@@ -20,13 +20,13 @@ class BlockBuilder;
 class BlockHandle;
 class WritableFile;
 
-
 class BlockBasedTableBuilder : public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
   BlockBasedTableBuilder(const Options& options,
+                         const InternalKeyComparator& internal_comparator,
                          WritableFile* file,
                          FlushBlockPolicyFactory* flush_block_policy_factory,
                          CompressionType compression_type);

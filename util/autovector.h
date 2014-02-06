@@ -57,11 +57,9 @@ class autovector {
     typedef std::random_access_iterator_tag iterator_category;
 
     iterator_impl(TAutoVector* vect, size_t index)
-      : vect_(vect)
-      , index_(index) {
-    };
+        : vect_(vect), index_(index) {};
     iterator_impl(const iterator_impl&) = default;
-    ~iterator_impl() { }
+    ~iterator_impl() {}
     iterator_impl& operator=(const iterator_impl&) = default;
 
     // -- Advancement
@@ -130,9 +128,7 @@ class autovector {
       return index_ == other.index_;
     }
 
-    bool operator!=(const self_type& other) const {
-      return !(*this == other);
-    }
+    bool operator!=(const self_type& other) const { return !(*this == other); }
 
     bool operator>(const self_type& other) const {
       assert(vect_ == other.vect_);
@@ -174,13 +170,9 @@ class autovector {
     return vect_.capacity() == 0;
   }
 
-  size_type size() const {
-    return num_stack_items_ + vect_.size();
-  }
+  size_type size() const { return num_stack_items_ + vect_.size(); }
 
-  bool empty() const {
-    return size() == 0;
-  }
+  bool empty() const { return size() == 0; }
 
   // will not check boundry
   const_reference operator[](size_type n) const {
@@ -235,11 +227,9 @@ class autovector {
     }
   }
 
-  void push_back(const T& item) {
-    push_back(value_type(item));
-  }
+  void push_back(const T& item) { push_back(value_type(item)); }
 
-  template<class... Args>
+  template <class... Args>
   void emplace_back(Args&&... args) {
     push_back(value_type(args...));
   }
@@ -261,13 +251,9 @@ class autovector {
   // -- Copy and Assignment
   autovector& assign(const autovector& other);
 
-  autovector(const autovector& other) {
-    assign(other);
-  }
+  autovector(const autovector& other) { assign(other); }
 
-  autovector& operator=(const autovector& other) {
-    return assign(other);
-  }
+  autovector& operator=(const autovector& other) { return assign(other); }
 
   // move operation are disallowed since it is very hard to make sure both
   // autovectors are allocated from the same function stack.
@@ -275,41 +261,29 @@ class autovector {
   autovector(autovector&& other) = delete;
 
   // -- Iterator Operations
-  iterator begin() {
-    return iterator(this, 0);
-  }
+  iterator begin() { return iterator(this, 0); }
 
-  const_iterator begin() const {
-    return const_iterator(this, 0);
-  }
+  const_iterator begin() const { return const_iterator(this, 0); }
 
-  iterator end() {
-    return iterator(this, this->size());
-  }
+  iterator end() { return iterator(this, this->size()); }
 
-  const_iterator end() const {
-    return const_iterator(this, this->size());
-  }
+  const_iterator end() const { return const_iterator(this, this->size()); }
 
-  reverse_iterator rbegin() {
-    return reverse_iterator(end());
-  }
+  reverse_iterator rbegin() { return reverse_iterator(end()); }
 
   const_reverse_iterator rbegin() const {
     return const_reverse_iterator(end());
   }
 
-  reverse_iterator rend() {
-    return reverse_iterator(begin());
-  }
+  reverse_iterator rend() { return reverse_iterator(begin()); }
 
   const_reverse_iterator rend() const {
     return const_reverse_iterator(begin());
   }
 
  private:
-  size_type num_stack_items_ = 0; // current number of items
-  value_type values_[kSize]; // the first `kSize` items
+  size_type num_stack_items_ = 0;  // current number of items
+  value_type values_[kSize];       // the first `kSize` items
   // used only if there are more than `kSize` items.
   std::vector<T> vect_;
 };

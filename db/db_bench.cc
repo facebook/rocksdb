@@ -24,6 +24,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/perf_context.h"
 #include "port/port.h"
 #include "util/bit_set.h"
 #include "util/crc32c.h"
@@ -389,6 +390,8 @@ DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
 DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
 
+DEFINE_int32(perf_level, 0, "Level of perf collection");
+
 static bool ValidateRateLimit(const char* flagname, double value) {
   static constexpr double EPSILON = 1e-10;
   if ( value < -EPSILON ) {
@@ -728,6 +731,7 @@ struct SharedState {
   port::Mutex mu;
   port::CondVar cv;
   int total;
+  int perf_level;
 
   // Each thread goes through the following states:
   //    (1) initializing
@@ -739,7 +743,7 @@ struct SharedState {
   long num_done;
   bool start;
 
-  SharedState() : cv(&mu) { }
+  SharedState() : cv(&mu), perf_level(FLAGS_perf_level) { }
 };
 
 // Per-thread state for concurrent executions of the same benchmark.
@@ -847,6 +851,7 @@ class Benchmark {
         fprintf(stdout, "Memtablerep: vector\n");
         break;
     }
+    fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
 
     PrintWarnings();
     fprintf(stdout, "------------------------------------------------\n");
@@ -1202,6 +1207,7 @@ class Benchmark {
       }
     }
 
+    SetPerfLevel(static_cast<PerfLevel> (shared->perf_level));
     thread->stats.Start(thread->tid);
     (arg->bm->*(arg->method))(thread);
     thread->stats.Stop();

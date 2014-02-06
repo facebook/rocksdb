@@ -34,6 +34,7 @@ class TablePropertiesCollector;
 class Slice;
 class SliceTransform;
 class Statistics;
+class InternalKeyComparator;
 
 using std::shared_ptr;
 
@@ -63,6 +64,12 @@ struct CompressionOptions {
   CompressionOptions() : window_bits(-14), level(-1), strategy(0) {}
   CompressionOptions(int wbits, int lev, int strategy)
       : window_bits(wbits), level(lev), strategy(strategy) {}
+};
+
+enum UpdateStatus {    // Return status For inplace update callback
+  UPDATE_FAILED   = 0, // Nothing to update
+  UPDATED_INPLACE = 1, // Value updated inplace
+  UPDATED         = 2, // No inplace update. Merged value set
 };
 
 struct Options;
@@ -410,19 +417,72 @@ struct ColumnFamilyOptions {
   // the tables.
   // Default: emtpy vector -- no user-defined statistics collection will be
   // performed.
-  std::vector<std::shared_ptr<TablePropertiesCollector>>
-    table_properties_collectors;
+  typedef std::vector<std::shared_ptr<TablePropertiesCollector>>
+      TablePropertiesCollectors;
+  TablePropertiesCollectors table_properties_collectors;
 
-  // Allows thread-safe inplace updates. Requires Updates iff
-  // * key exists in current memtable
-  // * new sizeof(new_value) <= sizeof(old_value)
-  // * old_value for that key is a put i.e. kTypeValue
+  // Allows thread-safe inplace updates.
+  // If inplace_callback function is not set,
+  //   Put(key, new_value) will update inplace the existing_value iff
+  //   * key exists in current memtable
+  //   * new sizeof(new_value) <= sizeof(existing_value)
+  //   * existing_value for that key is a put i.e. kTypeValue
+  // If inplace_callback function is set, check doc for inplace_callback.
   // Default: false.
   bool inplace_update_support;
 
   // Number of locks used for inplace update
   // Default: 10000, if inplace_update_support = true, else 0.
   size_t inplace_update_num_locks;
+
+  // existing_value - pointer to previous value (from both memtable and sst).
+  //                  nullptr if key doesn't exist
+  // existing_value_size - pointer to size of existing_value).
+  //                       nullptr if key doesn't exist
+  // delta_value - Delta value to be merged with the existing_value.
+  //               Stored in transaction logs.
+  // merged_value - Set when delta is applied on the previous value.
+
+  // Applicable only when inplace_update_support is true,
+  // this callback function is called at the time of updating the memtable
+  // as part of a Put operation, lets say Put(key, delta_value). It allows the
+  // 'delta_value' specified as part of the Put operation to be merged with
+  // an 'existing_value' of the key in the database.
+
+  // If the merged value is smaller in size that the 'existing_value',
+  // then this function can update the 'existing_value' buffer inplace and
+  // the corresponding 'existing_value'_size pointer, if it wishes to.
+  // The callback should return UpdateStatus::UPDATED_INPLACE.
+  // In this case. (In this case, the snapshot-semantics of the rocksdb
+  // Iterator is not atomic anymore).
+
+  // If the merged value is larger in size than the 'existing_value' or the
+  // application does not wish to modify the 'existing_value' buffer inplace,
+  // then the merged value should be returned via *merge_value. It is set by
+  // merging the 'existing_value' and the Put 'delta_value'. The callback should
+  // return UpdateStatus::UPDATED in this case. This merged value will be added
+  // to the memtable.
+
+  // If merging fails or the application does not wish to take any action,
+  // then the callback should return UpdateStatus::UPDATE_FAILED.
+
+  // Please remember that the original call from the application is Put(key,
+  // delta_value). So the transaction log (if enabled) will still contain (key,
+  // delta_value). The 'merged_value' is not stored in the transaction log.
+  // Hence the inplace_callback function should be consistent across db reopens.
+
+  // Default: nullptr
+  UpdateStatus (*inplace_callback)(char* existing_value,
+                                   uint32_t* existing_value_size,
+                                   Slice delta_value,
+                                   std::string* merged_value);
+
+  // if prefix_extractor is set and bloom_bits is not 0, create prefix bloom
+  // for memtable
+  uint32_t memtable_prefix_bloom_bits;
+
+  // number of hash probes per key
+  uint32_t memtable_prefix_bloom_probes;
 
   // Maximum number of successive merge operations on a key in the memtable.
   //
@@ -473,9 +533,10 @@ struct DBOptions {
   shared_ptr<Logger> info_log;
 
   // Number of open files that can be used by the DB.  You may need to
-  // increase this if your database has a large working set (budget
-  // one open file per 2MB of working set).
-  //
+  // increase this if your database has a large working set. Value -1 means
+  // files opened are always kept open. You can estimate number of files based
+  // on target_file_size_base and target_file_size_multiplier for level-based
+  // compaction. For universal-style compaction, you can usually set it to -1.
   // Default: 1000
   int max_open_files;
 

@@ -33,8 +33,7 @@
 // iteration over the entire collection is rare since doing so requires all the
 // keys to be copied into a sorted data structure.
 
-#ifndef STORAGE_ROCKSDB_DB_MEMTABLEREP_H_
-#define STORAGE_ROCKSDB_DB_MEMTABLEREP_H_
+#pragma once
 
 #include <memory>
 
@@ -52,7 +51,11 @@ class MemTableRep {
    public:
     // Compare a and b. Return a negative value if a is less than b, 0 if they
     // are equal, and a positive value if a is greater than b
-    virtual int operator()(const char* a, const char* b) const = 0;
+    virtual int operator()(const char* prefix_len_key1,
+                           const char* prefix_len_key2) const = 0;
+
+    virtual int operator()(const char* prefix_len_key,
+                           const Slice& key) const = 0;
 
     virtual ~KeyComparator() { }
   };
@@ -100,7 +103,7 @@ class MemTableRep {
     virtual void Prev() = 0;
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) = 0;
+    virtual void Seek(const Slice& internal_key, const char* memtable_key) = 0;
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -175,26 +178,22 @@ public:
   }
 };
 
-// HashSkipListRep is backed by hash map of buckets. Each bucket is a skip
-// list. All the keys with the same prefix will be in the same bucket.
-// The prefix is determined using user supplied SliceTransform. It has
-// to match prefix_extractor in options.prefix_extractor.
-//
-// Iteration over the entire collection is implemented by dumping all the keys
-// into a separate skip list. Thus, these data structures are best used when
-// iteration over the entire collection is rare.
-//
-// Parameters:
-//   transform: The prefix extractor that returns prefix when supplied a user
-//     key. Has to match options.prefix_extractor
-//   bucket_count: Number of buckets in a hash_map. Each bucket needs
-//     8 bytes. By default, we set buckets to one million, which
-//     will take 8MB of memory. If you know the number of keys you'll
-//     keep in hash map, set bucket count to be approximately twice
-//     the number of keys
+// This class contains a fixed array of buckets, each
+// pointing to a skiplist (null if the bucket is empty).
+// bucket_count: number of fixed array buckets
+// skiplist_height: the max height of the skiplist
+// skiplist_branching_factor: probabilistic size ratio between adjacent
+//                            link lists in the skiplist
 extern MemTableRepFactory* NewHashSkipListRepFactory(
-    const SliceTransform* transform, size_t bucket_count = 1000000);
+  const SliceTransform* transform, size_t bucket_count = 1000000,
+  int32_t skiplist_height = 4, int32_t skiplist_branching_factor = 4
+);
+
+// The factory is to create memtables with a hashed linked list:
+// it contains a fixed array of buckets, each pointing to a sorted single
+// linked list (null if the bucket is empty).
+// bucket_count: number of fixed array buckets
+extern MemTableRepFactory* NewHashLinkListRepFactory(
+    const SliceTransform* transform, size_t bucket_count = 50000);
 
 }
-
-#endif // STORAGE_ROCKSDB_DB_MEMTABLEREP_H_

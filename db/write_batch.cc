@@ -146,7 +146,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         return Status::Corruption("unknown WriteBatch tag");
     }
   }
-  if (found != WriteBatchInternal::Count(this)) {
+ if (found != WriteBatchInternal::Count(this)) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
@@ -261,14 +261,45 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     MemTable* mem = cf_mems_->GetMemTable();
     const Options* options = cf_mems_->GetFullOptions();
-    if (options->inplace_update_support &&
-        mem->Update(sequence_, kTypeValue, key, value)) {
+    if (!options->inplace_update_support) {
+      mem->Add(sequence_, kTypeValue, key, value);
+    } else if (options->inplace_callback == nullptr) {
+      mem->Update(sequence_, key, value);
       RecordTick(options->statistics.get(), NUMBER_KEYS_UPDATED);
     } else {
-      mem->Add(sequence_, kTypeValue, key, value);
+      if (mem->UpdateCallback(sequence_, key, value, *options)) {
+      } else {
+        // key not found in memtable. Do sst get, update, add
+        SnapshotImpl read_from_snapshot;
+        read_from_snapshot.number_ = sequence_;
+        ReadOptions ropts;
+        ropts.snapshot = &read_from_snapshot;
+
+        std::string prev_value;
+        std::string merged_value;
+        Status s = db_->Get(ropts, key, &prev_value);
+        char* prev_buffer = const_cast<char*>(prev_value.c_str());
+        uint32_t prev_size = prev_value.size();
+        auto status = options->inplace_callback(s.ok() ? prev_buffer : nullptr,
+                                                s.ok() ? &prev_size : nullptr,
+                                                value, &merged_value);
+        if (status == UpdateStatus::UPDATED_INPLACE) {
+          // prev_value is updated in-place with final value.
+          mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
+          RecordTick(options->statistics.get(), NUMBER_KEYS_WRITTEN);
+        } else if (status == UpdateStatus::UPDATED) {
+          // merged_value contains the final value.
+          mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
+          RecordTick(options->statistics.get(), NUMBER_KEYS_WRITTEN);
+        }
+      }
     }
+    // Since all Puts are logged in trasaction logs (if enabled), always bump
+    // sequence number. Even if the update eventually fails and does not result
+    // in memtable add/update.
     sequence_++;
   }
+
   virtual void MergeCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) {
     bool found = cf_mems_->Seek(column_family_id);
@@ -333,6 +364,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
     sequence_++;
   }
+
   virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
     bool found = cf_mems_->Seek(column_family_id);
     if (!found || IgnoreUpdate()) {

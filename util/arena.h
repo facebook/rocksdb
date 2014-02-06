@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-// ArenaImpl is an implementation of Arena class. For a request of small size,
+// Arena is an implementation of Arena class. For a request of small size,
 // it allocates a block with pre-defined block size. For a request of big
 // size, it uses malloc to directly get the requested size.
 
@@ -16,37 +16,35 @@
 #include <vector>
 #include <assert.h>
 #include <stdint.h>
-#include "rocksdb/arena.h"
+#include "util/arena.h"
 
 namespace rocksdb {
 
-class ArenaImpl : public Arena {
+class Arena {
  public:
   // No copying allowed
-  ArenaImpl(const ArenaImpl&) = delete;
-  void operator=(const ArenaImpl&) = delete;
+  Arena(const Arena&) = delete;
+  void operator=(const Arena&) = delete;
 
   static const size_t kMinBlockSize;
   static const size_t kMaxBlockSize;
 
-  explicit ArenaImpl(size_t block_size = kMinBlockSize);
-  virtual ~ArenaImpl();
+  explicit Arena(size_t block_size = kMinBlockSize);
+  ~Arena();
 
-  virtual char* Allocate(size_t bytes) override;
+  char* Allocate(size_t bytes);
 
-  virtual char* AllocateAligned(size_t bytes) override;
+  char* AllocateAligned(size_t bytes);
 
   // Returns an estimate of the total memory usage of data allocated
   // by the arena (exclude the space allocated but not yet used for future
   // allocations).
-  virtual const size_t ApproximateMemoryUsage() {
+  const size_t ApproximateMemoryUsage() {
     return blocks_memory_ + blocks_.capacity() * sizeof(char*) -
            alloc_bytes_remaining_;
   }
 
-  virtual const size_t MemoryAllocatedBytes() override {
-    return blocks_memory_;
-  }
+  const size_t MemoryAllocatedBytes() { return blocks_memory_; }
 
  private:
   // Number of bytes allocated in one block
@@ -72,7 +70,7 @@ class ArenaImpl : public Arena {
   size_t blocks_memory_ = 0;
 };
 
-inline char* ArenaImpl::Allocate(size_t bytes) {
+inline char* Arena::Allocate(size_t bytes) {
   // The semantics of what to return are a bit messy if we allow
   // 0-byte allocations, so we disallow them here (we don't need
   // them for our internal use).

@@ -6,11 +6,7 @@
 INSTALL_PATH ?= $(CURDIR)
 
 #-----------------------------------------------
-# Uncomment exactly one of the lines labelled (A), (B), and (C) below
-# to switch between compilation modes.
-
-# OPT ?= -DNDEBUG     # (A) Production use (optimized mode)
-OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
+OPT += -fno-omit-frame-pointer -momit-leaf-frame-pointer
 #-----------------------------------------------
 
 # detect what platform we're building on
@@ -57,6 +53,7 @@ TESTS = \
 	auto_roll_logger_test \
 	block_test \
 	bloom_test \
+	dynamic_bloom_test \
 	c_test \
 	cache_test \
 	coding_test \
@@ -75,6 +72,7 @@ TESTS = \
 	merge_test \
 	redis_test \
 	reduce_levels_test \
+	plain_table_db_test \
 	simple_table_db_test \
 	skiplist_test \
 	stringappend_test \
@@ -92,6 +90,7 @@ TOOLS = \
         ldb \
 	db_repl_stress \
 	blob_store_bench
+
 
 PROGRAMS = db_bench signal_test $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db table_reader_bench
@@ -143,11 +142,11 @@ all: $(LIBRARY) $(PROGRAMS)
 # Will also generate shared libraries. 
 release:
 	$(MAKE) clean
-	OPT=-DNDEBUG $(MAKE) all -j32
+	OPT="-DNDEBUG -O2" $(MAKE) all -j32
 
 coverage:
 	$(MAKE) clean
-	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check
+	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check -j32
 	(cd coverage; ./coverage_test.sh)
 	# Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
@@ -248,6 +247,9 @@ table_properties_collector_test: db/table_properties_collector_test.o $(LIBOBJEC
 bloom_test: util/bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/bloom_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
+dynamic_bloom_test: util/dynamic_bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/dynamic_bloom_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 c_test: db/c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/c_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
@@ -278,11 +280,14 @@ crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_test: db/db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
+plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 simple_table_db_test: db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)

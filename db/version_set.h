@@ -85,8 +85,8 @@ class Version {
   };
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
            Status* status, MergeContext* merge_context,
-           GetStats* stats, const Options& db_option, bool* value_found =
-               nullptr);
+           GetStats* stats, const Options& db_option,
+           bool* value_found = nullptr);
 
   // Adds "stats" into the current state.  Returns true if a new
   // compaction may need to be triggered, false otherwise.
@@ -101,7 +101,9 @@ class Version {
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
   void Ref();
-  void Unref();
+  // Decrease reference count. Delete the object if no reference left
+  // and return true. Otherwise, return false.
+  bool Unref();
 
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const;
@@ -384,7 +386,7 @@ class VersionSet {
   bool VerifyCompactionFileConsistency(Compaction* c);
 
   Status GetMetadataForFile(uint64_t number, int* filelevel,
-                            FileMetaData* metadata, ColumnFamilyData** cfd);
+                            FileMetaData** metadata, ColumnFamilyData** cfd);
 
   void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);

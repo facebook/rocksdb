@@ -78,12 +78,10 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, last_sequence_);
   }
 
-  for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
-       iter != deleted_files_.end();
-       ++iter) {
+  for (const auto& deleted : deleted_files_) {
     PutVarint32(dst, kDeletedFile);
-    PutVarint32(dst, iter->first);   // level
-    PutVarint64(dst, iter->second);  // file number
+    PutVarint32(dst, deleted.first /* level */);
+    PutVarint64(dst, deleted.second /* file number */);
   }
 
   for (size_t i = 0; i < new_files_.size(); i++) {

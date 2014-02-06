@@ -58,10 +58,7 @@ static std::string PrintContents(WriteBatch* b) {
         state.append(")");
         count++;
         break;
-      case kTypeColumnFamilyDeletion:
-      case kTypeColumnFamilyValue:
-      case kTypeColumnFamilyMerge:
-      case kTypeLogData:
+      default:
         assert(false);
         break;
     }

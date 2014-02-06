@@ -7,7 +7,6 @@
 #define STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
 
 #include <atomic>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -18,10 +17,8 @@ namespace rocksdb {
 
 /**
  * Keep adding ticker's here.
- * Any ticker should have a value less than TICKER_ENUM_MAX.
- * Add a new ticker by assigning it the current value of TICKER_ENUM_MAX
- * Add a string representation in TickersNameMap below.
- * And incrementing TICKER_ENUM_MAX.
+ *  1. Any ticker should be added before TICKER_ENUM_MAX.
+ *  2. Add a readable string in TickersNameMap below for the newly added ticker.
  */
 enum Tickers {
   // total block cache misses
@@ -252,7 +249,7 @@ class Statistics {
   virtual void setTickerCount(Tickers tickerType, uint64_t count) = 0;
   virtual void measureTime(Histograms histogramType, uint64_t time) = 0;
 
-  virtual void histogramData(Histograms type, HistogramData * const data) = 0;
+  virtual void histogramData(Histograms type, HistogramData* const data) = 0;
   // String representation of the statistic object.
   std::string ToString();
 };

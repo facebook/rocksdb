@@ -26,6 +26,7 @@ struct ReadOptions;
 class BlockHandle {
  public:
   BlockHandle();
+  BlockHandle(uint64_t offset, uint64_t size);
 
   // The offset of the block in the file.
   uint64_t offset() const { return offset_; }
@@ -38,19 +39,36 @@ class BlockHandle {
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
 
+  // if the block handle's offset and size are both "0", we will view it
+  // as a null block handle that points to no where.
+  bool IsNull() const {
+    return offset_ == 0 && size_ == 0;
+  }
+
+  static const BlockHandle& NullBlockHandle() {
+    return kNullBlockHandle;
+  }
+
   // Maximum encoding length of a BlockHandle
   enum { kMaxEncodedLength = 10 + 10 };
 
  private:
-  uint64_t offset_;
-  uint64_t size_;
+  uint64_t offset_ = 0;
+  uint64_t size_ = 0;
+
+  static const BlockHandle kNullBlockHandle;
 };
 
 // Footer encapsulates the fixed information stored at the tail
 // end of every table file.
 class Footer {
  public:
-  Footer() { }
+  // @table_magic_number serves two purposes:
+  //  1. Identify different types of the tables.
+  //  2. Help us to identify if a given file is a valid sst.
+  Footer(uint64_t table_magic_number) :
+      kTableMagicNumber(table_magic_number) {
+  }
 
   // The block handle for the metaindex block of the table
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
@@ -77,12 +95,13 @@ class Footer {
  private:
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
+  const uint64_t kTableMagicNumber;
 };
 
-// kTableMagicNumber was picked by running
-//    echo http://code.google.com/p/leveldb/ | sha1sum
-// and taking the leading 64 bits.
-static const uint64_t kTableMagicNumber = 0xdb4775248b80fb57ull;
+// Read the footer from file
+Status ReadFooterFromFile(RandomAccessFile* file,
+                          uint64_t file_size,
+                          Footer* footer);
 
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
@@ -115,8 +134,13 @@ extern Status UncompressBlockContents(const char* data,
 // Implementation details follow.  Clients should ignore,
 
 inline BlockHandle::BlockHandle()
-    : offset_(~static_cast<uint64_t>(0)),
-      size_(~static_cast<uint64_t>(0)) {
+    : BlockHandle(~static_cast<uint64_t>(0),
+                  ~static_cast<uint64_t>(0)) {
+}
+
+inline BlockHandle::BlockHandle(uint64_t offset, uint64_t size)
+    : offset_(offset),
+      size_(size) {
 }
 
 }  // namespace rocksdb

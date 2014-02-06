@@ -22,6 +22,8 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
+#include "table/table_builder.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -31,6 +33,7 @@
 
 using std::unique_ptr;
 
+// IS THIS FILE STILL NEEDED?
 namespace rocksdb {
 
 // SimpleTable is a simple table format for UNIT TEST ONLY. It is not built
@@ -84,14 +87,12 @@ public:
 
   Iterator* NewIterator(const ReadOptions&) override;
 
-  Status Get(
-      const ReadOptions&, const Slice& key, void* arg,
-      bool (*handle_result)(void* arg, const Slice& k, const Slice& v, bool),
-      void (*mark_key_may_exist)(void*) = nullptr) override;
+  Status Get(const ReadOptions&, const Slice& key, void* arg,
+             bool (*handle_result)(void* arg, const ParsedInternalKey& k,
+                                   const Slice& v, bool),
+             void (*mark_key_may_exist)(void*) = nullptr) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key) override;
-
-  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key) override;
 
   void SetupForCompaction() override;
 
@@ -244,7 +245,8 @@ Status SimpleTableReader::GetOffset(const Slice& target, uint64_t* offset) {
       return s;
     }
 
-    int compare_result = rep_->options.comparator->Compare(tmp_slice, target);
+    InternalKeyComparator ikc(rep_->options.comparator);
+    int compare_result = ikc.Compare(tmp_slice, target);
 
     if (compare_result < 0) {
       if (left == right) {
@@ -279,25 +281,26 @@ Status SimpleTableReader::GetOffset(const Slice& target, uint64_t* offset) {
   return s;
 }
 
-Status SimpleTableReader::Get(
-    const ReadOptions& options, const Slice& k, void* arg,
-    bool (*saver)(void*, const Slice&, const Slice&, bool),
-    void (*mark_key_may_exist)(void*)) {
+Status SimpleTableReader::Get(const ReadOptions& options, const Slice& k,
+                              void* arg,
+                              bool (*saver)(void*, const ParsedInternalKey&,
+                                            const Slice&, bool),
+                              void (*mark_key_may_exist)(void*)) {
   Status s;
   SimpleTableIterator* iter = new SimpleTableIterator(this);
   for (iter->Seek(k); iter->Valid(); iter->Next()) {
-    if (!(*saver)(arg, iter->key(), iter->value(), true)) {
+    ParsedInternalKey parsed_key;
+    if (!ParseInternalKey(iter->key(), &parsed_key)) {
+      return Status::Corruption(Slice());
+    }
+
+    if (!(*saver)(arg, parsed_key, iter->value(), true)) {
       break;
     }
   }
   s = iter->status();
   delete iter;
   return s;
-}
-
-bool SimpleTableReader::TEST_KeyInCache(const ReadOptions& options,
-                                        const Slice& key) {
-  return false;
 }
 
 uint64_t SimpleTableReader::ApproximateOffsetOf(const Slice& key) {
@@ -540,27 +543,30 @@ public:
   const char* Name() const override {
     return "SimpleTable";
   }
-  Status GetTableReader(const Options& options, const EnvOptions& soptions,
-                        unique_ptr<RandomAccessFile> && file,
-                        uint64_t file_size,
+  Status NewTableReader(const Options& options, const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_key,
+                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const;
 
-  TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
+  TableBuilder* NewTableBuilder(const Options& options,
+                                const InternalKeyComparator& internal_key,
+                                WritableFile* file,
                                 CompressionType compression_type) const;
 };
 
-Status SimpleTableFactory::GetTableReader(
+Status SimpleTableFactory::NewTableReader(
     const Options& options, const EnvOptions& soptions,
-    unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+    const InternalKeyComparator& internal_key,
+    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
 
   return SimpleTableReader::Open(options, soptions, std::move(file), file_size,
                                  table_reader);
 }
 
-TableBuilder* SimpleTableFactory::GetTableBuilder(
-    const Options& options, WritableFile* file,
-    CompressionType compression_type) const {
+TableBuilder* SimpleTableFactory::NewTableBuilder(
+    const Options& options, const InternalKeyComparator& internal_key,
+    WritableFile* file, CompressionType compression_type) const {
   return new SimpleTableBuilder(options, file, compression_type);
 }
 

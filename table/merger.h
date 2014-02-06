@@ -13,6 +13,7 @@ namespace rocksdb {
 
 class Comparator;
 class Iterator;
+class Env;
 
 // Return an iterator that provided the union of the data in
 // children[0,n-1].  Takes ownership of the child iterators and
@@ -22,7 +23,8 @@ class Iterator;
 // key is present in K child iterators, it will be yielded K times.
 //
 // REQUIRES: n >= 0
-extern Iterator* NewMergingIterator(
-    const Comparator* comparator, Iterator** children, int n);
+extern Iterator* NewMergingIterator(Env* const env,
+                                    const Comparator* comparator,
+                                    Iterator** children, int n);
 
 }  // namespace rocksdb

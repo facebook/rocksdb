@@ -10,10 +10,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <vector>
 
 #include "rocksdb/cache.h"
 #include "port/port.h"
+#include "util/autovector.h"
 #include "util/hash.h"
 #include "util/mutexlock.h"
 
@@ -156,6 +156,13 @@ class LRUCache {
   Cache::Handle* Lookup(const Slice& key, uint32_t hash);
   void Release(Cache::Handle* handle);
   void Erase(const Slice& key, uint32_t hash);
+  // Although in some platforms the update of size_t is atomic, to make sure
+  // GetUsage() works correctly under any platforms, we'll protect this
+  // function with mutex.
+  size_t GetUsage() const {
+    MutexLock l(&mutex_);
+    return usage_;
+  }
 
  private:
   void LRU_Remove(LRUHandle* e);
@@ -171,7 +178,9 @@ class LRUCache {
   uint32_t remove_scan_count_limit_;
 
   // mutex_ protects the following state.
-  port::Mutex mutex_;
+  // We don't count mutex_ as the cache's internal state so semantically we
+  // don't mind mutex_ invoking the non-const actions.
+  mutable port::Mutex mutex_;
   size_t usage_;
 
   // Dummy head of LRU list.
@@ -255,8 +264,7 @@ Cache::Handle* LRUCache::Insert(
 
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
       malloc(sizeof(LRUHandle)-1 + key.size()));
-  std::vector<LRUHandle*> last_reference_list;
-  last_reference_list.reserve(1);
+  autovector<LRUHandle*> last_reference_list;
 
   e->value = value;
   e->deleter = deleter;
@@ -342,10 +350,10 @@ static int kRemoveScanCountLimit = 0; // default values, can be overridden
 
 class ShardedLRUCache : public Cache {
  private:
-  LRUCache* shard_;
+  LRUCache* shards_;
   port::Mutex id_mutex_;
   uint64_t last_id_;
-  int numShardBits;
+  int num_shard_bits_;
   size_t capacity_;
 
   static inline uint32_t HashSlice(const Slice& s) {
@@ -354,18 +362,18 @@ class ShardedLRUCache : public Cache {
 
   uint32_t Shard(uint32_t hash) {
     // Note, hash >> 32 yields hash in gcc, not the zero we expect!
-    return (numShardBits > 0) ? (hash >> (32 - numShardBits)) : 0;
+    return (num_shard_bits_ > 0) ? (hash >> (32 - num_shard_bits_)) : 0;
   }
 
   void init(size_t capacity, int numbits, int removeScanCountLimit) {
-    numShardBits = numbits;
+    num_shard_bits_ = numbits;
     capacity_ = capacity;
-    int numShards = 1 << numShardBits;
-    shard_ = new LRUCache[numShards];
-    const size_t per_shard = (capacity + (numShards - 1)) / numShards;
-    for (int s = 0; s < numShards; s++) {
-      shard_[s].SetCapacity(per_shard);
-      shard_[s].SetRemoveScanCountLimit(removeScanCountLimit);
+    int num_shards = 1 << num_shard_bits_;
+    shards_ = new LRUCache[num_shards];
+    const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
+    for (int s = 0; s < num_shards; s++) {
+      shards_[s].SetCapacity(per_shard);
+      shards_[s].SetRemoveScanCountLimit(removeScanCountLimit);
     }
   }
 
@@ -374,30 +382,30 @@ class ShardedLRUCache : public Cache {
       : last_id_(0) {
     init(capacity, kNumShardBits, kRemoveScanCountLimit);
   }
-  ShardedLRUCache(size_t capacity, int numShardBits,
+  ShardedLRUCache(size_t capacity, int num_shard_bits,
                   int removeScanCountLimit)
      : last_id_(0) {
-    init(capacity, numShardBits, removeScanCountLimit);
+    init(capacity, num_shard_bits, removeScanCountLimit);
   }
   virtual ~ShardedLRUCache() {
-    delete[] shard_;
+    delete[] shards_;
   }
   virtual Handle* Insert(const Slice& key, void* value, size_t charge,
                          void (*deleter)(const Slice& key, void* value)) {
     const uint32_t hash = HashSlice(key);
-    return shard_[Shard(hash)].Insert(key, hash, value, charge, deleter);
+    return shards_[Shard(hash)].Insert(key, hash, value, charge, deleter);
   }
   virtual Handle* Lookup(const Slice& key) {
     const uint32_t hash = HashSlice(key);
-    return shard_[Shard(hash)].Lookup(key, hash);
+    return shards_[Shard(hash)].Lookup(key, hash);
   }
   virtual void Release(Handle* handle) {
     LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
-    shard_[Shard(h->hash)].Release(handle);
+    shards_[Shard(h->hash)].Release(handle);
   }
   virtual void Erase(const Slice& key) {
     const uint32_t hash = HashSlice(key);
-    shard_[Shard(hash)].Erase(key, hash);
+    shards_[Shard(hash)].Erase(key, hash);
   }
   virtual void* Value(Handle* handle) {
     return reinterpret_cast<LRUHandle*>(handle)->value;
@@ -406,11 +414,23 @@ class ShardedLRUCache : public Cache {
     MutexLock l(&id_mutex_);
     return ++(last_id_);
   }
-  virtual size_t GetCapacity() {
+  virtual size_t GetCapacity() const {
     return capacity_;
   }
+
+  virtual size_t GetUsage() const {
+    // We will not lock the cache when getting the usage from shards.
+    // for (size_t i = 0; i < num_shard_bits_; ++i)
+    int num_shards = 1 << num_shard_bits_;
+    size_t usage = 0;
+    for (int s = 0; s < num_shards; s++) {
+      usage += shards_[s].GetUsage();
+    }
+    return usage;
+  }
+
   virtual void DisownData() {
-    shard_ = nullptr;
+    shards_ = nullptr;
   }
 };
 
@@ -420,17 +440,17 @@ shared_ptr<Cache> NewLRUCache(size_t capacity) {
   return NewLRUCache(capacity, kNumShardBits);
 }
 
-shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits) {
-  return NewLRUCache(capacity, numShardBits, kRemoveScanCountLimit);
+shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits) {
+  return NewLRUCache(capacity, num_shard_bits, kRemoveScanCountLimit);
 }
 
-shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits,
+shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
                               int removeScanCountLimit) {
-  if (numShardBits >= 20) {
+  if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
   return std::make_shared<ShardedLRUCache>(capacity,
-                                           numShardBits,
+                                           num_shard_bits,
                                            removeScanCountLimit);
 }
 

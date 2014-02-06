@@ -102,7 +102,10 @@ class Cache {
   virtual uint64_t NewId() = 0;
 
   // returns the maximum configured capacity of the cache
-  virtual size_t GetCapacity() = 0;
+  virtual size_t GetCapacity() const = 0;
+
+  // returns the memory size for the entries residing in the cache.
+  virtual size_t GetUsage() const = 0;
 
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak

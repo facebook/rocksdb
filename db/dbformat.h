@@ -25,7 +25,9 @@ class InternalKey;
 // Value types encoded as the last component of internal keys.
 // DO NOT CHANGE THESE ENUM VALUES: they are embedded in the on-disk
 // data structures.
-enum ValueType {
+// The highest bit of the value type needs to be reserved to SST tables
+// for them to do more flexible encoding.
+enum ValueType : unsigned char {
   kTypeDeletion = 0x0,
   kTypeValue = 0x1,
   kTypeMerge = 0x2,
@@ -33,7 +35,9 @@ enum ValueType {
   kTypeColumnFamilyDeletion = 0x4,
   kTypeColumnFamilyValue = 0x5,
   kTypeColumnFamilyMerge = 0x6,
+  kMaxValue = 0x7F
 };
+
 // kValueTypeForSeek defines the ValueType that should be passed when
 // constructing a ParsedInternalKey object for seeking to a particular
 // sequence number (since we sort sequence numbers in decreasing order
@@ -99,6 +103,7 @@ class InternalKeyComparator : public Comparator {
     name_("rocksdb.InternalKeyComparator:" +
           std::string(user_comparator_->Name())) {
   }
+  virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const;
   virtual int Compare(const Slice& a, const Slice& b) const;
@@ -110,6 +115,7 @@ class InternalKeyComparator : public Comparator {
   const Comparator* user_comparator() const { return user_comparator_; }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
+  int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
 };
 
 // Filter policy wrapper that converts from internal keys to user keys
@@ -166,6 +172,7 @@ inline bool ParseInternalKey(const Slice& internal_key,
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
+  assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - 8);
   return (c <= static_cast<unsigned char>(kValueTypeForSeek));
 }

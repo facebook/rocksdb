@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 #include <string>
+#include "rocksdb/cache.h"
 #include "db/dbformat.h"
 
 namespace rocksdb {
@@ -29,8 +30,17 @@ struct FileMetaData {
   SequenceNumber smallest_seqno;// The smallest seqno in this file
   SequenceNumber largest_seqno; // The largest seqno in this file
 
-  FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0),
-                   being_compacted(false) {}
+  // Needs to be disposed when refs becomes 0.
+  Cache::Handle* table_reader_handle;
+
+  FileMetaData(uint64_t number, uint64_t file_size)
+      : refs(0),
+        allowed_seeks(1 << 30),
+        number(number),
+        file_size(file_size),
+        being_compacted(false),
+        table_reader_handle(nullptr) {}
+  FileMetaData() : FileMetaData(0, 0) {}
 };
 
 class VersionEdit {
@@ -70,6 +80,7 @@ class VersionEdit {
                const InternalKey& largest,
                const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno) {
+    assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.number = file;
     f.file_size = file_size;
@@ -77,13 +88,12 @@ class VersionEdit {
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
-    assert(smallest_seqno <= largest_seqno);
     new_files_.push_back(std::make_pair(level, f));
   }
 
   // Delete the specified "file" from the specified "level".
   void DeleteFile(int level, uint64_t file) {
-    deleted_files_.insert(std::make_pair(level, file));
+    deleted_files_.insert({level, file});
   }
 
   // Number of edits
@@ -120,7 +130,7 @@ class VersionEdit {
  private:
   friend class VersionSet;
 
-  typedef std::set< std::pair<int, uint64_t> > DeletedFileSet;
+  typedef std::set< std::pair<int, uint64_t>> DeletedFileSet;
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 

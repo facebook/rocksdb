@@ -17,6 +17,7 @@
 #include "db/internal_stats.h"
 #include "db/compaction_picker.h"
 #include "db/table_properties_collector.h"
+#include "util/autovector.h"
 #include "util/hash_skiplist_rep.h"
 
 namespace rocksdb {
@@ -184,7 +185,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  std::vector<MemTable*> to_delete;
+  autovector<MemTable*> to_delete;
   imm_.current()->Unref(&to_delete);
   for (MemTable* m : to_delete) {
     delete m;

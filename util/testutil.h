@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <string>
+#include "db/dbformat.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "util/random.h"
@@ -48,6 +50,29 @@ class ErrorEnv : public EnvWrapper {
       return Status::IOError(fname, "fake error");
     }
     return target()->NewWritableFile(fname, result, soptions);
+  }
+};
+
+// An internal comparator that just forward comparing results from the
+// user comparator in it. Can be used to test entities that have no dependency
+// on internal key structure but consumes InternalKeyComparator, like
+// BlockBasedTable.
+class PlainInternalKeyComparator : public InternalKeyComparator {
+ public:
+  explicit PlainInternalKeyComparator(const Comparator* c)
+      : InternalKeyComparator(c) {}
+
+  virtual ~PlainInternalKeyComparator() {}
+
+  virtual int Compare(const Slice& a, const Slice& b) const override {
+    return user_comparator()->Compare(a, b);
+  }
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override {
+    user_comparator()->FindShortestSeparator(start, limit);
+  }
+  virtual void FindShortSuccessor(std::string* key) const override {
+    user_comparator()->FindShortSuccessor(key);
   }
 };
 

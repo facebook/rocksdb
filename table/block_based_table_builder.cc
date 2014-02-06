@@ -17,15 +17,17 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
-#include "rocksdb/table.h"
+#include "table/table_builder.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "db/dbformat.h"
 #include "table/block_based_table_reader.h"
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
@@ -34,51 +36,24 @@ namespace rocksdb {
 
 namespace {
 
-struct BytewiseLessThan {
-  bool operator()(const std::string& key1, const std::string& key2) const {
-    // smaller entries will be placed in front.
-    return comparator->Compare(key1, key2) <= 0;
-  }
-  const Comparator* comparator = BytewiseComparator();
-};
-
-// When writing to a block that requires entries to be sorted by
-// `BytewiseComparator`, we can buffer the content to `BytewiseSortedMap`
-// before writng to store.
-typedef std::map<std::string, std::string, BytewiseLessThan> BytewiseSortedMap;
-
-void AddProperties(BytewiseSortedMap& props, std::string name, uint64_t val) {
-  assert(props.find(name) == props.end());
-
-  std::string dst;
-  PutVarint64(&dst, val);
-
-  props.insert(
-      std::make_pair(name, dst)
-  );
-}
-
 static bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   // Check to see if compressed less than 12.5%
   return compressed_size < raw_size - (raw_size / 8u);
 }
 
-// Were we encounter any error occurs during user-defined statistics collection,
-// we'll write the warning message to info log.
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name) {
-  assert(method == "Add" || method == "Finish");
-
-  std::string msg =
-    "[Warning] encountered error when calling TablePropertiesCollector::" +
-    method + "() with collector name: " + name;
-  Log(info_log, "%s", msg.c_str());
-}
-
 }  // anonymous namespace
+
+// kBlockBasedTableMagicNumber was picked by running
+//    echo http://code.google.com/p/leveldb/ | sha1sum
+// and taking the leading 64 bits.
+// Please note that kBlockBasedTableMagicNumber may also be accessed by
+// other .cc files so it have to be explicitly declared with "extern".
+extern const uint64_t kBlockBasedTableMagicNumber
+    = 0xdb4775248b80fb57ull;
 
 struct BlockBasedTableBuilder::Rep {
   Options options;
+  const InternalKeyComparator& internal_comparator;
   WritableFile* file;
   uint64_t offset = 0;
   Status status;
@@ -98,31 +73,30 @@ struct BlockBasedTableBuilder::Rep {
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
-  Rep(const Options& opt,
-      WritableFile* f,
-      FlushBlockPolicyFactory* flush_block_policy_factory,
+  Rep(const Options& opt, const InternalKeyComparator& icomparator,
+      WritableFile* f, FlushBlockPolicyFactory* flush_block_policy_factory,
       CompressionType compression_type)
       : options(opt),
+        internal_comparator(icomparator),
         file(f),
-        data_block(options),
+        data_block(options, &internal_comparator),
         // To avoid linear scan, we make the block_restart_interval to be `1`
         // in index block builder
-        index_block(1 /* block_restart_interval */, options.comparator),
+        index_block(1 /* block_restart_interval */, &internal_comparator),
         compression_type(compression_type),
-        filter_block(opt.filter_policy == nullptr ? nullptr
-                     : new FilterBlockBuilder(opt)),
+        filter_block(opt.filter_policy == nullptr
+                         ? nullptr
+                         : new FilterBlockBuilder(opt, &internal_comparator)),
         flush_block_policy(
-            flush_block_policy_factory->NewFlushBlockPolicy(data_block)) {
-  }
+            flush_block_policy_factory->NewFlushBlockPolicy(data_block)) {}
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
-    const Options& options,
-    WritableFile* file,
-    FlushBlockPolicyFactory* flush_block_policy_factory,
+    const Options& options, const InternalKeyComparator& internal_comparator,
+    WritableFile* file, FlushBlockPolicyFactory* flush_block_policy_factory,
     CompressionType compression_type)
-    : rep_(new Rep(options,
-                   file, flush_block_policy_factory, compression_type)) {
+    : rep_(new Rep(options, internal_comparator, file,
+                   flush_block_policy_factory, compression_type)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
@@ -145,7 +119,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   assert(!r->closed);
   if (!ok()) return;
   if (r->props.num_entries > 0) {
-    assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
+    assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
   }
 
   auto should_flush = r->flush_block_policy->Update(key, value);
@@ -162,7 +136,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     // entries in the first block and < all entries in subsequent
     // blocks.
     if (ok()) {
-      r->options.comparator->FindShortestSeparator(&r->last_key, key);
+      r->internal_comparator.FindShortestSeparator(&r->last_key, key);
       std::string handle_encoding;
       r->pending_handle.EncodeTo(&handle_encoding);
       r->index_block.Add(r->last_key, Slice(handle_encoding));
@@ -179,16 +153,12 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   r->props.raw_key_size += key.size();
   r->props.raw_value_size += value.size();
 
-  for (auto collector : r->options.table_properties_collectors) {
-    Status s = collector->Add(key, value);
-    if (!s.ok()) {
-      LogPropertiesCollectionError(
-          r->options.info_log.get(),
-          "Add", /* method */
-          collector->Name()
-      );
-    }
-  }
+  NotifyCollectTableCollectorsOnAdd(
+      key,
+      value,
+      r->options.table_properties_collectors,
+      r->options.info_log.get()
+  );
 }
 
 void BlockBasedTableBuilder::Flush() {
@@ -370,7 +340,7 @@ Status BlockBasedTableBuilder::Finish() {
   // block, we will finish writing all index entries here and flush them
   // to storage after metaindex block is written.
   if (ok() && !empty_data_block) {
-    r->options.comparator->FindShortSuccessor(&r->last_key);
+    r->internal_comparator.FindShortSuccessor(&r->last_key);
 
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
@@ -382,14 +352,7 @@ Status BlockBasedTableBuilder::Finish() {
   //    2. [meta block: properties]
   //    3. [metaindex block]
   if (ok()) {
-    // We use `BytewiseComparator` as the comparator for meta block.
-    BlockBuilder meta_index_block(
-        r->options.block_restart_interval,
-        BytewiseComparator()
-    );
-    // Key: meta block name
-    // Value: block handle to that meta block
-    BytewiseSortedMap meta_block_handles;
+    MetaIndexBuilder meta_index_builer;
 
     // Write filter block.
     if (r->filter_block != nullptr) {
@@ -397,104 +360,43 @@ Status BlockBasedTableBuilder::Finish() {
       // of filter data.
       std::string key = BlockBasedTable::kFilterBlockPrefix;
       key.append(r->options.filter_policy->Name());
-      std::string handle_encoding;
-      filter_block_handle.EncodeTo(&handle_encoding);
-      meta_block_handles.insert(
-          std::make_pair(key, handle_encoding)
-      );
+      meta_index_builer.Add(key, filter_block_handle);
     }
 
     // Write properties block.
     {
-      BlockBuilder properties_block(
-          r->options.block_restart_interval,
-          BytewiseComparator()
-      );
-
-      BytewiseSortedMap properties;
-
-      // Add basic properties
-      AddProperties(
-          properties,
-          BlockBasedTablePropertiesNames::kRawKeySize,
-          r->props.raw_key_size
-      );
-      AddProperties(
-          properties,
-          BlockBasedTablePropertiesNames::kRawValueSize,
-          r->props.raw_value_size
-      );
-      AddProperties(
-          properties,
-          BlockBasedTablePropertiesNames::kDataSize,
-          r->props.data_size
-      );
+      PropertyBlockBuilder property_block_builder;
+      std::vector<std::string> failed_user_prop_collectors;
+      r->props.filter_policy_name = r->options.filter_policy != nullptr ?
+          r->options.filter_policy->Name() : "";
       r->props.index_size =
         r->index_block.CurrentSizeEstimate() + kBlockTrailerSize;
-      AddProperties(
-          properties,
-          BlockBasedTablePropertiesNames::kIndexSize,
-          r->props.index_size
-      );
-      AddProperties(
-          properties,
-          BlockBasedTablePropertiesNames::kNumEntries,
-          r->props.num_entries
-      );
-      AddProperties(
-          properties,
-          BlockBasedTablePropertiesNames::kNumDataBlocks,
-          r->props.num_data_blocks);
-      if (r->filter_block != nullptr) {
-        properties.insert({
-              BlockBasedTablePropertiesNames::kFilterPolicy,
-              r->options.filter_policy->Name()
-        });
-      }
-      AddProperties(
-          properties,
-          BlockBasedTablePropertiesNames::kFilterSize,
-          r->props.filter_size
-      );
 
-      for (auto collector : r->options.table_properties_collectors) {
-        TableProperties::UserCollectedProperties user_collected_properties;
-        Status s =
-          collector->Finish(&user_collected_properties);
+      // Add basic properties
+      property_block_builder.AddTableProperty(r->props);
 
-        if (!s.ok()) {
-          LogPropertiesCollectionError(
-              r->options.info_log.get(),
-              "Finish", /* method */
-              collector->Name()
-          );
-        } else {
-          properties.insert(
-              user_collected_properties.begin(),
-              user_collected_properties.end()
-          );
-        }
-      }
-
-      for (const auto& stat : properties) {
-        properties_block.Add(stat.first, stat.second);
-      }
+      NotifyCollectTableCollectorsOnFinish(
+          r->options.table_properties_collectors,
+          r->options.info_log.get(),
+          &property_block_builder
+      );
 
       BlockHandle properties_block_handle;
-      WriteBlock(&properties_block, &properties_block_handle);
-
-      std::string handle_encoding;
-      properties_block_handle.EncodeTo(&handle_encoding);
-      meta_block_handles.insert(
-          { BlockBasedTable::kPropertiesBlock, handle_encoding }
+      WriteRawBlock(
+          property_block_builder.Finish(),
+          kNoCompression,
+          &properties_block_handle
       );
+
+      meta_index_builer.Add(kPropertiesBlock,
+                            properties_block_handle);
     }  // end of properties block writing
 
-    for (const auto& metablock : meta_block_handles) {
-      meta_index_block.Add(metablock.first, metablock.second);
-    }
-
-    WriteBlock(&meta_index_block, &metaindex_block_handle);
+    WriteRawBlock(
+        meta_index_builer.Finish(),
+        kNoCompression,
+        &metaindex_block_handle
+    );
   }  // meta blocks and metaindex block.
 
   // Write index block
@@ -504,7 +406,7 @@ Status BlockBasedTableBuilder::Finish() {
 
   // Write footer
   if (ok()) {
-    Footer footer;
+    Footer footer(kBlockBasedTableMagicNumber);
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
     std::string footer_encoding;
@@ -555,5 +457,8 @@ uint64_t BlockBasedTableBuilder::NumEntries() const {
 uint64_t BlockBasedTableBuilder::FileSize() const {
   return rep_->offset;
 }
+
+const std::string BlockBasedTable::kFilterBlockPrefix =
+    "filter.";
 
 }  // namespace rocksdb

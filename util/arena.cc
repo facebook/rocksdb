@@ -7,19 +7,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/arena_impl.h"
+#include "util/arena.h"
 #include <algorithm>
 
 namespace rocksdb {
 
-const size_t ArenaImpl::kMinBlockSize = 4096;
-const size_t ArenaImpl::kMaxBlockSize = 2 << 30;
+const size_t Arena::kMinBlockSize = 4096;
+const size_t Arena::kMaxBlockSize = 2 << 30;
 static const int kAlignUnit = sizeof(void*);
 
 size_t OptimizeBlockSize(size_t block_size) {
   // Make sure block_size is in optimal range
-  block_size = std::max(ArenaImpl::kMinBlockSize, block_size);
-  block_size = std::min(ArenaImpl::kMaxBlockSize, block_size);
+  block_size = std::max(Arena::kMinBlockSize, block_size);
+  block_size = std::min(Arena::kMaxBlockSize, block_size);
 
   // make sure block_size is the multiple of kAlignUnit
   if (block_size % kAlignUnit != 0) {
@@ -29,19 +29,18 @@ size_t OptimizeBlockSize(size_t block_size) {
   return block_size;
 }
 
-ArenaImpl::ArenaImpl(size_t block_size)
-    : kBlockSize(OptimizeBlockSize(block_size)) {
+Arena::Arena(size_t block_size) : kBlockSize(OptimizeBlockSize(block_size)) {
   assert(kBlockSize >= kMinBlockSize && kBlockSize <= kMaxBlockSize &&
          kBlockSize % kAlignUnit == 0);
 }
 
-ArenaImpl::~ArenaImpl() {
+Arena::~Arena() {
   for (const auto& block : blocks_) {
     delete[] block;
   }
 }
 
-char* ArenaImpl::AllocateFallback(size_t bytes, bool aligned) {
+char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   if (bytes > kBlockSize / 4) {
     // Object is more than a quarter of our block size.  Allocate it separately
     // to avoid wasting too much space in leftover bytes.
@@ -63,7 +62,7 @@ char* ArenaImpl::AllocateFallback(size_t bytes, bool aligned) {
   }
 }
 
-char* ArenaImpl::AllocateAligned(size_t bytes) {
+char* Arena::AllocateAligned(size_t bytes) {
   assert((kAlignUnit & (kAlignUnit - 1)) ==
          0);  // Pointer size should be a power of 2
   size_t current_mod =
@@ -83,7 +82,7 @@ char* ArenaImpl::AllocateAligned(size_t bytes) {
   return result;
 }
 
-char* ArenaImpl::AllocateNewBlock(size_t block_bytes) {
+char* Arena::AllocateNewBlock(size_t block_bytes) {
   char* block = new char[block_bytes];
   blocks_memory_ += block_bytes;
   blocks_.push_back(block);

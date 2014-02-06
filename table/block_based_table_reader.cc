@@ -21,14 +21,16 @@
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
 
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
-#include "table/block_based_table_options.h"
 
 namespace rocksdb {
+
+extern uint64_t kBlockBasedTableMagicNumber;
 
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
@@ -37,12 +39,13 @@ const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
 using std::unique_ptr;
 
 struct BlockBasedTable::Rep {
-  Rep(const EnvOptions& storage_options) :
-    soptions(storage_options) {
-  }
+  Rep(const EnvOptions& storage_options,
+      const InternalKeyComparator& internal_comparator)
+      : soptions(storage_options), internal_comparator_(internal_comparator) {}
 
   Options options;
   const EnvOptions& soptions;
+  const InternalKeyComparator& internal_comparator_;
   Status status;
   unique_ptr<RandomAccessFile> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
@@ -223,34 +226,19 @@ Cache::Handle* GetFromBlockCache(
 
 Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
                              const BlockBasedTableOptions& table_options,
+                             const InternalKeyComparator& internal_comparator,
                              unique_ptr<RandomAccessFile>&& file,
                              uint64_t file_size,
                              unique_ptr<TableReader>* table_reader) {
   table_reader->reset();
 
-  if (file_size < Footer::kEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
-  }
-
-  char footer_space[Footer::kEncodedLength];
-  Slice footer_input;
-  Status s = file->Read(file_size - Footer::kEncodedLength,
-                        Footer::kEncodedLength, &footer_input, footer_space);
-  if (!s.ok()) return s;
-
-  // Check that we actually read the whole footer from the file. It may be
-  // that size isn't correct.
-  if (footer_input.size() != Footer::kEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
-  }
-
-  Footer footer;
-  s = footer.DecodeFrom(&footer_input);
+  Footer footer(kBlockBasedTableMagicNumber);
+  auto s = ReadFooterFromFile(file.get(), file_size, &footer);
   if (!s.ok()) return s;
 
   // We've successfully read the footer and the index block: we're
   // ready to serve requests.
-  Rep* rep = new BlockBasedTable::Rep(soptions);
+  Rep* rep = new BlockBasedTable::Rep(soptions, internal_comparator);
   rep->options = options;
   rep->file = std::move(file);
   rep->metaindex_handle = footer.metaindex_handle();
@@ -265,10 +253,11 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
 
   // Read the properties
   meta_iter->Seek(kPropertiesBlock);
-  if (meta_iter->Valid() && meta_iter->key() == Slice(kPropertiesBlock)) {
+  if (meta_iter->Valid() && meta_iter->key() == kPropertiesBlock) {
     s = meta_iter->status();
     if (s.ok()) {
-      s = ReadProperties(meta_iter->value(), rep, &rep->table_properties);
+      s = ReadProperties(meta_iter->value(), rep->file.get(), rep->options.env,
+                         rep->options.info_log.get(), &rep->table_properties);
     }
 
     if (!s.ok()) {
@@ -350,7 +339,7 @@ void BlockBasedTable::SetupForCompaction() {
   compaction_optimized_ = true;
 }
 
-TableProperties& BlockBasedTable::GetTableProperties() {
+const TableProperties& BlockBasedTable::GetTableProperties() {
   return rep_->table_properties;
 }
 
@@ -413,96 +402,6 @@ FilterBlockReader* BlockBasedTable::ReadFilter (
 
   return new FilterBlockReader(
        rep->options, block.data, block.heap_allocated);
-}
-
-Status BlockBasedTable::ReadProperties(
-    const Slice& handle_value, Rep* rep, TableProperties* table_properties) {
-  assert(table_properties);
-
-  Slice v = handle_value;
-  BlockHandle handle;
-  if (!handle.DecodeFrom(&v).ok()) {
-    return Status::InvalidArgument("Failed to decode properties block handle");
-  }
-
-  BlockContents block_contents;
-  Status s = ReadBlockContents(
-      rep->file.get(),
-      ReadOptions(),
-      handle,
-      &block_contents,
-      rep->options.env,
-      false
-  );
-
-  if (!s.ok()) {
-    return s;
-  }
-
-  Block properties_block(block_contents);
-  std::unique_ptr<Iterator> iter(
-      properties_block.NewIterator(BytewiseComparator())
-  );
-
-  // All pre-defined properties of type uint64_t
-  std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
-    { BlockBasedTablePropertiesNames::kDataSize,
-      &table_properties->data_size },
-    { BlockBasedTablePropertiesNames::kIndexSize,
-      &table_properties->index_size },
-    { BlockBasedTablePropertiesNames::kFilterSize,
-      &table_properties->filter_size },
-    { BlockBasedTablePropertiesNames::kRawKeySize,
-      &table_properties->raw_key_size },
-    { BlockBasedTablePropertiesNames::kRawValueSize,
-      &table_properties->raw_value_size },
-    { BlockBasedTablePropertiesNames::kNumDataBlocks,
-      &table_properties->num_data_blocks },
-    { BlockBasedTablePropertiesNames::kNumEntries,
-      &table_properties->num_entries },
-  };
-
-  std::string last_key;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    s = iter->status();
-    if (!s.ok()) {
-      break;
-    }
-
-    auto key = iter->key().ToString();
-    // properties block is strictly sorted with no duplicate key.
-    assert(
-        last_key.empty() ||
-        BytewiseComparator()->Compare(key, last_key) > 0
-    );
-    last_key = key;
-
-    auto raw_val = iter->value();
-    auto pos = predefined_uint64_properties.find(key);
-
-    if (pos != predefined_uint64_properties.end()) {
-      // handle predefined rocksdb properties
-      uint64_t val;
-      if (!GetVarint64(&raw_val, &val)) {
-        // skip malformed value
-        auto error_msg =
-          "[Warning] detect malformed value in properties meta-block:"
-          "\tkey: " + key + "\tval: " + raw_val.ToString();
-        Log(rep->options.info_log, "%s", error_msg.c_str());
-        continue;
-      }
-      *(pos->second) = val;
-    } else if (key == BlockBasedTablePropertiesNames::kFilterPolicy) {
-      table_properties->filter_policy_name = raw_val.ToString();
-    } else {
-      // handle user-collected
-      table_properties->user_collected_properties.insert(
-          std::make_pair(key, raw_val.ToString())
-      );
-    }
-  }
-
-  return s;
 }
 
 Status BlockBasedTable::GetBlock(
@@ -764,7 +663,7 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
 
   Iterator* iter;
   if (block != nullptr) {
-    iter = block->NewIterator(table->rep_->options.comparator);
+    iter = block->NewIterator(&(table->rep_->internal_comparator_));
     if (cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseBlock, block_cache, cache_handle);
     } else {
@@ -837,7 +736,7 @@ BlockBasedTable::GetFilter(bool no_io) const {
 // Get the iterator from the index block.
 Iterator* BlockBasedTable::IndexBlockReader(const ReadOptions& options) const {
   if (rep_->index_block) {
-    return rep_->index_block->NewIterator(rep_->options.comparator);
+    return rep_->index_block->NewIterator(&(rep_->internal_comparator_));
   }
 
   // get index block from cache
@@ -858,7 +757,7 @@ Iterator* BlockBasedTable::IndexBlockReader(const ReadOptions& options) const {
 
   Iterator* iter;
   if (entry.value != nullptr) {
-    iter = entry.value->NewIterator(rep_->options.comparator);
+    iter = entry.value->NewIterator(&(rep_->internal_comparator_));
     if (entry.cache_handle) {
       iter->RegisterCleanup(
           &ReleaseBlock, rep_->options.block_cache.get(), entry.cache_handle
@@ -872,9 +771,9 @@ Iterator* BlockBasedTable::IndexBlockReader(const ReadOptions& options) const {
   return iter;
 }
 
-Iterator* BlockBasedTable::BlockReader(void* arg,
-                                       const ReadOptions& options,
+Iterator* BlockBasedTable::BlockReader(void* arg, const ReadOptions& options,
                                        const EnvOptions& soptions,
+                                       const InternalKeyComparator& icomparator,
                                        const Slice& index_value,
                                        bool for_compaction) {
   return BlockReader(arg, options, index_value, nullptr, for_compaction);
@@ -965,20 +864,15 @@ Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
     }
   }
 
-  return NewTwoLevelIterator(
-           IndexBlockReader(options),
-           &BlockBasedTable::BlockReader,
-           const_cast<BlockBasedTable*>(this),
-           options,
-           rep_->soptions
-         );
+  return NewTwoLevelIterator(IndexBlockReader(options),
+                             &BlockBasedTable::BlockReader,
+                             const_cast<BlockBasedTable*>(this), options,
+                             rep_->soptions, rep_->internal_comparator_);
 }
 
 Status BlockBasedTable::Get(
-    const ReadOptions& readOptions,
-    const Slice& key,
-    void* handle_context,
-    bool (*result_handler)(void* handle_context, const Slice& k,
+    const ReadOptions& readOptions, const Slice& key, void* handle_context,
+    bool (*result_handler)(void* handle_context, const ParsedInternalKey& k,
                            const Slice& v, bool didIO),
     void (*mark_key_may_exist_handler)(void* handle_context)) {
   Status s;
@@ -1016,8 +910,13 @@ Status BlockBasedTable::Get(
 
       // Call the *saver function on each entry/block until it returns false
       for (block_iter->Seek(key); block_iter->Valid(); block_iter->Next()) {
-        if (!(*result_handler)(handle_context, block_iter->key(),
-                               block_iter->value(), didIO)) {
+        ParsedInternalKey parsed_key;
+        if (!ParseInternalKey(block_iter->key(), &parsed_key)) {
+          s = Status::Corruption(Slice());
+        }
+
+        if (!(*result_handler)(handle_context, parsed_key, block_iter->value(),
+                               didIO)) {
           done = true;
           break;
         }
@@ -1034,7 +933,8 @@ Status BlockBasedTable::Get(
   return s;
 }
 
-bool SaveDidIO(void* arg, const Slice& key, const Slice& value, bool didIO) {
+bool SaveDidIO(void* arg, const ParsedInternalKey& key, const Slice& value,
+               bool didIO) {
   *reinterpret_cast<bool*>(arg) = didIO;
   return false;
 }
@@ -1074,26 +974,5 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
   delete index_iter;
   return result;
 }
-
-const std::string BlockBasedTable::kFilterBlockPrefix =
-    "filter.";
-const std::string BlockBasedTable::kPropertiesBlock =
-    "rocksdb.properties";
-const std::string BlockBasedTablePropertiesNames::kDataSize  =
-    "rocksdb.data.size";
-const std::string BlockBasedTablePropertiesNames::kIndexSize =
-    "rocksdb.index.size";
-const std::string BlockBasedTablePropertiesNames::kFilterSize =
-    "rocksdb.filter.size";
-const std::string BlockBasedTablePropertiesNames::kRawKeySize =
-    "rocksdb.raw.key.size";
-const std::string BlockBasedTablePropertiesNames::kRawValueSize =
-    "rocksdb.raw.value.size";
-const std::string BlockBasedTablePropertiesNames::kNumDataBlocks =
-    "rocksdb.num.data.blocks";
-const std::string BlockBasedTablePropertiesNames::kNumEntries =
-    "rocksdb.num.entries";
-const std::string BlockBasedTablePropertiesNames::kFilterPolicy =
-    "rocksdb.filter.policy";
 
 }  // namespace rocksdb

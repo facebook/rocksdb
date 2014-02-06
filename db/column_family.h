@@ -16,7 +16,7 @@
 
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
-#include "db/memtablelist.h"
+#include "db/memtable_list.h"
 #include "db/write_batch_internal.h"
 #include "db/table_cache.h"
 
@@ -40,7 +40,7 @@ struct SuperVersion {
   // We need to_delete because during Cleanup(), imm->Unref() returns
   // all memtables that we need to free through this vector. We then
   // delete all those memtables outside of mutex, during destruction
-  std::vector<MemTable*> to_delete;
+  autovector<MemTable*> to_delete;
 
   // should be called outside the mutex
   SuperVersion();

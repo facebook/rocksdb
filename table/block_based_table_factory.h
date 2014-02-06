@@ -14,7 +14,6 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "table/block_based_table_options.h"
 
 namespace rocksdb {
 
@@ -22,31 +21,26 @@ struct Options;
 struct EnvOptions;
 
 using std::unique_ptr;
-class Status;
-class RandomAccessFile;
-class WritableFile;
-class Table;
-class TableBuilder;
-class BlockBasedTable;
 class BlockBasedTableBuilder;
 
-class BlockBasedTableFactory: public TableFactory {
+class BlockBasedTableFactory : public TableFactory {
  public:
-  BlockBasedTableFactory() : BlockBasedTableFactory(BlockBasedTableOptions()) {}
-  explicit BlockBasedTableFactory(const BlockBasedTableOptions& table_options)
+  explicit BlockBasedTableFactory(
+      const BlockBasedTableOptions& table_options = BlockBasedTableOptions())
       : table_options_(table_options) {}
 
   ~BlockBasedTableFactory() {}
 
   const char* Name() const override { return "BlockBasedTable"; }
 
-  Status GetTableReader(const Options& options, const EnvOptions& soptions,
+  Status NewTableReader(const Options& options, const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_comparator,
                         unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const override;
 
-  TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
-                                CompressionType compression_type)
-      const override;
+  TableBuilder* NewTableBuilder(
+      const Options& options, const InternalKeyComparator& internal_comparator,
+      WritableFile* file, CompressionType compression_type) const override;
 
  private:
   BlockBasedTableOptions table_options_;

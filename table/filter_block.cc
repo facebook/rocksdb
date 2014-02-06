@@ -21,11 +21,12 @@ namespace rocksdb {
 static const size_t kFilterBaseLg = 11;
 static const size_t kFilterBase = 1 << kFilterBaseLg;
 
-FilterBlockBuilder::FilterBlockBuilder(const Options& opt)
-                 : policy_(opt.filter_policy),
-                   prefix_extractor_(opt.prefix_extractor),
-                   whole_key_filtering_(opt.whole_key_filtering),
-                   comparator_(opt.comparator){}
+FilterBlockBuilder::FilterBlockBuilder(const Options& opt,
+                                       const Comparator* internal_comparator)
+    : policy_(opt.filter_policy),
+      prefix_extractor_(opt.prefix_extractor),
+      whole_key_filtering_(opt.whole_key_filtering),
+      comparator_(internal_comparator) {}
 
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);

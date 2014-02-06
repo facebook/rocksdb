@@ -6,9 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include "db/dbformat.h"
 
 #include <stdio.h>
-#include "db/dbformat.h"
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
@@ -66,6 +66,28 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
     if (anum > bnum) {
       r = -1;
     } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+int InternalKeyComparator::Compare(const ParsedInternalKey& a,
+                                   const ParsedInternalKey& b) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_->Compare(a.user_key, b.user_key);
+  BumpPerfCount(&perf_context.user_key_comparison_count);
+  if (r == 0) {
+    if (a.sequence > b.sequence) {
+      r = -1;
+    } else if (a.sequence < b.sequence) {
+      r = +1;
+    } else if (a.type > b.type) {
+      r = -1;
+    } else if (a.type < b.type) {
       r = +1;
     }
   }

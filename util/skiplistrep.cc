@@ -70,8 +70,13 @@ public:
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) override {
-      iter_.Seek(target);
+    virtual void Seek(const Slice& user_key, const char* memtable_key)
+        override {
+      if (memtable_key != nullptr) {
+        iter_.Seek(memtable_key);
+      } else {
+        iter_.Seek(EncodeKey(&tmp_, user_key));
+      }
     }
 
     // Position at the first entry in list.
@@ -85,6 +90,8 @@ public:
     virtual void SeekToLast() override {
       iter_.SeekToLast();
     }
+   protected:
+    std::string tmp_;       // For passing to EncodeKey
   };
 
   // Unhide default implementations of GetIterator

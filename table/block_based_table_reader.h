@@ -14,8 +14,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/statistics.h"
-#include "rocksdb/table_properties.h"
-#include "rocksdb/table.h"
+#include "table/table_reader.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -39,7 +38,6 @@ using std::unique_ptr;
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
-  static const std::string kPropertiesBlock;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -53,6 +51,7 @@ class BlockBasedTable : public TableReader {
   // *file must remain live while this Table is in use.
   static Status Open(const Options& db_options, const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
+                     const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
@@ -63,14 +62,13 @@ class BlockBasedTable : public TableReader {
   // call one of the Seek methods on the iterator before using it).
   Iterator* NewIterator(const ReadOptions&) override;
 
-  Status Get(
-        const ReadOptions& readOptions,
-        const Slice& key,
-        void* handle_context,
-        bool (*result_handler)(void* handle_context, const Slice& k,
-                               const Slice& v, bool didIO),
-        void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
-    override;
+  Status Get(const ReadOptions& readOptions, const Slice& key,
+             void* handle_context,
+             bool (*result_handler)(void* handle_context,
+                                    const ParsedInternalKey& k, const Slice& v,
+                                    bool didIO),
+             void (*mark_key_may_exist_handler)(void* handle_context) =
+                 nullptr) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -82,13 +80,13 @@ class BlockBasedTable : public TableReader {
 
   // Returns true if the block for the specified key is in cache.
   // REQUIRES: key is in this table.
-  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key) override;
+  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   void SetupForCompaction() override;
 
-  TableProperties& GetTableProperties() override;
+  const TableProperties& GetTableProperties() override;
 
   ~BlockBasedTable();
 
@@ -101,8 +99,9 @@ class BlockBasedTable : public TableReader {
   bool compaction_optimized_;
 
   static Iterator* BlockReader(void*, const ReadOptions&,
-                               const EnvOptions& soptions, const Slice&,
-                               bool for_compaction);
+                               const EnvOptions& soptions,
+                               const InternalKeyComparator& icomparator,
+                               const Slice&, bool for_compaction);
 
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
                                bool* didIO, bool for_compaction = false);
@@ -142,7 +141,6 @@ class BlockBasedTable : public TableReader {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
-  static Status ReadProperties(const Slice& handle_value, Rep* rep);
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(
@@ -155,10 +153,6 @@ class BlockBasedTable : public TableReader {
       const Slice& filter_handle_value,
       Rep* rep,
       size_t* filter_size = nullptr);
-
-  // Read the table properties from properties block.
-  static Status ReadProperties(
-      const Slice& handle_value, Rep* rep, TableProperties* properties);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 
@@ -179,17 +173,6 @@ class BlockBasedTable : public TableReader {
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
-};
-
-struct BlockBasedTablePropertiesNames {
-  static const std::string kDataSize;
-  static const std::string kIndexSize;
-  static const std::string kFilterSize;
-  static const std::string kRawKeySize;
-  static const std::string kRawValueSize;
-  static const std::string kNumDataBlocks;
-  static const std::string kNumEntries;
-  static const std::string kFilterPolicy;
 };
 
 }  // namespace rocksdb

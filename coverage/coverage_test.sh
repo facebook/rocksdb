@@ -44,6 +44,11 @@ $GCOV --preserve-paths --relative-only --no-output $GCNO_FILES 2>/dev/null |
   tee -a $RECENT_REPORT &&
 echo -e "Generated coverage report for recently updated files: $RECENT_REPORT\n"
 
+# Unless otherwise specified, we'll not generate html report by default
+if [ -z "$HTML" ]; then
+  exit 0
+fi
+
 # Generate the html report. If we cannot find lcov in this machine, we'll simply
 # skip this step.
 echo "Generating the html coverage report..."

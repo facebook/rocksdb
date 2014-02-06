@@ -14,6 +14,7 @@
 namespace rocksdb {
 
 struct ReadOptions;
+class InternalKeyComparator;
 
 // Return a new two level iterator.  A two-level iterator contains an
 // index iterator whose values point to a sequence of blocks where
@@ -27,14 +28,11 @@ struct ReadOptions;
 extern Iterator* NewTwoLevelIterator(
     Iterator* index_iter,
     Iterator* (*block_function)(
-        void* arg,
-        const ReadOptions& options,
-        const EnvOptions& soptions,
-        const Slice& index_value,
-        bool for_compaction),
-    void* arg,
-    const ReadOptions& options,
-    const EnvOptions& soptions,
+        void* arg, const ReadOptions& options, const EnvOptions& soptions,
+        const InternalKeyComparator& internal_comparator,
+        const Slice& index_value, bool for_compaction),
+    void* arg, const ReadOptions& options, const EnvOptions& soptions,
+    const InternalKeyComparator& internal_comparator,
     bool for_compaction = false);
 
 }  // namespace rocksdb

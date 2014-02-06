@@ -11,25 +11,29 @@
 #include <set>
 #include <unistd.h>
 
-#include "rocksdb/db.h"
-#include "rocksdb/filter_policy.h"
+#include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
-#include "table/block_based_table_factory.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/filter_policy.h"
+#include "rocksdb/perf_context.h"
+#include "table/plain_table_factory.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "table/block_based_table_factory.h"
 #include "util/hash.h"
+#include "util/hash_linklist_rep.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/statistics.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/statistics.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -241,12 +245,17 @@ class SpecialEnv : public EnvWrapper {
 class DBTest {
  private:
   const FilterPolicy* filter_policy_;
+  static std::unique_ptr<const SliceTransform> prefix_1_transform;
+  static std::unique_ptr<const SliceTransform> noop_transform;
 
  protected:
   // Sequence of option configurations to try
   enum OptionConfig {
     kDefault,
+    kPlainTableFirstBytePrefix,
+    kPlainTableAllBytesPrefix,
     kVectorRep,
+    kHashLinkList,
     kMergePut,
     kFilter,
     kUncompressed,
@@ -260,6 +269,7 @@ class DBTest {
     kHashSkipList,
     kUniversalCompaction,
     kCompressedBlockCache,
+    kInfiniteMaxOpenFiles,
     kEnd
   };
   int option_config_;
@@ -277,7 +287,8 @@ class DBTest {
     kNoSkip = 0,
     kSkipDeletesFilterFirst = 1,
     kSkipUniversalCompaction = 2,
-    kSkipMergePut = 4
+    kSkipMergePut = 4,
+    kSkipPlainTable = 8
   };
 
   DBTest() : option_config_(kDefault),
@@ -299,20 +310,27 @@ class DBTest {
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions(int skip_mask = kNoSkip) {
-    option_config_++;
-
     // skip some options
-    if (skip_mask & kSkipDeletesFilterFirst &&
-        option_config_ == kDeletesFilterFirst) {
-      option_config_++;
+    for(option_config_++; option_config_ < kEnd; option_config_++) {
+      if ((skip_mask & kSkipDeletesFilterFirst) &&
+          option_config_ == kDeletesFilterFirst) {
+        continue;
+      }
+      if ((skip_mask & kSkipUniversalCompaction) &&
+          option_config_ == kUniversalCompaction) {
+        continue;
+      }
+      if ((skip_mask & kSkipMergePut) && option_config_ == kMergePut) {
+        continue;
+      }
+      if ((skip_mask & kSkipPlainTable)
+          && (option_config_ == kPlainTableAllBytesPrefix
+              || option_config_ == kPlainTableFirstBytePrefix)) {
+        continue;
+      }
+      break;
     }
-    if (skip_mask & kSkipUniversalCompaction &&
-        option_config_ == kUniversalCompaction) {
-      option_config_++;
-    }
-    if (skip_mask & kSkipMergePut && option_config_ == kMergePut) {
-      option_config_++;
-    }
+
     if (option_config_ >= kEnd) {
       Destroy(&last_options_);
       return false;
@@ -344,6 +362,18 @@ class DBTest {
       case kHashSkipList:
         options.memtable_factory.reset(
             NewHashSkipListRepFactory(NewFixedPrefixTransform(1)));
+        break;
+      case kPlainTableFirstBytePrefix:
+        options.table_factory.reset(new PlainTableFactory());
+        options.prefix_extractor = prefix_1_transform.get();
+        options.allow_mmap_reads = true;
+        options.max_sequential_skip_in_iterations = 999999;
+        break;
+      case kPlainTableAllBytesPrefix:
+        options.table_factory.reset(new PlainTableFactory());
+        options.prefix_extractor = noop_transform.get();
+        options.allow_mmap_reads = true;
+        options.max_sequential_skip_in_iterations = 999999;
         break;
       case kMergePut:
         options.merge_operator = MergeOperators::CreatePutOperator();
@@ -380,11 +410,18 @@ class DBTest {
       case kVectorRep:
         options.memtable_factory.reset(new VectorRepFactory(100));
         break;
+      case kHashLinkList:
+      options.memtable_factory.reset(
+          NewHashLinkListRepFactory(NewFixedPrefixTransform(1), 4));
+        break;
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;
         break;
       case kCompressedBlockCache:
         options.block_cache_compressed = NewLRUCache(8*1024*1024);
+        break;
+      case kInfiniteMaxOpenFiles:
+        options.max_open_files = -1;
         break;
       default:
         break;
@@ -526,10 +563,7 @@ class DBTest {
             case kTypeDeletion:
               result += "DEL";
               break;
-            case kTypeColumnFamilyDeletion:
-            case kTypeColumnFamilyValue:
-            case kTypeColumnFamilyMerge:
-            case kTypeLogData:
+            default:
               assert(false);
               break;
           }
@@ -680,6 +714,72 @@ class DBTest {
     delete iter;
   }
 
+  // Used to test InplaceUpdate
+
+  // If previous value is nullptr or delta is > than previous value,
+  //   sets newValue with delta
+  // If previous value is not empty,
+  //   updates previous value with 'b' string of previous value size - 1.
+  static UpdateStatus
+      updateInPlaceSmallerSize(char* prevValue, uint32_t* prevSize,
+                               Slice delta, std::string* newValue) {
+    if (prevValue == nullptr) {
+      *newValue = std::string(delta.size(), 'c');
+      return UpdateStatus::UPDATED;
+    } else {
+      *prevSize = *prevSize - 1;
+      std::string str_b = std::string(*prevSize, 'b');
+      memcpy(prevValue, str_b.c_str(), str_b.size());
+      return UpdateStatus::UPDATED_INPLACE;
+    }
+  }
+
+  static UpdateStatus
+      updateInPlaceSmallerVarintSize(char* prevValue, uint32_t* prevSize,
+                                     Slice delta, std::string* newValue) {
+    if (prevValue == nullptr) {
+      *newValue = std::string(delta.size(), 'c');
+      return UpdateStatus::UPDATED;
+    } else {
+      *prevSize = 1;
+      std::string str_b = std::string(*prevSize, 'b');
+      memcpy(prevValue, str_b.c_str(), str_b.size());
+      return UpdateStatus::UPDATED_INPLACE;
+    }
+  }
+
+  static UpdateStatus
+      updateInPlaceLargerSize(char* prevValue, uint32_t* prevSize,
+                              Slice delta, std::string* newValue) {
+    *newValue = std::string(delta.size(), 'c');
+    return UpdateStatus::UPDATED;
+  }
+
+  static UpdateStatus
+      updateInPlaceNoAction(char* prevValue, uint32_t* prevSize,
+                            Slice delta, std::string* newValue) {
+    return UpdateStatus::UPDATE_FAILED;
+  }
+
+  // Utility method to test InplaceUpdate
+  void validateNumberOfEntries(int numValues) {
+      Iterator* iter = dbfull()->TEST_NewInternalIterator();
+      iter->SeekToFirst();
+      ASSERT_EQ(iter->status().ok(), true);
+      int seq = numValues;
+      while (iter->Valid()) {
+        ParsedInternalKey ikey;
+        ikey.sequence = -1;
+        ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+
+        // checks sequence number for updates
+        ASSERT_EQ(ikey.sequence, (unsigned)seq--);
+        iter->Next();
+      }
+      delete iter;
+      ASSERT_EQ(0, seq);
+  }
+
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0) {
     const EnvOptions soptions;
@@ -705,6 +805,10 @@ class DBTest {
   }
 
 };
+std::unique_ptr<const SliceTransform> DBTest::prefix_1_transform(
+    NewFixedPrefixTransform(1));
+std::unique_ptr<const SliceTransform> DBTest::noop_transform(
+    NewNoopTransform());
 
 static std::string Key(int i) {
   char buf[100];
@@ -718,19 +822,19 @@ static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
 
 TEST(DBTest, Empty) {
   do {
-    ASSERT_TRUE(db_ != nullptr);
-    ASSERT_EQ("NOT_FOUND", Get("foo"));
-  } while (ChangeOptions());
-}
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.write_buffer_size = 100000;  // Small write buffer
+    Reopen(&options);
 
-TEST(DBTest, ReadWrite) {
-  do {
     ASSERT_OK(Put("foo", "v1"));
     ASSERT_EQ("v1", Get("foo"));
-    ASSERT_OK(Put("bar", "v2"));
-    ASSERT_OK(Put("foo", "v3"));
-    ASSERT_EQ("v3", Get("foo"));
-    ASSERT_EQ("v2", Get("bar"));
+
+    env_->delay_sstable_sync_.Release_Store(env_);   // Block sync calls
+    Put("k1", std::string(100000, 'x'));             // Fill memtable
+    Put("k2", std::string(100000, 'y'));             // Trigger compaction
+    ASSERT_EQ("v1", Get("foo"));
+    env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
   } while (ChangeOptions());
 }
 
@@ -769,7 +873,7 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
 
   ASSERT_OK(db_->Put(WriteOptions(), "key", "val"));
   // Create a new talbe.
-  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(dbfull()->Flush(FlushOptions()));
 
   // index/filter blocks added to block cache right after table creation.
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
@@ -1051,7 +1155,10 @@ TEST(DBTest, KeyMayExist) {
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
     delete options.filter_policy;
-  } while (ChangeOptions());
+
+    // KeyMayExist function only checks data in block caches, which is not used
+    // by plain table format.
+  } while (ChangeOptions(kSkipPlainTable));
 }
 
 TEST(DBTest, NonBlockingIteration) {
@@ -1111,7 +1218,9 @@ TEST(DBTest, NonBlockingIteration) {
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
     delete iter;
 
-  } while (ChangeOptions());
+    // This test verifies block cache behaviors, which is not used by plain
+    // table format.
+  } while (ChangeOptions(kSkipPlainTable));
 }
 
 // A delete is skipped for key if KeyMayExist(key) returns False
@@ -1250,7 +1359,13 @@ TEST(DBTest, IterMulti) {
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Seek("ax");
     ASSERT_EQ(IterStatus(iter), "b->vb");
+
+    SetPerfLevel(kEnableTime);
+    perf_context.Reset();
     iter->Seek("b");
+    ASSERT_TRUE((int) perf_context.seek_internal_seek_time > 0);
+    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
+    SetPerfLevel(kDisable);
     ASSERT_EQ(IterStatus(iter), "b->vb");
     iter->Seek("z");
     ASSERT_EQ(IterStatus(iter), "(invalid)");
@@ -1265,7 +1380,12 @@ TEST(DBTest, IterMulti) {
     // Switch from forward to reverse
     iter->SeekToFirst();
     iter->Next();
+    SetPerfLevel(kEnableTime);
+    perf_context.Reset();
     iter->Next();
+    ASSERT_EQ(0, (int) perf_context.seek_internal_seek_time);
+    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
+    SetPerfLevel(kDisable);
     iter->Prev();
     ASSERT_EQ(IterStatus(iter), "b->vb");
 
@@ -1696,22 +1816,42 @@ TEST(DBTest, NumImmutableMemTable) {
 
     std::string big_value(1000000, 'x');
     std::string num;
+    SetPerfLevel(kEnableTime);;
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
+    perf_context.Reset();
+    Get("k1");
+    ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "1");
+    perf_context.Reset();
+    Get("k1");
+    ASSERT_EQ(2, (int) perf_context.get_from_memtable_count);
+    perf_context.Reset();
+    Get("k2");
+    ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "2");
+    perf_context.Reset();
+    Get("k2");
+    ASSERT_EQ(2, (int) perf_context.get_from_memtable_count);
+    perf_context.Reset();
+    Get("k3");
+    ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
+    perf_context.Reset();
+    Get("k1");
+    ASSERT_EQ(3, (int) perf_context.get_from_memtable_count);
 
     dbfull()->Flush(FlushOptions());
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
+    SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
 
@@ -1720,10 +1860,15 @@ TEST(DBTest, FLUSH) {
     Options options = CurrentOptions();
     WriteOptions writeOpt = WriteOptions();
     writeOpt.disableWAL = true;
+    SetPerfLevel(kEnableTime);;
     ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
     // this will now also flush the last 2 writes
     dbfull()->Flush(FlushOptions());
     ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
+
+    perf_context.Reset();
+    Get("foo");
+    ASSERT_TRUE((int) perf_context.get_from_output_files_time > 0);
 
     Reopen();
     ASSERT_EQ("v1", Get("foo"));
@@ -1736,7 +1881,9 @@ TEST(DBTest, FLUSH) {
 
     Reopen();
     ASSERT_EQ("v2", Get("bar"));
+    perf_context.Reset();
     ASSERT_EQ("v2", Get("foo"));
+    ASSERT_TRUE((int) perf_context.get_from_output_files_time > 0);
 
     writeOpt.disableWAL = false;
     ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v3"));
@@ -1748,6 +1895,8 @@ TEST(DBTest, FLUSH) {
     // has WAL enabled.
     ASSERT_EQ("v3", Get("foo"));
     ASSERT_EQ("v3", Get("bar"));
+
+    SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
 
@@ -2559,9 +2708,9 @@ TEST(DBTest, InPlaceUpdate) {
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
+    Reopen(&options);
 
     // Update key with values of smaller size
-    Reopen(&options);
     int numValues = 10;
     for (int i = numValues; i > 0; i--) {
       std::string value = DummyString(i, 'a');
@@ -2569,50 +2718,133 @@ TEST(DBTest, InPlaceUpdate) {
       ASSERT_EQ(value, Get("key"));
     }
 
-    int count = 0;
-    Iterator* iter = dbfull()->TEST_NewInternalIterator();
-    iter->SeekToFirst();
-    ASSERT_EQ(iter->status().ok(), true);
-    while (iter->Valid()) {
-      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-      count++;
-      // All updates with the same sequence number.
-      ASSERT_EQ(ikey.sequence, (unsigned)1);
-      iter->Next();
-    }
     // Only 1 instance for that key.
-    ASSERT_EQ(count, 1);
-    delete iter;
+    validateNumberOfEntries(1);
+
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateLargeNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    Reopen(&options);
 
     // Update key with values of larger size
-    DestroyAndReopen(&options);
-    numValues = 10;
+    int numValues = 10;
     for (int i = 0; i < numValues; i++) {
       std::string value = DummyString(i, 'a');
       ASSERT_OK(Put("key", value));
       ASSERT_EQ(value, Get("key"));
     }
 
-    count = 0;
-    iter = dbfull()->TEST_NewInternalIterator();
-    iter->SeekToFirst();
-    ASSERT_EQ(iter->status().ok(), true);
-    int seq = numValues;
-    while (iter->Valid()) {
-      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-      count++;
-      // No inplace updates. All updates are puts with new seq number
-      ASSERT_EQ(ikey.sequence, (unsigned)seq--);
-      iter->Next();
-    }
     // All 10 updates exist in the internal iterator
-    ASSERT_EQ(count, numValues);
-    delete iter;
+    validateNumberOfEntries(numValues);
 
+  } while (ChangeCompactOptions());
+}
+
+
+TEST(DBTest, InPlaceUpdateCallbackSmallerSize) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlaceSmallerSize;
+    Reopen(&options);
+
+    // Update key with values of smaller size
+    int numValues = 10;
+    ASSERT_OK(Put("key", DummyString(numValues, 'a')));
+    ASSERT_EQ(DummyString(numValues, 'c'), Get("key"));
+
+    for (int i = numValues; i > 0; i--) {
+      ASSERT_OK(Put("key", DummyString(i, 'a')));
+      ASSERT_EQ(DummyString(i - 1, 'b'), Get("key"));
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1);
+
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateCallbackSmallerVarintSize) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlaceSmallerVarintSize;
+    Reopen(&options);
+
+    // Update key with values of smaller varint size
+    int numValues = 265;
+    ASSERT_OK(Put("key", DummyString(numValues, 'a')));
+    ASSERT_EQ(DummyString(numValues, 'c'), Get("key"));
+
+    for (int i = numValues; i > 0; i--) {
+      ASSERT_OK(Put("key", DummyString(i, 'a')));
+      ASSERT_EQ(DummyString(1, 'b'), Get("key"));
+    }
+
+    // Only 1 instance for that key.
+    validateNumberOfEntries(1);
+
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlaceLargerSize;
+    Reopen(&options);
+
+    // Update key with values of larger size
+    int numValues = 10;
+    for (int i = 0; i < numValues; i++) {
+      ASSERT_OK(Put("key", DummyString(i, 'a')));
+      ASSERT_EQ(DummyString(i, 'c'), Get("key"));
+    }
+
+    // No inplace updates. All updates are puts with new seq number
+    // All 10 updates exist in the internal iterator
+    validateNumberOfEntries(numValues);
+
+  } while (ChangeCompactOptions());
+}
+
+TEST(DBTest, InPlaceUpdateCallbackNoAction) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.inplace_update_support = true;
+
+    options.env = env_;
+    options.write_buffer_size = 100000;
+    options.inplace_callback =
+      rocksdb::DBTest::updateInPlaceNoAction;
+    Reopen(&options);
+
+    // Callback function requests no actions from db
+    ASSERT_OK(Put("key", DummyString(1, 'a')));
+    ASSERT_EQ(Get("key"), "NOT_FOUND");
 
   } while (ChangeCompactOptions());
 }
@@ -2653,9 +2885,7 @@ class DeleteFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  explicit ChangeFilter(int argv) {
-    assert(argv == 100);
-  }
+  explicit ChangeFilter() {}
 
   virtual bool Filter(int level, const Slice& key,
                       const Slice& value, std::string* new_value,
@@ -2697,19 +2927,16 @@ class DeleteFilterFactory : public CompactionFilterFactory {
 
 class ChangeFilterFactory : public CompactionFilterFactory {
   public:
-    explicit ChangeFilterFactory(int argv) : argv_(argv) {}
+    explicit ChangeFilterFactory() {}
 
     virtual std::unique_ptr<CompactionFilter>
     CreateCompactionFilter(const CompactionFilter::Context& context) override {
-      return std::unique_ptr<CompactionFilter>(new ChangeFilter(argv_));
+      return std::unique_ptr<CompactionFilter>(new ChangeFilter());
     }
 
     virtual const char* Name() const override {
       return "ChangeFilterFactory";
     }
-
-  private:
-    const int argv_;
 };
 
 TEST(DBTest, CompactionFilter) {
@@ -2856,7 +3083,7 @@ TEST(DBTest, CompactionFilterWithValueChange) {
     options.num_levels = 3;
     options.max_mem_compaction_level = 0;
     options.compaction_filter_factory =
-      std::make_shared<ChangeFilterFactory>(100);
+      std::make_shared<ChangeFilterFactory>();
     Reopen(&options);
 
     // Write 100K+1 keys, these are written to a few files
@@ -3000,7 +3227,8 @@ TEST(DBTest, ApproximateSizes) {
       ASSERT_EQ(NumTableFilesAtLevel(0), 0);
       ASSERT_GT(NumTableFilesAtLevel(1), 0);
     }
-  } while (ChangeOptions(kSkipUniversalCompaction));
+    // ApproximateOffsetOf() is not yet implemented in plain table format.
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable));
 }
 
 TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
@@ -3038,7 +3266,8 @@ TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
 
       dbfull()->TEST_CompactRange(0, nullptr, nullptr);
     }
-  } while (ChangeOptions());
+    // ApproximateOffsetOf() is not yet implemented in plain table format.
+  } while (ChangeOptions(kSkipPlainTable));
 }
 
 TEST(DBTest, IteratorPinsRef) {
@@ -3122,7 +3351,9 @@ TEST(DBTest, HiddenValuesAreRemoved) {
     ASSERT_EQ(AllEntriesFor("foo"), "[ tiny ]");
 
     ASSERT_TRUE(Between(Size("", "pastfoo"), 0, 1000));
-  } while (ChangeOptions(kSkipUniversalCompaction));
+    // ApproximateOffsetOf() is not yet implemented in plain table format,
+    // which is used by Size().
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable));
 }
 
 TEST(DBTest, CompactBetweenSnapshots) {
@@ -4790,7 +5021,9 @@ TEST(DBTest, Randomized) {
       // TODO(sanjay): Test Get() works
       int p = rnd.Uniform(100);
       int minimum = 0;
-      if (option_config_ == kHashSkipList) {
+      if (option_config_ == kHashSkipList ||
+          option_config_ == kHashLinkList ||
+          option_config_ == kPlainTableFirstBytePrefix) {
         minimum = 1;
       }
       if (p < 45) {                               // Put
@@ -4969,20 +5202,22 @@ TEST(DBTest, PrefixScan) {
   snprintf(buf, sizeof(buf), "03______:");
   prefix = Slice(buf, 8);
   key = Slice(buf, 9);
-  auto prefix_extractor = NewFixedPrefixTransform(8);
   // db configs
   env_->count_random_reads_ = true;
   Options options = CurrentOptions();
   options.env = env_;
   options.no_block_cache = true;
-  options.filter_policy =  NewBloomFilterPolicy(10);
-  options.prefix_extractor = prefix_extractor;
+  options.filter_policy = NewBloomFilterPolicy(10);
+  options.prefix_extractor = NewFixedPrefixTransform(8);
   options.whole_key_filtering = false;
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
   options.create_if_missing = true;
   options.disable_seek_compaction = true;
-  options.memtable_factory.reset(NewHashSkipListRepFactory(prefix_extractor));
+  // Tricky: options.prefix_extractor will be released by
+  // NewHashSkipListRepFactory after use.
+  options.memtable_factory.reset(
+      NewHashSkipListRepFactory(options.prefix_extractor));
 
   // prefix specified, with blooms: 2 RAND I/Os
   // SeekToFirst

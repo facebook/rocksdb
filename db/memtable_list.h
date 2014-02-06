@@ -3,18 +3,25 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-
 #pragma once
+
 #include <string>
 #include <list>
 #include <vector>
 #include <set>
+#include <deque>
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/iterator.h"
+
 #include "db/dbformat.h"
+#include "db/memtable.h"
 #include "db/skiplist.h"
 #include "db/memtable.h"
+#include "rocksdb/db.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/options.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -30,7 +37,7 @@ class MemTableListVersion {
   explicit MemTableListVersion(MemTableListVersion* old = nullptr);
 
   void Ref();
-  void Unref(std::vector<MemTable*>* to_delete = nullptr);
+  void Unref(autovector<MemTable*>* to_delete = nullptr);
 
   int size() const;
 
@@ -89,14 +96,14 @@ class MemTableList {
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
-  void PickMemtablesToFlush(std::vector<MemTable*>* mems);
+  void PickMemtablesToFlush(autovector<MemTable*>* mems);
 
   // Commit a successful flush in the manifest file
   Status InstallMemtableFlushResults(
-      ColumnFamilyData* cfd, const std::vector<MemTable*>& m, VersionSet* vset,
+      ColumnFamilyData* cfd, const autovector<MemTable*>& m, VersionSet* vset,
       Status flushStatus, port::Mutex* mu, Logger* info_log,
       uint64_t file_number, std::set<uint64_t>& pending_outputs,
-      std::vector<MemTable*>* to_delete, Directory* db_directory);
+      autovector<MemTable*>* to_delete, Directory* db_directory);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().

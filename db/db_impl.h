@@ -7,24 +7,26 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+
 #include <atomic>
 #include <deque>
 #include <set>
 #include <utility>
 #include <vector>
+
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
 #include "db/column_family.h"
 #include "db/version_edit.h"
+#include "memtable_list.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
-#include "port/port.h"
-#include "util/stats_logger.h"
-#include "memtablelist.h"
 #include "util/autovector.h"
+#include "util/stats_logger.h"
 #include "db/internal_stats.h"
 
 namespace rocksdb {
@@ -178,7 +180,7 @@ class DBImpl : public DB {
   // needed for CleanupIteratorState
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
-      return  all_files.size() ||
+      return  candidate_files.size() ||
         sst_delete_files.size() ||
         log_delete_files.size();
     }
@@ -186,7 +188,7 @@ class DBImpl : public DB {
     // a list of all files that we'll consider deleting
     // (every once in a while this is filled up with all files
     // in the DB directory)
-    std::vector<std::string> all_files;
+    std::vector<std::string> candidate_files;
 
     // the list of all live sst files that cannot be deleted
     std::vector<uint64_t> sst_live;
@@ -198,7 +200,7 @@ class DBImpl : public DB {
     std::vector<uint64_t> log_delete_files;
 
     // a list of memtables to be free
-    std::vector<MemTable *> memtables_to_free;
+    autovector<MemTable*> memtables_to_free;
 
     SuperVersion* superversion_to_free;  // if nullptr nothing to free
 
@@ -208,12 +210,10 @@ class DBImpl : public DB {
     // that corresponds to the set of files in 'live'.
     uint64_t manifest_file_number, log_number, prev_log_number;
 
-    explicit DeletionState(const int num_memtables = 0,
-                           bool create_superversion = false) {
+    explicit DeletionState(bool create_superversion = false) {
       manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
-      memtables_to_free.reserve(num_memtables);
       superversion_to_free = nullptr;
       new_superversion = create_superversion ? new SuperVersion() : nullptr;
     }
@@ -232,7 +232,7 @@ class DBImpl : public DB {
   };
 
   // Returns the list of live files in 'live' and the list
-  // of all files in the filesystem in 'all_files'.
+  // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
   // options_.delete_obsolete_files_period_micros microseconds ago,
   // it will not fill up the deletion_state
@@ -291,7 +291,7 @@ class DBImpl : public DB {
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
                                      VersionEdit* edit);
-  Status WriteLevel0Table(ColumnFamilyData* cfd, std::vector<MemTable*>& mems,
+  Status WriteLevel0Table(ColumnFamilyData* cfd, autovector<MemTable*>& mems,
                           VersionEdit* edit, uint64_t* filenumber);
 
   uint64_t SlowdownAmount(int n, double bottom, double top);

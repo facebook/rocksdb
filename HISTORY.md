@@ -6,8 +6,12 @@
   executed in high priority thread pool.
 
 ## Unreleased (will be relased in 2.8)
-* By default, checksums are verified on every read from database
+## Unreleased
 
+### Public API changes
+
+* Removed arena.h from public header files.
+* By default, checksums are verified on every read from database
 
 ## 2.7.0 (01/28/2014)
 

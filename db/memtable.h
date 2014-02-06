@@ -16,7 +16,8 @@
 #include "db/version_edit.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena_impl.h"
+#include "util/arena.h"
+#include "util/dynamic_bloom.h"
 
 namespace rocksdb {
 
@@ -29,7 +30,10 @@ class MemTable {
   struct KeyComparator : public MemTableRep::KeyComparator {
     const InternalKeyComparator comparator;
     explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
-    virtual int operator()(const char* a, const char* b) const;
+    virtual int operator()(const char* prefix_len_key1,
+                           const char* prefix_len_key2) const;
+    virtual int operator()(const char* prefix_len_key,
+                           const Slice& key) const override;
   };
 
   // MemTables are reference counted.  The initial reference count
@@ -94,15 +98,30 @@ class MemTable {
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext& merge_context, const Options& options);
 
-  // Update the value and return status ok,
-  //   if key exists in current memtable
-  //     if new sizeof(new_value) <= sizeof(old_value) &&
-  //       old_value for that key is a put i.e. kTypeValue
-  //     else return false, and status - NotUpdatable()
-  //   else return false, and status - NotFound()
-  bool Update(SequenceNumber seq, ValueType type,
+  // Attempts to update the new_value inplace, else does normal Add
+  // Pseudocode
+  //   if key exists in current memtable && prev_value is of type kTypeValue
+  //     if new sizeof(new_value) <= sizeof(prev_value)
+  //       update inplace
+  //     else add(key, new_value)
+  //   else add(key, new_value)
+  void Update(SequenceNumber seq,
               const Slice& key,
               const Slice& value);
+
+  // If prev_value for key exits, attempts to update it inplace.
+  // else returns false
+  // Pseudocode
+  //   if key exists in current memtable && prev_value is of type kTypeValue
+  //     new_value = delta(prev_value)
+  //     if sizeof(new_value) <= sizeof(prev_value)
+  //       update inplace
+  //     else add(key, new_value)
+  //   else return false
+  bool UpdateCallback(SequenceNumber seq,
+                      const Slice& key,
+                      const Slice& delta,
+                      const Options& options);
 
   // Returns the number of successive merge entries starting from the newest
   // entry for the key up to the last non-merge entry or last entry for the
@@ -142,7 +161,7 @@ class MemTable {
 
   KeyComparator comparator_;
   int refs_;
-  ArenaImpl arena_impl_;
+  Arena arena_;
   unique_ptr<MemTableRep> table_;
 
   // These are used to manage memtable flushes to storage
@@ -150,7 +169,7 @@ class MemTable {
   bool flush_completed_;   // finished the flush
   uint64_t file_number_;    // filled up after flush is complete
 
-  // The udpates to be applied to the transaction log when this
+  // The updates to be applied to the transaction log when this
   // memtable is flushed to storage.
   VersionEdit edit_;
 
@@ -173,6 +192,11 @@ class MemTable {
 
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
+
+  const SliceTransform* const prefix_extractor_;
+  std::unique_ptr<DynamicBloom> prefix_bloom_;
 };
+
+extern const char* EncodeKey(std::string* scratch, const Slice& target);
 
 }  // namespace rocksdb

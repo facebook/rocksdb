@@ -16,10 +16,11 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
-#include "rocksdb/merge_operator.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
 
@@ -73,6 +74,9 @@ ColumnFamilyOptions::ColumnFamilyOptions()
         std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       inplace_update_support(false),
       inplace_update_num_locks(10000),
+      inplace_callback(nullptr),
+      memtable_prefix_bloom_bits(0),
+      memtable_prefix_bloom_probes(6),
       max_successive_merges(0) {
   assert(memtable_factory.get() != nullptr);
 }
@@ -131,6 +135,9 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       table_properties_collectors(options.table_properties_collectors),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
+      inplace_callback(options.inplace_callback),
+      memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
+      memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
       max_successive_merges(options.max_successive_merges) {
   assert(memtable_factory.get() != nullptr);
 }
@@ -396,6 +403,11 @@ Options::Dump(Logger* log) const
         inplace_update_support);
     Log(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
+    // TODO: easier config for bloom (maybe based on avg key/value size)
+    Log(log, "              Options.memtable_prefix_bloom_bits: %d",
+        memtable_prefix_bloom_bits);
+    Log(log, "            Options.memtable_prefix_bloom_probes: %d",
+        memtable_prefix_bloom_probes);
     Log(log, "                   Options.max_successive_merges: %zd",
         max_successive_merges);
 }   // Options::Dump

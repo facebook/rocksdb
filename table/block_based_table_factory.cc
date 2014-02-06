@@ -18,17 +18,19 @@
 
 namespace rocksdb {
 
-Status BlockBasedTableFactory::GetTableReader(
+Status BlockBasedTableFactory::NewTableReader(
     const Options& options, const EnvOptions& soptions,
+    const InternalKeyComparator& internal_comparator,
     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
   return BlockBasedTable::Open(options, soptions, table_options_,
-                               std::move(file), file_size, table_reader);
+                               internal_comparator, std::move(file), file_size,
+                               table_reader);
 }
 
-TableBuilder* BlockBasedTableFactory::GetTableBuilder(
-    const Options& options, WritableFile* file,
-    CompressionType compression_type) const {
+TableBuilder* BlockBasedTableFactory::NewTableBuilder(
+    const Options& options, const InternalKeyComparator& internal_comparator,
+    WritableFile* file, CompressionType compression_type) const {
   auto flush_block_policy_factory = 
     table_options_.flush_block_policy_factory.get();
 
@@ -45,11 +47,9 @@ TableBuilder* BlockBasedTableFactory::GetTableBuilder(
                                           options.block_size_deviation);
   }
 
-  auto table_builder =  new BlockBasedTableBuilder(
-      options,
-      file,
-      flush_block_policy_factory,
-      compression_type);
+  auto table_builder =
+      new BlockBasedTableBuilder(options, internal_comparator, file,
+                                 flush_block_policy_factory, compression_type);
 
   // Delete flush_block_policy_factory only when it's just created from the
   // options.
@@ -61,6 +61,11 @@ TableBuilder* BlockBasedTableFactory::GetTableBuilder(
   }
 
   return table_builder;
+}
+
+TableFactory* NewBlockBasedTableFactory(
+    const BlockBasedTableOptions& table_options) {
+  return new BlockBasedTableFactory(table_options);
 }
 
 }  // namespace rocksdb

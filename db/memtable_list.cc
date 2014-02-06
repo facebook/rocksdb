@@ -3,7 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-#include "db/memtablelist.h"
+#include "db/memtable_list.h"
 
 #include <string>
 #include "rocksdb/db.h"
@@ -31,7 +31,7 @@ MemTableListVersion::MemTableListVersion(MemTableListVersion* old) {
 
 void MemTableListVersion::Ref() { ++refs_; }
 
-void MemTableListVersion::Unref(std::vector<MemTable*>* to_delete) {
+void MemTableListVersion::Unref(autovector<MemTable*>* to_delete) {
   assert(refs_ >= 1);
   --refs_;
   if (refs_ == 0) {
@@ -103,7 +103,7 @@ bool MemTableList::IsFlushPending() {
 }
 
 // Returns the memtables that need to be flushed.
-void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
+void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
   const auto& memlist = current_->memlist_;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
@@ -113,18 +113,18 @@ void MemTableList::PickMemtablesToFlush(std::vector<MemTable*>* ret) {
       if (num_flush_not_started_ == 0) {
         imm_flush_needed.Release_Store(nullptr);
       }
-      m->flush_in_progress_ = true; // flushing will start very soon
+      m->flush_in_progress_ = true;  // flushing will start very soon
       ret->push_back(m);
     }
   }
-  flush_requested_ = false; // start-flush request is complete
+  flush_requested_ = false;  // start-flush request is complete
 }
 
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(
-    ColumnFamilyData* cfd, const std::vector<MemTable*>& mems, VersionSet* vset,
+    ColumnFamilyData* cfd, const autovector<MemTable*>& mems, VersionSet* vset,
     Status flushStatus, port::Mutex* mu, Logger* info_log, uint64_t file_number,
-    std::set<uint64_t>& pending_outputs, std::vector<MemTable*>* to_delete,
+    std::set<uint64_t>& pending_outputs, autovector<MemTable*>* to_delete,
     Directory* db_directory) {
   mu->AssertHeld();
 

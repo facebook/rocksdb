@@ -12,15 +12,18 @@
 #pragma once
 #include <string>
 #include <stdint.h>
+
 #include "db/dbformat.h"
-#include "rocksdb/env.h"
-#include "rocksdb/cache.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "table/table_reader.h"
 
 namespace rocksdb {
 
 class Env;
+struct FileMetaData;
 
 class TableCache {
  public:
@@ -35,10 +38,9 @@ class TableCache {
   // the returned iterator.  The returned "*tableptr" object is owned by
   // the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
-  Iterator* NewIterator(const ReadOptions& options,
-                        const EnvOptions& toptions,
-                        uint64_t file_number,
-                        uint64_t file_size,
+  Iterator* NewIterator(const ReadOptions& options, const EnvOptions& toptions,
+                        const InternalKeyComparator& internal_comparator,
+                        const FileMetaData& file_meta,
                         TableReader** table_reader_ptr = nullptr,
                         bool for_compaction = false);
 
@@ -46,22 +48,33 @@ class TableCache {
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
   // it returns false.
   Status Get(const ReadOptions& options,
-             uint64_t file_number,
-             uint64_t file_size,
-             const Slice& k,
-             void* arg,
-             bool (*handle_result)(void*, const Slice&, const Slice&, bool),
-             bool* table_io,
-             void (*mark_key_may_exist)(void*) = nullptr);
+             const InternalKeyComparator& internal_comparator,
+             const FileMetaData& file_meta, const Slice& k, void* arg,
+             bool (*handle_result)(void*, const ParsedInternalKey&,
+                                   const Slice&, bool),
+             bool* table_io, void (*mark_key_may_exist)(void*) = nullptr);
 
   // Determine whether the table may contain the specified prefix.  If
-  // the table index of blooms are not in memory, this may cause an I/O
-  bool PrefixMayMatch(const ReadOptions& options, uint64_t file_number,
-                      uint64_t file_size, const Slice& internal_prefix,
-                      bool* table_io);
+  // the table index or blooms are not in memory, this may cause an I/O
+  bool PrefixMayMatch(const ReadOptions& options,
+                      const InternalKeyComparator& internal_comparator,
+                      uint64_t file_number, uint64_t file_size,
+                      const Slice& internal_prefix, bool* table_io);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
+
+  // Find table reader
+  Status FindTable(const EnvOptions& toptions,
+                   const InternalKeyComparator& internal_comparator,
+                   uint64_t file_number, uint64_t file_size, Cache::Handle**,
+                   bool* table_io = nullptr, const bool no_io = false);
+
+  // Get TableReader from a cache handle.
+  TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
+
+  // Release the handle from a cache
+  void ReleaseHandle(Cache::Handle* handle);
 
  private:
   Env* const env_;
@@ -69,10 +82,6 @@ class TableCache {
   const Options* options_;
   const EnvOptions& storage_options_;
   Cache* const cache_;
-
-  Status FindTable(const EnvOptions& toptions, uint64_t file_number,
-                   uint64_t file_size, Cache::Handle**, bool* table_io=nullptr,
-                   const bool no_io = false);
 };
 
 }  // namespace rocksdb

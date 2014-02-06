@@ -14,10 +14,15 @@ namespace rocksdb {
 
 class HashSkipListRepFactory : public MemTableRepFactory {
  public:
-  explicit HashSkipListRepFactory(const SliceTransform* transform,
-      size_t bucket_count = 1000000)
-    : transform_(transform),
-      bucket_count_(bucket_count) { }
+  explicit HashSkipListRepFactory(
+    const SliceTransform* transform,
+    size_t bucket_count,
+    int32_t skiplist_height,
+    int32_t skiplist_branching_factor)
+      : transform_(transform),
+        bucket_count_(bucket_count),
+        skiplist_height_(skiplist_height),
+        skiplist_branching_factor_(skiplist_branching_factor) { }
 
   virtual ~HashSkipListRepFactory() { delete transform_; }
 
@@ -33,6 +38,8 @@ class HashSkipListRepFactory : public MemTableRepFactory {
  private:
   const SliceTransform* transform_;
   const size_t bucket_count_;
+  const int32_t skiplist_height_;
+  const int32_t skiplist_branching_factor_;
 };
 
 }
