@@ -142,6 +142,9 @@ Options SanitizeOptions(const std::string& dbname,
 DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   DBOptions result = src;
   ClipToRange(&result.max_open_files, 20, 1000000);
+  if (result.max_background_flushes == 0) {
+    result.max_background_flushes = 1;
+  }
 
   if (result.info_log == nullptr) {
     Status s = CreateLoggerFromOptions(dbname, result.db_log_dir, src.env,
@@ -1704,11 +1707,15 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
         is_flush_pending = true;
       }
     }
-    if (is_flush_pending &&
-        (bg_flush_scheduled_ < options_.max_background_flushes)) {
+    if (is_flush_pending) {
       // memtable flush needed
-      bg_flush_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH);
+      // max_background_compactions should not be 0, because that means
+      // flush will never get executed
+      assert(options_.max_background_flushes != 0);
+      if (bg_flush_scheduled_ < options_.max_background_flushes) {
+        bg_flush_scheduled_++;
+        env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH);
+      }
     }
     bool is_compaction_needed = false;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -1718,12 +1725,10 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       }
     }
 
-    // Schedule BGWorkCompaction if there's a compaction pending (or a memtable
-    // flush, but the HIGH pool is not enabled). Do it only if
-    // max_background_compactions hasn't been reached and, in case
+    // Schedule BGWorkCompaction if there's a compaction pending
+    // Do it only if max_background_compactions hasn't been reached and, in case
     // bg_manual_only_ > 0, if it's a manual compaction.
-    if ((manual_compaction_ || is_compaction_needed ||
-         (is_flush_pending && (options_.max_background_flushes <= 0))) &&
+    if ((manual_compaction_ || is_compaction_needed) &&
         bg_compaction_scheduled_ < options_.max_background_compactions &&
         (!bg_manual_only_ || manual_compaction_)) {
 
@@ -1868,41 +1873,14 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   *madeProgress = false;
   mutex_.AssertHeld();
 
+  unique_ptr<Compaction> c;
   bool is_manual = (manual_compaction_ != nullptr) &&
                    (manual_compaction_->in_progress == false);
-  if (is_manual) {
-    // another thread cannot pick up the same work
-    manual_compaction_->in_progress = true;
-  }
-
-  // TODO: remove memtable flush from formal compaction
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    while (cfd->imm()->IsFlushPending()) {
-      Log(options_.info_log,
-          "BackgroundCompaction doing FlushMemTableToOutputFile with column "
-          "family %d, compaction slots available %d",
-          cfd->GetID(),
-          options_.max_background_compactions - bg_compaction_scheduled_);
-      Status stat =
-          FlushMemTableToOutputFile(cfd, madeProgress, deletion_state);
-      if (!stat.ok()) {
-        if (is_manual) {
-          manual_compaction_->status = stat;
-          manual_compaction_->done = true;
-          manual_compaction_->in_progress = false;
-          manual_compaction_ = nullptr;
-        }
-        return stat;
-      }
-    }
-  }
-
-  unique_ptr<Compaction> c;
   InternalKey manual_end_storage;
   InternalKey* manual_end = &manual_end_storage;
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
-    assert(m->in_progress);
+    m->in_progress = true;
     c.reset(m->cfd->CompactRange(m->input_level, m->output_level, m->begin,
                                  m->end, &manual_end));
     if (!c) {
@@ -2299,20 +2277,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   }
 
   for (; input->Valid() && !shutting_down_.Acquire_Load(); ) {
-    // Prioritize immutable compaction work
-    // TODO: remove memtable flush from normal compaction work
-    if (cfd->imm()->imm_flush_needed.NoBarrier_Load() != nullptr) {
-      const uint64_t imm_start = env_->NowMicros();
-      LogFlush(options_.info_log);
-      mutex_.Lock();
-      if (cfd->imm()->IsFlushPending()) {
-        FlushMemTableToOutputFile(cfd, nullptr, deletion_state);
-        bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
-      }
-      mutex_.Unlock();
-      imm_micros += (env_->NowMicros() - imm_start);
-    }
-
     Slice key = input->key();
     Slice value = input->value();
 

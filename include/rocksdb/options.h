@@ -526,13 +526,17 @@ struct DBOptions {
   // regardless of this setting
   uint64_t delete_obsolete_files_period_micros;
 
-  // Maximum number of concurrent background jobs, submitted to
-  // the default LOW priority thread pool
+  // Maximum number of concurrent background compaction jobs, submitted to
+  // the default LOW priority thread pool.
+  // If you're increasing this, also consider increasing number of threads in
+  // LOW priority thread pool. For more information, see
+  // Env::SetBackgroundThreads
   // Default: 1
   int max_background_compactions;
 
   // Maximum number of concurrent background memtable flush jobs, submitted to
   // the HIGH priority thread pool.
+  //
   // By default, all background jobs (major compaction and memtable flush) go
   // to the LOW priority pool. If this option is set to a positive number,
   // memtable flush jobs will be submitted to the HIGH priority pool.
@@ -540,7 +544,11 @@ struct DBOptions {
   // Without a separate pool, long running major compaction jobs could
   // potentially block memtable flush jobs of other db instances, leading to
   // unnecessary Put stalls.
-  // Default: 0
+  //
+  // If you're increasing this, also consider increasing number of threads in
+  // HIGH priority thread pool. For more information, see
+  // Env::SetBackgroundThreads
+  // Default: 1
   int max_background_flushes;
 
   // Specify the maximal size of the info log file. If the log file

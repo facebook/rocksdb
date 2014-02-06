@@ -150,7 +150,7 @@ DBOptions::DBOptions()
       wal_dir(""),
       delete_obsolete_files_period_micros(6 * 60 * 60 * 1000000UL),
       max_background_compactions(1),
-      max_background_flushes(0),
+      max_background_flushes(1),
       max_log_file_size(0),
       log_file_time_to_roll(0),
       keep_log_file_num(1000),
