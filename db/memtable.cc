@@ -192,7 +192,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p += 8;
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
-  assert((p + val_size) - buf == (unsigned)encoded_len);
+  assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   table_->Insert(buf);
 
   if (prefix_bloom_) {
@@ -363,15 +363,10 @@ void MemTable::Update(SequenceNumber seq,
             char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
                                      new_size);
             WriteLock wl(GetLock(lkey.user_key()));
-            memcpy(p, value.data(), new_size);
-            assert(
-              (p + new_size) - entry ==
-              (unsigned) (VarintLength(key_length) +
-                          key_length +
-                          VarintLength(new_size) +
-                          new_size)
-            );
-            // no need to update bloom, as user key does not change.
+            memcpy(p, value.data(), value.size());
+            assert((unsigned)((p + value.size()) - entry) ==
+                   (unsigned)(VarintLength(key_length) + key_length +
+                              VarintLength(value.size()) + value.size()));
             return;
           }
         }

@@ -458,6 +458,10 @@ class DBTest {
     return DB::Open(*options, dbname_, db);
   }
 
+  Status ReadOnlyReopen(Options* options) {
+    return DB::OpenForReadOnly(*options, dbname_, &db_);
+  }
+
   Status TryReopen(Options* options = nullptr) {
     delete db_;
     db_ = nullptr;
@@ -832,6 +836,26 @@ TEST(DBTest, Empty) {
     ASSERT_EQ("v1", Get("foo"));
     env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
   } while (ChangeOptions());
+}
+
+TEST(DBTest, ReadOnlyDB) {
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Put("foo", "v3"));
+  Close();
+
+  Options options;
+  ASSERT_OK(ReadOnlyReopen(&options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ++count;
+  }
+  ASSERT_EQ(count, 2);
+  delete iter;
 }
 
 // Make sure that when options.block_cache is set, after a new table is

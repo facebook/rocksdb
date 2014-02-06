@@ -249,8 +249,8 @@ class DBImpl : public DB {
     return internal_comparator_.user_comparator();
   }
 
-  MemTable* GetMemTable() {
-    return mem_;
+  SuperVersion* GetSuperVersion() {
+    return super_version_;
   }
 
   Iterator* NewInternalIterator(const ReadOptions&,

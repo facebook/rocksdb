@@ -56,15 +56,15 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
                    const Slice& key,
                    std::string* value) {
   Status s;
-  MemTable* mem = GetMemTable();
-  Version* current = versions_->current();
   SequenceNumber snapshot = versions_->LastSequence();
+  SuperVersion* super_version = GetSuperVersion();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
-  if (mem->Get(lkey, value, &s, merge_context, options_)) {
+  if (super_version->mem->Get(lkey, value, &s, merge_context, options_)) {
   } else {
     Version::GetStats stats;
-    current->Get(options, lkey, value, &s, &merge_context, &stats, options_);
+    super_version->current->Get(options, lkey, value, &s, &merge_context,
+                                &stats, options_);
   }
   return s;
 }
@@ -87,6 +87,9 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
   DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
   impl->mutex_.Lock();
   Status s = impl->Recover(true /* read only */, error_if_log_file_exist);
+  if (s.ok()) {
+    delete impl->InstallSuperVersion(new DBImpl::SuperVersion());
+  }
   impl->mutex_.Unlock();
   if (s.ok()) {
     *dbptr = impl;

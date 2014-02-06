@@ -125,8 +125,8 @@ int main(int argc, const char** argv) {
   replThread.stop.Release_Store(nullptr);
   if (replThread.no_read < dataPump.no_records) {
     // no. read should be => than inserted.
-    fprintf(stderr, "No. of Record's written and read not same\nRead : %ld"
-            " Written : %ld\n", replThread.no_read, dataPump.no_records);
+    fprintf(stderr, "No. of Record's written and read not same\nRead : %zu"
+            " Written : %zu\n", replThread.no_read, dataPump.no_records);
     exit(1);
   }
   fprintf(stderr, "Successful!\n");

@@ -149,9 +149,11 @@ Status ReadProperties(
   }
 
   BlockContents block_contents;
+  ReadOptions read_options;
+  read_options.verify_checksums = false;
   Status s = ReadBlockContents(
       file,
-      ReadOptions(),
+      read_options,
       handle,
       &block_contents,
       env,
@@ -240,9 +242,11 @@ Status ReadTableProperties(
 
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
+  ReadOptions read_options;
+  read_options.verify_checksums = false;
   s = ReadBlockContents(
       file,
-      ReadOptions(),
+      read_options,
       metaindex_handle,
       &metaindex_contents,
       env,
