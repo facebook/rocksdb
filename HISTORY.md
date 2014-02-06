@@ -7,8 +7,6 @@
 * Removed arena.h from public header files.
 * By default, checksums are verified on every read from database
 
->>>>>>> master
-
 ## 2.7.0 (01/28/2014)
 
 ### Public API changes
