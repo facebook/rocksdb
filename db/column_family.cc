@@ -247,7 +247,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       db_name_(dbname),
       db_options_(db_options),
       storage_options_(storage_options),
-      table_cache_(table_cache) {
+      table_cache_(table_cache),
+      spin_lock_(ATOMIC_FLAG_INIT) {
   // initialize linked list
   dummy_cfd_->prev_.store(dummy_cfd_);
   dummy_cfd_->next_.store(dummy_cfd_);
@@ -331,6 +332,14 @@ void ColumnFamilySet::DropColumnFamily(uint32_t id) {
   prev->next_.store(next);
   next->prev_.store(prev);
 }
+
+void ColumnFamilySet::Lock() {
+  // spin lock
+  while (spin_lock_.test_and_set(std::memory_order_acquire)) {
+  }
+}
+
+void ColumnFamilySet::Unlock() { spin_lock_.clear(std::memory_order_release); }
 
 bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
   current_ = column_family_set_->GetColumnFamily(column_family_id);

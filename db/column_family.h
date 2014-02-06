@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
+#include <atomic>
 
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
@@ -220,6 +221,15 @@ class ColumnFamilySet {
   iterator begin() { return iterator(dummy_cfd_->next()); }
   iterator end() { return iterator(dummy_cfd_); }
 
+  // ColumnFamilySet has interesting thread-safety requirements
+  // * CreateColumnFamily() or DropColumnFamily() -- need to Lock() and also
+  //      execute inside of DB mutex
+  // * Iterate -- without any locks
+  // * GetDefault(), GetColumnFamily(), Exists(), GetID(),
+  //      GetNextColumnFamilyID() -- either inside of DB mutex or call Lock()
+  void Lock();
+  void Unlock();
+
  private:
   std::unordered_map<std::string, uint32_t> column_families_;
   std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
@@ -233,6 +243,7 @@ class ColumnFamilySet {
   const DBOptions* const db_options_;
   const EnvOptions storage_options_;
   Cache* table_cache_;
+  std::atomic_flag spin_lock_;
 };
 
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {

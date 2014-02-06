@@ -903,6 +903,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
     }
     WriteBatchInternal::SetContents(&batch, record);
 
+    // No need to lock ColumnFamilySet here since its under a DB mutex
     status = WriteBatchInternal::InsertInto(
         &batch, column_family_memtables_.get(), log_number);
 
@@ -921,7 +922,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
       for (auto cfd : *versions_->GetColumnFamilySet()) {
         if (cfd->mem()->ApproximateMemoryUsage() >
             cfd->options()->write_buffer_size) {
-          // If this asserts, it means that ColumnFamilyMemTablesImpl failed in
+          // If this asserts, it means that InsertInto failed in
           // filtering updates to already-flushed column families
           assert(cfd->GetLogNumber() <= log_number);
           auto iter = version_edits.find(cfd->GetID());
@@ -950,7 +951,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
         // Column family cfd has already flushed the data
         // from log_number. Memtable has to be empty because
         // we filter the updates based on log_number
-        // (in ColumnFamilyMemTablesImpl)
+        // (in WriteBatch::InsertInto)
         assert(cfd->mem()->GetFirstSequenceNumber() == 0);
         assert(edit->NumEntries() == 0);
         continue;
@@ -2963,7 +2964,8 @@ std::vector<Status> DBImpl::MultiGet(
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                   const std::string& column_family_name,
                                   ColumnFamilyHandle* handle) {
-  MutexLock l(&mutex_);
+  // whenever we are writing to column family set, we have to lock
+  versions_->GetColumnFamilySet()->Lock();
   if (versions_->GetColumnFamilySet()->Exists(column_family_name)) {
     return Status::InvalidArgument("Column family already exists");
   }
@@ -2971,11 +2973,16 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   edit.AddColumnFamily(column_family_name);
   handle->id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
   edit.SetColumnFamily(handle->id);
+
+  mutex_.Lock();
   Status s = versions_->LogAndApply(default_cfd_, &edit, &mutex_);
   if (s.ok()) {
     // add to internal data structures
     versions_->CreateColumnFamily(options, &edit);
   }
+  mutex_.Unlock();
+
+  versions_->GetColumnFamilySet()->Unlock();
   Log(options_.info_log, "Created column family %s\n",
       column_family_name.c_str());
   return s;
@@ -2985,21 +2992,25 @@ Status DBImpl::DropColumnFamily(const ColumnFamilyHandle& column_family) {
   if (column_family.id == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
-  mutex_.Lock();
+  // whenever we are writing to column family set, we have to lock
+  versions_->GetColumnFamilySet()->Lock();
   if (!versions_->GetColumnFamilySet()->Exists(column_family.id)) {
     return Status::NotFound("Column family not found");
   }
   VersionEdit edit;
   edit.DropColumnFamily();
   edit.SetColumnFamily(column_family.id);
+  mutex_.Lock();
   Status s = versions_->LogAndApply(default_cfd_, &edit, &mutex_);
   if (s.ok()) {
     // remove from internal data structures
     versions_->DropColumnFamily(&edit);
   }
+  versions_->GetColumnFamilySet()->Unlock();
   DeletionState deletion_state;
   FindObsoleteFiles(deletion_state, false, true);
   mutex_.Unlock();
+
   PurgeObsoleteFiles(deletion_state);
   Log(options_.info_log, "Dropped column family with id %u\n",
       column_family.id);
@@ -3193,12 +3204,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         }
       }
       if (status.ok()) {
-        // TODO(icanadi) this accesses column_family_set_ without any lock.
-        // We'll need to add a spinlock for reading that we also lock when we
-        // write to a column family (only on column family add/drop, which is
-        // a very rare action)
+        // reading the column family set outside of DB mutex -- should lock
+        versions_->GetColumnFamilySet()->Lock();
         status = WriteBatchInternal::InsertInto(
             updates, column_family_memtables_.get(), 0, this, false);
+        versions_->GetColumnFamilySet()->Unlock();
 
         if (!status.ok()) {
           // Panic for in-memory corruptions
