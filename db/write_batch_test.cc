@@ -27,7 +27,8 @@ static std::string PrintContents(WriteBatch* b) {
   MemTable* mem = new MemTable(cmp, ColumnFamilyOptions(options));
   mem->Ref();
   std::string state;
-  Status s = WriteBatchInternal::InsertInto(b, mem, &options);
+  ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
+  Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
   Iterator* iter = mem->NewIterator();
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {

@@ -903,13 +903,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
     }
     WriteBatchInternal::SetContents(&batch, record);
 
-    // filter out all the column families that have already
-    // flushed memtables with log_number
-    column_family_memtables_->SetLogNumber(log_number);
-    // TODO(icanadi) options_
     status = WriteBatchInternal::InsertInto(
-        &batch, column_family_memtables_.get(), default_cfd_->full_options());
-    column_family_memtables_->SetLogNumber(0);
+        &batch, column_family_memtables_.get(), log_number);
 
     MaybeIgnoreError(&status);
     if (!status.ok()) {
@@ -3202,11 +3197,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         // We'll need to add a spinlock for reading that we also lock when we
         // write to a column family (only on column family add/drop, which is
         // a very rare action)
-        // TODO(icanadi) options_
         status = WriteBatchInternal::InsertInto(
-            updates, column_family_memtables_.get(),
-            default_cfd_->full_options(), this,
-            default_cfd_->options()->filter_deletes);
+            updates, column_family_memtables_.get(), 0, this, false);
 
         if (!status.ok()) {
           // Panic for in-memory corruptions

@@ -229,60 +229,41 @@ namespace {
 class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
-  MemTable* mem_;
   ColumnFamilyMemTables* cf_mems_;
-  const Options* options_;
+  uint64_t log_number_;
   DBImpl* db_;
-  const bool filter_deletes_;
-
-  MemTableInserter(SequenceNumber sequence, MemTable* mem, const Options* opts,
-                   DB* db, const bool filter_deletes)
-      : sequence_(sequence),
-        mem_(mem),
-        cf_mems_(nullptr),
-        options_(opts),
-        db_(reinterpret_cast<DBImpl*>(db)),
-        filter_deletes_(filter_deletes) {
-    assert(mem_);
-    if (filter_deletes_) {
-      assert(options_);
-      assert(db_);
-    }
-  }
+  const bool dont_filter_deletes_;
 
   MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
-                   const Options* opts, DB* db, const bool filter_deletes)
+                   uint64_t log_number, DB* db, const bool dont_filter_deletes)
       : sequence_(sequence),
-        mem_(nullptr),
         cf_mems_(cf_mems),
-        options_(opts),
+        log_number_(log_number),
         db_(reinterpret_cast<DBImpl*>(db)),
-        filter_deletes_(filter_deletes) {
+        dont_filter_deletes_(dont_filter_deletes) {
     assert(cf_mems);
-    if (filter_deletes_) {
-      assert(options_);
+    if (!dont_filter_deletes_) {
       assert(db_);
     }
   }
 
-  // returns nullptr if the update to the column family is not needed
-  MemTable* GetMemTable(uint32_t column_family_id) {
-    if (mem_ != nullptr) {
-      return (column_family_id == 0) ? mem_ : nullptr;
-    } else {
-      return cf_mems_->GetMemTable(column_family_id);
-    }
+  bool IgnoreUpdate() {
+    return log_number_ != 0 && log_number_ < cf_mems_->GetLogNumber();
   }
 
   virtual void PutCF(uint32_t column_family_id, const Slice& key,
                      const Slice& value) {
-    MemTable* mem = GetMemTable(column_family_id);
-    if (mem == nullptr) {
+    bool found = cf_mems_->Seek(column_family_id);
+    // TODO(icanadi) if found = false somehow return the error to caller
+    // Will need to change public API to do this
+    if (!found || IgnoreUpdate()) {
       return;
     }
-    if (options_->inplace_update_support &&
+    MemTable* mem = cf_mems_->GetMemTable();
+    const Options* options = cf_mems_->GetFullOptions();
+    if (options->inplace_update_support &&
         mem->Update(sequence_, kTypeValue, key, value)) {
-      RecordTick(options_->statistics.get(), NUMBER_KEYS_UPDATED);
+      RecordTick(options->statistics.get(), NUMBER_KEYS_UPDATED);
     } else {
       mem->Add(sequence_, kTypeValue, key, value);
     }
@@ -290,20 +271,22 @@ class MemTableInserter : public WriteBatch::Handler {
   }
   virtual void MergeCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) {
-    MemTable* mem = GetMemTable(column_family_id);
-    if (mem == nullptr) {
+    bool found = cf_mems_->Seek(column_family_id);
+    if (!found || IgnoreUpdate()) {
       return;
     }
+    MemTable* mem = cf_mems_->GetMemTable();
+    const Options* options = cf_mems_->GetFullOptions();
     bool perform_merge = false;
 
-    if (options_->max_successive_merges > 0 && db_ != nullptr) {
+    if (options->max_successive_merges > 0 && db_ != nullptr) {
       LookupKey lkey(key, sequence_);
 
       // Count the number of successive merges at the head
       // of the key in the memtable
       size_t num_merges = mem->CountSuccessiveMergeEntries(lkey);
 
-      if (num_merges >= options_->max_successive_merges) {
+      if (num_merges >= options->max_successive_merges) {
         perform_merge = true;
       }
     }
@@ -319,23 +302,21 @@ class MemTableInserter : public WriteBatch::Handler {
       ReadOptions read_options;
       read_options.snapshot = &read_from_snapshot;
 
-      db_->Get(read_options, key, &get_value);
+      db_->Get(read_options, cf_mems_->GetColumnFamilyHandle(), key,
+               &get_value);
       Slice get_value_slice = Slice(get_value);
 
       // 2) Apply this merge
-      auto merge_operator = options_->merge_operator.get();
+      auto merge_operator = options->merge_operator.get();
       assert(merge_operator);
 
       std::deque<std::string> operands;
       operands.push_front(value.ToString());
       std::string new_value;
-      if (!merge_operator->FullMerge(key,
-                                     &get_value_slice,
-                                     operands,
-                                     &new_value,
-                                     options_->info_log.get())) {
+      if (!merge_operator->FullMerge(key, &get_value_slice, operands,
+                                     &new_value, options->info_log.get())) {
           // Failed to merge!
-          RecordTick(options_->statistics.get(), NUMBER_MERGE_FAILURES);
+        RecordTick(options->statistics.get(), NUMBER_MERGE_FAILURES);
 
           // Store the delta in memtable
           perform_merge = false;
@@ -353,18 +334,21 @@ class MemTableInserter : public WriteBatch::Handler {
     sequence_++;
   }
   virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
-    MemTable* mem = GetMemTable(column_family_id);
-    if (mem == nullptr) {
+    bool found = cf_mems_->Seek(column_family_id);
+    if (!found || IgnoreUpdate()) {
       return;
     }
-    if (filter_deletes_) {
+    MemTable* mem = cf_mems_->GetMemTable();
+    const Options* options = cf_mems_->GetFullOptions();
+    if (!dont_filter_deletes_ && options->filter_deletes) {
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;
       ReadOptions ropts;
       ropts.snapshot = &read_from_snapshot;
       std::string value;
-      if (!db_->KeyMayExist(ropts, key, &value)) {
-        RecordTick(options_->statistics.get(), NUMBER_FILTERED_DELETES);
+      if (!db_->KeyMayExist(ropts, cf_mems_->GetColumnFamilyHandle(), key,
+                            &value)) {
+        RecordTick(options->statistics.get(), NUMBER_FILTERED_DELETES);
         return;
       }
     }
@@ -374,20 +358,12 @@ class MemTableInserter : public WriteBatch::Handler {
 };
 }  // namespace
 
-Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* mem,
-                                      const Options* opts, DB* db,
-                                      const bool filter_deletes) {
-  MemTableInserter inserter(WriteBatchInternal::Sequence(b), mem, opts, db,
-                            filter_deletes);
-  return b->Iterate(&inserter);
-}
-
 Status WriteBatchInternal::InsertInto(const WriteBatch* b,
                                       ColumnFamilyMemTables* memtables,
-                                      const Options* opts, DB* db,
-                                      const bool filter_deletes) {
-  MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables, opts,
-                            db, filter_deletes);
+                                      uint64_t log_number, DB* db,
+                                      const bool dont_filter_deletes) {
+  MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables,
+                            log_number, db, dont_filter_deletes);
   return b->Iterate(&inserter);
 }
 

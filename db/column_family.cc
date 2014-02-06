@@ -332,18 +332,31 @@ void ColumnFamilySet::DropColumnFamily(uint32_t id) {
   next->prev_.store(prev);
 }
 
-MemTable* ColumnFamilyMemTablesImpl::GetMemTable(uint32_t column_family_id) {
-  auto cfd = column_family_set_->GetColumnFamily(column_family_id);
-  // TODO(icanadi): this should not be asserting. Rather, it should somehow
-  // return Corruption status back to the Iterator. This will require
-  // API change in WriteBatch::Handler, which is a public API
-  assert(cfd != nullptr);
+bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
+  current_ = column_family_set_->GetColumnFamily(column_family_id);
+  handle_.id = column_family_id;
+  return current_ != nullptr;
+}
 
-  if (log_number_ == 0 || log_number_ >= cfd->GetLogNumber()) {
-    return cfd->mem();
-  } else {
-    return nullptr;
-  }
+uint64_t ColumnFamilyMemTablesImpl::GetLogNumber() const {
+  assert(current_ != nullptr);
+  return current_->GetLogNumber();
+}
+
+MemTable* ColumnFamilyMemTablesImpl::GetMemTable() const {
+  assert(current_ != nullptr);
+  return current_->mem();
+}
+
+const Options* ColumnFamilyMemTablesImpl::GetFullOptions() const {
+  assert(current_ != nullptr);
+  return current_->full_options();
+}
+
+const ColumnFamilyHandle& ColumnFamilyMemTablesImpl::GetColumnFamilyHandle()
+    const {
+  assert(current_ != nullptr);
+  return handle_;
 }
 
 }  // namespace rocksdb

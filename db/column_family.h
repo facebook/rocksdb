@@ -238,21 +238,29 @@ class ColumnFamilySet {
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
  public:
   explicit ColumnFamilyMemTablesImpl(ColumnFamilySet* column_family_set)
-      : column_family_set_(column_family_set), log_number_(0) {}
+      : column_family_set_(column_family_set), current_(nullptr) {}
 
-  // If column_family_data->log_number is bigger than log_number,
-  // the memtable will not be returned.
-  // If log_number == 0, the memtable will be always returned
-  void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
+  // sets current_ to ColumnFamilyData with column_family_id
+  // returns false if column family doesn't exist
+  bool Seek(uint32_t column_family_id) override;
 
-  // Returns the column families memtable if log_number == 0 || log_number <=
-  // column_family_data->log_number.
-  // If column family doesn't exist, it asserts
-  virtual MemTable* GetMemTable(uint32_t column_family_id) override;
+  // Returns log number of the selected column family
+  uint64_t GetLogNumber() const override;
+
+  // REQUIRES: Seek() called first
+  virtual MemTable* GetMemTable() const override;
+
+  // Returns options for selected column family
+  // REQUIRES: Seek() called first
+  virtual const Options* GetFullOptions() const override;
+
+  // Returns column family handle for the selected column family
+  virtual const ColumnFamilyHandle& GetColumnFamilyHandle() const override;
 
  private:
   ColumnFamilySet* column_family_set_;
-  uint64_t log_number_;
+  ColumnFamilyData* current_;
+  ColumnFamilyHandle handle_;
 };
 
 }  // namespace rocksdb

@@ -205,6 +205,7 @@ class Repairer {
     Slice record;
     WriteBatch batch;
     MemTable* mem = new MemTable(icmp_, options_);
+    auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem, &options_);
     mem->Ref();
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
@@ -214,7 +215,7 @@ class Repairer {
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
-      status = WriteBatchInternal::InsertInto(&batch, mem, &options_);
+      status = WriteBatchInternal::InsertInto(&batch, cf_mems_default);
       if (status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {
@@ -236,6 +237,7 @@ class Repairer {
                         kNoCompression);
     delete iter;
     delete mem->Unref();
+    delete cf_mems_default;
     mem = nullptr;
     if (status.ok()) {
       if (meta.file_size > 0) {
