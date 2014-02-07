@@ -104,10 +104,9 @@ class DB {
   // If everything is OK, handles will on return be the same size
   // as column_families --- handles[i] will be a handle that you
   // will use to operate on column family column_family[i]
-  static Status OpenWithColumnFamilies(
-      const DBOptions& db_options, const std::string& name,
-      const std::vector<ColumnFamilyDescriptor>& column_families,
-      std::vector<ColumnFamilyHandle>* handles, DB** dbptr);
+  static Status Open(const DBOptions& db_options, const std::string& name,
+                     const std::vector<ColumnFamilyDescriptor>& column_families,
+                     std::vector<ColumnFamilyHandle>* handles, DB** dbptr);
 
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB

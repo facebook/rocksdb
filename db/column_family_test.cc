@@ -41,8 +41,7 @@ class ColumnFamilyTest {
       column_families.push_back(
           ColumnFamilyDescriptor(x, column_family_options_));
     }
-    return DB::OpenWithColumnFamilies(db_options_, dbname_, column_families,
-                                      &handles_, &db_);
+    return DB::Open(db_options_, dbname_, column_families, &handles_, &db_);
   }
 
   void Destroy() {

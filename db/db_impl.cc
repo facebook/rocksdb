@@ -3732,14 +3732,12 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   column_families.push_back(
       ColumnFamilyDescriptor(default_column_family_name, cf_options));
   std::vector<ColumnFamilyHandle> handles;
-  return DB::OpenWithColumnFamilies(db_options, dbname, column_families,
-                                    &handles, dbptr);
+  return DB::Open(db_options, dbname, column_families, &handles, dbptr);
 }
 
-Status DB::OpenWithColumnFamilies(
-    const DBOptions& db_options, const std::string& dbname,
-    const std::vector<ColumnFamilyDescriptor>& column_families,
-    std::vector<ColumnFamilyHandle>* handles, DB** dbptr) {
+Status DB::Open(const DBOptions& db_options, const std::string& dbname,
+                const std::vector<ColumnFamilyDescriptor>& column_families,
+                std::vector<ColumnFamilyHandle>* handles, DB** dbptr) {
   *dbptr = nullptr;
   EnvOptions soptions;
 
