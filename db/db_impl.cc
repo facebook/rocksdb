@@ -253,8 +253,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
   DumpLeveldbBuildVersion(options_.info_log.get());
-  // TODO(icanadi) dump DBOptions and ColumnFamilyOptions separately
-  // options_.Dump(options_.info_log.get());
+  options_.Dump(options_.info_log.get());
 
   char name[100];
   Status s = env_->GetHostName(name, 100L);
@@ -2995,7 +2994,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   mutex_.Unlock();
 
   versions_->GetColumnFamilySet()->Unlock();
-  Log(options_.info_log, "Created column family %s\n",
+  Log(options_.info_log, "Created column family \"%s\"",
       column_family_name.c_str());
   return s;
 }

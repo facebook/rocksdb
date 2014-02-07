@@ -165,6 +165,10 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       compaction_picker_.reset(new LevelCompactionPicker(
           &options_, &internal_comparator_, db_options->info_log.get()));
     }
+
+    Log(full_options_.info_log, "Options for column family \"%s\":\n",
+        name.c_str());
+    options_.Dump(full_options_.info_log.get());
   }
 }
 

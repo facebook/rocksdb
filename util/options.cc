@@ -220,27 +220,76 @@ static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
 };
 
-void
-Options::Dump(Logger* log) const
-{
-    Log(log,"              Options.comparator: %s", comparator->Name());
-    Log(log,"          Options.merge_operator: %s",
-        merge_operator? merge_operator->Name() : "None");
-    Log(log,"       Options.compaction_filter: %s",
-        compaction_filter? compaction_filter->Name() : "None");
-    Log(log,"       Options.compaction_filter_factory: %s",
-        compaction_filter_factory->Name());
-    Log(log,"        Options.memtable_factory: %s",
-        memtable_factory->Name());
-    Log(log,"           Options.table_factory: %s", table_factory->Name());
+void DBOptions::Dump(Logger* log) const {
     Log(log,"         Options.error_if_exists: %d", error_if_exists);
     Log(log,"       Options.create_if_missing: %d", create_if_missing);
     Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
     Log(log,"                     Options.env: %p", env);
     Log(log,"                Options.info_log: %p", info_log.get());
-    Log(log,"       Options.write_buffer_size: %zd", write_buffer_size);
-    Log(log," Options.max_write_buffer_number: %d", max_write_buffer_number);
     Log(log,"          Options.max_open_files: %d", max_open_files);
+    Log(log, "       Options.disableDataSync: %d", disableDataSync);
+    Log(log, "             Options.use_fsync: %d", use_fsync);
+    Log(log, "     Options.max_log_file_size: %zu", max_log_file_size);
+    Log(log, "Options.max_manifest_file_size: %lu",
+        (unsigned long)max_manifest_file_size);
+    Log(log, "     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
+    Log(log, "     Options.keep_log_file_num: %zu", keep_log_file_num);
+    Log(log, " Options.db_stats_log_interval: %d", db_stats_log_interval);
+    Log(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
+    Log(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
+    Log(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
+    Log(log, "                             Options.db_log_dir: %s",
+        db_log_dir.c_str());
+    Log(log, "                             Options.wal_dir: %s",
+        wal_dir.c_str());
+    Log(log, "               Options.table_cache_numshardbits: %d",
+        table_cache_numshardbits);
+    Log(log, "    Options.table_cache_remove_scan_count_limit: %d",
+        table_cache_remove_scan_count_limit);
+    Log(log, "    Options.delete_obsolete_files_period_micros: %lu",
+        (unsigned long)delete_obsolete_files_period_micros);
+    Log(log, "             Options.max_background_compactions: %d",
+        max_background_compactions);
+    Log(log, "                 Options.max_background_flushes: %d",
+        max_background_flushes);
+    Log(log, "                        Options.WAL_ttl_seconds: %lu",
+        (unsigned long)WAL_ttl_seconds);
+    Log(log, "                      Options.WAL_size_limit_MB: %lu",
+        (unsigned long)WAL_size_limit_MB);
+    Log(log, "            Options.manifest_preallocation_size: %zu",
+        manifest_preallocation_size);
+    Log(log, "                         Options.allow_os_buffer: %d",
+        allow_os_buffer);
+    Log(log, "                        Options.allow_mmap_reads: %d",
+        allow_mmap_reads);
+    Log(log, "                       Options.allow_mmap_writes: %d",
+        allow_mmap_writes);
+    Log(log, "                     Options.is_fd_close_on_exec: %d",
+        is_fd_close_on_exec);
+    Log(log, "              Options.skip_log_error_on_recovery: %d",
+        skip_log_error_on_recovery);
+    Log(log, "                   Options.stats_dump_period_sec: %u",
+        stats_dump_period_sec);
+    Log(log, "                   Options.advise_random_on_open: %d",
+        advise_random_on_open);
+    Log(log, "         Options.access_hint_on_compaction_start: %s",
+        access_hints[access_hint_on_compaction_start]);
+    Log(log, "                      Options.use_adaptive_mutex: %d",
+        use_adaptive_mutex);
+    Log(log, "                          Options.bytes_per_sync: %lu",
+        (unsigned long)bytes_per_sync);
+}  // DBOptions::Dump
+
+void ColumnFamilyOptions::Dump(Logger* log) const {
+  Log(log, "              Options.comparator: %s", comparator->Name());
+  Log(log, "          Options.merge_operator: %s",
+      merge_operator ? merge_operator->Name() : "None");
+  Log(log, "       Options.compaction_filter_factory: %s",
+      compaction_filter_factory->Name());
+  Log(log, "        Options.memtable_factory: %s", memtable_factory->Name());
+  Log(log, "           Options.table_factory: %s", table_factory->Name());
+  Log(log, "       Options.write_buffer_size: %zd", write_buffer_size);
+  Log(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
     Log(log,"             Options.block_cache: %p", block_cache.get());
     Log(log,"  Options.block_cache_compressed: %p",
         block_cache_compressed.get());
@@ -268,18 +317,6 @@ Options::Dump(Logger* log) const
         prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
     Log(log,"   Options.whole_key_filtering: %d", whole_key_filtering);
     Log(log,"            Options.num_levels: %d", num_levels);
-    Log(log,"       Options.disableDataSync: %d", disableDataSync);
-    Log(log,"             Options.use_fsync: %d", use_fsync);
-    Log(log,"     Options.max_log_file_size: %zu", max_log_file_size);
-    Log(log,"Options.max_manifest_file_size: %lu",
-        (unsigned long)max_manifest_file_size);
-    Log(log,"     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
-    Log(log,"     Options.keep_log_file_num: %zu", keep_log_file_num);
-    Log(log," Options.db_stats_log_interval: %d",
-        db_stats_log_interval);
-    Log(log,"       Options.allow_os_buffer: %d", allow_os_buffer);
-    Log(log,"      Options.allow_mmap_reads: %d", allow_mmap_reads);
-    Log(log,"     Options.allow_mmap_writes: %d", allow_mmap_writes);
     Log(log,"       Options.min_write_buffer_number_to_merge: %d",
         min_write_buffer_number_to_merge);
     Log(log,"        Options.purge_redundant_kvs_while_flush: %d",
@@ -318,26 +355,12 @@ Options::Dump(Logger* log) const
         source_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Log(log,"                             Options.db_log_dir: %s",
-        db_log_dir.c_str());
-    Log(log,"                             Options.wal_dir: %s",
-        wal_dir.c_str());
     Log(log,"                Options.disable_seek_compaction: %d",
         disable_seek_compaction);
     Log(log,"                         Options.no_block_cache: %d",
         no_block_cache);
-    Log(log,"               Options.table_cache_numshardbits: %d",
-        table_cache_numshardbits);
-    Log(log,"    Options.table_cache_remove_scan_count_limit: %d",
-        table_cache_remove_scan_count_limit);
     Log(log,"                       Options.arena_block_size: %zu",
         arena_block_size);
-    Log(log,"    Options.delete_obsolete_files_period_micros: %lu",
-        (unsigned long)delete_obsolete_files_period_micros);
-    Log(log,"             Options.max_background_compactions: %d",
-        max_background_compactions);
-    Log(log,"                 Options.max_background_flushes: %d",
-        max_background_flushes);
     Log(log,"                      Options.soft_rate_limit: %.2f",
         soft_rate_limit);
     Log(log,"                      Options.hard_rate_limit: %.2f",
@@ -346,36 +369,10 @@ Options::Dump(Logger* log) const
         rate_limit_delay_max_milliseconds);
     Log(log,"               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Log(log,"                        Options.WAL_ttl_seconds: %lu",
-        (unsigned long)WAL_ttl_seconds);
-    Log(log,"                      Options.WAL_size_limit_MB: %lu",
-        (unsigned long)WAL_size_limit_MB);
-    Log(log,"            Options.manifest_preallocation_size: %zu",
-        manifest_preallocation_size);
     Log(log,"         Options.purge_redundant_kvs_while_flush: %d",
         purge_redundant_kvs_while_flush);
-    Log(log,"                         Options.allow_os_buffer: %d",
-        allow_os_buffer);
-    Log(log,"                        Options.allow_mmap_reads: %d",
-        allow_mmap_reads);
-    Log(log,"                       Options.allow_mmap_writes: %d",
-        allow_mmap_writes);
-    Log(log,"                     Options.is_fd_close_on_exec: %d",
-        is_fd_close_on_exec);
-    Log(log,"              Options.skip_log_error_on_recovery: %d",
-        skip_log_error_on_recovery);
-    Log(log,"                   Options.stats_dump_period_sec: %u",
-        stats_dump_period_sec);
     Log(log,"                    Options.block_size_deviation: %d",
         block_size_deviation);
-    Log(log,"                   Options.advise_random_on_open: %d",
-        advise_random_on_open);
-    Log(log,"         Options.access_hint_on_compaction_start: %s",
-        access_hints[access_hint_on_compaction_start]);
-    Log(log,"                      Options.use_adaptive_mutex: %d",
-        use_adaptive_mutex);
-    Log(log,"                          Options.bytes_per_sync: %lu",
-        (unsigned long)bytes_per_sync);
     Log(log,"                          Options.filter_deletes: %d",
         filter_deletes);
     Log(log,"                        Options.compaction_style: %d",
@@ -410,6 +407,11 @@ Options::Dump(Logger* log) const
         memtable_prefix_bloom_probes);
     Log(log, "                   Options.max_successive_merges: %zd",
         max_successive_merges);
+}  // ColumnFamilyOptions::Dump
+
+void Options::Dump(Logger* log) const {
+  DBOptions::Dump(log);
+  ColumnFamilyOptions::Dump(log);
 }   // Options::Dump
 
 //

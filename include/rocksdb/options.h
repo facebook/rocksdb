@@ -499,6 +499,8 @@ struct ColumnFamilyOptions {
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
   explicit ColumnFamilyOptions(const Options& options);
+
+  void Dump(Logger* log) const;
 };
 
 struct DBOptions {
@@ -721,6 +723,8 @@ struct DBOptions {
   DBOptions();
   // Create DBOptions from Options
   explicit DBOptions(const Options& options);
+
+  void Dump(Logger* log) const;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
