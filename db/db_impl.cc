@@ -1681,15 +1681,21 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   return manual.status;
 }
 
-Status DBImpl::TEST_CompactRange(int level,
-                                 const Slice* begin,
-                                 const Slice* end) {
-  auto default_cfd = default_cf_handle_->cfd();
+Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
+                                 const Slice* end,
+                                 ColumnFamilyHandle* column_family) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    cfd = cfh->cfd();
+  }
   int output_level =
-      (default_cfd->options()->compaction_style == kCompactionStyleUniversal)
+      (cfd->options()->compaction_style == kCompactionStyleUniversal)
           ? level
           : level + 1;
-  return RunManualCompaction(default_cfd, level, output_level, begin, end);
+  return RunManualCompaction(cfd, level, output_level, begin, end);
 }
 
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
@@ -1720,8 +1726,15 @@ Status DBImpl::TEST_FlushMemTable() {
   return FlushMemTable(default_cf_handle_->cfd(), FlushOptions());
 }
 
-Status DBImpl::TEST_WaitForFlushMemTable() {
-  return WaitForFlushMemTable(default_cf_handle_->cfd());
+Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    cfd = cfh->cfd();
+  }
+  return WaitForFlushMemTable(cfd);
 }
 
 Status DBImpl::TEST_WaitForCompact() {
@@ -2725,13 +2738,19 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
   return default_cf_handle_;
 }
 
-Iterator* DBImpl::TEST_NewInternalIterator() {
+Iterator* DBImpl::TEST_NewInternalIterator(ColumnFamilyHandle* column_family) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    cfd = cfh->cfd();
+  }
+
   mutex_.Lock();
-  SuperVersion* super_version =
-      default_cf_handle_->cfd()->GetSuperVersion()->Ref();
+  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
-  return NewInternalIterator(ReadOptions(), default_cf_handle_->cfd(),
-                             super_version);
+  return NewInternalIterator(ReadOptions(), cfd, super_version);
 }
 
 std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
@@ -2773,9 +2792,17 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
   return std::make_pair(mutable_iter, immutable_iter);
 }
 
-int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
+int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
+    ColumnFamilyHandle* column_family) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    cfd = cfh->cfd();
+  }
   MutexLock l(&mutex_);
-  return default_cf_handle_->cfd()->current()->MaxNextLevelOverlappingBytes();
+  return cfd->current()->MaxNextLevelOverlappingBytes();
 }
 
 Status DBImpl::Get(const ReadOptions& options,
@@ -2853,6 +2880,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
+    // Done
     StopWatchNano from_files_timer(env_, false);
     StartPerfTimer(&from_files_timer);
 
@@ -3707,12 +3735,14 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 }
 
 void DBImpl::TEST_GetFilesMetaData(
+    ColumnFamilyHandle* column_family,
     std::vector<std::vector<FileMetaData>>* metadata) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
   MutexLock l(&mutex_);
   metadata->resize(NumberLevels());
   for (int level = 0; level < NumberLevels(); level++) {
-    const std::vector<FileMetaData*>& files =
-        default_cf_handle_->cfd()->current()->files_[level];
+    const std::vector<FileMetaData*>& files = cfd->current()->files_[level];
 
     (*metadata)[level].clear();
     for (const auto& f : files) {

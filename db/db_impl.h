@@ -135,15 +135,14 @@ class DBImpl : public DB {
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]
-  Status TEST_CompactRange(int level,
-                           const Slice* begin,
-                           const Slice* end);
+  Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
+                           ColumnFamilyHandle* column_family = nullptr);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable();
 
   // Wait for memtable compaction
-  Status TEST_WaitForFlushMemTable();
+  Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
   // Wait for any compaction
   Status TEST_WaitForCompact();
@@ -151,11 +150,13 @@ class DBImpl : public DB {
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
-  Iterator* TEST_NewInternalIterator();
+  Iterator* TEST_NewInternalIterator(ColumnFamilyHandle* column_family =
+                                         nullptr);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
-  int64_t TEST_MaxNextLevelOverlappingBytes();
+  int64_t TEST_MaxNextLevelOverlappingBytes(ColumnFamilyHandle* column_family =
+                                                nullptr);
 
   // Simulate a db crash, no elegant closing of database.
   void TEST_Destroy_DBImpl();
@@ -174,7 +175,8 @@ class DBImpl : public DB {
     default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
   }
 
-  void TEST_GetFilesMetaData(std::vector<std::vector<FileMetaData>>* metadata);
+  void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
+                             std::vector<std::vector<FileMetaData>>* metadata);
 
   // needed for CleanupIteratorState
   struct DeletionState {

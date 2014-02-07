@@ -355,53 +355,6 @@ TEST(ColumnFamilyTest, FlushTest) {
   Close();
 }
 
-// This is the same as DBTest::ManualCompaction, but it does all
-// operations on non-default column family
-TEST(ColumnFamilyTest, ManualCompaction) {
-  // iter - 0 with 7 levels
-  // iter - 1 with 3 levels
-  int cf = 1;
-  for (int iter = 0; iter < 2; ++iter) {
-    column_family_options_.num_levels = (iter == 0) ? 3 : 7;
-    Destroy();
-    ASSERT_OK(Open({"default"}));
-    CreateColumnFamilies({"one"});
-    Close();
-    ASSERT_OK(Open({"default", "one"}));
-
-    MakeTables(cf, 3, "p", "q");
-    ASSERT_EQ("1,1,1", FilesPerLevel(cf));
-
-    // Compaction range falls before files
-    Compact(cf, "", "c");
-    ASSERT_EQ("1,1,1", FilesPerLevel(cf));
-
-    // Compaction range falls after files
-    Compact(cf, "r", "z");
-    ASSERT_EQ("1,1,1", FilesPerLevel(cf));
-
-    // Compaction range overlaps files
-    Compact(cf, "p1", "p9");
-    ASSERT_EQ("0,0,1", FilesPerLevel(cf));
-
-    // Populate a different range
-    MakeTables(cf, 3, "c", "e");
-    ASSERT_EQ("1,1,2", FilesPerLevel(cf));
-
-    // Compact just the new range
-    Compact(cf, "b", "f");
-    ASSERT_EQ("0,0,2", FilesPerLevel(cf));
-
-    // Compact all
-    MakeTables(cf, 1, "a", "z");
-    ASSERT_EQ("0,1,2", FilesPerLevel(cf));
-    Compact(cf, "", "zzz");
-    ASSERT_EQ("0,0,1", FilesPerLevel(cf));
-  }
-  Close();
-}
-
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
