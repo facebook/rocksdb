@@ -6,7 +6,12 @@
 INSTALL_PATH ?= $(CURDIR)
 
 #-----------------------------------------------
+
+ifneq ($(MAKECMDGOALS),dbg)
+OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
+else
 OPT += -fno-omit-frame-pointer -momit-leaf-frame-pointer
+endif
 #-----------------------------------------------
 
 # detect what platform we're building on
@@ -133,10 +138,13 @@ $(SHARED3): $(LIBOBJECTS)
 
 endif  # PLATFORM_SHARED_EXT
 
+.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
+	release tags valgrind_check whitebox_crash_test format shared_lib all \
+	dbg
+
 all: $(LIBRARY) $(PROGRAMS)
 
-.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
-	release tags valgrind_check whitebox_crash_test format shared_lib
+dbg: $(PROGRAMS)
 
 # Will also generate shared libraries. 
 release:
@@ -150,7 +158,7 @@ coverage:
 	# Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-check: all $(PROGRAMS) $(TESTS) $(TOOLS)
+check: $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 	python tools/ldb_test.py
 
@@ -343,8 +351,8 @@ $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 	rm -f $@
 	$(AR) -rs $@ $(MEMENVOBJECTS)
 
-memenv_test : helpers/memenv/memenv_test.o $(MEMENVLIBRARY) $(LIBRARY) $(TESTHARNESS)
-	$(CXX) helpers/memenv/memenv_test.o $(MEMENVLIBRARY) $(LIBRARY) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+memenv_test : helpers/memenv/memenv_test.o $(MEMENVOBJECTS) $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) helpers/memenv/memenv_test.o $(MEMENVOBJECTS) $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 manual_compaction_test: util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
