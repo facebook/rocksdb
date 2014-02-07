@@ -1047,16 +1047,16 @@ class PosixEnv : public Env {
                                  unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) {
     result->reset();
+    // no support for mmap yet
+    if (options.use_mmap_writes || options.use_mmap_reads) {
+      return Status::NotSupported("No support for mmap read/write yet");
+    }
     Status s;
     const int fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
     if (fd < 0) {
       s = IOError(fname, errno);
     } else {
       SetFD_CLOEXEC(fd, &options);
-      // no support for mmap yet
-      if (options.use_mmap_writes || options.use_mmap_reads) {
-        return Status::NotSupported("No support for mmap read/write yet");
-      }
       result->reset(new PosixRandomRWFile(fname, fd, options));
     }
     return s;

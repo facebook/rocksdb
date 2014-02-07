@@ -9,6 +9,8 @@
 
 #include "table/format.h"
 
+#include <string>
+
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "table/block.h"
@@ -43,8 +45,8 @@ void Footer::EncodeTo(std::string* dst) const {
   metaindex_handle_.EncodeTo(dst);
   index_handle_.EncodeTo(dst);
   dst->resize(2 * BlockHandle::kMaxEncodedLength);  // Padding
-  PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber & 0xffffffffu));
-  PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber >> 32));
+  PutFixed32(dst, static_cast<uint32_t>(table_magic_number() & 0xffffffffu));
+  PutFixed32(dst, static_cast<uint32_t>(table_magic_number() >> 32));
   assert(dst->size() == original_size + kEncodedLength);
 }
 
@@ -52,13 +54,21 @@ Status Footer::DecodeFrom(Slice* input) {
   assert(input != nullptr);
   assert(input->size() >= kEncodedLength);
 
-  const char* magic_ptr = input->data() + kEncodedLength - 8;
+  const char* magic_ptr =
+      input->data() + kEncodedLength - kMagicNumberLengthByte;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
   const uint64_t magic = ((static_cast<uint64_t>(magic_hi) << 32) |
                           (static_cast<uint64_t>(magic_lo)));
-  if (magic != kTableMagicNumber) {
-    return Status::InvalidArgument("not an sstable (bad magic number)");
+  if (HasInitializedTableMagicNumber()) {
+    if (magic != table_magic_number()) {
+      char buffer[80];
+      snprintf(buffer, sizeof(buffer) - 1,
+               "not an sstable (bad magic number --- %lx)", magic);
+      return Status::InvalidArgument(buffer);
+    }
+  } else {
+    set_table_magic_number(magic);
   }
 
   Status result = metaindex_handle_.DecodeFrom(input);
@@ -221,7 +231,7 @@ Status UncompressBlockContents(const char* data, size_t n,
     default:
       return Status::Corruption("bad block type");
   }
-  result->compression_type = kNoCompression; // not compressed any more
+  result->compression_type = kNoCompression;  // not compressed any more
   return Status::OK();
 }
 

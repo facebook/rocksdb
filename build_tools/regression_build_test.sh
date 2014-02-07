@@ -117,6 +117,27 @@ make release
     --sync=0 \
     --threads=16 > ${STAT_FILE}.readrandom
 
+# measure readrandom with 6GB block cache and tailing iterator
+./db_bench \
+    --benchmarks=readrandom \
+    --db=$DATA_DIR \
+    --use_existing_db=1 \
+    --bloom_bits=10 \
+    --num=$NUM \
+    --reads=$((NUM / 5)) \
+    --cache_size=6442450944 \
+    --cache_numshardbits=6 \
+    --table_cache_numshardbits=4 \
+    --open_files=55000 \
+    --disable_seek_compaction=1 \
+    --use_tailing_iterator=1 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0 \
+    --threads=16 > ${STAT_FILE}.readrandomtailing
+
 # measure readrandom with 100MB block cache
 ./db_bench \
     --benchmarks=readrandom \
@@ -300,6 +321,7 @@ function send_benchmark_to_ods {
 send_benchmark_to_ods overwrite overwrite $STAT_FILE.overwrite
 send_benchmark_to_ods fillseq fillseq $STAT_FILE.fillseq
 send_benchmark_to_ods readrandom readrandom $STAT_FILE.readrandom
+send_benchmark_to_ods readrandom readrandom_tailing $STAT_FILE.readrandomtailing
 send_benchmark_to_ods readrandom readrandom_smallblockcache $STAT_FILE.readrandomsmallblockcache
 send_benchmark_to_ods readrandom readrandom_memtable_sst $STAT_FILE.readrandom_mem_sst
 send_benchmark_to_ods readrandom readrandom_fillunique_random $STAT_FILE.readrandom_filluniquerandom

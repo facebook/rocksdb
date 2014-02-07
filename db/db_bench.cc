@@ -447,6 +447,9 @@ static auto FLAGS_compaction_fadvice_e =
 DEFINE_bool(use_multiget, false,
             "Use multiget to access a series of keys instead of get");
 
+DEFINE_bool(use_tailing_iterator, false,
+            "Use tailing iterator to access a series of keys instead of get");
+
 DEFINE_int64(keys_per_multiget, 90, "If use_multiget is true, determines number"
              " of keys to group per call Arbitrary default is good because it"
              " agrees with readwritepercent");
@@ -1729,6 +1732,21 @@ class Benchmark {
         thread->stats.FinishedSingleOp(db_);
         keys_left -= num_keys;
       }
+    } else if (FLAGS_use_tailing_iterator) {  // use tailing iterator for gets
+      options.tailing = true;
+      Iterator* iter = db_->NewIterator(options);
+      while (!duration.Done(1)) {
+        const long long k = thread->rand.Next() % FLAGS_num;
+        unique_ptr<char[]> key = GenerateKeyFromInt(k);
+
+        iter->Seek(key.get());
+        if (iter->Valid() && iter->key().compare(Slice(key.get())) == 0) {
+          ++found;
+        }
+
+        thread->stats.FinishedSingleOp(db_);
+      }
+      delete iter;
     } else {    // Regular case. Do one "get" at a time Get
       Iterator* iter = db_->NewIterator(options);
       std::string value;

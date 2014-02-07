@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "db/builder.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -118,4 +119,10 @@ Status ReadTableProperties(
     Logger* info_log,
     TableProperties* properties);
 
+// Read the magic number of the specified file directly.  The magic number
+// of a valid sst table the last 8-byte of the file.
+Status ReadTableMagicNumber(const std::string& file_path,
+                            const Options& options,
+                            const EnvOptions& env_options,
+                            uint64_t* table_magic_number);
 }  // namespace rocksdb

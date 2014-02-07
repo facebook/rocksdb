@@ -349,7 +349,6 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
   output->resize(output->size() - _stream.avail_out);
   BZ2_bzCompressEnd(&_stream);
   return true;
-  return output;
 #endif
   return false;
 }
