@@ -609,13 +609,13 @@ key-value during background compaction.
 </ul>
 <p>
 Other options impacting performance of compactions and when they get triggered
-are: 
+are:
 <ul>
 <p>
-<li> <code>Options::access_hint_on_compaction_start</code> - Specify the file access 
+<li> <code>Options::access_hint_on_compaction_start</code> - Specify the file access
 pattern once a compaction is started. It will be applied to all input files of a compaction. Default: NORMAL
 <p>
-<li> <code>Options::level0_file_num_compaction_trigger</code> -  Number of files to trigger level-0 compaction. 
+<li> <code>Options::level0_file_num_compaction_trigger</code> -  Number of files to trigger level-0 compaction.
 A negative value means that level-0 compaction will not be triggered by number of files at all.
 <p>
 <li> <code>Options::max_mem_compaction_level</code> -  Maximum level to which a new compacted memtable is pushed if it
@@ -623,7 +623,7 @@ does not create overlap.  We try to push to level 2 to avoid the relatively expe
 expensive manifest file operations.  We do not push all the way to the largest level since that can generate a lot of wasted disk
 space if the same key space is being repeatedly overwritten.
 <p>
-<li> <code>Options::target_file_size_base</code> and <code>Options::target_file_size_multiplier</code> - 
+<li> <code>Options::target_file_size_base</code> and <code>Options::target_file_size_multiplier</code> -
 Target file size for compaction.  target_file_size_base is per-file size for level-1.
 Target file size for level L can be calculated by target_file_size_base * (target_file_size_multiplier ^ (L-1))
 For example, if target_file_size_base is 2MB and target_file_size_multiplier is 10, then each file on level-1 will
@@ -698,7 +698,7 @@ Default: kCompactionStopStyleTotalSize
 A thread pool is associated with Env environment object. The client has to create a thread pool by setting the number of background
 threads using method <code>Env::SetBackgroundThreads()</code> defined in <code>rocksdb/env.h</code>.
 We use the thread pool for compactions and memtable flushes.
-Since memtable flushes are in critical code path (stalling memtable flush can stall writes, increasing p99), we suggest 
+Since memtable flushes are in critical code path (stalling memtable flush can stall writes, increasing p99), we suggest
 having two thread pools - with priorities HIGH and LOW. Memtable flushes can be set up to be scheduled on HIGH thread pool.
 There are two options available for configuration of background compactions and flushes:
 <ul>
@@ -779,9 +779,9 @@ implementation.  See <code>rocksdb/util/env_posix.h</code> for an example.
 <p>
 To be able to efficiently tune your application, it is always helpful if you
 have access to usage statistics. You can collect those statistics by setting
-<code>Options::table_stats_collectors</code> or
+<code>Options::table_properties_collectors</code> or
 <code>Options::statistics</code>. For more information, refer to
-<code>rocksdb/table_stats.h</code> and <code>rocksdb/statistics.h</code>.
+<code>rocksdb/table_properties.h</code> and <code>rocksdb/statistics.h</code>.
 These should not add significant overhead to your application and we
 recommend exporting them to other monitoring tools.
 
