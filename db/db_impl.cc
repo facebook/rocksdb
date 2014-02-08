@@ -2754,7 +2754,10 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
 
 Iterator* DBImpl::TEST_NewInternalIterator() {
   SequenceNumber ignored;
-  return NewInternalIterator(ReadOptions(), &ignored);
+  ReadOptions read_options;
+  // Use prefix_seek to make the test function more useful.
+  read_options.prefix_seek = true;
+  return NewInternalIterator(read_options, &ignored);
 }
 
 std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(

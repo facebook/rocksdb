@@ -60,20 +60,44 @@ struct BlockBasedTableOptions {
 extern TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
 
+// -- Plain Table with prefix-only seek
+// For this factory, you need to set Options.prefix_extrator properly to make it
+// work. Look-up will starts with prefix hash lookup for key prefix. Inside the
+// hash bucket found, a binary search is executed for hash conflicts. Finally,
+// a linear search is used.
+// @user_key_len: plain table has optimization for fix-sized keys, which can be
+//                specified via user_key_len.  Alternatively, you can pass
+//                `kPlainTableVariableLength` if your keys have variable
+//                lengths.
+// @bloom_bits_per_key: the number of bits used for bloom filer per prefix. You
+//                      may disable it by passing a zero.
+// @hash_table_ratio: the desired utilization of the hash table used for prefix
+//                    hashing. hash_table_ratio = number of prefixes / #buckets
+//                    in the hash table
+// @index_sparseness: inside each prefix, need to build one index record for how
+//                    many keys for binary search inside each hash bucket.
+const uint32_t kPlainTableVariableLength = 0;
+extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
+                                              kPlainTableVariableLength,
+                                          int bloom_bits_per_prefix = 10,
+                                          double hash_table_ratio = 0.75,
+                                          size_t index_sparseness = 16);
+
 // -- Plain Table
+// This factory of plain table ignores Options.prefix_extractor and assumes no
+// hashable prefix available to the key structure. Lookup will be based on
+// binary search index only. Total order seek() can be issued.
 // @user_key_len: plain table has optimization for fix-sized keys, which can be
 //                specified via user_key_len.  Alternatively, you can pass
 //                `kPlainTableVariableLength` if your keys have variable
 //                lengths.
 // @bloom_bits_per_key: the number of bits used for bloom filer per key. You may
 //                  disable it by passing a zero.
-// @hash_table_ratio: the desired utilization of the hash table used for prefix
-//                    hashing. hash_table_ratio = number of prefixes / #buckets
-//                    in the hash table
-const uint32_t kPlainTableVariableLength = 0;
-extern TableFactory* NewPlainTableFactory(
+// @index_sparseness: need to build one index record for how many keys for
+//                    binary search.
+extern TableFactory* NewTotalOrderPlainTableFactory(
     uint32_t user_key_len = kPlainTableVariableLength,
-    int bloom_bits_per_key = 10, double hash_table_ratio = 0.75);
+    int bloom_bits_per_key = 0, size_t index_sparseness = 16);
 
 // A base class for table factories.
 class TableFactory {
