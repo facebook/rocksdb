@@ -65,8 +65,8 @@ Status Footer::DecodeFrom(Slice* input) {
     if (magic != table_magic_number()) {
       char buffer[80];
       snprintf(buffer, sizeof(buffer) - 1,
-               "not an sstable (bad magic number --- %#" PRIx64 ")",
-               magic);
+               "not an sstable (bad magic number --- %lx)",
+               (long)magic);
       return Status::InvalidArgument(buffer);
     }
   } else {

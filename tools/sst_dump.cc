@@ -135,8 +135,8 @@ Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
   } else {
     char error_msg_buffer[80];
     snprintf(error_msg_buffer, sizeof(error_msg_buffer) - 1,
-             "Unsupported table magic number --- %#" PRIx64,
-             table_magic_number);
+             "Unsupported table magic number --- %lx",
+             (long)table_magic_number);
     return Status::InvalidArgument(error_msg_buffer);
   }
 
