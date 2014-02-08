@@ -56,7 +56,19 @@ static bool BZip2CompressionSupported(const CompressionOptions& options) {
   return port::BZip2_Compress(options, in.data(), in.size(), &out);
 }
 
-static std::string RandomString(Random* rnd, int len) {
+static bool LZ4CompressionSupported(const CompressionOptions &options) {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4_Compress(options, in.data(), in.size(), &out);
+}
+
+static bool LZ4HCCompressionSupported(const CompressionOptions &options) {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4HC_Compress(options, in.data(), in.size(), &out);
+}
+
+static std::string RandomString(Random *rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
   return r;
@@ -2624,6 +2636,14 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
                CompressionOptions(wbits, lev, strategy))) {
     type = kBZip2Compression;
     fprintf(stderr, "using bzip2\n");
+  } else if (LZ4CompressionSupported(
+                 CompressionOptions(wbits, lev, strategy))) {
+    type = kLZ4Compression;
+    fprintf(stderr, "using lz4\n");
+  } else if (LZ4HCCompressionSupported(
+                 CompressionOptions(wbits, lev, strategy))) {
+    type = kLZ4HCCompression;
+    fprintf(stderr, "using lz4hc\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
     return false;
