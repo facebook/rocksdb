@@ -1237,10 +1237,10 @@ TEST(PlainTableTest, BasicPlainTableProperties) {
   StringSource source(sink.contents(), 72242, true);
 
   TableProperties* props = nullptr;
-  std::unique_ptr<TableProperties> props_guard;
   auto s = ReadTableProperties(&source, sink.contents().size(),
                                kPlainTableMagicNumber, Env::Default(), nullptr,
                                &props);
+  std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
   ASSERT_EQ(0ul, props->index_size);
