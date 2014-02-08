@@ -62,7 +62,7 @@ struct BlockBasedTable::Rep {
   unique_ptr<Block> index_block;
   unique_ptr<FilterBlockReader> filter;
 
-  TableProperties table_properties;
+  std::shared_ptr<const TableProperties> table_properties;
 };
 
 BlockBasedTable::~BlockBasedTable() {
@@ -255,9 +255,10 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
   meta_iter->Seek(kPropertiesBlock);
   if (meta_iter->Valid() && meta_iter->key() == kPropertiesBlock) {
     s = meta_iter->status();
+    TableProperties* table_properties = nullptr;
     if (s.ok()) {
       s = ReadProperties(meta_iter->value(), rep->file.get(), rep->options.env,
-                         rep->options.info_log.get(), &rep->table_properties);
+                         rep->options.info_log.get(), &table_properties);
     }
 
     if (!s.ok()) {
@@ -265,6 +266,8 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
         "[Warning] Encountered error while reading data from properties "
         "block " + s.ToString();
       Log(rep->options.info_log, "%s", err_msg.c_str());
+    } else {
+      rep->table_properties.reset(table_properties);
     }
   }
 
@@ -339,7 +342,8 @@ void BlockBasedTable::SetupForCompaction() {
   compaction_optimized_ = true;
 }
 
-const TableProperties& BlockBasedTable::GetTableProperties() {
+std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
+    const {
   return rep_->table_properties;
 }
 

@@ -86,7 +86,7 @@ class BlockBasedTable : public TableReader {
   // posix_fadvise
   void SetupForCompaction() override;
 
-  const TableProperties& GetTableProperties() override;
+  std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
   ~BlockBasedTable();
 

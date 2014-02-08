@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <inttypes.h>
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
@@ -43,7 +44,8 @@ class SstFileReader {
                         bool has_to,
                         const std::string& to_key);
 
-  Status ReadTableProperties(TableProperties* table_properties);
+  Status ReadTableProperties(
+      std::shared_ptr<const TableProperties>* table_properties);
   uint64_t GetReadNumber() { return read_num_; }
 
  private:
@@ -112,10 +114,11 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
 Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
                                                    RandomAccessFile* file,
                                                    uint64_t file_size) {
-  TableProperties table_properties;
+  TableProperties* table_properties;
   Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,
                                           options_.env, options_.info_log.get(),
                                           &table_properties);
+  std::unique_ptr<TableProperties> props_guard(table_properties);
   if (!s.ok()) {
     return s;
   }
@@ -126,13 +129,14 @@ Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
   } else if (table_magic_number == kPlainTableMagicNumber) {
     options_.allow_mmap_reads = true;
     options_.table_factory = std::make_shared<PlainTableFactory>(
-        table_properties.fixed_key_len, 2, 0.8);
+        table_properties->fixed_key_len, 2, 0.8);
     options_.prefix_extractor = NewNoopTransform();
     fprintf(stdout, "Sst file format: plain table\n");
   } else {
     char error_msg_buffer[80];
     snprintf(error_msg_buffer, sizeof(error_msg_buffer) - 1,
-             "Unsupported table magic number --- %lx)", table_magic_number);
+             "Unsupported table magic number --- %#" PRIx64,
+             table_magic_number);
     return Status::InvalidArgument(error_msg_buffer);
   }
 
@@ -192,7 +196,8 @@ Status SstFileReader::ReadSequential(bool print_kv,
   return ret;
 }
 
-Status SstFileReader::ReadTableProperties(TableProperties* table_properties) {
+Status SstFileReader::ReadTableProperties(
+    std::shared_ptr<const TableProperties>* table_properties) {
   if (!table_reader_) {
     return init_result_;
   }
@@ -335,18 +340,19 @@ int main(int argc, char** argv) {
       }
     }
     if (show_properties) {
-      rocksdb::TableProperties table_properties;
+      std::shared_ptr<const rocksdb::TableProperties> table_properties;
       st = reader.ReadTableProperties(&table_properties);
       if (!st.ok()) {
         fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
       } else {
         fprintf(stdout,
-            "Table Properties:\n"
-            "------------------------------\n"
-            "  %s", table_properties.ToString("\n  ", ": ").c_str());
+                "Table Properties:\n"
+                "------------------------------\n"
+                "  %s",
+                table_properties->ToString("\n  ", ": ").c_str());
         fprintf(stdout, "# deleted keys: %zd\n",
                 rocksdb::GetDeletedKeys(
-                    table_properties.user_collected_properties));
+                    table_properties->user_collected_properties));
       }
     }
   }

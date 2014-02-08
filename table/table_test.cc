@@ -932,7 +932,7 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
            &kvmap);
 
-  auto& props = c.table_reader()->GetTableProperties();
+  auto& props = *c.table_reader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
 
   auto raw_key_size = kvmap.size() * 2ul;
@@ -963,7 +963,7 @@ TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
 
   c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
            &kvmap);
-  auto& props = c.table_reader()->GetTableProperties();
+  auto& props = *c.table_reader()->GetTableProperties();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
 }
 
@@ -1005,8 +1005,7 @@ TEST(BlockBasedTableTest, IndexSizeStat) {
 
     c.Finish(options, GetPlainInternalComparator(options.comparator), &ks,
              &kvmap);
-    auto index_size =
-      c.table_reader()->GetTableProperties().index_size;
+    auto index_size = c.table_reader()->GetTableProperties()->index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
   }
@@ -1031,7 +1030,7 @@ TEST(BlockBasedTableTest, NumBlockStat) {
   c.Finish(options, GetPlainInternalComparator(options.comparator), &ks,
            &kvmap);
   ASSERT_EQ(kvmap.size(),
-            c.table_reader()->GetTableProperties().num_data_blocks);
+            c.table_reader()->GetTableProperties()->num_data_blocks);
 }
 
 class BlockCacheProperties {
@@ -1237,18 +1236,19 @@ TEST(PlainTableTest, BasicPlainTableProperties) {
 
   StringSource source(sink.contents(), 72242, true);
 
-  TableProperties props;
+  TableProperties* props = nullptr;
+  std::unique_ptr<TableProperties> props_guard;
   auto s = ReadTableProperties(&source, sink.contents().size(),
                                kPlainTableMagicNumber, Env::Default(), nullptr,
                                &props);
   ASSERT_OK(s);
 
-  ASSERT_EQ(0ul, props.index_size);
-  ASSERT_EQ(0ul, props.filter_size);
-  ASSERT_EQ(16ul * 26, props.raw_key_size);
-  ASSERT_EQ(28ul * 26, props.raw_value_size);
-  ASSERT_EQ(26ul, props.num_entries);
-  ASSERT_EQ(1ul, props.num_data_blocks);
+  ASSERT_EQ(0ul, props->index_size);
+  ASSERT_EQ(0ul, props->filter_size);
+  ASSERT_EQ(16ul * 26, props->raw_key_size);
+  ASSERT_EQ(28ul * 26, props->raw_value_size);
+  ASSERT_EQ(26ul, props->num_entries);
+  ASSERT_EQ(1ul, props->num_data_blocks);
 }
 
 TEST(GeneralTableTest, ApproximateOffsetOfPlain) {

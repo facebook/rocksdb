@@ -133,12 +133,9 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
-Status ReadProperties(
-    const Slice& handle_value,
-    RandomAccessFile* file,
-    Env* env,
-    Logger* logger,
-    TableProperties* table_properties) {
+Status ReadProperties(const Slice& handle_value, RandomAccessFile* file,
+                      Env* env, Logger* logger,
+                      TableProperties** table_properties) {
   assert(table_properties);
 
   Slice v = handle_value;
@@ -161,18 +158,22 @@ Status ReadProperties(
   std::unique_ptr<Iterator> iter(
       properties_block.NewIterator(BytewiseComparator()));
 
+  auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
   std::unordered_map<std::string, uint64_t*> predefined_uint64_properties = {
-      {TablePropertiesNames::kDataSize, &table_properties->data_size},
-      {TablePropertiesNames::kIndexSize, &table_properties->index_size},
-      {TablePropertiesNames::kFilterSize, &table_properties->filter_size},
-      {TablePropertiesNames::kRawKeySize, &table_properties->raw_key_size},
-      {TablePropertiesNames::kRawValueSize, &table_properties->raw_value_size},
+      {TablePropertiesNames::kDataSize, &new_table_properties->data_size},
+      {TablePropertiesNames::kIndexSize, &new_table_properties->index_size},
+      {TablePropertiesNames::kFilterSize, &new_table_properties->filter_size},
+      {TablePropertiesNames::kRawKeySize, &new_table_properties->raw_key_size},
+      {TablePropertiesNames::kRawValueSize,
+       &new_table_properties->raw_value_size},
       {TablePropertiesNames::kNumDataBlocks,
-       &table_properties->num_data_blocks},
-      {TablePropertiesNames::kNumEntries, &table_properties->num_entries},
-      {TablePropertiesNames::kFormatVersion, &table_properties->format_version},
-      {TablePropertiesNames::kFixedKeyLen, &table_properties->fixed_key_len}};
+       &new_table_properties->num_data_blocks},
+      {TablePropertiesNames::kNumEntries, &new_table_properties->num_entries},
+      {TablePropertiesNames::kFormatVersion,
+       &new_table_properties->format_version},
+      {TablePropertiesNames::kFixedKeyLen,
+       &new_table_properties->fixed_key_len}, };
 
   std::string last_key;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -203,24 +204,25 @@ Status ReadProperties(
       }
       *(pos->second) = val;
     } else if (key == TablePropertiesNames::kFilterPolicy) {
-      table_properties->filter_policy_name = raw_val.ToString();
+      new_table_properties->filter_policy_name = raw_val.ToString();
     } else {
       // handle user-collected properties
-      table_properties->user_collected_properties.insert(
+      new_table_properties->user_collected_properties.insert(
           {key, raw_val.ToString()});
     }
+  }
+  if (s.ok()) {
+    *table_properties = new_table_properties;
+  } else {
+    delete new_table_properties;
   }
 
   return s;
 }
 
-Status ReadTableProperties(
-    RandomAccessFile* file,
-    uint64_t file_size,
-    uint64_t table_magic_number,
-    Env* env,
-    Logger* info_log,
-    TableProperties* properties) {
+Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
+                           uint64_t table_magic_number, Env* env,
+                           Logger* info_log, TableProperties** properties) {
   // -- Read metaindex block
   Footer footer(table_magic_number);
   auto s = ReadFooterFromFile(file, file_size, &footer);

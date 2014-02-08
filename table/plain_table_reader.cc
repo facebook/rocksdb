@@ -87,15 +87,15 @@ PlainTableReader::PlainTableReader(const EnvOptions& storage_options,
                                    const InternalKeyComparator& icomparator,
                                    uint64_t file_size, int bloom_bits_per_key,
                                    double hash_table_ratio,
-                                   const TableProperties& table_properties)
+                                   const TableProperties* table_properties)
     : soptions_(storage_options),
       internal_comparator_(icomparator),
       file_size_(file_size),
       kHashTableRatio(hash_table_ratio),
       kBloomBitsPerKey(bloom_bits_per_key),
       table_properties_(table_properties),
-      data_end_offset_(table_properties_.data_size),
-      user_key_len_(table_properties.fixed_key_len) {}
+      data_end_offset_(table_properties_->data_size),
+      user_key_len_(table_properties->fixed_key_len) {}
 
 PlainTableReader::~PlainTableReader() {
   delete[] hash_table_;
@@ -117,17 +117,16 @@ Status PlainTableReader::Open(const Options& options,
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
-  TableProperties table_properties;
+  TableProperties* props = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               options.env, options.info_log.get(),
-                               &table_properties);
+                               options.env, options.info_log.get(), &props);
   if (!s.ok()) {
     return s;
   }
 
-  std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
-      soptions, internal_comparator, file_size, bloom_bits_per_key,
-      hash_table_ratio, table_properties));
+  std::unique_ptr<PlainTableReader> new_reader(
+      new PlainTableReader(soptions, internal_comparator, file_size,
+                           bloom_bits_per_key, hash_table_ratio, props));
   new_reader->file_ = std::move(file);
   new_reader->options_ = options;
 

@@ -10,6 +10,7 @@
 #include "table/format.h"
 
 #include <string>
+#include <inttypes.h>
 
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -64,7 +65,8 @@ Status Footer::DecodeFrom(Slice* input) {
     if (magic != table_magic_number()) {
       char buffer[80];
       snprintf(buffer, sizeof(buffer) - 1,
-               "not an sstable (bad magic number --- %lx)", magic);
+               "not an sstable (bad magic number --- %#" PRIx64 ")",
+               magic);
       return Status::InvalidArgument(buffer);
     }
   } else {
