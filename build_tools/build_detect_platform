@@ -38,7 +38,7 @@ if test -z "$OUTPUT"; then
 fi
 
 # we depend on C++11
-PLATFORM_CXXFLAGS="-std=gnu++11"
+PLATFORM_CXXFLAGS="-std=c++11"
 # we currently depend on POSIX platform
 COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
 
