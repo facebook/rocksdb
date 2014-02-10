@@ -260,7 +260,7 @@ class DB {
 
   // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
 
-  // THIS METHOD IS DEPRECATED. Use the GetTableMetaData to get more
+  // THIS METHOD IS DEPRECATED. Use the GetLiveFilesMetaData to get more
   // detailed information on the live files.
   // Retrieve the list of all files in the database. The files are
   // relative to the dbname and are not absolute paths. The valid size of the
@@ -301,9 +301,7 @@ class DB {
 
   // Returns a list of all table files with their level, start key
   // and end key
-  virtual void GetLiveFilesMetaData(
-    std::vector<LiveFileMetaData> *metadata) {
-  }
+  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {}
 
   // Sets the globally unique ID created at database creation time by invoking
   // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
