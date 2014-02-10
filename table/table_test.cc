@@ -487,30 +487,62 @@ class DBConstructor: public Constructor {
 };
 
 static bool SnappyCompressionSupported() {
+#ifdef SNAPPY
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   return port::Snappy_Compress(Options().compression_opts,
                                in.data(), in.size(),
                                &out);
+#else
+  return false;
+#endif
 }
 
 static bool ZlibCompressionSupported() {
+#ifdef ZLIB
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   return port::Zlib_Compress(Options().compression_opts,
                              in.data(), in.size(),
                              &out);
+#else
+  return false;
+#endif
 }
 
-#ifdef BZIP2
 static bool BZip2CompressionSupported() {
+#ifdef BZIP2
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   return port::BZip2_Compress(Options().compression_opts,
                               in.data(), in.size(),
                               &out);
-}
+#else
+  return false;
 #endif
+}
+
+static bool LZ4CompressionSupported() {
+#ifdef LZ4
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4_Compress(Options().compression_opts, in.data(), in.size(),
+                            &out);
+#else
+  return false;
+#endif
+}
+
+static bool LZ4HCCompressionSupported() {
+#ifdef LZ4
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4HC_Compress(Options().compression_opts, in.data(), in.size(),
+                              &out);
+#else
+  return false;
+#endif
+}
 
 enum TestType {
   BLOCK_BASED_TABLE_TEST,
@@ -538,24 +570,23 @@ static std::vector<TestArgs> GenerateArgList() {
   std::vector<int> restart_intervals = {16, 1, 1024};
 
   // Only add compression if it is supported
-  std::vector<CompressionType> compression_types = {kNoCompression};
-#ifdef SNAPPY
+  std::vector<CompressionType> compression_types;
+  compression_types.push_back(kNoCompression);
   if (SnappyCompressionSupported()) {
     compression_types.push_back(kSnappyCompression);
   }
-#endif
-
-#ifdef ZLIB
   if (ZlibCompressionSupported()) {
     compression_types.push_back(kZlibCompression);
   }
-#endif
-
-#ifdef BZIP2
   if (BZip2CompressionSupported()) {
     compression_types.push_back(kBZip2Compression);
   }
-#endif
+  if (LZ4CompressionSupported()) {
+    compression_types.push_back(kLZ4Compression);
+  }
+  if (LZ4HCCompressionSupported()) {
+    compression_types.push_back(kLZ4HCCompression);
+  }
 
   for (auto test_type : test_types) {
     for (auto reverse_compare : reverse_compare_types) {
@@ -1319,6 +1350,27 @@ TEST(GeneralTableTest, ApproximateOffsetOfCompressed) {
     fprintf(stderr, "skipping zlib compression tests\n");
   } else {
     compression_state[valid] = kZlibCompression;
+    valid++;
+  }
+
+  if (!BZip2CompressionSupported()) {
+    fprintf(stderr, "skipping bzip2 compression tests\n");
+  } else {
+    compression_state[valid] = kBZip2Compression;
+    valid++;
+  }
+
+  if (!LZ4CompressionSupported()) {
+    fprintf(stderr, "skipping lz4 compression tests\n");
+  } else {
+    compression_state[valid] = kLZ4Compression;
+    valid++;
+  }
+
+  if (!LZ4HCCompressionSupported()) {
+    fprintf(stderr, "skipping lz4hc compression tests\n");
+  } else {
+    compression_state[valid] = kLZ4HCCompression;
     valid++;
   }
 

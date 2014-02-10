@@ -273,6 +273,10 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kZlibCompression;
   else if (!strcasecmp(ctype, "bzip2"))
     return rocksdb::kBZip2Compression;
+  else if (!strcasecmp(ctype, "lz4"))
+    return rocksdb::kLZ4Compression;
+  else if (!strcasecmp(ctype, "lz4hc"))
+    return rocksdb::kLZ4HCCompression;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
@@ -1328,7 +1332,12 @@ class StressTest {
       case rocksdb::kBZip2Compression:
         compression = "bzip2";
         break;
-    }
+      case rocksdb::kLZ4Compression:
+        compression = "lz4";
+      case rocksdb::kLZ4HCCompression:
+        compression = "lz4hc";
+        break;
+      }
 
     fprintf(stdout, "Compression         : %s\n", compression);
 

@@ -238,8 +238,10 @@ extern void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t*);
 enum {
   rocksdb_no_compression = 0,
   rocksdb_snappy_compression = 1,
-  rocksdb_zlib_compression = 1,
-  rocksdb_bz2_compression = 1
+  rocksdb_zlib_compression = 2,
+  rocksdb_bz2_compression = 3,
+  rocksdb_lz4_compression = 4,
+  rocksdb_lz4hc_compression = 5
 };
 extern void rocksdb_options_set_compression(rocksdb_options_t*, int);
 

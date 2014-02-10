@@ -60,8 +60,8 @@ DEFINE_string(benchmarks,
               "randomwithverify,"
               "fill100K,"
               "crc32c,"
-              "snappycomp,"
-              "snappyuncomp,"
+              "compress,"
+              "uncompress,"
               "acquireload,"
               "fillfromstdin,",
 
@@ -338,6 +338,10 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kZlibCompression;
   else if (!strcasecmp(ctype, "bzip2"))
     return rocksdb::kBZip2Compression;
+  else if (!strcasecmp(ctype, "lz4"))
+    return rocksdb::kLZ4Compression;
+  else if (!strcasecmp(ctype, "lz4hc"))
+    return rocksdb::kLZ4HCCompression;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
@@ -841,7 +845,13 @@ class Benchmark {
       case rocksdb::kBZip2Compression:
         fprintf(stdout, "Compression: bzip2\n");
         break;
-    }
+      case rocksdb::kLZ4Compression:
+        fprintf(stdout, "Compression: lz4\n");
+        break;
+      case rocksdb::kLZ4HCCompression:
+        fprintf(stdout, "Compression: lz4hc\n");
+        break;
+      }
 
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
@@ -895,6 +905,16 @@ class Benchmark {
           result = port::BZip2_Compress(Options().compression_opts, text,
                                         strlen(text), &compressed);
           name = "BZip2";
+          break;
+        case kLZ4Compression:
+          result = port::LZ4_Compress(Options().compression_opts, text,
+                                      strlen(text), &compressed);
+          name = "LZ4";
+          break;
+        case kLZ4HCCompression:
+          result = port::LZ4HC_Compress(Options().compression_opts, text,
+                                        strlen(text), &compressed);
+          name = "LZ4HC";
           break;
         case kNoCompression:
           assert(false); // cannot happen
@@ -1146,10 +1166,10 @@ class Benchmark {
         method = &Benchmark::Crc32c;
       } else if (name == Slice("acquireload")) {
         method = &Benchmark::AcquireLoad;
-      } else if (name == Slice("snappycomp")) {
-        method = &Benchmark::SnappyCompress;
-      } else if (name == Slice("snappyuncomp")) {
-        method = &Benchmark::SnappyUncompress;
+      } else if (name == Slice("compress")) {
+        method = &Benchmark::Compress;
+      } else if (name == Slice("uncompress")) {
+        method = &Benchmark::Uncompress;
       } else if (name == Slice("heapprofile")) {
         HeapProfile();
       } else if (name == Slice("stats")) {
@@ -1302,23 +1322,47 @@ class Benchmark {
     if (ptr == nullptr) exit(1); // Disable unused variable warning.
   }
 
-  void SnappyCompress(ThreadState* thread) {
+  void Compress(ThreadState *thread) {
     RandomGenerator gen;
     Slice input = gen.Generate(Options().block_size);
     int64_t bytes = 0;
     int64_t produced = 0;
     bool ok = true;
     std::string compressed;
-    while (ok && bytes < 1024 * 1048576) {  // Compress 1G
-      ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+
+    // Compress 1G
+    while (ok && bytes < int64_t(1) << 30) {
+      switch (FLAGS_compression_type_e) {
+      case rocksdb::kSnappyCompression:
+        ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+                                   input.size(), &compressed);
+        break;
+      case rocksdb::kZlibCompression:
+        ok = port::Zlib_Compress(Options().compression_opts, input.data(),
                                  input.size(), &compressed);
+        break;
+      case rocksdb::kBZip2Compression:
+        ok = port::BZip2_Compress(Options().compression_opts, input.data(),
+                                  input.size(), &compressed);
+        break;
+      case rocksdb::kLZ4Compression:
+        ok = port::LZ4_Compress(Options().compression_opts, input.data(),
+                                input.size(), &compressed);
+        break;
+      case rocksdb::kLZ4HCCompression:
+        ok = port::LZ4HC_Compress(Options().compression_opts, input.data(),
+                                  input.size(), &compressed);
+        break;
+      default:
+        ok = false;
+      }
       produced += compressed.size();
       bytes += input.size();
       thread->stats.FinishedSingleOp(nullptr);
     }
 
     if (!ok) {
-      thread->stats.AddMessage("(snappy failure)");
+      thread->stats.AddMessage("(compression failure)");
     } else {
       char buf[100];
       snprintf(buf, sizeof(buf), "(output: %.1f%%)",
@@ -1328,24 +1372,78 @@ class Benchmark {
     }
   }
 
-  void SnappyUncompress(ThreadState* thread) {
+  void Uncompress(ThreadState *thread) {
     RandomGenerator gen;
     Slice input = gen.Generate(Options().block_size);
     std::string compressed;
-    bool ok = port::Snappy_Compress(Options().compression_opts, input.data(),
-                                    input.size(), &compressed);
+
+    bool ok;
+    switch (FLAGS_compression_type_e) {
+    case rocksdb::kSnappyCompression:
+      ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+                                 input.size(), &compressed);
+      break;
+    case rocksdb::kZlibCompression:
+      ok = port::Zlib_Compress(Options().compression_opts, input.data(),
+                               input.size(), &compressed);
+      break;
+    case rocksdb::kBZip2Compression:
+      ok = port::BZip2_Compress(Options().compression_opts, input.data(),
+                                input.size(), &compressed);
+      break;
+    case rocksdb::kLZ4Compression:
+      ok = port::LZ4_Compress(Options().compression_opts, input.data(),
+                              input.size(), &compressed);
+      break;
+    case rocksdb::kLZ4HCCompression:
+      ok = port::LZ4HC_Compress(Options().compression_opts, input.data(),
+                                input.size(), &compressed);
+      break;
+    default:
+      ok = false;
+    }
+
     int64_t bytes = 0;
-    char* uncompressed = new char[input.size()];
-    while (ok && bytes < 1024 * 1048576) {  // Compress 1G
-      ok =  port::Snappy_Uncompress(compressed.data(), compressed.size(),
-                                    uncompressed);
+    int decompress_size;
+    while (ok && bytes < 1024 * 1048576) {
+      char *uncompressed = nullptr;
+      switch (FLAGS_compression_type_e) {
+      case rocksdb::kSnappyCompression:
+        // allocate here to make comparison fair
+        uncompressed = new char[input.size()];
+        ok = port::Snappy_Uncompress(compressed.data(), compressed.size(),
+                                     uncompressed);
+        break;
+      case rocksdb::kZlibCompression:
+        uncompressed = port::Zlib_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      case rocksdb::kBZip2Compression:
+        uncompressed = port::BZip2_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      case rocksdb::kLZ4Compression:
+        uncompressed = port::LZ4_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      case rocksdb::kLZ4HCCompression:
+        uncompressed = port::LZ4_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      default:
+        ok = false;
+      }
+      delete[] uncompressed;
       bytes += input.size();
       thread->stats.FinishedSingleOp(nullptr);
     }
-    delete[] uncompressed;
 
     if (!ok) {
-      thread->stats.AddMessage("(snappy failure)");
+      thread->stats.AddMessage("(compression failure)");
     } else {
       thread->stats.AddBytes(bytes);
     }

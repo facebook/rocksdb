@@ -230,6 +230,28 @@ Status UncompressBlockContents(const char* data, size_t n,
       result->heap_allocated = true;
       result->cachable = true;
       break;
+    case kLZ4Compression:
+      ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
+      static char lz4_corrupt_msg[] =
+          "LZ4 not supported or corrupted LZ4 compressed block contents";
+      if (!ubuf) {
+        return Status::Corruption(lz4_corrupt_msg);
+      }
+      result->data = Slice(ubuf, decompress_size);
+      result->heap_allocated = true;
+      result->cachable = true;
+      break;
+    case kLZ4HCCompression:
+      ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
+      static char lz4hc_corrupt_msg[] =
+          "LZ4HC not supported or corrupted LZ4HC compressed block contents";
+      if (!ubuf) {
+        return Status::Corruption(lz4hc_corrupt_msg);
+      }
+      result->data = Slice(ubuf, decompress_size);
+      result->heap_allocated = true;
+      result->cachable = true;
+      break;
     default:
       return Status::Corruption("bad block type");
   }
