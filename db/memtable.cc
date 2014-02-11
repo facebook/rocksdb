@@ -207,116 +207,147 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   }
 }
 
+// Callback from MemTable::Get()
+namespace {
+
+struct Saver {
+  Status* status;
+  const LookupKey* key;
+  bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
+  bool* merge_in_progress;
+  std::string* value;
+  const MergeOperator* merge_operator;
+  // the merge operations encountered;
+  MergeContext* merge_context;
+  MemTable* mem;
+  Logger* logger;
+  Statistics* statistics;
+  bool inplace_update_support;
+};
+}  // namespace
+
+static bool SaveValue(void* arg, const char* entry) {
+  Saver* s = reinterpret_cast<Saver*>(arg);
+  MergeContext* merge_context = s->merge_context;
+  const MergeOperator* merge_operator = s->merge_operator;
+
+  assert(s != nullptr && merge_context != nullptr);
+
+  // entry format is:
+  //    klength  varint32
+  //    userkey  char[klength-8]
+  //    tag      uint64
+  //    vlength  varint32
+  //    value    char[vlength]
+  // Check that it belongs to same user key.  We do not check the
+  // sequence number since the Seek() call above should have skipped
+  // all entries with overly large sequence numbers.
+  uint32_t key_length;
+  const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+  if (s->mem->GetInternalKeyComparator().user_comparator()->Compare(
+          Slice(key_ptr, key_length - 8), s->key->user_key()) == 0) {
+    // Correct user key
+    const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
+    switch (static_cast<ValueType>(tag & 0xff)) {
+      case kTypeValue: {
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->ReadLock();
+        }
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+        *(s->status) = Status::OK();
+        if (*(s->merge_in_progress)) {
+          assert(merge_operator);
+          if (!merge_operator->FullMerge(s->key->user_key(), &v,
+                                         merge_context->GetOperands(), s->value,
+                                         s->logger)) {
+            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
+            *(s->status) =
+                Status::Corruption("Error: Could not perform merge.");
+          }
+        } else {
+          s->value->assign(v.data(), v.size());
+        }
+        if (s->inplace_update_support) {
+          s->mem->GetLock(s->key->user_key())->Unlock();
+        }
+        *(s->found_final_value) = true;
+        return false;
+      }
+      case kTypeDeletion: {
+        if (*(s->merge_in_progress)) {
+          assert(merge_operator);
+          *(s->status) = Status::OK();
+          if (!merge_operator->FullMerge(s->key->user_key(), nullptr,
+                                         merge_context->GetOperands(), s->value,
+                                         s->logger)) {
+            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
+            *(s->status) =
+                Status::Corruption("Error: Could not perform merge.");
+          }
+        } else {
+          *(s->status) = Status::NotFound();
+        }
+        *(s->found_final_value) = true;
+        return false;
+      }
+      case kTypeMerge: {
+        std::string merge_result;  // temporary area for merge results later
+        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+        *(s->merge_in_progress) = true;
+        merge_context->PushOperand(v);
+        while (merge_context->GetNumOperands() >= 2) {
+          // Attempt to associative merge. (Returns true if successful)
+          if (merge_operator->PartialMerge(
+                  s->key->user_key(), merge_context->GetOperand(0),
+                  merge_context->GetOperand(1), &merge_result, s->logger)) {
+            merge_context->PushPartialMergeResult(merge_result);
+          } else {
+            // Stack them because user can't associative merge
+            break;
+          }
+        }
+        return true;
+      }
+      default:
+        assert(false);
+        return true;
+    }
+  }
+
+  // s->state could be Corrupt, merge or notfound
+  return false;
+}
+
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext& merge_context, const Options& options) {
   StopWatchNano memtable_get_timer(options.env, false);
   StartPerfTimer(&memtable_get_timer);
 
-  Slice mem_key = key.memtable_key();
   Slice user_key = key.user_key();
+  bool found_final_value = false;
+  bool merge_in_progress = s->IsMergeInProgress();
 
-  std::unique_ptr<MemTableRep::Iterator> iter;
   if (prefix_bloom_ &&
       !prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
     // iter is null if prefix bloom says the key does not exist
   } else {
-    iter.reset(table_->GetIterator(user_key));
-    iter->Seek(key.internal_key(), mem_key.data());
-  }
-
-  bool merge_in_progress = s->IsMergeInProgress();
-  auto merge_operator = options.merge_operator.get();
-  auto logger = options.info_log;
-  std::string merge_result;
-
-  bool found_final_value = false;
-  for (; !found_final_value && iter && iter->Valid(); iter->Next()) {
-    // entry format is:
-    //    klength  varint32
-    //    userkey  char[klength-8]
-    //    tag      uint64
-    //    vlength  varint32
-    //    value    char[vlength]
-    // Check that it belongs to same user key.  We do not check the
-    // sequence number since the Seek() call above should have skipped
-    // all entries with overly large sequence numbers.
-    const char* entry = iter->key();
-    uint32_t key_length = 0;
-    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (comparator_.comparator.user_comparator()->Compare(
-        Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
-      // Correct user key
-      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
-      switch (static_cast<ValueType>(tag & 0xff)) {
-        case kTypeValue: {
-          if (options.inplace_update_support) {
-            GetLock(key.user_key())->ReadLock();
-          }
-          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-          *s = Status::OK();
-          if (merge_in_progress) {
-            assert(merge_operator);
-          if (!merge_operator->FullMerge(key.user_key(), &v,
-                                         merge_context.GetOperands(), value,
-                                         logger.get())) {
-              RecordTick(options.statistics.get(), NUMBER_MERGE_FAILURES);
-              *s = Status::Corruption("Error: Could not perform merge.");
-            }
-          } else {
-            value->assign(v.data(), v.size());
-          }
-          if (options.inplace_update_support) {
-            GetLock(key.user_key())->Unlock();
-          }
-          found_final_value = true;
-          break;
-        }
-        case kTypeDeletion: {
-          if (merge_in_progress) {
-            assert(merge_operator);
-            *s = Status::OK();
-          if (!merge_operator->FullMerge(key.user_key(), nullptr,
-                                         merge_context.GetOperands(), value,
-                                         logger.get())) {
-              RecordTick(options.statistics.get(), NUMBER_MERGE_FAILURES);
-              *s = Status::Corruption("Error: Could not perform merge.");
-            }
-          } else {
-            *s = Status::NotFound();
-          }
-          found_final_value = true;
-          break;
-        }
-        case kTypeMerge: {
-          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-          merge_in_progress = true;
-          merge_context.PushOperand(v);
-          while(merge_context.GetNumOperands() >= 2) {
-            // Attempt to associative merge. (Returns true if successful)
-          if (merge_operator->PartialMerge(key.user_key(),
-                                           merge_context.GetOperand(0),
-                                           merge_context.GetOperand(1),
-                                           &merge_result, logger.get())) {
-              merge_context.PushPartialMergeResult(merge_result);
-            } else {
-              // Stack them because user can't associative merge
-              break;
-            }
-          }
-          break;
-        }
-        default:
-          assert(false);
-          break;
-      }
-    } else {
-      // exit loop if user key does not match
-      break;
-    }
+    Saver saver;
+    saver.status = s;
+    saver.found_final_value = &found_final_value;
+    saver.merge_in_progress = &merge_in_progress;
+    saver.key = &key;
+    saver.value = value;
+    saver.status = s;
+    saver.mem = this;
+    saver.merge_context = &merge_context;
+    saver.merge_operator = options.merge_operator.get();
+    saver.logger = options.info_log.get();
+    saver.inplace_update_support = options.inplace_update_support;
+    saver.statistics = options.statistics.get();
+    table_->Get(key, &saver, SaveValue);
   }
 
   // No change to value, since we have not yet found a Put/Delete
-
   if (!found_final_value && merge_in_progress) {
     *s = Status::MergeInProgress("");
   }
@@ -486,6 +517,15 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   }
 
   return num_successive_merges;
+}
+
+void MemTableRep::Get(const LookupKey& k, void* callback_args,
+                      bool (*callback_func)(void* arg, const char* entry)) {
+  auto iter = GetIterator(k.user_key());
+  for (iter->Seek(k.internal_key(), k.memtable_key().data());
+       iter->Valid() && callback_func(callback_args, iter->key());
+       iter->Next()) {
+  }
 }
 
 }  // namespace rocksdb

@@ -31,6 +31,7 @@ struct ReadOptions;
 struct WriteOptions;
 struct FlushOptions;
 class WriteBatch;
+class Env;
 
 // Metadata associated with each SST file.
 struct LiveFileMetaData {

@@ -43,6 +43,7 @@ class TableCache;
 class Version;
 class VersionSet;
 class MergeContext;
+class LookupKey;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.

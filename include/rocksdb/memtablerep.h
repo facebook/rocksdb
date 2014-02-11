@@ -41,6 +41,7 @@
 namespace rocksdb {
 
 class Arena;
+class LookupKey;
 class Slice;
 class SliceTransform;
 
@@ -73,6 +74,20 @@ class MemTableRep {
   // Notify this table rep that it will no longer be added to. By default, does
   // nothing.
   virtual void MarkReadOnly() { }
+
+  // Look up key from the mem table, since the first key in the mem table whose
+  // user_key matches the one given k, call the function callback_func(), with
+  // callback_args directly forwarded as the first parameter, and the mem table
+  // key as the second parameter. If the return value is false, then terminates.
+  // Otherwise, go through the next key.
+  // It's safe for Get() to terminate after having finished all the potential
+  // key for the k.user_key(), or not.
+  //
+  // Default:
+  // Get() function with a default value of dynamically construct an iterator,
+  // seek and call the call back function.
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg, const char* entry));
 
   // Report an approximation of how much memory has been used other than memory
   // that was allocated through the arena.
