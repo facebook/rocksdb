@@ -109,7 +109,7 @@ class Footer {
     kEncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8
   };
 
-  const uint64_t kInvalidTableMagicNumber = 0;
+  static const uint64_t kInvalidTableMagicNumber = 0;
 
  private:
   // Set the table_magic_number only when it was not previously
