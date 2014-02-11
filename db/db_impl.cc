@@ -489,7 +489,7 @@ DBImpl::SuperVersion* DBImpl::SuperVersion::Ref() {
 
 bool DBImpl::SuperVersion::Unref() {
   assert(refs > 0);
-  // fetch_sub returns the previous value of ref
+  // fetch_sub returns the previous value of yoeref
   return refs.fetch_sub(1, std::memory_order_relaxed) == 1;
 }
 

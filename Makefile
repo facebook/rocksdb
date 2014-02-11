@@ -144,7 +144,7 @@ endif  # PLATFORM_SHARED_EXT
 
 all: $(LIBRARY) $(PROGRAMS)
 
-dbg: $(PROGRAMS)
+dbg: $(LIBRARY) $(PROGRAMS)
 
 # Will also generate shared libraries. 
 release:
