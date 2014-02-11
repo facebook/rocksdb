@@ -4741,24 +4741,30 @@ class ModelDB: public DB {
     KVMap map_;
   };
 
-  explicit ModelDB(const Options& options): options_(options) { }
+  explicit ModelDB(const Options& options) : options_(options) {}
   using DB::Put;
-  virtual Status Put(const WriteOptions& o, const ColumnFamilyHandle& cf,
+  virtual Status Put(const WriteOptions& o, ColumnFamilyHandle* cf,
                      const Slice& k, const Slice& v) {
-    return DB::Put(o, cf, k, v);
+    WriteBatch batch;
+    batch.Put(0, k, v);
+    return Write(o, &batch);
   }
   using DB::Merge;
-  virtual Status Merge(const WriteOptions& o, const ColumnFamilyHandle& cf,
+  virtual Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf,
                        const Slice& k, const Slice& v) {
-    return DB::Merge(o, cf, k, v);
+    WriteBatch batch;
+    batch.Merge(0, k, v);
+    return Write(o, &batch);
   }
   using DB::Delete;
-  virtual Status Delete(const WriteOptions& o, const ColumnFamilyHandle& cf,
+  virtual Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
                         const Slice& key) {
-    return DB::Delete(o, cf, key);
+    WriteBatch batch;
+    batch.Delete(0, key);
+    return Write(o, &batch);
   }
   using DB::Get;
-  virtual Status Get(const ReadOptions& options, const ColumnFamilyHandle& cf,
+  virtual Status Get(const ReadOptions& options, ColumnFamilyHandle* cf,
                      const Slice& key, std::string* value) {
     return Status::NotSupported(key);
   }
@@ -4766,7 +4772,7 @@ class ModelDB: public DB {
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values) {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
@@ -4774,9 +4780,8 @@ class ModelDB: public DB {
   }
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const ColumnFamilyHandle& column_family,
-                           const Slice& key, std::string* value,
-                           bool* value_found = nullptr) {
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value, bool* value_found = nullptr) {
     if (value_found != nullptr) {
       *value_found = false;
     }
@@ -4784,7 +4789,7 @@ class ModelDB: public DB {
   }
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
-                                const ColumnFamilyHandle& column_family) {
+                                ColumnFamilyHandle* column_family) {
     if (options.snapshot == nullptr) {
       KVMap* saved = new KVMap;
       *saved = map_;
@@ -4797,7 +4802,7 @@ class ModelDB: public DB {
   }
   virtual Status NewIterators(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       std::vector<Iterator*>* iterators) {
     return Status::NotSupported("Not supported yet");
   }
@@ -4831,36 +4836,34 @@ class ModelDB: public DB {
   }
 
   using DB::GetProperty;
-  virtual bool GetProperty(const ColumnFamilyHandle& column_family,
+  virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) {
     return false;
   }
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
+  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes) {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
   }
   using DB::CompactRange;
-  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+  virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* start, const Slice* end,
                               bool reduce_level, int target_level) {
     return Status::NotSupported("Not supported operation.");
   }
 
   using DB::NumberLevels;
-  virtual int NumberLevels(const ColumnFamilyHandle& column_family) {
-    return 1;
-  }
+  virtual int NumberLevels(ColumnFamilyHandle* column_family) { return 1; }
 
   using DB::MaxMemCompactionLevel;
-  virtual int MaxMemCompactionLevel(const ColumnFamilyHandle& column_family) {
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) {
     return 1;
   }
 
   using DB::Level0StopWriteTrigger;
-  virtual int Level0StopWriteTrigger(const ColumnFamilyHandle& column_family) {
+  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
     return -1;
   }
 
@@ -4873,14 +4876,13 @@ class ModelDB: public DB {
   }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
-      const {
+  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const {
     return options_;
   }
 
   using DB::Flush;
   virtual Status Flush(const rocksdb::FlushOptions& options,
-                       const ColumnFamilyHandle& column_family) {
+                       ColumnFamilyHandle* column_family) {
     Status ret;
     return ret;
   }
@@ -4915,6 +4917,8 @@ class ModelDB: public DB {
                                  unique_ptr<rocksdb::TransactionLogIterator>*) {
     return Status::NotSupported("Not supported in Model DB");
   }
+
+  virtual ColumnFamilyHandle* DefaultColumnFamily() const { return nullptr; }
 
  private:
   class ModelIter: public Iterator {

@@ -45,8 +45,8 @@ class DummyDB : public StackableDB {
   }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
-      const override {
+  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
+      override {
     return options_;
   }
 
@@ -68,6 +68,10 @@ class DummyDB : public StackableDB {
     vec = live_files_;
     *mfs = 100;
     return Status::OK();
+  }
+
+  virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
+    return nullptr;
   }
 
   class DummyLogFile : public LogFile {

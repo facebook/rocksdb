@@ -1396,9 +1396,6 @@ VersionSet::VersionSet(const std::string& dbname, const DBOptions* options,
       storage_options_compactions_(storage_options_) {}
 
 VersionSet::~VersionSet() {
-  for (auto cfd : *column_family_set_) {
-    cfd->current()->Unref();
-  }
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
   column_family_set_.reset();
@@ -1433,6 +1430,11 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                                Directory* db_directory,
                                bool new_descriptor_log) {
   mu->AssertHeld();
+
+  if (column_family_data->IsDropped()) {
+    // no need to write anything to the manifest
+    return Status::OK();
+  }
 
   // queue our request
   ManifestWriter w(mu, column_family_data, edit);
@@ -1759,7 +1761,13 @@ Status VersionSet::Recover(
           assert(builder != builders.end());
           delete builder->second;
           builders.erase(builder);
-          DropColumnFamily(&edit);
+          auto cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+          if (cfd->Unref()) {
+            delete cfd;
+          } else {
+            // who else can have reference to cfd!?
+            assert(false);
+          }
         } else if (cf_in_not_found) {
           column_families_not_found.erase(edit.column_family_);
         } else {
@@ -1921,17 +1929,17 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   Slice record;
   std::string scratch;
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-      VersionEdit edit;
-      s = edit.DecodeFrom(record);
-      if (!s.ok()) {
-        break;
-      }
-      if (edit.is_column_family_add_) {
-        column_family_names.insert(
-            {edit.column_family_, edit.column_family_name_});
-      } else if (edit.is_column_family_drop_) {
-        column_family_names.erase(edit.column_family_);
-      }
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      break;
+    }
+    if (edit.is_column_family_add_) {
+      column_family_names.insert(
+          {edit.column_family_, edit.column_family_name_});
+    } else if (edit.is_column_family_drop_) {
+      column_family_names.erase(edit.column_family_);
+    }
   }
 
   column_families->clear();
@@ -2431,10 +2439,6 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   AppendVersion(new_cfd, new Version(new_cfd, this, current_version_number_++));
   new_cfd->CreateNewMemtable();
   return new_cfd;
-}
-
-void VersionSet::DropColumnFamily(VersionEdit* edit) {
-  column_family_set_->DropColumnFamily(edit->column_family_);
 }
 
 }  // namespace rocksdb

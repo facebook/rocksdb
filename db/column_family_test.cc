@@ -31,6 +31,10 @@ class ColumnFamilyTest {
   }
 
   void Close() {
+    for (auto h : handles_) {
+      delete h;
+    }
+    handles_.clear();
     delete db_;
     db_ = nullptr;
   }
@@ -45,6 +49,10 @@ class ColumnFamilyTest {
   }
 
   void Destroy() {
+    for (auto h : handles_) {
+      delete h;
+    }
+    handles_.clear();
     delete db_;
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
@@ -56,6 +64,14 @@ class ColumnFamilyTest {
     for (auto cf : cfs) {
       ASSERT_OK(db_->CreateColumnFamily(column_family_options_, cf,
                                         &handles_[cfi++]));
+    }
+  }
+
+  void DropColumnFamilies(const vector<int>& cfs) {
+    for (auto cf : cfs) {
+      ASSERT_OK(db_->DropColumnFamily(handles_[cf]));
+      delete handles_[cf];
+      handles_[cf] = nullptr;
     }
   }
 
@@ -111,6 +127,12 @@ class ColumnFamilyTest {
     return result;
   }
 
+  int CountLiveFiles(int cf) {
+    std::vector<LiveFileMetaData> metadata;
+    db_->GetLiveFilesMetaData(&metadata);
+    return static_cast<int>(metadata.size());
+  }
+
   // Do n memtable flushes, each of which produces an sstable
   // covering the range [small,large].
   void MakeTables(int cf, int n, const string& small,
@@ -146,7 +168,7 @@ class ColumnFamilyTest {
     ASSERT_OK(destfile->Close());
   }
 
-  vector<ColumnFamilyHandle> handles_;
+  vector<ColumnFamilyHandle*> handles_;
   ColumnFamilyOptions column_family_options_;
   DBOptions db_options_;
   string dbname_;
@@ -156,16 +178,9 @@ class ColumnFamilyTest {
 
 TEST(ColumnFamilyTest, AddDrop) {
   ASSERT_OK(Open({"default"}));
-  ColumnFamilyHandle handles[4];
-  ASSERT_OK(
-      db_->CreateColumnFamily(column_family_options_, "one", &handles[0]));
-  ASSERT_OK(
-      db_->CreateColumnFamily(column_family_options_, "two", &handles[1]));
-  ASSERT_OK(
-      db_->CreateColumnFamily(column_family_options_, "three", &handles[2]));
-  ASSERT_OK(db_->DropColumnFamily(handles[1]));
-  ASSERT_OK(
-      db_->CreateColumnFamily(column_family_options_, "four", &handles[3]));
+  CreateColumnFamilies({"one", "two", "three"});
+  DropColumnFamilies({2});
+  CreateColumnFamilies({"four"});
   Close();
   ASSERT_TRUE(Open({"default"}).IsInvalidArgument());
   ASSERT_OK(Open({"default", "one", "three", "four"}));
@@ -175,6 +190,33 @@ TEST(ColumnFamilyTest, AddDrop) {
   ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &families));
   sort(families.begin(), families.end());
   ASSERT_TRUE(families == vector<string>({"default", "four", "one", "three"}));
+}
+
+TEST(ColumnFamilyTest, DropTest) {
+  // first iteration - dont reopen DB before dropping
+  // second iteration - reopen DB before dropping
+  for (int iter = 0; iter < 2; ++iter) {
+    ASSERT_OK(Open({"default"}));
+    CreateColumnFamilies({"pikachu"});
+    Close();
+    ASSERT_OK(Open({"default", "pikachu"}));
+    for (int i = 0; i < 100; ++i) {
+      ASSERT_OK(Put(1, std::to_string(i), "bar" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush(1));
+
+    if (iter == 1) {
+      Close();
+      ASSERT_OK(Open({"default", "pikachu"}));
+    }
+    ASSERT_EQ("bar1", Get(1, "1"));
+
+    ASSERT_EQ(CountLiveFiles(1), 1);
+    DropColumnFamilies({1});
+    // make sure that all files are deleted when we drop the column family
+    ASSERT_EQ(CountLiveFiles(1), 0);
+    Destroy();
+  }
 }
 
 TEST(ColumnFamilyTest, ReadWrite) {

@@ -23,14 +23,14 @@ class StackableDB : public DB {
 
   using DB::Put;
   virtual Status Put(const WriteOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& val) override {
     return db_->Put(options, column_family, key, val);
   }
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) override {
     return db_->Get(options, column_family, key, value);
   }
@@ -38,7 +38,7 @@ class StackableDB : public DB {
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override {
     return db_->MultiGet(options, column_family, keys, values);
@@ -46,23 +46,23 @@ class StackableDB : public DB {
 
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const ColumnFamilyHandle& column_family,
-                           const Slice& key, std::string* value,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value,
                            bool* value_found = nullptr) override {
     return db_->KeyMayExist(options, column_family, key, value, value_found);
   }
 
   using DB::Delete;
   virtual Status Delete(const WriteOptions& wopts,
-                        const ColumnFamilyHandle& column_family,
+                        ColumnFamilyHandle* column_family,
                         const Slice& key) override {
     return db_->Delete(wopts, column_family, key);
   }
 
   using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
-                       const ColumnFamilyHandle& column_family,
-                       const Slice& key, const Slice& value) override {
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value) override {
     return db_->Merge(options, column_family, key, value);
   }
 
@@ -74,14 +74,13 @@ class StackableDB : public DB {
 
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
-                                const ColumnFamilyHandle& column_family)
-      override {
+                                ColumnFamilyHandle* column_family) override {
     return db_->NewIterator(opts, column_family);
   }
 
   virtual Status NewIterators(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       std::vector<Iterator*>* iterators) {
     return db_->NewIterators(options, column_family, iterators);
   }
@@ -96,20 +95,20 @@ class StackableDB : public DB {
   }
 
   using DB::GetProperty;
-  virtual bool GetProperty(const ColumnFamilyHandle& column_family,
+  virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override {
       return db_->GetProperty(column_family, property, value);
   }
 
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
+  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* r, int n,
                                    uint64_t* sizes) override {
       return db_->GetApproximateSizes(column_family, r, n, sizes);
   }
 
   using DB::CompactRange;
-  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+  virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
                               bool reduce_level = false,
                               int target_level = -1) override {
@@ -118,18 +117,18 @@ class StackableDB : public DB {
   }
 
   using DB::NumberLevels;
-  virtual int NumberLevels(const ColumnFamilyHandle& column_family) override {
+  virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
   }
 
   using DB::MaxMemCompactionLevel;
-  virtual int MaxMemCompactionLevel(const ColumnFamilyHandle& column_family)
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family)
       override {
     return db_->MaxMemCompactionLevel(column_family);
   }
 
   using DB::Level0StopWriteTrigger;
-  virtual int Level0StopWriteTrigger(const ColumnFamilyHandle& column_family)
+  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family)
       override {
     return db_->Level0StopWriteTrigger(column_family);
   }
@@ -143,14 +142,14 @@ class StackableDB : public DB {
   }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
-      const override {
+  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
+      override {
     return db_->GetOptions(column_family);
   }
 
   using DB::Flush;
   virtual Status Flush(const FlushOptions& fopts,
-                       const ColumnFamilyHandle& column_family) override {
+                       ColumnFamilyHandle* column_family) override {
     return db_->Flush(fopts, column_family);
   }
 
@@ -187,6 +186,10 @@ class StackableDB : public DB {
                                  unique_ptr<TransactionLogIterator>* iter)
     override {
       return db_->GetUpdatesSince(seq_number, iter);
+  }
+
+  virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
+    return db_->DefaultColumnFamily();
   }
 
  protected:

@@ -43,6 +43,7 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
       is_full_compaction_(false),
       level_ptrs_(std::vector<size_t>(number_levels_)) {
 
+  cfd_->Ref();
   input_version_->Ref();
   edit_ = new VersionEdit();
   edit_->SetColumnFamily(cfd_->GetID());
@@ -55,6 +56,11 @@ Compaction::~Compaction() {
   delete edit_;
   if (input_version_ != nullptr) {
     input_version_->Unref();
+  }
+  if (cfd_ != nullptr) {
+    if (cfd_->Unref()) {
+      delete cfd_;
+    }
   }
 }
 
@@ -167,6 +173,12 @@ void Compaction::ReleaseInputs() {
   if (input_version_ != nullptr) {
     input_version_->Unref();
     input_version_ = nullptr;
+  }
+  if (cfd_ != nullptr) {
+    if (cfd_->Unref()) {
+      delete cfd_;
+    }
+    cfd_ = nullptr;
   }
 }
 

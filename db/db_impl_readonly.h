@@ -32,18 +32,18 @@ class DBImplReadOnly : public DBImpl {
   // Implementations of the DB interface
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value);
 
   // TODO: Implement ReadOnly MultiGet?
 
   using DBImpl::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions&,
-                                const ColumnFamilyHandle& column_family);
+                                ColumnFamilyHandle* column_family);
 
   virtual Status NewIterators(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       std::vector<Iterator*>* iterators) {
    // TODO
     return Status::NotSupported("Not supported yet.");
@@ -51,27 +51,26 @@ class DBImplReadOnly : public DBImpl {
 
   using DBImpl::Put;
   virtual Status Put(const WriteOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::Merge;
   virtual Status Merge(const WriteOptions& options,
-                       const ColumnFamilyHandle& column_family,
-                       const Slice& key, const Slice& value) {
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value) {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::Delete;
   virtual Status Delete(const WriteOptions& options,
-                        const ColumnFamilyHandle& column_family,
-                        const Slice& key) {
+                        ColumnFamilyHandle* column_family, const Slice& key) {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
   using DBImpl::CompactRange;
-  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+  virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
                               bool reduce_level = false,
                               int target_level = -1) {
@@ -90,7 +89,7 @@ class DBImplReadOnly : public DBImpl {
   }
   using DBImpl::Flush;
   virtual Status Flush(const FlushOptions& options,
-                       const ColumnFamilyHandle& column_family) {
+                       ColumnFamilyHandle* column_family) {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 

@@ -23,8 +23,15 @@ namespace rocksdb {
 
 using std::unique_ptr;
 
-struct ColumnFamilyHandle;
-extern const ColumnFamilyHandle default_column_family;
+class ColumnFamilyHandle {
+ public:
+  ColumnFamilyHandle() {}
+  virtual ~ColumnFamilyHandle() {}
+
+ private:
+  ColumnFamilyHandle(const ColumnFamilyHandle&);  // no copying
+};
+extern const std::string default_column_family_name;
 
 struct ColumnFamilyDescriptor {
   std::string name;
@@ -106,7 +113,7 @@ class DB {
   // will use to operate on column family column_family[i]
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
-                     std::vector<ColumnFamilyHandle>* handles, DB** dbptr);
+                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB
@@ -123,23 +130,22 @@ class DB {
   // through the argument handle.
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
-                                    ColumnFamilyHandle* handle);
+                                    ColumnFamilyHandle** handle);
 
-  // Drop a column family specified by column_family handle.
-  // All data related to the column family will be deleted before
-  // the function returns.
-  // Calls referring to the dropped column family will fail.
-  virtual Status DropColumnFamily(const ColumnFamilyHandle& column_family);
+  // Drop a column family specified by column_family handle. This call
+  // only records a drop record in the manifest and prevents the column
+  // family from flushing and compacting.
+  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".
   // Returns OK on success, and a non-OK status on error.
   // Note: consider setting options.sync = true.
   virtual Status Put(const WriteOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) = 0;
   Status Put(const WriteOptions& options, const Slice& key,
              const Slice& value) {
-    return Put(options, default_column_family, key, value);
+    return Put(options, DefaultColumnFamily(), key, value);
   }
 
   // Remove the database entry (if any) for "key".  Returns OK on
@@ -147,10 +153,10 @@ class DB {
   // did not exist in the database.
   // Note: consider setting options.sync = true.
   virtual Status Delete(const WriteOptions& options,
-                        const ColumnFamilyHandle& column_family,
+                        ColumnFamilyHandle* column_family,
                         const Slice& key) = 0;
   Status Delete(const WriteOptions& options, const Slice& key) {
-    return Delete(options, default_column_family, key);
+    return Delete(options, DefaultColumnFamily(), key);
   }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
@@ -158,11 +164,11 @@ class DB {
   // determined by the user provided merge_operator when opening DB.
   // Note: consider setting options.sync = true.
   virtual Status Merge(const WriteOptions& options,
-                       const ColumnFamilyHandle& column_family,
-                       const Slice& key, const Slice& value) = 0;
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value) = 0;
   Status Merge(const WriteOptions& options, const Slice& key,
                const Slice& value) {
-    return Merge(options, default_column_family, key, value);
+    return Merge(options, DefaultColumnFamily(), key, value);
   }
 
   // Apply the specified updates to the database.
@@ -178,10 +184,10 @@ class DB {
   //
   // May return some other Status on an error.
   virtual Status Get(const ReadOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) = 0;
   Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
-    return Get(options, default_column_family, key, value);
+    return Get(options, DefaultColumnFamily(), key, value);
   }
 
   // If keys[i] does not exist in the database, then the i'th returned
@@ -196,13 +202,13 @@ class DB {
   // duplicate values in order.
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values) = 0;
   std::vector<Status> MultiGet(const ReadOptions& options,
                                const std::vector<Slice>& keys,
                                std::vector<std::string>* values) {
-    return MultiGet(options, std::vector<ColumnFamilyHandle>(
-                                 keys.size(), default_column_family),
+    return MultiGet(options, std::vector<ColumnFamilyHandle*>(
+                                 keys.size(), DefaultColumnFamily()),
                     keys, values);
   }
 
@@ -214,9 +220,8 @@ class DB {
   // to make this lighter weight is to avoid doing any IOs.
   // Default implementation here returns true and sets 'value_found' to false
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const ColumnFamilyHandle& column_family,
-                           const Slice& key, std::string* value,
-                           bool* value_found = nullptr) {
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value, bool* value_found = nullptr) {
     if (value_found != nullptr) {
       *value_found = false;
     }
@@ -224,7 +229,7 @@ class DB {
   }
   bool KeyMayExist(const ReadOptions& options, const Slice& key,
                    std::string* value, bool* value_found = nullptr) {
-    return KeyMayExist(options, default_column_family, key, value, value_found);
+    return KeyMayExist(options, DefaultColumnFamily(), key, value, value_found);
   }
 
   // Return a heap-allocated iterator over the contents of the database.
@@ -234,16 +239,16 @@ class DB {
   // Caller should delete the iterator when it is no longer needed.
   // The returned iterator should be deleted before this db is deleted.
   virtual Iterator* NewIterator(const ReadOptions& options,
-                                const ColumnFamilyHandle& column_family) = 0;
+                                ColumnFamilyHandle* column_family) = 0;
   Iterator* NewIterator(const ReadOptions& options) {
-    return NewIterator(options, default_column_family);
+    return NewIterator(options, DefaultColumnFamily());
   }
   // Returns iterators from a consistent database state across multiple
   // column families. Iterators are heap allocated and need to be deleted
   // before the db is deleted
   virtual Status NewIterators(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       std::vector<Iterator*>* iterators) = 0;
 
   // Return a handle to the current DB state.  Iterators created with
@@ -270,10 +275,10 @@ class DB {
   //     about the internal operation of the DB.
   //  "rocksdb.sstables" - returns a multi-line string that describes all
   //     of the sstables that make up the db contents.
-  virtual bool GetProperty(const ColumnFamilyHandle& column_family,
+  virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   bool GetProperty(const Slice& property, std::string* value) {
-    return GetProperty(default_column_family, property, value);
+    return GetProperty(DefaultColumnFamily(), property, value);
   }
 
   // For each i in [0,n-1], store in "sizes[i]", the approximate
@@ -284,11 +289,11 @@ class DB {
   // sizes will be one-tenth the size of the corresponding user data size.
   //
   // The results may not include the sizes of recently written data.
-  virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
+  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n,
                                    uint64_t* sizes) = 0;
   void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
-    GetApproximateSizes(default_column_family, range, n, sizes);
+    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes);
   }
 
   // Compact the underlying storage for the key range [*begin,*end].
@@ -308,35 +313,31 @@ class DB {
   // hosting all the files. In this case, client could set reduce_level
   // to true, to move the files back to the minimum level capable of holding
   // the data set or a given level (specified by non-negative target_level).
-  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+  virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
                               bool reduce_level = false,
                               int target_level = -1) = 0;
   Status CompactRange(const Slice* begin, const Slice* end,
                     bool reduce_level = false, int target_level = -1) {
-    return CompactRange(default_column_family, begin, end, reduce_level,
+    return CompactRange(DefaultColumnFamily(), begin, end, reduce_level,
                         target_level);
   }
 
   // Number of levels used for this DB.
-  virtual int NumberLevels(const ColumnFamilyHandle& column_family) = 0;
-  int NumberLevels() {
-    return NumberLevels(default_column_family);
-  }
+  virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
+  int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
 
   // Maximum level to which a new compacted memtable is pushed if it
   // does not create overlap.
-  virtual int MaxMemCompactionLevel(
-      const ColumnFamilyHandle& column_family) = 0;
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) = 0;
   int MaxMemCompactionLevel() {
-    return MaxMemCompactionLevel(default_column_family);
+    return MaxMemCompactionLevel(DefaultColumnFamily());
   }
 
   // Number of files in level-0 that would stop writes.
-  virtual int Level0StopWriteTrigger(
-      const ColumnFamilyHandle& column_family) = 0;
+  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) = 0;
   int Level0StopWriteTrigger() {
-    return Level0StopWriteTrigger(default_column_family);
+    return Level0StopWriteTrigger(DefaultColumnFamily());
   }
 
   // Get DB name -- the exact same name that was provided as an argument to
@@ -347,17 +348,17 @@ class DB {
   virtual Env* GetEnv() const = 0;
 
   // Get DB Options that we use
-  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
+  virtual const Options& GetOptions(ColumnFamilyHandle* column_family)
       const = 0;
   const Options& GetOptions() const {
-    return GetOptions(default_column_family);
+    return GetOptions(DefaultColumnFamily());
   }
 
   // Flush all mem-table data.
   virtual Status Flush(const FlushOptions& options,
-                       const ColumnFamilyHandle& column_family) = 0;
+                       ColumnFamilyHandle* column_family) = 0;
   Status Flush(const FlushOptions& options) {
-    return Flush(options, default_column_family);
+    return Flush(options, DefaultColumnFamily());
   }
 
   // Prevent file deletions. Compactions will continue to occur,
@@ -425,6 +426,9 @@ class DB {
   // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
   // be set properly
   virtual Status GetDbIdentity(std::string& identity) = 0;
+
+  // Returns default column family handle
+  virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
  private:
   // No copying allowed

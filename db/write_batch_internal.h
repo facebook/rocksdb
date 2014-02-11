@@ -12,7 +12,6 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
-#include "rocksdb/column_family.h"
 
 namespace rocksdb {
 
@@ -28,7 +27,7 @@ class ColumnFamilyMemTables {
   virtual uint64_t GetLogNumber() const = 0;
   virtual MemTable* GetMemTable() const = 0;
   virtual const Options* GetFullOptions() const = 0;
-  virtual const ColumnFamilyHandle& GetColumnFamilyHandle() const = 0;
+  virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
 };
 
 class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
@@ -53,9 +52,7 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
     return options_;
   }
 
-  const ColumnFamilyHandle& GetColumnFamilyHandle() const override {
-    return default_column_family;
-  }
+  ColumnFamilyHandle* GetColumnFamilyHandle() override { return nullptr; }
 
  private:
   bool ok_;

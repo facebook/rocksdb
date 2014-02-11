@@ -11,7 +11,6 @@
 #include "db/filename.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/write_batch.h"
-#include "rocksdb/column_family.h"
 #include "rocksdb/cache.h"
 #include "util/coding.h"
 

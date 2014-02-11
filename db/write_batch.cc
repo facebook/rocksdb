@@ -277,7 +277,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
         std::string prev_value;
         std::string merged_value;
-        Status s = db_->Get(ropts, key, &prev_value);
+
+        auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+        if (cf_handle == nullptr) {
+          cf_handle = db_->DefaultColumnFamily();
+        }
+        Status s = db_->Get(ropts, cf_handle, key, &prev_value);
+
         char* prev_buffer = const_cast<char*>(prev_value.c_str());
         uint32_t prev_size = prev_value.size();
         auto status = options->inplace_callback(s.ok() ? prev_buffer : nullptr,
@@ -333,8 +339,11 @@ class MemTableInserter : public WriteBatch::Handler {
       ReadOptions read_options;
       read_options.snapshot = &read_from_snapshot;
 
-      db_->Get(read_options, cf_mems_->GetColumnFamilyHandle(), key,
-               &get_value);
+      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+      if (cf_handle == nullptr) {
+        cf_handle = db_->DefaultColumnFamily();
+      }
+      db_->Get(read_options, cf_handle, key, &get_value);
       Slice get_value_slice = Slice(get_value);
 
       // 2) Apply this merge
@@ -378,8 +387,11 @@ class MemTableInserter : public WriteBatch::Handler {
       ReadOptions ropts;
       ropts.snapshot = &read_from_snapshot;
       std::string value;
-      if (!db_->KeyMayExist(ropts, cf_mems_->GetColumnFamilyHandle(), key,
-                            &value)) {
+      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+      if (cf_handle == nullptr) {
+        cf_handle = db_->DefaultColumnFamily();
+      }
+      if (!db_->KeyMayExist(ropts, cf_handle, key, &value)) {
         RecordTick(options->statistics.get(), NUMBER_FILTERED_DELETES);
         return;
       }

@@ -13,6 +13,7 @@
 #include <string>
 #include <algorithm>
 
+#include "db/db_impl.h"
 #include "db/version_set.h"
 #include "db/internal_stats.h"
 #include "db/compaction_picker.h"
@@ -21,6 +22,27 @@
 #include "util/hash_skiplist_rep.h"
 
 namespace rocksdb {
+
+ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(ColumnFamilyData* cfd,
+                                               DBImpl* db, port::Mutex* mutex)
+    : cfd_(cfd), db_(db), mutex_(mutex) {
+  if (cfd_ != nullptr) {
+    cfd_->Ref();
+  }
+}
+
+ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
+  if (cfd_ != nullptr) {
+    DBImpl::DeletionState deletion_state;
+    mutex_->Lock();
+    if (cfd_->Unref()) {
+      delete cfd_;
+    }
+    db_->FindObsoleteFiles(deletion_state, false, true);
+    mutex_->Unlock();
+    db_->PurgeObsoleteFiles(deletion_state);
+  }
+}
 
 namespace {
 // Fix user-supplied options to be reasonable
@@ -134,11 +156,14 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
                                    Version* dummy_versions, Cache* table_cache,
                                    const ColumnFamilyOptions& options,
                                    const DBOptions* db_options,
-                                   const EnvOptions& storage_options)
+                                   const EnvOptions& storage_options,
+                                   ColumnFamilySet* column_family_set)
     : id_(id),
       name_(name),
       dummy_versions_(dummy_versions),
       current_(nullptr),
+      refs_(0),
+      dropped_(false),
       internal_comparator_(options.comparator),
       internal_filter_policy_(options.filter_policy),
       options_(SanitizeOptions(&internal_comparator_, &internal_filter_policy_,
@@ -151,7 +176,10 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      need_slowdown_for_num_level0_files_(false) {
+      need_slowdown_for_num_level0_files_(false),
+      column_family_set_(column_family_set) {
+  Ref();
+
   // if dummy_versions is nullptr, then this is a dummy column family.
   if (dummy_versions != nullptr) {
     internal_stats_.reset(new InternalStats(options.num_levels, db_options->env,
@@ -172,7 +200,15 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
   }
 }
 
+// DB mutex held
 ColumnFamilyData::~ColumnFamilyData() {
+  assert(refs_ == 0);
+  // remove from linked list
+  auto prev = prev_;
+  auto next = next_;
+  prev->next_ = next;
+  next->prev_ = prev;
+
   if (super_version_ != nullptr) {
     bool is_last_reference __attribute__((unused));
     is_last_reference = super_version_->Unref();
@@ -180,6 +216,17 @@ ColumnFamilyData::~ColumnFamilyData() {
     super_version_->Cleanup();
     delete super_version_;
   }
+
+  // it's nullptr for dummy CFD
+  if (column_family_set_ != nullptr) {
+    // remove from column_family_set
+    column_family_set_->DropColumnFamily(this);
+  }
+
+  if (current_ != nullptr) {
+    current_->Unref();
+  }
+
   if (dummy_versions_ != nullptr) {
     // List must be empty
     assert(dummy_versions_->next_ == dummy_versions_);
@@ -248,24 +295,25 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(dbname, 0, "", nullptr, nullptr,
                                       ColumnFamilyOptions(), db_options,
-                                      storage_options_)),
+                                      storage_options_, nullptr)),
       db_name_(dbname),
       db_options_(db_options),
       storage_options_(storage_options),
       table_cache_(table_cache),
       spin_lock_(ATOMIC_FLAG_INIT) {
   // initialize linked list
-  dummy_cfd_->prev_.store(dummy_cfd_);
-  dummy_cfd_->next_.store(dummy_cfd_);
+  dummy_cfd_->prev_ = dummy_cfd_;
+  dummy_cfd_->next_ = dummy_cfd_;
 }
 
 ColumnFamilySet::~ColumnFamilySet() {
-  for (auto& cfd : column_family_data_) {
-    delete cfd.second;
-  }
-  for (auto& cfd : droppped_column_families_) {
+  while (column_family_data_.size() > 0) {
+    // cfd destructor will delete itself from column_family_data_
+    auto cfd = column_family_data_.begin()->second;
+    cfd->Unref();
     delete cfd;
   }
+  dummy_cfd_->Unref();
   delete dummy_cfd_;
 }
 
@@ -303,39 +351,36 @@ uint32_t ColumnFamilySet::GetNextColumnFamilyID() {
   return ++max_column_family_;
 }
 
+// under a DB mutex
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,
     const ColumnFamilyOptions& options) {
   assert(column_families_.find(name) == column_families_.end());
-  column_families_.insert({name, id});
   ColumnFamilyData* new_cfd =
       new ColumnFamilyData(db_name_, id, name, dummy_versions, table_cache_,
-                           options, db_options_, storage_options_);
+                           options, db_options_, storage_options_, this);
+  Lock();
+  column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
+  Unlock();
   max_column_family_ = std::max(max_column_family_, id);
   // add to linked list
-  new_cfd->next_.store(dummy_cfd_);
-  auto prev = dummy_cfd_->prev_.load();
-  new_cfd->prev_.store(prev);
-  prev->next_.store(new_cfd);
-  dummy_cfd_->prev_.store(new_cfd);
+  new_cfd->next_ = dummy_cfd_;
+  auto prev = dummy_cfd_->prev_;
+  new_cfd->prev_ = prev;
+  prev->next_ = new_cfd;
+  dummy_cfd_->prev_ = new_cfd;
   return new_cfd;
 }
 
-void ColumnFamilySet::DropColumnFamily(uint32_t id) {
-  assert(id != 0);
-  auto cfd_iter = column_family_data_.find(id);
+// under a DB mutex
+void ColumnFamilySet::DropColumnFamily(ColumnFamilyData* cfd) {
+  auto cfd_iter = column_family_data_.find(cfd->GetID());
   assert(cfd_iter != column_family_data_.end());
-  auto cfd = cfd_iter->second;
-  column_families_.erase(cfd->GetName());
-  cfd->current()->Unref();
-  droppped_column_families_.push_back(cfd);
+  Lock();
   column_family_data_.erase(cfd_iter);
-  // remove from linked list
-  auto prev = cfd->prev_.load();
-  auto next = cfd->next_.load();
-  prev->next_.store(next);
-  next->prev_.store(prev);
+  column_families_.erase(cfd->GetName());
+  Unlock();
 }
 
 void ColumnFamilySet::Lock() {
@@ -347,8 +392,11 @@ void ColumnFamilySet::Lock() {
 void ColumnFamilySet::Unlock() { spin_lock_.clear(std::memory_order_release); }
 
 bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
+  // maybe outside of db mutex, should lock
+  column_family_set_->Lock();
   current_ = column_family_set_->GetColumnFamily(column_family_id);
-  handle_.id = column_family_id;
+  column_family_set_->Unlock();
+  handle_.SetCFD(current_);
   return current_ != nullptr;
 }
 
@@ -367,10 +415,9 @@ const Options* ColumnFamilyMemTablesImpl::GetFullOptions() const {
   return current_->full_options();
 }
 
-const ColumnFamilyHandle& ColumnFamilyMemTablesImpl::GetColumnFamilyHandle()
-    const {
+ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
   assert(current_ != nullptr);
-  return handle_;
+  return &handle_;
 }
 
 }  // namespace rocksdb

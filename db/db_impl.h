@@ -45,32 +45,31 @@ class DBImpl : public DB {
   // Implementations of the DB interface
   using DB::Put;
   virtual Status Put(const WriteOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value);
   using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
-                       const ColumnFamilyHandle& column_family,
-                       const Slice& key, const Slice& value);
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value);
   using DB::Delete;
   virtual Status Delete(const WriteOptions& options,
-                        const ColumnFamilyHandle& column_family,
-                        const Slice& key);
+                        ColumnFamilyHandle* column_family, const Slice& key);
   using DB::Write;
   virtual Status Write(const WriteOptions& options, WriteBatch* updates);
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
-                     const ColumnFamilyHandle& column_family, const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value);
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys, std::vector<std::string>* values);
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family,
-                                    ColumnFamilyHandle* handle);
-  virtual Status DropColumnFamily(const ColumnFamilyHandle& column_family);
+                                    ColumnFamilyHandle** handle);
+  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
 
   // Returns false if key doesn't exist in the database and true if it may.
   // If value_found is not passed in as null, then return the value if found in
@@ -78,43 +77,41 @@ class DBImpl : public DB {
   // , otherwise false.
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const ColumnFamilyHandle& column_family,
-                           const Slice& key, std::string* value,
-                           bool* value_found = nullptr);
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value, bool* value_found = nullptr);
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
-                                const ColumnFamilyHandle& column_family);
+                                ColumnFamilyHandle* column_family);
   virtual Status NewIterators(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       std::vector<Iterator*>* iterators);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
   using DB::GetProperty;
-  virtual bool GetProperty(const ColumnFamilyHandle& column_family,
+  virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value);
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(const ColumnFamilyHandle& column_family,
+  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes);
   using DB::CompactRange;
-  virtual Status CompactRange(const ColumnFamilyHandle& column_family,
+  virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
                               bool reduce_level = false, int target_level = -1);
 
   using DB::NumberLevels;
-  virtual int NumberLevels(const ColumnFamilyHandle& column_family);
+  virtual int NumberLevels(ColumnFamilyHandle* column_family);
   using DB::MaxMemCompactionLevel;
-  virtual int MaxMemCompactionLevel(const ColumnFamilyHandle& column_family);
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family);
   using DB::Level0StopWriteTrigger;
-  virtual int Level0StopWriteTrigger(const ColumnFamilyHandle& column_family);
+  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family);
   virtual const std::string& GetName() const;
   virtual Env* GetEnv() const;
   using DB::GetOptions;
-  virtual const Options& GetOptions(const ColumnFamilyHandle& column_family)
-      const;
+  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const;
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
-                       const ColumnFamilyHandle& column_family);
+                       ColumnFamilyHandle* column_family);
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions(bool force);
   // All the returned filenames start with "/"
@@ -245,6 +242,8 @@ class DBImpl : public DB {
   // files in sst_delete_files and log_delete_files.
   // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(DeletionState& deletion_state);
+
+  ColumnFamilyHandle* DefaultColumnFamily() const;
 
  protected:
   Env* const env_;
@@ -381,7 +380,7 @@ class DBImpl : public DB {
   port::CondVar bg_cv_;          // Signalled when background work finishes
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
-  ColumnFamilyData* default_cfd_;
+  ColumnFamilyHandleImpl* default_cf_handle_;
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
 
   std::string host_name_;
@@ -493,9 +492,9 @@ class DBImpl : public DB {
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
-  Status GetImpl(const ReadOptions& options,
-                 const ColumnFamilyHandle& column_family, const Slice& key,
-                 std::string* value, bool* value_found = nullptr);
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, std::string* value,
+                 bool* value_found = nullptr);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

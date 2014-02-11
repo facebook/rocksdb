@@ -396,8 +396,6 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
                                        VersionEdit* edit);
 
-  void DropColumnFamily(VersionEdit* edit);
-
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
 
  private:

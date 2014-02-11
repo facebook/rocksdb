@@ -27,7 +27,6 @@
 
 #include <string>
 #include "rocksdb/status.h"
-#include "rocksdb/column_family.h"
 
 namespace rocksdb {
 

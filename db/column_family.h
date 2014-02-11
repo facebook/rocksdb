@@ -30,6 +30,35 @@ class CompactionPicker;
 class Compaction;
 class InternalKey;
 class InternalStats;
+class ColumnFamilyData;
+class DBImpl;
+
+class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
+ public:
+  // create while holding the mutex
+  ColumnFamilyHandleImpl(ColumnFamilyData* cfd, DBImpl* db, port::Mutex* mutex);
+  // destroy without mutex
+  virtual ~ColumnFamilyHandleImpl();
+  virtual ColumnFamilyData* cfd() const { return cfd_; }
+
+ private:
+  ColumnFamilyData* cfd_;
+  DBImpl* db_;
+  port::Mutex* mutex_;
+};
+
+// does not ref-count cfd_
+class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
+ public:
+  ColumnFamilyHandleInternal()
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr) {}
+
+  void SetCFD(ColumnFamilyData* cfd) { internal_cfd_ = cfd; }
+  virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
+
+ private:
+  ColumnFamilyData* internal_cfd_;
+};
 
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {
@@ -63,11 +92,34 @@ extern ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
                                            const InternalFilterPolicy* ipolicy,
                                            const ColumnFamilyOptions& src);
 
+class ColumnFamilySet;
+
 // column family metadata. not thread-safe. should be protected by db_mutex
 class ColumnFamilyData {
  public:
+  ~ColumnFamilyData();
+
   uint32_t GetID() const { return id_; }
   const std::string& GetName() { return name_; }
+
+  // DB mutex held for all these
+  void Ref() { ++refs_; }
+  // will just decrease reference count to 0, but will not delete it. returns
+  // true if the ref count was decreased to zero and needs to be cleaned up by
+  // the caller
+  bool Unref() {
+    assert(refs_ > 0);
+    return --refs_ == 0;
+  }
+  bool Dead() { return refs_ == 0; }
+
+  // SetDropped() and IsDropped() are thread-safe
+  void SetDropped() {
+    // can't drop default CF
+    assert(id_ != 0);
+    dropped_.store(true);
+  }
+  bool IsDropped() const { return dropped_.load(); }
 
   int NumberLevels() const { return options_.num_levels; }
 
@@ -126,15 +178,18 @@ class ColumnFamilyData {
                    const std::string& name, Version* dummy_versions,
                    Cache* table_cache, const ColumnFamilyOptions& options,
                    const DBOptions* db_options,
-                   const EnvOptions& storage_options);
-  ~ColumnFamilyData();
+                   const EnvOptions& storage_options,
+                   ColumnFamilySet* column_family_set);
 
-  ColumnFamilyData* next() { return next_.load(); }
+  ColumnFamilyData* next() { return next_; }
 
   uint32_t id_;
   const std::string name_;
   Version* dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;         // == dummy_versions->prev_
+
+  int refs_;                   // outstanding references to ColumnFamilyData
+  std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
   const InternalFilterPolicy internal_filter_policy_;
@@ -157,8 +212,8 @@ class ColumnFamilyData {
 
   // pointers for a circular linked list. we use it to support iterations
   // that can be concurrent with writes
-  std::atomic<ColumnFamilyData*> next_;
-  std::atomic<ColumnFamilyData*> prev_;
+  ColumnFamilyData* next_;
+  ColumnFamilyData* prev_;
 
   // This is the earliest log file number that contains data from this
   // Column Family. All earlier log files must be ignored and not
@@ -172,6 +227,8 @@ class ColumnFamilyData {
   // An object that keeps all the compaction stats
   // and picks the next compaction
   std::unique_ptr<CompactionPicker> compaction_picker_;
+
+  ColumnFamilySet* column_family_set_;
 };
 
 // Thread safe only for reading without a writer. All access should be
@@ -183,7 +240,10 @@ class ColumnFamilySet {
     explicit iterator(ColumnFamilyData* cfd)
         : current_(cfd) {}
     iterator& operator++() {
-      current_ = current_->next();
+      // dummy is never dead, so this will never be infinite
+      do {
+        current_ = current_->next();
+      } while (current_->Dead());
       return *this;
     }
     bool operator!=(const iterator& other) {
@@ -216,26 +276,31 @@ class ColumnFamilySet {
   ColumnFamilyData* CreateColumnFamily(const std::string& name, uint32_t id,
                                        Version* dummy_version,
                                        const ColumnFamilyOptions& options);
-  void DropColumnFamily(uint32_t id);
+  void DropColumnFamily(ColumnFamilyData* cfd);
 
   iterator begin() { return iterator(dummy_cfd_->next()); }
   iterator end() { return iterator(dummy_cfd_); }
 
   // ColumnFamilySet has interesting thread-safety requirements
-  // * CreateColumnFamily() or DropColumnFamily() -- need to Lock() and also
-  //      execute inside of DB mutex
-  // * Iterate -- without any locks
-  // * GetDefault(), GetColumnFamily(), Exists(), GetID(),
-  //      GetNextColumnFamilyID() -- either inside of DB mutex or call Lock()
+  // * CreateColumnFamily() or DropColumnFamily() -- need to protect by DB
+  // mutex. Inside, column_family_data_ and column_families_ will be protected
+  // by Lock() and Unlock()
+  // * Iterate -- hold DB mutex, but you can release it in the body of
+  // iteration. If you release DB mutex in body, reference the column
+  // family before the mutex and unreference after you unlock, since the column
+  // family might get dropped when you release the DB mutex.
+  // * GetDefault(), GetColumnFamily(), Exists(), GetID() -- either inside of DB
+  // mutex or call Lock()
+  // * GetNextColumnFamilyID() -- inside of DB mutex
   void Lock();
   void Unlock();
 
  private:
+  // when mutating: 1. DB mutex locked first, 2. spinlock locked second
+  // when reading, either: 1. lock DB mutex, or 2. lock spinlock
+  //  (if both, respect the ordering to avoid deadlock!)
   std::unordered_map<std::string, uint32_t> column_families_;
   std::unordered_map<uint32_t, ColumnFamilyData*> column_family_data_;
-  // we need to keep them alive because we still can't control the lifetime of
-  // all of column family data members (options for example)
-  std::vector<ColumnFamilyData*> droppped_column_families_;
   uint32_t max_column_family_;
   ColumnFamilyData* dummy_cfd_;
 
@@ -266,12 +331,12 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   virtual const Options* GetFullOptions() const override;
 
   // Returns column family handle for the selected column family
-  virtual const ColumnFamilyHandle& GetColumnFamilyHandle() const override;
+  virtual ColumnFamilyHandle* GetColumnFamilyHandle() override;
 
  private:
   ColumnFamilySet* column_family_set_;
   ColumnFamilyData* current_;
-  ColumnFamilyHandle handle_;
+  ColumnFamilyHandleInternal handle_;
 };
 
 }  // namespace rocksdb
