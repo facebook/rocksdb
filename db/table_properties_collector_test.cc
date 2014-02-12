@@ -116,7 +116,7 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
    }
 
   virtual UserCollectedProperties GetReadableProperties() const {
-      return {};
+    return UserCollectedProperties{};
   }
 
 
