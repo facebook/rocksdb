@@ -25,11 +25,7 @@ using std::unique_ptr;
 
 class ColumnFamilyHandle {
  public:
-  ColumnFamilyHandle() {}
   virtual ~ColumnFamilyHandle() {}
-
- private:
-  ColumnFamilyHandle(const ColumnFamilyHandle&);  // no copying
 };
 extern const std::string default_column_family_name;
 
