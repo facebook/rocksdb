@@ -39,6 +39,7 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
       score_(0),
       bottommost_level_(false),
       is_full_compaction_(false),
+      is_manual_compaction_(false),
       level_ptrs_(std::vector<size_t>(number_levels_)) {
 
   input_version_->Ref();

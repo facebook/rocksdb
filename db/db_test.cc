@@ -2973,7 +2973,11 @@ class DeleteFilterFactory : public CompactionFilterFactory {
   public:
     virtual std::unique_ptr<CompactionFilter>
     CreateCompactionFilter(const CompactionFilter::Context& context) override {
-      return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+      if (context.is_manual_compaction) {
+        return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+      } else {
+        return std::unique_ptr<CompactionFilter>(nullptr);
+      }
     }
 
     virtual const char* Name() const override {

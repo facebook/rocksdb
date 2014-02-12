@@ -112,6 +112,7 @@ struct DBImpl::CompactionState {
   CompactionFilter::Context GetFilterContext() {
     CompactionFilter::Context context;
     context.is_full_compaction = compaction->IsFullCompaction();
+    context.is_manual_compaction = compaction->IsManualCompaction();
     return context;
   }
 };

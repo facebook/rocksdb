@@ -25,6 +25,9 @@ class CompactionFilter {
   struct Context {
     // Does this compaction run include all data files
     bool is_full_compaction;
+    // Is this compaction requested by the client (true),
+    // or is it occurring as an automatic compaction process
+    bool is_manual_compaction;
   };
 
   virtual ~CompactionFilter() {}

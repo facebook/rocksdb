@@ -361,6 +361,9 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
 
   // Is this compaction creating a file at the bottommost level
   c->SetupBottomMostLevel(true);
+
+  c->is_manual_compaction_ = true;
+
   return c;
 }
 
