@@ -46,6 +46,7 @@ class VersionSet;
 class MergeContext;
 struct ColumnFamilyData;
 class ColumnFamilySet;
+class LookupKey;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.

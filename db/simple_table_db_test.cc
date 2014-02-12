@@ -96,7 +96,7 @@ public:
 
   void SetupForCompaction() override;
 
-  TableProperties& GetTableProperties() override;
+  std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
   ~SimpleTableReader();
 
@@ -172,7 +172,7 @@ struct SimpleTableReader::Rep {
   unique_ptr<RandomAccessFile> file;
   uint64_t index_start_offset;
   int num_entries;
-  TableProperties table_properties;
+  std::shared_ptr<TableProperties> table_properties;
 
   const static int user_key_size = 16;
   const static int offset_length = 8;
@@ -215,7 +215,8 @@ Status SimpleTableReader::Open(const Options& options,
 void SimpleTableReader::SetupForCompaction() {
 }
 
-TableProperties& SimpleTableReader::GetTableProperties() {
+std::shared_ptr<const TableProperties> SimpleTableReader::GetTableProperties()
+    const {
   return rep_->table_properties;
 }
 

@@ -174,6 +174,8 @@ class DBImpl : public DB {
     default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
   }
 
+  void TEST_GetFilesMetaData(std::vector<std::vector<FileMetaData>>* metadata);
+
   // needed for CleanupIteratorState
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {

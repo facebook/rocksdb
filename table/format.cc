@@ -10,6 +10,7 @@
 #include "table/format.h"
 
 #include <string>
+#include <inttypes.h>
 
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -64,7 +65,8 @@ Status Footer::DecodeFrom(Slice* input) {
     if (magic != table_magic_number()) {
       char buffer[80];
       snprintf(buffer, sizeof(buffer) - 1,
-               "not an sstable (bad magic number --- %lx)", magic);
+               "not an sstable (bad magic number --- %lx)",
+               (long)magic);
       return Status::InvalidArgument(buffer);
     }
   } else {
@@ -223,6 +225,28 @@ Status UncompressBlockContents(const char* data, size_t n,
         "Bzip2 not supported or corrupted Bzip2 compressed block contents";
       if (!ubuf) {
         return Status::Corruption(bzip2_corrupt_msg);
+      }
+      result->data = Slice(ubuf, decompress_size);
+      result->heap_allocated = true;
+      result->cachable = true;
+      break;
+    case kLZ4Compression:
+      ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
+      static char lz4_corrupt_msg[] =
+          "LZ4 not supported or corrupted LZ4 compressed block contents";
+      if (!ubuf) {
+        return Status::Corruption(lz4_corrupt_msg);
+      }
+      result->data = Slice(ubuf, decompress_size);
+      result->heap_allocated = true;
+      result->cachable = true;
+      break;
+    case kLZ4HCCompression:
+      ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
+      static char lz4hc_corrupt_msg[] =
+          "LZ4HC not supported or corrupted LZ4HC compressed block contents";
+      if (!ubuf) {
+        return Status::Corruption(lz4hc_corrupt_msg);
       }
       result->data = Slice(ubuf, decompress_size);
       result->heap_allocated = true;

@@ -233,6 +233,30 @@ void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
         type = kNoCompression;
       }
       break;
+    case kLZ4Compression:
+      if (port::LZ4_Compress(r->options.compression_opts, raw.data(),
+                             raw.size(), compressed) &&
+          GoodCompressionRatio(compressed->size(), raw.size())) {
+        block_contents = *compressed;
+      } else {
+        // LZ4 not supported, or not good compression ratio, so just
+        // store uncompressed form
+        block_contents = raw;
+        type = kNoCompression;
+      }
+      break;
+    case kLZ4HCCompression:
+      if (port::LZ4HC_Compress(r->options.compression_opts, raw.data(),
+                               raw.size(), compressed) &&
+          GoodCompressionRatio(compressed->size(), raw.size())) {
+        block_contents = *compressed;
+      } else {
+        // LZ4 not supported, or not good compression ratio, so just
+        // store uncompressed form
+        block_contents = raw;
+        type = kNoCompression;
+      }
+      break;
   }
   WriteRawBlock(block_contents, type, handle);
   r->compressed_output.clear();

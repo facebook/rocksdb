@@ -110,8 +110,6 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
 }
 
 
-SuperVersion::SuperVersion() {}
-
 SuperVersion::~SuperVersion() {
   for (auto td : to_delete) {
     delete td;

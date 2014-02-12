@@ -64,6 +64,10 @@ class HashLinkListRep : public MemTableRep {
 
   virtual size_t ApproximateMemoryUsage() override;
 
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg,
+                                         const char* entry)) override;
+
   virtual ~HashLinkListRep();
 
   virtual MemTableRep::Iterator* GetIterator() override;
@@ -396,6 +400,19 @@ bool HashLinkListRep::Contains(const char* key) const {
 size_t HashLinkListRep::ApproximateMemoryUsage() {
   // Memory is always allocated from the arena.
   return 0;
+}
+
+void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
+                          bool (*callback_func)(void* arg, const char* entry)) {
+  auto transformed = transform_->Transform(k.user_key());
+  auto bucket = GetBucket(transformed);
+  if (bucket != nullptr) {
+    Iterator iter(this, bucket);
+    for (iter.Seek(k.internal_key(), nullptr);
+         iter.Valid() && callback_func(callback_args, iter.key());
+         iter.Next()) {
+    }
+  }
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetIterator() {

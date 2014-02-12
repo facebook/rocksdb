@@ -52,6 +52,7 @@ struct ReadOptions;
 struct WriteOptions;
 struct FlushOptions;
 class WriteBatch;
+class Env;
 
 // Metadata associated with each SST file.
 struct LiveFileMetaData {
@@ -379,7 +380,7 @@ class DB {
 
   // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
 
-  // THIS METHOD IS DEPRECATED. Use the GetTableMetaData to get more
+  // THIS METHOD IS DEPRECATED. Use the GetLiveFilesMetaData to get more
   // detailed information on the live files.
   // Retrieve the list of all files in the database. The files are
   // relative to the dbname and are not absolute paths. The valid size of the

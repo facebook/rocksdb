@@ -857,7 +857,6 @@ void BackupEngineImpl::BackupMeta::Delete() {
 // <file1> <crc32(literal string)> <crc32_value>
 // <file2> <crc32(literal string)> <crc32_value>
 // ...
-// TODO: maybe add checksum?
 Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::string& backup_dir) {
   assert(Empty());
@@ -873,7 +872,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   s = backup_meta_file->Read(max_backup_meta_file_size_, &data, buf.get());
 
   if (!s.ok() || data.size() == max_backup_meta_file_size_) {
-    return s.ok() ? Status::IOError("File size too big") : s;
+    return s.ok() ? Status::Corruption("File size too big") : s;
   }
   buf[data.size()] = 0;
 

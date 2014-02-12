@@ -60,7 +60,13 @@ std::string Status::ToString() const {
       type = "IO error: ";
       break;
     case kMergeInProgress:
-      type = "Merge In Progress: ";
+      type = "Merge in progress: ";
+      break;
+    case kIncomplete:
+      type = "Result incomplete: ";
+      break;
+    case kShutdownInProgress:
+      type = "Shutdown in progress: ";
       break;
     default:
       snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",

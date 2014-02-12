@@ -116,7 +116,7 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
    }
 
   virtual UserCollectedProperties GetReadableProperties() const {
-      return {};
+    return UserCollectedProperties{};
   }
 
 
@@ -157,7 +157,7 @@ void TestCustomizedTablePropertiesCollector(
 
   // -- Step 2: Read properties
   FakeRandomeAccessFile readable(writable->contents());
-  TableProperties props;
+  TableProperties* props;
   Status s = ReadTableProperties(
       &readable,
       writable->contents().size(),
@@ -166,9 +166,10 @@ void TestCustomizedTablePropertiesCollector(
       nullptr,
       &props
   );
+  std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
-  auto user_collected = props.user_collected_properties;
+  auto user_collected = props->user_collected_properties;
 
   ASSERT_EQ("Rocksdb", user_collected.at("TablePropertiesTest"));
 
@@ -256,7 +257,7 @@ void TestInternalKeyPropertiesCollector(
   ASSERT_OK(builder->Finish());
 
   FakeRandomeAccessFile readable(writable->contents());
-  TableProperties props;
+  TableProperties* props;
   Status s = ReadTableProperties(
       &readable,
       writable->contents().size(),
@@ -267,7 +268,8 @@ void TestInternalKeyPropertiesCollector(
   );
   ASSERT_OK(s);
 
-  auto user_collected = props.user_collected_properties;
+  std::unique_ptr<TableProperties> props_guard(props);
+  auto user_collected = props->user_collected_properties;
   uint64_t deleted = GetDeletedKeys(user_collected);
   ASSERT_EQ(4u, deleted);
 

@@ -4,7 +4,7 @@
 #pragma once
 
 #include <string>
-#include <unordered_map>
+#include <map>
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -14,7 +14,16 @@ namespace rocksdb {
 // collected properties.
 // The value of the user-collected properties are encoded as raw bytes --
 // users have to interprete these values by themselves.
-typedef std::unordered_map<std::string, std::string> UserCollectedProperties;
+// Note: To do prefix seek/scan in `UserCollectedProperties`, you can do
+// something similar to:
+//
+// UserCollectedProperties props = ...;
+// for (auto pos = props.lower_bound(prefix);
+//      pos != props.end() && pos->first.compare(0, prefix.size(), prefix) == 0;
+//      ++pos) {
+//   ...
+// }
+typedef std::map<std::string, std::string> UserCollectedProperties;
 
 // TableProperties contains a bunch of read-only properties of its associated
 // table.

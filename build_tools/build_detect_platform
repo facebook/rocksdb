@@ -19,7 +19,8 @@
 #
 #       -DLEVELDB_PLATFORM_POSIX if cstdatomic is present
 #       -DLEVELDB_PLATFORM_NOATOMIC if it is not
-#       -DSNAPPY                     if the Snappy library is present
+#       -DSNAPPY                    if the Snappy library is present
+#       -DLZ4                       if the LZ4 library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
@@ -38,7 +39,7 @@ if test -z "$OUTPUT"; then
 fi
 
 # we depend on C++11
-PLATFORM_CXXFLAGS="-std=gnu++11"
+PLATFORM_CXXFLAGS="-std=c++11"
 # we currently depend on POSIX platform
 COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
 
@@ -242,6 +243,17 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DBZIP2"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbz2"
+    fi
+
+    # Test whether lz4 library is installed
+    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <lz4.h>
+      #include <lz4hc.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DLZ4"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llz4"
     fi
 
     # Test whether tcmalloc is available

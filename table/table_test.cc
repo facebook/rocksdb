@@ -488,30 +488,62 @@ class DBConstructor: public Constructor {
 };
 
 static bool SnappyCompressionSupported() {
+#ifdef SNAPPY
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   return port::Snappy_Compress(Options().compression_opts,
                                in.data(), in.size(),
                                &out);
+#else
+  return false;
+#endif
 }
 
 static bool ZlibCompressionSupported() {
+#ifdef ZLIB
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   return port::Zlib_Compress(Options().compression_opts,
                              in.data(), in.size(),
                              &out);
+#else
+  return false;
+#endif
 }
 
-#ifdef BZIP2
 static bool BZip2CompressionSupported() {
+#ifdef BZIP2
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   return port::BZip2_Compress(Options().compression_opts,
                               in.data(), in.size(),
                               &out);
-}
+#else
+  return false;
 #endif
+}
+
+static bool LZ4CompressionSupported() {
+#ifdef LZ4
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4_Compress(Options().compression_opts, in.data(), in.size(),
+                            &out);
+#else
+  return false;
+#endif
+}
+
+static bool LZ4HCCompressionSupported() {
+#ifdef LZ4
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4HC_Compress(Options().compression_opts, in.data(), in.size(),
+                              &out);
+#else
+  return false;
+#endif
+}
 
 enum TestType {
   BLOCK_BASED_TABLE_TEST,
@@ -539,24 +571,23 @@ static std::vector<TestArgs> GenerateArgList() {
   std::vector<int> restart_intervals = {16, 1, 1024};
 
   // Only add compression if it is supported
-  std::vector<CompressionType> compression_types = {kNoCompression};
-#ifdef SNAPPY
+  std::vector<CompressionType> compression_types;
+  compression_types.push_back(kNoCompression);
   if (SnappyCompressionSupported()) {
     compression_types.push_back(kSnappyCompression);
   }
-#endif
-
-#ifdef ZLIB
   if (ZlibCompressionSupported()) {
     compression_types.push_back(kZlibCompression);
   }
-#endif
-
-#ifdef BZIP2
   if (BZip2CompressionSupported()) {
     compression_types.push_back(kBZip2Compression);
   }
-#endif
+  if (LZ4CompressionSupported()) {
+    compression_types.push_back(kLZ4Compression);
+  }
+  if (LZ4HCCompressionSupported()) {
+    compression_types.push_back(kLZ4HCCompression);
+  }
 
   for (auto test_type : test_types) {
     for (auto reverse_compare : reverse_compare_types) {
@@ -908,6 +939,44 @@ class TableTest {
 class GeneralTableTest : public TableTest {};
 class BlockBasedTableTest : public TableTest {};
 class PlainTableTest : public TableTest {};
+class TablePropertyTest {};
+
+// This test serves as the living tutorial for the prefix scan of user collected
+// properties.
+TEST(TablePropertyTest, PrefixScanTest) {
+  UserCollectedProperties props{{"num.111.1", "1"},
+                                {"num.111.2", "2"},
+                                {"num.111.3", "3"},
+                                {"num.333.1", "1"},
+                                {"num.333.2", "2"},
+                                {"num.333.3", "3"},
+                                {"num.555.1", "1"},
+                                {"num.555.2", "2"},
+                                {"num.555.3", "3"}, };
+
+  // prefixes that exist
+  for (const std::string& prefix : {"num.111", "num.333", "num.555"}) {
+    int num = 0;
+    for (auto pos = props.lower_bound(prefix);
+         pos != props.end() &&
+             pos->first.compare(0, prefix.size(), prefix) == 0;
+         ++pos) {
+      ++num;
+      auto key = prefix + "." + std::to_string(num);
+      ASSERT_EQ(key, pos->first);
+      ASSERT_EQ(std::to_string(num), pos->second);
+    }
+    ASSERT_EQ(3, num);
+  }
+
+  // prefixes that don't exist
+  for (const std::string& prefix :
+       {"num.000", "num.222", "num.444", "num.666"}) {
+    auto pos = props.lower_bound(prefix);
+    ASSERT_TRUE(pos == props.end() ||
+                pos->first.compare(0, prefix.size(), prefix) != 0);
+  }
+}
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
@@ -933,7 +1002,7 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
            &kvmap);
 
-  auto& props = c.table_reader()->GetTableProperties();
+  auto& props = *c.table_reader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
 
   auto raw_key_size = kvmap.size() * 2ul;
@@ -964,7 +1033,7 @@ TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
 
   c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
            &kvmap);
-  auto& props = c.table_reader()->GetTableProperties();
+  auto& props = *c.table_reader()->GetTableProperties();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
 }
 
@@ -1006,8 +1075,7 @@ TEST(BlockBasedTableTest, IndexSizeStat) {
 
     c.Finish(options, GetPlainInternalComparator(options.comparator), &ks,
              &kvmap);
-    auto index_size =
-      c.table_reader()->GetTableProperties().index_size;
+    auto index_size = c.table_reader()->GetTableProperties()->index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
   }
@@ -1032,7 +1100,7 @@ TEST(BlockBasedTableTest, NumBlockStat) {
   c.Finish(options, GetPlainInternalComparator(options.comparator), &ks,
            &kvmap);
   ASSERT_EQ(kvmap.size(),
-            c.table_reader()->GetTableProperties().num_data_blocks);
+            c.table_reader()->GetTableProperties()->num_data_blocks);
 }
 
 class BlockCacheProperties {
@@ -1238,18 +1306,19 @@ TEST(PlainTableTest, BasicPlainTableProperties) {
 
   StringSource source(sink.contents(), 72242, true);
 
-  TableProperties props;
+  TableProperties* props = nullptr;
   auto s = ReadTableProperties(&source, sink.contents().size(),
                                kPlainTableMagicNumber, Env::Default(), nullptr,
                                &props);
+  std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
-  ASSERT_EQ(0ul, props.index_size);
-  ASSERT_EQ(0ul, props.filter_size);
-  ASSERT_EQ(16ul * 26, props.raw_key_size);
-  ASSERT_EQ(28ul * 26, props.raw_value_size);
-  ASSERT_EQ(26ul, props.num_entries);
-  ASSERT_EQ(1ul, props.num_data_blocks);
+  ASSERT_EQ(0ul, props->index_size);
+  ASSERT_EQ(0ul, props->filter_size);
+  ASSERT_EQ(16ul * 26, props->raw_key_size);
+  ASSERT_EQ(28ul * 26, props->raw_value_size);
+  ASSERT_EQ(26ul, props->num_entries);
+  ASSERT_EQ(1ul, props->num_data_blocks);
 }
 
 TEST(GeneralTableTest, ApproximateOffsetOfPlain) {
@@ -1307,24 +1376,42 @@ static void DoCompressionTest(CompressionType comp) {
 }
 
 TEST(GeneralTableTest, ApproximateOffsetOfCompressed) {
-  CompressionType compression_state[2];
-  int valid = 0;
+  std::vector<CompressionType> compression_state;
   if (!SnappyCompressionSupported()) {
     fprintf(stderr, "skipping snappy compression tests\n");
   } else {
-    compression_state[valid] = kSnappyCompression;
-    valid++;
+    compression_state.push_back(kSnappyCompression);
   }
 
   if (!ZlibCompressionSupported()) {
     fprintf(stderr, "skipping zlib compression tests\n");
   } else {
-    compression_state[valid] = kZlibCompression;
-    valid++;
+    compression_state.push_back(kZlibCompression);
   }
 
-  for (int i = 0; i < valid; i++) {
-    DoCompressionTest(compression_state[i]);
+  // TODO(kailiu) DoCompressionTest() doesn't work with BZip2.
+  /*
+  if (!BZip2CompressionSupported()) {
+    fprintf(stderr, "skipping bzip2 compression tests\n");
+  } else {
+    compression_state.push_back(kBZip2Compression);
+  }
+  */
+
+  if (!LZ4CompressionSupported()) {
+    fprintf(stderr, "skipping lz4 compression tests\n");
+  } else {
+    compression_state.push_back(kLZ4Compression);
+  }
+
+  if (!LZ4HCCompressionSupported()) {
+    fprintf(stderr, "skipping lz4hc compression tests\n");
+  } else {
+    compression_state.push_back(kLZ4HCCompression);
+  }
+
+  for (auto state : compression_state) {
+    DoCompressionTest(state);
   }
 }
 

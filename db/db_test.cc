@@ -56,7 +56,19 @@ static bool BZip2CompressionSupported(const CompressionOptions& options) {
   return port::BZip2_Compress(options, in.data(), in.size(), &out);
 }
 
-static std::string RandomString(Random* rnd, int len) {
+static bool LZ4CompressionSupported(const CompressionOptions &options) {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4_Compress(options, in.data(), in.size(), &out);
+}
+
+static bool LZ4HCCompressionSupported(const CompressionOptions &options) {
+  std::string out;
+  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  return port::LZ4HC_Compress(options, in.data(), in.size(), &out);
+}
+
+static std::string RandomString(Random *rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
   return r;
@@ -1649,6 +1661,42 @@ TEST(DBTest, Recover) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, RecoverWithTableHandle) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.write_buffer_size = 100;
+    options.disable_auto_compactions = true;
+    DestroyAndReopen(&options);
+
+    ASSERT_OK(Put("foo", "v1"));
+    ASSERT_OK(Put("bar", "v2"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(Put("foo", "v3"));
+    ASSERT_OK(Put("bar", "v4"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(Put("big", std::string(100, 'a')));
+    Reopen();
+
+    std::vector<std::vector<FileMetaData>> files;
+    dbfull()->TEST_GetFilesMetaData(&files);
+    int total_files = 0;
+    for (const auto& level : files) {
+      total_files += level.size();
+    }
+    ASSERT_EQ(total_files, 3);
+    for (const auto& level : files) {
+      for (const auto& file : level) {
+        if (kInfiniteMaxOpenFiles == option_config_) {
+          ASSERT_TRUE(file.table_reader_handle != nullptr);
+        } else {
+          ASSERT_TRUE(file.table_reader_handle == nullptr);
+        }
+      }
+    }
+  } while (ChangeOptions());
+}
+
 TEST(DBTest, IgnoreRecoveredLog) {
   std::string backup_logs = dbname_ + "/backup_logs";
 
@@ -2624,6 +2672,14 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
                CompressionOptions(wbits, lev, strategy))) {
     type = kBZip2Compression;
     fprintf(stderr, "using bzip2\n");
+  } else if (LZ4CompressionSupported(
+                 CompressionOptions(wbits, lev, strategy))) {
+    type = kLZ4Compression;
+    fprintf(stderr, "using lz4\n");
+  } else if (LZ4HCCompressionSupported(
+                 CompressionOptions(wbits, lev, strategy))) {
+    type = kLZ4HCCompression;
+    fprintf(stderr, "using lz4hc\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
     return false;
@@ -2917,7 +2973,11 @@ class DeleteFilterFactory : public CompactionFilterFactory {
   public:
     virtual std::unique_ptr<CompactionFilter>
     CreateCompactionFilter(const CompactionFilter::Context& context) override {
-      return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+      if (context.is_manual_compaction) {
+        return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+      } else {
+        return std::unique_ptr<CompactionFilter>(nullptr);
+      }
     }
 
     virtual const char* Name() const override {

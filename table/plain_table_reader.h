@@ -64,13 +64,15 @@ class PlainTableReader: public TableReader {
 
   void SetupForCompaction();
 
-  const TableProperties& GetTableProperties() { return table_properties_; }
+  std::shared_ptr<const TableProperties> GetTableProperties() const {
+    return table_properties_;
+  }
 
   PlainTableReader(const EnvOptions& storage_options,
                    const InternalKeyComparator& internal_comparator,
                    uint64_t file_size, int bloom_num_bits,
                    double hash_table_ratio,
-                   const TableProperties& table_properties);
+                   const TableProperties* table_properties);
   ~PlainTableReader();
 
  private:
@@ -95,7 +97,7 @@ class PlainTableReader: public TableReader {
   const int kBloomBitsPerKey;
   DynamicBloom* bloom_ = nullptr;
 
-  TableProperties table_properties_;
+  std::shared_ptr<const TableProperties> table_properties_;
   const uint32_t data_start_offset_ = 0;
   const uint32_t data_end_offset_;
   const size_t user_key_len_;

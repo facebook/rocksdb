@@ -39,6 +39,10 @@ class VectorRep : public MemTableRep {
 
   virtual size_t ApproximateMemoryUsage() override;
 
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg,
+                                         const char* entry)) override;
+
   virtual ~VectorRep() override { }
 
   class Iterator : public MemTableRep::Iterator {
@@ -230,6 +234,25 @@ void VectorRep::Iterator::SeekToLast() {
   cit_ = bucket_->end();
   if (bucket_->size() != 0) {
     --cit_;
+  }
+}
+
+void VectorRep::Get(const LookupKey& k, void* callback_args,
+                    bool (*callback_func)(void* arg, const char* entry)) {
+  rwlock_.ReadLock();
+  VectorRep* vector_rep;
+  std::shared_ptr<Bucket> bucket;
+  if (immutable_) {
+    vector_rep = this;
+  } else {
+    vector_rep = nullptr;
+    bucket.reset(new Bucket(*bucket_));  // make a copy
+  }
+  VectorRep::Iterator iter(vector_rep, immutable_ ? bucket_ : bucket, compare_);
+  rwlock_.Unlock();
+
+  for (iter.Seek(k.user_key(), k.memtable_key().data());
+       iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
   }
 }
 

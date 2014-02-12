@@ -154,6 +154,13 @@ class MemTable {
   // Notify the underlying storage that no more items will be added
   void MarkImmutable() { table_->MarkReadOnly(); }
 
+  // Get the lock associated for the key
+  port::RWMutex* GetLock(const Slice& key);
+
+  const InternalKeyComparator& GetInternalKeyComparator() const {
+    return comparator_.comparator;
+  }
+
  private:
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
@@ -189,9 +196,6 @@ class MemTable {
   // No copying allowed
   MemTable(const MemTable&);
   void operator=(const MemTable&);
-
-  // Get the lock associated for the key
-  port::RWMutex* GetLock(const Slice& key);
 
   const SliceTransform* const prefix_extractor_;
   std::unique_ptr<DynamicBloom> prefix_bloom_;

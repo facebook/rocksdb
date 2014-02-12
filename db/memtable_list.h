@@ -83,8 +83,8 @@ class MemTableList {
 
   MemTableListVersion* current() { return current_; }
 
-  // so that backgrund threads can detect non-nullptr pointer to
-  // determine whether this is anything more to start flushing.
+  // so that background threads can detect non-nullptr pointer to
+  // determine whether there is anything more to start flushing.
   port::AtomicPointer imm_flush_needed;
 
   // Returns the total number of memtables in the list
@@ -98,12 +98,20 @@ class MemTableList {
   // memtables are guaranteed to be in the ascending order of created time.
   void PickMemtablesToFlush(autovector<MemTable*>* mems);
 
+  // Reset status of the given memtable list back to pending state so that
+  // they can get picked up again on the next round of flush.
+  void RollbackMemtableFlush(const autovector<MemTable*>& mems,
+                             uint64_t file_number,
+                             std::set<uint64_t>* pending_outputs);
+
   // Commit a successful flush in the manifest file
-  Status InstallMemtableFlushResults(
-      ColumnFamilyData* cfd, const autovector<MemTable*>& m, VersionSet* vset,
-      Status flushStatus, port::Mutex* mu, Logger* info_log,
-      uint64_t file_number, std::set<uint64_t>& pending_outputs,
-      autovector<MemTable*>* to_delete, Directory* db_directory);
+  Status InstallMemtableFlushResults(ColumnFamilyData* cfd,
+                                     const autovector<MemTable*>& m,
+                                     VersionSet* vset, port::Mutex* mu,
+                                     Logger* info_log, uint64_t file_number,
+                                     std::set<uint64_t>& pending_outputs,
+                                     autovector<MemTable*>* to_delete,
+                                     Directory* db_directory);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().

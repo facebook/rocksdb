@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <memory>
 
 namespace rocksdb {
 
@@ -47,7 +48,7 @@ class TableReader {
   // posix_fadvise
   virtual void SetupForCompaction() = 0;
 
-  virtual const TableProperties& GetTableProperties() = 0;
+  virtual std::shared_ptr<const TableProperties> GetTableProperties() const = 0;
 
   // Calls (*result_handler)(handle_context, ...) repeatedly, starting with
   // the entry found after a call to Seek(key), until result_handler returns

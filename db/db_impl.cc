@@ -116,6 +116,7 @@ struct DBImpl::CompactionState {
   CompactionFilter::Context GetFilterContext() {
     CompactionFilter::Context context;
     context.is_full_compaction = compaction->IsFullCompaction();
+    context.is_manual_compaction = compaction->IsManualCompaction();
     return context;
   }
 };
@@ -1182,11 +1183,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
                                          DeletionState& deletion_state) {
   mutex_.AssertHeld();
   assert(cfd->imm()->size() != 0);
-
-  if (!cfd->imm()->IsFlushPending()) {
-    Log(options_.info_log, "FlushMemTableToOutputFile already in progress");
-    return Status::IOError("FlushMemTableToOutputFile already in progress");
-  }
+  assert(cfd->imm()->IsFlushPending());
 
   // Save the contents of the earliest memtable as a new Table
   uint64_t file_number;
@@ -1194,7 +1191,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
   cfd->imm()->PickMemtablesToFlush(&mems);
   if (mems.empty()) {
     Log(options_.info_log, "Nothing in memstore to flush");
-    return Status::IOError("Nothing in memstore to flush");
+    return Status::OK();
   }
 
   // record the logfile_number_ before we release the mutex
@@ -1217,15 +1214,20 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
   // This will release and re-acquire the mutex.
   Status s = WriteLevel0Table(cfd, mems, edit, &file_number);
 
-  if (s.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
-    s = Status::IOError("Column family closed during memtable flush");
+  if (s.ok() && shutting_down_.Acquire_Load() && cfd->IsDropped()) {
+    s = Status::ShutdownInProgress(
+        "Column family closed during memtable flush");
+  }
+
+  if (!s.ok()) {
+    cfd->imm()->RollbackMemtableFlush(mems, file_number, &pending_outputs_);
+    return s;
   }
 
   // Replace immutable memtable with the generated Table
   s = cfd->imm()->InstallMemtableFlushResults(
-      cfd, mems, versions_.get(), s, &mutex_, options_.info_log.get(),
-      file_number, pending_outputs_, &deletion_state.memtables_to_free,
-      db_directory_.get());
+      cfd, mems, versions_.get(), &mutex_, options_.info_log.get(), file_number,
+      pending_outputs_, &deletion_state.memtables_to_free, db_directory_.get());
 
   if (s.ok()) {
     InstallSuperVersion(cfd, deletion_state);
@@ -1410,7 +1412,8 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
 
   RecordTick(options_.statistics.get(), GET_UPDATES_SINCE_CALLS);
   if (seq > versions_->LastSequence()) {
-    return Status::IOError("Requested sequence not yet written in the db");
+    return Status::NotFound(
+        "Requested sequence not yet written in the db");
   }
   //  Get all sorted Wal Files.
   //  Do binary search and open files and find the seq number.
@@ -1474,16 +1477,19 @@ Status DBImpl::ReadFirstRecord(const WalFileType type, const uint64_t number,
   if (type == kAliveLogFile) {
     std::string fname = LogFileName(options_.wal_dir, number);
     Status status = ReadFirstLine(fname, result);
-    if (!status.ok()) {
-      //  check if the file got moved to archive.
-      std::string archived_file =
-        ArchivedLogFileName(options_.wal_dir, number);
-      Status s = ReadFirstLine(archived_file, result);
-      if (!s.ok()) {
-        return Status::IOError("Log File has been deleted: " + archived_file);
-      }
+    if (status.ok() || env_->FileExists(fname)) {
+      // return OK or any error that is not caused non-existing file
+      return status;
     }
-    return Status::OK();
+
+    //  check if the file got moved to archive.
+    std::string archived_file =
+      ArchivedLogFileName(options_.wal_dir, number);
+    Status s = ReadFirstLine(archived_file, result);
+    if (s.ok() || env_->FileExists(archived_file)) {
+      return s;
+    }
+    return Status::NotFound("Log File has been deleted: " + archived_file);
   } else if (type == kArchivedLogFile) {
     std::string fname = ArchivedLogFileName(options_.wal_dir, number);
     Status status = ReadFirstLine(fname, result);
@@ -1498,12 +1504,17 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
     Env* env;
     Logger* info_log;
     const char* fname;
-    Status* status;  // nullptr if options_.paranoid_checks==false
+
+    Status* status;
+    bool ignore_error;  // true if options_.paranoid_checks==false
     virtual void Corruption(size_t bytes, const Status& s) {
       Log(info_log, "%s%s: dropping %d bytes; %s",
-          (this->status == nullptr ? "(ignoring error) " : ""),
+          (this->ignore_error ? "(ignoring error) " : ""),
           fname, static_cast<int>(bytes), s.ToString().c_str());
-      if (this->status != nullptr && this->status->ok()) *this->status = s;
+      if (this->status->ok()) {
+        // only keep the first error
+        *this->status = s;
+      }
     }
   };
 
@@ -1519,23 +1530,30 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
   reporter.env = env_;
   reporter.info_log = options_.info_log.get();
   reporter.fname = fname.c_str();
-  reporter.status = (options_.paranoid_checks ? &status : nullptr);
+  reporter.status = &status;
+  reporter.ignore_error = !options_.paranoid_checks;
   log::Reader reader(std::move(file), &reporter, true/*checksum*/,
                      0/*initial_offset*/);
   std::string scratch;
   Slice record;
 
-  if (reader.ReadRecord(&record, &scratch) && status.ok()) {
+  if (reader.ReadRecord(&record, &scratch) &&
+      (status.ok() || !options_.paranoid_checks)) {
     if (record.size() < 12) {
       reporter.Corruption(
           record.size(), Status::Corruption("log record too small"));
-      return Status::IOError("Corruption noted");
       //  TODO read record's till the first no corrupt entry?
+    } else {
+      WriteBatchInternal::SetContents(batch, record);
+      return Status::OK();
     }
-    WriteBatchInternal::SetContents(batch, record);
-    return Status::OK();
   }
-  return Status::IOError("Error reading from file " + fname);
+
+  // ReadRecord returns false on EOF, which is deemed as OK() by Reader
+  if (status.ok()) {
+    status = Status::Corruption("eof reached");
+  }
+  return status;
 }
 
 struct CompareLogByPointer {
@@ -2206,7 +2224,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
       compact->compaction->level(),
       compact->compaction->num_input_files(1),
       compact->compaction->level() + 1);
-    return Status::IOError("Compaction input files inconsistent");
+    return Status::Corruption("Compaction input files inconsistent");
   }
 
   Log(options_.info_log,  "Compacted %d@%d + %d@%d files => %lld bytes",
@@ -2573,7 +2591,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   }
 
   if (status.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
-    status = Status::IOError("Column family closing started during compaction");
+    status = Status::ShutdownInProgress(
+        "Database shutdown started during compaction");
   }
   if (status.ok() && compact->builder != nullptr) {
     status = FinishCompactionOutputFile(compact, input.get());
@@ -3685,6 +3704,21 @@ Status DBImpl::DeleteFile(std::string name) {
 void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   MutexLock l(&mutex_);
   versions_->GetLiveFilesMetaData(metadata);
+}
+
+void DBImpl::TEST_GetFilesMetaData(
+    std::vector<std::vector<FileMetaData>>* metadata) {
+  MutexLock l(&mutex_);
+  metadata->resize(NumberLevels());
+  for (int level = 0; level < NumberLevels(); level++) {
+    const std::vector<FileMetaData*>& files =
+        default_cf_handle_->cfd()->current()->files_[level];
+
+    (*metadata)[level].clear();
+    for (const auto& f : files) {
+      (*metadata)[level].push_back(*f);
+    }
+  }
 }
 
 Status DBImpl::GetDbIdentity(std::string& identity) {

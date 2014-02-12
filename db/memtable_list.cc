@@ -120,30 +120,33 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
   flush_requested_ = false;  // start-flush request is complete
 }
 
-// Record a successful flush in the manifest file
-Status MemTableList::InstallMemtableFlushResults(
-    ColumnFamilyData* cfd, const autovector<MemTable*>& mems, VersionSet* vset,
-    Status flushStatus, port::Mutex* mu, Logger* info_log, uint64_t file_number,
-    std::set<uint64_t>& pending_outputs, autovector<MemTable*>* to_delete,
-    Directory* db_directory) {
-  mu->AssertHeld();
+void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
+                                         uint64_t file_number,
+                                         std::set<uint64_t>* pending_outputs) {
+  assert(!mems.empty());
 
   // If the flush was not successful, then just reset state.
   // Maybe a suceeding attempt to flush will be successful.
-  if (!flushStatus.ok()) {
-    for (MemTable* m : mems) {
-      assert(m->flush_in_progress_);
-      assert(m->file_number_ == 0);
+  for (MemTable* m : mems) {
+    assert(m->flush_in_progress_);
+    assert(m->file_number_ == 0);
 
-      m->flush_in_progress_ = false;
-      m->flush_completed_ = false;
-      m->edit_.Clear();
-      num_flush_not_started_++;
-      imm_flush_needed.Release_Store((void *)1);
-      pending_outputs.erase(file_number);
-    }
-    return flushStatus;
+    m->flush_in_progress_ = false;
+    m->flush_completed_ = false;
+    m->edit_.Clear();
+    num_flush_not_started_++;
   }
+  pending_outputs->erase(file_number);
+  imm_flush_needed.Release_Store(reinterpret_cast<void *>(1));
+}
+
+// Record a successful flush in the manifest file
+Status MemTableList::InstallMemtableFlushResults(
+    ColumnFamilyData* cfd, const autovector<MemTable*>& mems, VersionSet* vset,
+    port::Mutex* mu, Logger* info_log, uint64_t file_number,
+    std::set<uint64_t>& pending_outputs, autovector<MemTable*>* to_delete,
+    Directory* db_directory) {
+  mu->AssertHeld();
 
   // flush was sucessful
   for (size_t i = 0; i < mems.size(); ++i) {
@@ -216,7 +219,6 @@ Status MemTableList::InstallMemtableFlushResults(
         pending_outputs.erase(m->file_number_);
         m->file_number_ = 0;
         imm_flush_needed.Release_Store((void *)1);
-        s = Status::IOError("Unable to commit flushed memtable");
       }
       ++mem_id;
     } while (!current_->memlist_.empty() && (m = current_->memlist_.back()) &&

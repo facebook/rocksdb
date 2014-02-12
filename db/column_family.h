@@ -72,7 +72,7 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
 
   // should be called outside the mutex
-  SuperVersion();
+  SuperVersion() = default;
   ~SuperVersion();
   SuperVersion* Ref();
   // Returns true if this was the last reference and caller should

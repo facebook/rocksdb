@@ -33,6 +33,7 @@
 #pragma once
 #include <assert.h>
 #include <stdlib.h>
+#include "util/arena.h"
 #include "port/port.h"
 #include "util/arena.h"
 #include "util/random.h"

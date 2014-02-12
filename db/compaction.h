@@ -85,6 +85,9 @@ class Compaction {
   // Does this compaction include all sst files?
   bool IsFullCompaction() { return is_full_compaction_; }
 
+  // Was this compaction triggered manually by the client?
+  bool IsManualCompaction() { return is_manual_compaction_; }
+
  private:
   friend class CompactionPicker;
   friend class UniversalCompactionPicker;
@@ -124,6 +127,9 @@ class Compaction {
   bool bottommost_level_;
   // Does this compaction include all sst files?
   bool is_full_compaction_;
+
+  // Is this compaction requested by the client?
+  bool is_manual_compaction_;
 
   // level_ptrs_ holds indices into input_version_->levels_: our state
   // is that we are positioned at one of the file ranges for each

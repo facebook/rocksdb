@@ -1855,8 +1855,18 @@ Status VersionSet::Recover(
 
   if (s.ok()) {
     for (auto cfd : *column_family_set_) {
+      auto builders_iter = builders.find(cfd->GetID());
+      assert(builders_iter != builders.end());
+      auto builder = builders_iter->second;
+
+      if (options_->max_open_files == -1) {
+      // unlimited table cache. Pre-load table handle now.
+      // Need to do it out of the mutex.
+        builder->LoadTableHandlers();
+      }
+
       Version* v = new Version(cfd, this, current_version_number_++);
-      builders[cfd->GetID()]->SaveTo(v);
+      builder->SaveTo(v);
 
       // Install recovered version
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);

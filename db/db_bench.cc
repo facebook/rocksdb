@@ -60,8 +60,8 @@ DEFINE_string(benchmarks,
               "randomwithverify,"
               "fill100K,"
               "crc32c,"
-              "snappycomp,"
-              "snappyuncomp,"
+              "compress,"
+              "uncompress,"
               "acquireload,"
               "fillfromstdin,",
 
@@ -338,6 +338,10 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kZlibCompression;
   else if (!strcasecmp(ctype, "bzip2"))
     return rocksdb::kBZip2Compression;
+  else if (!strcasecmp(ctype, "lz4"))
+    return rocksdb::kLZ4Compression;
+  else if (!strcasecmp(ctype, "lz4hc"))
+    return rocksdb::kLZ4HCCompression;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
@@ -479,7 +483,8 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(prefix_size, 0, "Control the prefix size for HashSkipList");
+DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
+             "plain table");
 
 enum RepFactory {
   kSkipList,
@@ -501,6 +506,8 @@ enum RepFactory StringToRepFactory(const char* ctype) {
 }
 static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "skip_list", "");
+DEFINE_bool(use_plain_table, false, "if use plain table "
+            "instead of block-based table format");
 
 DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
@@ -841,7 +848,13 @@ class Benchmark {
       case rocksdb::kBZip2Compression:
         fprintf(stdout, "Compression: bzip2\n");
         break;
-    }
+      case rocksdb::kLZ4Compression:
+        fprintf(stdout, "Compression: lz4\n");
+        break;
+      case rocksdb::kLZ4HCCompression:
+        fprintf(stdout, "Compression: lz4hc\n");
+        break;
+      }
 
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
@@ -895,6 +908,16 @@ class Benchmark {
           result = port::BZip2_Compress(Options().compression_opts, text,
                                         strlen(text), &compressed);
           name = "BZip2";
+          break;
+        case kLZ4Compression:
+          result = port::LZ4_Compress(Options().compression_opts, text,
+                                      strlen(text), &compressed);
+          name = "LZ4";
+          break;
+        case kLZ4HCCompression:
+          result = port::LZ4HC_Compress(Options().compression_opts, text,
+                                        strlen(text), &compressed);
+          name = "LZ4HC";
           break;
         case kNoCompression:
           assert(false); // cannot happen
@@ -975,7 +998,8 @@ class Benchmark {
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                    : nullptr),
-    prefix_extractor_(NewFixedPrefixTransform(FLAGS_key_size-1)),
+    prefix_extractor_(NewFixedPrefixTransform(FLAGS_use_plain_table ?
+                      FLAGS_prefix_size : FLAGS_key_size-1)),
     db_(nullptr),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
@@ -1146,10 +1170,10 @@ class Benchmark {
         method = &Benchmark::Crc32c;
       } else if (name == Slice("acquireload")) {
         method = &Benchmark::AcquireLoad;
-      } else if (name == Slice("snappycomp")) {
-        method = &Benchmark::SnappyCompress;
-      } else if (name == Slice("snappyuncomp")) {
-        method = &Benchmark::SnappyUncompress;
+      } else if (name == Slice("compress")) {
+        method = &Benchmark::Compress;
+      } else if (name == Slice("uncompress")) {
+        method = &Benchmark::Uncompress;
       } else if (name == Slice("heapprofile")) {
         HeapProfile();
       } else if (name == Slice("stats")) {
@@ -1302,23 +1326,47 @@ class Benchmark {
     if (ptr == nullptr) exit(1); // Disable unused variable warning.
   }
 
-  void SnappyCompress(ThreadState* thread) {
+  void Compress(ThreadState *thread) {
     RandomGenerator gen;
     Slice input = gen.Generate(Options().block_size);
     int64_t bytes = 0;
     int64_t produced = 0;
     bool ok = true;
     std::string compressed;
-    while (ok && bytes < 1024 * 1048576) {  // Compress 1G
-      ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+
+    // Compress 1G
+    while (ok && bytes < int64_t(1) << 30) {
+      switch (FLAGS_compression_type_e) {
+      case rocksdb::kSnappyCompression:
+        ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+                                   input.size(), &compressed);
+        break;
+      case rocksdb::kZlibCompression:
+        ok = port::Zlib_Compress(Options().compression_opts, input.data(),
                                  input.size(), &compressed);
+        break;
+      case rocksdb::kBZip2Compression:
+        ok = port::BZip2_Compress(Options().compression_opts, input.data(),
+                                  input.size(), &compressed);
+        break;
+      case rocksdb::kLZ4Compression:
+        ok = port::LZ4_Compress(Options().compression_opts, input.data(),
+                                input.size(), &compressed);
+        break;
+      case rocksdb::kLZ4HCCompression:
+        ok = port::LZ4HC_Compress(Options().compression_opts, input.data(),
+                                  input.size(), &compressed);
+        break;
+      default:
+        ok = false;
+      }
       produced += compressed.size();
       bytes += input.size();
       thread->stats.FinishedSingleOp(nullptr);
     }
 
     if (!ok) {
-      thread->stats.AddMessage("(snappy failure)");
+      thread->stats.AddMessage("(compression failure)");
     } else {
       char buf[100];
       snprintf(buf, sizeof(buf), "(output: %.1f%%)",
@@ -1328,24 +1376,78 @@ class Benchmark {
     }
   }
 
-  void SnappyUncompress(ThreadState* thread) {
+  void Uncompress(ThreadState *thread) {
     RandomGenerator gen;
     Slice input = gen.Generate(Options().block_size);
     std::string compressed;
-    bool ok = port::Snappy_Compress(Options().compression_opts, input.data(),
-                                    input.size(), &compressed);
+
+    bool ok;
+    switch (FLAGS_compression_type_e) {
+    case rocksdb::kSnappyCompression:
+      ok = port::Snappy_Compress(Options().compression_opts, input.data(),
+                                 input.size(), &compressed);
+      break;
+    case rocksdb::kZlibCompression:
+      ok = port::Zlib_Compress(Options().compression_opts, input.data(),
+                               input.size(), &compressed);
+      break;
+    case rocksdb::kBZip2Compression:
+      ok = port::BZip2_Compress(Options().compression_opts, input.data(),
+                                input.size(), &compressed);
+      break;
+    case rocksdb::kLZ4Compression:
+      ok = port::LZ4_Compress(Options().compression_opts, input.data(),
+                              input.size(), &compressed);
+      break;
+    case rocksdb::kLZ4HCCompression:
+      ok = port::LZ4HC_Compress(Options().compression_opts, input.data(),
+                                input.size(), &compressed);
+      break;
+    default:
+      ok = false;
+    }
+
     int64_t bytes = 0;
-    char* uncompressed = new char[input.size()];
-    while (ok && bytes < 1024 * 1048576) {  // Compress 1G
-      ok =  port::Snappy_Uncompress(compressed.data(), compressed.size(),
-                                    uncompressed);
+    int decompress_size;
+    while (ok && bytes < 1024 * 1048576) {
+      char *uncompressed = nullptr;
+      switch (FLAGS_compression_type_e) {
+      case rocksdb::kSnappyCompression:
+        // allocate here to make comparison fair
+        uncompressed = new char[input.size()];
+        ok = port::Snappy_Uncompress(compressed.data(), compressed.size(),
+                                     uncompressed);
+        break;
+      case rocksdb::kZlibCompression:
+        uncompressed = port::Zlib_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      case rocksdb::kBZip2Compression:
+        uncompressed = port::BZip2_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      case rocksdb::kLZ4Compression:
+        uncompressed = port::LZ4_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      case rocksdb::kLZ4HCCompression:
+        uncompressed = port::LZ4_Uncompress(
+            compressed.data(), compressed.size(), &decompress_size);
+        ok = uncompressed != nullptr;
+        break;
+      default:
+        ok = false;
+      }
+      delete[] uncompressed;
       bytes += input.size();
       thread->stats.FinishedSingleOp(nullptr);
     }
-    delete[] uncompressed;
 
     if (!ok) {
-      thread->stats.AddMessage("(snappy failure)");
+      thread->stats.AddMessage("(compression failure)");
     } else {
       thread->stats.AddBytes(bytes);
     }
@@ -1368,8 +1470,9 @@ class Benchmark {
     options.compaction_style = FLAGS_compaction_style_e;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
-    options.prefix_extractor = FLAGS_use_prefix_blooms ? prefix_extractor_
-                                                       : nullptr;
+    options.prefix_extractor =
+      (FLAGS_use_plain_table || FLAGS_use_prefix_blooms) ? prefix_extractor_
+                                                         : nullptr;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
     options.env = FLAGS_env;
@@ -1383,8 +1486,8 @@ class Benchmark {
         FLAGS_max_bytes_for_level_multiplier;
     options.filter_deletes = FLAGS_filter_deletes;
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kPrefixHash)) {
-      fprintf(stderr,
-            "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
+      fprintf(stderr, "prefix_size should be non-zero iff memtablerep "
+                      "== prefix_hash\n");
       exit(1);
     }
     switch (FLAGS_rep_factory) {
@@ -1400,6 +1503,22 @@ class Benchmark {
           new VectorRepFactory
         );
         break;
+    }
+    if (FLAGS_use_plain_table) {
+      if (FLAGS_rep_factory != kPrefixHash) {
+        fprintf(stderr, "Waring: plain table is used with skipList\n");
+      }
+      if (!FLAGS_mmap_read && !FLAGS_mmap_write) {
+        fprintf(stderr, "plain table format requires mmap to operate\n");
+        exit(1);
+      }
+
+      int bloom_bits_per_key = FLAGS_bloom_bits;
+      if (bloom_bits_per_key < 0) {
+        bloom_bits_per_key = 0;
+      }
+      options.table_factory = std::shared_ptr<TableFactory>(
+          NewPlainTableFactory(FLAGS_key_size, bloom_bits_per_key, 0.75));
     }
     if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() !=
