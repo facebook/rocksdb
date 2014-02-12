@@ -938,6 +938,44 @@ class TableTest {
 class GeneralTableTest : public TableTest {};
 class BlockBasedTableTest : public TableTest {};
 class PlainTableTest : public TableTest {};
+class TablePropertyTest {};
+
+// This test serves as the living tutorial for the prefix scan of user collected
+// properties.
+TEST(TablePropertyTest, PrefixScanTest) {
+  UserCollectedProperties props{{"num.111.1", "1"},
+                                {"num.111.2", "2"},
+                                {"num.111.3", "3"},
+                                {"num.333.1", "1"},
+                                {"num.333.2", "2"},
+                                {"num.333.3", "3"},
+                                {"num.555.1", "1"},
+                                {"num.555.2", "2"},
+                                {"num.555.3", "3"}, };
+
+  // prefixes that exist
+  for (const std::string& prefix : {"num.111", "num.333", "num.555"}) {
+    int num = 0;
+    for (auto pos = props.lower_bound(prefix);
+         pos != props.end() &&
+             pos->first.compare(0, prefix.size(), prefix) == 0;
+         ++pos) {
+      ++num;
+      auto key = prefix + "." + std::to_string(num);
+      ASSERT_EQ(key, pos->first);
+      ASSERT_EQ(std::to_string(num), pos->second);
+    }
+    ASSERT_EQ(3, num);
+  }
+
+  // prefixes that don't exist
+  for (const std::string& prefix :
+       {"num.000", "num.222", "num.444", "num.666"}) {
+    auto pos = props.lower_bound(prefix);
+    ASSERT_TRUE(pos == props.end() ||
+                pos->first.compare(0, prefix.size(), prefix) != 0);
+  }
+}
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
