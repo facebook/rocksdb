@@ -140,6 +140,8 @@ class DBImpl : public DB {
     default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
   }
 
+  void TEST_GetFilesMetaData(std::vector<std::vector<FileMetaData>>* metadata);
+
   // holds references to memtable, all immutable memtables and version
   struct SuperVersion {
     MemTable* mem;

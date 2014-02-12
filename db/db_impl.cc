@@ -3592,6 +3592,21 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata) {
   return versions_->GetLiveFilesMetaData(metadata);
 }
 
+void DBImpl::TEST_GetFilesMetaData(
+    std::vector<std::vector<FileMetaData>>* metadata) {
+  MutexLock l(&mutex_);
+  metadata->resize(NumberLevels());
+  for (int level = 0; level < NumberLevels(); level++) {
+    const std::vector<FileMetaData*>& files =
+      versions_->current()->files_[level];
+
+    (*metadata)[level].clear();
+    for (const auto& f : files) {
+      (*metadata)[level].push_back(*f);
+    }
+  }
+}
+
 Status DBImpl::GetDbIdentity(std::string& identity) {
   std::string idfilename = IdentityFileName(dbname_);
   unique_ptr<SequentialFile> idfile;

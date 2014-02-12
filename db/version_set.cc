@@ -1749,6 +1749,12 @@ Status VersionSet::Recover() {
   }
 
   if (s.ok()) {
+    if (options_->max_open_files == -1) {
+      // unlimited table cache. Pre-load table handle now.
+      // Need to do it out of the mutex.
+      builder.LoadTableHandlers();
+    }
+
     Version* v = new Version(this, current_version_number_++);
     builder.SaveTo(v);
 

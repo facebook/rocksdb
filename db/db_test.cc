@@ -1661,6 +1661,42 @@ TEST(DBTest, Recover) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, RecoverWithTableHandle) {
+  do {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.write_buffer_size = 100;
+    options.disable_auto_compactions = true;
+    DestroyAndReopen(&options);
+
+    ASSERT_OK(Put("foo", "v1"));
+    ASSERT_OK(Put("bar", "v2"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(Put("foo", "v3"));
+    ASSERT_OK(Put("bar", "v4"));
+    dbfull()->TEST_FlushMemTable();
+    ASSERT_OK(Put("big", std::string(100, 'a')));
+    Reopen();
+
+    std::vector<std::vector<FileMetaData>> files;
+    dbfull()->TEST_GetFilesMetaData(&files);
+    int total_files = 0;
+    for (const auto& level : files) {
+      total_files += level.size();
+    }
+    ASSERT_EQ(total_files, 3);
+    for (const auto& level : files) {
+      for (const auto& file : level) {
+        if (kInfiniteMaxOpenFiles == option_config_) {
+          ASSERT_TRUE(file.table_reader_handle != nullptr);
+        } else {
+          ASSERT_TRUE(file.table_reader_handle == nullptr);
+        }
+      }
+    }
+  } while (ChangeOptions());
+}
+
 TEST(DBTest, IgnoreRecoveredLog) {
   std::string backup_logs = dbname_ + "/backup_logs";
 
