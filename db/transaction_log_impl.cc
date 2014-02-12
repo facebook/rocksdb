@@ -49,9 +49,6 @@ Status TransactionLogIteratorImpl::OpenLogFile(
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, logFile->LogNumber());
       status = env->NewSequentialFile(fname, file, soptions_);
-      if (!status.ok()) {
-        return Status::IOError("Requested file not present in the dir");
-      }
     }
     return status;
   }
@@ -190,7 +187,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       if (currentLastSeq_ == dbimpl_->GetLatestSequenceNumber()) {
         currentStatus_ = Status::OK();
       } else {
-        currentStatus_ = Status::IOError("NO MORE DATA LEFT");
+        currentStatus_ = Status::Corruption("NO MORE DATA LEFT");
       }
       return;
     }

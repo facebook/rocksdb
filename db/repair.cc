@@ -119,7 +119,7 @@ class Repairer {
       return status;
     }
     if (filenames.empty()) {
-      return Status::IOError(dbname_, "repair found no files");
+      return Status::Corruption(dbname_, "repair found no files");
     }
 
     uint64_t number;

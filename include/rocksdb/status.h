@@ -61,6 +61,10 @@ class Status {
   static Status Incomplete(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIncomplete, msg, msg2);
   }
+  static Status ShutdownInProgress(const Slice& msg,
+                                   const Slice& msg2 = Slice()) {
+    return Status(kShutdownInProgress, msg, msg2);
+  }
 
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
@@ -86,6 +90,9 @@ class Status {
   // Returns true iff the status indicates Incomplete
   bool IsIncomplete() const { return code() == kIncomplete; }
 
+  // Returns true iff the status indicates Incomplete
+  bool IsShutdownInProgress() const { return code() == kShutdownInProgress; }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
@@ -99,7 +106,8 @@ class Status {
     kInvalidArgument = 4,
     kIOError = 5,
     kMergeInProgress = 6,
-    kIncomplete = 7
+    kIncomplete = 7,
+    kShutdownInProgress = 8
   };
 
   // A nullptr state_ (which is always the case for OK) means the message

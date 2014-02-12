@@ -166,7 +166,7 @@ class TestEnv : public EnvWrapper {
                          const EnvOptions& options) {
     written_files_.push_back(f);
     if (limit_written_files_ <= 0) {
-      return Status::IOError("Sorry, can't do this");
+      return Status::NotSupported("Sorry, can't do this");
     }
     limit_written_files_--;
     return EnvWrapper::NewWritableFile(f, r, options);
