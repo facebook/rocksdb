@@ -483,7 +483,8 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(prefix_size, 0, "Control the prefix size for HashSkipList");
+DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
+             "plain table");
 
 enum RepFactory {
   kSkipList,
@@ -505,6 +506,8 @@ enum RepFactory StringToRepFactory(const char* ctype) {
 }
 static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "skip_list", "");
+DEFINE_bool(use_plain_table, false, "if use plain table "
+            "instead of block-based table format");
 
 DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
@@ -995,7 +998,8 @@ class Benchmark {
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                    : nullptr),
-    prefix_extractor_(NewFixedPrefixTransform(FLAGS_key_size-1)),
+    prefix_extractor_(NewFixedPrefixTransform(FLAGS_use_plain_table ?
+                      FLAGS_prefix_size : FLAGS_key_size-1)),
     db_(nullptr),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
@@ -1466,8 +1470,9 @@ class Benchmark {
     options.compaction_style = FLAGS_compaction_style_e;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
-    options.prefix_extractor = FLAGS_use_prefix_blooms ? prefix_extractor_
-                                                       : nullptr;
+    options.prefix_extractor =
+      (FLAGS_use_plain_table || FLAGS_use_prefix_blooms) ? prefix_extractor_
+                                                         : nullptr;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
     options.env = FLAGS_env;
@@ -1481,8 +1486,8 @@ class Benchmark {
         FLAGS_max_bytes_for_level_multiplier;
     options.filter_deletes = FLAGS_filter_deletes;
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kPrefixHash)) {
-      fprintf(stderr,
-            "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
+      fprintf(stderr, "prefix_size should be non-zero iff memtablerep "
+                      "== prefix_hash\n");
       exit(1);
     }
     switch (FLAGS_rep_factory) {
@@ -1498,6 +1503,22 @@ class Benchmark {
           new VectorRepFactory
         );
         break;
+    }
+    if (FLAGS_use_plain_table) {
+      if (FLAGS_rep_factory != kPrefixHash) {
+        fprintf(stderr, "Waring: plain table is used with skipList\n");
+      }
+      if (!FLAGS_mmap_read && !FLAGS_mmap_write) {
+        fprintf(stderr, "plain table format requires mmap to operate\n");
+        exit(1);
+      }
+
+      int bloom_bits_per_key = FLAGS_bloom_bits;
+      if (bloom_bits_per_key < 0) {
+        bloom_bits_per_key = 0;
+      }
+      options.table_factory = std::shared_ptr<TableFactory>(
+          NewPlainTableFactory(FLAGS_key_size, bloom_bits_per_key, 0.75));
     }
     if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() !=
