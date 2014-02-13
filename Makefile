@@ -96,7 +96,7 @@ TOOLS = \
 	blob_store_bench
 
 
-PROGRAMS = db_bench signal_test $(TESTS) $(TOOLS)
+PROGRAMS = db_bench signal_test table_reader_bench $(TESTS) $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db table_reader_bench
 
 # The library name is configurable since we are maintaining libraries of both

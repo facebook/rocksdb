@@ -13,6 +13,7 @@
 #include "port/atomic_pointer.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
+#include "table/table_builder.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -57,12 +58,13 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                           int num_keys2, int num_iter, int prefix_len,
                           bool if_query_empty_keys, bool for_iterator,
                           bool through_db) {
+  rocksdb::InternalKeyComparator ikc(opts.comparator);
+
   Slice prefix = Slice();
 
   std::string file_name = test::TmpDir()
       + "/rocksdb_table_reader_benchmark";
   std::string dbname = test::TmpDir() + "/rocksdb_table_reader_bench_db";
-  ReadOptions ro;
   WriteOptions wo;
   unique_ptr<WritableFile> file;
   Env* env = Env::Default();
@@ -71,7 +73,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   Status s;
   if (!through_db) {
     env->NewWritableFile(file_name, &file, env_options);
-    tb = opts.table_factory->NewTableBuilder(opts, file.get(),
+    tb = opts.table_factory->NewTableBuilder(opts, ikc, file.get(),
                                              CompressionType::kNoCompression);
   } else {
     s = DB::Open(opts, dbname, &db);
@@ -102,8 +104,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     Status s = env->NewRandomAccessFile(file_name, &raf, env_options);
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
-    s = opts.table_factory->NewTableReader(opts, env_options, std::move(raf),
-                                           file_size, &table_reader);
+    s = opts.table_factory->NewTableReader(
+        opts, env_options, ikc, std::move(raf), file_size, &table_reader);
   }
 
   Random rnd(301);
@@ -127,9 +129,10 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           uint64_t start_micros = env->NowMicros();
           port::MemoryBarrier();
           if (!through_db) {
-            s = table_reader->Get(ro, key, arg, DummySaveValue, nullptr);
+            s = table_reader->Get(read_options, key, arg, DummySaveValue,
+                                  nullptr);
           } else {
-            s = db->Get(ro, key, &result);
+            s = db->Get(read_options, key, &result);
           }
           port::MemoryBarrier();
           hist.Add(env->NowMicros() - start_micros);
@@ -237,10 +240,9 @@ int main(int argc, char** argv) {
   rocksdb::EnvOptions env_options;
   options.create_if_missing = true;
   options.compression = rocksdb::CompressionType::kNoCompression;
-  options.internal_comparator =
-      new rocksdb::InternalKeyComparator(options.comparator);
 
   if (FLAGS_plain_table) {
+    ro.prefix_seek = true;
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
     tf = new rocksdb::PlainTableFactory(16, (FLAGS_prefix_len == 16) ? 0 : 8,
