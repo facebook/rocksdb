@@ -40,6 +40,10 @@ static bool DummySaveValue(void* arg, const ParsedInternalKey& ikey,
   return false;
 }
 
+uint64_t Now(Env* env, bool measured_by_nanosecond) {
+  return measured_by_nanosecond ? env->NowNanos() : env->NowMicros();
+}
+
 // A very simple benchmark that.
 // Create a table with roughly numKey1 * numKey2 keys,
 // where there are numKey1 prefixes of the key, each has numKey2 number of
@@ -57,7 +61,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                           ReadOptions& read_options, int num_keys1,
                           int num_keys2, int num_iter, int prefix_len,
                           bool if_query_empty_keys, bool for_iterator,
-                          bool through_db) {
+                          bool through_db, bool measured_by_nanosecond) {
   rocksdb::InternalKeyComparator ikc(opts.comparator);
 
   Slice prefix = Slice();
@@ -126,7 +130,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         if (!for_iterator) {
           // Query one existing key;
           std::string key = MakeKey(r1, r2, through_db);
-          uint64_t start_micros = env->NowMicros();
+          uint64_t start_micros = Now(env, measured_by_nanosecond);
           port::MemoryBarrier();
           if (!through_db) {
             s = table_reader->Get(read_options, key, arg, DummySaveValue,
@@ -135,7 +139,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             s = db->Get(read_options, key, &result);
           }
           port::MemoryBarrier();
-          hist.Add(env->NowMicros() - start_micros);
+          hist.Add(Now(env, measured_by_nanosecond) - start_micros);
         } else {
           int r2_len;
           if (if_query_empty_keys) {
@@ -153,7 +157,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             read_options.prefix = &prefix;
           }
           uint64_t total_time = 0;
-          uint64_t start_micros = env->NowMicros();
+          uint64_t start_micros = Now(env, measured_by_nanosecond);
           port::MemoryBarrier();
           Iterator* iter;
           if (!through_db) {
@@ -168,9 +172,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             }
             // verify key;
             port::MemoryBarrier();
-            total_time += env->NowMicros() - start_micros;
+            total_time += Now(env, measured_by_nanosecond) - start_micros;
             assert(Slice(MakeKey(r1, r2 + count, through_db)) == iter->key());
-            start_micros = env->NowMicros();
+            start_micros = Now(env, measured_by_nanosecond);
             if (++count >= r2_len) {
               break;
             }
@@ -183,7 +187,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           }
           delete iter;
           port::MemoryBarrier();
-          total_time += env->NowMicros() - start_micros;
+          total_time += Now(env, measured_by_nanosecond) - start_micros;
           hist.Add(total_time);
         }
       }
@@ -198,9 +202,10 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
       "num_key2: %5d  %10s\n"
       "==================================================="
       "===================================================="
-      "\nHistogram (unit: microseconds): \n%s",
+      "\nHistogram (unit: %s): \n%s",
       opts.table_factory->Name(), num_keys1, num_keys2,
-      for_iterator? "iterator" : (if_query_empty_keys ? "empty" : "non_empty"),
+      for_iterator ? "iterator" : (if_query_empty_keys ? "empty" : "non_empty"),
+      measured_by_nanosecond ? "nanosecond" : "microsecond",
       hist.ToString().c_str());
   if (!through_db) {
     env->DeleteFile(file_name);
@@ -210,7 +215,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     DestroyDB(dbname, opts);
   }
 }
-} // namespace rocksdb
+}  // namespace rocksdb
 
 DEFINE_bool(query_empty, false, "query non-existing keys instead of existing "
             "ones.");
@@ -223,7 +228,9 @@ DEFINE_bool(through_db, false, "If enable, a DB instance will be created and "
             "the query will be against DB. Otherwise, will be directly against "
             "a table reader.");
 DEFINE_bool(plain_table, false, "Use PlainTable");
-
+DEFINE_string(time_unit, "microsecond",
+              "The time unit used for measuring performance. User can specify "
+              "`microsecond` (default) or `nanosecond`");
 
 int main(int argc, char** argv) {
   google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -252,11 +259,15 @@ int main(int argc, char** argv) {
   } else {
     tf = new rocksdb::BlockBasedTableFactory();
   }
+  // if user provides invalid options, just fall back to microsecond.
+  bool measured_by_nanosecond = FLAGS_time_unit == "nanosecond";
+
   options.table_factory =
       std::shared_ptr<rocksdb::TableFactory>(tf);
   TableReaderBenchmark(options, env_options, ro, FLAGS_num_keys1,
                        FLAGS_num_keys2, FLAGS_iter, FLAGS_prefix_len,
-                       FLAGS_query_empty, FLAGS_iterator, FLAGS_through_db);
+                       FLAGS_query_empty, FLAGS_iterator, FLAGS_through_db,
+                       measured_by_nanosecond);
   delete tf;
   return 0;
 }
