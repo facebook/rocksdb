@@ -190,12 +190,10 @@ class TestPlainTableReader : public PlainTableReader {
                        const TableProperties* table_properties,
                        unique_ptr<RandomAccessFile>&& file,
                        const Options& options, bool* expect_bloom_not_match)
-      : PlainTableReader(storage_options, icomparator, file_size,
-                         bloom_bits_per_key, hash_table_ratio, index_sparseness,
-                         table_properties),
+      : PlainTableReader(options, std::move(file), storage_options, icomparator,
+                         file_size, bloom_bits_per_key, hash_table_ratio,
+                         index_sparseness, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
-    file_ = std::move(file);
-    options_ = options;
     Status s = PopulateIndex();
     ASSERT_TRUE(s.ok());
   }

@@ -130,7 +130,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         if (!for_iterator) {
           // Query one existing key;
           std::string key = MakeKey(r1, r2, through_db);
-          uint64_t start_micros = Now(env, measured_by_nanosecond);
+          uint64_t start_time = Now(env, measured_by_nanosecond);
           port::MemoryBarrier();
           if (!through_db) {
             s = table_reader->Get(read_options, key, arg, DummySaveValue,
@@ -139,7 +139,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             s = db->Get(read_options, key, &result);
           }
           port::MemoryBarrier();
-          hist.Add(Now(env, measured_by_nanosecond) - start_micros);
+          hist.Add(Now(env, measured_by_nanosecond) - start_time);
         } else {
           int r2_len;
           if (if_query_empty_keys) {
@@ -157,7 +157,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             read_options.prefix = &prefix;
           }
           uint64_t total_time = 0;
-          uint64_t start_micros = Now(env, measured_by_nanosecond);
+          uint64_t start_time = Now(env, measured_by_nanosecond);
           port::MemoryBarrier();
           Iterator* iter;
           if (!through_db) {
@@ -172,9 +172,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             }
             // verify key;
             port::MemoryBarrier();
-            total_time += Now(env, measured_by_nanosecond) - start_micros;
+            total_time += Now(env, measured_by_nanosecond) - start_time;
             assert(Slice(MakeKey(r1, r2 + count, through_db)) == iter->key());
-            start_micros = Now(env, measured_by_nanosecond);
+            start_time = Now(env, measured_by_nanosecond);
             if (++count >= r2_len) {
               break;
             }
@@ -187,7 +187,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           }
           delete iter;
           port::MemoryBarrier();
-          total_time += Now(env, measured_by_nanosecond) - start_micros;
+          total_time += Now(env, measured_by_nanosecond) - start_time;
           hist.Add(total_time);
         }
       }
