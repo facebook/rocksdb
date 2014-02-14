@@ -124,4 +124,9 @@ Status ReadTableMagicNumber(const std::string& file_path,
                             const Options& options,
                             const EnvOptions& env_options,
                             uint64_t* table_magic_number);
+
+Status ReadTableMagicNumber(RandomAccessFile* file, uint64_t file_size,
+                            const Options& options,
+                            const EnvOptions& env_options,
+                            uint64_t* table_magic_number);
 }  // namespace rocksdb

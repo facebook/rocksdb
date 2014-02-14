@@ -163,6 +163,32 @@ Status TableCache::Get(const ReadOptions& options,
   }
   return s;
 }
+Status TableCache::GetTableProperties(
+    const EnvOptions& toptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta,
+    std::shared_ptr<const TableProperties>* properties, bool no_io) {
+  Status s;
+  auto table_handle = file_meta.table_reader_handle;
+  // table already been pre-loaded?
+  if (table_handle) {
+    auto table = GetTableReaderFromHandle(table_handle);
+    *properties = table->GetTableProperties();
+    return s;
+  }
+
+  bool table_io;
+  s = FindTable(toptions, internal_comparator, file_meta.number,
+                file_meta.file_size, &table_handle, &table_io, no_io);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(table_handle);
+  auto table = GetTableReaderFromHandle(table_handle);
+  *properties = table->GetTableProperties();
+  ReleaseHandle(table_handle);
+  return s;
+}
 
 bool TableCache::PrefixMayMatch(const ReadOptions& options,
                                 const InternalKeyComparator& icomparator,

@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <memory>
 #include <vector>
+#include <unordered_map>
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -30,6 +31,7 @@ struct Options;
 struct ReadOptions;
 struct WriteOptions;
 struct FlushOptions;
+struct TableProperties;
 class WriteBatch;
 class Env;
 
@@ -60,6 +62,12 @@ struct Range {
   Range() { }
   Range(const Slice& s, const Slice& l) : start(s), limit(l) { }
 };
+
+// A collections of table properties objects, where
+//  key: is the table's file name.
+//  value: the table properties object of the given table.
+typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
+    TablePropertiesCollection;
 
 // A DB is a persistent ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
@@ -308,6 +316,8 @@ class DB {
   // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
   // be set properly
   virtual Status GetDbIdentity(std::string& identity) = 0;
+
+  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) = 0;
 
  private:
   // No copying allowed

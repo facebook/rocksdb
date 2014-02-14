@@ -515,6 +515,9 @@ class DBImpl : public DB {
   // deletion_state which can have new_superversion already allocated.
   void InstallSuperVersion(DeletionState& deletion_state);
 
+  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props)
+      override;
+
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options,

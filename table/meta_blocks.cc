@@ -270,12 +270,20 @@ Status ReadTableMagicNumber(const std::string& file_path,
 
   uint64_t file_size;
   options.env->GetFileSize(file_path, &file_size);
+  return ReadTableMagicNumber(file.get(), file_size, options, env_options,
+                              table_magic_number);
+}
+
+Status ReadTableMagicNumber(RandomAccessFile* file, uint64_t file_size,
+                            const Options& options,
+                            const EnvOptions& env_options,
+                            uint64_t* table_magic_number) {
   if (file_size < Footer::kEncodedLength) {
     return Status::InvalidArgument("file is too short to be an sstable");
   }
 
   Footer footer;
-  s = ReadFooterFromFile(file.get(), file_size, &footer);
+  auto s = ReadFooterFromFile(file, file_size, &footer);
   if (!s.ok()) {
     return s;
   }

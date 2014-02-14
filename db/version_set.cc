@@ -25,6 +25,8 @@
 #include "table/table_reader.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
+#include "table/format.h"
+#include "table/meta_blocks.h"
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
@@ -236,6 +238,59 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
         nullptr);
   }
   return may_match;
+}
+
+Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+  auto table_cache = vset_->table_cache_;
+  auto options = vset_->options_;
+  for (int level = 0; level < num_levels_; level++) {
+    for (const auto& file_meta : files_[level]) {
+      auto fname = TableFileName(vset_->dbname_, file_meta->number);
+      // 1. If the table is already present in table cache, load table
+      // properties from there.
+      std::shared_ptr<const TableProperties> table_properties;
+      Status s = table_cache->GetTableProperties(
+          vset_->storage_options_, vset_->icmp_, *file_meta, &table_properties,
+          true /* no io */);
+      if (s.ok()) {
+        props->insert({fname, table_properties});
+        continue;
+      }
+
+      // We only ignore error type `Incomplete` since it's by design that we
+      // disallow table when it's not in table cache.
+      if (!s.IsIncomplete()) {
+        return s;
+      }
+
+      // 2. Table is not present in table cache, we'll read the table properties
+      // directly from the properties block in the file.
+      std::unique_ptr<RandomAccessFile> file;
+      s = vset_->env_->NewRandomAccessFile(fname, &file,
+                                           vset_->storage_options_);
+      if (!s.ok()) {
+        return s;
+      }
+
+      TableProperties* raw_table_properties;
+      // By setting the magic number to kInvalidTableMagicNumber, we can by
+      // pass the magic number check in the footer.
+      s = ReadTableProperties(
+          file.get(), file_meta->file_size,
+          Footer::kInvalidTableMagicNumber /* table's magic number */,
+          vset_->env_, options->info_log.get(), &raw_table_properties);
+      if (!s.ok()) {
+        return s;
+      }
+      RecordTick(options->statistics.get(),
+                 NUMBER_DIRECT_LOAD_TABLE_PROPERTIES);
+
+      props->insert({fname, std::shared_ptr<const TableProperties>(
+                                raw_table_properties)});
+    }
+  }
+
+  return Status::OK();
 }
 
 Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,

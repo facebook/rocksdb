@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <set>
 #include <unistd.h>
+#include <unordered_set>
 
 #include "db/dbformat.h"
 #include "db/db_impl.h"
@@ -26,6 +27,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
 #include "util/hash.h"
 #include "util/hash_linklist_rep.h"
@@ -832,6 +834,28 @@ static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
   return options.statistics->getTickerCount(ticker_type);
 }
 
+// A helper function that ensures the table properties returned in
+// `GetPropertiesOfAllTablesTest` is correct.
+// This test assumes entries size is differnt for each of the tables.
+void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
+  TablePropertiesCollection props;
+  ASSERT_OK(db->GetPropertiesOfAllTables(&props));
+
+  assert(props.size() == 4);
+  ASSERT_EQ(4, props.size());
+  std::unordered_set<uint64_t> unique_entries;
+
+  // Indirect test
+  uint64_t sum = 0;
+  for (const auto& item : props) {
+    unique_entries.insert(item.second->num_entries);
+    sum += item.second->num_entries;
+  }
+
+  ASSERT_EQ(props.size(), unique_entries.size());
+  ASSERT_EQ(expected_entries_size, sum);
+}
+
 TEST(DBTest, Empty) {
   do {
     Options options = CurrentOptions();
@@ -918,6 +942,41 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(index_block_hit + 2,
             TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+}
+
+TEST(DBTest, GetPropertiesOfAllTablesTest) {
+  Options options = CurrentOptions();
+  Reopen(&options);
+  // Create 4 tables
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      db_->Put(WriteOptions(), std::to_string(table * 100 + i), "val");
+    }
+    db_->Flush(FlushOptions());
+  }
+
+  // 1. Read table properties directly from file
+  Reopen(&options);
+  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+
+  // 2. Put two tables to table cache and
+  Reopen(&options);
+  // fetch key from 1st and 2nd table, which will internally place that table to
+  // the table cache.
+  for (int i = 0; i < 2; ++i) {
+    Get(std::to_string(i * 100 + 0));
+  }
+
+  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
+
+  // 3. Put all tables to table cache
+  Reopen(&options);
+  // fetch key from 1st and 2nd table, which will internally place that table to
+  // the table cache.
+  for (int i = 0; i < 4; ++i) {
+    Get(std::to_string(i * 100 + 0));
+  }
+  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 }
 
 TEST(DBTest, LevelLimitReopen) {
@@ -4822,6 +4881,9 @@ class ModelDB: public DB {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
     return s;
+  }
+  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+    return Status();
   }
   virtual bool KeyMayExist(const ReadOptions& options,
                            const Slice& key,

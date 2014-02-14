@@ -190,6 +190,12 @@ class Version {
   // Returns the version nuber of this version
   uint64_t GetVersionNumber() const { return version_number_; }
 
+  // REQUIRES: lock is held
+  // On success, *props will be populated with all SSTables' table properties.
+  // The keys of `props` are the sst file name, the values of `props` are the
+  // tables' propertis, represented as shared_ptr.
+  Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
+
   // used to sort files by size
   struct Fsize {
     int index;
