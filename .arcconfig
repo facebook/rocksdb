@@ -6,6 +6,5 @@
     "linters"
   ],
   "lint.engine" : "FacebookFbcodeLintEngine",
-  "lint.engine.single.linter" : "FbcodeCppLinter",
-  "lint.cpplint.prefix" : "linters"
+  "lint.engine.single.linter" : "FbcodeCppLinter"
 }
