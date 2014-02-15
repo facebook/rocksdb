@@ -3604,6 +3604,23 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
   return s;
 }
 
+Status DBImpl::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+  // Increment the ref count
+  mutex_.Lock();
+  auto version = versions_->current();
+  version->Ref();
+  mutex_.Unlock();
+
+  auto s = version->GetPropertiesOfAllTables(props);
+
+  // Decrement the ref count
+  mutex_.Lock();
+  version->Unref();
+  mutex_.Unlock();
+
+  return s;
+}
+
 const std::string& DBImpl::GetName() const {
   return dbname_;
 }

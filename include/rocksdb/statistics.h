@@ -57,9 +57,9 @@ enum Tickers {
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
    * There are 3 reasons currently.
    */
-  COMPACTION_KEY_DROP_NEWER_ENTRY, // key was written with a newer value.
-  COMPACTION_KEY_DROP_OBSOLETE, // The key is obsolete.
-  COMPACTION_KEY_DROP_USER, // user compaction function has dropped the key.
+  COMPACTION_KEY_DROP_NEWER_ENTRY,  // key was written with a newer value.
+  COMPACTION_KEY_DROP_OBSOLETE,     // The key is obsolete.
+  COMPACTION_KEY_DROP_USER,  // user compaction function has dropped the key.
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,
@@ -80,8 +80,7 @@ enum Tickers {
   // write throttle because of too many files in L0
   STALL_L0_NUM_FILES_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
-
-  NO_ITERATORS, // number of iterators currently open
+  NO_ITERATORS,  // number of iterators currently open
 
   // Number of MultiGet calls, keys read, and bytes read
   NUMBER_MULTIGET_CALLS,
@@ -107,77 +106,77 @@ enum Tickers {
   // Record the number of calls to GetUpadtesSince. Useful to keep track of
   // transaction log iterator refreshes
   GET_UPDATES_SINCE_CALLS,
-
-  BLOCK_CACHE_COMPRESSED_MISS, // miss in the compressed block cache
-  BLOCK_CACHE_COMPRESSED_HIT,  // hit in the compressed block cache
-
-  WAL_FILE_SYNCED,  // Number of times WAL sync is done
-  WAL_FILE_BYTES,   // Number of bytes written to WAL
+  BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
+  BLOCK_CACHE_COMPRESSED_HIT,   // hit in the compressed block cache
+  WAL_FILE_SYNCED,              // Number of times WAL sync is done
+  WAL_FILE_BYTES,               // Number of bytes written to WAL
 
   // Writes can be processed by requesting thread or by the thread at the
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
   WRITE_DONE_BY_OTHER,
+  WRITE_WITH_WAL,       // Number of Write calls that request WAL
+  COMPACT_READ_BYTES,   // Bytes read during compaction
+  COMPACT_WRITE_BYTES,  // Bytes written during compaction
 
-  WRITE_WITH_WAL,      // Number of Write calls that request WAL
-
-  COMPACT_READ_BYTES,  // Bytes read during compaction
-  COMPACT_WRITE_BYTES, // Bytes written during compaction
-
+  // Number of table's properties loaded directly from file, without creating
+  // table reader object.
+  NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
   TICKER_ENUM_MAX
 };
 
 // The order of items listed in  Tickers should be the same as
 // the order listed in TickersNameMap
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
-  { BLOCK_CACHE_MISS, "rocksdb.block.cache.miss" },
-  { BLOCK_CACHE_HIT, "rocksdb.block.cache.hit" },
-  { BLOCK_CACHE_ADD, "rocksdb.block.cache.add" },
-  { BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss" },
-  { BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit" },
-  { BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss" },
-  { BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit" },
-  { BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss" },
-  { BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit" },
-  { BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful" },
-  { MEMTABLE_HIT, "rocksdb.memtable.hit" },
-  { MEMTABLE_MISS, "rocksdb.memtable.miss" },
-  { COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new" },
-  { COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete" },
-  { COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user" },
-  { NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written" },
-  { NUMBER_KEYS_READ, "rocksdb.number.keys.read" },
-  { NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated" },
-  { BYTES_WRITTEN, "rocksdb.bytes.written" },
-  { BYTES_READ, "rocksdb.bytes.read" },
-  { NO_FILE_CLOSES, "rocksdb.no.file.closes" },
-  { NO_FILE_OPENS, "rocksdb.no.file.opens" },
-  { NO_FILE_ERRORS, "rocksdb.no.file.errors" },
-  { STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros" },
-  { STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros" },
-  { STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros" },
-  { RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis" },
-  { NO_ITERATORS, "rocksdb.num.iterators" },
-  { NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get" },
-  { NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read" },
-  { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" },
-  { NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered" },
-  { NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures" },
-  { SEQUENCE_NUMBER, "rocksdb.sequence.number" },
-  { BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked" },
-  { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" },
-  { NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration" },
-  { GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls" },
-  { BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss" },
-  { BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit" },
-  { WAL_FILE_SYNCED, "rocksdb.wal.synced" },
-  { WAL_FILE_BYTES, "rocksdb.wal.bytes" },
-  { WRITE_DONE_BY_SELF, "rocksdb.write.self" },
-  { WRITE_DONE_BY_OTHER, "rocksdb.write.other" },
-  { WRITE_WITH_WAL, "rocksdb.write.wal" },
-  { COMPACT_READ_BYTES, "rocksdb.compact.read.bytes" },
-  { COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes" },
-};
+    {BLOCK_CACHE_MISS, "rocksdb.block.cache.miss"},
+    {BLOCK_CACHE_HIT, "rocksdb.block.cache.hit"},
+    {BLOCK_CACHE_ADD, "rocksdb.block.cache.add"},
+    {BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss"},
+    {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
+    {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
+    {BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit"},
+    {BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss"},
+    {BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit"},
+    {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
+    {MEMTABLE_HIT, "rocksdb.memtable.hit"},
+    {MEMTABLE_MISS, "rocksdb.memtable.miss"},
+    {COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"},
+    {COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"},
+    {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
+    {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
+    {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
+    {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
+    {BYTES_WRITTEN, "rocksdb.bytes.written"},
+    {BYTES_READ, "rocksdb.bytes.read"},
+    {NO_FILE_CLOSES, "rocksdb.no.file.closes"},
+    {NO_FILE_OPENS, "rocksdb.no.file.opens"},
+    {NO_FILE_ERRORS, "rocksdb.no.file.errors"},
+    {STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"},
+    {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
+    {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
+    {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
+    {NO_ITERATORS, "rocksdb.num.iterators"},
+    {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
+    {NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read"},
+    {NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read"},
+    {NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered"},
+    {NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures"},
+    {SEQUENCE_NUMBER, "rocksdb.sequence.number"},
+    {BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked"},
+    {BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful"},
+    {NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration"},
+    {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
+    {BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss"},
+    {BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit"},
+    {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
+    {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
+    {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
+    {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
+    {WRITE_WITH_WAL, "rocksdb.write.wal"},
+    {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
+    {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
+    {NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
+     "rocksdb.number.direct.load.table.properties"}, };
 
 /**
  * Keep adding histogram's here.

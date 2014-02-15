@@ -12,6 +12,7 @@ build_config.mk
 *_test
 *_bench
 *_stress
+*.out
 
 ldb
 manifest_dump

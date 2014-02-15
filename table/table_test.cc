@@ -306,8 +306,11 @@ class KeyConvertingIterator: public Iterator {
 class TableConstructor: public Constructor {
  public:
   explicit TableConstructor(const Comparator* cmp,
-                            bool convert_to_internal_key = false)
-      : Constructor(cmp), convert_to_internal_key_(convert_to_internal_key) {}
+                            bool convert_to_internal_key = false,
+                            bool prefix_seek = false)
+      : Constructor(cmp),
+        convert_to_internal_key_(convert_to_internal_key),
+        prefix_seek_(prefix_seek) {}
   ~TableConstructor() { Reset(); }
 
   virtual Status FinishImpl(const Options& options,
@@ -347,7 +350,11 @@ class TableConstructor: public Constructor {
   }
 
   virtual Iterator* NewIterator() const {
-    Iterator* iter = table_reader_->NewIterator(ReadOptions());
+    ReadOptions ro;
+    if (prefix_seek_) {
+      ro.prefix_seek = true;
+    }
+    Iterator* iter = table_reader_->NewIterator(ro);
     if (convert_to_internal_key_) {
       return new KeyConvertingIterator(iter);
     } else {
@@ -380,6 +387,7 @@ class TableConstructor: public Constructor {
     source_.reset();
   }
   bool convert_to_internal_key_;
+  bool prefix_seek_;
 
   uint64_t uniq_id_;
   unique_ptr<StringSink> sink_;
@@ -549,6 +557,7 @@ enum TestType {
   BLOCK_BASED_TABLE_TEST,
   PLAIN_TABLE_SEMI_FIXED_PREFIX,
   PLAIN_TABLE_FULL_STR_PREFIX,
+  PLAIN_TABLE_TOTAL_ORDER,
   BLOCK_TEST,
   MEMTABLE_TEST,
   DB_TEST
@@ -565,8 +574,9 @@ static std::vector<TestArgs> GenerateArgList() {
   std::vector<TestArgs> test_args;
   std::vector<TestType> test_types = {
       BLOCK_BASED_TABLE_TEST,      PLAIN_TABLE_SEMI_FIXED_PREFIX,
-      PLAIN_TABLE_FULL_STR_PREFIX, BLOCK_TEST,
-      MEMTABLE_TEST,               DB_TEST};
+      PLAIN_TABLE_FULL_STR_PREFIX, PLAIN_TABLE_TOTAL_ORDER,
+      BLOCK_TEST,                  MEMTABLE_TEST,
+      DB_TEST};
   std::vector<bool> reverse_compare_types = {false, true};
   std::vector<int> restart_intervals = {16, 1, 1024};
 
@@ -689,8 +699,8 @@ class Harness {
         only_support_prefix_seek_ = true;
         options_.prefix_extractor = prefix_transform.get();
         options_.allow_mmap_reads = true;
-        options_.table_factory.reset(new PlainTableFactory());
-        constructor_ = new TableConstructor(options_.comparator, true);
+        options_.table_factory.reset(NewPlainTableFactory());
+        constructor_ = new TableConstructor(options_.comparator, true, true);
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -699,8 +709,18 @@ class Harness {
         only_support_prefix_seek_ = true;
         options_.prefix_extractor = noop_transform.get();
         options_.allow_mmap_reads = true;
-        options_.table_factory.reset(new PlainTableFactory());
-        constructor_ = new TableConstructor(options_.comparator, true);
+        options_.table_factory.reset(NewPlainTableFactory());
+        constructor_ = new TableConstructor(options_.comparator, true, true);
+        internal_comparator_.reset(
+            new InternalKeyComparator(options_.comparator));
+        break;
+      case PLAIN_TABLE_TOTAL_ORDER:
+        support_prev_ = false;
+        only_support_prefix_seek_ = false;
+        options_.prefix_extractor = nullptr;
+        options_.allow_mmap_reads = true;
+        options_.table_factory.reset(NewTotalOrderPlainTableFactory());
+        constructor_ = new TableConstructor(options_.comparator, true, false);
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;

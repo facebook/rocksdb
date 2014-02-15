@@ -73,6 +73,18 @@ class TableCache {
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
 
+  // Get the table properties of a given table.
+  // @no_io: indicates if we should load table to the cache if it is not present
+  //         in table cache yet.
+  // @returns: `properties` will be reset on success. Please note that we will
+  //            return Status::Incomplete() if table is not present in cache and
+  //            we set `no_io` to be true.
+  Status GetTableProperties(const EnvOptions& toptions,
+                            const InternalKeyComparator& internal_comparator,
+                            const FileMetaData& file_meta,
+                            std::shared_ptr<const TableProperties>* properties,
+                            bool no_io = false);
+
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
 

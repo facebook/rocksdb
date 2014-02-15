@@ -494,6 +494,9 @@ class DBImpl : public DB {
   void InstallSuperVersion(ColumnFamilyData* cfd,
                            DeletionState& deletion_state);
 
+  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props)
+      override;
+
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,

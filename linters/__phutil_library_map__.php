@@ -13,6 +13,7 @@ phutil_register_library_map(array(
     'FacebookFbcodeLintEngine' => 'lint_engine/FacebookFbcodeLintEngine.php',
     'FbcodeCppLinter' => 'cpp_linter/FbcodeCppLinter.php',
     'PfffCppLinter' => 'cpp_linter/PfffCppLinter.php',
+    'ArcanistCpplintLinter' => 'cpp_linter/ArcanistCpplintLinter.php',
   ),
   'function' =>
   array(
