@@ -842,7 +842,7 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
   ASSERT_OK(db->GetPropertiesOfAllTables(&props));
 
   assert(props.size() == 4);
-  ASSERT_EQ(4, props.size());
+  ASSERT_EQ(4U, props.size());
   std::unordered_set<uint64_t> unique_entries;
 
   // Indirect test
