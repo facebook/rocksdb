@@ -244,8 +244,8 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
 }
 
 Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
-  auto table_cache = vset_->table_cache_;
-  auto options = vset_->options_;
+  auto table_cache = cfd_->table_cache();
+  auto options = cfd_->full_options();
   for (int level = 0; level < num_levels_; level++) {
     for (const auto& file_meta : files_[level]) {
       auto fname = TableFileName(vset_->dbname_, file_meta->number);
@@ -253,8 +253,8 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
       // properties from there.
       std::shared_ptr<const TableProperties> table_properties;
       Status s = table_cache->GetTableProperties(
-          vset_->storage_options_, vset_->icmp_, *file_meta, &table_properties,
-          true /* no io */);
+          vset_->storage_options_, cfd_->internal_comparator(), *file_meta,
+          &table_properties, true /* no io */);
       if (s.ok()) {
         props->insert({fname, table_properties});
         continue;
@@ -269,8 +269,8 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
       // 2. Table is not present in table cache, we'll read the table properties
       // directly from the properties block in the file.
       std::unique_ptr<RandomAccessFile> file;
-      s = vset_->env_->NewRandomAccessFile(fname, &file,
-                                           vset_->storage_options_);
+      s = options->env->NewRandomAccessFile(fname, &file,
+                                            vset_->storage_options_);
       if (!s.ok()) {
         return s;
       }

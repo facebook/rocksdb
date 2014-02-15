@@ -494,7 +494,9 @@ class DBImpl : public DB {
   void InstallSuperVersion(ColumnFamilyData* cfd,
                            DeletionState& deletion_state);
 
-  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props)
+  using DB::GetPropertiesOfAllTables;
+  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
+                                          TablePropertiesCollection* props)
       override;
 
   // Function that Get and KeyMayExist call with no_io true or false

@@ -435,7 +435,11 @@ class DB {
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
-  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) = 0;
+  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
+                                          TablePropertiesCollection* props) = 0;
+  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+    return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
+  }
 
  private:
   // No copying allowed

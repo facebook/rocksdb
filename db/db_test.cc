@@ -5133,7 +5133,9 @@ class ModelDB: public DB {
     return s;
   }
 
-  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+  using DB::GetPropertiesOfAllTables;
+  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
+                                          TablePropertiesCollection* props) {
     return Status();
   }
 

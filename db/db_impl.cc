@@ -2750,7 +2750,9 @@ Iterator* DBImpl::TEST_NewInternalIterator(ColumnFamilyHandle* column_family) {
   mutex_.Lock();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
-  return NewInternalIterator(ReadOptions(), cfd, super_version);
+  ReadOptions roptions;
+  roptions.prefix_seek = true;
+  return NewInternalIterator(roptions, cfd, super_version);
 }
 
 std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
@@ -3604,10 +3606,14 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
   return s;
 }
 
-Status DBImpl::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
+                                        TablePropertiesCollection* props) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+
   // Increment the ref count
   mutex_.Lock();
-  auto version = versions_->current();
+  auto version = cfd->current();
   version->Ref();
   mutex_.Unlock();
 

@@ -182,8 +182,10 @@ class StackableDB : public DB {
     return db_->GetDbIdentity(identity);
   }
 
-  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
-    return db_->GetPropertiesOfAllTables(props);
+  using DB::GetPropertiesOfAllTables;
+  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
+                                          TablePropertiesCollection* props) {
+    return db_->GetPropertiesOfAllTables(column_family, props);
   }
 
   virtual Status GetUpdatesSince(SequenceNumber seq_number,
