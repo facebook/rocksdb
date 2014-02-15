@@ -473,6 +473,11 @@ class DBTest {
   }
 
   void ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
+                                const std::vector<const Options*>& options) {
+    ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
+  }
+
+  void ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
                                 const Options* options = nullptr) {
     ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
   }
@@ -2581,6 +2586,12 @@ TEST(DBTest, CompressedCache) {
         ASSERT_TRUE(false);
     }
     CreateAndReopenWithCF({"pikachu"}, &options);
+    // default column family doesn't have block cache
+    Options no_block_cache_opts;
+    no_block_cache_opts.no_block_cache = true;
+    no_block_cache_opts.statistics = options.statistics;
+    ReopenWithColumnFamilies({"default", "pikachu"},
+                             {&no_block_cache_opts, &options});
 
     Random rnd(301);
 
