@@ -119,7 +119,7 @@ EnvWrapper::~EnvWrapper() {
 
 namespace {  // anonymous namespace
 
-void AssignEnvOptions(EnvOptions* env_options, const Options& options) {
+void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->use_os_buffer = options.allow_os_buffer;
   env_options->use_mmap_reads = options.allow_mmap_reads;
   env_options->use_mmap_writes = options.allow_mmap_writes;
@@ -129,12 +129,12 @@ void AssignEnvOptions(EnvOptions* env_options, const Options& options) {
 
 }
 
-EnvOptions::EnvOptions(const Options& options) {
+EnvOptions::EnvOptions(const DBOptions& options) {
   AssignEnvOptions(this, options);
 }
 
 EnvOptions::EnvOptions() {
-  Options options;
+  DBOptions options;
   AssignEnvOptions(this, options);
 }
 

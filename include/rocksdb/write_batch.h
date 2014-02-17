@@ -39,19 +39,32 @@ class WriteBatch {
   ~WriteBatch();
 
   // Store the mapping "key->value" in the database.
-  void Put(const Slice& key, const Slice& value);
+  void Put(uint32_t column_family_id, const Slice& key, const Slice& value);
+  void Put(const Slice& key, const Slice& value) {
+    Put(0, key, value);
+  }
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatentations of arrays of
   // slices.
-  void Put(const SliceParts& key, const SliceParts& value);
+  void Put(uint32_t column_family_id, const SliceParts& key,
+           const SliceParts& value);
+  void Put(const SliceParts& key, const SliceParts& value) {
+    Put(0, key, value);
+  }
 
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
-  void Merge(const Slice& key, const Slice& value);
+  void Merge(uint32_t column_family_id, const Slice& key, const Slice& value);
+  void Merge(const Slice& key, const Slice& value) {
+    Merge(0, key, value);
+  }
 
   // If the database contains a mapping for "key", erase it.  Else do nothing.
-  void Delete(const Slice& key);
+  void Delete(uint32_t column_family_id, const Slice& key);
+  void Delete(const Slice& key) {
+    Delete(0, key);
+  }
 
   // Append a blob of arbitrary size to the records in this batch. The blob will
   // be stored in the transaction log but not in any other file. In particular,
@@ -72,14 +85,34 @@ class WriteBatch {
   class Handler {
    public:
     virtual ~Handler();
-    virtual void Put(const Slice& key, const Slice& value) = 0;
+    // default implementation will just call Put without column family for
+    // backwards compatibility. If the column family is not default,
+    // the function is noop
+    virtual void PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) {
+      if (column_family_id == 0) {
+        Put(key, value);
+      }
+    }
+    virtual void Put(const Slice& key, const Slice& value);
     // Merge and LogData are not pure virtual. Otherwise, we would break
     // existing clients of Handler on a source code level. The default
     // implementation of Merge simply throws a runtime exception.
+    virtual void MergeCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
+      if (column_family_id == 0) {
+        Merge(key, value);
+      }
+    }
     virtual void Merge(const Slice& key, const Slice& value);
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
-    virtual void Delete(const Slice& key) = 0;
+    virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
+      if (column_family_id == 0) {
+        Delete(key);
+      }
+    }
+    virtual void Delete(const Slice& key);
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.

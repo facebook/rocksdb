@@ -8,6 +8,7 @@
 #include <string>
 #include "rocksdb/db.h"
 #include "db/memtable.h"
+#include "db/version_set.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "util/coding.h"
@@ -120,7 +121,8 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
-     uint64_t file_number, std::set<uint64_t>* pending_outputs) {
+                                         uint64_t file_number,
+                                         std::set<uint64_t>* pending_outputs) {
   assert(!mems.empty());
 
   // If the flush was not successful, then just reset state.
@@ -140,7 +142,7 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
 
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(
-    const autovector<MemTable*>& mems, VersionSet* vset,
+    ColumnFamilyData* cfd, const autovector<MemTable*>& mems, VersionSet* vset,
     port::Mutex* mu, Logger* info_log, uint64_t file_number,
     std::set<uint64_t>& pending_outputs, autovector<MemTable*>* to_delete,
     Directory* db_directory) {
@@ -178,7 +180,7 @@ Status MemTableList::InstallMemtableFlushResults(
         (unsigned long)m->file_number_);
 
     // this can release and reacquire the mutex.
-    s = vset->LogAndApply(&m->edit_, mu, db_directory);
+    s = vset->LogAndApply(cfd, &m->edit_, mu, db_directory);
 
     // we will be changing the version in the next code path,
     // so we better create a new one, since versions are immutable

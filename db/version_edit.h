@@ -11,6 +11,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <string>
 #include "rocksdb/cache.h"
 #include "db/dbformat.h"
 
@@ -32,11 +33,14 @@ struct FileMetaData {
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
 
-  FileMetaData(uint64_t number, uint64_t file_size) :
-      refs(0), allowed_seeks(1 << 30), number(number), file_size(file_size),
-      being_compacted(false), table_reader_handle(nullptr) {
-  }
-  FileMetaData() : FileMetaData(0, 0) { }
+  FileMetaData(uint64_t number, uint64_t file_size)
+      : refs(0),
+        allowed_seeks(1 << 30),
+        number(number),
+        file_size(file_size),
+        being_compacted(false),
+        table_reader_handle(nullptr) {}
+  FileMetaData() : FileMetaData(0, 0) {}
 };
 
 class VersionEdit {
@@ -97,6 +101,27 @@ class VersionEdit {
     return new_files_.size() + deleted_files_.size();
   }
 
+  void SetColumnFamily(uint32_t column_family_id) {
+    column_family_ = column_family_id;
+  }
+
+  // set column family ID by calling SetColumnFamily()
+  void AddColumnFamily(const std::string& name) {
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
+    assert(NumEntries() == 0);
+    is_column_family_add_ = true;
+    column_family_name_ = name;
+  }
+
+  // set column family ID by calling SetColumnFamily()
+  void DropColumnFamily() {
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
+    assert(NumEntries() == 0);
+    is_column_family_drop_ = true;
+  }
+
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
 
@@ -122,7 +147,17 @@ class VersionEdit {
   bool has_last_sequence_;
 
   DeletedFileSet deleted_files_;
-  std::vector<std::pair<int, FileMetaData> > new_files_;
+  std::vector< std::pair<int, FileMetaData> > new_files_;
+
+  // Each version edit record should have column_family_id set
+  // If it's not set, it is default (0)
+  uint32_t column_family_;
+  // a version edit can be either column_family add or
+  // column_family drop. If it's column family add,
+  // it also includes column family name.
+  bool is_column_family_drop_;
+  bool is_column_family_add_;
+  std::string column_family_name_;
 };
 
 }  // namespace rocksdb

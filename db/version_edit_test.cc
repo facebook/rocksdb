@@ -45,6 +45,18 @@ TEST(VersionEditTest, EncodeDecode) {
   TestEncodeDecode(edit);
 }
 
+TEST(VersionEditTest, ColumnFamilyTest) {
+  VersionEdit edit;
+  edit.SetColumnFamily(2);
+  edit.AddColumnFamily("column_family");
+  TestEncodeDecode(edit);
+
+  edit.Clear();
+  edit.SetColumnFamily(3);
+  edit.DropColumnFamily();
+  TestEncodeDecode(edit);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

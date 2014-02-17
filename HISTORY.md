@@ -1,5 +1,11 @@
 # Rocksdb Change Log
 
+## Unreleased (will be released in 3.0)
+* By default, max_background_flushes is 1 and flush process is
+  removed from background compaction process. Flush process is now always
+  executed in high priority thread pool.
+
+## Unreleased (will be relased in 2.8)
 ## Unreleased
 
 ### Public API changes

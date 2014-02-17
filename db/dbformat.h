@@ -32,6 +32,9 @@ enum ValueType : unsigned char {
   kTypeValue = 0x1,
   kTypeMerge = 0x2,
   kTypeLogData = 0x3,
+  kTypeColumnFamilyDeletion = 0x4,
+  kTypeColumnFamilyValue = 0x5,
+  kTypeColumnFamilyMerge = 0x6,
   kMaxValue = 0x7F
 };
 

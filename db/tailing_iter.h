@@ -13,6 +13,7 @@
 namespace rocksdb {
 
 class DBImpl;
+class ColumnFamilyData;
 
 /**
  * TailingIterator is a special type of iterator that doesn't use an (implicit)
@@ -25,7 +26,7 @@ class DBImpl;
 class TailingIterator : public Iterator {
  public:
   TailingIterator(DBImpl* db, const ReadOptions& options,
-                  const Comparator* comparator);
+                  ColumnFamilyData* cfd);
   virtual ~TailingIterator() {}
 
   virtual bool Valid() const override;
@@ -41,7 +42,7 @@ class TailingIterator : public Iterator {
  private:
   DBImpl* const db_;
   const ReadOptions options_;
-  const Comparator* const comparator_;
+  ColumnFamilyData* const cfd_;
   uint64_t version_number_;
 
   // TailingIterator merges the contents of the two iterators below (one using

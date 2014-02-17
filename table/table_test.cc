@@ -409,7 +409,8 @@ class MemTableConstructor: public Constructor {
         table_factory_(new SkipListFactory) {
     Options options;
     options.memtable_factory = table_factory_;
-    memtable_ = new MemTable(internal_comparator_, options);
+    memtable_ =
+        new MemTable(internal_comparator_, ColumnFamilyOptions(options));
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -1494,7 +1495,8 @@ TEST(MemTableTest, Simple) {
   batch.Put(std::string("k2"), std::string("v2"));
   batch.Put(std::string("k3"), std::string("v3"));
   batch.Put(std::string("largekey"), std::string("vlarge"));
-  ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, memtable, &options).ok());
+  ColumnFamilyMemTablesDefault cf_mems_default(memtable, &options);
+  ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, &cf_mems_default).ok());
 
   Iterator* iter = memtable->NewIterator();
   iter->SeekToFirst();

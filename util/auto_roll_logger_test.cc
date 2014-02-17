@@ -191,7 +191,7 @@ TEST(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 }
 
 TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
-  Options options;
+  DBOptions options;
   shared_ptr<Logger> logger;
 
   // Normal logger

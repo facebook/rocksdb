@@ -30,6 +30,8 @@
 #include "db/table_cache.h"
 #include "db/compaction.h"
 #include "db/compaction_picker.h"
+#include "db/column_family.h"
+#include "db/log_reader.h"
 
 namespace rocksdb {
 
@@ -39,10 +41,11 @@ class Compaction;
 class CompactionPicker;
 class Iterator;
 class MemTable;
-class TableCache;
 class Version;
 class VersionSet;
 class MergeContext;
+struct ColumnFamilyData;
+class ColumnFamilySet;
 class LookupKey;
 
 // Return the smallest index i such that files[i]->largest >= key.
@@ -206,6 +209,7 @@ class Version {
   friend class Compaction;
   friend class VersionSet;
   friend class DBImpl;
+  friend class ColumnFamilyData;
   friend class CompactionPicker;
   friend class LevelCompactionPicker;
   friend class UniversalCompactionPicker;
@@ -221,6 +225,7 @@ class Version {
   // record results in files_by_size_. The largest files are listed first.
   void UpdateFilesBySize();
 
+  ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
@@ -266,7 +271,7 @@ class Version {
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
-  explicit Version(VersionSet* vset, uint64_t version_number = 0);
+  Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
 
   ~Version();
 
@@ -283,9 +288,8 @@ class Version {
 
 class VersionSet {
  public:
-  VersionSet(const std::string& dbname, const Options* options,
-             const EnvOptions& storage_options, TableCache* table_cache,
-             const InternalKeyComparator*);
+  VersionSet(const std::string& dbname, const DBOptions* options,
+             const EnvOptions& storage_options, Cache* table_cache);
   ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that
@@ -293,12 +297,17 @@ class VersionSet {
   // current version.  Will release *mu while actually writing to the file.
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
-  Status LogAndApply(VersionEdit* edit, port::Mutex* mu,
-                     Directory* db_directory = nullptr,
+  Status LogAndApply(ColumnFamilyData* column_family_data, VersionEdit* edit,
+                     port::Mutex* mu, Directory* db_directory = nullptr,
                      bool new_descriptor_log = false);
 
   // Recover the last saved descriptor from persistent storage.
-  Status Recover();
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families);
+
+  // Reads a manifest file and returns a list of column families in
+  // column_families.
+  static Status ListColumnFamilies(std::vector<std::string>* column_families,
+                                   const std::string& dbname, Env* env);
 
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
@@ -313,15 +322,6 @@ class VersionSet {
                                      const Options* options,
                                      const EnvOptions& storage_options,
                                      int new_levels);
-
-  // Return the current version.
-  Version* current() const { return current_; }
-
-  // A Flag indicating whether write needs to slowdown because of there are
-  // too many number of level0 files.
-  bool NeedSlowdownForNumLevel0Files() const {
-    return need_slowdown_for_num_level0_files_;
-  }
 
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
@@ -352,37 +352,21 @@ class VersionSet {
   // Mark the specified file number as used.
   void MarkFileNumberUsed(uint64_t number);
 
-  // Return the current log file number.
-  uint64_t LogNumber() const { return log_number_; }
-
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
   uint64_t PrevLogNumber() const { return prev_log_number_; }
 
-  int NumberLevels() const { return num_levels_; }
-
-  // Pick level and inputs for a new compaction.
-  // Returns nullptr if there is no compaction to be done.
-  // Otherwise returns a pointer to a heap-allocated object that
-  // describes the compaction.  Caller should delete the result.
-  Compaction* PickCompaction();
-
-  // Return a compaction object for compacting the range [begin,end] in
-  // the specified level.  Returns nullptr if there is nothing in that
-  // level that overlaps the specified range.  Caller should delete
-  // the result.
-  //
-  // The returned Compaction might not include the whole requested range.
-  // In that case, compaction_end will be set to the next key that needs
-  // compacting. In case the compaction will compact the whole range,
-  // compaction_end will be set to nullptr.
-  // Client is responsible for compaction_end storage -- when called,
-  // *compaction_end should point to valid InternalKey!
-  Compaction* CompactRange(int input_level,
-                           int output_level,
-                           const InternalKey* begin,
-                           const InternalKey* end,
-                           InternalKey** compaction_end);
+  // Returns the minimum log number such that all
+  // log numbers less than or equal to it can be deleted
+  uint64_t MinLogNumber() const {
+    uint64_t min_log_num = 0;
+    for (auto cfd : *column_family_set_) {
+      if (min_log_num == 0 || min_log_num > cfd->GetLogNumber()) {
+        min_log_num = cfd->GetLogNumber();
+      }
+    }
+    return min_log_num;
+  }
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
@@ -408,60 +392,51 @@ class VersionSet {
   // pick the same files to compact.
   bool VerifyCompactionFileConsistency(Compaction* c);
 
-  double MaxBytesForLevel(int level);
-
-  // Get the max file size in a given level.
-  uint64_t MaxFileSizeForLevel(int level);
-
-  void ReleaseCompactionFiles(Compaction* c, Status status);
-
-  Status GetMetadataForFile(
-    uint64_t number, int *filelevel, FileMetaData **metadata);
+  Status GetMetadataForFile(uint64_t number, int* filelevel,
+                            FileMetaData** metadata, ColumnFamilyData** cfd);
 
   void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
+  ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
+                                       VersionEdit* edit);
+
+  ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
+
  private:
   class Builder;
   struct ManifestWriter;
 
-  friend class Compaction;
   friend class Version;
+
+  struct LogReporter : public log::Reader::Reporter {
+    Status* status;
+    virtual void Corruption(size_t bytes, const Status& s) {
+      if (this->status->ok()) *this->status = s;
+    }
+  };
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);
 
-  void AppendVersion(Version* v);
+  void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   bool ManifestContains(const std::string& record) const;
 
+  std::unique_ptr<ColumnFamilySet> column_family_set_;
+
   Env* const env_;
   const std::string dbname_;
-  const Options* const options_;
-  TableCache* const table_cache_;
-  const InternalKeyComparator icmp_;
+  const DBOptions* const options_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;
-  uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
-
-  int num_levels_;
 
   // Opened lazily
   unique_ptr<log::Writer> descriptor_log_;
-  Version dummy_versions_;  // Head of circular doubly-linked list of versions.
-  Version* current_;        // == dummy_versions_.prev_
-
-  // A flag indicating whether we should delay writes because
-  // we have too many level 0 files
-  bool need_slowdown_for_num_level0_files_;
-
-  // An object that keeps all the compaction stats
-  // and picks the next compaction
-  std::unique_ptr<CompactionPicker> compaction_picker_;
 
   // generates a increasing version number for every new version
   uint64_t current_version_number_;
@@ -485,8 +460,8 @@ class VersionSet {
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);
 
-  void LogAndApplyHelper(Builder*b, Version* v,
-                           VersionEdit* edit, port::Mutex* mu);
+  void LogAndApplyHelper(ColumnFamilyData* cfd, Builder* b, Version* v,
+                         VersionEdit* edit, port::Mutex* mu);
 };
 
 }  // namespace rocksdb

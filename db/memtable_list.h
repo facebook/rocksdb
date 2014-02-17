@@ -7,12 +7,17 @@
 
 #include <string>
 #include <list>
+#include <vector>
+#include <set>
 #include <deque>
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/iterator.h"
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/skiplist.h"
-#include "rocksdb/db.h"
+#include "db/memtable.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -20,6 +25,7 @@
 
 namespace rocksdb {
 
+class ColumnFamilyData;
 class InternalKeyComparator;
 class Mutex;
 
@@ -99,7 +105,8 @@ class MemTableList {
                              std::set<uint64_t>* pending_outputs);
 
   // Commit a successful flush in the manifest file
-  Status InstallMemtableFlushResults(const autovector<MemTable*>& m,
+  Status InstallMemtableFlushResults(ColumnFamilyData* cfd,
+                                     const autovector<MemTable*>& m,
                                      VersionSet* vset, port::Mutex* mu,
                                      Logger* info_log, uint64_t file_number,
                                      std::set<uint64_t>& pending_outputs,
