@@ -11,6 +11,7 @@
 */
 #pragma once
 #include <stdint.h>
+#include "rocksdb/slice.h"
 
 #if defined(__x86_64__)
 #define MURMUR_HASH MurmurHash64A
@@ -29,5 +30,13 @@ typedef unsigned int murmur_t;
 unsigned int MurmurHashNeutral2 ( const void * key, int len, unsigned int seed );
 #define MurmurHash MurmurHashNeutral2
 typedef unsigned int murmur_t;
-
 #endif
+
+// Allow slice to be hashable by murmur hash.
+namespace rocksdb {
+struct murmur_hash {
+  size_t operator()(const Slice& slice) const {
+    return MurmurHash(slice.data(), slice.size(), 0);
+  }
+};
+}  // rocksdb

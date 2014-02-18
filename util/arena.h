@@ -39,12 +39,12 @@ class Arena {
   // Returns an estimate of the total memory usage of data allocated
   // by the arena (exclude the space allocated but not yet used for future
   // allocations).
-  const size_t ApproximateMemoryUsage() {
+  size_t ApproximateMemoryUsage() const {
     return blocks_memory_ + blocks_.capacity() * sizeof(char*) -
            alloc_bytes_remaining_;
   }
 
-  const size_t MemoryAllocatedBytes() { return blocks_memory_; }
+  size_t MemoryAllocatedBytes() const { return blocks_memory_; }
 
  private:
   // Number of bytes allocated in one block
