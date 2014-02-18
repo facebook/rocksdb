@@ -437,7 +437,7 @@ class DB {
 
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
-  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+  Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
 
