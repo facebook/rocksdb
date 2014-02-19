@@ -1420,6 +1420,9 @@ def CheckForHeaderGuard(filename, lines, error):
   endif = None
   endif_linenum = 0
   for linenum, line in enumerate(lines):
+    # Already been well guarded, no need for further checking.
+    if line.strip() == "#pragma once":
+        return
     linesplit = line.split()
     if len(linesplit) >= 2:
       # find the first occurrence of #ifndef and #define, save arg
