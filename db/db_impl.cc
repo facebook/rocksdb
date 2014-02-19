@@ -3701,7 +3701,7 @@ DB::~DB() { }
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
-  EnvOptions soptions;
+  EnvOptions soptions(options);
 
   if (options.block_cache != nullptr && options.no_block_cache) {
     return Status::InvalidArgument(
