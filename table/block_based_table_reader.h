@@ -90,6 +90,9 @@ class BlockBasedTable : public TableReader {
 
   ~BlockBasedTable();
 
+  bool TEST_filter_block_preloaded() const;
+  bool TEST_index_block_preloaded() const;
+
  private:
   template <class TValue>
   struct CachableEntry;

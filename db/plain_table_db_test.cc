@@ -220,7 +220,6 @@ class TestPlainTableFactory : public PlainTableFactory {
                                  size_t index_sparseness = 16)
       : PlainTableFactory(user_key_len, user_key_len, hash_table_ratio,
                           hash_table_ratio),
-        user_key_len_(user_key_len),
         bloom_bits_per_key_(bloom_bits_per_key),
         hash_table_ratio_(hash_table_ratio),
         index_sparseness_(index_sparseness),
@@ -245,7 +244,6 @@ class TestPlainTableFactory : public PlainTableFactory {
   }
 
  private:
-  uint32_t user_key_len_;
   int bloom_bits_per_key_;
   double hash_table_ratio_;
   size_t index_sparseness_;
