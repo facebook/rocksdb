@@ -10,6 +10,10 @@ the CLA and we can cross-check with your GitHub username.
 
 Complete your CLA here: <https://developers.facebook.com/opensource/cla>
 
+If you don't have a Facebook account, we can send you a PDF that you can
+sign offline. Send us an e-mail or create a new github issue to
+request the CLA in PDF format.
+
 ## License
 
 By contributing to RocksDB, you agree that your contributions will be
