@@ -77,6 +77,7 @@ TESTS = \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
+  prefix_test \
 	simple_table_db_test \
 	skiplist_test \
 	stringappend_test \
