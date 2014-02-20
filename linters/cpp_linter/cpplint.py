@@ -3104,6 +3104,11 @@ def CheckBraces(filename, clean_lines, linenum, error):
                'LOCKS_EXCLUDED', 'INTERFACE_DEF')) or
           Search(r'\s+=\s*$', line_prefix)):
         match = None
+    # Whitelist lambda function definition which also requires a ";" after
+    # closing brace
+    if match:
+        if Match(r'^.*\[.*\]\s*(.*\)\s*)\{', line):
+            match = None
 
   else:
     # Try matching cases 2-3.
