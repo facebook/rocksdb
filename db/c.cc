@@ -110,6 +110,9 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
       void*,
       const char* key, size_t length,
       const char* filter, size_t filter_length);
+  void (*delete_filter_)(
+      void*,
+      const char* filter, size_t filter_length);
 
   virtual ~rocksdb_filterpolicy_t() {
     (*destructor_)(state_);
@@ -129,6 +132,12 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
     size_t len;
     char* filter = (*create_)(state_, &key_pointers[0], &key_sizes[0], n, &len);
     dst->append(filter, len);
+
+    if (delete_filter_ != nullptr) {
+      (*delete_filter_)(state_, filter, len);
+    } else {
+      free(filter);
+    }
   }
 
   virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const {
@@ -154,6 +163,9 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
       const char* left_operand, size_t left_operand_length,
       const char* right_operand, size_t right_operand_length,
       unsigned char* success, size_t* new_value_length);
+  void (*delete_value_)(
+      void*,
+      const char* value, size_t value_length);
 
   virtual ~rocksdb_mergeoperator_t() {
     (*destructor_)(state_);
@@ -196,6 +208,12 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
         &success, &new_value_len);
     new_value->assign(tmp_new_value, new_value_len);
 
+    if (delete_value_ != nullptr) {
+      (*delete_value_)(state_, tmp_new_value, new_value_len);
+    } else {
+      free(tmp_new_value);
+    }
+
     return success;
   }
 
@@ -215,6 +233,12 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
         right_operand.data(), right_operand.size(),
         &success, &new_value_len);
     new_value->assign(tmp_new_value, new_value_len);
+
+    if (delete_value_ != nullptr) {
+      (*delete_value_)(state_, tmp_new_value, new_value_len);
+    } else {
+      free(tmp_new_value);
+    }
 
     return success;
   }
@@ -1004,12 +1028,16 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create(
         void*,
         const char* key, size_t length,
         const char* filter, size_t filter_length),
+    void (*delete_filter)(
+        void*,
+        const char* filter, size_t filter_length),
     const char* (*name)(void*)) {
   rocksdb_filterpolicy_t* result = new rocksdb_filterpolicy_t;
   result->state_ = state;
   result->destructor_ = destructor;
   result->create_ = create_filter;
   result->key_match_ = key_may_match;
+  result->delete_filter_ = delete_filter;
   result->name_ = name;
   return result;
 }
@@ -1037,6 +1065,7 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = NewBloomFilterPolicy(bits_per_key);
   wrapper->state_ = NULL;
+  wrapper->delete_filter_ = NULL;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
 }
@@ -1057,12 +1086,16 @@ rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(
         const char* left_operand, size_t left_operand_length,
         const char* right_operand, size_t right_operand_length,
         unsigned char* success, size_t* new_value_length),
+    void (*delete_value)(
+        void*,
+        const char* value, size_t value_length),
     const char* (*name)(void*)) {
   rocksdb_mergeoperator_t* result = new rocksdb_mergeoperator_t;
   result->state_ = state;
   result->destructor_ = destructor;
   result->full_merge_ = full_merge;
   result->partial_merge_ = partial_merge;
+  result->delete_value_ = delete_value;
   result->name_ = name;
   return result;
 }

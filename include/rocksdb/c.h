@@ -386,6 +386,9 @@ extern rocksdb_filterpolicy_t* rocksdb_filterpolicy_create(
         void*,
         const char* key, size_t length,
         const char* filter, size_t filter_length),
+    void (*delete_filter)(
+        void*,
+        const char* filter, size_t filter_length),
     const char* (*name)(void*));
 extern void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t*);
 
@@ -410,6 +413,9 @@ extern rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(
         const char* left_operand, size_t left_operand_length,
         const char* right_operand, size_t right_operand_length,
         unsigned char* success, size_t* new_value_length),
+    void (*delete_value)(
+        void*,
+        const char* value, size_t value_length),
     const char* (*name)(void*));
 extern void rocksdb_mergeoperator_destroy(rocksdb_mergeoperator_t*);
 
