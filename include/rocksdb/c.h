@@ -216,9 +216,8 @@ extern void rocksdb_options_destroy(rocksdb_options_t*);
 extern void rocksdb_options_set_comparator(
     rocksdb_options_t*,
     rocksdb_comparator_t*);
-extern void rocksdb_options_set_merger_operator(
-    rocksdb_options_t*,
-    rocksdb_mergeoperator_t*);
+extern void rocksdb_options_set_merge_operator(rocksdb_options_t*,
+                                               rocksdb_mergeoperator_t*);
 extern void rocksdb_options_set_compression_per_level(
   rocksdb_options_t* opt,
   int* level_values,

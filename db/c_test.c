@@ -416,7 +416,7 @@ int main(int argc, char** argv) {
     // Create new database
     rocksdb_close(db);
     rocksdb_destroy_db(options, dbname, &err);
-    rocksdb_options_set_merger_operator(options, merge_operator);
+    rocksdb_options_set_merge_operator(options, merge_operator);
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
     rocksdb_put(db, woptions, "foo", 3, "foovalue", 8, &err);
@@ -431,8 +431,6 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckGet(db, roptions, "bar", "fake");
 
-    rocksdb_options_set_merger_operator(options, NULL);
-    rocksdb_mergeoperator_destroy(merge_operator);
   }
 
   StartPhase("cleanup");

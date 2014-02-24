@@ -595,7 +595,7 @@ void rocksdb_options_set_comparator(
   opt->rep.comparator = cmp;
 }
 
-void rocksdb_options_set_merger_operator(
+void rocksdb_options_set_merge_operator(
     rocksdb_options_t* opt,
     rocksdb_mergeoperator_t* merge_operator) {
   opt->rep.merge_operator = std::shared_ptr<MergeOperator>(merge_operator);
