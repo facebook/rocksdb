@@ -48,7 +48,6 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       file_number_(0),
       first_seqno_(0),
       mem_next_logfile_number_(0),
-      mem_logfile_number_(0),
       locks_(options.inplace_update_support ? options.inplace_update_num_locks
                                             : 0),
       prefix_extractor_(options.prefix_extractor) {
