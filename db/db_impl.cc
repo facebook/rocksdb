@@ -3623,6 +3623,12 @@ Status DBImpl::DeleteFile(std::string name) {
   LogFlush(options_.info_log);
   // remove files outside the db-lock
   PurgeObsoleteFiles(deletion_state);
+  {
+    MutexLock l(&mutex_);
+    // schedule flush if file deletion means we freed the space for flushes to
+    // continue
+    MaybeScheduleFlushOrCompaction();
+  }
   return status;
 }
 
