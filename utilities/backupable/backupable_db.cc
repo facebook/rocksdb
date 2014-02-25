@@ -311,8 +311,7 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     // this will return live_files prefixed with "/"
     s = db->GetLiveFiles(live_files, &manifest_file_size, flush_before_backup);
   }
-  // if we didn't flush before backup, we need to also get WAL files
-  if (s.ok() && !flush_before_backup) {
+  if (s.ok()) {
     // returns file names prefixed with "/"
     s = db->GetSortedWalFiles(live_wal_files);
   }

@@ -394,9 +394,12 @@ class DB {
   // Setting flush_memtable to true does Flush before recording the live files.
   // Setting flush_memtable to false is useful when we don't want to wait for
   // flush which may have to wait for compaction to complete taking an
-  // indeterminate time. But this will have to use GetSortedWalFiles after
-  // GetLiveFiles to compensate for memtables missed in this snapshot due to the
-  // absence of Flush, by WAL files to recover the database consistently later
+  // indeterminate time.
+  //
+  // In case you have multiple column families, even if flush_memtable is true,
+  // you still need to call GetSortedWalFiles after GetLiveFiles to compensate
+  // for new data that arrived to already-flushed column families while other
+  // column families were flushing
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true) = 0;

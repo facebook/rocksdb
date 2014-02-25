@@ -60,17 +60,34 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   *manifest_file_size = 0;
 
+  mutex_.Lock();
+
   if (flush_memtable) {
     // flush all dirty data to disk.
-    Status status =  Flush(FlushOptions());
+    autovector<ColumnFamilyData*> to_delete;
+    Status status;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      cfd->Ref();
+      mutex_.Unlock();
+      status = FlushMemTable(cfd, FlushOptions());
+      mutex_.Lock();
+      if (cfd->Unref()) {
+        to_delete.push_back(cfd);
+      }
+      if (!status.ok()) {
+        break;
+      }
+    }
+    for (auto cfd : to_delete) {
+      delete cfd;
+    }
     if (!status.ok()) {
+      mutex_.Unlock();
       Log(options_.info_log, "Cannot Flush data %s\n",
           status.ToString().c_str());
       return status;
     }
   }
-
-  MutexLock l(&mutex_);
 
   // Make a set of all of the live *.sst files
   std::set<uint64_t> live;
@@ -93,6 +110,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   // find length of manifest file while holding the mutex lock
   *manifest_file_size = versions_->ManifestFileSize();
 
+  mutex_.Unlock();
   return Status::OK();
 }
 
