@@ -300,7 +300,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
       assert(index_block->compressionType() == kNoCompression);
       rep->index_block.reset(index_block);
 
-      // Set index block
+      // Set filter block
       if (rep->options.filter_policy) {
         std::string key = kFilterBlockPrefix;
         key.append(rep->options.filter_policy->Name());
@@ -681,8 +681,14 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
 
 BlockBasedTable::CachableEntry<FilterBlockReader>
 BlockBasedTable::GetFilter(bool no_io) const {
-  if (!rep_->options.filter_policy || !rep_->options.block_cache) {
-    return {rep_->filter.get(), nullptr};
+  // filter pre-populated
+  if (rep_->filter != nullptr) {
+    return {rep_->filter.get(), nullptr /* cache handle */};
+  }
+
+  if (rep_->options.filter_policy == nullptr /* do not use filter at all */ ||
+      rep_->options.block_cache == nullptr /* no block cache at all */) {
+    return {nullptr /* filter */, nullptr /* cache handle */};
   }
 
   // Fetching from the cache
@@ -977,6 +983,14 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
   }
   delete index_iter;
   return result;
+}
+
+bool BlockBasedTable::TEST_filter_block_preloaded() const {
+  return rep_->filter != nullptr;
+}
+
+bool BlockBasedTable::TEST_index_block_preloaded() const {
+  return rep_->index_block != nullptr;
 }
 
 }  // namespace rocksdb

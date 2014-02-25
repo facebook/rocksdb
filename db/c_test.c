@@ -154,6 +154,37 @@ unsigned char FilterKeyMatch(
   return fake_filter_result;
 }
 
+// Custom merge operator
+static void MergeOperatorDestroy(void* arg) { }
+static const char* MergeOperatorName(void* arg) {
+  return "TestMergeOperator";
+}
+static char* MergeOperatorFullMerge(
+    void* arg,
+    const char* key, size_t key_length,
+    const char* existing_value, size_t existing_value_length,
+    const char* const* operands_list, const size_t* operands_list_length,
+    int num_operands,
+    unsigned char* success, size_t* new_value_length) {
+  *new_value_length = 4;
+  *success = 1;
+  char* result = malloc(4);
+  memcpy(result, "fake", 4);
+  return result;
+}
+static char* MergeOperatorPartialMerge(
+    void* arg,
+    const char* key, size_t key_length,
+    const char* left_operand, size_t left_operand_length,
+    const char* right_operand, size_t right_operand_length,
+    unsigned char* success, size_t* new_value_length) {
+  *new_value_length = 4;
+  *success = 1;
+  char* result = malloc(4);
+  memcpy(result, "fake", 4);
+  return result;
+}
+
 int main(int argc, char** argv) {
   rocksdb_t* db;
   rocksdb_comparator_t* cmp;
@@ -342,7 +373,7 @@ int main(int argc, char** argv) {
     rocksdb_filterpolicy_t* policy;
     if (run == 0) {
       policy = rocksdb_filterpolicy_create(
-          NULL, FilterDestroy, FilterCreate, FilterKeyMatch, FilterName);
+          NULL, FilterDestroy, FilterCreate, FilterKeyMatch, NULL, FilterName);
     } else {
       policy = rocksdb_filterpolicy_create_bloom(10);
     }
@@ -374,6 +405,32 @@ int main(int argc, char** argv) {
     }
     rocksdb_options_set_filter_policy(options, NULL);
     rocksdb_filterpolicy_destroy(policy);
+  }
+
+  StartPhase("merge_operator");
+  {
+    rocksdb_mergeoperator_t* merge_operator;
+    merge_operator = rocksdb_mergeoperator_create(
+        NULL, MergeOperatorDestroy, MergeOperatorFullMerge,
+        MergeOperatorPartialMerge, NULL, MergeOperatorName);
+    // Create new database
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    rocksdb_options_set_merge_operator(options, merge_operator);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "foo", 3, "foovalue", 8, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "foo", "foovalue");
+    rocksdb_merge(db, woptions, "foo", 3, "barvalue", 8, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "foo", "fake");
+
+    // Merge of a non-existing value
+    rocksdb_merge(db, woptions, "bar", 3, "barvalue", 8, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "bar", "fake");
+
   }
 
   StartPhase("cleanup");

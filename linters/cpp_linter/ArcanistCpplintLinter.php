@@ -19,32 +19,8 @@ final class ArcanistCpplintLinter extends ArcanistLinter {
     return 'cpplint.py';
   }
 
-  public function getLintOptions() {
-    $config = $this->getEngine()->getConfigurationManager();
-    $options = $config->getConfigFromAnySource('lint.cpplint.options', '');
-
-    return $options;
-  }
-
   public function getLintPath() {
-    $config = $this->getEngine()->getConfigurationManager();
-    $prefix = $config->getConfigFromAnySource('lint.cpplint.prefix');
-    $bin = $config->getConfigFromAnySource('lint.cpplint.bin', 'cpplint.py');
-
-    if ($prefix !== null) {
-      if (!Filesystem::pathExists($prefix.'/'.$bin)) {
-        throw new ArcanistUsageException(
-          "Unable to find cpplint.py binary in a specified directory. Make ".
-          "sure that 'lint.cpplint.prefix' and 'lint.cpplint.bin' keys are ".
-          "set correctly. If you'd rather use a copy of cpplint installed ".
-          "globally, you can just remove these keys from your .arcconfig.");
-      }
-
-      $bin = csprintf("%s/%s", $prefix, $bin);
-
-      return $bin;
-    }
-
+    $bin = 'cpplint.py';
     // Search under current dir
     list($err) = exec_manual('which %s/%s', $this->linterDir(), $bin);
     if (!$err) {
@@ -57,7 +33,7 @@ final class ArcanistCpplintLinter extends ArcanistLinter {
       throw new ArcanistUsageException(
         "cpplint.py does not appear to be installed on this system. Install ".
         "it (e.g., with 'wget \"http://google-styleguide.googlecode.com/".
-        "svn/trunk/cpplint/cpplint.py\"') or configure 'lint.cpplint.prefix' ".
+        "svn/trunk/cpplint/cpplint.py\"') ".
         "in your .arcconfig to point to the directory where it resides. ".
         "Also don't forget to chmod a+x cpplint.py!");
     }
@@ -67,10 +43,9 @@ final class ArcanistCpplintLinter extends ArcanistLinter {
 
   public function lintPath($path) {
     $bin = $this->getLintPath();
-    $options = $this->getLintOptions();
     $path = $this->rocksdbDir().'/'.$path;
 
-    $f = new ExecFuture("%C %C $path", $bin, $options);
+    $f = new ExecFuture("%C $path", $bin);
 
     list($err, $stdout, $stderr) = $f->resolve();
 

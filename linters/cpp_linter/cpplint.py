@@ -1420,6 +1420,9 @@ def CheckForHeaderGuard(filename, lines, error):
   endif = None
   endif_linenum = 0
   for linenum, line in enumerate(lines):
+    # Already been well guarded, no need for further checking.
+    if line.strip() == "#pragma once":
+        return
     linesplit = line.split()
     if len(linesplit) >= 2:
       # find the first occurrence of #ifndef and #define, save arg
@@ -3101,6 +3104,11 @@ def CheckBraces(filename, clean_lines, linenum, error):
                'LOCKS_EXCLUDED', 'INTERFACE_DEF')) or
           Search(r'\s+=\s*$', line_prefix)):
         match = None
+    # Whitelist lambda function definition which also requires a ";" after
+    # closing brace
+    if match:
+        if Match(r'^.*\[.*\]\s*(.*\)\s*)\{', line):
+            match = None
 
   else:
     # Try matching cases 2-3.

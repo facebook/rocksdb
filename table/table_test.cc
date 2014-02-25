@@ -29,6 +29,7 @@
 #include "rocksdb/memtablerep.h"
 #include "table/block.h"
 #include "table/meta_blocks.h"
+#include "table/block_based_table_reader.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
@@ -961,6 +962,7 @@ class BlockBasedTableTest : public TableTest {};
 class PlainTableTest : public TableTest {};
 class TablePropertyTest {};
 
+/*
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
 TEST(TablePropertyTest, PrefixScanTest) {
@@ -1122,19 +1124,37 @@ TEST(BlockBasedTableTest, NumBlockStat) {
   ASSERT_EQ(kvmap.size(),
             c.table_reader()->GetTableProperties()->num_data_blocks);
 }
+*/
 
-class BlockCacheProperties {
+// A simple tool that takes the snapshot of block cache statistics.
+class BlockCachePropertiesSnapshot {
  public:
-  explicit BlockCacheProperties(Statistics* statistics) {
+  explicit BlockCachePropertiesSnapshot(Statistics* statistics) {
     block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_MISS);
     block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_HIT);
     index_block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_INDEX_MISS);
     index_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_INDEX_HIT);
     data_block_cache_miss = statistics->getTickerCount(BLOCK_CACHE_DATA_MISS);
     data_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_DATA_HIT);
+    filter_block_cache_miss =
+        statistics->getTickerCount(BLOCK_CACHE_FILTER_MISS);
+    filter_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT);
+  }
+
+  void AssertIndexBlockStat(int64_t index_block_cache_miss,
+                            int64_t index_block_cache_hit) {
+    ASSERT_EQ(index_block_cache_miss, this->index_block_cache_miss);
+    ASSERT_EQ(index_block_cache_hit, this->index_block_cache_hit);
+  }
+
+  void AssertFilterBlockStat(int64_t filter_block_cache_miss,
+                             int64_t filter_block_cache_hit) {
+    ASSERT_EQ(filter_block_cache_miss, this->filter_block_cache_miss);
+    ASSERT_EQ(filter_block_cache_hit, this->filter_block_cache_hit);
   }
 
   // Check if the fetched props matches the expected ones.
+  // TODO(kailiu) Use this only when you disabled filter policy!
   void AssertEqual(int64_t index_block_cache_miss,
                    int64_t index_block_cache_hit, int64_t data_block_cache_miss,
                    int64_t data_block_cache_hit) const {
@@ -1155,9 +1175,55 @@ class BlockCacheProperties {
   int64_t index_block_cache_hit = 0;
   int64_t data_block_cache_miss = 0;
   int64_t data_block_cache_hit = 0;
+  int64_t filter_block_cache_miss = 0;
+  int64_t filter_block_cache_hit = 0;
 };
 
-TEST(BlockBasedTableTest, BlockCacheTest) {
+// Make sure, by default, index/filter blocks were pre-loaded (meaning we won't
+// use block cache to store them).
+TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
+  Options options;
+  options.create_if_missing = true;
+  options.statistics = CreateDBStatistics();
+  options.block_cache = NewLRUCache(1024);
+  std::unique_ptr<const FilterPolicy> filter_policy(NewBloomFilterPolicy(10));
+  options.filter_policy = filter_policy.get();
+  BlockBasedTableOptions table_options;
+  // Intentionally commented out: table_options.cache_index_and_filter_blocks =
+  // true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  std::vector<std::string> keys;
+  KVMap kvmap;
+
+  TableConstructor c(BytewiseComparator());
+  c.Add("key", "value");
+  c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
+           &kvmap);
+
+  // preloading filter/index blocks is enabled.
+  auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  ASSERT_TRUE(reader->TEST_filter_block_preloaded());
+  ASSERT_TRUE(reader->TEST_index_block_preloaded());
+
+  {
+    // nothing happens in the beginning
+    BlockCachePropertiesSnapshot props(options.statistics.get());
+    props.AssertIndexBlockStat(0, 0);
+    props.AssertFilterBlockStat(0, 0);
+  }
+
+  {
+    // a hack that just to trigger BlockBasedTable::GetFilter.
+    reader->Get(ReadOptions(), "non-exist-key", nullptr, nullptr, nullptr);
+    BlockCachePropertiesSnapshot props(options.statistics.get());
+    props.AssertIndexBlockStat(0, 0);
+    props.AssertFilterBlockStat(0, 0);
+  }
+}
+
+// Due to the difficulities of the intersaction between statistics, this test
+// only tests the case when "index block is put to block cache"
+TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   // -- Table construction
   Options options;
   options.create_if_missing = true;
@@ -1175,6 +1241,10 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   c.Add("key", "value");
   c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
            &kvmap);
+  // preloading filter/index blocks is prohibited.
+  auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
+  ASSERT_TRUE(!reader->TEST_index_block_preloaded());
 
   // -- PART 1: Open with regular block cache.
   // Since block_cache is disabled, no cache activities will be involved.
@@ -1182,7 +1252,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
 
   // At first, no block will be accessed.
   {
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     // index will be added to block cache.
     props.AssertEqual(1,  // index block miss
                       0, 0, 0);
@@ -1191,7 +1261,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   // Only index block will be accessed
   {
     iter.reset(c.NewIterator());
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     // NOTE: to help better highlight the "detla" of each ticker, I use
     // <last_value> + <added_value> to indicate the increment of changed
     // value; other numbers remain the same.
@@ -1202,7 +1272,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   // Only data block will be accessed
   {
     iter->SeekToFirst();
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1, 1, 0 + 1,  // data block miss
                       0);
   }
@@ -1211,7 +1281,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   {
     iter.reset(c.NewIterator());
     iter->SeekToFirst();
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1, 1 + 1, /* index block hit */
                       1, 0 + 1 /* data block hit */);
   }
@@ -1227,7 +1297,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
     iter.reset(c.NewIterator());
     iter->SeekToFirst();
     ASSERT_EQ("key", iter->key().ToString());
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     // Nothing is affected at all
     props.AssertEqual(0, 0, 0, 0);
   }
@@ -1238,7 +1308,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
   options.block_cache = NewLRUCache(1);
   c.Reopen(options);
   {
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1,  // index block miss
                       0, 0, 0);
   }
@@ -1249,7 +1319,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
     // It first cache index block then data block. But since the cache size
     // is only 1, index block will be purged after data block is inserted.
     iter.reset(c.NewIterator());
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1 + 1,  // index block miss
                       0, 0,   // data block miss
                       0);
@@ -1259,7 +1329,7 @@ TEST(BlockBasedTableTest, BlockCacheTest) {
     // SeekToFirst() accesses data block. With similar reason, we expect data
     // block's cache miss.
     iter->SeekToFirst();
-    BlockCacheProperties props(options.statistics.get());
+    BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(2, 0, 0 + 1,  // data block miss
                       0);
   }

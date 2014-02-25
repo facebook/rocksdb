@@ -3749,6 +3749,12 @@ Status DBImpl::DeleteFile(std::string name) {
   LogFlush(options_.info_log);
   // remove files outside the db-lock
   PurgeObsoleteFiles(deletion_state);
+  {
+    MutexLock l(&mutex_);
+    // schedule flush if file deletion means we freed the space for flushes to
+    // continue
+    MaybeScheduleFlushOrCompaction();
+  }
   return status;
 }
 
@@ -3864,7 +3870,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   *dbptr = nullptr;
   handles->clear();
-  EnvOptions soptions;
+  EnvOptions soptions(db_options);
 
   size_t max_write_buffer_size = 0;
   for (auto cf : column_families) {

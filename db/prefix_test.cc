@@ -1,3 +1,8 @@
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+
 #include <algorithm>
 #include <iostream>
 #include <vector>
@@ -6,6 +11,8 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/memtablerep.h"
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
@@ -97,6 +104,36 @@ class TestKeyComparator : public Comparator {
 
 };
 
+void PutKey(DB* db, WriteOptions write_options, uint64_t prefix,
+            uint64_t suffix, const Slice& value) {
+  TestKey test_key(prefix, suffix);
+  Slice key = TestKeyToSlice(test_key);
+  ASSERT_OK(db->Put(write_options, key, value));
+}
+
+void SeekIterator(Iterator* iter, uint64_t prefix, uint64_t suffix) {
+  TestKey test_key(prefix, suffix);
+  Slice key = TestKeyToSlice(test_key);
+  iter->Seek(key);
+}
+
+const std::string kNotFoundResult = "NOT_FOUND";
+
+std::string Get(DB* db, const ReadOptions& read_options, uint64_t prefix,
+                uint64_t suffix) {
+  TestKey test_key(prefix, suffix);
+  Slice key = TestKeyToSlice(test_key);
+
+  std::string result;
+  Status s = db->Get(read_options, key, &result);
+  if (s.IsNotFound()) {
+    result = kNotFoundResult;
+  } else if (!s.ok()) {
+    result = s.ToString();
+  }
+  return result;
+}
+
 class PrefixTest {
  public:
   std::shared_ptr<DB> OpenDb() {
@@ -116,7 +153,11 @@ class PrefixTest {
     return std::shared_ptr<DB>(db);
   }
 
-  bool NextOptions() {
+  void FirstOption() {
+    option_config_ = kBegin;
+  }
+
+  bool NextOptions(int bucket_count) {
     // skip some options
     option_config_++;
     if (option_config_ < kEnd) {
@@ -124,15 +165,12 @@ class PrefixTest {
       options.prefix_extractor = prefix_extractor;
       switch(option_config_) {
         case kHashSkipList:
-          options.memtable_factory.reset(
-              NewHashSkipListRepFactory(options.prefix_extractor,
-                                        FLAGS_bucket_count,
-                                        FLAGS_skiplist_height));
+          options.memtable_factory.reset(NewHashSkipListRepFactory(
+              options.prefix_extractor, bucket_count, FLAGS_skiplist_height));
           return true;
         case kHashLinkList:
-          options.memtable_factory.reset(
-              NewHashLinkListRepFactory(options.prefix_extractor,
-                                        FLAGS_bucket_count));
+          options.memtable_factory.reset(NewHashLinkListRepFactory(
+              options.prefix_extractor, bucket_count));
           return true;
         default:
           return false;
@@ -158,8 +196,182 @@ class PrefixTest {
   Options options;
 };
 
+TEST(PrefixTest, TestResult) {
+  for (int num_buckets = 1; num_buckets <= 2; num_buckets++) {
+    FirstOption();
+    while (NextOptions(num_buckets)) {
+      std::cout << "*** Mem table: " << options.memtable_factory->Name()
+                << " number of buckets: " << num_buckets
+                << std::endl;
+      DestroyDB(kDbName, Options());
+      auto db = OpenDb();
+      WriteOptions write_options;
+      ReadOptions read_options;
+      read_options.prefix_seek = true;
+
+      // 1. Insert one row.
+      Slice v16("v16");
+      PutKey(db.get(), write_options, 1, 6, v16);
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+      SeekIterator(iter.get(), 1, 6);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v16 == iter->value());
+      SeekIterator(iter.get(), 1, 5);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v16 == iter->value());
+      SeekIterator(iter.get(), 1, 5);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v16 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(!iter->Valid());
+
+      SeekIterator(iter.get(), 2, 0);
+      ASSERT_TRUE(!iter->Valid());
+
+      ASSERT_EQ(v16.ToString(), Get(db.get(), read_options, 1, 6));
+      ASSERT_EQ(kNotFoundResult, Get(db.get(), read_options, 1, 5));
+      ASSERT_EQ(kNotFoundResult, Get(db.get(), read_options, 1, 7));
+      ASSERT_EQ(kNotFoundResult, Get(db.get(), read_options, 0, 6));
+      ASSERT_EQ(kNotFoundResult, Get(db.get(), read_options, 2, 6));
+
+      // 2. Insert an entry for the same prefix as the last entry in the bucket.
+      Slice v17("v17");
+      PutKey(db.get(), write_options, 1, 7, v17);
+      iter.reset(db->NewIterator(read_options));
+      SeekIterator(iter.get(), 1, 7);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+
+      SeekIterator(iter.get(), 1, 6);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v16 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(!iter->Valid());
+
+      SeekIterator(iter.get(), 2, 0);
+      ASSERT_TRUE(!iter->Valid());
+
+      // 3. Insert an entry for the same prefix as the head of the bucket.
+      Slice v15("v15");
+      PutKey(db.get(), write_options, 1, 5, v15);
+      iter.reset(db->NewIterator(read_options));
+
+      SeekIterator(iter.get(), 1, 7);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+
+      SeekIterator(iter.get(), 1, 5);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v15 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v16 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+
+      SeekIterator(iter.get(), 1, 5);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v15 == iter->value());
+
+      ASSERT_EQ(v15.ToString(), Get(db.get(), read_options, 1, 5));
+      ASSERT_EQ(v16.ToString(), Get(db.get(), read_options, 1, 6));
+      ASSERT_EQ(v17.ToString(), Get(db.get(), read_options, 1, 7));
+
+      // 4. Insert an entry with a larger prefix
+      Slice v22("v22");
+      PutKey(db.get(), write_options, 2, 2, v22);
+      iter.reset(db->NewIterator(read_options));
+
+      SeekIterator(iter.get(), 2, 2);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v22 == iter->value());
+      SeekIterator(iter.get(), 2, 0);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v22 == iter->value());
+
+      SeekIterator(iter.get(), 1, 5);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v15 == iter->value());
+
+      SeekIterator(iter.get(), 1, 7);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+
+      // 5. Insert an entry with a smaller prefix
+      Slice v02("v02");
+      PutKey(db.get(), write_options, 0, 2, v02);
+      iter.reset(db->NewIterator(read_options));
+
+      SeekIterator(iter.get(), 0, 2);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v02 == iter->value());
+      SeekIterator(iter.get(), 0, 0);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v02 == iter->value());
+
+      SeekIterator(iter.get(), 2, 0);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v22 == iter->value());
+
+      SeekIterator(iter.get(), 1, 5);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v15 == iter->value());
+
+      SeekIterator(iter.get(), 1, 7);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+
+      // 6. Insert to the beginning and the end of the first prefix
+      Slice v13("v13");
+      Slice v18("v18");
+      PutKey(db.get(), write_options, 1, 3, v13);
+      PutKey(db.get(), write_options, 1, 8, v18);
+      iter.reset(db->NewIterator(read_options));
+      SeekIterator(iter.get(), 1, 7);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+
+      SeekIterator(iter.get(), 1, 3);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v13 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v15 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v16 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v18 == iter->value());
+
+      SeekIterator(iter.get(), 0, 0);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v02 == iter->value());
+
+      SeekIterator(iter.get(), 2, 0);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v22 == iter->value());
+
+      ASSERT_EQ(v22.ToString(), Get(db.get(), read_options, 2, 2));
+      ASSERT_EQ(v02.ToString(), Get(db.get(), read_options, 0, 2));
+      ASSERT_EQ(v13.ToString(), Get(db.get(), read_options, 1, 3));
+      ASSERT_EQ(v15.ToString(), Get(db.get(), read_options, 1, 5));
+      ASSERT_EQ(v16.ToString(), Get(db.get(), read_options, 1, 6));
+      ASSERT_EQ(v17.ToString(), Get(db.get(), read_options, 1, 7));
+      ASSERT_EQ(v18.ToString(), Get(db.get(), read_options, 1, 8));
+    }
+  }
+}
+
 TEST(PrefixTest, DynamicPrefixIterator) {
-  while (NextOptions()) {
+  while (NextOptions(FLAGS_bucket_count)) {
     std::cout << "*** Mem table: " << options.memtable_factory->Name()
         << std::endl;
     DestroyDB(kDbName, Options());
@@ -260,7 +472,7 @@ TEST(PrefixTest, DynamicPrefixIterator) {
 }
 
 TEST(PrefixTest, PrefixHash) {
-  while (NextOptions()) {
+  while (NextOptions(FLAGS_bucket_count)) {
     std::cout << "*** Mem table: " << options.memtable_factory->Name()
         << std::endl;
     DestroyDB(kDbName, Options());
