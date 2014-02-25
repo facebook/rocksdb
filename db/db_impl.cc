@@ -3364,9 +3364,10 @@ Status DBImpl::MakeRoomForWrite(bool force,
       break;
     } else if (imm_.size() == options_.max_write_buffer_number - 1) {
       // We have filled up the current memtable, but the previous
-      // ones are still being compacted, so we wait.
+      // ones are still being flushed, so we wait.
       DelayLoggingAndReset();
-      Log(options_.info_log, "wait for memtable compaction...\n");
+      Log(options_.info_log, "wait for memtable flush...\n");
+      MaybeScheduleFlushOrCompaction();
       uint64_t stall;
       {
         StopWatch sw(env_, options_.statistics.get(),
@@ -3440,7 +3441,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       unique_ptr<WritableFile> lfile;
       MemTable* new_mem = nullptr;
 
-      // Attempt to switch to a new memtable and trigger compaction of old.
+      // Attempt to switch to a new memtable and trigger flush of old.
       // Do this without holding the dbmutex lock.
       assert(versions_->PrevLogNumber() == 0);
       uint64_t new_log_number = versions_->NewFileNumber();
