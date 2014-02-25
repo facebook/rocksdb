@@ -11,6 +11,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/db.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
 #include <algorithm>
@@ -21,9 +22,17 @@ namespace rocksdb {
 
 using namespace std;
 
+namespace {
+std::string RandomString(Random* rnd, int len) {
+  std::string r;
+  test::RandomString(rnd, len, &r);
+  return r;
+}
+}  // anonymous namespace
+
 class ColumnFamilyTest {
  public:
-  ColumnFamilyTest() {
+  ColumnFamilyTest() : rnd_(139) {
     env_ = Env::Default();
     dbname_ = test::TmpDir() + "/column_family_test";
     db_options_.create_if_missing = true;
@@ -39,6 +48,10 @@ class ColumnFamilyTest {
     db_ = nullptr;
   }
 
+  Status Open() {
+    return Open({"default"});
+  }
+
   Status Open(vector<string> cf) {
     vector<ColumnFamilyDescriptor> column_families;
     for (auto x : cf) {
@@ -47,6 +60,8 @@ class ColumnFamilyTest {
     }
     return DB::Open(db_options_, dbname_, column_families, &handles_, &db_);
   }
+
+  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
 
   void Destroy() {
     for (auto h : handles_) {
@@ -73,6 +88,18 @@ class ColumnFamilyTest {
       delete handles_[cf];
       handles_[cf] = nullptr;
     }
+  }
+
+  void PutRandomData(int cf, int bytes) {
+    int num_insertions = (bytes + 99) / 100;
+    for (int i = 0; i < num_insertions; ++i) {
+      // 10 bytes key, 90 bytes value
+      ASSERT_OK(Put(cf, test::RandomKey(&rnd_, 10), RandomString(&rnd_, 90)));
+    }
+  }
+
+  void WaitForFlush(int cf) {
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
   }
 
   Status Put(int cf, const string& key, const string& value) {
@@ -144,6 +171,18 @@ class ColumnFamilyTest {
     }
   }
 
+  int CountLiveLogFiles() {
+    int ret = 0;
+    VectorLogPtr wal_files;
+    ASSERT_OK(db_->GetSortedWalFiles(wal_files));
+    for (const auto& wal : wal_files) {
+      if (wal->Type() == kAliveLogFile) {
+        ++ret;
+      }
+    }
+    return ret;
+  }
+
   void CopyFile(const string& source, const string& destination,
                 uint64_t size = 0) {
     const EnvOptions soptions;
@@ -174,6 +213,7 @@ class ColumnFamilyTest {
   string dbname_;
   DB* db_ = nullptr;
   Env* env_;
+  Random rnd_;
 };
 
 TEST(ColumnFamilyTest, AddDrop) {
@@ -352,6 +392,72 @@ TEST(ColumnFamilyTest, FlushTest) {
       ASSERT_OK(Open({"default", "one", "two"}));
     }
   }
+  Close();
+}
+
+// Makes sure that obsolete log files get deleted
+TEST(ColumnFamilyTest, LogDeletionTest) {
+  column_family_options_.write_buffer_size = 100000;  // 100KB
+  ASSERT_OK(Open());
+  CreateColumnFamilies({"one", "two", "three", "four"});
+  // Each bracket is one log file. if number is in (), it means
+  // we don't need it anymore (it's been flushed)
+  // []
+  ASSERT_EQ(CountLiveLogFiles(), 0);
+  PutRandomData(0, 100);
+  // [0]
+  PutRandomData(1, 100);
+  // [0, 1]
+  PutRandomData(1, 100000);
+  WaitForFlush(1);
+  // [0, (1)] [1]
+  ASSERT_EQ(CountLiveLogFiles(), 2);
+  PutRandomData(0, 100);
+  // [0, (1)] [0, 1]
+  ASSERT_EQ(CountLiveLogFiles(), 2);
+  PutRandomData(2, 100);
+  // [0, (1)] [0, 1, 2]
+  PutRandomData(2, 100000);
+  WaitForFlush(2);
+  // [0, (1)] [0, 1, (2)] [2]
+  ASSERT_EQ(CountLiveLogFiles(), 3);
+  PutRandomData(2, 100000);
+  WaitForFlush(2);
+  // [0, (1)] [0, 1, (2)] [(2)] [2]
+  ASSERT_EQ(CountLiveLogFiles(), 4);
+  PutRandomData(3, 100);
+  // [0, (1)] [0, 1, (2)] [(2)] [2, 3]
+  PutRandomData(1, 100);
+  // [0, (1)] [0, 1, (2)] [(2)] [1, 2, 3]
+  ASSERT_EQ(CountLiveLogFiles(), 4);
+  PutRandomData(1, 100000);
+  WaitForFlush(1);
+  // [0, (1)] [0, (1), (2)] [(2)] [(1), 2, 3] [1]
+  ASSERT_EQ(CountLiveLogFiles(), 5);
+  PutRandomData(0, 100000);
+  WaitForFlush(0);
+  // [(0), (1)] [(0), (1), (2)] [(2)] [(1), 2, 3] [1, (0)] [0]
+  // delete obsolete logs -->
+  // [(1), 2, 3] [1, (0)] [0]
+  ASSERT_EQ(CountLiveLogFiles(), 3);
+  PutRandomData(0, 100000);
+  WaitForFlush(0);
+  // [(1), 2, 3] [1, (0)], [(0)] [0]
+  ASSERT_EQ(CountLiveLogFiles(), 4);
+  PutRandomData(1, 100000);
+  WaitForFlush(1);
+  // [(1), 2, 3] [(1), (0)] [(0)] [0, (1)] [1]
+  ASSERT_EQ(CountLiveLogFiles(), 5);
+  PutRandomData(2, 100000);
+  WaitForFlush(2);
+  // [(1), (2), 3] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2]
+  ASSERT_EQ(CountLiveLogFiles(), 6);
+  PutRandomData(3, 100000);
+  WaitForFlush(3);
+  // [(1), (2), (3)] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2, (3)] [3]
+  // delete obsolete logs -->
+  // [0, (1)] [1, (2)], [2, (3)] [3]
+  ASSERT_EQ(CountLiveLogFiles(), 4);
   Close();
 }
 

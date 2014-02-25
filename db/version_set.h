@@ -24,6 +24,7 @@
 #include <vector>
 #include <deque>
 #include <atomic>
+#include <limits>
 #include "db/dbformat.h"
 #include "db/version_edit.h"
 #include "port/port.h"
@@ -359,9 +360,9 @@ class VersionSet {
   // Returns the minimum log number such that all
   // log numbers less than or equal to it can be deleted
   uint64_t MinLogNumber() const {
-    uint64_t min_log_num = 0;
+    uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
-      if (min_log_num == 0 || min_log_num > cfd->GetLogNumber()) {
+      if (min_log_num > cfd->GetLogNumber()) {
         min_log_num = cfd->GetLogNumber();
       }
     }

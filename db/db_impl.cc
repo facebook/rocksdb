@@ -1112,7 +1112,8 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     mutex_.Unlock();
     std::vector<Iterator*> memtables;
     for (MemTable* m : mems) {
-      Log(options_.info_log, "Flushing memtable with next log file: %lu\n",
+      Log(options_.info_log,
+          "[CF %u] Flushing memtable with next log file: %lu\n", cfd->GetID(),
           (unsigned long)m->GetNextLogNumber());
       memtables.push_back(m->NewIterator());
     }
@@ -3578,20 +3579,28 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
-        assert (!new_mem);
+        assert(!new_mem);
         break;
       }
       logfile_number_ = new_log_number;
       log_.reset(new log::Writer(std::move(lfile)));
       cfd->mem()->SetNextLogNumber(logfile_number_);
-      // TODO also update log number for all column families with empty
-      // memtables (i.e. don't have data in the old log)
       cfd->imm()->Add(cfd->mem());
       if (force) {
         cfd->imm()->FlushRequested();
       }
       new_mem->Ref();
       alive_log_files_.push_back(logfile_number_);
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        // all this is just optimization to delete logs that
+        // are no longer needed -- if CF is empty, that means it
+        // doesn't need that particular log to stay alive, so we just
+        // advance the log number. no need to persist this in the manifest
+        if (cfd->mem()->GetFirstSequenceNumber() == 0 &&
+            cfd->imm()->size() == 0) {
+          cfd->SetLogNumber(logfile_number_);
+        }
+      }
       cfd->SetMemtable(new_mem);
       Log(options_.info_log, "New memtable created with log file: #%lu\n",
           (unsigned long)logfile_number_);
