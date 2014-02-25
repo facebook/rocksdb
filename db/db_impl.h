@@ -386,7 +386,7 @@ class DBImpl : public DB {
   unique_ptr<log::Writer> log_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
-  std::deque<uint32_t> alive_log_files_;
+  std::deque<uint64_t> alive_log_files_;
 
   std::string host_name_;
 
