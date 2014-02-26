@@ -527,13 +527,14 @@ Status PlainTableReader::ReadKey(const char* start, ParsedInternalKey* key,
     key_ptr =
         GetVarint32Ptr(start, file_data_.data() + data_end_offset_, &tmp_size);
     if (key_ptr == nullptr) {
-      return Status::Corruption("Unable to read the next key");
+      return Status::Corruption(
+          "Unexpected EOF when reading the next key's size");
     }
     user_key_size = (size_t)tmp_size;
     *bytes_read = key_ptr - start;
   }
   if (key_ptr + user_key_size + 1 >= file_data_.data() + data_end_offset_) {
-    return Status::Corruption("Unable to read the next key");
+    return Status::Corruption("Unexpected EOF when reading the next key");
   }
 
   if (*(key_ptr + user_key_size) == PlainTableFactory::kValueTypeSeqId0) {
@@ -544,10 +545,12 @@ Status PlainTableReader::ReadKey(const char* start, ParsedInternalKey* key,
     *bytes_read += user_key_size + 1;
   } else {
     if (start + user_key_size + 8 >= file_data_.data() + data_end_offset_) {
-      return Status::Corruption("Unable to read the next key");
+      return Status::Corruption(
+          "Unexpected EOF when reading internal bytes of the next key");
     }
     if (!ParseInternalKey(Slice(key_ptr, user_key_size + 8), key)) {
-      return Status::Corruption(Slice());
+      return Status::Corruption(
+          Slice("Incorrect value type found when reading the next key"));
     }
     *bytes_read += user_key_size + 8;
   }
@@ -569,15 +572,19 @@ Status PlainTableReader::Next(uint32_t* offset, ParsedInternalKey* key,
   const char* start = file_data_.data() + *offset;
   size_t bytes_for_key;
   Status s = ReadKey(start, key, &bytes_for_key);
+  if (!s.ok()) {
+    return s;
+  }
   uint32_t value_size;
   const char* value_ptr = GetVarint32Ptr(
       start + bytes_for_key, file_data_.data() + data_end_offset_, &value_size);
   if (value_ptr == nullptr) {
-    return Status::Corruption("Error reading value length.");
+    return Status::Corruption(
+        "Unexpected EOF when reading the next value's size.");
   }
   *offset = *offset + (value_ptr - start) + value_size;
   if (*offset > data_end_offset_) {
-    return Status::Corruption("Reach end of file when reading value");
+    return Status::Corruption("Unexpected EOF when reading the next value. ");
   }
   *value = Slice(value_ptr, value_size);
 
