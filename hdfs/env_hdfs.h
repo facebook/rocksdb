@@ -47,7 +47,7 @@ private:
 class HdfsEnv : public Env {
 
  public:
-  HdfsEnv(const std::string& fsname) : fsname_(fsname) {
+  explicit HdfsEnv(const std::string& fsname) : fsname_(fsname) {
     posixEnv = Env::Default();
     fileSys_ = connectToPath(fsname_);
   }
@@ -108,6 +108,8 @@ class HdfsEnv : public Env {
     posixEnv->StartThread(function, arg);
   }
 
+  virtual void WaitForJoin() { posixEnv->WaitForJoin(); }
+
   virtual Status GetTestDirectory(std::string* path) {
     return posixEnv->GetTestDirectory(path);
   }
@@ -161,7 +163,7 @@ class HdfsEnv : public Env {
    */
   hdfsFS connectToPath(const std::string& uri) {
     if (uri.empty()) {
-      return NULL;
+      return nullptr;
     }
     if (uri.find(kProto) != 0) {
       // uri doesn't start with hdfs:// -> use default:0, which is special
@@ -218,10 +220,10 @@ static const Status notsup;
 class HdfsEnv : public Env {
 
  public:
-  HdfsEnv(const std::string& fsname) {
+  explicit HdfsEnv(const std::string& fsname) {
     fprintf(stderr, "You have not build rocksdb with HDFS support\n");
     fprintf(stderr, "Please see hdfs/README for details\n");
-    throw new std::exception();
+    throw std::exception();
   }
 
   virtual ~HdfsEnv() {
@@ -287,6 +289,8 @@ class HdfsEnv : public Env {
                         Priority pri = LOW) {}
 
   virtual void StartThread(void (*function)(void* arg), void* arg) {}
+
+  virtual void WaitForJoin() {}
 
   virtual Status GetTestDirectory(std::string* path) {return notsup;}
 
