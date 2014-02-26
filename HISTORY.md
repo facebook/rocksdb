@@ -7,6 +7,7 @@
 * Removed arena.h from public header files.
 * By default, checksums are verified on every read from database
 * Added is_manual_compaction to CompactionFilter::Context
+* Added "virtual void WaitForJoin() = 0" in class Env
 
 ## 2.7.0 (01/28/2014)
 

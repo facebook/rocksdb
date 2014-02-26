@@ -1194,6 +1194,8 @@ class PosixEnv : public Env {
 
   virtual void StartThread(void (*function)(void* arg), void* arg);
 
+  virtual void WaitForJoin();
+
   virtual Status GetTestDirectory(std::string* result) {
     const char* env = getenv("TEST_TMPDIR");
     if (env && env[0] != '\0') {
@@ -1509,6 +1511,13 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
   PthreadCall("lock", pthread_mutex_lock(&mu_));
   threads_to_join_.push_back(t);
   PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+}
+
+void PosixEnv::WaitForJoin() {
+  for (const auto tid : threads_to_join_) {
+    pthread_join(tid, nullptr);
+  }
+  threads_to_join_.clear();
 }
 
 }  // namespace

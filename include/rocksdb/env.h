@@ -205,6 +205,9 @@ class Env {
   // When "function(arg)" returns, the thread will be destroyed.
   virtual void StartThread(void (*function)(void* arg), void* arg) = 0;
 
+  // Wait for all threads started by StartThread to terminate.
+  virtual void WaitForJoin() = 0;
+
   // *path is set to a temporary directory that can be used for testing. It may
   // or many not have just been created. The directory may or may not differ
   // between runs of the same process, but subsequent calls will return the
@@ -634,6 +637,7 @@ class EnvWrapper : public Env {
   void StartThread(void (*f)(void*), void* a) {
     return target_->StartThread(f, a);
   }
+  void WaitForJoin() { return target_->WaitForJoin(); }
   virtual Status GetTestDirectory(std::string* path) {
     return target_->GetTestDirectory(path);
   }

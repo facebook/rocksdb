@@ -87,7 +87,8 @@ TESTS = \
 	version_set_test \
 	write_batch_test\
 	deletefile_test \
-	table_test
+	table_test \
+	thread_local_test
 
 TOOLS = \
         sst_dump \
@@ -147,7 +148,7 @@ all: $(LIBRARY) $(PROGRAMS)
 
 dbg: $(LIBRARY) $(PROGRAMS)
 
-# Will also generate shared libraries. 
+# Will also generate shared libraries.
 release:
 	$(MAKE) clean
 	OPT="-DNDEBUG -O2" $(MAKE) all -j32
@@ -275,6 +276,9 @@ redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+thread_local_test: util/thread_local_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/thread_local_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 corruption_test: db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
