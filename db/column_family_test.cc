@@ -42,42 +42,81 @@ class ColumnFamilyTest {
       delete h;
     }
     handles_.clear();
+    names_.clear();
     delete db_;
     db_ = nullptr;
   }
 
-  Status Open() {
-    return Open({"default"});
-  }
-
-  Status Open(std::vector<std::string> cf) {
+  Status TryOpen(std::vector<std::string> cf,
+                 std::vector<ColumnFamilyOptions> options = {}) {
     std::vector<ColumnFamilyDescriptor> column_families;
-    for (auto x : cf) {
-      column_families.push_back(
-          ColumnFamilyDescriptor(x, column_family_options_));
+    names_.clear();
+    for (size_t i = 0; i < cf.size(); ++i) {
+      column_families.push_back(ColumnFamilyDescriptor(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      names_.push_back(cf[i]);
     }
     return DB::Open(db_options_, dbname_, column_families, &handles_, &db_);
   }
 
+  void Open(std::vector<std::string> cf,
+            std::vector<ColumnFamilyOptions> options = {}) {
+    ASSERT_OK(TryOpen(cf, options));
+  }
+
+  void Open() {
+    Open({"default"});
+  }
+
   DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
+
+  int GetProperty(int cf, std::string property) {
+    std::string value;
+    ASSERT_TRUE(dbfull()->GetProperty(handles_[cf], property, &value));
+    return std::stoi(value);
+  }
 
   void Destroy() {
     for (auto h : handles_) {
       delete h;
     }
     handles_.clear();
+    names_.clear();
     delete db_;
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
   }
 
-  void CreateColumnFamilies(const std::vector<std::string>& cfs) {
+  void CreateColumnFamilies(
+      const std::vector<std::string>& cfs,
+      const std::vector<ColumnFamilyOptions> options = {}) {
     int cfi = handles_.size();
     handles_.resize(cfi + cfs.size());
-    for (auto cf : cfs) {
-      ASSERT_OK(db_->CreateColumnFamily(column_family_options_, cf,
-                                        &handles_[cfi++]));
+    names_.resize(cfi + cfs.size());
+    for (size_t i = 0; i < cfs.size(); ++i) {
+      ASSERT_OK(db_->CreateColumnFamily(
+          options.size() == 0 ? column_family_options_ : options[i], cfs[i],
+          &handles_[cfi]));
+      names_[cfi] = cfs[i];
+      cfi++;
     }
+  }
+
+  void Reopen(const std::vector<ColumnFamilyOptions> options = {}) {
+    std::vector<std::string> names;
+    for (auto name : names_) {
+      if (name != "") {
+        names.push_back(name);
+      }
+    }
+    Close();
+    assert(options.size() == 0 || names.size() == options.size());
+    Open(names, options);
+  }
+
+  void CreateColumnFamiliesAndReopen(const std::vector<std::string>& cfs) {
+    CreateColumnFamilies(cfs);
+    Reopen();
   }
 
   void DropColumnFamilies(const std::vector<int>& cfs) {
@@ -85,14 +124,15 @@ class ColumnFamilyTest {
       ASSERT_OK(db_->DropColumnFamily(handles_[cf]));
       delete handles_[cf];
       handles_[cf] = nullptr;
+      names_[cf] = "";
     }
   }
 
-  void PutRandomData(int cf, int bytes) {
-    int num_insertions = (bytes + 99) / 100;
-    for (int i = 0; i < num_insertions; ++i) {
-      // 10 bytes key, 90 bytes value
-      ASSERT_OK(Put(cf, test::RandomKey(&rnd_, 10), RandomString(&rnd_, 90)));
+  void PutRandomData(int cf, int num, int key_value_size) {
+    for (int i = 0; i < num; ++i) {
+      // 10 bytes for key, rest is value
+      ASSERT_OK(Put(cf, test::RandomKey(&rnd_, 10),
+                    RandomString(&rnd_, key_value_size - 10)));
     }
   }
 
@@ -181,6 +221,15 @@ class ColumnFamilyTest {
     return ret;
   }
 
+  void AssertNumberOfImmutableMemtables(std::vector<int> num_per_cf) {
+    assert(num_per_cf.size() == handles_.size());
+
+    for (size_t i = 0; i < num_per_cf.size(); ++i) {
+      ASSERT_EQ(num_per_cf[i],
+                GetProperty(i, "rocksdb.num-immutable-mem-table"));
+    }
+  }
+
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0) {
     const EnvOptions soptions;
@@ -206,6 +255,7 @@ class ColumnFamilyTest {
   }
 
   std::vector<ColumnFamilyHandle*> handles_;
+  std::vector<std::string> names_;
   ColumnFamilyOptions column_family_options_;
   DBOptions db_options_;
   std::string dbname_;
@@ -215,38 +265,37 @@ class ColumnFamilyTest {
 };
 
 TEST(ColumnFamilyTest, AddDrop) {
-  ASSERT_OK(Open({"default"}));
+  Open();
   CreateColumnFamilies({"one", "two", "three"});
   DropColumnFamilies({2});
   CreateColumnFamilies({"four"});
   Close();
-  ASSERT_TRUE(Open({"default"}).IsInvalidArgument());
-  ASSERT_OK(Open({"default", "one", "three", "four"}));
+  ASSERT_TRUE(TryOpen({"default"}).IsInvalidArgument());
+  Open({"default", "one", "three", "four"});
+  DropColumnFamilies({1});
+  Reopen();
   Close();
 
   std::vector<std::string> families;
   ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &families));
   sort(families.begin(), families.end());
   ASSERT_TRUE(families ==
-              std::vector<std::string>({"default", "four", "one", "three"}));
+              std::vector<std::string>({"default", "four", "three"}));
 }
 
 TEST(ColumnFamilyTest, DropTest) {
   // first iteration - dont reopen DB before dropping
   // second iteration - reopen DB before dropping
   for (int iter = 0; iter < 2; ++iter) {
-    ASSERT_OK(Open({"default"}));
-    CreateColumnFamilies({"pikachu"});
-    Close();
-    ASSERT_OK(Open({"default", "pikachu"}));
+    Open({"default"});
+    CreateColumnFamiliesAndReopen({"pikachu"});
     for (int i = 0; i < 100; ++i) {
       ASSERT_OK(Put(1, std::to_string(i), "bar" + std::to_string(i)));
     }
     ASSERT_OK(Flush(1));
 
     if (iter == 1) {
-      Close();
-      ASSERT_OK(Open({"default", "pikachu"}));
+      Reopen();
     }
     ASSERT_EQ("bar1", Get(1, "1"));
 
@@ -270,10 +319,8 @@ TEST(ColumnFamilyTest, WriteBatchFailure) {
 }
 
 TEST(ColumnFamilyTest, ReadWrite) {
-  ASSERT_OK(Open({"default"}));
-  CreateColumnFamilies({"one", "two"});
-  Close();
-  ASSERT_OK(Open({"default", "one", "two"}));
+  Open();
+  CreateColumnFamiliesAndReopen({"one", "two"});
   ASSERT_OK(Put(0, "foo", "v1"));
   ASSERT_OK(Put(0, "bar", "v2"));
   ASSERT_OK(Put(1, "mirko", "v3"));
@@ -289,9 +336,7 @@ TEST(ColumnFamilyTest, ReadWrite) {
     ASSERT_EQ("NOT_FOUND", Get(1, "fodor"));
     ASSERT_EQ("NOT_FOUND", Get(2, "foo"));
     if (iter <= 1) {
-      // reopen
-      Close();
-      ASSERT_OK(Open({"default", "one", "two"}));
+      Reopen();
     }
   }
   Close();
@@ -315,7 +360,7 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
       MergeOperators::CreateUInt64AddOperator();
   db_options_.wal_dir = dbname_ + "/logs";
   Destroy();
-  ASSERT_OK(Open({"default"}));
+  Open();
   CreateColumnFamilies({"cf1", "cf2"});
 
   // fill up the DB
@@ -352,7 +397,7 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
   // 3. check consistency
   for (int iter = 0; iter < 2; ++iter) {
     // assert consistency
-    ASSERT_OK(Open({"default", "cf1", "cf2"}));
+    Open({"default", "cf1", "cf2"});
     ASSERT_EQ(two, Get(0, "foo"));
     ASSERT_EQ(one, Get(0, "bar"));
     ASSERT_EQ(three, Get(1, "mirko"));
@@ -373,10 +418,8 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
 }
 
 TEST(ColumnFamilyTest, FlushTest) {
-  ASSERT_OK(Open({"default"}));
-  CreateColumnFamilies({"one", "two"});
-  Close();
-  ASSERT_OK(Open({"default", "one", "two"}));
+  Open();
+  CreateColumnFamiliesAndReopen({"one", "two"});
   ASSERT_OK(Put(0, "foo", "v1"));
   ASSERT_OK(Put(0, "bar", "v2"));
   ASSERT_OK(Put(1, "mirko", "v3"));
@@ -385,8 +428,7 @@ TEST(ColumnFamilyTest, FlushTest) {
   for (int i = 0; i < 3; ++i) {
     Flush(i);
   }
-  Close();
-  ASSERT_OK(Open({"default", "one", "two"}));
+  Reopen();
 
   for (int iter = 0; iter <= 2; ++iter) {
     ASSERT_EQ("v2", Get(0, "foo"));
@@ -397,9 +439,7 @@ TEST(ColumnFamilyTest, FlushTest) {
     ASSERT_EQ("NOT_FOUND", Get(1, "fodor"));
     ASSERT_EQ("NOT_FOUND", Get(2, "foo"));
     if (iter <= 1) {
-      // reopen
-      Close();
-      ASSERT_OK(Open({"default", "one", "two"}));
+      Reopen();
     }
   }
   Close();
@@ -408,66 +448,159 @@ TEST(ColumnFamilyTest, FlushTest) {
 // Makes sure that obsolete log files get deleted
 TEST(ColumnFamilyTest, LogDeletionTest) {
   column_family_options_.write_buffer_size = 100000;  // 100KB
-  ASSERT_OK(Open());
+  Open();
   CreateColumnFamilies({"one", "two", "three", "four"});
   // Each bracket is one log file. if number is in (), it means
   // we don't need it anymore (it's been flushed)
   // []
   ASSERT_EQ(CountLiveLogFiles(), 0);
-  PutRandomData(0, 100);
+  PutRandomData(0, 1, 100);
   // [0]
-  PutRandomData(1, 100);
+  PutRandomData(1, 1, 100);
   // [0, 1]
-  PutRandomData(1, 100000);
+  PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [1]
   ASSERT_EQ(CountLiveLogFiles(), 2);
-  PutRandomData(0, 100);
+  PutRandomData(0, 1, 100);
   // [0, (1)] [0, 1]
   ASSERT_EQ(CountLiveLogFiles(), 2);
-  PutRandomData(2, 100);
+  PutRandomData(2, 1, 100);
   // [0, (1)] [0, 1, 2]
-  PutRandomData(2, 100000);
+  PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [2]
   ASSERT_EQ(CountLiveLogFiles(), 3);
-  PutRandomData(2, 100000);
+  PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [(2)] [2]
   ASSERT_EQ(CountLiveLogFiles(), 4);
-  PutRandomData(3, 100);
+  PutRandomData(3, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [2, 3]
-  PutRandomData(1, 100);
+  PutRandomData(1, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [1, 2, 3]
   ASSERT_EQ(CountLiveLogFiles(), 4);
-  PutRandomData(1, 100000);
+  PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [0, (1), (2)] [(2)] [(1), 2, 3] [1]
   ASSERT_EQ(CountLiveLogFiles(), 5);
-  PutRandomData(0, 100000);
+  PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(0), (1)] [(0), (1), (2)] [(2)] [(1), 2, 3] [1, (0)] [0]
   // delete obsolete logs -->
   // [(1), 2, 3] [1, (0)] [0]
   ASSERT_EQ(CountLiveLogFiles(), 3);
-  PutRandomData(0, 100000);
+  PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(1), 2, 3] [1, (0)], [(0)] [0]
   ASSERT_EQ(CountLiveLogFiles(), 4);
-  PutRandomData(1, 100000);
+  PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [(1), 2, 3] [(1), (0)] [(0)] [0, (1)] [1]
   ASSERT_EQ(CountLiveLogFiles(), 5);
-  PutRandomData(2, 100000);
+  PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [(1), (2), 3] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2]
   ASSERT_EQ(CountLiveLogFiles(), 6);
-  PutRandomData(3, 100000);
+  PutRandomData(3, 1000, 100);
   WaitForFlush(3);
   // [(1), (2), (3)] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2, (3)] [3]
   // delete obsolete logs -->
   // [0, (1)] [1, (2)], [2, (3)] [3]
   ASSERT_EQ(CountLiveLogFiles(), 4);
+  Close();
+}
+
+// Makes sure that obsolete log files get deleted
+TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
+  Open();
+  CreateColumnFamilies({"one", "two", "three"});
+  ColumnFamilyOptions default_cf, one, two, three;
+  // setup options. all column families have max_write_buffer_number setup to 10
+  // "default" -> 100KB memtable, start flushing immediatelly
+  // "one" -> 200KB memtable, start flushing with two immutable memtables
+  // "two" -> 1MB memtable, start flushing with three immutable memtables
+  // "three" -> 90KB memtable, start flushing with four immutable memtables
+  default_cf.write_buffer_size = 100000;
+  default_cf.max_write_buffer_number = 10;
+  default_cf.min_write_buffer_number_to_merge = 1;
+  one.write_buffer_size = 200000;
+  one.max_write_buffer_number = 10;
+  one.min_write_buffer_number_to_merge = 2;
+  two.write_buffer_size = 1000000;
+  two.max_write_buffer_number = 10;
+  two.min_write_buffer_number_to_merge = 3;
+  three.write_buffer_size = 90000;
+  three.max_write_buffer_number = 10;
+  three.min_write_buffer_number_to_merge = 4;
+
+  Reopen({default_cf, one, two, three});
+
+  int micros_wait_for_flush = 100000;
+  PutRandomData(0, 100, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 0, 0, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 1);
+  PutRandomData(1, 200, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 0, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 2);
+  PutRandomData(2, 1000, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 1, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 3);
+  PutRandomData(2, 1000, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 2, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 4);
+  PutRandomData(3, 90, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 2, 1});
+  ASSERT_EQ(CountLiveLogFiles(), 5);
+  PutRandomData(3, 90, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 2, 2});
+  ASSERT_EQ(CountLiveLogFiles(), 6);
+  PutRandomData(3, 90, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 2, 3});
+  ASSERT_EQ(CountLiveLogFiles(), 7);
+  PutRandomData(0, 100, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 2, 3});
+  ASSERT_EQ(CountLiveLogFiles(), 8);
+  PutRandomData(2, 100, 10000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 0, 3});
+  ASSERT_EQ(CountLiveLogFiles(), 9);
+  PutRandomData(3, 90, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 0, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 10);
+  PutRandomData(3, 90, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 1, 0, 1});
+  ASSERT_EQ(CountLiveLogFiles(), 11);
+  PutRandomData(1, 200, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 0, 0, 1});
+  ASSERT_EQ(CountLiveLogFiles(), 5);
+  PutRandomData(3, 90*6, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 0, 0, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 12);
+  PutRandomData(0, 100, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 0, 0, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 12);
+  PutRandomData(2, 3*100, 10000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 0, 0, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 12);
+  PutRandomData(1, 2*200, 1000);
+  env_->SleepForMicroseconds(micros_wait_for_flush);
+  AssertNumberOfImmutableMemtables({0, 0, 0, 0});
+  ASSERT_EQ(CountLiveLogFiles(), 7);
   Close();
 }
 

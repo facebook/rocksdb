@@ -45,7 +45,7 @@ class MemTable;
 class Version;
 class VersionSet;
 class MergeContext;
-struct ColumnFamilyData;
+class ColumnFamilyData;
 class ColumnFamilySet;
 class LookupKey;
 

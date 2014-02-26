@@ -9,6 +9,9 @@
 
 #include "db/version_set.h"
 
+#define __STDC_FORMAT_MACROS
+
+#include <inttypes.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -1948,7 +1951,8 @@ Status VersionSet::Recover(
         (unsigned long)prev_log_number_);
 
     for (auto cfd : *column_family_set_) {
-      Log(options_->info_log, "Column family \"%s\", log number is %lu\n",
+      Log(options_->info_log,
+          "Column family \"%s\", log number is %" PRIu64 "\n",
           cfd->GetName().c_str(), cfd->GetLogNumber());
     }
   }

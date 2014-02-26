@@ -9,6 +9,9 @@
 
 #include "db/db_impl.h"
 
+#define __STDC_FORMAT_MACROS
+
+#include <inttypes.h>
 #include <algorithm>
 #include <climits>
 #include <cstdio>
@@ -3605,8 +3608,9 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
         }
       }
       cfd->SetMemtable(new_mem);
-      Log(options_.info_log, "New memtable created with log file: #%lu\n",
-          (unsigned long)logfile_number_);
+      Log(options_.info_log,
+          "[CF %" PRIu32 "] New memtable created with log file: #%lu\n",
+          cfd->GetID(), (unsigned long)logfile_number_);
       force = false;  // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
       delete cfd->InstallSuperVersion(new_superversion);
