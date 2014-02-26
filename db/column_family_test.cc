@@ -212,7 +212,21 @@ class ColumnFamilyTest {
   int CountLiveLogFiles() {
     int ret = 0;
     VectorLogPtr wal_files;
-    ASSERT_OK(db_->GetSortedWalFiles(wal_files));
+    Status s;
+    // GetSortedWalFiles is a flakey function -- it gets all the wal_dir
+    // children files and then later checks for their existance. if some of the
+    // log files doesn't exist anymore, it reports an error. it does all of this
+    // without DB mutex held, so if a background process deletes the log file
+    // while the function is being executed, it returns an error. We retry the
+    // function 10 times to avoid the error failing the test
+    for (int retries = 0; retries < 10; ++retries) {
+      wal_files.clear();
+      s = db_->GetSortedWalFiles(wal_files);
+      if (s.ok()) {
+        break;
+      }
+    }
+    ASSERT_OK(s);
     for (const auto& wal : wal_files) {
       if (wal->Type() == kAliveLogFile) {
         ++ret;
@@ -449,6 +463,7 @@ TEST(ColumnFamilyTest, FlushTest) {
 TEST(ColumnFamilyTest, LogDeletionTest) {
   column_family_options_.write_buffer_size = 100000;  // 100KB
   Open();
+  int micros_wait_for_log_deletion = 20000;
   CreateColumnFamilies({"one", "two", "three", "four"});
   // Each bracket is one log file. if number is in (), it means
   // we don't need it anymore (it's been flushed)
@@ -461,52 +476,63 @@ TEST(ColumnFamilyTest, LogDeletionTest) {
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [1]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 2);
   PutRandomData(0, 1, 100);
   // [0, (1)] [0, 1]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 2);
   PutRandomData(2, 1, 100);
   // [0, (1)] [0, 1, 2]
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [2]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 3);
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [(2)] [2]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   PutRandomData(3, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [2, 3]
   PutRandomData(1, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [1, 2, 3]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [0, (1), (2)] [(2)] [(1), 2, 3] [1]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 5);
   PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(0), (1)] [(0), (1), (2)] [(2)] [(1), 2, 3] [1, (0)] [0]
   // delete obsolete logs -->
   // [(1), 2, 3] [1, (0)] [0]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 3);
   PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(1), 2, 3] [1, (0)], [(0)] [0]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [(1), 2, 3] [(1), (0)] [(0)] [0, (1)] [1]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 5);
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [(1), (2), 3] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 6);
   PutRandomData(3, 1000, 100);
   WaitForFlush(3);
   // [(1), (2), (3)] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2, (3)] [3]
   // delete obsolete logs -->
   // [0, (1)] [1, (2)], [2, (3)] [3]
+  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   Close();
 }
