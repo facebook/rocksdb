@@ -27,6 +27,8 @@ using std::unique_ptr;
 class ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
+
+  virtual uint32_t GetID() const = 0;
 };
 extern const std::string default_column_family_name;
 

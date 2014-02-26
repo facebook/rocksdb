@@ -44,6 +44,8 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   }
 }
 
+uint32_t ColumnFamilyHandleImpl::GetID() const { return cfd()->GetID(); }
+
 namespace {
 // Fix user-supplied options to be reasonable
 template <class T, class V>

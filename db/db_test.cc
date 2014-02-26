@@ -4804,19 +4804,22 @@ TEST(DBTest, TransactionLogIteratorBlobs) {
   auto res = OpenTransactionLogIter(0)->GetBatch();
   struct Handler : public WriteBatch::Handler {
     std::string seen;
-    virtual void PutCF(uint32_t cf, const Slice& key, const Slice& value) {
+    virtual Status PutCF(uint32_t cf, const Slice& key, const Slice& value) {
       seen += "Put(" + std::to_string(cf) + ", " + key.ToString() + ", " +
               std::to_string(value.size()) + ")";
+      return Status::OK();
     }
-    virtual void MergeCF(uint32_t cf, const Slice& key, const Slice& value) {
+    virtual Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) {
       seen += "Merge(" + std::to_string(cf) + ", " + key.ToString() + ", " +
               std::to_string(value.size()) + ")";
+      return Status::OK();
     }
     virtual void LogData(const Slice& blob) {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    virtual void DeleteCF(uint32_t cf, const Slice& key) {
+    virtual Status DeleteCF(uint32_t cf, const Slice& key) {
       seen += "Delete(" + std::to_string(cf) + ", " + key.ToString() + ")";
+      return Status::OK();
     }
   } handler;
   res.writeBatchPtr->Iterate(&handler);

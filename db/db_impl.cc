@@ -3304,11 +3304,13 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         BumpPerfTime(&perf_context.write_memtable_time, &write_memtable_timer);
 
         if (!status.ok()) {
-          // Panic for in-memory corruptions
+          // Iteration failed (either in-memory writebatch corruption (very
+          // bad), or the client specified invalid column family). Return
+          // failure.
           // Note that existing logic was not sound. Any partial failure writing
           // into the memtable would result in a state that some write ops might
           // have succeeded in memtable but Status reports error for all writes.
-          throw std::runtime_error("In memory WriteBatch corruption!");
+          return status;
         }
         SetTickerCount(options_.statistics.get(), SEQUENCE_NUMBER,
                        last_sequence);
@@ -3822,24 +3824,21 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
   // and we allocate 11 extra bytes for key length, as well as value length.
   WriteBatch batch(key.size() + value.size() + 24);
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  batch.Put(cfh->cfd()->GetID(), key, value);
+  batch.Put(column_family->GetID(), key, value);
   return Write(opt, &batch);
 }
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key) {
   WriteBatch batch;
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  batch.Delete(cfh->cfd()->GetID(), key);
+  batch.Delete(column_family->GetID(), key);
   return Write(opt, &batch);
 }
 
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
   WriteBatch batch;
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  batch.Merge(cfh->cfd()->GetID(), key, value);
+  batch.Merge(column_family->GetID(), key, value);
   return Write(opt, &batch);
 }
 

@@ -145,7 +145,7 @@ TEST(WriteBatchTest, Append) {
 namespace {
   struct TestHandler : public WriteBatch::Handler {
     std::string seen;
-    virtual void PutCF(uint32_t column_family_id, const Slice& key,
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) {
       if (column_family_id == 0) {
         seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
@@ -153,8 +153,9 @@ namespace {
         seen += "PutCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
+      return Status::OK();
     }
-    virtual void MergeCF(uint32_t column_family_id, const Slice& key,
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) {
       if (column_family_id == 0) {
         seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
@@ -162,17 +163,19 @@ namespace {
         seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
+      return Status::OK();
     }
     virtual void LogData(const Slice& blob) {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
         seen += "Delete(" + key.ToString() + ")";
       } else {
         seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
                 key.ToString() + ")";
       }
+      return Status::OK();
     }
   };
 }
@@ -212,23 +215,23 @@ TEST(WriteBatchTest, Continue) {
 
   struct Handler : public TestHandler {
     int num_seen = 0;
-    virtual void PutCF(uint32_t column_family_id, const Slice& key,
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) {
       ++num_seen;
-      TestHandler::PutCF(column_family_id, key, value);
+      return TestHandler::PutCF(column_family_id, key, value);
     }
-    virtual void MergeCF(uint32_t column_family_id, const Slice& key,
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) {
       ++num_seen;
-      TestHandler::MergeCF(column_family_id, key, value);
+      return TestHandler::MergeCF(column_family_id, key, value);
     }
     virtual void LogData(const Slice& blob) {
       ++num_seen;
       TestHandler::LogData(blob);
     }
-    virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       ++num_seen;
-      TestHandler::DeleteCF(column_family_id, key);
+      return TestHandler::DeleteCF(column_family_id, key);
     }
     virtual bool Continue() override {
       return num_seen < 3;

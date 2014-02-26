@@ -89,7 +89,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
   input.remove_prefix(kHeader);
   Slice key, value, blob;
   int found = 0;
-  while (!input.empty() && handler->Continue()) {
+  Status s;
+  while (s.ok() && !input.empty() && handler->Continue()) {
     char tag = input[0];
     input.remove_prefix(1);
     uint32_t column_family = 0;  // default
@@ -98,11 +99,11 @@ Status WriteBatch::Iterate(Handler* handler) const {
         if (!GetVarint32(&input, &column_family)) {
           return Status::Corruption("bad WriteBatch Put");
         }
-        // intentional fallthrough
+      // intentional fallthrough
       case kTypeValue:
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
-          handler->PutCF(column_family, key, value);
+          s = handler->PutCF(column_family, key, value);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Put");
@@ -112,10 +113,10 @@ Status WriteBatch::Iterate(Handler* handler) const {
         if (!GetVarint32(&input, &column_family)) {
           return Status::Corruption("bad WriteBatch Delete");
         }
-        // intentional fallthrough
+      // intentional fallthrough
       case kTypeDeletion:
         if (GetLengthPrefixedSlice(&input, &key)) {
-          handler->DeleteCF(column_family, key);
+          s = handler->DeleteCF(column_family, key);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Delete");
@@ -125,11 +126,11 @@ Status WriteBatch::Iterate(Handler* handler) const {
         if (!GetVarint32(&input, &column_family)) {
           return Status::Corruption("bad WriteBatch Merge");
         }
-        // intentional fallthrough
+      // intentional fallthrough
       case kTypeMerge:
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
-          handler->MergeCF(column_family, key, value);
+          s = handler->MergeCF(column_family, key, value);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Merge");
@@ -146,7 +147,10 @@ Status WriteBatch::Iterate(Handler* handler) const {
         return Status::Corruption("unknown WriteBatch tag");
     }
   }
- if (found != WriteBatchInternal::Count(this)) {
+  if (!s.ok()) {
+    return s;
+  }
+  if (found != WriteBatchInternal::Count(this)) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
@@ -251,13 +255,15 @@ class MemTableInserter : public WriteBatch::Handler {
     return log_number_ != 0 && log_number_ < cf_mems_->GetLogNumber();
   }
 
-  virtual void PutCF(uint32_t column_family_id, const Slice& key,
-                     const Slice& value) {
+  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) {
     bool found = cf_mems_->Seek(column_family_id);
-    // TODO(icanadi) if found = false somehow return the error to caller
-    // Will need to change public API to do this
-    if (!found || IgnoreUpdate()) {
-      return;
+    if (!found) {
+      return Status::InvalidArgument(
+          "Invalid column family specified in write batch");
+    }
+    if (IgnoreUpdate()) {
+      return Status::OK();
     }
     MemTable* mem = cf_mems_->GetMemTable();
     const Options* options = cf_mems_->GetFullOptions();
@@ -304,13 +310,18 @@ class MemTableInserter : public WriteBatch::Handler {
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
     sequence_++;
+    return Status::OK();
   }
 
-  virtual void MergeCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+  virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
     bool found = cf_mems_->Seek(column_family_id);
-    if (!found || IgnoreUpdate()) {
-      return;
+    if (!found) {
+      return Status::InvalidArgument(
+          "Invalid column family specified in write batch");
+    }
+    if (IgnoreUpdate()) {
+      return Status::OK();
     }
     MemTable* mem = cf_mems_->GetMemTable();
     const Options* options = cf_mems_->GetFullOptions();
@@ -372,12 +383,17 @@ class MemTableInserter : public WriteBatch::Handler {
     }
 
     sequence_++;
+    return Status::OK();
   }
 
-  virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
+  virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
     bool found = cf_mems_->Seek(column_family_id);
-    if (!found || IgnoreUpdate()) {
-      return;
+    if (!found) {
+      return Status::InvalidArgument(
+          "Invalid column family specified in write batch");
+    }
+    if (IgnoreUpdate()) {
+      return Status::OK();
     }
     MemTable* mem = cf_mems_->GetMemTable();
     const Options* options = cf_mems_->GetFullOptions();
@@ -393,11 +409,12 @@ class MemTableInserter : public WriteBatch::Handler {
       }
       if (!db_->KeyMayExist(ropts, cf_handle, key, &value)) {
         RecordTick(options->statistics.get(), NUMBER_FILTERED_DELETES);
-        return;
+        return Status::OK();
       }
     }
     mem->Add(sequence_, kTypeDeletion, key, Slice());
     sequence_++;
+    return Status::OK();
   }
 };
 }  // namespace

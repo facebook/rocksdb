@@ -259,6 +259,17 @@ TEST(ColumnFamilyTest, DropTest) {
   }
 }
 
+TEST(ColumnFamilyTest, WriteBatchFailure) {
+  Open();
+  WriteBatch batch;
+  batch.Put(1, Slice("non-existing"), Slice("column-family"));
+  Status s = db_->Write(WriteOptions(), &batch);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  CreateColumnFamilies({"one"});
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  Close();
+}
+
 TEST(ColumnFamilyTest, ReadWrite) {
   ASSERT_OK(Open({"default"}));
   CreateColumnFamilies({"one", "two"});

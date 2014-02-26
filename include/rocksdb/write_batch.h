@@ -88,29 +88,41 @@ class WriteBatch {
     // default implementation will just call Put without column family for
     // backwards compatibility. If the column family is not default,
     // the function is noop
-    virtual void PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
       if (column_family_id == 0) {
+        // Put() historically doesn't return status. We didn't want to be
+        // backwards incompatible so we didn't change the return status
+        // (this is a public API). We do an ordinary get and return Status::OK()
         Put(key, value);
+        return Status::OK();
       }
+      return Status::InvalidArgument(
+          "non-default column family and PutCF not implemented");
     }
     virtual void Put(const Slice& key, const Slice& value);
     // Merge and LogData are not pure virtual. Otherwise, we would break
     // existing clients of Handler on a source code level. The default
     // implementation of Merge simply throws a runtime exception.
-    virtual void MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) {
       if (column_family_id == 0) {
         Merge(key, value);
+        return Status::OK();
       }
+      return Status::InvalidArgument(
+          "non-default column family and MergeCF not implemented");
     }
     virtual void Merge(const Slice& key, const Slice& value);
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
-    virtual void DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
         Delete(key);
+        return Status::OK();
       }
+      return Status::InvalidArgument(
+          "non-default column family and DeleteCF not implemented");
     }
     virtual void Delete(const Slice& key);
     // Continue is called by WriteBatch::Iterate. If it returns false,

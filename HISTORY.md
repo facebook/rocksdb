@@ -6,7 +6,6 @@
   executed in high priority thread pool.
 
 ## Unreleased (will be relased in 2.8)
-## Unreleased
 
 ### Public API changes
 
