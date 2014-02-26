@@ -13,6 +13,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <string>
 
 #include "db/dbformat.h"
 #include "db/log_writer.h"

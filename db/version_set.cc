@@ -1962,7 +1962,6 @@ Status VersionSet::Recover(
 
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname, Env* env) {
-
   // these are just for performance reasons, not correcntes,
   // so we're fine using the defaults
   EnvOptions soptions;
@@ -2034,7 +2033,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
-  ColumnFamilyDescriptor dummy_descriptor(default_column_family_name, ColumnFamilyOptions(*options));
+  ColumnFamilyDescriptor dummy_descriptor(default_column_family_name,
+                                          ColumnFamilyOptions(*options));
   dummy.push_back(dummy_descriptor);
   status = versions.Recover(dummy);
   if (!status.ok()) {
@@ -2114,7 +2114,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   uint64_t log_number = 0;
   uint64_t prev_log_number = 0;
   int count = 0;
-  // TODO works only for default column family currently
+  // TODO(icanadi) works only for default column family currently
   ColumnFamilyData* default_cfd = column_family_set_->GetDefault();
   VersionSet::Builder builder(default_cfd, default_cfd->current());
 

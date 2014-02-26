@@ -3159,7 +3159,7 @@ Status DBImpl::NewIterators(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     std::vector<Iterator*>* iterators) {
-  // TODO
+  // TODO(icanadi)
   return Status::NotSupported("Not yet!");
 }
 

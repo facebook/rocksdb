@@ -7,6 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <algorithm>
+#include <vector>
+#include <string>
+
 #include "db/db_impl.h"
 #include "rocksdb/env.h"
 #include "rocksdb/db.h"
@@ -14,13 +18,7 @@
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
 
-#include <algorithm>
-#include <vector>
-#include <string>
-
 namespace rocksdb {
-
-using namespace std;
 
 namespace {
 std::string RandomString(Random* rnd, int len) {
@@ -52,8 +50,8 @@ class ColumnFamilyTest {
     return Open({"default"});
   }
 
-  Status Open(vector<string> cf) {
-    vector<ColumnFamilyDescriptor> column_families;
+  Status Open(std::vector<std::string> cf) {
+    std::vector<ColumnFamilyDescriptor> column_families;
     for (auto x : cf) {
       column_families.push_back(
           ColumnFamilyDescriptor(x, column_family_options_));
@@ -73,7 +71,7 @@ class ColumnFamilyTest {
     ASSERT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
   }
 
-  void CreateColumnFamilies(const vector<string>& cfs) {
+  void CreateColumnFamilies(const std::vector<std::string>& cfs) {
     int cfi = handles_.size();
     handles_.resize(cfi + cfs.size());
     for (auto cf : cfs) {
@@ -82,7 +80,7 @@ class ColumnFamilyTest {
     }
   }
 
-  void DropColumnFamilies(const vector<int>& cfs) {
+  void DropColumnFamilies(const std::vector<int>& cfs) {
     for (auto cf : cfs) {
       ASSERT_OK(db_->DropColumnFamily(handles_[cf]));
       delete handles_[cf];
@@ -102,20 +100,20 @@ class ColumnFamilyTest {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
   }
 
-  Status Put(int cf, const string& key, const string& value) {
+  Status Put(int cf, const std::string& key, const std::string& value) {
     return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(value));
   }
-  Status Merge(int cf, const string& key, const string& value) {
+  Status Merge(int cf, const std::string& key, const std::string& value) {
     return db_->Merge(WriteOptions(), handles_[cf], Slice(key), Slice(value));
   }
   Status Flush(int cf) {
     return db_->Flush(FlushOptions(), handles_[cf]);
   }
 
-  string Get(int cf, const string& key) {
+  std::string Get(int cf, const std::string& key) {
     ReadOptions options;
     options.verify_checksums = true;
-    string result;
+    std::string result;
     Status s = db_->Get(options, handles_[cf], Slice(key), &result);
     if (s.IsNotFound()) {
       result = "NOT_FOUND";
@@ -130,7 +128,7 @@ class ColumnFamilyTest {
   }
 
   int NumTableFilesAtLevel(int cf, int level) {
-    string property;
+    std::string property;
     ASSERT_TRUE(db_->GetProperty(
         handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
         &property));
@@ -138,8 +136,8 @@ class ColumnFamilyTest {
   }
 
   // Return spread of files per level
-  string FilesPerLevel(int cf) {
-    string result;
+  std::string FilesPerLevel(int cf) {
+    std::string result;
     int last_non_zero_offset = 0;
     for (int level = 0; level < column_family_options_.num_levels; level++) {
       int f = NumTableFilesAtLevel(cf, level);
@@ -162,8 +160,8 @@ class ColumnFamilyTest {
 
   // Do n memtable flushes, each of which produces an sstable
   // covering the range [small,large].
-  void MakeTables(int cf, int n, const string& small,
-                  const string& large) {
+  void MakeTables(int cf, int n, const std::string& small,
+                  const std::string& large) {
     for (int i = 0; i < n; i++) {
       ASSERT_OK(Put(cf, small, "begin"));
       ASSERT_OK(Put(cf, large, "end"));
@@ -183,7 +181,7 @@ class ColumnFamilyTest {
     return ret;
   }
 
-  void CopyFile(const string& source, const string& destination,
+  void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0) {
     const EnvOptions soptions;
     unique_ptr<SequentialFile> srcfile;
@@ -199,7 +197,7 @@ class ColumnFamilyTest {
     char buffer[4096];
     Slice slice;
     while (size > 0) {
-      uint64_t one = min(uint64_t(sizeof(buffer)), size);
+      uint64_t one = std::min(uint64_t(sizeof(buffer)), size);
       ASSERT_OK(srcfile->Read(one, &slice, buffer));
       ASSERT_OK(destfile->Append(slice));
       size -= slice.size();
@@ -207,10 +205,10 @@ class ColumnFamilyTest {
     ASSERT_OK(destfile->Close());
   }
 
-  vector<ColumnFamilyHandle*> handles_;
+  std::vector<ColumnFamilyHandle*> handles_;
   ColumnFamilyOptions column_family_options_;
   DBOptions db_options_;
-  string dbname_;
+  std::string dbname_;
   DB* db_ = nullptr;
   Env* env_;
   Random rnd_;
@@ -226,10 +224,11 @@ TEST(ColumnFamilyTest, AddDrop) {
   ASSERT_OK(Open({"default", "one", "three", "four"}));
   Close();
 
-  vector<string> families;
+  std::vector<std::string> families;
   ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &families));
   sort(families.begin(), families.end());
-  ASSERT_TRUE(families == vector<string>({"default", "four", "one", "three"}));
+  ASSERT_TRUE(families ==
+              std::vector<std::string>({"default", "four", "one", "three"}));
 }
 
 TEST(ColumnFamilyTest, DropTest) {
@@ -299,12 +298,12 @@ TEST(ColumnFamilyTest, ReadWrite) {
 }
 
 TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
-  string backup_logs = dbname_ + "/backup_logs";
+  std::string backup_logs = dbname_ + "/backup_logs";
 
   // delete old files in backup_logs directory
   ASSERT_OK(env_->CreateDirIfMissing(dbname_));
   ASSERT_OK(env_->CreateDirIfMissing(backup_logs));
-  vector<string> old_files;
+  std::vector<std::string> old_files;
   env_->GetChildren(backup_logs, &old_files);
   for (auto& file : old_files) {
     if (file != "." && file != "..") {
@@ -320,7 +319,7 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
   CreateColumnFamilies({"cf1", "cf2"});
 
   // fill up the DB
-  string one, two, three;
+  std::string one, two, three;
   PutFixed64(&one, 1);
   PutFixed64(&two, 2);
   PutFixed64(&three, 3);
@@ -335,7 +334,7 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
   ASSERT_OK(Merge(1, "franjo", one));
 
   // copy the logs to backup
-  vector<string> logs;
+  std::vector<std::string> logs;
   env_->GetChildren(db_options_.wal_dir, &logs);
   for (auto& log : logs) {
     if (log != ".." && log != ".") {
