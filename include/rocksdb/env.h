@@ -511,25 +511,56 @@ class Directory {
   virtual Status Fsync() = 0;
 };
 
+enum InfoLogLevel {
+  DEBUG = 0,
+  INFO,
+  WARN,
+  ERROR,
+  FATAL,
+  NUM_INFO_LOG_LEVELS,
+};
+
 // An interface for writing log messages.
 class Logger {
  public:
   enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
-  Logger() { }
+  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::ERROR)
+      : log_level_(log_level) {}
   virtual ~Logger();
 
   // Write an entry to the log file with the specified format.
   virtual void Logv(const char* format, va_list ap) = 0;
+
+  // Write an entry to the log file with the specified log level
+  // and format.  Any log with level under the internal log level
+  // of *this (see @SetInfoLogLevel and @GetInfoLogLevel) will not be
+  // printed.
+  void Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
+    static const char* kInfoLogLevelNames[5] = {"DEBUG", "INFO", "WARN",
+                                                "ERROR", "FATAL"};
+    if (log_level < log_level_) {
+      return;
+    }
+    char new_format[500];
+    snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
+             kInfoLogLevelNames[log_level], format);
+    Logv(new_format, ap);
+  }
   virtual size_t GetLogFileSize() const {
     return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;
   }
   // Flush to the OS buffers
   virtual void Flush() {}
+  virtual InfoLogLevel GetInfoLogLevel() const { return log_level_; }
+  virtual void SetInfoLogLevel(const InfoLogLevel log_level) {
+    log_level_ = log_level;
+  }
 
  private:
   // No copying allowed
   Logger(const Logger&);
   void operator=(const Logger&);
+  InfoLogLevel log_level_;
 };
 
 
@@ -547,7 +578,18 @@ class FileLock {
 
 extern void LogFlush(const shared_ptr<Logger>& info_log);
 
+extern void Log(const InfoLogLevel log_level,
+                const shared_ptr<Logger>& info_log, const char* format, ...);
+
+// a set of log functions with different log levels.
+extern void Debug(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Info(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Warn(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Error(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...);
+
 // Log the specified data to *info_log if info_log is non-nullptr.
+// The default info log level is InfoLogLevel::ERROR.
 extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
@@ -556,11 +598,22 @@ extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 
 extern void LogFlush(Logger *info_log);
 
+extern void Log(const InfoLogLevel log_level, Logger* info_log,
+                const char* format, ...);
+
+// The default info log level is InfoLogLevel::ERROR.
 extern void Log(Logger* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
 #   endif
     ;
+
+// a set of log functions with different log levels.
+extern void Debug(Logger* info_log, const char* format, ...);
+extern void Info(Logger* info_log, const char* format, ...);
+extern void Warn(Logger* info_log, const char* format, ...);
+extern void Error(Logger* info_log, const char* format, ...);
+extern void Fatal(Logger* info_log, const char* format, ...);
 
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,

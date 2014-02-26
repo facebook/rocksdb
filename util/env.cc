@@ -45,9 +45,117 @@ void Log(Logger* info_log, const char* format, ...) {
   }
 }
 
+void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
+         ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(log_level, format, ap);
+    va_end(ap);
+  }
+}
+
+void Debug(Logger* info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::DEBUG, format, ap);
+    va_end(ap);
+  }
+}
+
+void Info(Logger* info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::INFO, format, ap);
+    va_end(ap);
+  }
+}
+
+void Warn(Logger* info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::WARN, format, ap);
+    va_end(ap);
+  }
+}
+void Error(Logger* info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::ERROR, format, ap);
+    va_end(ap);
+  }
+}
+void Fatal(Logger* info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::FATAL, format, ap);
+    va_end(ap);
+  }
+}
+
 void LogFlush(const shared_ptr<Logger>& info_log) {
   if (info_log) {
     info_log->Flush();
+  }
+}
+
+void Log(const InfoLogLevel log_level, const shared_ptr<Logger>& info_log,
+         const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(log_level, format, ap);
+    va_end(ap);
+  }
+}
+
+void Debug(const shared_ptr<Logger>& info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::DEBUG, format, ap);
+    va_end(ap);
+  }
+}
+
+void Info(const shared_ptr<Logger>& info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::INFO, format, ap);
+    va_end(ap);
+  }
+}
+
+void Warn(const shared_ptr<Logger>& info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::WARN, format, ap);
+    va_end(ap);
+  }
+}
+
+void Error(const shared_ptr<Logger>& info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::ERROR, format, ap);
+    va_end(ap);
+  }
+}
+
+void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->Logv(InfoLogLevel::FATAL, format, ap);
+    va_end(ap);
   }
 }
 

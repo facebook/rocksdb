@@ -39,10 +39,8 @@ class AutoRollLoggerTest {
 
 const string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
-const string AutoRollLoggerTest::kTestDir(
-    test::TmpDir() + "/db_log_test");
-const string AutoRollLoggerTest::kLogFile(
-    test::TmpDir() + "/db_log_test/LOG");
+const string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
+const string AutoRollLoggerTest::kLogFile(test::TmpDir() + "/db_log_test/LOG");
 Env* AutoRollLoggerTest::env = Env::Default();
 
 // In this test we only want to Log some simple log message with
@@ -51,6 +49,11 @@ Env* AutoRollLoggerTest::env = Env::Default();
 // call Log(logger, log_message) directly.
 void LogMessage(Logger* logger, const char* message) {
   Log(logger, "%s", message);
+}
+
+void LogMessage(const InfoLogLevel log_level, Logger* logger,
+                const char* message) {
+  Log(log_level, logger, "%s", message);
 }
 
 void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
@@ -64,6 +67,7 @@ void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
                                                const string& log_message) {
+  logger->SetInfoLogLevel(InfoLogLevel::INFO);
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
   LogMessage(logger, log_message.c_str());
@@ -131,7 +135,6 @@ TEST(AutoRollLoggerTest, RollLogFileBySize) {
 
     RollLogFileBySizeTest(&logger, log_max_size,
                           kSampleMessage + ":RollLogFileBySize");
-
 }
 
 TEST(AutoRollLoggerTest, RollLogFileByTime) {
@@ -233,6 +236,55 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
   RollLogFileByTimeTest(
       auto_roll_logger, options.log_file_time_to_roll,
       kSampleMessage + ":CreateLoggerFromOptions - both");
+}
+
+TEST(AutoRollLoggerTest, InfoLogLevel) {
+  InitTestDb();
+  // the lengths of DEBUG, INFO, WARN, ERROR, FATAL respectively
+  const int kInfoLogLevelNameLens[5] = {5, 4, 4, 5, 5};
+
+  size_t log_size = 8192;
+  AutoRollLogger* logger =
+      new AutoRollLogger(Env::Default(), kTestDir, "", log_size, 0);
+
+  int message_length = kSampleMessage.length();
+  int log_length = 0;
+  int total_logname_length = 0;
+  for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
+       log_level--) {
+    logger->SetInfoLogLevel((InfoLogLevel)log_level);
+    total_logname_length += kInfoLogLevelNameLens[log_level];
+    for (int log_type = InfoLogLevel::DEBUG; log_type <= InfoLogLevel::FATAL;
+         log_type++) {
+      // log messages with log level smaller than log_level will not be logged.
+      LogMessage((InfoLogLevel)log_type, logger, kSampleMessage.c_str());
+    }
+    // 44 is the length of the message excluding the actual
+    // message and log name.
+    log_length += (message_length + 44) * (InfoLogLevel::FATAL - log_level + 1);
+    log_length += total_logname_length;
+    ASSERT_EQ(logger->GetLogFileSize(), log_length);
+  }
+
+  // rerun the test but using different log functions.
+  total_logname_length = 0;
+  for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
+       log_level--) {
+    logger->SetInfoLogLevel((InfoLogLevel)log_level);
+    total_logname_length += kInfoLogLevelNameLens[log_level];
+
+    // again, messages with level smaller than log_level will not be logged.
+    Debug(logger, "%s", kSampleMessage.c_str());
+    Info(logger, "%s", kSampleMessage.c_str());
+    Warn(logger, "%s", kSampleMessage.c_str());
+    Error(logger, "%s", kSampleMessage.c_str());
+    Fatal(logger, "%s", kSampleMessage.c_str());
+    // 44 is the length of the message excluding the actual
+    // message and log name.
+    log_length += (message_length + 44) * (InfoLogLevel::FATAL - log_level + 1);
+    log_length += total_logname_length;
+    ASSERT_EQ(logger->GetLogFileSize(), log_length);
+  }
 }
 
 int OldLogFileCount(const string& dir) {
