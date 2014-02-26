@@ -265,6 +265,8 @@ DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
+DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
+
 DEFINE_bool(use_snapshot, false, "If true, create a snapshot per query when"
             " randomread benchmark is used");
 
@@ -1478,6 +1480,7 @@ class Benchmark {
     options.env = FLAGS_env;
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
+    options.wal_dir = FLAGS_wal_dir;
     options.num_levels = FLAGS_num_levels;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;

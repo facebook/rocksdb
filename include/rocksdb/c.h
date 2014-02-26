@@ -74,6 +74,7 @@ typedef struct rocksdb_writablefile_t    rocksdb_writablefile_t;
 typedef struct rocksdb_writebatch_t      rocksdb_writebatch_t;
 typedef struct rocksdb_writeoptions_t    rocksdb_writeoptions_t;
 typedef struct rocksdb_universal_compaction_options_t rocksdb_universal_compaction_options_t;
+typedef struct rocksdb_livefiles_t     rocksdb_livefiles_t;
 
 /* DB operations */
 
@@ -148,6 +149,13 @@ extern void rocksdb_compact_range(
     const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len);
 
+extern void rocksdb_delete_file(
+    rocksdb_t* db,
+    const char* name);
+
+extern const rocksdb_livefiles_t* rocksdb_livefiles(
+    rocksdb_t* db);
+
 extern void rocksdb_flush(
     rocksdb_t* db,
     const rocksdb_flushoptions_t* options,
@@ -192,6 +200,7 @@ extern void rocksdb_iter_get_error(const rocksdb_iterator_t*, char** errptr);
 extern rocksdb_writebatch_t* rocksdb_writebatch_create();
 extern void rocksdb_writebatch_destroy(rocksdb_writebatch_t*);
 extern void rocksdb_writebatch_clear(rocksdb_writebatch_t*);
+extern int rocksdb_writebatch_count(rocksdb_writebatch_t*);
 extern void rocksdb_writebatch_put(
     rocksdb_writebatch_t*,
     const char* key, size_t klen,
@@ -208,6 +217,7 @@ extern void rocksdb_writebatch_iterate(
     void* state,
     void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
     void (*deleted)(void*, const char* k, size_t klen));
+extern const char* rocksdb_writebatch_data(rocksdb_writebatch_t*, size_t *size);
 
 /* Options */
 
@@ -336,6 +346,12 @@ extern void rocksdb_options_set_delete_obsolete_files_period_micros(
 extern void rocksdb_options_set_source_compaction_factor(rocksdb_options_t*, int);
 extern void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t*);
 extern void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t*);
+
+extern void rocksdb_options_set_max_bytes_for_level_base(rocksdb_options_t* opt, uint64_t n);
+extern void rocksdb_options_set_stats_dump_period_sec(rocksdb_options_t* opt, unsigned int sec);
+
+extern void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level);
+
 extern void rocksdb_options_set_memtable_prefix_bloom_bits(
     rocksdb_options_t*, uint32_t);
 extern void rocksdb_options_set_memtable_prefix_bloom_probes(
@@ -507,6 +523,28 @@ extern void rocksdb_universal_compaction_options_set_stop_style(
   rocksdb_universal_compaction_options_t*, int);
 extern void rocksdb_universal_compaction_options_destroy(
   rocksdb_universal_compaction_options_t*);
+
+extern int rocksdb_livefiles_count(
+  const rocksdb_livefiles_t*);
+extern const char* rocksdb_livefiles_name(
+  const rocksdb_livefiles_t*,
+  int index);
+extern int rocksdb_livefiles_level(
+  const rocksdb_livefiles_t*,
+  int index);
+extern size_t rocksdb_livefiles_size(
+  const rocksdb_livefiles_t*,
+  int index);
+extern const char* rocksdb_livefiles_smallestkey(
+  const rocksdb_livefiles_t*,
+  int index,
+  size_t* size);
+extern const char* rocksdb_livefiles_largestkey(
+  const rocksdb_livefiles_t*,
+  int index,
+  size_t* size);
+extern void rocksdb_livefiles_destroy(
+  const rocksdb_livefiles_t*);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

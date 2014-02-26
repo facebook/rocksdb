@@ -51,6 +51,7 @@ using rocksdb::Status;
 using rocksdb::WritableFile;
 using rocksdb::WriteBatch;
 using rocksdb::WriteOptions;
+using rocksdb::LiveFileMetaData;
 
 using std::shared_ptr;
 
@@ -70,6 +71,7 @@ struct rocksdb_writablefile_t    { WritableFile*     rep; };
 struct rocksdb_filelock_t        { FileLock*         rep; };
 struct rocksdb_logger_t          { shared_ptr<Logger>  rep; };
 struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
+struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 
 struct rocksdb_comparator_t : public Comparator {
   void* state_;
@@ -435,6 +437,19 @@ void rocksdb_approximate_sizes(
   delete[] ranges;
 }
 
+void rocksdb_delete_file(
+    rocksdb_t* db,
+    const char* name) {
+  db->rep->DeleteFile(name);
+}
+
+const rocksdb_livefiles_t* rocksdb_livefiles(
+    rocksdb_t* db) {
+  rocksdb_livefiles_t* result = new rocksdb_livefiles_t;
+  db->rep->GetLiveFilesMetaData(&result->rep);
+  return result;
+}
+
 void rocksdb_compact_range(
     rocksdb_t* db,
     const char* start_key, size_t start_key_len,
@@ -537,6 +552,10 @@ void rocksdb_writebatch_clear(rocksdb_writebatch_t* b) {
   b->rep.Clear();
 }
 
+int rocksdb_writebatch_count(rocksdb_writebatch_t* b) {
+  return b->rep.Count();
+}
+
 void rocksdb_writebatch_put(
     rocksdb_writebatch_t* b,
     const char* key, size_t klen,
@@ -579,6 +598,11 @@ void rocksdb_writebatch_iterate(
   handler.put_ = put;
   handler.deleted_ = deleted;
   b->rep.Iterate(&handler);
+}
+
+const char* rocksdb_writebatch_data(rocksdb_writebatch_t* b, size_t* size) {
+  *size = b->rep.GetDataSize();
+  return b->rep.Data().c_str();
 }
 
 rocksdb_options_t* rocksdb_options_create() {
@@ -983,7 +1007,6 @@ DB::GetSortedWalFiles
 DB::GetLatestSequenceNumber
 DB::GetUpdatesSince
 DB::DeleteFile
-DB::GetLiveFilesMetaData
 DB::GetDbIdentity
 DB::RunManualCompaction
 custom cache
@@ -1302,6 +1325,63 @@ void rocksdb_universal_compaction_options_destroy(
   rocksdb_universal_compaction_options_t* uco) {
   delete uco->rep;
   delete uco;
+}
+
+void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level) {
+  if (level >= 0) {
+    assert(level <= opt->rep.num_levels);
+    opt->rep.compression_per_level.resize(opt->rep.num_levels);
+    for (int i = 0; i < level; i++) {
+      opt->rep.compression_per_level[i] = rocksdb::kNoCompression;
+    }
+    for (int i = level; i < opt->rep.num_levels; i++) {
+      opt->rep.compression_per_level[i] = opt->rep.compression;
+    }
+  }
+}
+
+int rocksdb_livefiles_count(
+  const rocksdb_livefiles_t* lf) {
+  return lf->rep.size();
+}
+
+const char* rocksdb_livefiles_name(
+  const rocksdb_livefiles_t* lf,
+  int index) {
+  return lf->rep[index].name.c_str();
+}
+
+int rocksdb_livefiles_level(
+  const rocksdb_livefiles_t* lf,
+  int index) {
+  return lf->rep[index].level;
+}
+
+size_t rocksdb_livefiles_size(
+  const rocksdb_livefiles_t* lf,
+  int index) {
+  return lf->rep[index].size;
+}
+
+const char* rocksdb_livefiles_smallestkey(
+  const rocksdb_livefiles_t* lf,
+  int index,
+  size_t* size) {
+  *size = lf->rep[index].smallestkey.size();
+  return lf->rep[index].smallestkey.data();
+}
+
+const char* rocksdb_livefiles_largestkey(
+  const rocksdb_livefiles_t* lf,
+  int index,
+  size_t* size) {
+  *size = lf->rep[index].largestkey.size();
+  return lf->rep[index].largestkey.data();
+}
+
+extern void rocksdb_livefiles_destroy(
+  const rocksdb_livefiles_t* lf) {
+  delete lf;
 }
 
 }  // end extern "C"
