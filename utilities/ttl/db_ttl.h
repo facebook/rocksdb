@@ -54,9 +54,6 @@ class DBWithTTL : public StackableDB {
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override;
 
-  // Simulate a db crash, no elegant closing of database.
-  void TEST_Destroy_DBWithTtl();
-
   virtual DB* GetBaseDB() {
     return db_;
   }

@@ -162,9 +162,6 @@ class DBImpl : public DB {
   int64_t TEST_MaxNextLevelOverlappingBytes(ColumnFamilyHandle* column_family =
                                                 nullptr);
 
-  // Simulate a db crash, no elegant closing of database.
-  void TEST_Destroy_DBImpl();
-
   // Return the current manifest file no.
   uint64_t TEST_Current_Manifest_FileNo();
 

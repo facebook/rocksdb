@@ -347,43 +347,6 @@ DBImpl::~DBImpl() {
   LogFlush(options_.info_log);
 }
 
-// Do not flush and close database elegantly. Simulate a crash.
-void DBImpl::TEST_Destroy_DBImpl() {
-  // ensure that no new memtable flushes can occur
-  flush_on_destroy_ = false;
-
-  // wait till all background compactions are done.
-  mutex_.Lock();
-  while (bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ ||
-         bg_logstats_scheduled_) {
-    bg_cv_.Wait();
-  }
-
-  // Prevent new compactions from occuring.
-  bg_work_gate_closed_ = true;
-  const int LargeNumber = 10000000;
-  bg_compaction_scheduled_ += LargeNumber;
-
-  mutex_.Unlock();
-  if (default_cf_handle_ != nullptr) {
-    // we need to delete handle outside of lock because it does its own locking
-    delete default_cf_handle_;
-  }
-  LogFlush(options_.info_log);
-
-  // force release the lock file.
-  if (db_lock_ != nullptr) {
-    env_->UnlockFile(db_lock_);
-  }
-
-  log_.reset();
-  mutex_.Lock();
-  versions_.reset();
-  mutex_.Unlock();
-  table_cache_.reset();
-}
-
 uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
   return versions_->ManifestFileNumber();
 }

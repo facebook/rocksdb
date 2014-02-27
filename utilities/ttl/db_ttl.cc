@@ -214,8 +214,4 @@ Iterator* DBWithTTL::NewIterator(const ReadOptions& opts,
   return new TtlIterator(db_->NewIterator(opts, column_family));
 }
 
-void DBWithTTL::TEST_Destroy_DBWithTtl() {
-  ((DBImpl*) db_)->TEST_Destroy_DBImpl();
-}
-
 }  // namespace rocksdb

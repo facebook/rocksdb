@@ -322,7 +322,6 @@ TEST(ColumnFamilyTest, AddDrop) {
   ASSERT_OK(Put(1, "fodor", "mirko"));
   ASSERT_EQ("mirko", Get(1, "fodor"));
   ASSERT_EQ("NOT_FOUND", Get(3, "fodor"));
-
   Close();
   ASSERT_TRUE(TryOpen({"default"}).IsInvalidArgument());
   Open({"default", "one", "three", "four"});

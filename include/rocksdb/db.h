@@ -43,7 +43,7 @@ struct ColumnFamilyDescriptor {
 };
 
 // Update Makefile if you change these
-static const int kMajorVersion = 2;
+static const int kMajorVersion = 3;
 static const int kMinorVersion = 0;
 
 struct Options;
