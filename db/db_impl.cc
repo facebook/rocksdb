@@ -2668,7 +2668,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s\n",
-      compact->compaction->input_version()->LevelSummary(&tmp),
+      cfd->current()->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
           (double)stats.micros,
       compact->compaction->output_level(), stats.files_in_leveln,

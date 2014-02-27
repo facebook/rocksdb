@@ -16,6 +16,7 @@
 #include "rocksdb/db.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "util/coding.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -140,6 +141,8 @@ class ColumnFamilyTest {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
   }
 
+  void WaitForCompaction() { ASSERT_OK(dbfull()->TEST_WaitForCompact()); }
+
   Status Put(int cf, const std::string& key, const std::string& value) {
     return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(value));
   }
@@ -163,24 +166,25 @@ class ColumnFamilyTest {
     return result;
   }
 
+  void CompactAll(int cf) {
+    ASSERT_OK(db_->CompactRange(handles_[cf], nullptr, nullptr));
+  }
+
   void Compact(int cf, const Slice& start, const Slice& limit) {
     ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit));
   }
 
-  int NumTableFilesAtLevel(int cf, int level) {
-    std::string property;
-    ASSERT_TRUE(db_->GetProperty(
-        handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
-        &property));
-    return atoi(property.c_str());
+  int NumTableFilesAtLevel(int level, int cf) {
+    return GetProperty(cf,
+                       "rocksdb.num-files-at-level" + std::to_string(level));
   }
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf) {
     std::string result;
     int last_non_zero_offset = 0;
-    for (int level = 0; level < column_family_options_.num_levels; level++) {
-      int f = NumTableFilesAtLevel(cf, level);
+    for (int level = 0; level < dbfull()->NumberLevels(handles_[cf]); level++) {
+      int f = NumTableFilesAtLevel(level, cf);
       char buf[100];
       snprintf(buf, sizeof(buf), "%s%d", (level ? "," : ""), f);
       result += buf;
@@ -627,6 +631,133 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 7);
+  Close();
+}
+
+TEST(ColumnFamilyTest, DifferentMergeOperators) {
+  Open();
+  CreateColumnFamilies({"first", "second"});
+  ColumnFamilyOptions default_cf, first, second;
+  first.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  second.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen({default_cf, first, second});
+
+  std::string one, two, three;
+  PutFixed64(&one, 1);
+  PutFixed64(&two, 2);
+  PutFixed64(&three, 3);
+
+  ASSERT_OK(Put(0, "foo", two));
+  ASSERT_OK(Put(0, "foo", one));
+  ASSERT_TRUE(Merge(0, "foo", two).IsNotSupported());
+  ASSERT_EQ(Get(0, "foo"), one);
+
+  ASSERT_OK(Put(1, "foo", two));
+  ASSERT_OK(Put(1, "foo", one));
+  ASSERT_OK(Merge(1, "foo", two));
+  ASSERT_EQ(Get(1, "foo"), three);
+
+  ASSERT_OK(Put(2, "foo", two));
+  ASSERT_OK(Put(2, "foo", one));
+  ASSERT_OK(Merge(2, "foo", two));
+  ASSERT_EQ(Get(2, "foo"), one + "," + two);
+  Close();
+}
+
+TEST(ColumnFamilyTest, DifferentCompactionStyles) {
+  Open();
+  CreateColumnFamilies({"one", "two"});
+  ColumnFamilyOptions default_cf, one, two;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 512;
+  default_cf.filter_policy = nullptr;
+  default_cf.no_block_cache = true;
+
+  one.compaction_style = kCompactionStyleUniversal;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 100000;
+
+  two.compaction_style = kCompactionStyleLevel;
+  two.num_levels = 4;
+  two.max_mem_compaction_level = 0;
+  two.level0_file_num_compaction_trigger = 3;
+  two.write_buffer_size = 100000;
+
+  Reopen({default_cf, one, two});
+
+  // SETUP column family "default" - test read compaction
+  ASSERT_EQ("", FilesPerLevel(0));
+  PutRandomData(0, 1, 4096);
+  ASSERT_OK(Flush(0));
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+  // write 8MB
+  PutRandomData(0, 2000, 4096);
+  ASSERT_OK(Flush(0));
+  // clear levels 0 and 1
+  CompactAll(0);
+  ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);
+  // write some new keys into level 0
+  PutRandomData(0, 100, 4096);
+  ASSERT_OK(Flush(0));
+  WaitForCompaction();
+  // remember number of files in each level
+  int l1 = NumTableFilesAtLevel(0, 0);
+  int l2 = NumTableFilesAtLevel(1, 0);
+  int l3 = NumTableFilesAtLevel(2, 0);
+  ASSERT_NE(l1, 0);
+  ASSERT_NE(l2, 0);
+  ASSERT_NE(l3, 0);
+
+  // SETUP column family "one" -- universal style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger - 1; ++i) {
+    PutRandomData(1, 12, 10000);
+    WaitForFlush(1);
+    ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(1));
+  }
+
+  // SETUP column family "two" -- level style with 4 levels
+  for (int i = 0; i < two.level0_file_num_compaction_trigger - 1; ++i) {
+    PutRandomData(2, 12, 10000);
+    WaitForFlush(2);
+    ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(2));
+  }
+
+  // TRIGGER compaction "default"
+  // read a bunch of times, trigger read compaction
+  for (int i = 0; i < 200000; ++i) {
+    Get(0, std::to_string(i));
+  }
+
+  // TRIGGER compaction "one"
+  PutRandomData(1, 12, 10000);
+
+  // TRIGGER compaction "two"
+  PutRandomData(2, 12, 10000);
+
+  // WAIT for compactions
+  WaitForCompaction();
+
+  // VERIFY compaction "default"
+  // verify that the number of files have decreased
+  // in some level, indicating that there was a compaction
+  ASSERT_TRUE(NumTableFilesAtLevel(0, 0) < l1 ||
+              NumTableFilesAtLevel(1, 0) < l2 ||
+              NumTableFilesAtLevel(2, 0) < l3);
+
+  // VERIFY compaction "one"
+  ASSERT_EQ("1", FilesPerLevel(1));
+
+  // VERIFY compaction "two"
+  ASSERT_EQ("0,1", FilesPerLevel(2));
+  CompactAll(2);
+  ASSERT_EQ("0,1", FilesPerLevel(2));
+
   Close();
 }
 

@@ -4873,7 +4873,7 @@ TEST(DBTest, ReadCompaction) {
     // remember number of files in each level
     int l1 = NumTableFilesAtLevel(0, 1);
     int l2 = NumTableFilesAtLevel(1, 1);
-    int l3 = NumTableFilesAtLevel(3, 1);
+    int l3 = NumTableFilesAtLevel(2, 1);
     ASSERT_NE(NumTableFilesAtLevel(0, 1), 0);
     ASSERT_NE(NumTableFilesAtLevel(1, 1), 0);
     ASSERT_NE(NumTableFilesAtLevel(2, 1), 0);
