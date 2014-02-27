@@ -244,8 +244,9 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
   const int kInfoLogLevelNameLens[5] = {5, 4, 4, 5, 5};
 
   size_t log_size = 8192;
-  AutoRollLogger* logger =
-      new AutoRollLogger(Env::Default(), kTestDir, "", log_size, 0);
+  std::unique_ptr<AutoRollLogger> logger_guard(
+      new AutoRollLogger(Env::Default(), kTestDir, "", log_size, 0));
+  auto logger = logger_guard.get();
 
   int message_length = kSampleMessage.length();
   int log_length = 0;
