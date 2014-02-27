@@ -214,6 +214,8 @@ class ColumnFamilyTest {
   }
 
   int CountLiveLogFiles() {
+    int micros_wait_for_log_deletion = 20000;
+    env_->SleepForMicroseconds(micros_wait_for_log_deletion);
     int ret = 0;
     VectorLogPtr wal_files;
     Status s;
@@ -467,7 +469,6 @@ TEST(ColumnFamilyTest, FlushTest) {
 TEST(ColumnFamilyTest, LogDeletionTest) {
   column_family_options_.write_buffer_size = 100000;  // 100KB
   Open();
-  int micros_wait_for_log_deletion = 20000;
   CreateColumnFamilies({"one", "two", "three", "four"});
   // Each bracket is one log file. if number is in (), it means
   // we don't need it anymore (it's been flushed)
@@ -480,63 +481,52 @@ TEST(ColumnFamilyTest, LogDeletionTest) {
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [1]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 2);
   PutRandomData(0, 1, 100);
   // [0, (1)] [0, 1]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 2);
   PutRandomData(2, 1, 100);
   // [0, (1)] [0, 1, 2]
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [2]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 3);
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [(2)] [2]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   PutRandomData(3, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [2, 3]
   PutRandomData(1, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [1, 2, 3]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [0, (1), (2)] [(2)] [(1), 2, 3] [1]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 5);
   PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(0), (1)] [(0), (1), (2)] [(2)] [(1), 2, 3] [1, (0)] [0]
   // delete obsolete logs -->
   // [(1), 2, 3] [1, (0)] [0]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 3);
   PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(1), 2, 3] [1, (0)], [(0)] [0]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [(1), 2, 3] [(1), (0)] [(0)] [0, (1)] [1]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 5);
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [(1), (2), 3] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 6);
   PutRandomData(3, 1000, 100);
   WaitForFlush(3);
   // [(1), (2), (3)] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2, (3)] [3]
   // delete obsolete logs -->
   // [0, (1)] [1, (2)], [2, (3)] [3]
-  env_->SleepForMicroseconds(micros_wait_for_log_deletion);
   ASSERT_EQ(CountLiveLogFiles(), 4);
   Close();
 }
@@ -566,9 +556,9 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
 
   Reopen({default_cf, one, two, three});
 
-  int micros_wait_for_flush = 300000;
+  int micros_wait_for_flush = 10000;
   PutRandomData(0, 100, 1000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(0);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 1);
   PutRandomData(1, 200, 1000);
@@ -596,15 +586,15 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   AssertNumberOfImmutableMemtables({0, 1, 2, 3});
   ASSERT_EQ(CountLiveLogFiles(), 7);
   PutRandomData(0, 100, 1000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(0);
   AssertNumberOfImmutableMemtables({0, 1, 2, 3});
   ASSERT_EQ(CountLiveLogFiles(), 8);
   PutRandomData(2, 100, 10000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(2);
   AssertNumberOfImmutableMemtables({0, 1, 0, 3});
   ASSERT_EQ(CountLiveLogFiles(), 9);
   PutRandomData(3, 90, 1000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 1, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 10);
   PutRandomData(3, 90, 1000);
@@ -612,23 +602,23 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   AssertNumberOfImmutableMemtables({0, 1, 0, 1});
   ASSERT_EQ(CountLiveLogFiles(), 11);
   PutRandomData(1, 200, 1000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 1});
   ASSERT_EQ(CountLiveLogFiles(), 5);
   PutRandomData(3, 90*6, 1000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 12);
   PutRandomData(0, 100, 1000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(0);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 12);
   PutRandomData(2, 3*100, 10000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(2);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 12);
   PutRandomData(1, 2*200, 1000);
-  env_->SleepForMicroseconds(micros_wait_for_flush);
+  WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 7);
   Close();
