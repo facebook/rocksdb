@@ -38,6 +38,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "port/port.h"
+#include "port/likely.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -270,6 +271,7 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       logfile_number_(0),
       super_version_(nullptr),
       super_version_number_(0),
+      local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
       tmp_batch_(),
       bg_compaction_scheduled_(0),
       bg_manual_only_(0),
@@ -288,7 +290,8 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
       delayed_writes_(0),
       storage_options_(options),
       bg_work_gate_closed_(false),
-      refitting_level_(false) {
+      refitting_level_(false),
+      opened_successfully_(false) {
   mem_->Ref();
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
@@ -319,12 +322,11 @@ DBImpl::DBImpl(const Options& options, const std::string& dbname)
 }
 
 DBImpl::~DBImpl() {
-  autovector<MemTable*> to_delete;
-
   // Wait for background work to finish
   if (flush_on_destroy_ && mem_->GetFirstSequenceNumber() != 0) {
     FlushMemTable(FlushOptions());
   }
+
   mutex_.Lock();
   shutting_down_.Release_Store(this);  // Any non-nullptr value is ok
   while (bg_compaction_scheduled_ ||
@@ -332,6 +334,34 @@ DBImpl::~DBImpl() {
          bg_logstats_scheduled_) {
     bg_cv_.Wait();
   }
+  mutex_.Unlock();
+
+  // Release SuperVersion reference kept in ThreadLocalPtr.
+  // This must be done outside of mutex_ since unref handler can lock mutex.
+  // It also needs to be done after FlushMemTable, which can trigger local_sv_
+  // access.
+  delete local_sv_;
+
+  mutex_.Lock();
+  if (options_.allow_thread_local) {
+    // Clean up obsolete files due to SuperVersion release.
+    // (1) Need to delete to obsolete files before closing because RepairDB()
+    // scans all existing files in the file system and builds manifest file.
+    // Keeping obsolete files confuses the repair process.
+    // (2) Need to check if we Open()/Recover() the DB successfully before
+    // deleting because if VersionSet recover fails (may be due to corrupted
+    // manifest file), it is not able to identify live files correctly. As a
+    // result, all "live" files can get deleted by accident. However, corrupted
+    // manifest is recoverable by RepairDB().
+    if (opened_successfully_) {
+      DeletionState deletion_state;
+      FindObsoleteFiles(deletion_state, true);
+      // manifest number starting from 2
+      deletion_state.manifest_file_number = 1;
+      PurgeObsoleteFiles(deletion_state);
+    }
+  }
+
   if (super_version_ != nullptr) {
     bool is_last_reference __attribute__((unused));
     is_last_reference = super_version_->Unref();
@@ -349,6 +379,7 @@ DBImpl::~DBImpl() {
     delete mem_->Unref();
   }
 
+  autovector<MemTable*> to_delete;
   imm_.current()->Unref(&to_delete);
   for (MemTable* m: to_delete) {
     delete m;
@@ -1286,6 +1317,10 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   if (s.ok()) {
     InstallSuperVersion(deletion_state);
+    // Reset SuperVersions cached in thread local storage
+    if (options_.allow_thread_local) {
+      ResetThreadLocalSuperVersions(&deletion_state);
+    }
     if (madeProgress) {
       *madeProgress = 1;
     }
@@ -2811,26 +2846,21 @@ Status DBImpl::Get(const ReadOptions& options,
 // DeletionState gets created and destructed outside of the lock -- we
 // use this convinently to:
 // * malloc one SuperVersion() outside of the lock -- new_superversion
-// * delete one SuperVersion() outside of the lock -- superversion_to_free
+// * delete SuperVersion()s outside of the lock -- superversions_to_free
 //
 // However, if InstallSuperVersion() gets called twice with the same,
 // deletion_state, we can't reuse the SuperVersion() that got malloced because
 // first call already used it. In that rare case, we take a hit and create a
-// new SuperVersion() inside of the mutex. We do similar thing
-// for superversion_to_free
+// new SuperVersion() inside of the mutex.
 void DBImpl::InstallSuperVersion(DeletionState& deletion_state) {
+  mutex_.AssertHeld();
   // if new_superversion == nullptr, it means somebody already used it
   SuperVersion* new_superversion =
     (deletion_state.new_superversion != nullptr) ?
     deletion_state.new_superversion : new SuperVersion();
   SuperVersion* old_superversion = InstallSuperVersion(new_superversion);
   deletion_state.new_superversion = nullptr;
-  if (deletion_state.superversion_to_free != nullptr) {
-    // somebody already put it there
-    delete old_superversion;
-  } else {
-    deletion_state.superversion_to_free = old_superversion;
-  }
+  deletion_state.superversions_to_free.push_back(old_superversion);
 }
 
 DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
@@ -2839,12 +2869,29 @@ DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
   new_superversion->Init(mem_, imm_.current(), versions_->current());
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
+  super_version_->db = this;
   ++super_version_number_;
+  super_version_->version_number = super_version_number_;
+
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
     return old_superversion; // will let caller delete outside of mutex
   }
   return nullptr;
+}
+
+void DBImpl::ResetThreadLocalSuperVersions(DeletionState* deletion_state) {
+  mutex_.AssertHeld();
+  autovector<void*> sv_ptrs;
+  local_sv_->Scrape(&sv_ptrs);
+  for (auto ptr : sv_ptrs) {
+    assert(ptr);
+    auto sv = static_cast<SuperVersion*>(ptr);
+    if (static_cast<SuperVersion*>(ptr)->Unref()) {
+      sv->Cleanup();
+      deletion_state->superversions_to_free.push_back(sv);
+    }
+  }
 }
 
 Status DBImpl::GetImpl(const ReadOptions& options,
@@ -2864,10 +2911,41 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     snapshot = versions_->LastSequence();
   }
 
-  // This can be replaced by using atomics and spinlock instead of big mutex
-  mutex_.Lock();
-  SuperVersion* get_version = super_version_->Ref();
-  mutex_.Unlock();
+  // Acquire SuperVersion
+  SuperVersion* sv = nullptr;
+  if (LIKELY(options_.allow_thread_local)) {
+    // The SuperVersion is cached in thread local storage to avoid acquiring
+    // mutex when SuperVersion does not change since the last use. When a new
+    // SuperVersion is installed, the compaction or flush thread cleans up
+    // cached SuperVersion in all existing thread local storage. To avoid
+    // acquiring mutex for this operation, we use atomic Swap() on the thread
+    // local pointer to guarantee exclusive access. If the thread local pointer
+    // is being used while a new SuperVersion is installed, the cached
+    // SuperVersion can become stale. It will eventually get refreshed either
+    // on the next GetImpl() call or next SuperVersion installation.
+    sv = static_cast<SuperVersion*>(local_sv_->Swap(nullptr));
+    if (!sv || sv->version_number !=
+               super_version_number_.load(std::memory_order_relaxed)) {
+      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_UPDATES);
+      SuperVersion* sv_to_delete = nullptr;
+
+      if (sv && sv->Unref()) {
+        mutex_.Lock();
+        sv->Cleanup();
+        sv_to_delete = sv;
+      } else {
+        mutex_.Lock();
+      }
+      sv = super_version_->Ref();
+      mutex_.Unlock();
+
+      delete sv_to_delete;
+    }
+  } else {
+    mutex_.Lock();
+    sv = super_version_->Ref();
+    mutex_.Unlock();
+  }
 
   bool have_stat_update = false;
   Version::GetStats stats;
@@ -2880,18 +2958,18 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot);
   BumpPerfTime(&perf_context.get_snapshot_time, &snapshot_timer);
-  if (get_version->mem->Get(lkey, value, &s, merge_context, options_)) {
+  if (sv->mem->Get(lkey, value, &s, merge_context, options_)) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
-  } else if (get_version->imm->Get(lkey, value, &s, merge_context, options_)) {
+  } else if (sv->imm->Get(lkey, value, &s, merge_context, options_)) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
     StopWatchNano from_files_timer(env_, false);
     StartPerfTimer(&from_files_timer);
 
-    get_version->current->Get(options, lkey, value, &s, &merge_context, &stats,
-                              options_, value_found);
+    sv->current->Get(options, lkey, value, &s, &merge_context, &stats,
+                     options_, value_found);
     have_stat_update = true;
     BumpPerfTime(&perf_context.get_from_output_files_time, &from_files_timer);
     RecordTick(options_.statistics.get(), MEMTABLE_MISS);
@@ -2900,31 +2978,32 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   StopWatchNano post_process_timer(env_, false);
   StartPerfTimer(&post_process_timer);
 
-  bool delete_get_version = false;
   if (!options_.disable_seek_compaction && have_stat_update) {
     mutex_.Lock();
-    if (get_version->current->UpdateStats(stats)) {
+    if (sv->current->UpdateStats(stats)) {
       MaybeScheduleFlushOrCompaction();
     }
-    if (get_version->Unref()) {
-      get_version->Cleanup();
-      delete_get_version = true;
-    }
     mutex_.Unlock();
-  } else {
-    if (get_version->Unref()) {
-      mutex_.Lock();
-      get_version->Cleanup();
-      mutex_.Unlock();
-      delete_get_version = true;
-    }
   }
-  if (delete_get_version) {
-    delete get_version;
+
+  // Release SuperVersion
+  if (LIKELY(options_.allow_thread_local)) {
+    // Put the SuperVersion back
+    local_sv_->Reset(static_cast<void*>(sv));
+  } else {
+    bool delete_sv = false;
+    if (sv->Unref()) {
+      mutex_.Lock();
+      sv->Cleanup();
+      mutex_.Unlock();
+      delete_sv = true;
+    }
+    if (delete_sv) {
+      delete sv;
+    }
   }
 
   // Note, tickers are atomic now - no lock protection needed any more.
-
   RecordTick(options_.statistics.get(), NUMBER_KEYS_READ);
   RecordTick(options_.statistics.get(), BYTES_READ, value->size());
   BumpPerfTime(&perf_context.get_post_process_time, &post_process_timer);
@@ -3772,6 +3851,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   impl->mutex_.Unlock();
 
   if (s.ok()) {
+    impl->opened_successfully_ = true;
     *dbptr = impl;
   } else {
     delete impl;

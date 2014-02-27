@@ -110,7 +110,8 @@ Options::Options()
       inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(6),
-      max_successive_merges(0) {
+      max_successive_merges(0),
+      allow_thread_local(true) {
   assert(memtable_factory.get() != nullptr);
 }
 

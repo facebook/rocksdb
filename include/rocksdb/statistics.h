@@ -122,6 +122,7 @@ enum Tickers {
   // Number of table's properties loaded directly from file, without creating
   // table reader object.
   NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
+  NUMBER_SUPERVERSION_UPDATES,
   TICKER_ENUM_MAX
 };
 
@@ -176,7 +177,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
     {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
     {NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
-     "rocksdb.number.direct.load.table.properties"}, };
+     "rocksdb.number.direct.load.table.properties"},
+    {NUMBER_SUPERVERSION_UPDATES, "rocksdb.number.superversion_updates"},
+};
 
 /**
  * Keep adding histogram's here.

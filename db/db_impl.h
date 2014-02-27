@@ -26,6 +26,7 @@
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
 #include "util/stats_logger.h"
+#include "util/thread_local.h"
 #include "db/internal_stats.h"
 
 namespace rocksdb {
@@ -152,6 +153,9 @@ class DBImpl : public DB {
     // all memtables that we need to free through this vector. We then
     // delete all those memtables outside of mutex, during destruction
     autovector<MemTable*> to_delete;
+    // Version number of the current SuperVersion
+    uint64_t version_number;
+    DBImpl* db;
 
     // should be called outside the mutex
     SuperVersion() = default;
@@ -169,6 +173,16 @@ class DBImpl : public DB {
     void Init(MemTable* new_mem, MemTableListVersion* new_imm,
               Version* new_current);
   };
+
+  static void SuperVersionUnrefHandle(void* ptr) {
+    DBImpl::SuperVersion* sv = static_cast<DBImpl::SuperVersion*>(ptr);
+    if (sv->Unref()) {
+      sv->db->mutex_.Lock();
+      sv->Cleanup();
+      sv->db->mutex_.Unlock();
+      delete sv;
+    }
+  }
 
   // needed for CleanupIteratorState
   struct DeletionState {
@@ -195,7 +209,7 @@ class DBImpl : public DB {
     // a list of memtables to be free
     autovector<MemTable*> memtables_to_free;
 
-    SuperVersion* superversion_to_free; // if nullptr nothing to free
+    autovector<SuperVersion*> superversions_to_free;
 
     SuperVersion* new_superversion; // if nullptr no new superversion
 
@@ -207,7 +221,6 @@ class DBImpl : public DB {
       manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
-      superversion_to_free = nullptr;
       new_superversion =
           create_superversion ? new SuperVersion() : nullptr;
     }
@@ -217,8 +230,10 @@ class DBImpl : public DB {
       for (auto m : memtables_to_free) {
         delete m;
       }
-      // free superversion. if nullptr, this will be noop
-      delete superversion_to_free;
+      // free superversions
+      for (auto s : superversions_to_free) {
+        delete s;
+      }
       // if new_superversion was not used, it will be non-nullptr and needs
       // to be freed here
       delete new_superversion;
@@ -400,6 +415,9 @@ class DBImpl : public DB {
   // InstallSuperVersion(), i.e. incremented every time super_version_
   // changes.
   std::atomic<uint64_t> super_version_number_;
+  // Thread's local copy of SuperVersion pointer
+  // This needs to be destructed after mutex_
+  ThreadLocalPtr* local_sv_;
 
   std::string host_name_;
 
@@ -489,6 +507,9 @@ class DBImpl : public DB {
   // Guard against multiple concurrent refitting
   bool refitting_level_;
 
+  // Indicate DB was opened successfully
+  bool opened_successfully_;
+
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
@@ -514,6 +535,8 @@ class DBImpl : public DB {
   // the InstallSuperVersion() function above. Background threads carry
   // deletion_state which can have new_superversion already allocated.
   void InstallSuperVersion(DeletionState& deletion_state);
+
+  void ResetThreadLocalSuperVersions(DeletionState* deletion_state);
 
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props)
       override;

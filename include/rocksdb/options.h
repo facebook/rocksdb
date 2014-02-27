@@ -714,6 +714,10 @@ struct Options {
   //
   // Default: 0 (disabled)
   size_t max_successive_merges;
+
+  // Allow RocksDB to use thread local storage to optimize performance.
+  // Default: true
+  bool allow_thread_local;
 };
 
 //

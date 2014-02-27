@@ -9,12 +9,8 @@
 
 #include "util/thread_local.h"
 #include "util/mutexlock.h"
+#include "port/likely.h"
 
-#if defined(__GNUC__) && __GNUC__ >= 4
-#define UNLIKELY(x) (__builtin_expect((x), 0))
-#else
-#define UNLIKELY(x) (x)
-#endif
 
 namespace rocksdb {
 
