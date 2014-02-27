@@ -2235,7 +2235,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
       compact->compaction->num_input_files(0),
       compact->compaction->level(),
       compact->compaction->num_input_files(1),
-      compact->compaction->level() + 1);
+      compact->compaction->output_level());
     return Status::Corruption("Compaction input files inconsistent");
   }
 
@@ -2243,7 +2243,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
       compact->compaction->num_input_files(0),
       compact->compaction->level(),
       compact->compaction->num_input_files(1),
-      compact->compaction->level() + 1,
+      compact->compaction->output_level(),
       static_cast<long long>(compact->total_bytes));
 
   // Add compaction outputs

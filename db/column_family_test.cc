@@ -566,7 +566,7 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
 
   Reopen({default_cf, one, two, three});
 
-  int micros_wait_for_flush = 100000;
+  int micros_wait_for_flush = 300000;
   PutRandomData(0, 100, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
@@ -669,13 +669,15 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
-  default_cf.target_file_size_base = 512;
+  default_cf.target_file_size_base = 30 << 10;
   default_cf.filter_policy = nullptr;
   default_cf.no_block_cache = true;
+  default_cf.source_compaction_factor = 100;
 
   one.compaction_style = kCompactionStyleUniversal;
   // trigger compaction if there are >= 4 files
@@ -699,7 +701,8 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   PutRandomData(0, 2000, 4096);
   ASSERT_OK(Flush(0));
   // clear levels 0 and 1
-  CompactAll(0);
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[0]);
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[0]);
   ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);
   // write some new keys into level 0
