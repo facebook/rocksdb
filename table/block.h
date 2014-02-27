@@ -26,8 +26,8 @@ class Block {
   ~Block();
 
   size_t size() const { return size_; }
-  bool   isCachable() const { return cachable_; }
-  CompressionType compressionType() const { return compression_type_; }
+  bool   cachable() const { return cachable_; }
+  CompressionType compression_type() const { return compression_type_; }
   Iterator* NewIterator(const Comparator* comparator);
   const char* data() { return data_; }
 

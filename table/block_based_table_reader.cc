@@ -297,7 +297,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
     );
 
     if (s.ok()) {
-      assert(index_block->compressionType() == kNoCompression);
+      assert(index_block->compression_type() == kNoCompression);
       rep->index_block.reset(index_block);
 
       // Set filter block
@@ -461,7 +461,7 @@ Status BlockBasedTable::GetBlock(
             );
       }
       if (s.ok()) {
-        if (options.fill_cache && entry->value->isCachable()) {
+        if (options.fill_cache && entry->value->cachable()) {
           entry->cache_handle = block_cache->Insert(
             key, entry->value, entry->value->size(), &DeleteCachedBlock);
           RecordTick(statistics, BLOCK_CACHE_ADD);
@@ -563,7 +563,7 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
         // found compressed block
         cblock = reinterpret_cast<Block*>(block_cache_compressed->
                         Value(compressed_cache_handle));
-        assert(cblock->compressionType() != kNoCompression);
+        assert(cblock->compression_type() != kNoCompression);
 
         // Retrieve the uncompressed contents into a new buffer
         BlockContents contents;
@@ -573,8 +573,8 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
         // Insert uncompressed block into block cache
         if (s.ok()) {
           block = new Block(contents); // uncompressed block
-          assert(block->compressionType() == kNoCompression);
-          if (block_cache != nullptr && block->isCachable() &&
+          assert(block->compression_type() == kNoCompression);
+          if (block_cache != nullptr && block->cachable() &&
               options.fill_cache) {
             cache_handle = block_cache->Insert(key, block, block->size(),
                                                &DeleteCachedBlock);
@@ -609,23 +609,23 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
             );
       }
       if (s.ok()) {
-        assert(cblock->compressionType() == kNoCompression ||
+        assert(cblock->compression_type() == kNoCompression ||
                block_cache_compressed != nullptr);
 
         // Retrieve the uncompressed contents into a new buffer
         BlockContents contents;
-        if (cblock->compressionType() != kNoCompression) {
+        if (cblock->compression_type() != kNoCompression) {
           s = UncompressBlockContents(cblock->data(), cblock->size(),
                                       &contents);
         }
         if (s.ok()) {
-          if (cblock->compressionType() != kNoCompression) {
+          if (cblock->compression_type() != kNoCompression) {
             block = new Block(contents); // uncompressed block
           } else {
             block = cblock;
             cblock = nullptr;
           }
-          if (block->isCachable() && options.fill_cache) {
+          if (block->cachable() && options.fill_cache) {
             // Insert compressed block into compressed block cache.
             // Release the hold on the compressed cache entry immediately.
             if (block_cache_compressed != nullptr && cblock != nullptr) {
@@ -636,7 +636,7 @@ Iterator* BlockBasedTable::BlockReader(void* arg,
               cblock = nullptr;
             }
             // insert into uncompressed block cache
-            assert((block->compressionType() == kNoCompression));
+            assert((block->compression_type() == kNoCompression));
             if (block_cache != nullptr) {
               cache_handle = block_cache->Insert(
                 key, block, block->size(), &DeleteCachedBlock);
