@@ -5,12 +5,15 @@
 //
 #include <string>
 #include <cmath>
+#include <iostream>
+#include <fstream>
+#include <iterator>
+#include <algorithm>
 #include "util/testharness.h"
 #include "util/auto_roll_logger.h"
 #include "rocksdb/db.h"
 #include <sys/stat.h>
 #include <errno.h>
-#include <iostream>
 
 using namespace std;
 
@@ -240,52 +243,42 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
 
 TEST(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();
-  // the lengths of DEBUG, INFO, WARN, ERROR, FATAL respectively
-  const int kInfoLogLevelNameLens[5] = {5, 4, 4, 5, 5};
 
   size_t log_size = 8192;
-  std::unique_ptr<AutoRollLogger> logger_guard(
-      new AutoRollLogger(Env::Default(), kTestDir, "", log_size, 0));
-  auto logger = logger_guard.get();
-
-  int message_length = kSampleMessage.length();
-  int log_length = 0;
-  int total_logname_length = 0;
-  for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
-       log_level--) {
-    logger->SetInfoLogLevel((InfoLogLevel)log_level);
-    total_logname_length += kInfoLogLevelNameLens[log_level];
-    for (int log_type = InfoLogLevel::DEBUG; log_type <= InfoLogLevel::FATAL;
-         log_type++) {
-      // log messages with log level smaller than log_level will not be logged.
-      LogMessage((InfoLogLevel)log_type, logger, kSampleMessage.c_str());
+  int log_lines = 0;
+  // an extra-scope to force the AutoRollLogger to flush the log file when it
+  // becomes out of scope.
+  {
+    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0);
+    for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
+         log_level--) {
+      logger.SetInfoLogLevel((InfoLogLevel)log_level);
+      for (int log_type = InfoLogLevel::DEBUG; log_type <= InfoLogLevel::FATAL;
+           log_type++) {
+        // log messages with log level smaller than log_level will not be
+        // logged.
+        LogMessage((InfoLogLevel)log_type, &logger, kSampleMessage.c_str());
+      }
+      log_lines += InfoLogLevel::FATAL - log_level + 1;
     }
-    // 44 is the length of the message excluding the actual
-    // message and log name.
-    log_length += (message_length + 44) * (InfoLogLevel::FATAL - log_level + 1);
-    log_length += total_logname_length;
-    ASSERT_EQ(logger->GetLogFileSize(), log_length);
-  }
+    for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
+         log_level--) {
+      logger.SetInfoLogLevel((InfoLogLevel)log_level);
 
-  // rerun the test but using different log functions.
-  total_logname_length = 0;
-  for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
-       log_level--) {
-    logger->SetInfoLogLevel((InfoLogLevel)log_level);
-    total_logname_length += kInfoLogLevelNameLens[log_level];
-
-    // again, messages with level smaller than log_level will not be logged.
-    Debug(logger, "%s", kSampleMessage.c_str());
-    Info(logger, "%s", kSampleMessage.c_str());
-    Warn(logger, "%s", kSampleMessage.c_str());
-    Error(logger, "%s", kSampleMessage.c_str());
-    Fatal(logger, "%s", kSampleMessage.c_str());
-    // 44 is the length of the message excluding the actual
-    // message and log name.
-    log_length += (message_length + 44) * (InfoLogLevel::FATAL - log_level + 1);
-    log_length += total_logname_length;
-    ASSERT_EQ(logger->GetLogFileSize(), log_length);
+      // again, messages with level smaller than log_level will not be logged.
+      Debug(&logger, "%s", kSampleMessage.c_str());
+      Info(&logger, "%s", kSampleMessage.c_str());
+      Warn(&logger, "%s", kSampleMessage.c_str());
+      Error(&logger, "%s", kSampleMessage.c_str());
+      Fatal(&logger, "%s", kSampleMessage.c_str());
+      log_lines += InfoLogLevel::FATAL - log_level + 1;
+    }
   }
+  std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
+  int lines = std::count(std::istreambuf_iterator<char>(inFile),
+                         std::istreambuf_iterator<char>(), '\n');
+  ASSERT_EQ(log_lines, lines);
+  inFile.close();
 }
 
 int OldLogFileCount(const string& dir) {
