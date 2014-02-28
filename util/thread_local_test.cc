@@ -58,45 +58,45 @@ TEST(ThreadLocalTest, UniqueIdTest) {
   port::Mutex mu;
   port::CondVar cv(&mu);
 
-  ASSERT_EQ(IDChecker::PeekId(), 0);
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
   // New ThreadLocal instance bumps id by 1
   {
     // Id used 0
-    Params p1(&mu, &cv, nullptr, 1);
-    ASSERT_EQ(IDChecker::PeekId(), 1);
+    Params p1(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 1u);
     // Id used 1
-    Params p2(&mu, &cv, nullptr, 1);
-    ASSERT_EQ(IDChecker::PeekId(), 2);
+    Params p2(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 2u);
     // Id used 2
-    Params p3(&mu, &cv, nullptr, 1);
-    ASSERT_EQ(IDChecker::PeekId(), 3);
+    Params p3(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 3u);
     // Id used 3
-    Params p4(&mu, &cv, nullptr, 1);
-    ASSERT_EQ(IDChecker::PeekId(), 4);
+    Params p4(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 4u);
   }
   // id 3, 2, 1, 0 are in the free queue in order
-  ASSERT_EQ(IDChecker::PeekId(), 0);
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
   // pick up 0
-  Params p1(&mu, &cv, nullptr, 1);
-  ASSERT_EQ(IDChecker::PeekId(), 1);
+  Params p1(&mu, &cv, nullptr, 1u);
+  ASSERT_EQ(IDChecker::PeekId(), 1u);
   // pick up 1
-  Params* p2 = new Params(&mu, &cv, nullptr, 1);
-  ASSERT_EQ(IDChecker::PeekId(), 2);
+  Params* p2 = new Params(&mu, &cv, nullptr, 1u);
+  ASSERT_EQ(IDChecker::PeekId(), 2u);
   // pick up 2
-  Params p3(&mu, &cv, nullptr, 1);
-  ASSERT_EQ(IDChecker::PeekId(), 3);
+  Params p3(&mu, &cv, nullptr, 1u);
+  ASSERT_EQ(IDChecker::PeekId(), 3u);
   // return up 1
   delete p2;
-  ASSERT_EQ(IDChecker::PeekId(), 1);
+  ASSERT_EQ(IDChecker::PeekId(), 1u);
   // Now we have 3, 1 in queue
   // pick up 1
-  Params p4(&mu, &cv, nullptr, 1);
-  ASSERT_EQ(IDChecker::PeekId(), 3);
+  Params p4(&mu, &cv, nullptr, 1u);
+  ASSERT_EQ(IDChecker::PeekId(), 3u);
   // pick up 3
-  Params p5(&mu, &cv, nullptr, 1);
+  Params p5(&mu, &cv, nullptr, 1u);
   // next new id
-  ASSERT_EQ(IDChecker::PeekId(), 4);
+  ASSERT_EQ(IDChecker::PeekId(), 4u);
   // After exit, id sequence in queue:
   // 3, 1, 2, 0
 }
