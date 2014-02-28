@@ -441,7 +441,8 @@ Status DBImpl::NewDB() {
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
   unique_ptr<WritableFile> file;
-  Status s = env_->NewWritableFile(manifest, &file, storage_options_);
+  Status s = env_->NewWritableFile(manifest, &file,
+                                   storage_options_.AdaptForLogWrite());
   if (!s.ok()) {
     return s;
   }
@@ -3524,11 +3525,9 @@ Status DBImpl::MakeRoomForWrite(bool force,
       SuperVersion* new_superversion = nullptr;
       mutex_.Unlock();
       {
-        EnvOptions soptions(storage_options_);
-        soptions.use_mmap_writes = false;
         DelayLoggingAndReset();
         s = env_->NewWritableFile(LogFileName(options_.wal_dir, new_log_number),
-                                  &lfile, soptions);
+                                  &lfile, storage_options_.AdaptForLogWrite());
         if (s.ok()) {
           // Our final size should be less than write_buffer_size
           // (compression, etc) but err on the side of caution.
@@ -3784,7 +3783,6 @@ DB::~DB() { }
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
-  EnvOptions soptions(options);
 
   if (options.block_cache != nullptr && options.no_block_cache) {
     return Status::InvalidArgument(
@@ -3808,12 +3806,10 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
-    soptions.use_mmap_writes = false;
+    EnvOptions soptions(options);
     s = impl->options_.env->NewWritableFile(
-      LogFileName(impl->options_.wal_dir, new_log_number),
-      &lfile,
-      soptions
-    );
+        LogFileName(impl->options_.wal_dir, new_log_number), &lfile,
+        soptions.AdaptForLogWrite());
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * impl->options_.write_buffer_size);
       VersionEdit edit;

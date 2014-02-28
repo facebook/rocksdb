@@ -1555,7 +1555,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       unique_ptr<WritableFile> descriptor_file;
       s = env_->NewWritableFile(new_manifest_filename,
                                 &descriptor_file,
-                                storage_options_);
+                                storage_options_.AdaptForLogWrite());
       if (s.ok()) {
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
         s = WriteSnapshot(descriptor_log_.get());

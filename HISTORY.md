@@ -9,6 +9,11 @@
 * Added is_manual_compaction to CompactionFilter::Context
 * Added "virtual void WaitForJoin() = 0" in class Env
 
+### New Features
+* If we find one truncated record at the end of the MANIFEST or WAL files,
+  we will ignore it. We assume that writers of these records were interrupted
+  and that we can safely ignore it.
+
 ## 2.7.0 (01/28/2014)
 
 ### Public API changes

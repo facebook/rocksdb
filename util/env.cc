@@ -237,6 +237,12 @@ void AssignEnvOptions(EnvOptions* env_options, const Options& options) {
 
 }
 
+EnvOptions EnvOptions::AdaptForLogWrite() const {
+  EnvOptions adapted = *this;
+  adapted.use_mmap_writes = false;
+  return adapted;
+}
+
 EnvOptions::EnvOptions(const Options& options) {
   AssignEnvOptions(this, options);
 }

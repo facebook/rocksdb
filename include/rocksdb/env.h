@@ -49,6 +49,8 @@ struct EnvOptions {
   // construct from Options
   explicit EnvOptions(const Options& options);
 
+  EnvOptions AdaptForLogWrite() const;
+
   // If true, then allow caching of data in environment buffers
   bool use_os_buffer = true;
 
