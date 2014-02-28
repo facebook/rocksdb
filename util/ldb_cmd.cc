@@ -153,6 +153,8 @@ LDBCommand* LDBCommand::SelectCommand(
     return new DBLoaderCommand(cmdParams, option_map, flags);
   } else if (cmd == ManifestDumpCommand::Name()) {
     return new ManifestDumpCommand(cmdParams, option_map, flags);
+  } else if (cmd == ListColumnFamiliesCommand::Name()) {
+    return new ListColumnFamiliesCommand(cmdParams, option_map, flags);
   } else if (cmd == InternalDumpCommand::Name()) {
     return new InternalDumpCommand(cmdParams, option_map, flags);
   }
@@ -550,6 +552,48 @@ void ManifestDumpCommand::DoCommand() {
   }
   if (verbose_) {
     printf("Processing Manifest file %s done\n", manifestfile.c_str());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+void ListColumnFamiliesCommand::Help(string& ret) {
+  ret.append("  ");
+  ret.append(ListColumnFamiliesCommand::Name());
+  ret.append(" full_path_to_db_directory ");
+  ret.append("\n");
+}
+
+ListColumnFamiliesCommand::ListColumnFamiliesCommand(
+    const vector<string>& params, const map<string, string>& options,
+    const vector<string>& flags)
+    : LDBCommand(options, flags, false, {}) {
+
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::FAILED(
+        "dbname must be specified for the list_column_families command");
+  } else {
+    dbname_ = params[0];
+  }
+}
+
+void ListColumnFamiliesCommand::DoCommand() {
+  vector<string> column_families;
+  Status s = DB::ListColumnFamilies(DBOptions(), dbname_, &column_families);
+  if (!s.ok()) {
+    printf("Error in processing db %s %s\n", dbname_.c_str(),
+           s.ToString().c_str());
+  } else {
+    printf("Column families in %s: \n{", dbname_.c_str());
+    bool first = true;
+    for (auto cf : column_families) {
+      if (!first) {
+        printf(", ");
+      }
+      first = false;
+      printf("%s", cf.c_str());
+    }
+    printf("}\n");
   }
 }
 

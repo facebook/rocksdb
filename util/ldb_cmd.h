@@ -484,6 +484,23 @@ private:
   static const string ARG_PATH;
 };
 
+class ListColumnFamiliesCommand : public LDBCommand {
+ public:
+  static string Name() { return "list_column_families"; }
+
+  ListColumnFamiliesCommand(const vector<string>& params,
+                            const map<string, string>& options,
+                            const vector<string>& flags);
+
+  static void Help(string& ret);
+  virtual void DoCommand();
+
+  virtual bool NoDBOpen() { return true; }
+
+ private:
+  string dbname_;
+};
+
 class ReduceDBLevelsCommand : public LDBCommand {
 public:
   static string Name() { return "reduce_levels"; }
