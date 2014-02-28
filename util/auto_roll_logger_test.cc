@@ -245,7 +245,7 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();
 
   size_t log_size = 8192;
-  int log_lines = 0;
+  size_t log_lines = 0;
   // an extra-scope to force the AutoRollLogger to flush the log file when it
   // becomes out of scope.
   {
@@ -275,7 +275,7 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
     }
   }
   std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
-  int lines = std::count(std::istreambuf_iterator<char>(inFile),
+  size_t lines = std::count(std::istreambuf_iterator<char>(inFile),
                          std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();

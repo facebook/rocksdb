@@ -103,7 +103,7 @@ TEST(ThreadLocalTest, UniqueIdTest) {
 
 TEST(ThreadLocalTest, SequentialReadWriteTest) {
   // global id list carries over 3, 1, 2, 0
-  ASSERT_EQ(IDChecker::PeekId(), 0);
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
   port::Mutex mu;
   port::CondVar cv(&mu);
@@ -133,7 +133,7 @@ TEST(ThreadLocalTest, SequentialReadWriteTest) {
   };
 
   for (int iter = 0; iter < 1024; ++iter) {
-    ASSERT_EQ(IDChecker::PeekId(), 1);
+    ASSERT_EQ(IDChecker::PeekId(), 1u);
     // Another new thread, read/write should not see value from previous thread
     env_->StartThread(func, static_cast<void*>(&p));
     mu.Lock();
@@ -141,13 +141,13 @@ TEST(ThreadLocalTest, SequentialReadWriteTest) {
       cv.Wait();
     }
     mu.Unlock();
-    ASSERT_EQ(IDChecker::PeekId(), 1);
+    ASSERT_EQ(IDChecker::PeekId(), 1u);
   }
 }
 
 TEST(ThreadLocalTest, ConcurrentReadWriteTest) {
   // global id list carries over 3, 1, 2, 0
-  ASSERT_EQ(IDChecker::PeekId(), 0);
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
   ThreadLocalPtr tls2;
   port::Mutex mu1;
@@ -226,11 +226,11 @@ TEST(ThreadLocalTest, ConcurrentReadWriteTest) {
   }
   mu2.Unlock();
 
-  ASSERT_EQ(IDChecker::PeekId(), 3);
+  ASSERT_EQ(IDChecker::PeekId(), 3u);
 }
 
 TEST(ThreadLocalTest, Unref) {
-  ASSERT_EQ(IDChecker::PeekId(), 0);
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
   auto unref = [](void* ptr) {
     auto& p = *static_cast<Params*>(ptr);

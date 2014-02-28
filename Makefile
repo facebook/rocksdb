@@ -12,6 +12,10 @@ OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
 else
 OPT += -fno-omit-frame-pointer -momit-leaf-frame-pointer
 endif
+
+ifeq ($(MAKECMDGOALS),shared_lib)
+PLATFORM_SHARED_LDFLAGS=-fPIC
+endif
 #-----------------------------------------------
 
 # detect what platform we're building on
@@ -135,8 +139,8 @@ $(SHARED2): $(SHARED3)
 	ln -fs $(SHARED3) $(SHARED2)
 endif
 
-$(SHARED3): $(LIBOBJECTS)
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LDFLAGS) $(SOURCES)-o $@
+$(SHARED3):
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LDFLAGS) $(SOURCES) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
