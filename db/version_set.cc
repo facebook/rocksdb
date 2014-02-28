@@ -1485,14 +1485,19 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 
 Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                                VersionEdit* edit, port::Mutex* mu,
-                               Directory* db_directory,
-                               bool new_descriptor_log) {
+                               Directory* db_directory, bool new_descriptor_log,
+                               const ColumnFamilyOptions* options) {
   mu->AssertHeld();
 
-  if (column_family_data->IsDropped() && !edit->is_column_family_drop_) {
+  assert(column_family_data != nullptr || edit->is_column_family_add_);
+
+  if (column_family_data != nullptr && column_family_data->IsDropped()) {
     // if column family is dropped no need to write anything to the manifest
     // (unless, of course, thit is the drop column family write)
     return Status::OK();
+  }
+  if (edit->is_column_family_drop_) {
+    column_family_data->SetDropped();
   }
 
   // queue our request
@@ -1506,23 +1511,36 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   }
 
   std::vector<VersionEdit*> batch_edits;
-  Version* v = new Version(column_family_data, this, current_version_number_++);
-  Builder builder(column_family_data);
+  Version* v = nullptr;
+  std::unique_ptr<Builder> builder(nullptr);
 
   // process all requests in the queue
   ManifestWriter* last_writer = &w;
   assert(!manifest_writers_.empty());
   assert(manifest_writers_.front() == &w);
-  for (const auto& writer : manifest_writers_) {
-    if (writer->cfd->GetID() != column_family_data->GetID()) {
-      // group commits across column families are not yet supported
-      break;
+  if (edit->IsColumnFamilyManipulation()) {
+    // no group commits for column family add or drop
+    last_writer = &w;
+    edit->SetNextFile(next_file_number_);
+    edit->SetLastSequence(last_sequence_);
+    batch_edits.push_back(edit);
+  } else {
+    v = new Version(column_family_data, this, current_version_number_++);
+    builder.reset(new Builder(column_family_data));
+    for (const auto& writer : manifest_writers_) {
+      if (writer->edit->IsColumnFamilyManipulation() ||
+          writer->cfd->GetID() != column_family_data->GetID()) {
+        // no group commits for column family add or drop
+        // also, group commits across column families are not supported
+        break;
+      }
+      last_writer = writer;
+      LogAndApplyHelper(column_family_data, builder.get(), v, last_writer->edit,
+                        mu);
+      batch_edits.push_back(last_writer->edit);
     }
-    last_writer = writer;
-    LogAndApplyHelper(column_family_data, &builder, v, last_writer->edit, mu);
-    batch_edits.push_back(last_writer->edit);
+    builder->SaveTo(v);
   }
-  builder.SaveTo(v);
 
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
@@ -1547,17 +1565,20 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   // Unlock during expensive operations. New writes cannot get here
   // because &w is ensuring that all new writes get queued.
   {
-    // calculate the amount of data being compacted at every level
-    std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
-    column_family_data->compaction_picker()->SizeBeingCompacted(
-        size_being_compacted);
+    std::vector<uint64_t> size_being_compacted;
+    if (!edit->IsColumnFamilyManipulation()) {
+      size_being_compacted.resize(v->NumberLevels() - 1);
+      // calculate the amount of data being compacted at every level
+      column_family_data->compaction_picker()->SizeBeingCompacted(
+          size_being_compacted);
+    }
 
     mu->Unlock();
 
-    if (options_->max_open_files == -1) {
+    if (!edit->IsColumnFamilyManipulation() && options_->max_open_files == -1) {
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
-      builder.LoadTableHandlers();
+      builder->LoadTableHandlers();
     }
 
     // This is fine because everything inside of this block is serialized --
@@ -1573,10 +1594,12 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       }
     }
 
-    // The calls to Finalize and UpdateFilesBySize are cpu-heavy
-    // and is best called outside the mutex.
-    v->Finalize(size_being_compacted);
-    v->UpdateFilesBySize();
+    if (!edit->IsColumnFamilyManipulation()) {
+      // The calls to Finalize and UpdateFilesBySize are cpu-heavy
+      // and is best called outside the mutex.
+      v->Finalize(size_being_compacted);
+      v->UpdateFilesBySize();
+    }
 
     // Write new record to MANIFEST log
     if (s.ok()) {
@@ -1650,11 +1673,23 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
   // Install the new version
   if (s.ok()) {
-    manifest_file_size_ = new_manifest_file_size;
-    AppendVersion(column_family_data, v);
-    column_family_data->SetLogNumber(edit->log_number_);
-    prev_log_number_ = edit->prev_log_number_;
+    if (edit->is_column_family_add_) {
+      // no group commit on column family add
+      assert(batch_edits.size() == 1);
+      assert(options != nullptr);
+      CreateColumnFamily(*options, edit);
+    } else if (edit->is_column_family_drop_) {
+      assert(batch_edits.size() == 1);
+      if (column_family_data->Unref()) {
+        delete column_family_data;
+      }
+    } else {
+      column_family_data->SetLogNumber(batch_edits.back()->log_number_);
+      AppendVersion(column_family_data, v);
+    }
 
+    manifest_file_size_ = new_manifest_file_size;
+    prev_log_number_ = edit->prev_log_number_;
   } else {
     Log(options_->info_log, "Error in committing version %lu",
         (unsigned long)v->GetVersionNumber());
@@ -1694,19 +1729,14 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd, Builder* builder,
   edit->SetNextFile(next_file_number_);
   edit->SetLastSequence(last_sequence_);
 
-  if (edit->is_column_family_add_) {
-    assert(edit->has_log_number_);
+  if (edit->has_log_number_) {
+    assert(edit->log_number_ >= cfd->GetLogNumber());
   } else {
-    if (edit->has_log_number_) {
-      assert(edit->log_number_ >= cfd->GetLogNumber());
-    } else {
-      edit->SetLogNumber(cfd->GetLogNumber());
-    }
-
-    builder->Apply(edit);
+    edit->SetLogNumber(cfd->GetLogNumber());
   }
-
   assert(edit->log_number_ < next_file_number_);
+
+  builder->Apply(edit);
 }
 
 Status VersionSet::Recover(
@@ -2013,9 +2043,20 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
       break;
     }
     if (edit.is_column_family_add_) {
+      if (column_family_names.find(edit.column_family_) !=
+          column_family_names.end()) {
+        s = Status::Corruption("Manifest adding the same column family twice");
+        break;
+      }
       column_family_names.insert(
           {edit.column_family_, edit.column_family_name_});
     } else if (edit.is_column_family_drop_) {
+      if (column_family_names.find(edit.column_family_) ==
+          column_family_names.end()) {
+        s = Status::Corruption(
+            "Manifest - dropping non-existing column family");
+        break;
+      }
       column_family_names.erase(edit.column_family_);
     }
   }

@@ -101,6 +101,10 @@ class VersionEdit {
     return new_files_.size() + deleted_files_.size();
   }
 
+  bool IsColumnFamilyManipulation() {
+    return is_column_family_add_ || is_column_family_drop_;
+  }
+
   void SetColumnFamily(uint32_t column_family_id) {
     column_family_ = column_family_id;
   }

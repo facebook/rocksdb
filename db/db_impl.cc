@@ -3068,9 +3068,12 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   edit.SetLogNumber(logfile_number_);
   edit.SetComparatorName(options.comparator->Name());
 
-  Status s = versions_->LogAndApply(default_cf_handle_->cfd(), &edit, &mutex_);
+  Status s = versions_->LogAndApply(nullptr, &edit, &mutex_,
+                                    db_directory_.get(), false, &options);
   if (s.ok()) {
-    auto cfd = versions_->CreateColumnFamily(options, &edit);
+    auto cfd =
+        versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
+    assert(cfd != nullptr);
     *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
     Log(options_.info_log, "Created column family \"%s\" (ID %u)",
         column_family_name.c_str(), (unsigned)cfd->GetID());
@@ -3098,15 +3101,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     s = Status::InvalidArgument("Column family already dropped!\n");
   }
   if (s.ok()) {
-    cfd->SetDropped();
     s = versions_->LogAndApply(cfd, &edit, &mutex_);
-  }
-  if (s.ok()) {
-    // DB is holding one reference to each column family when it's alive,
-    // need to drop it now
-    if (cfd->Unref()) {
-      delete cfd;
-    }
   }
 
   if (s.ok()) {

@@ -333,6 +333,15 @@ ColumnFamilyData* ColumnFamilySet::GetColumnFamily(uint32_t id) const {
   }
 }
 
+ColumnFamilyData* ColumnFamilySet::GetColumnFamily(const std::string& name)
+    const {
+  auto cfd_iter = column_families_.find(name);
+  if (cfd_iter == column_families_.end()) {
+    return nullptr;
+  }
+  return GetColumnFamily(cfd_iter->second);
+}
+
 bool ColumnFamilySet::Exists(uint32_t id) {
   return column_family_data_.find(id) != column_family_data_.end();
 }

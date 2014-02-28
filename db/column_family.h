@@ -264,6 +264,7 @@ class ColumnFamilySet {
   ColumnFamilyData* GetDefault() const;
   // GetColumnFamily() calls return nullptr if column family is not found
   ColumnFamilyData* GetColumnFamily(uint32_t id) const;
+  ColumnFamilyData* GetColumnFamily(const std::string& name) const;
   bool Exists(uint32_t id);
   bool Exists(const std::string& name);
   uint32_t GetID(const std::string& name);

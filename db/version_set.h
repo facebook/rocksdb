@@ -296,11 +296,14 @@ class VersionSet {
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
   // current version.  Will release *mu while actually writing to the file.
+  // column_family_options has to be set if edit is column family add
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
   Status LogAndApply(ColumnFamilyData* column_family_data, VersionEdit* edit,
                      port::Mutex* mu, Directory* db_directory = nullptr,
-                     bool new_descriptor_log = false);
+                     bool new_descriptor_log = false,
+                     const ColumnFamilyOptions* column_family_options =
+                         nullptr);
 
   // Recover the last saved descriptor from persistent storage.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families);
@@ -401,9 +404,6 @@ class VersionSet {
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
-  ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
-                                       VersionEdit* edit);
-
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
 
  private:
@@ -425,6 +425,9 @@ class VersionSet {
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
   bool ManifestContains(const std::string& record) const;
+
+  ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
+                                       VersionEdit* edit);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
