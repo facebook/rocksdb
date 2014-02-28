@@ -3063,6 +3063,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   edit.AddColumnFamily(column_family_name);
   uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
   edit.SetColumnFamily(new_id);
+  edit.SetLogNumber(logfile_number_);
   auto cfd = versions_->CreateColumnFamily(options, &edit);
   assert(cfd != nullptr);
   edit.SetComparatorName(cfd->internal_comparator().user_comparator()->Name());
