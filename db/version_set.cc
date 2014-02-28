@@ -1679,21 +1679,25 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd, Builder* builder,
                                    port::Mutex* mu) {
   mu->AssertHeld();
 
-  if (edit->has_log_number_) {
-    assert(edit->log_number_ >= cfd->GetLogNumber());
-    assert(edit->log_number_ < next_file_number_);
-  } else {
-    edit->SetLogNumber(cfd->GetLogNumber());
-  }
-
   if (!edit->has_prev_log_number_) {
     edit->SetPrevLogNumber(prev_log_number_);
   }
-
   edit->SetNextFile(next_file_number_);
   edit->SetLastSequence(last_sequence_);
 
-  builder->Apply(edit);
+  if (edit->is_column_family_add_) {
+    assert(edit->has_log_number_);
+  } else {
+    if (edit->has_log_number_) {
+      assert(edit->log_number_ >= cfd->GetLogNumber());
+    } else {
+      edit->SetLogNumber(cfd->GetLogNumber());
+    }
+
+    builder->Apply(edit);
+  }
+
+  assert(edit->log_number_ < next_file_number_);
 }
 
 Status VersionSet::Recover(
@@ -2563,6 +2567,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
 
   AppendVersion(new_cfd, new Version(new_cfd, this, current_version_number_++));
   new_cfd->CreateNewMemtable();
+  delete new_cfd->InstallSuperVersion(new SuperVersion());
   return new_cfd;
 }
 

@@ -3055,7 +3055,9 @@ std::vector<Status> DBImpl::MultiGet(
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
                                   const std::string& column_family_name,
                                   ColumnFamilyHandle** handle) {
-  mutex_.Lock();
+  *handle = nullptr;
+  MutexLock l(&mutex_);
+
   if (versions_->GetColumnFamilySet()->Exists(column_family_name)) {
     return Status::InvalidArgument("Column family already exists");
   }
@@ -3064,21 +3066,12 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
   edit.SetColumnFamily(new_id);
   edit.SetLogNumber(logfile_number_);
-  auto cfd = versions_->CreateColumnFamily(options, &edit);
-  assert(cfd != nullptr);
-  edit.SetComparatorName(cfd->internal_comparator().user_comparator()->Name());
+  edit.SetComparatorName(options.comparator->Name());
 
   Status s = versions_->LogAndApply(default_cf_handle_->cfd(), &edit, &mutex_);
   if (s.ok()) {
+    auto cfd = versions_->CreateColumnFamily(options, &edit);
     *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
-  } else {
-    *handle = nullptr;
-    cfd->Unref();
-    delete cfd;
-  }
-  mutex_.Unlock();
-
-  if (s.ok()) {
     Log(options_.info_log, "Created column family \"%s\" (ID %u)",
         column_family_name.c_str(), (unsigned)cfd->GetID());
   } else {

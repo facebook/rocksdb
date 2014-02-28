@@ -287,8 +287,16 @@ class ColumnFamilyTest {
 TEST(ColumnFamilyTest, AddDrop) {
   Open();
   CreateColumnFamilies({"one", "two", "three"});
+  ASSERT_EQ("NOT_FOUND", Get(1, "fodor"));
+  ASSERT_EQ("NOT_FOUND", Get(2, "fodor"));
   DropColumnFamilies({2});
+  ASSERT_EQ("NOT_FOUND", Get(1, "fodor"));
   CreateColumnFamilies({"four"});
+  ASSERT_EQ("NOT_FOUND", Get(3, "fodor"));
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_EQ("mirko", Get(1, "fodor"));
+  ASSERT_EQ("NOT_FOUND", Get(3, "fodor"));
+
   Close();
   ASSERT_TRUE(TryOpen({"default"}).IsInvalidArgument());
   Open({"default", "one", "three", "four"});
