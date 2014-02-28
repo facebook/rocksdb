@@ -3063,17 +3063,27 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   edit.AddColumnFamily(column_family_name);
   uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
   edit.SetColumnFamily(new_id);
+  auto cfd = versions_->CreateColumnFamily(options, &edit);
+  assert(cfd != nullptr);
+  edit.SetComparatorName(cfd->internal_comparator().user_comparator()->Name());
 
   Status s = versions_->LogAndApply(default_cf_handle_->cfd(), &edit, &mutex_);
   if (s.ok()) {
-    // add to internal data structures
-    auto cfd = versions_->CreateColumnFamily(options, &edit);
     *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
+  } else {
+    *handle = nullptr;
+    cfd->Unref();
+    delete cfd;
   }
   mutex_.Unlock();
 
-  Log(options_.info_log, "Created column family \"%s\"",
-      column_family_name.c_str());
+  if (s.ok()) {
+    Log(options_.info_log, "Created column family \"%s\" (ID %u)",
+        column_family_name.c_str(), (unsigned)cfd->GetID());
+  } else {
+    Log(options_.info_log, "Creating column family \"%s\" FAILED -- %s",
+        column_family_name.c_str(), s.ToString().c_str());
+  }
   return s;
 }
 
@@ -3083,17 +3093,19 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   if (cfd->GetID() == 0) {
     return Status::InvalidArgument("Can't drop default column family");
   }
-  Log(options_.info_log, "Dropping column family with id %u\n", cfd->GetID());
 
   VersionEdit edit;
   edit.DropColumnFamily();
   edit.SetColumnFamily(cfd->GetID());
 
   MutexLock l(&mutex_);
+  Status s;
   if (cfd->IsDropped()) {
-    return Status::InvalidArgument("Column family already dropped!\n");
+    s = Status::InvalidArgument("Column family already dropped!\n");
   }
-  Status s = versions_->LogAndApply(cfd, &edit, &mutex_);
+  if (s.ok()) {
+    s = versions_->LogAndApply(cfd, &edit, &mutex_);
+  }
   if (s.ok()) {
     cfd->SetDropped();
     // DB is holding one reference to each column family when it's alive,
@@ -3101,6 +3113,13 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     if (cfd->Unref()) {
       delete cfd;
     }
+  }
+
+  if (s.ok()) {
+    Log(options_.info_log, "Dropped column family with id %u\n", cfd->GetID());
+  } else {
+    Log(options_.info_log, "Dropping column family with id %u FAILED -- %s\n",
+        cfd->GetID(), s.ToString().c_str());
   }
 
   return s;
