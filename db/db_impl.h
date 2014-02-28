@@ -85,8 +85,10 @@ class DBImpl : public DB {
                               bool flush_memtable = true);
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
   virtual SequenceNumber GetLatestSequenceNumber() const;
-  virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 unique_ptr<TransactionLogIterator>* iter);
+  virtual Status GetUpdatesSince(
+      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      const TransactionLogIterator::ReadOptions&
+          read_options = TransactionLogIterator::ReadOptions());
   virtual Status DeleteFile(std::string name);
 
   virtual void GetLiveFilesMetaData(

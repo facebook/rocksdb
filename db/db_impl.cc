@@ -1490,8 +1490,9 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
-Status DBImpl::GetUpdatesSince(SequenceNumber seq,
-                               unique_ptr<TransactionLogIterator>* iter) {
+Status DBImpl::GetUpdatesSince(
+    SequenceNumber seq, unique_ptr<TransactionLogIterator>* iter,
+    const TransactionLogIterator::ReadOptions& read_options) {
 
   RecordTick(options_.statistics.get(), GET_UPDATES_SINCE_CALLS);
   if (seq > versions_->LastSequence()) {
@@ -1511,13 +1512,9 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   if (!s.ok()) {
     return s;
   }
-  iter->reset(
-    new TransactionLogIteratorImpl(options_.wal_dir,
-                                   &options_,
-                                   storage_options_,
-                                   seq,
-                                   std::move(wal_files),
-                                   this));
+  iter->reset(new TransactionLogIteratorImpl(options_.wal_dir, &options_,
+                                             read_options, storage_options_,
+                                             seq, std::move(wal_files), this));
   return (*iter)->status();
 }
 

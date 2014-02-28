@@ -5005,8 +5005,10 @@ class ModelDB: public DB {
   virtual SequenceNumber GetLatestSequenceNumber() const {
     return 0;
   }
-  virtual Status GetUpdatesSince(rocksdb::SequenceNumber,
-                                 unique_ptr<rocksdb::TransactionLogIterator>*) {
+  virtual Status GetUpdatesSince(
+      rocksdb::SequenceNumber, unique_ptr<rocksdb::TransactionLogIterator>*,
+      const TransactionLogIterator::ReadOptions&
+          read_options = TransactionLogIterator::ReadOptions()) {
     return Status::NotSupported("Not supported in Model DB");
   }
 

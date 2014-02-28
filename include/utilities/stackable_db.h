@@ -152,10 +152,10 @@ class StackableDB : public DB {
     return db_->GetPropertiesOfAllTables(props);
   }
 
-  virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 unique_ptr<TransactionLogIterator>* iter)
-    override {
-      return db_->GetUpdatesSince(seq_number, iter);
+  virtual Status GetUpdatesSince(
+      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      const TransactionLogIterator::ReadOptions& read_options) override {
+    return db_->GetUpdatesSince(seq_number, iter, read_options);
   }
 
  protected:
