@@ -1489,8 +1489,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                                bool new_descriptor_log) {
   mu->AssertHeld();
 
-  if (column_family_data->IsDropped()) {
-    // no need to write anything to the manifest
+  if (column_family_data->IsDropped() && !edit->is_column_family_drop_) {
+    // if column family is dropped no need to write anything to the manifest
+    // (unless, of course, thit is the drop column family write)
     return Status::OK();
   }
 

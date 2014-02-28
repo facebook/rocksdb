@@ -3098,10 +3098,10 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     s = Status::InvalidArgument("Column family already dropped!\n");
   }
   if (s.ok()) {
+    cfd->SetDropped();
     s = versions_->LogAndApply(cfd, &edit, &mutex_);
   }
   if (s.ok()) {
-    cfd->SetDropped();
     // DB is holding one reference to each column family when it's alive,
     // need to drop it now
     if (cfd->Unref()) {
