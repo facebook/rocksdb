@@ -2567,6 +2567,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
 
   AppendVersion(new_cfd, new Version(new_cfd, this, current_version_number_++));
   new_cfd->CreateNewMemtable();
+  new_cfd->SetLogNumber(edit->log_number_);
   delete new_cfd->InstallSuperVersion(new SuperVersion());
   return new_cfd;
 }
