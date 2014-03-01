@@ -1025,10 +1025,14 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
       result = rep_->metaindex_handle.offset();
     }
   } else {
-    // key is past the last key in the file.  Approximate the offset
-    // by returning the offset of the metaindex block (which is
-    // right near the end of the file).
-    result = rep_->metaindex_handle.offset();
+    // key is past the last key in the file. If table_properties is not
+    // available, approximate the offset by returning the offset of the
+    // metaindex block (which is right near the end of the file).
+    result = rep_->table_properties->data_size;
+    // table_properties is not present in the table.
+    if (result == 0) {
+      result = rep_->metaindex_handle.offset();
+    }
   }
   return result;
 }
