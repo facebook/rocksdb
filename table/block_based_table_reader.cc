@@ -181,7 +181,7 @@ class BinarySearchIndexReader : public IndexReader {
       : IndexReader(comparator), index_block_(index_block) {
     assert(index_block_ != nullptr);
   }
-  Block* index_block_;
+  std::unique_ptr<Block> index_block_;
 };
 
 // TODO(kailiu) This class is only a stub for now. And the comment below is also
