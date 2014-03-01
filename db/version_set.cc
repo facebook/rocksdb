@@ -1553,8 +1553,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
     // only one thread can be here at the same time
     if (!new_manifest_filename.empty()) {
       unique_ptr<WritableFile> descriptor_file;
-      s = env_->NewWritableFile(new_manifest_filename,
-                                &descriptor_file,
+      s = env_->NewWritableFile(new_manifest_filename, &descriptor_file,
                                 storage_options_.AdaptForLogWrite());
       if (s.ok()) {
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));

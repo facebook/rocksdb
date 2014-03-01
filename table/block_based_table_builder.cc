@@ -87,8 +87,8 @@ struct BlockBasedTableBuilder::Rep {
         filter_block(opt.filter_policy == nullptr
                          ? nullptr
                          : new FilterBlockBuilder(opt, &internal_comparator)),
-        flush_block_policy(
-            flush_block_policy_factory->NewFlushBlockPolicy(data_block)) {}
+        flush_block_policy(flush_block_policy_factory->NewFlushBlockPolicy(
+            options, data_block)) {}
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(

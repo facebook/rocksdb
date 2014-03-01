@@ -689,8 +689,7 @@ class Harness {
     switch (args.type) {
       case BLOCK_BASED_TABLE_TEST:
         table_options.flush_block_policy_factory.reset(
-            new FlushBlockBySizePolicyFactory(options_.block_size,
-                                              options_.block_size_deviation));
+            new FlushBlockBySizePolicyFactory());
         options_.table_factory.reset(new BlockBasedTableFactory(table_options));
         constructor_ = new TableConstructor(options_.comparator);
         break;
