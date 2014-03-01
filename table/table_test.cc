@@ -9,6 +9,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+
 #include <algorithm>
 #include <map>
 #include <string>
@@ -16,8 +17,6 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "rocksdb/statistics.h"
-#include "util/statistics.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 
@@ -25,11 +24,11 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/statistics.h"
+
 #include "table/block.h"
-#include "table/meta_blocks.h"
-#include "table/block_based_table_reader.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
@@ -39,6 +38,7 @@
 #include "table/plain_table_factory.h"
 
 #include "util/random.h"
+#include "util/statistics.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -1201,7 +1201,7 @@ TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
   // preloading filter/index blocks is enabled.
   auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
   ASSERT_TRUE(reader->TEST_filter_block_preloaded());
-  ASSERT_TRUE(reader->TEST_index_block_preloaded());
+  ASSERT_TRUE(reader->TEST_index_reader_preloaded());
 
   {
     // nothing happens in the beginning
@@ -1242,7 +1242,7 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   // preloading filter/index blocks is prohibited.
   auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
-  ASSERT_TRUE(!reader->TEST_index_block_preloaded());
+  ASSERT_TRUE(!reader->TEST_index_reader_preloaded());
 
   // -- PART 1: Open with regular block cache.
   // Since block_cache is disabled, no cache activities will be involved.

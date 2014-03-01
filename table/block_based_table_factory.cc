@@ -11,7 +11,10 @@
 #include "table/block_based_table_factory.h"
 
 #include <memory>
+#include <string>
 #include <stdint.h>
+
+#include "rocksdb/flush_block_policy.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
 #include "port/port.h"
@@ -40,12 +43,8 @@ Status BlockBasedTableFactory::NewTableReader(
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const Options& options, const InternalKeyComparator& internal_comparator,
     WritableFile* file, CompressionType compression_type) const {
-  auto flush_block_policy_factory =
-      table_options_.flush_block_policy_factory.get();
-
-  auto table_builder =
-      new BlockBasedTableBuilder(options, internal_comparator, file,
-                                 flush_block_policy_factory, compression_type);
+  auto table_builder = new BlockBasedTableBuilder(
+      options, table_options_, internal_comparator, file, compression_type);
 
   return table_builder;
 }
@@ -54,5 +53,8 @@ TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options) {
   return new BlockBasedTableFactory(table_options);
 }
+
+const std::string BlockBasedTablePropertyNames::kIndexType =
+    "rocksdb.block.based.table.index.type";
 
 }  // namespace rocksdb
