@@ -45,9 +45,7 @@ namespace {
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
 // varints.
-// For some reason, compiling for iOS complains that this variable is unused
-const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
-    kMaxVarint64Length * 3 + 1;
+const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
 
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
@@ -150,20 +148,26 @@ class BinarySearchIndexReader : public IndexReader {
  public:
   // Read index from the file and create an intance for
   // `BinarySearchIndexReader`.
-  // On success, index_reader will be populated; otherwise it will remain
-  // unmodified.
-  static Status Create(RandomAccessFile* file, const BlockHandle& index_handle,
-                       Env* env, const Comparator* comparator,
-                       IndexReader** index_reader) {
+  // The return value is a pair, where
+  //  * first element is the status indicating if the operation succeeded.
+  //  * second element is the index reader to be created. On failure, this
+  // element will be nullptr
+  static std::pair<Status, IndexReader*> Create(RandomAccessFile* file,
+                                                const BlockHandle& index_handle,
+                                                Env* env,
+                                                const Comparator* comparator) {
     Block* index_block = nullptr;
-    auto s = ReadBlockFromFile(file, ReadOptions(), index_handle,
-                               &index_block, env);
+    auto s =
+        ReadBlockFromFile(file, ReadOptions(), index_handle, &index_block, env);
 
-    if (s.ok()) {
-      *index_reader = new BinarySearchIndexReader(comparator, index_block);
+    if (!s.ok()) {
+      // Logically, index_block shouldn't have been populated if any error
+      // occurred.
+      assert(index_block == nullptr);
+      return {s, nullptr};
     }
 
-    return s;
+    return {s, new BinarySearchIndexReader(comparator, index_block)};
   }
 
   virtual Iterator* NewIterator() override {
@@ -186,12 +190,12 @@ class BinarySearchIndexReader : public IndexReader {
 // key.
 class HashIndexReader : public IndexReader {
  public:
-  static Status Create(RandomAccessFile* file, const BlockHandle& index_handle,
-                       Env* env, const Comparator* comparator,
-                       BlockBasedTable* table,
-                       const SliceTransform* prefix_extractor,
-                       IndexReader** index_reader) {
-    return Status::NotSupported("not implemented yet!");
+  static std::pair<Status, IndexReader*> Create(
+      RandomAccessFile* file, const BlockHandle& index_handle, Env* env,
+      const Comparator* comparator, BlockBasedTable* table,
+      const SliceTransform* prefix_extractor) {
+    return {Status::NotSupported("not implemented yet!"),
+            nullptr};  // not finished
   }
 };
 
@@ -363,7 +367,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
     // and with a same life-time as this table object.
     IndexReader* index_reader = nullptr;
     // TODO: we never really verify check sum for index block
-    s = new_table->CreateIndexReader(&index_reader);
+    std::tie(s, index_reader) = new_table->CreateIndexReader();
 
     if (s.ok()) {
       rep->index_reader.reset(index_reader);
@@ -775,7 +779,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options)
   } else {
     // Create index reader and put it in the cache.
     Status s;
-    s = CreateIndexReader(&index_reader);
+    std::tie(s, index_reader) = CreateIndexReader();
 
     if (!s.ok()) {
       // make sure if something goes wrong, index_reader shall remain intact.
@@ -975,7 +979,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 //  3. options
 //  4. internal_comparator
 //  5. index_type
-Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) const {
+std::pair<Status, IndexReader*> BlockBasedTable::CreateIndexReader() const {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
   auto index_type = BlockBasedTableOptions::kBinarySearch;
@@ -990,14 +994,15 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) const {
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(
           rep_->file.get(), rep_->index_handle, rep_->options.env,
-          &rep_->internal_comparator, index_reader);
+          &rep_->internal_comparator);
     }
     default: {
       std::string error_message =
           "Unrecognized index type: " + std::to_string(rep_->index_type);
       // equivalent to assert(false), but more informative.
       assert(!error_message.c_str());
-      return Status::InvalidArgument(error_message.c_str());
+      return {Status::InvalidArgument(error_message.c_str()),
+              nullptr};  // cannot reach here
     }
   }
 }
