@@ -164,7 +164,7 @@ class BlockBasedTable : public TableReader {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
-  std::pair<Status, IndexReader*> CreateIndexReader() const;
+  Status CreateIndexReader(IndexReader** index_reader) const;
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(
