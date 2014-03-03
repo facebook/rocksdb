@@ -955,7 +955,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
     WriteBatchInternal::SetContents(&batch, record);
 
     status = WriteBatchInternal::InsertInto(
-        &batch, column_family_memtables_.get(), log_number);
+        &batch, column_family_memtables_.get(), true, log_number);
 
     MaybeIgnoreError(&status);
     if (!status.ok()) {
@@ -3311,7 +3311,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
 
         StartPerfTimer(&write_memtable_timer);
         status = WriteBatchInternal::InsertInto(
-            updates, column_family_memtables_.get(), 0, this, false);
+            updates, column_family_memtables_.get(), false, 0, this, false);
         BumpPerfTime(&perf_context.write_memtable_time, &write_memtable_timer);
 
         if (!status.ok()) {
