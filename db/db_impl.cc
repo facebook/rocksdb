@@ -300,6 +300,10 @@ DBImpl::~DBImpl() {
     bg_cv_.Wait();
   }
 
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    cfd->DeleteSuperVersion();
+  }
+
   if (options_.allow_thread_local) {
     // Clean up obsolete files due to SuperVersion release.
     // (1) Need to delete to obsolete files before closing because RepairDB()
@@ -329,9 +333,11 @@ DBImpl::~DBImpl() {
     env_->UnlockFile(db_lock_);
   }
 
+  mutex_.Lock();
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
   versions_.reset();
+  mutex_.Unlock();
 
   LogFlush(options_.info_log);
 }

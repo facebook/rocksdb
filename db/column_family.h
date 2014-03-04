@@ -180,6 +180,9 @@ class ColumnFamilyData {
                                     port::Mutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
+  // REQUIRED: db mutex held
+  // Do not access column family after calling this method
+  void DeleteSuperVersion();
 
   // A Flag indicating whether write needs to slowdown because of there are
   // too many number of level0 files.
@@ -227,7 +230,7 @@ class ColumnFamilyData {
 
   // Thread's local copy of SuperVersion pointer
   // This needs to be destructed before mutex_
-  ThreadLocalPtr* local_sv_;
+  std::unique_ptr<ThreadLocalPtr> local_sv_;
 
   // pointers for a circular linked list. we use it to support iterations
   // that can be concurrent with writes

@@ -222,28 +222,6 @@ ColumnFamilyData::~ColumnFamilyData() {
   prev->next_ = next;
   next->prev_ = prev;
 
-  // Release SuperVersion reference kept in ThreadLocalPtr.
-  // This must be done outside of mutex_ since unref handler can lock mutex.
-  // It also needs to be done after FlushMemTable, which can trigger local_sv_
-  // access.
-  auto sv = static_cast<SuperVersion*>(local_sv_->Get());
-  if (sv != nullptr) {
-    auto mutex = sv->db_mutex;
-    mutex->Unlock();
-    delete local_sv_;
-    mutex->Lock();
-  } else {
-    delete local_sv_;
-  }
-
-  if (super_version_ != nullptr) {
-    bool is_last_reference __attribute__((unused));
-    is_last_reference = super_version_->Unref();
-    assert(is_last_reference);
-    super_version_->Cleanup();
-    delete super_version_;
-  }
-
   // it's nullptr for dummy CFD
   if (column_family_set_ != nullptr) {
     // remove from column_family_set
@@ -253,6 +231,8 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (current_ != nullptr) {
     current_->Unref();
   }
+
+  DeleteSuperVersion();
 
   if (dummy_versions_ != nullptr) {
     // List must be empty
@@ -327,6 +307,23 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
       sv->Cleanup();
       delete sv;
     }
+  }
+}
+
+void ColumnFamilyData::DeleteSuperVersion() {
+  if (super_version_ != nullptr) {
+    // Release SuperVersion reference kept in ThreadLocalPtr.
+    // This must be done outside of mutex_ since unref handler can lock mutex.
+    super_version_->db_mutex->Unlock();
+    local_sv_.reset();
+    super_version_->db_mutex->Lock();
+
+    bool is_last_reference __attribute__((unused));
+    is_last_reference = super_version_->Unref();
+    assert(is_last_reference);
+    super_version_->Cleanup();
+    delete super_version_;
+    super_version_ = nullptr;
   }
 }
 
