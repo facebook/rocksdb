@@ -1568,9 +1568,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
 
     // Write new record to MANIFEST log
     if (s.ok()) {
-      std::string record;
-      for (unsigned int i = 0; i < batch_edits.size(); i++) {
-        batch_edits[i]->EncodeTo(&record);
+      for (auto& e : batch_edits) {
+        std::string record;
+        e->EncodeTo(&record);
         s = descriptor_log_->AddRecord(record);
         if (!s.ok()) {
           break;
@@ -1589,7 +1589,16 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       }
       if (!s.ok()) {
         Log(options_->info_log, "MANIFEST write: %s\n", s.ToString().c_str());
-        if (ManifestContains(record)) {
+        bool all_records_in = true;
+        for (auto& e : batch_edits) {
+          std::string record;
+          e->EncodeTo(&record);
+          if (!ManifestContains(record)) {
+            all_records_in = false;
+            break;
+          }
+        }
+        if (all_records_in) {
           Log(options_->info_log,
               "MANIFEST contains log record despite error; advancing to new "
               "version to prevent mismatch between in-memory and logged state"
