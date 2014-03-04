@@ -10,7 +10,7 @@ INSTALL_PATH ?= $(CURDIR)
 ifneq ($(MAKECMDGOALS),dbg)
 OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
 else
-OPT += -fno-omit-frame-pointer -momit-leaf-frame-pointer
+# intentionally left blank
 endif
 
 ifeq ($(MAKECMDGOALS),shared_lib)
