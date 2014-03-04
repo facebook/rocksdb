@@ -335,7 +335,8 @@ class DBImpl : public DB {
   static void BGWorkFlush(void* db);
   void BackgroundCallCompaction();
   void BackgroundCallFlush();
-  Status BackgroundCompaction(bool* madeProgress,DeletionState& deletion_state);
+  Status BackgroundCompaction(bool* madeProgress, DeletionState& deletion_state,
+                              LogBuffer* log_buffer);
   Status BackgroundFlush(bool* madeProgress, DeletionState& deletion_state);
   void CleanupCompaction(CompactionState* compact, Status status);
   Status DoCompactionWork(CompactionState* compact,

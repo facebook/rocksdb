@@ -19,6 +19,7 @@
 
 namespace rocksdb {
 
+class LogBuffer;
 class Compaction;
 class Version;
 
@@ -31,7 +32,8 @@ class CompactionPicker {
   // Returns nullptr if there is no compaction to be done.
   // Otherwise returns a pointer to a heap-allocated object that
   // describes the compaction.  Caller should delete the result.
-  virtual Compaction* PickCompaction(Version* version) = 0;
+  virtual Compaction* PickCompaction(Version* version,
+                                     LogBuffer* log_buffer) = 0;
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
@@ -127,16 +129,19 @@ class UniversalCompactionPicker : public CompactionPicker {
   UniversalCompactionPicker(const Options* options,
                             const InternalKeyComparator* icmp)
       : CompactionPicker(options, icmp) {}
-  virtual Compaction* PickCompaction(Version* version) override;
+  virtual Compaction* PickCompaction(Version* version,
+                                     LogBuffer* log_buffer) override;
 
  private:
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionUniversalReadAmp(Version* version, double score,
                                              unsigned int ratio,
-                                             unsigned int num_files);
+                                             unsigned int num_files,
+                                             LogBuffer* log_buffer);
 
   // Pick Universal compaction to limit space amplification.
-  Compaction* PickCompactionUniversalSizeAmp(Version* version, double score);
+  Compaction* PickCompactionUniversalSizeAmp(Version* version, double score,
+                                             LogBuffer* log_buffer);
 };
 
 class LevelCompactionPicker : public CompactionPicker {
@@ -144,7 +149,8 @@ class LevelCompactionPicker : public CompactionPicker {
   LevelCompactionPicker(const Options* options,
                         const InternalKeyComparator* icmp)
       : CompactionPicker(options, icmp) {}
-  virtual Compaction* PickCompaction(Version* version) override;
+  virtual Compaction* PickCompaction(Version* version,
+                                     LogBuffer* log_buffer) override;
 
  private:
   // For the specfied level, pick a compaction.

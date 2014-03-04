@@ -1924,57 +1924,61 @@ void DBImpl::BackgroundCallCompaction() {
   DeletionState deletion_state(true);
 
   MaybeDumpStats();
+  LogBuffer log_buffer(INFO, options_.info_log);
+  {
+    MutexLock l(&mutex_);
+    // Log(options_.info_log, "XXX BG Thread %llx process new work item",
+    //     pthread_self());
+    assert(bg_compaction_scheduled_);
+    Status s;
+    if (!shutting_down_.Acquire_Load()) {
+      s = BackgroundCompaction(&madeProgress, deletion_state, &log_buffer);
+      if (!s.ok()) {
+        // Wait a little bit before retrying background compaction in
+        // case this is an environmental problem and we do not want to
+        // chew up resources for failed compactions for the duration of
+        // the problem.
+        bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
+        mutex_.Unlock();
+        Log(options_.info_log, "Waiting after background compaction error: %s",
+            s.ToString().c_str());
+        LogFlush(options_.info_log);
+        env_->SleepForMicroseconds(1000000);
+        mutex_.Lock();
+      }
+    }
 
-  MutexLock l(&mutex_);
-  // Log(options_.info_log, "XXX BG Thread %llx process new work item", pthread_self());
-  assert(bg_compaction_scheduled_);
-  Status s;
-  if (!shutting_down_.Acquire_Load()) {
-    s = BackgroundCompaction(&madeProgress, deletion_state);
-    if (!s.ok()) {
-      // Wait a little bit before retrying background compaction in
-      // case this is an environmental problem and we do not want to
-      // chew up resources for failed compactions for the duration of
-      // the problem.
-      bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
-      Log(options_.info_log, "Waiting after background compaction error: %s",
-          s.ToString().c_str());
+    // If !s.ok(), this means that Compaction failed. In that case, we want
+    // to delete all obsolete files we might have created and we force
+    // FindObsoleteFiles(). This is because deletion_state does not catch
+    // all created files if compaction failed.
+    FindObsoleteFiles(deletion_state, !s.ok());
+
+    // delete unnecessary files if any, this is done outside the mutex
+    if (deletion_state.HaveSomethingToDelete()) {
       mutex_.Unlock();
-      LogFlush(options_.info_log);
-      env_->SleepForMicroseconds(1000000);
+      PurgeObsoleteFiles(deletion_state);
       mutex_.Lock();
     }
+
+    bg_compaction_scheduled_--;
+
+    MaybeScheduleLogDBDeployStats();
+
+    // Previous compaction may have produced too many files in a level,
+    // So reschedule another compaction if we made progress in the
+    // last compaction.
+    if (madeProgress) {
+      MaybeScheduleFlushOrCompaction();
+    }
+    bg_cv_.SignalAll();
   }
-
-  // If !s.ok(), this means that Compaction failed. In that case, we want
-  // to delete all obsolete files we might have created and we force
-  // FindObsoleteFiles(). This is because deletion_state does not catch
-  // all created files if compaction failed.
-  FindObsoleteFiles(deletion_state, !s.ok());
-
-  // delete unnecessary files if any, this is done outside the mutex
-  if (deletion_state.HaveSomethingToDelete()) {
-    mutex_.Unlock();
-    PurgeObsoleteFiles(deletion_state);
-    mutex_.Lock();
-  }
-
-  bg_compaction_scheduled_--;
-
-  MaybeScheduleLogDBDeployStats();
-
-  // Previous compaction may have produced too many files in a level,
-  // So reschedule another compaction if we made progress in the
-  // last compaction.
-  if (madeProgress) {
-    MaybeScheduleFlushOrCompaction();
-  }
-  bg_cv_.SignalAll();
-
+  log_buffer.FlushBufferToLog();
 }
 
 Status DBImpl::BackgroundCompaction(bool* madeProgress,
-                                    DeletionState& deletion_state) {
+                                    DeletionState& deletion_state,
+                                    LogBuffer* log_buffer) {
   *madeProgress = false;
   mutex_.AssertHeld();
 
@@ -1987,10 +1991,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
 
   // TODO: remove memtable flush from formal compaction
   while (imm_.IsFlushPending()) {
-    Log(options_.info_log,
-        "BackgroundCompaction doing FlushMemTableToOutputFile, compaction slots "
-        "available %d",
-        options_.max_background_compactions - bg_compaction_scheduled_);
+    LogToBuffer(log_buffer,
+                "BackgroundCompaction doing FlushMemTableToOutputFile, "
+                "compaction slots "
+                "available %d",
+                options_.max_background_compactions - bg_compaction_scheduled_);
     Status stat = FlushMemTableToOutputFile(madeProgress, deletion_state);
     if (!stat.ok()) {
       if (is_manual) {
@@ -2014,24 +2019,24 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     if (!c) {
       m->done = true;
     }
-    Log(options_.info_log,
+    LogToBuffer(
+        log_buffer,
         "Manual compaction from level-%d to level-%d from %s .. %s; will stop "
         "at %s\n",
-        m->input_level,
-        m->output_level,
+        m->input_level, m->output_level,
         (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
         (m->end ? m->end->DebugString().c_str() : "(end)"),
         ((m->done || manual_end == nullptr)
              ? "(end)"
              : manual_end->DebugString().c_str()));
   } else if (!options_.disable_auto_compactions) {
-    c.reset(versions_->PickCompaction());
+    c.reset(versions_->PickCompaction(log_buffer));
   }
 
   Status status;
   if (!c) {
     // Nothing to do
-    Log(options_.info_log, "Compaction nothing to do");
+    LogToBuffer(log_buffer, "Compaction nothing to do");
   } else if (!is_manual && c->IsTrivialMove()) {
     // Move file to next level
     assert(c->num_input_files(0) == 1);
@@ -2043,10 +2048,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     status = versions_->LogAndApply(c->edit(), &mutex_, db_directory_.get());
     InstallSuperVersion(deletion_state);
     Version::LevelSummaryStorage tmp;
-    Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
-        static_cast<unsigned long long>(f->number), c->level() + 1,
-        static_cast<unsigned long long>(f->file_size),
-        status.ToString().c_str(), versions_->current()->LevelSummary(&tmp));
+    LogToBuffer(log_buffer, "Moved #%lld to level-%d %lld bytes %s: %s\n",
+                static_cast<unsigned long long>(f->number), c->level() + 1,
+                static_cast<unsigned long long>(f->file_size),
+                status.ToString().c_str(),
+                versions_->current()->LevelSummary(&tmp));
     versions_->ReleaseCompactionFiles(c.get(), status);
     *madeProgress = true;
   } else {
@@ -2065,8 +2071,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   } else if (shutting_down_.Acquire_Load()) {
     // Ignore compaction errors found during shutting down
   } else {
-    Log(options_.info_log,
-        "Compaction error: %s", status.ToString().c_str());
+    Log(WARN, options_.info_log, "Compaction error: %s",
+        status.ToString().c_str());
     if (options_.paranoid_checks && bg_error_.ok()) {
       bg_error_ = status;
     }

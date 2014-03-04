@@ -2165,8 +2165,8 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
   }
 }
 
-Compaction* VersionSet::PickCompaction() {
-  return compaction_picker_->PickCompaction(current_);
+Compaction* VersionSet::PickCompaction(LogBuffer* log_buffer) {
+  return compaction_picker_->PickCompaction(current_, log_buffer);
 }
 
 Compaction* VersionSet::CompactRange(int input_level, int output_level,
