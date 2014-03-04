@@ -961,7 +961,6 @@ class BlockBasedTableTest : public TableTest {};
 class PlainTableTest : public TableTest {};
 class TablePropertyTest {};
 
-/*
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
 TEST(TablePropertyTest, PrefixScanTest) {
@@ -1123,7 +1122,6 @@ TEST(BlockBasedTableTest, NumBlockStat) {
   ASSERT_EQ(kvmap.size(),
             c.table_reader()->GetTableProperties()->num_data_blocks);
 }
-*/
 
 // A simple tool that takes the snapshot of block cache statistics.
 class BlockCachePropertiesSnapshot {

@@ -10,7 +10,7 @@ INSTALL_PATH ?= $(CURDIR)
 ifneq ($(MAKECMDGOALS),dbg)
 OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
 else
-OPT += -fno-omit-frame-pointer -momit-leaf-frame-pointer
+# intentionally left blank
 endif
 
 ifeq ($(MAKECMDGOALS),shared_lib)
@@ -55,6 +55,7 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
 	db_test \
+	block_hash_index_test \
 	autovector_test \
 	column_family_test \
 	table_properties_collector_test \
@@ -227,6 +228,9 @@ $(LIBRARY): $(LIBOBJECTS)
 
 db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) db/db_bench.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
+
+block_hash_index_test: table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	 $(CXX) table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)

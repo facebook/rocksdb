@@ -26,15 +26,6 @@
 #include "util/statistics.h"
 #include "util/stop_watch.h"
 
-namespace std {
-template <>
-struct hash<rocksdb::Slice> {
-  size_t operator()(const rocksdb::Slice& slice) const {
-    return MurmurHash(slice.data(), slice.size(), 0);
-  }
-};
-}
-
 namespace rocksdb {
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
@@ -167,7 +158,8 @@ Iterator* MemTable::NewIterator(const ReadOptions& options) {
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
-  return &locks_[std::hash<Slice>()(key) % locks_.size()];
+  static murmur_hash hash;
+  return &locks_[hash(key) % locks_.size()];
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,
