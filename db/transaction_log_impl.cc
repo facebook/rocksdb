@@ -10,10 +10,12 @@ namespace rocksdb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const DBOptions* options,
+    const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
     std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl)
     : dir_(dir),
       options_(options),
+      read_options_(read_options),
       soptions_(soptions),
       startingSequenceNumber_(seq),
       files_(std::move(files)),
@@ -250,9 +252,8 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
     return status;
   }
   assert(file);
-  currentLogReader_.reset(
-    new log::Reader(std::move(file), &reporter_, true, 0)
-  );
+  currentLogReader_.reset(new log::Reader(std::move(file), &reporter_,
+                                          read_options_.verify_checksums_, 0));
   return Status::OK();
 }
 }  //  namespace rocksdb

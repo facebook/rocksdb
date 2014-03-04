@@ -19,6 +19,7 @@
 #include "db/memtable_list.h"
 #include "db/write_batch_internal.h"
 #include "db/table_cache.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 
@@ -72,6 +73,9 @@ struct SuperVersion {
   // all memtables that we need to free through this vector. We then
   // delete all those memtables outside of mutex, during destruction
   autovector<MemTable*> to_delete;
+  // Version number of the current SuperVersion
+  uint64_t version_number;
+  port::Mutex* db_mutex;
 
   // should be called outside the mutex
   SuperVersion() = default;
@@ -159,6 +163,12 @@ class ColumnFamilyData {
   }
 
   SuperVersion* GetSuperVersion() const { return super_version_; }
+  SuperVersion* GetAndResetThreadLocalSuperVersion() const {
+    return static_cast<SuperVersion*>(local_sv_->Swap(nullptr));
+  }
+  void SetThreadLocalSuperVersion(SuperVersion* super_version) {
+    local_sv_->Reset(static_cast<void*>(super_version));
+  }
   uint64_t GetSuperVersionNumber() const {
     return super_version_number_.load();
   }
@@ -166,7 +176,10 @@ class ColumnFamilyData {
   // if its reference count is zero and needs deletion or nullptr if not
   // As argument takes a pointer to allocated SuperVersion to enable
   // the clients to allocate SuperVersion outside of mutex.
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion);
+  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
+                                    port::Mutex* db_mutex);
+
+  void ResetThreadLocalSuperVersions();
 
   // A Flag indicating whether write needs to slowdown because of there are
   // too many number of level0 files.
@@ -211,6 +224,10 @@ class ColumnFamilyData {
   // InstallSuperVersion(), i.e. incremented every time super_version_
   // changes.
   std::atomic<uint64_t> super_version_number_;
+
+  // Thread's local copy of SuperVersion pointer
+  // This needs to be destructed before mutex_
+  ThreadLocalPtr* local_sv_;
 
   // pointers for a circular linked list. we use it to support iterations
   // that can be concurrent with writes

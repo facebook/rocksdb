@@ -85,6 +85,19 @@ class TransactionLogIterator {
   // earliest transaction contained in the batch.
   // ONLY use if Valid() is true and status() is OK.
   virtual BatchResult GetBatch() = 0;
+
+  // The read options for TransactionLogIterator.
+  struct ReadOptions {
+    // If true, all data read from underlying storage will be
+    // verified against corresponding checksums.
+    // Default: true
+    bool verify_checksums_;
+
+    ReadOptions() : verify_checksums_(true) {}
+
+    explicit ReadOptions(bool verify_checksums)
+        : verify_checksums_(verify_checksums) {}
+  };
 };
 } //  namespace rocksdb
 

@@ -103,7 +103,7 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            error_if_log_file_exist);
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      delete cfd->InstallSuperVersion(new SuperVersion());
+      delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
     }
   }
   impl->mutex_.Unlock();

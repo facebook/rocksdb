@@ -420,8 +420,10 @@ class DB {
   // use this api, else the WAL files will get
   // cleared aggressively and the iterator might keep getting invalid before
   // an update is read.
-  virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 unique_ptr<TransactionLogIterator>* iter) = 0;
+  virtual Status GetUpdatesSince(
+      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      const TransactionLogIterator::ReadOptions&
+          read_options = TransactionLogIterator::ReadOptions()) = 0;
 
   // Delete the file name from the db directory and update the internal state to
   // reflect that. Supports deletion of sst and log files only. 'name' must be

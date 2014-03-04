@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -19,6 +20,7 @@ namespace rocksdb {
 class BlockBuilder;
 class BlockHandle;
 class WritableFile;
+struct BlockBasedTableOptions;
 
 class BlockBasedTableBuilder : public TableBuilder {
  public:
@@ -26,10 +28,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // building in *file.  Does not close the file.  It is up to the
   // caller to close the file after calling Finish().
   BlockBasedTableBuilder(const Options& options,
+                         const BlockBasedTableOptions& table_options,
                          const InternalKeyComparator& internal_comparator,
-                         WritableFile* file,
-                         FlushBlockPolicyFactory* flush_block_policy_factory,
-                         CompressionType compression_type);
+                         WritableFile* file, CompressionType compression_type);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
@@ -63,11 +64,17 @@ class BlockBasedTableBuilder : public TableBuilder {
 
  private:
   bool ok() const { return status().ok(); }
+  // Call block's Finish() method and then write the finalize block contents to
+  // file.
   void WriteBlock(BlockBuilder* block, BlockHandle* handle);
+  // Directly write block content to the file.
+  void WriteBlock(const Slice& block_contents, BlockHandle* handle);
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
   Status InsertBlockInCache(const Slice& block_contents,
-                         const CompressionType type, const BlockHandle* handle);
+                            const CompressionType type,
+                            const BlockHandle* handle);
   struct Rep;
+  class BlockBasedTablePropertiesCollector;
   Rep* rep_;
 
   // Advanced operation: flush any buffered key/value pairs to file.
@@ -82,4 +89,3 @@ class BlockBasedTableBuilder : public TableBuilder {
 };
 
 }  // namespace rocksdb
-

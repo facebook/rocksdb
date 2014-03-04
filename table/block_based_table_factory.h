@@ -26,8 +26,7 @@ class BlockBasedTableBuilder;
 class BlockBasedTableFactory : public TableFactory {
  public:
   explicit BlockBasedTableFactory(
-      const BlockBasedTableOptions& table_options = BlockBasedTableOptions())
-      : table_options_(table_options) {}
+      const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
 
   ~BlockBasedTableFactory() {}
 

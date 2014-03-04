@@ -1585,9 +1585,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // only one thread can be here at the same time
     if (!new_manifest_filename.empty()) {
       unique_ptr<WritableFile> descriptor_file;
-      s = env_->NewWritableFile(new_manifest_filename,
-                                &descriptor_file,
-                                storage_options_);
+      s = env_->NewWritableFile(new_manifest_filename, &descriptor_file,
+                                storage_options_.AdaptForLogWrite());
       if (s.ok()) {
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
         s = WriteSnapshot(descriptor_log_.get());
@@ -2615,7 +2614,6 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   AppendVersion(new_cfd, new Version(new_cfd, this, current_version_number_++));
   new_cfd->CreateNewMemtable();
   new_cfd->SetLogNumber(edit->log_number_);
-  delete new_cfd->InstallSuperVersion(new SuperVersion());
   return new_cfd;
 }
 

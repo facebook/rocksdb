@@ -5,12 +5,15 @@
 //
 #include <string>
 #include <cmath>
+#include <iostream>
+#include <fstream>
+#include <iterator>
+#include <algorithm>
 #include "util/testharness.h"
 #include "util/auto_roll_logger.h"
 #include "rocksdb/db.h"
 #include <sys/stat.h>
 #include <errno.h>
-#include <iostream>
 
 using namespace std;
 
@@ -39,10 +42,8 @@ class AutoRollLoggerTest {
 
 const string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
-const string AutoRollLoggerTest::kTestDir(
-    test::TmpDir() + "/db_log_test");
-const string AutoRollLoggerTest::kLogFile(
-    test::TmpDir() + "/db_log_test/LOG");
+const string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
+const string AutoRollLoggerTest::kLogFile(test::TmpDir() + "/db_log_test/LOG");
 Env* AutoRollLoggerTest::env = Env::Default();
 
 // In this test we only want to Log some simple log message with
@@ -51,6 +52,11 @@ Env* AutoRollLoggerTest::env = Env::Default();
 // call Log(logger, log_message) directly.
 void LogMessage(Logger* logger, const char* message) {
   Log(logger, "%s", message);
+}
+
+void LogMessage(const InfoLogLevel log_level, Logger* logger,
+                const char* message) {
+  Log(log_level, logger, "%s", message);
 }
 
 void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
@@ -64,6 +70,7 @@ void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
                                                const string& log_message) {
+  logger->SetInfoLogLevel(InfoLogLevel::INFO);
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
   LogMessage(logger, log_message.c_str());
@@ -131,7 +138,6 @@ TEST(AutoRollLoggerTest, RollLogFileBySize) {
 
     RollLogFileBySizeTest(&logger, log_max_size,
                           kSampleMessage + ":RollLogFileBySize");
-
 }
 
 TEST(AutoRollLoggerTest, RollLogFileByTime) {
@@ -233,6 +239,46 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
   RollLogFileByTimeTest(
       auto_roll_logger, options.log_file_time_to_roll,
       kSampleMessage + ":CreateLoggerFromOptions - both");
+}
+
+TEST(AutoRollLoggerTest, InfoLogLevel) {
+  InitTestDb();
+
+  size_t log_size = 8192;
+  size_t log_lines = 0;
+  // an extra-scope to force the AutoRollLogger to flush the log file when it
+  // becomes out of scope.
+  {
+    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0);
+    for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
+         log_level--) {
+      logger.SetInfoLogLevel((InfoLogLevel)log_level);
+      for (int log_type = InfoLogLevel::DEBUG; log_type <= InfoLogLevel::FATAL;
+           log_type++) {
+        // log messages with log level smaller than log_level will not be
+        // logged.
+        LogMessage((InfoLogLevel)log_type, &logger, kSampleMessage.c_str());
+      }
+      log_lines += InfoLogLevel::FATAL - log_level + 1;
+    }
+    for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
+         log_level--) {
+      logger.SetInfoLogLevel((InfoLogLevel)log_level);
+
+      // again, messages with level smaller than log_level will not be logged.
+      Debug(&logger, "%s", kSampleMessage.c_str());
+      Info(&logger, "%s", kSampleMessage.c_str());
+      Warn(&logger, "%s", kSampleMessage.c_str());
+      Error(&logger, "%s", kSampleMessage.c_str());
+      Fatal(&logger, "%s", kSampleMessage.c_str());
+      log_lines += InfoLogLevel::FATAL - log_level + 1;
+    }
+  }
+  std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
+  size_t lines = std::count(std::istreambuf_iterator<char>(inFile),
+                         std::istreambuf_iterator<char>(), '\n');
+  ASSERT_EQ(log_lines, lines);
+  inFile.close();
 }
 
 int OldLogFileCount(const string& dir) {

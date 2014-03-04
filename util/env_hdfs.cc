@@ -236,8 +236,9 @@ class HdfsLogger : public Logger {
   uint64_t (*gettid_)();  // Return the thread id for the current thread
 
  public:
-  HdfsLogger(HdfsWritableFile* f, uint64_t (*gettid)())
-    : file_(f), gettid_(gettid) {
+  HdfsLogger(HdfsWritableFile* f, uint64_t (*gettid)(),
+             const InfoLogLevel log_level = InfoLogLevel::ERROR)
+      : Logger(log_level), file_(f), gettid_(gettid) {
     Log(mylog, "[hdfs] HdfsLogger opened %s\n",
             file_->getName().c_str());
   }

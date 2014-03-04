@@ -151,6 +151,18 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
   refs.store(1, std::memory_order_relaxed);
 }
 
+namespace {
+void SuperVersionUnrefHandle(void* ptr) {
+  SuperVersion* sv = static_cast<SuperVersion*>(ptr);
+  if (sv->Unref()) {
+    sv->db_mutex->Lock();
+    sv->Cleanup();
+    sv->db_mutex->Unlock();
+    delete sv;
+  }
+}
+}  // anonymous namespace
+
 ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
                                    const std::string& name,
                                    Version* dummy_versions, Cache* table_cache,
@@ -173,6 +185,7 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
       super_version_number_(0),
+      local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
@@ -208,6 +221,20 @@ ColumnFamilyData::~ColumnFamilyData() {
   auto next = next_;
   prev->next_ = next;
   next->prev_ = prev;
+
+  // Release SuperVersion reference kept in ThreadLocalPtr.
+  // This must be done outside of mutex_ since unref handler can lock mutex.
+  // It also needs to be done after FlushMemTable, which can trigger local_sv_
+  // access.
+  auto sv = static_cast<SuperVersion*>(local_sv_->Get());
+  if (sv != nullptr) {
+    auto mutex = sv->db_mutex;
+    mutex->Unlock();
+    delete local_sv_;
+    mutex->Lock();
+  } else {
+    delete local_sv_;
+  }
 
   if (super_version_ != nullptr) {
     bool is_last_reference __attribute__((unused));
@@ -276,16 +303,31 @@ Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
 }
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
-    SuperVersion* new_superversion) {
+    SuperVersion* new_superversion, port::Mutex* db_mutex) {
   new_superversion->Init(mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
   ++super_version_number_;
+  super_version_->version_number = super_version_number_;
+  super_version_->db_mutex = db_mutex;
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
     return old_superversion;  // will let caller delete outside of mutex
   }
   return nullptr;
+}
+
+void ColumnFamilyData::ResetThreadLocalSuperVersions() {
+  autovector<void*> sv_ptrs;
+  local_sv_->Scrape(&sv_ptrs);
+  for (auto ptr : sv_ptrs) {
+    assert(ptr);
+    auto sv = static_cast<SuperVersion*>(ptr);
+    if (sv->Unref()) {
+      sv->Cleanup();
+      delete sv;
+    }
+  }
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,

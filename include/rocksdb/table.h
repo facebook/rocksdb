@@ -54,6 +54,21 @@ struct BlockBasedTableOptions {
   // If not specified, each "table reader" object will pre-load index/filter
   // block during table initialization.
   bool cache_index_and_filter_blocks = false;
+
+  // The index type that will be used for this table.
+  enum IndexType : char {
+    // A space efficient index block that is optimized for
+    // binary-search-based index.
+    kBinarySearch,
+  };
+
+  IndexType index_type = kBinarySearch;
+};
+
+// Table Properties that are specific to block-based table properties.
+struct BlockBasedTablePropertyNames {
+  // value of this propertis is a fixed int32 number.
+  static const std::string kIndexType;
 };
 
 // Create default block based table factory.

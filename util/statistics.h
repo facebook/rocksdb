@@ -7,11 +7,11 @@
 #include "rocksdb/statistics.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
+#include "port/likely.h"
 
 #include <vector>
 #include <atomic>
 
-#define UNLIKELY(val) (__builtin_expect((val), 0))
 
 namespace rocksdb {
 

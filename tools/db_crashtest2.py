@@ -84,7 +84,7 @@ def main(argv):
             --threads=%s
             --write_buffer_size=%s
             --destroy_db_initially=0
-            --reopen=0
+            --reopen=20
             --readpercent=45
             --prefixpercent=5
             --writepercent=35

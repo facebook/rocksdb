@@ -28,6 +28,7 @@
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
 #include "util/stats_logger.h"
+#include "util/thread_local.h"
 #include "db/internal_stats.h"
 
 namespace rocksdb {
@@ -121,8 +122,10 @@ class DBImpl : public DB {
                               bool flush_memtable = true);
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
   virtual SequenceNumber GetLatestSequenceNumber() const;
-  virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 unique_ptr<TransactionLogIterator>* iter);
+  virtual Status GetUpdatesSince(
+      SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
+      const TransactionLogIterator::ReadOptions&
+          read_options = TransactionLogIterator::ReadOptions());
   virtual Status DeleteFile(std::string name);
 
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
@@ -204,7 +207,7 @@ class DBImpl : public DB {
     // a list of memtables to be free
     autovector<MemTable*> memtables_to_free;
 
-    SuperVersion* superversion_to_free;  // if nullptr nothing to free
+    autovector<SuperVersion*> superversions_to_free;
 
     SuperVersion* new_superversion;  // if nullptr no new superversion
 
@@ -216,7 +219,6 @@ class DBImpl : public DB {
       manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
-      superversion_to_free = nullptr;
       new_superversion = create_superversion ? new SuperVersion() : nullptr;
     }
 
@@ -225,8 +227,10 @@ class DBImpl : public DB {
       for (auto m : memtables_to_free) {
         delete m;
       }
-      // free superversion. if nullptr, this will be noop
-      delete superversion_to_free;
+      // free superversions
+      for (auto s : superversions_to_free) {
+        delete s;
+      }
       // if new_superversion was not used, it will be non-nullptr and needs
       // to be freed here
       delete new_superversion;
@@ -475,6 +479,9 @@ class DBImpl : public DB {
 
   // Guard against multiple concurrent refitting
   bool refitting_level_;
+
+  // Indicate DB was opened successfully
+  bool opened_successfully_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

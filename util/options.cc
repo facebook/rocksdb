@@ -176,7 +176,8 @@ DBOptions::DBOptions()
       advise_random_on_open(true),
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
-      bytes_per_sync(0) { }
+      bytes_per_sync(0),
+      allow_thread_local(true) {}
 
 DBOptions::DBOptions(const Options& options)
     : create_if_missing(options.create_if_missing),
@@ -214,7 +215,8 @@ DBOptions::DBOptions(const Options& options)
       advise_random_on_open(options.advise_random_on_open),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       use_adaptive_mutex(options.use_adaptive_mutex),
-      bytes_per_sync(options.bytes_per_sync) {}
+      bytes_per_sync(options.bytes_per_sync),
+      allow_thread_local(options.allow_thread_local) {}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"

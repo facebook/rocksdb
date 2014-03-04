@@ -43,6 +43,7 @@
 #include "db/write_batch_internal.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
+#include "port/likely.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -238,8 +239,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       delayed_writes_(0),
       storage_options_(options),
       bg_work_gate_closed_(false),
-      refitting_level_(false) {
-
+      refitting_level_(false),
+      opened_successfully_(false) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -298,6 +299,26 @@ DBImpl::~DBImpl() {
          bg_logstats_scheduled_) {
     bg_cv_.Wait();
   }
+
+  if (options_.allow_thread_local) {
+    // Clean up obsolete files due to SuperVersion release.
+    // (1) Need to delete to obsolete files before closing because RepairDB()
+    // scans all existing files in the file system and builds manifest file.
+    // Keeping obsolete files confuses the repair process.
+    // (2) Need to check if we Open()/Recover() the DB successfully before
+    // deleting because if VersionSet recover fails (may be due to corrupted
+    // manifest file), it is not able to identify live files correctly. As a
+    // result, all "live" files can get deleted by accident. However, corrupted
+    // manifest is recoverable by RepairDB().
+    if (opened_successfully_) {
+      DeletionState deletion_state;
+      FindObsoleteFiles(deletion_state, true);
+      // manifest number starting from 2
+      deletion_state.manifest_file_number = 1;
+      PurgeObsoleteFiles(deletion_state);
+    }
+  }
+
   mutex_.Unlock();
   if (default_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
@@ -358,7 +379,8 @@ Status DBImpl::NewDB() {
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
   unique_ptr<WritableFile> file;
-  Status s = env_->NewWritableFile(manifest, &file, storage_options_);
+  Status s = env_->NewWritableFile(manifest, &file,
+                                   storage_options_.AdaptForLogWrite());
   if (!s.ok()) {
     return s;
   }
@@ -1229,6 +1251,10 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
 
   if (s.ok()) {
     InstallSuperVersion(cfd, deletion_state);
+    // Reset SuperVersions cached in thread local storage
+    if (options_.allow_thread_local) {
+      cfd->ResetThreadLocalSuperVersions();
+    }
     if (madeProgress) {
       *madeProgress = 1;
     }
@@ -1361,7 +1387,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         edit.DebugString().data());
 
     status = versions_->LogAndApply(cfd, &edit, &mutex_, db_directory_.get());
-    superversion_to_free = cfd->InstallSuperVersion(new_superversion);
+    superversion_to_free = cfd->InstallSuperVersion(new_superversion, &mutex_);
     new_superversion = nullptr;
 
     Log(options_.info_log, "LogAndApply: %s\n", status.ToString().data());
@@ -1406,8 +1432,9 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
-Status DBImpl::GetUpdatesSince(SequenceNumber seq,
-                               unique_ptr<TransactionLogIterator>* iter) {
+Status DBImpl::GetUpdatesSince(
+    SequenceNumber seq, unique_ptr<TransactionLogIterator>* iter,
+    const TransactionLogIterator::ReadOptions& read_options) {
 
   RecordTick(options_.statistics.get(), GET_UPDATES_SINCE_CALLS);
   if (seq > versions_->LastSequence()) {
@@ -1427,13 +1454,9 @@ Status DBImpl::GetUpdatesSince(SequenceNumber seq,
   if (!s.ok()) {
     return s;
   }
-  iter->reset(
-    new TransactionLogIteratorImpl(options_.wal_dir,
-                                   &options_,
-                                   storage_options_,
-                                   seq,
-                                   std::move(wal_files),
-                                   this));
+  iter->reset(new TransactionLogIteratorImpl(options_.wal_dir, &options_,
+                                             read_options, storage_options_,
+                                             seq, std::move(wal_files), this));
   return (*iter)->status();
 }
 
@@ -2004,6 +2027,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     status = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
                                     db_directory_.get());
     InstallSuperVersion(c->column_family_data(), deletion_state);
+    if (options_.allow_thread_local) {
+      c->column_family_data()->ResetThreadLocalSuperVersions();
+    }
 
     Version::LevelSummaryStorage tmp;
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
@@ -2815,7 +2841,7 @@ Status DBImpl::Get(const ReadOptions& options,
 // DeletionState gets created and destructed outside of the lock -- we
 // use this convinently to:
 // * malloc one SuperVersion() outside of the lock -- new_superversion
-// * delete one SuperVersion() outside of the lock -- superversion_to_free
+// * delete SuperVersion()s outside of the lock -- superversions_to_free
 //
 // However, if InstallSuperVersion() gets called twice with the same,
 // deletion_state, we can't reuse the SuperVersion() that got malloced because
@@ -2829,14 +2855,10 @@ void DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
   SuperVersion* new_superversion =
     (deletion_state.new_superversion != nullptr) ?
     deletion_state.new_superversion : new SuperVersion();
-  SuperVersion* old_superversion = cfd->InstallSuperVersion(new_superversion);
+  SuperVersion* old_superversion =
+      cfd->InstallSuperVersion(new_superversion, &mutex_);
   deletion_state.new_superversion = nullptr;
-  if (deletion_state.superversion_to_free != nullptr) {
-    // somebody already put it there
-    delete old_superversion;
-  } else {
-    deletion_state.superversion_to_free = old_superversion;
-  }
+  deletion_state.superversions_to_free.push_back(old_superversion);
 }
 
 Status DBImpl::GetImpl(const ReadOptions& options,
@@ -2849,15 +2871,46 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
-  mutex_.Lock();
-  SuperVersion* get_version = cfd->GetSuperVersion()->Ref();
-  mutex_.Unlock();
-
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_;
   } else {
     snapshot = versions_->LastSequence();
+  }
+
+  // Acquire SuperVersion
+  SuperVersion* sv = nullptr;
+  if (LIKELY(options_.allow_thread_local)) {
+    // The SuperVersion is cached in thread local storage to avoid acquiring
+    // mutex when SuperVersion does not change since the last use. When a new
+    // SuperVersion is installed, the compaction or flush thread cleans up
+    // cached SuperVersion in all existing thread local storage. To avoid
+    // acquiring mutex for this operation, we use atomic Swap() on the thread
+    // local pointer to guarantee exclusive access. If the thread local pointer
+    // is being used while a new SuperVersion is installed, the cached
+    // SuperVersion can become stale. It will eventually get refreshed either
+    // on the next GetImpl() call or next SuperVersion installation.
+    sv = cfd->GetAndResetThreadLocalSuperVersion();
+    if (!sv || sv->version_number != cfd->GetSuperVersionNumber()) {
+      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_UPDATES);
+      SuperVersion* sv_to_delete = nullptr;
+
+      if (sv && sv->Unref()) {
+        mutex_.Lock();
+        sv->Cleanup();
+        sv_to_delete = sv;
+      } else {
+        mutex_.Lock();
+      }
+      sv = cfd->GetSuperVersion()->Ref();
+      mutex_.Unlock();
+
+      delete sv_to_delete;
+    }
+  } else {
+    mutex_.Lock();
+    sv = cfd->GetSuperVersion()->Ref();
+    mutex_.Unlock();
   }
 
   bool have_stat_update = false;
@@ -2872,12 +2925,11 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot);
   BumpPerfTime(&perf_context.get_snapshot_time, &snapshot_timer);
-  if (get_version->mem->Get(lkey, value, &s, merge_context,
-                            *cfd->full_options())) {
+  if (sv->mem->Get(lkey, value, &s, merge_context, *cfd->full_options())) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
-  } else if (get_version->imm->Get(lkey, value, &s, merge_context,
-                                   *cfd->full_options())) {
+  } else if (sv->imm->Get(lkey, value, &s, merge_context,
+                          *cfd->full_options())) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
@@ -2885,8 +2937,8 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     StopWatchNano from_files_timer(env_, false);
     StartPerfTimer(&from_files_timer);
 
-    get_version->current->Get(options, lkey, value, &s, &merge_context, &stats,
-                              *cfd->full_options(), value_found);
+    sv->current->Get(options, lkey, value, &s, &merge_context, &stats,
+                     *cfd->full_options(), value_found);
     have_stat_update = true;
     BumpPerfTime(&perf_context.get_from_output_files_time, &from_files_timer);
     RecordTick(options_.statistics.get(), MEMTABLE_MISS);
@@ -2895,31 +2947,32 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   StopWatchNano post_process_timer(env_, false);
   StartPerfTimer(&post_process_timer);
 
-  bool delete_get_version = false;
   if (!cfd->options()->disable_seek_compaction && have_stat_update) {
     mutex_.Lock();
-    if (get_version->current->UpdateStats(stats)) {
+    if (sv->current->UpdateStats(stats)) {
       MaybeScheduleFlushOrCompaction();
     }
-    if (get_version->Unref()) {
-      get_version->Cleanup();
-      delete_get_version = true;
-    }
     mutex_.Unlock();
-  } else {
-    if (get_version->Unref()) {
-      mutex_.Lock();
-      get_version->Cleanup();
-      mutex_.Unlock();
-      delete_get_version = true;
-    }
   }
-  if (delete_get_version) {
-    delete get_version;
+
+  // Release SuperVersion
+  if (LIKELY(options_.allow_thread_local)) {
+    // Put the SuperVersion back
+    cfd->SetThreadLocalSuperVersion(sv);
+  } else {
+    bool delete_sv = false;
+    if (sv->Unref()) {
+      mutex_.Lock();
+      sv->Cleanup();
+      mutex_.Unlock();
+      delete_sv = true;
+    }
+    if (delete_sv) {
+      delete sv;
+    }
   }
 
   // Note, tickers are atomic now - no lock protection needed any more.
-
   RecordTick(options_.statistics.get(), NUMBER_KEYS_READ);
   RecordTick(options_.statistics.get(), BYTES_READ, value->size());
   BumpPerfTime(&perf_context.get_post_process_time, &post_process_timer);
@@ -3074,6 +3127,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
     auto cfd =
         versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
     assert(cfd != nullptr);
+    delete cfd->InstallSuperVersion(new SuperVersion(), &mutex_);
     *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
     Log(options_.info_log, "Created column family \"%s\" (ID %u)",
         column_family_name.c_str(), (unsigned)cfd->GetID());
@@ -3575,11 +3629,9 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       SuperVersion* new_superversion = nullptr;
       mutex_.Unlock();
       {
-        EnvOptions soptions(storage_options_);
-        soptions.use_mmap_writes = false;
         DelayLoggingAndReset();
         s = env_->NewWritableFile(LogFileName(options_.wal_dir, new_log_number),
-                                  &lfile, soptions);
+                                  &lfile, storage_options_.AdaptForLogWrite());
         if (s.ok()) {
           // Our final size should be less than write_buffer_size
           // (compression, etc) but err on the side of caution.
@@ -3621,7 +3673,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
           cfd->GetID(), (unsigned long)logfile_number_);
       force = false;  // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
-      delete cfd->InstallSuperVersion(new_superversion);
+      delete cfd->InstallSuperVersion(new_superversion, &mutex_);
     }
   }
   return s;
@@ -3888,7 +3940,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   *dbptr = nullptr;
   handles->clear();
-  EnvOptions soptions(db_options);
 
   size_t max_write_buffer_size = 0;
   for (auto cf : column_families) {
@@ -3918,12 +3969,10 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
-    soptions.use_mmap_writes = false;
+    EnvOptions soptions(db_options);
     s = impl->options_.env->NewWritableFile(
-      LogFileName(impl->options_.wal_dir, new_log_number),
-      &lfile,
-      soptions
-    );
+        LogFileName(impl->options_.wal_dir, new_log_number), &lfile,
+        soptions.AdaptForLogWrite());
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
       VersionEdit edit;
@@ -3953,7 +4002,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     }
     if (s.ok()) {
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-        delete cfd->InstallSuperVersion(new SuperVersion());
+        delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
         impl->alive_log_files_.push_back(impl->logfile_number_);
       }
       impl->DeleteObsoleteFiles();
@@ -3985,6 +4034,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   impl->mutex_.Unlock();
 
   if (s.ok()) {
+    impl->opened_successfully_ = true;
     *dbptr = impl;
   } else {
     for (auto h : *handles) {
