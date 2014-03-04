@@ -122,6 +122,7 @@ class MergingIterator : public Iterator {
       // one, or null if there is no first child.
       current_ = first_child;
     }
+    direction_ = kForward;
   }
 
   virtual void Next() {
@@ -228,6 +229,8 @@ class MergingIterator : public Iterator {
   // If the value is true, both of iterators in the heap and current_
   // contain valid rows. If it is false, only current_ can possibly contain
   // valid rows.
+  // This flag is always true for reverse direction, as we always use heap for
+  // the reverse iterating case.
   bool use_heap_;
   Env* const env_;
   // Which direction is the iterator moving?
