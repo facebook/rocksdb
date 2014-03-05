@@ -3155,17 +3155,23 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   edit.DropColumnFamily();
   edit.SetColumnFamily(cfd->GetID());
 
-  MutexLock l(&mutex_);
   Status s;
-  if (cfd->IsDropped()) {
-    s = Status::InvalidArgument("Column family already dropped!\n");
-  }
-  if (s.ok()) {
-    s = versions_->LogAndApply(cfd, &edit, &mutex_);
+  {
+    MutexLock l(&mutex_);
+    if (cfd->IsDropped()) {
+      s = Status::InvalidArgument("Column family already dropped!\n");
+    }
+    if (s.ok()) {
+      s = versions_->LogAndApply(cfd, &edit, &mutex_);
+    }
   }
 
   if (s.ok()) {
     Log(options_.info_log, "Dropped column family with id %u\n", cfd->GetID());
+    // Flush the memtables. This will make all WAL files referencing dropped
+    // column family to be obsolete. They will be deleted when user deletes
+    // column family handle
+    Write(WriteOptions(), nullptr);  // ignore error
   } else {
     Log(options_.info_log, "Dropping column family with id %u FAILED -- %s\n",
         cfd->GetID(), s.ToString().c_str());
