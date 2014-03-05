@@ -82,7 +82,6 @@ void FilterBlockBuilder::AddKey(const Slice& key) {
       Slice prefix = prefix_extractor_->Transform(user_key);
       InternalKey internal_prefix_tmp(prefix, 0, kTypeValue);
       Slice internal_prefix = internal_prefix_tmp.Encode();
-      assert(comparator_->Compare(internal_prefix, key) <= 0);
       start_.push_back(entries_.size());
       entries_.append(internal_prefix.data(), internal_prefix.size());
     }
