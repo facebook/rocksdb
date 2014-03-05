@@ -361,6 +361,10 @@ void DBImpl::TEST_Destroy_DBImpl() {
   bg_compaction_scheduled_ += LargeNumber;
 
   mutex_.Unlock();
+  if (default_cf_handle_ != nullptr) {
+    // we need to delete handle outside of lock because it does its own locking
+    delete default_cf_handle_;
+  }
   LogFlush(options_.info_log);
 
   // force release the lock file.
@@ -369,7 +373,9 @@ void DBImpl::TEST_Destroy_DBImpl() {
   }
 
   log_.reset();
+  mutex_.Lock();
   versions_.reset();
+  mutex_.Unlock();
   table_cache_.reset();
 }
 
