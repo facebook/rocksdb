@@ -290,11 +290,11 @@ class ColumnFamilySet {
   uint32_t GetID(const std::string& name);
   // this call will return the next available column family ID. it guarantees
   // that there is no column family with id greater than or equal to the
-  // returned value in the current running instance. It does not, however,
-  // guarantee that the returned ID is unique accross RocksDB restarts.
-  // For example, if a client adds a column family 6 and then drops it,
-  // after a restart, we might reuse column family 6 ID.
+  // returned value in the current running instance or anytime in RocksDB
+  // instance history.
   uint32_t GetNextColumnFamilyID();
+  uint32_t GetMaxColumnFamily();
+  void UpdateMaxColumnFamily(uint32_t new_max_column_family);
 
   ColumnFamilyData* CreateColumnFamily(const std::string& name, uint32_t id,
                                        Version* dummy_version,
@@ -314,7 +314,8 @@ class ColumnFamilySet {
   // family might get dropped when you release the DB mutex.
   // * GetDefault(), GetColumnFamily(), Exists(), GetID() -- either inside of DB
   // mutex or call Lock()
-  // * GetNextColumnFamilyID() -- inside of DB mutex
+  // * GetNextColumnFamilyID(), GetMaxColumnFamily(), UpdateMaxColumnFamily() --
+  // inside of DB mutex
   void Lock();
   void Unlock();
 

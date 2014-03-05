@@ -284,6 +284,32 @@ class ColumnFamilyTest {
   Random rnd_;
 };
 
+TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
+  for (int iter = 0; iter < 3; ++iter) {
+    Open();
+    CreateColumnFamilies({"one", "two", "three"});
+    for (size_t i = 0; i < handles_.size(); ++i) {
+      ASSERT_EQ(i, handles_[i]->GetID());
+    }
+    if (iter == 1) {
+      Reopen();
+    }
+    DropColumnFamilies({3});
+    Reopen();
+    if (iter == 2) {
+      // this tests if max_column_family is correctly persisted with
+      // WriteSnapshot()
+      Reopen();
+    }
+    CreateColumnFamilies({"three2"});
+    // ID 3 that was used for dropped column family "three" should not be reused
+    ASSERT_EQ(4, handles_[3]->GetID());
+    Close();
+    Destroy();
+  }
+}
+
+
 TEST(ColumnFamilyTest, AddDrop) {
   Open();
   CreateColumnFamilies({"one", "two", "three"});

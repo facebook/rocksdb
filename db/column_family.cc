@@ -399,6 +399,12 @@ uint32_t ColumnFamilySet::GetNextColumnFamilyID() {
   return ++max_column_family_;
 }
 
+uint32_t ColumnFamilySet::GetMaxColumnFamily() { return max_column_family_; }
+
+void ColumnFamilySet::UpdateMaxColumnFamily(uint32_t new_max_column_family) {
+  max_column_family_ = std::max(new_max_column_family, max_column_family_);
+}
+
 // under a DB mutex
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,

@@ -34,6 +34,7 @@ enum Tag {
   kColumnFamily         = 200,  // specify column family for version edit
   kColumnFamilyAdd      = 201,
   kColumnFamilyDrop     = 202,
+  kMaxColumnFamily      = 203,
 };
 
 void VersionEdit::Clear() {
@@ -43,11 +44,13 @@ void VersionEdit::Clear() {
   prev_log_number_ = 0;
   last_sequence_ = 0;
   next_file_number_ = 0;
+  max_column_family_ = 0;
   has_comparator_ = false;
   has_log_number_ = false;
   has_prev_log_number_ = false;
   has_next_file_number_ = false;
   has_last_sequence_ = false;
+  has_max_column_family_ = false;
   deleted_files_.clear();
   new_files_.clear();
   column_family_ = 0;
@@ -76,6 +79,10 @@ void VersionEdit::EncodeTo(std::string* dst) const {
   if (has_last_sequence_) {
     PutVarint32(dst, kLastSequence);
     PutVarint64(dst, last_sequence_);
+  }
+  if (has_max_column_family_) {
+    PutVarint32(dst, kMaxColumnFamily);
+    PutVarint32(dst, max_column_family_);
   }
 
   for (const auto& deleted : deleted_files_) {
@@ -188,6 +195,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           has_last_sequence_ = true;
         } else {
           msg = "last sequence number";
+        }
+        break;
+
+      case kMaxColumnFamily:
+        if (GetVarint32(&input, &max_column_family_)) {
+          has_max_column_family_ = true;
+        } else {
+          msg = "max column family";
         }
         break;
 

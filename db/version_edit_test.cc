@@ -49,6 +49,7 @@ TEST(VersionEditTest, ColumnFamilyTest) {
   VersionEdit edit;
   edit.SetColumnFamily(2);
   edit.AddColumnFamily("column_family");
+  edit.SetMaxColumnFamily(5);
   TestEncodeDecode(edit);
 
   edit.Clear();
