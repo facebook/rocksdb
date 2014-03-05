@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <sys/types.h>
 
 #include <iostream>
 #include <unordered_set>
@@ -191,6 +192,15 @@ bool IsSingleVarint(const std::string& s) {
 }
 
 #ifdef OS_LINUX
+// To make sure the Env::GetUniqueId() related tests work correctly, The files
+// should be stored in regular storage like "hard disk" or "flash device".
+// Otherwise we cannot get the correct id.
+//
+// The following function act as the replacement of test::TmpDir() that may be
+// customized by user to be on a storage that doesn't work with GetUniqueId().
+//
+// TODO(kailiu) This function still assumes /tmp/<test-dir> reside in regular
+// storage system.
 bool IsUniqueIDValid(const std::string& s) {
   return !s.empty() && !IsSingleVarint(s);
 }
@@ -198,11 +208,21 @@ bool IsUniqueIDValid(const std::string& s) {
 const size_t MAX_ID_SIZE = 100;
 char temp_id[MAX_ID_SIZE];
 
+std::string GetOnDiskTestDir() {
+  char base[100];
+  snprintf(base, sizeof(base), "/tmp/rocksdbtest-%d",
+           static_cast<int>(geteuid()));
+  // Directory may already exist
+  Env::Default()->CreateDirIfMissing(base);
+
+  return base;
+}
+
 // Only works in linux platforms
 TEST(EnvPosixTest, RandomAccessUniqueID) {
   // Create file.
   const EnvOptions soptions;
-  std::string fname = test::TmpDir() + "/" + "testfile";
+  std::string fname = GetOnDiskTestDir() + "/" + "testfile";
   unique_ptr<WritableFile> wfile;
   ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
 
@@ -261,7 +281,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Create the files
   std::vector<std::string> fnames;
   for (int i = 0; i < 1000; ++i) {
-    fnames.push_back(test::TmpDir() + "/" + "testfile" + std::to_string(i));
+    fnames.push_back(GetOnDiskTestDir() + "/" + "testfile" + std::to_string(i));
 
     // Create file.
     unique_ptr<WritableFile> wfile;
@@ -294,7 +314,8 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 // Only works in linux platforms
 TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
   const EnvOptions soptions;
-  std::string fname = test::TmpDir() + "/" + "testfile";
+
+  std::string fname = GetOnDiskTestDir() + "/" + "testfile";
 
   // Check that after file is deleted we don't get same ID again in a new file.
   std::unordered_set<std::string> ids;
