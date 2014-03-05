@@ -559,22 +559,27 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
       version->LevelFileSummary(&tmp, 0));
 
   // Check for size amplification first.
-  Compaction* c = PickCompactionUniversalSizeAmp(version, score);
-  if (c == nullptr) {
+  Compaction* c;
+  if ((c = PickCompactionUniversalSizeAmp(version, score)) != nullptr) {
+    Log(options_->info_log, "Universal: compacting for size amp\n");
+  } else {
 
     // Size amplification is within limits. Try reducing read
     // amplification while maintaining file size ratios.
     unsigned int ratio = options_->compaction_options_universal.size_ratio;
-    c = PickCompactionUniversalReadAmp(version, score, ratio, UINT_MAX);
 
-    // Size amplification and file size ratios are within configured limits.
-    // If max read amplification is exceeding configured limits, then force
-    // compaction without looking at filesize ratios and try to reduce
-    // the number of files to fewer than level0_file_num_compaction_trigger.
-    if (c == nullptr) {
+    if ((c = PickCompactionUniversalReadAmp(version, score, ratio, UINT_MAX)) != nullptr) {
+      Log(options_->info_log, "Universal: compacting for size ratio\n");
+    } else {
+      // Size amplification and file size ratios are within configured limits.
+      // If max read amplification is exceeding configured limits, then force
+      // compaction without looking at filesize ratios and try to reduce
+      // the number of files to fewer than level0_file_num_compaction_trigger.
       unsigned int num_files = version->files_[level].size() -
                                options_->level0_file_num_compaction_trigger;
-      c = PickCompactionUniversalReadAmp(version, score, UINT_MAX, num_files);
+      if ((c = PickCompactionUniversalReadAmp(version, score, UINT_MAX, num_files)) != nullptr) {
+        Log(options_->info_log, "Universal: compacting for file num\n");
+      }
     }
   }
   if (c == nullptr) {
@@ -684,14 +689,32 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       if (f->being_compacted) {
         break;
       }
-      // pick files if the total candidate file size (increased by the
+      // Pick files if the total/last candidate file size (increased by the
       // specified ratio) is still larger than the next candidate file.
+      // candidate_size is the total size of files picked so far with the
+      // default kCompactionStopStyleTotalSize; with
+      // kCompactionStopStyleSimilarSize, it's simply the size of the last
+      // picked file.
       uint64_t sz = (candidate_size * (100L + ratio)) /100;
       if (sz < f->file_size) {
         break;
+      } 
+      if (options_->compaction_options_universal.stop_style == kCompactionStopStyleSimilarSize) {
+        // Similar-size stopping rule: also check the last picked file isn't
+        // far larger than the next candidate file.
+        sz = (f->file_size * (100L + ratio)) / 100;
+        if (sz < candidate_size) {
+          // If the small file we've encountered begins a run of similar-size
+          // files, we'll pick them up on a future iteration of the outer
+          // loop. If it's some lonely straggler, it'll eventually get picked
+          // by the last-resort read amp strategy which disregards size ratios.
+          break;
+        }
+        candidate_size = f->file_size;
+      } else { // default kCompactionStopStyleTotalSize
+        candidate_size += f->file_size;
       }
       candidate_count++;
-      candidate_size += f->file_size;
     }
 
     // Found a series of consecutive files that need compaction.

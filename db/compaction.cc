@@ -175,41 +175,72 @@ void Compaction::ResetNextCompactionIndex() {
   input_version_->ResetNextCompactionIndex(level_);
 }
 
-static void InputSummary(std::vector<FileMetaData*>& files, char* output,
+/*
+for sizes >=10TB, print "XXTB"
+for sizes >=10GB, print "XXGB"
+etc.
+*/
+static void FileSizeSummary(unsigned long long sz, char* output, int len) {
+  const unsigned long long ull10 = 10;
+  if (sz >= ull10<<40) {
+    snprintf(output, len, "%lluTB", sz>>40);
+  } else if (sz >= ull10<<30) {
+    snprintf(output, len, "%lluGB", sz>>30);
+  } else if (sz >= ull10<<20) {
+    snprintf(output, len, "%lluMB", sz>>20);
+  } else if (sz >= ull10<<10) {
+    snprintf(output, len, "%lluKB", sz>>10);
+  } else {
+    snprintf(output, len, "%lluB", sz);
+  }
+}
+
+static int InputSummary(std::vector<FileMetaData*>& files, char* output,
                          int len) {
   int write = 0;
   for (unsigned int i = 0; i < files.size(); i++) {
     int sz = len - write;
-    int ret = snprintf(output + write, sz, "%lu(%lu) ",
-        (unsigned long)files.at(i)->number,
-        (unsigned long)files.at(i)->file_size);
+    int ret;
+    char sztxt[16];
+    FileSizeSummary((unsigned long long)files.at(i)->file_size, sztxt, 16);
+    ret = snprintf(output + write, sz, "%lu(%s) ",
+                   (unsigned long)files.at(i)->number,
+                   sztxt);
     if (ret < 0 || ret >= sz)
       break;
     write += ret;
   }
+  return write;
 }
 
 void Compaction::Summary(char* output, int len) {
   int write = snprintf(output, len,
-      "Base version %lu Base level %d, seek compaction:%d, inputs:",
+      "Base version %lu Base level %d, seek compaction:%d, inputs: [",
       (unsigned long)input_version_->GetVersionNumber(),
       level_,
       seek_compaction_);
-  if (write < 0 || write > len) {
+  if (write < 0 || write >= len) {
     return;
   }
 
-  char level_low_summary[100];
-  InputSummary(inputs_[0], level_low_summary, sizeof(level_low_summary));
-  char level_up_summary[100];
-  if (inputs_[1].size()) {
-    InputSummary(inputs_[1], level_up_summary, sizeof(level_up_summary));
-  } else {
-    level_up_summary[0] = '\0';
+  write += InputSummary(inputs_[0], output+write, len-write);
+  if (write < 0 || write >= len) {
+    return;
   }
 
-  snprintf(output + write, len - write, "[%s],[%s]",
-      level_low_summary, level_up_summary);
+  write += snprintf(output+write, len-write, "],[");
+  if (write < 0 || write >= len) {
+    return;
+  }
+
+  if (inputs_[1].size()) {
+    write += InputSummary(inputs_[1], output+write, len-write);
+  }
+  if (write < 0 || write >= len) {
+    return;
+  }
+
+  snprintf(output+write, len-write, "]");
 }
 
 }  // namespace rocksdb
