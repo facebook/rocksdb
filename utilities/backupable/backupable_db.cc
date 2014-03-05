@@ -46,8 +46,6 @@ class BackupEngineImpl : public BackupEngine {
     return RestoreDBFromBackup(latest_backup_id_, db_dir, wal_dir);
   }
 
-  void DeleteBackupsNewerThan(uint64_t sequence_number);
-
  private:
   struct FileInfo {
     FileInfo(const std::string& fname, uint64_t sz, uint32_t checksum)
@@ -185,6 +183,12 @@ class BackupEngineImpl : public BackupEngine {
   Env* db_env_;
   Env* backup_env_;
 
+  // directories
+  unique_ptr<Directory> backup_directory_;
+  unique_ptr<Directory> shared_directory_;
+  unique_ptr<Directory> meta_directory_;
+  unique_ptr<Directory> private_directory_;
+
   static const size_t copy_file_buffer_size_ = 5 * 1024 * 1024LL; // 5MB
 };
 
@@ -203,11 +207,17 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
 
   // create all the dirs we need
   backup_env_->CreateDirIfMissing(GetAbsolutePath());
+  backup_env_->NewDirectory(GetAbsolutePath(), &backup_directory_);
   if (options_.share_table_files) {
     backup_env_->CreateDirIfMissing(GetAbsolutePath(GetSharedFileRel()));
+    backup_env_->NewDirectory(GetAbsolutePath(GetSharedFileRel()),
+                              &shared_directory_);
   }
   backup_env_->CreateDirIfMissing(GetAbsolutePath(GetPrivateDirRel()));
+  backup_env_->NewDirectory(GetAbsolutePath(GetPrivateDirRel()),
+                            &private_directory_);
   backup_env_->CreateDirIfMissing(GetBackupMetaDir());
+  backup_env_->NewDirectory(GetBackupMetaDir(), &meta_directory_);
 
   std::vector<std::string> backup_meta_files;
   backup_env_->GetChildren(GetBackupMetaDir(), &backup_meta_files);
@@ -279,26 +289,6 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
 
 BackupEngineImpl::~BackupEngineImpl() { LogFlush(options_.info_log); }
 
-void BackupEngineImpl::DeleteBackupsNewerThan(uint64_t sequence_number) {
-  for (auto backup : backups_) {
-    if (backup.second.GetSequenceNumber() > sequence_number) {
-      Log(options_.info_log,
-          "Deleting backup %u because sequence number (%" PRIu64
-          ") is newer than %" PRIu64 "",
-          backup.first, backup.second.GetSequenceNumber(), sequence_number);
-      backup.second.Delete();
-      obsolete_backups_.push_back(backup.first);
-    }
-  }
-  for (auto ob : obsolete_backups_) {
-    backups_.erase(backups_.find(ob));
-  }
-  auto itr = backups_.end();
-  latest_backup_id_ = (itr == backups_.begin()) ? 0 : (--itr)->first;
-  PutLatestBackupFileContents(latest_backup_id_); // Ignore errors
-  GarbageCollection(false);
-}
-
 Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   Status s;
   std::vector<std::string> live_files;
@@ -348,9 +338,8 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
       return Status::Corruption("Can't parse file name. This is very bad");
     }
     // we should only get sst, manifest and current files here
-    assert(type == kTableFile ||
-             type == kDescriptorFile ||
-             type == kCurrentFile);
+    assert(type == kTableFile || type == kDescriptorFile ||
+           type == kCurrentFile);
 
     // rules:
     // * if it's kTableFile, than it's shared
@@ -394,6 +383,28 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     // install the newly created backup meta! (atomic)
     s = PutLatestBackupFileContents(new_backup_id);
   }
+  if (s.ok() && options_.sync) {
+    unique_ptr<Directory> backup_private_directory;
+    backup_env_->NewDirectory(
+        GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)),
+        &backup_private_directory);
+    if (backup_private_directory != nullptr) {
+      backup_private_directory->Fsync();
+    }
+    if (private_directory_ != nullptr) {
+      private_directory_->Fsync();
+    }
+    if (meta_directory_ != nullptr) {
+      meta_directory_->Fsync();
+    }
+    if (shared_directory_ != nullptr) {
+      shared_directory_->Fsync();
+    }
+    if (backup_directory_ != nullptr) {
+      backup_directory_->Fsync();
+    }
+  }
+
   if (!s.ok()) {
     // clean all the files we might have created
     Log(options_.info_log, "Backup failed -- %s", s.ToString().c_str());
@@ -591,6 +602,7 @@ Status BackupEngineImpl::CopyFile(const std::string& src,
   unique_ptr<SequentialFile> src_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
+  env_options.use_os_buffer = false;
   if (size != nullptr) {
     *size = 0;
   }
@@ -706,6 +718,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
 
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
+  env_options.use_os_buffer = false;
 
   std::unique_ptr<SequentialFile> src_file;
   Status s = src_env->NewSequentialFile(src, &src_file, env_options);
@@ -893,6 +906,9 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
     uint64_t size;
     s = env_->GetFileSize(backup_dir + "/" + filename, &size);
+    if (!s.ok()) {
+      return s;
+    }
 
     if (line.empty()) {
       return Status::Corruption("File checksum is missing");
@@ -911,6 +927,11 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     }
 
     files.emplace_back(filename, size, checksum_value);
+  }
+
+  if (s.ok() && data.size() > 0) {
+    // file has to be read completely. if not, we count it as corruption
+    s = Status::Corruption("Tailing data in backup meta file");
   }
 
   if (s.ok()) {
@@ -968,11 +989,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
 
 BackupableDB::BackupableDB(DB* db, const BackupableDBOptions& options)
     : StackableDB(db),
-      backup_engine_(new BackupEngineImpl(db->GetEnv(), options)) {
-  if (options.share_table_files) {
-    backup_engine_->DeleteBackupsNewerThan(GetLatestSequenceNumber());
-  }
-}
+      backup_engine_(new BackupEngineImpl(db->GetEnv(), options)) {}
 
 BackupableDB::~BackupableDB() {
   delete backup_engine_;
