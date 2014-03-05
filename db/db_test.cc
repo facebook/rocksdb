@@ -1334,6 +1334,23 @@ TEST(DBTest, FilterDeletes) {
   } while (ChangeCompactOptions());
 }
 
+
+TEST(DBTest, IterSeekBeforePrev) {
+  ASSERT_OK(Put("a", "b"));
+  ASSERT_OK(Put("c", "d"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("0", "f"));
+  ASSERT_OK(Put("1", "h"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("2", "j"));
+  auto iter = db_->NewIterator(ReadOptions());
+  iter->Seek(Slice("c"));
+  iter->Prev();
+  iter->Seek(Slice("a"));
+  iter->Prev();
+  delete iter;
+}
+
 TEST(DBTest, IterEmpty) {
   do {
     Iterator* iter = db_->NewIterator(ReadOptions());
