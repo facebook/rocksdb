@@ -740,6 +740,7 @@ TEST(BackupableDBTest, FailOverwritingBackups) {
   ASSERT_OK(db_->DeleteBackup(5));
   // now, the backup can succeed
   ASSERT_OK(db_->CreateNewBackup(true));
+  CloseBackupableDB();
 }
 
 TEST(BackupableDBTest, NoShareTableFiles) {
