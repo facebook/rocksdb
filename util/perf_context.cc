@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+
+#include <sstream>
 #include "util/perf_context_imp.h"
 
 namespace rocksdb {
@@ -36,6 +38,35 @@ void PerfContext::Reset() {
   find_next_user_entry_time = 0;
   write_pre_and_post_process_time = 0;
   write_memtable_time = 0;
+}
+
+#define OUTPUT(counter) #counter << " = " << counter << ", "
+
+std::string PerfContext::ToString() const {
+  std::ostringstream ss;
+  ss << OUTPUT(user_key_comparison_count)
+     << OUTPUT(block_cache_hit_count)
+     << OUTPUT(block_read_count)
+     << OUTPUT(block_read_byte)
+     << OUTPUT(block_read_time)
+     << OUTPUT(block_checksum_time)
+     << OUTPUT(block_decompress_time)
+     << OUTPUT(internal_key_skipped_count)
+     << OUTPUT(internal_delete_skipped_count)
+     << OUTPUT(write_wal_time)
+     << OUTPUT(get_snapshot_time)
+     << OUTPUT(get_from_memtable_time)
+     << OUTPUT(get_from_memtable_count)
+     << OUTPUT(get_post_process_time)
+     << OUTPUT(get_from_output_files_time)
+     << OUTPUT(seek_child_seek_time)
+     << OUTPUT(seek_child_seek_count)
+     << OUTPUT(seek_min_heap_time)
+     << OUTPUT(seek_internal_seek_time)
+     << OUTPUT(find_next_user_entry_time)
+     << OUTPUT(write_pre_and_post_process_time)
+     << OUTPUT(write_memtable_time);
+  return ss.str();
 }
 
 __thread PerfContext perf_context;

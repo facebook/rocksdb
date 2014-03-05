@@ -1470,6 +1470,23 @@ TEST(DBTest, FilterDeletes) {
   } while (ChangeCompactOptions());
 }
 
+
+TEST(DBTest, IterSeekBeforePrev) {
+  ASSERT_OK(Put("a", "b"));
+  ASSERT_OK(Put("c", "d"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("0", "f"));
+  ASSERT_OK(Put("1", "h"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("2", "j"));
+  auto iter = db_->NewIterator(ReadOptions());
+  iter->Seek(Slice("c"));
+  iter->Prev();
+  iter->Seek(Slice("a"));
+  iter->Prev();
+  delete iter;
+}
+
 TEST(DBTest, IterEmpty) {
   do {
     CreateAndReopenWithCF({"pikachu"});
@@ -2550,6 +2567,89 @@ TEST(DBTest, UniversalCompactionOptions) {
   for (int i = 1; i < options.num_levels ; i++) {
     ASSERT_EQ(NumTableFilesAtLevel(i, 1), 0);
   }
+}
+
+TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100<<10; //100KB
+  // trigger compaction if there are >= 4 files
+  options.level0_file_num_compaction_trigger = 4;
+  options.compaction_options_universal.size_ratio = 10;
+  options.compaction_options_universal.stop_style = kCompactionStopStyleSimilarSize;
+  options.num_levels=1;
+  Reopen(&options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // Stage 1:
+  //   Generate a set of files at level 0, but don't trigger level-0
+  //   compaction.
+  for (int num = 0;
+       num < options.level0_file_num_compaction_trigger-1;
+       num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
+  }
+
+  // Generate one more file at level-0, which should trigger level-0
+  // compaction.
+  for (int i = 0; i < 12; i++) {
+    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+    key_idx++;
+  }
+  dbfull()->TEST_WaitForCompact();
+  // Suppose each file flushed from mem table has size 1. Now we compact
+  // (level0_file_num_compaction_trigger+1)=4 files and should have a big
+  // file of size 4.
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  // Stage 2:
+  //   Now we have one file at level 0, with size 4. We also have some data in
+  //   mem table. Let's continue generating new files at level 0, but don't
+  //   trigger level-0 compaction.
+  //   First, clean up memtable before inserting new data. This will generate
+  //   a level-0 file, with size around 0.4 (according to previously written
+  //   data amount).
+  dbfull()->Flush(FlushOptions());
+  for (int num = 0;
+       num < options.level0_file_num_compaction_trigger-3;
+       num++) {
+    // Write 120KB (12 values, each 10K)
+    for (int i = 0; i < 12; i++) {
+      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_EQ(NumTableFilesAtLevel(0), num + 3);
+  }
+
+  // Generate one more file at level-0, which should trigger level-0
+  // compaction.
+  for (int i = 0; i < 12; i++) {
+    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+    key_idx++;
+  }
+  dbfull()->TEST_WaitForCompact();
+  // Before compaction, we have 4 files at level 0, with size 4, 0.4, 1, 1.
+  // After compaction, we should have 3 files, with size 4, 0.4, 2.
+  ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+  // Stage 3:
+  //   Now we have 3 files at level 0, with size 4, 0.4, 2. Generate one
+  //   more file at level-0, which should trigger level-0 compaction.
+  for (int i = 0; i < 12; i++) {
+    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+    key_idx++;
+  }
+  dbfull()->TEST_WaitForCompact();
+  // Level-0 compaction is triggered, but no file will be picked up.
+  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
 }
 
 #if defined(SNAPPY) && defined(ZLIB) && defined(BZIP2)

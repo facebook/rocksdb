@@ -58,14 +58,13 @@ struct BackupableDBOptions {
   explicit BackupableDBOptions(const std::string& _backup_dir,
                                Env* _backup_env = nullptr,
                                bool _share_table_files = true,
-                               Logger* _info_log = nullptr,
-                               bool _sync = true,
-                               bool _destroy_old_data = false) :
-      backup_dir(_backup_dir),
-      backup_env(_backup_env),
-      info_log(_info_log),
-      sync(_sync),
-      destroy_old_data(_destroy_old_data) { }
+                               Logger* _info_log = nullptr, bool _sync = true,
+                               bool _destroy_old_data = false)
+      : backup_dir(_backup_dir),
+        backup_env(_backup_env),
+        info_log(_info_log),
+        sync(_sync),
+        destroy_old_data(_destroy_old_data) {}
 };
 
 typedef uint32_t BackupID;
@@ -99,8 +98,6 @@ class BackupEngine {
                                      const std::string& wal_dir) = 0;
   virtual Status RestoreDBFromLatestBackup(const std::string& db_dir,
                                            const std::string& wal_dir) = 0;
-
-  virtual void DeleteBackupsNewerThan(uint64_t sequence_number) = 0;
 };
 
 // Stack your DB with BackupableDB to be able to backup the DB
@@ -138,32 +135,33 @@ class BackupableDB : public StackableDB {
 
 // Use this class to access information about backups and restore from them
 class RestoreBackupableDB {
-  public:
-   RestoreBackupableDB(Env* db_env, const BackupableDBOptions& options);
-   ~RestoreBackupableDB();
+ public:
+  RestoreBackupableDB(Env* db_env, const BackupableDBOptions& options);
+  ~RestoreBackupableDB();
 
-   // Returns info about backups in backup_info
-   void GetBackupInfo(std::vector<BackupInfo>* backup_info);
+  // Returns info about backups in backup_info
+  void GetBackupInfo(std::vector<BackupInfo>* backup_info);
 
-   // restore from backup with backup_id
-   // IMPORTANT -- if options_.share_table_files == true and you restore DB
-   // from some backup that is not the latest, and you start creating new
-   // backups from the new DB, all the backups that were newer than the
-   // backup you restored from will be deleted
-   //
-   // Example: Let's say you have backups 1, 2, 3, 4, 5 and you restore 3.
-   // If you try creating a new backup now, old backups 4 and 5 will be deleted
-   // and new backup with ID 4 will be created.
-   Status RestoreDBFromBackup(BackupID backup_id, const std::string& db_dir,
-                              const std::string& wal_dir);
+  // restore from backup with backup_id
+  // IMPORTANT -- if options_.share_table_files == true and you restore DB
+  // from some backup that is not the latest, and you start creating new
+  // backups from the new DB, they will probably fail
+  //
+  // Example: Let's say you have backups 1, 2, 3, 4, 5 and you restore 3.
+  // If you add new data to the DB and try creating a new backup now, the
+  // database will diverge from backups 4 and 5 and the new backup will fail.
+  // If you want to create new backup, you will first have to delete backups 4
+  // and 5.
+  Status RestoreDBFromBackup(BackupID backup_id, const std::string& db_dir,
+                             const std::string& wal_dir);
 
-   // restore from the latest backup
-   Status RestoreDBFromLatestBackup(const std::string& db_dir,
-                                    const std::string& wal_dir);
-   // deletes old backups, keeping latest num_backups_to_keep alive
-   Status PurgeOldBackups(uint32_t num_backups_to_keep);
-   // deletes a specific backup
-   Status DeleteBackup(BackupID backup_id);
+  // restore from the latest backup
+  Status RestoreDBFromLatestBackup(const std::string& db_dir,
+                                   const std::string& wal_dir);
+  // deletes old backups, keeping latest num_backups_to_keep alive
+  Status PurgeOldBackups(uint32_t num_backups_to_keep);
+  // deletes a specific backup
+  Status DeleteBackup(BackupID backup_id);
 
  private:
   BackupEngine* backup_engine_;

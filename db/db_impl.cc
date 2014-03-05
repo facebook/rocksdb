@@ -2330,7 +2330,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       compact->compaction->level(), compact->compaction->num_input_files(1),
       compact->compaction->output_level(), compact->compaction->score(),
       options_.max_background_compactions - bg_compaction_scheduled_);
-  char scratch[256];
+  char scratch[2345];
   compact->compaction->Summary(scratch, sizeof(scratch));
   Log(options_.info_log, "Compaction start summary: %s\n", scratch);
 
@@ -2727,10 +2727,11 @@ struct IterState {
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
-  DBImpl::DeletionState deletion_state;
 
   bool need_cleanup = state->super_version->Unref();
   if (need_cleanup) {
+    DBImpl::DeletionState deletion_state;
+
     state->mu->Lock();
     state->super_version->Cleanup();
     state->db->FindObsoleteFiles(deletion_state, false, true);

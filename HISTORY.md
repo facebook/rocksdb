@@ -13,6 +13,7 @@
 * By default, checksums are verified on every read from database
 * Added is_manual_compaction to CompactionFilter::Context
 * Added "virtual void WaitForJoin() = 0" in class Env
+* Removed BackupEngine::DeleteBackupsNewerThan() function
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,
