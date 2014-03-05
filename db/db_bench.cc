@@ -189,6 +189,11 @@ DEFINE_int32(max_background_compactions,
              "The maximum number of concurrent background compactions"
              " that can occur in parallel.");
 
+DEFINE_int32(max_background_flushes,
+             rocksdb::Options().max_background_flushes,
+             "The maximum number of concurrent background flushes"
+             " that can occur in parallel.");
+
 static rocksdb::CompactionStyle FLAGS_compaction_style_e;
 DEFINE_int32(compaction_style, (int32_t) rocksdb::Options().compaction_style,
              "style of compaction: level-based vs universal");
@@ -225,6 +230,8 @@ DEFINE_int32(open_files, rocksdb::Options().max_open_files,
 
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
+DEFINE_int32(memtable_bloom_bits, 0, "Bloom filter bits per key for memtable. "
+             "Negative means no bloom filter.");
 
 DEFINE_bool(use_existing_db, false, "If true, do not destroy the existing"
             " database.  If you set this flag and also specify a benchmark that"
@@ -496,7 +503,8 @@ DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
 enum RepFactory {
   kSkipList,
   kPrefixHash,
-  kVectorRep
+  kVectorRep,
+  kHashLinkedList
 };
 enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
@@ -507,12 +515,15 @@ enum RepFactory StringToRepFactory(const char* ctype) {
     return kPrefixHash;
   else if (!strcasecmp(ctype, "vector"))
     return kVectorRep;
+  else if (!strcasecmp(ctype, "hash_linkedlist"))
+    return kHashLinkedList;
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
 }
 static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "skip_list", "");
+DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
 DEFINE_bool(use_plain_table, false, "if use plain table "
             "instead of block-based table format");
 
@@ -864,7 +875,7 @@ class Benchmark {
       case rocksdb::kLZ4HCCompression:
         fprintf(stdout, "Compression: lz4hc\n");
         break;
-      }
+    }
 
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
@@ -875,6 +886,9 @@ class Benchmark {
         break;
       case kVectorRep:
         fprintf(stdout, "Memtablerep: vector\n");
+        break;
+      case kHashLinkedList:
+        fprintf(stdout, "Memtablerep: hash_linkedlist\n");
         break;
     }
     fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
@@ -1521,12 +1535,14 @@ class Benchmark {
     options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
     options.max_background_compactions = FLAGS_max_background_compactions;
+    options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
     options.prefix_extractor =
       (FLAGS_use_plain_table || FLAGS_use_prefix_blooms) ? prefix_extractor_
                                                          : nullptr;
+    options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
     options.env = FLAGS_env;
@@ -1540,18 +1556,25 @@ class Benchmark {
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
     options.filter_deletes = FLAGS_filter_deletes;
-    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kPrefixHash)) {
-      fprintf(stderr, "prefix_size should be non-zero iff memtablerep "
-                      "== prefix_hash\n");
+    if ((FLAGS_prefix_size == 0) && (FLAGS_rep_factory == kPrefixHash ||
+                                     FLAGS_rep_factory == kHashLinkedList)) {
+      fprintf(stderr, "prefix_size should be non-zero if PrefixHash or "
+                      "HashLinkedList memtablerep is used\n");
       exit(1);
     }
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
         options.memtable_factory.reset(NewHashSkipListRepFactory(
-            NewFixedPrefixTransform(FLAGS_prefix_size)));
+            NewFixedPrefixTransform(FLAGS_prefix_size),
+            FLAGS_hash_bucket_count));
         break;
       case kSkipList:
         // no need to do anything
+        break;
+      case kHashLinkedList:
+        options.memtable_factory.reset(NewHashLinkListRepFactory(
+            NewFixedPrefixTransform(FLAGS_prefix_size),
+            FLAGS_hash_bucket_count));
         break;
       case kVectorRep:
         options.memtable_factory.reset(
@@ -1560,7 +1583,8 @@ class Benchmark {
         break;
     }
     if (FLAGS_use_plain_table) {
-      if (FLAGS_rep_factory != kPrefixHash) {
+      if (FLAGS_rep_factory != kPrefixHash &&
+          FLAGS_rep_factory != kHashLinkedList) {
         fprintf(stderr, "Waring: plain table is used with skipList\n");
       }
       if (!FLAGS_mmap_read && !FLAGS_mmap_write) {
@@ -1740,7 +1764,7 @@ class Benchmark {
 
   void DoWrite(ThreadState* thread, WriteMode write_mode) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
-    const int num_ops = writes_ == 0 ? num_ : writes_ ;
+    const int64_t num_ops = writes_ == 0 ? num_ : writes_;
     Duration duration(test_duration, num_ops);
     unique_ptr<BitSet> bit_set;
 
@@ -1923,6 +1947,8 @@ class Benchmark {
       }
       delete iter;
     } else {    // Regular case. Do one "get" at a time Get
+      options.tailing = true;
+      options.prefix_seek = (FLAGS_prefix_size == 0);
       Iterator* iter = db_->NewIterator(options);
       std::string value;
       while (!duration.Done(1)) {
