@@ -557,7 +557,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
   // Check for size amplification first.
   Compaction* c;
   if ((c = PickCompactionUniversalSizeAmp(version, score)) != nullptr) {
-    Log(options_->info_log, "Universal: compacting for size amp\n");
+    Log(logger_, "Universal: compacting for size amp\n");
   } else {
 
     // Size amplification is within limits. Try reducing read
@@ -565,7 +565,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
     unsigned int ratio = options_->compaction_options_universal.size_ratio;
 
     if ((c = PickCompactionUniversalReadAmp(version, score, ratio, UINT_MAX)) != nullptr) {
-      Log(options_->info_log, "Universal: compacting for size ratio\n");
+      Log(logger_, "Universal: compacting for size ratio\n");
     } else {
       // Size amplification and file size ratios are within configured limits.
       // If max read amplification is exceeding configured limits, then force
@@ -574,7 +574,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version) {
       unsigned int num_files = version->files_[level].size() -
                                options_->level0_file_num_compaction_trigger;
       if ((c = PickCompactionUniversalReadAmp(version, score, UINT_MAX, num_files)) != nullptr) {
-        Log(options_->info_log, "Universal: compacting for file num\n");
+        Log(logger_, "Universal: compacting for file num\n");
       }
     }
   }
@@ -689,7 +689,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       uint64_t sz = (candidate_size * (100L + ratio)) /100;
       if (sz < f->file_size) {
         break;
-      } 
+      }
       if (options_->compaction_options_universal.stop_style == kCompactionStopStyleSimilarSize) {
         // Similar-size stopping rule: also check the last picked file isn't
         // far larger than the next candidate file.
