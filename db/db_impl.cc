@@ -2743,11 +2743,11 @@ struct IterState {
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
-  DBImpl::DeletionState deletion_state(state->db->GetOptions().
-                                       max_write_buffer_number);
 
   bool need_cleanup = state->super_version->Unref();
   if (need_cleanup) {
+    DBImpl::DeletionState deletion_state;
+
     state->mu->Lock();
     state->super_version->Cleanup();
     state->db->FindObsoleteFiles(deletion_state, false, true);
