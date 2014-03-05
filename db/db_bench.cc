@@ -1022,8 +1022,7 @@ class Benchmark {
     filter_policy_(FLAGS_bloom_bits >= 0
                    ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                    : nullptr),
-    prefix_extractor_(NewFixedPrefixTransform(FLAGS_use_plain_table ?
-                      FLAGS_prefix_size : FLAGS_key_size-1)),
+    prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
     db_(nullptr),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
@@ -1565,7 +1564,7 @@ class Benchmark {
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
         options.memtable_factory.reset(NewHashSkipListRepFactory(
-            NewFixedPrefixTransform(FLAGS_prefix_size),
+            prefix_extractor_,
             FLAGS_hash_bucket_count));
         break;
       case kSkipList:
@@ -1573,7 +1572,7 @@ class Benchmark {
         break;
       case kHashLinkedList:
         options.memtable_factory.reset(NewHashLinkListRepFactory(
-            NewFixedPrefixTransform(FLAGS_prefix_size),
+            prefix_extractor_,
             FLAGS_hash_bucket_count));
         break;
       case kVectorRep:
