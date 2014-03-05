@@ -38,6 +38,7 @@ Options::Options()
       paranoid_checks(false),
       env(Env::Default()),
       info_log(nullptr),
+      info_log_level(INFO),
       write_buffer_size(4<<20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),

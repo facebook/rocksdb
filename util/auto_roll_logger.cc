@@ -88,7 +88,7 @@ Status CreateLoggerFromOptions(
     AutoRollLogger* result = new AutoRollLogger(
         env, dbname, db_log_dir,
         options.max_log_file_size,
-        options.log_file_time_to_roll);
+        options.log_file_time_to_roll, options.info_log_level);
     Status s = result->GetStatus();
     if (!s.ok()) {
       delete result;
@@ -101,7 +101,11 @@ Status CreateLoggerFromOptions(
     env->CreateDir(dbname);  // In case it does not exist
     env->RenameFile(fname, OldInfoLogFileName(dbname, env->NowMicros(),
                                               db_absolute_path, db_log_dir));
-    return env->NewLogger(fname, logger);
+    auto s = env->NewLogger(fname, logger);
+    if (logger->get() != nullptr) {
+      (*logger)->SetInfoLogLevel(options.info_log_level);
+    }
+    return s;
   }
 }
 

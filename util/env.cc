@@ -40,7 +40,7 @@ void Log(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(format, ap);
+    info_log->Logv(InfoLogLevel::INFO, format, ap);
     va_end(ap);
   }
 }
@@ -163,7 +163,7 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(format, ap);
+    info_log->Logv(InfoLogLevel::INFO, format, ap);
     va_end(ap);
   }
 }

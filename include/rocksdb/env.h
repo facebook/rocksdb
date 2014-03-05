@@ -513,7 +513,7 @@ class Directory {
   virtual Status Fsync() = 0;
 };
 
-enum InfoLogLevel {
+enum InfoLogLevel : unsigned char {
   DEBUG = 0,
   INFO,
   WARN,
@@ -526,7 +526,7 @@ enum InfoLogLevel {
 class Logger {
  public:
   enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
-  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::ERROR)
+  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO)
       : log_level_(log_level) {}
   virtual ~Logger();
 
@@ -543,10 +543,20 @@ class Logger {
     if (log_level < log_level_) {
       return;
     }
-    char new_format[500];
-    snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
-             kInfoLogLevelNames[log_level], format);
-    Logv(new_format, ap);
+
+    if (log_level == INFO) {
+      // Doesn't print log level if it is INFO level.
+      // This is to avoid unexpected performance regression after we add
+      // the feature of log level. All the logs before we add the feature
+      // are INFO level. We don't want to add extra costs to those existing
+      // logging.
+      Logv(format, ap);
+    } else {
+      char new_format[500];
+      snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
+               kInfoLogLevelNames[log_level], format);
+      Logv(new_format, ap);
+    }
   }
   virtual size_t GetLogFileSize() const {
     return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;

@@ -24,6 +24,7 @@ class CompactionFilter;
 class CompactionFilterFactory;
 class Comparator;
 class Env;
+enum InfoLogLevel : unsigned char;
 class FilterPolicy;
 class Logger;
 class MergeOperator;
@@ -151,6 +152,8 @@ struct Options {
   // in the same directory as the DB contents if info_log is nullptr.
   // Default: nullptr
   shared_ptr<Logger> info_log;
+
+  InfoLogLevel info_log_level;
 
   // -------------------
   // Parameters that affect performance
