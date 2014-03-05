@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <cstddef>
 #include <sys/types.h>
 #include <stdio.h>
@@ -487,6 +489,9 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
 }
 DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
              "plain table");
+DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
+             "per prefix, 0 means no special handling of the prefix, "
+             "i.e. use the prefix comes with the generated random number.");
 
 enum RepFactory {
   kSkipList,
@@ -593,9 +598,9 @@ class Stats {
   double start_;
   double finish_;
   double seconds_;
-  long long done_;
-  long long last_report_done_;
-  long long next_report_;
+  int64_t done_;
+  int64_t last_report_done_;
+  int64_t next_report_;
   int64_t bytes_;
   double last_op_finish_;
   double last_report_finish_;
@@ -672,12 +677,12 @@ class Stats {
         else if (next_report_ < 100000) next_report_ += 10000;
         else if (next_report_ < 500000) next_report_ += 50000;
         else                            next_report_ += 100000;
-        fprintf(stderr, "... finished %lld ops%30s\r", done_, "");
+        fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
         fflush(stderr);
       } else {
         double now = FLAGS_env->NowMicros();
         fprintf(stderr,
-                "%s ... thread %d: (%lld,%lld) ops and "
+                "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
                 "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
                 FLAGS_env->TimeToString((uint64_t) now/1000000).c_str(),
                 id_,
@@ -773,7 +778,7 @@ struct ThreadState {
 
 class Duration {
  public:
-  Duration(int max_seconds, long long max_ops) {
+  Duration(int max_seconds, int64_t max_ops) {
     max_seconds_ = max_seconds;
     max_ops_= max_ops;
     ops_ = 0;
@@ -799,8 +804,8 @@ class Duration {
 
  private:
   int max_seconds_;
-  long long max_ops_;
-  long long ops_;
+  int64_t max_ops_;
+  int64_t ops_;
   double start_at_;
 };
 
@@ -811,24 +816,27 @@ class Benchmark {
   const FilterPolicy* filter_policy_;
   const SliceTransform* prefix_extractor_;
   DB* db_;
-  long long num_;
+  int64_t num_;
   int value_size_;
   int key_size_;
+  int prefix_size_;
+  int64_t keys_per_prefix_;
   int entries_per_batch_;
   WriteOptions write_options_;
-  long long reads_;
-  long long writes_;
-  long long readwrites_;
-  long long merge_keys_;
+  int64_t reads_;
+  int64_t writes_;
+  int64_t readwrites_;
+  int64_t merge_keys_;
   int heap_counter_;
-  char keyFormat_[100]; // will contain the format of key. e.g "%016d"
   void PrintHeader() {
     PrintEnvironment();
     fprintf(stdout, "Keys:       %d bytes each\n", FLAGS_key_size);
     fprintf(stdout, "Values:     %d bytes each (%d bytes after compression)\n",
             FLAGS_value_size,
             static_cast<int>(FLAGS_value_size * FLAGS_compression_ratio + 0.5));
-    fprintf(stdout, "Entries:    %lld\n", num_);
+    fprintf(stdout, "Entries:    %" PRIu64 "\n", num_);
+    fprintf(stdout, "Prefix:    %d bytes\n", FLAGS_prefix_size);
+    fprintf(stdout, "Keys per prefix:    %" PRIu64 "\n", keys_per_prefix_);
     fprintf(stdout, "RawSize:    %.1f MB (estimated)\n",
             ((static_cast<int64_t>(FLAGS_key_size + FLAGS_value_size) * num_)
              / 1048576.0));
@@ -1006,6 +1014,8 @@ class Benchmark {
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),
     key_size_(FLAGS_key_size),
+    prefix_size_(FLAGS_prefix_size),
+    keys_per_prefix_(FLAGS_keys_per_prefix),
     entries_per_batch_(1),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
     writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
@@ -1014,6 +1024,11 @@ class Benchmark {
                ),
     merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
     heap_counter_(0) {
+    if (FLAGS_prefix_size > FLAGS_key_size) {
+      fprintf(stderr, "prefix size is larger than key size");
+      exit(1);
+    }
+
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
     for (unsigned int i = 0; i < files.size(); i++) {
@@ -1032,17 +1047,55 @@ class Benchmark {
     delete prefix_extractor_;
   }
 
-  //this function will construct string format for key. e.g "%016lld"
-  void ConstructStrFormatForKey(char* str, int keySize) {
-    str[0] = '%';
-    str[1] = '0';
-    sprintf(str+2, "%dlld%s", keySize, "%s");
-  }
+  // Generate key according to the given specification and random number.
+  // The resulting key will have the following format (if keys_per_prefix_
+  // is positive), extra trailing bytes are either cut off or paddd with '0'.
+  // The prefix value is derived from key value.
+  //   ----------------------------
+  //   | prefix 00000 | key 00000 |
+  //   ----------------------------
+  // If keys_per_prefix_ is 0, the key is simply a binary representation of
+  // random number followed by trailing '0's
+  //   ----------------------------
+  //   |        key 00000         |
+  //   ----------------------------
+  std::string GenerateKeyFromInt(uint64_t v, int64_t num_keys) {
+    std::string key;
+    key.resize(key_size_);
+    char* start = &(key[0]);
+    char* pos = start;
+    if (keys_per_prefix_ > 0) {
+      int64_t num_prefix = num_keys / keys_per_prefix_;
+      int64_t prefix = v % num_prefix;
+      int bytes_to_fill = std::min(prefix_size_, 8);
+      if (port::kLittleEndian) {
+        for (int i = 0; i < bytes_to_fill; ++i) {
+          pos[i] = (prefix >> ((bytes_to_fill - i - 1) << 3)) & 0xFF;
+        }
+      } else {
+        memcpy(pos, static_cast<void*>(&prefix), bytes_to_fill);
+      }
+      if (prefix_size_ > 8) {
+        // fill the rest with 0s
+        memset(pos + 8, '0', prefix_size_ - 8);
+      }
+      pos += prefix_size_;
+    }
 
-  unique_ptr<char []> GenerateKeyFromInt(long long v, const char* suffix = "") {
-    unique_ptr<char []> keyInStr(new char[kMaxKeySize + 1]);
-    snprintf(keyInStr.get(), kMaxKeySize + 1, keyFormat_, v, suffix);
-    return keyInStr;
+    int bytes_to_fill = std::min(key_size_ - static_cast<int>(pos - start), 8);
+    if (port::kLittleEndian) {
+      for (int i = 0; i < bytes_to_fill; ++i) {
+        pos[i] = (v >> ((bytes_to_fill - i - 1) << 3)) & 0xFF;
+      }
+    } else {
+      memcpy(pos, static_cast<void*>(&v), bytes_to_fill);
+    }
+    pos += bytes_to_fill;
+    if (key_size_ > pos - start) {
+      memset(pos, '0', key_size_ - (pos - start));
+    }
+
+    return key;
   }
 
   void Run() {
@@ -1066,7 +1119,6 @@ class Benchmark {
       writes_ = (FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes);
       value_size_ = FLAGS_value_size;
       key_size_ = FLAGS_key_size;
-      ConstructStrFormatForKey(keyFormat_, key_size_);
       entries_per_batch_ = 1;
       write_options_ = WriteOptions();
       if (FLAGS_sync) {
@@ -1698,7 +1750,7 @@ class Benchmark {
 
     if (num_ != FLAGS_num) {
       char msg[100];
-      snprintf(msg, sizeof(msg), "(%lld ops)", num_);
+      snprintf(msg, sizeof(msg), "(%" PRIu64 " ops)", num_);
       thread->stats.AddMessage(msg);
     }
 
@@ -1710,7 +1762,7 @@ class Benchmark {
     while (!duration.Done(entries_per_batch_)) {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
-        long long k = 0;
+        int64_t k = 0;
         switch(write_mode) {
           case SEQUENTIAL:
             k = i +j;
@@ -1720,7 +1772,7 @@ class Benchmark {
             break;
           case UNIQUE_RANDOM:
             {
-              const long long t = thread->rand.Next() % FLAGS_num;
+              const int64_t t = thread->rand.Next() % FLAGS_num;
               if (!bit_set->test(t)) {
                 // best case
                 k = t;
@@ -1748,9 +1800,9 @@ class Benchmark {
               break;
             }
         };
-        unique_ptr<char []> key = GenerateKeyFromInt(k);
-        batch.Put(key.get(), gen.Generate(value_size_));
-        bytes += value_size_ + strlen(key.get());
+        std::string key = GenerateKeyFromInt(k, FLAGS_num);
+        batch.Put(key, gen.Generate(value_size_));
+        bytes += value_size_ + key.size();
         thread->stats.FinishedSingleOp(db_);
       }
       s = db_->Write(write_options_, &batch);
@@ -1765,7 +1817,7 @@ class Benchmark {
 
   void ReadSequential(ThreadState* thread) {
     Iterator* iter = db_->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
-    long long i = 0;
+    int64_t i = 0;
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
@@ -1778,7 +1830,7 @@ class Benchmark {
 
   void ReadReverse(ThreadState* thread) {
     Iterator* iter = db_->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
-    long long i = 0;
+    int64_t i = 0;
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
       bytes += iter->key().size() + iter->value().size();
@@ -1792,20 +1844,20 @@ class Benchmark {
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
   long MultiGetRandom(ReadOptions& options, int num_keys,
-                     Random64& rand, long long range, const char* suffix) {
+                      Random64* rand, int64_t range, const char* suffix) {
     assert(num_keys > 0);
     std::vector<Slice> keys(num_keys);
     std::vector<std::string> values(num_keys);
-    std::vector<unique_ptr<char []> > gen_keys(num_keys);
+    std::vector<std::string> gen_keys(num_keys);
 
     int i;
-    long long k;
+    int64_t k;
 
     // Fill the keys vector
     for(i=0; i<num_keys; ++i) {
-      k = rand.Next() % range;
-      gen_keys[i] = GenerateKeyFromInt(k,suffix);
-      keys[i] = gen_keys[i].get();
+      k = rand->Next() % range;
+      gen_keys[i] = GenerateKeyFromInt(k, range) + suffix;
+      keys[i] = gen_keys[i];
     }
 
     if (FLAGS_use_snapshot) {
@@ -1841,7 +1893,7 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     Duration duration(FLAGS_duration, reads_);
 
-    long long found = 0;
+    int64_t found = 0;
 
     if (FLAGS_use_multiget) {   // MultiGet
       const long& kpg = FLAGS_keys_per_multiget;  // keys per multiget group
@@ -1850,7 +1902,8 @@ class Benchmark {
       // Recalculate number of keys per group, and call MultiGet until done
       long num_keys;
       while(num_keys = std::min(keys_left, kpg), !duration.Done(num_keys)) {
-        found += MultiGetRandom(options, num_keys, thread->rand, FLAGS_num, "");
+        found +=
+          MultiGetRandom(options, num_keys, &thread->rand, FLAGS_num, "");
         thread->stats.FinishedSingleOp(db_);
         keys_left -= num_keys;
       }
@@ -1858,11 +1911,11 @@ class Benchmark {
       options.tailing = true;
       Iterator* iter = db_->NewIterator(options);
       while (!duration.Done(1)) {
-        const long long k = thread->rand.Next() % FLAGS_num;
-        unique_ptr<char[]> key = GenerateKeyFromInt(k);
+        const int64_t k = thread->rand.Next() % FLAGS_num;
+        std::string key = GenerateKeyFromInt(k, FLAGS_num);
 
-        iter->Seek(key.get());
-        if (iter->Valid() && iter->key().compare(Slice(key.get())) == 0) {
+        iter->Seek(key);
+        if (iter->Valid() && iter->key().compare(Slice(key)) == 0) {
           ++found;
         }
 
@@ -1873,30 +1926,29 @@ class Benchmark {
       Iterator* iter = db_->NewIterator(options);
       std::string value;
       while (!duration.Done(1)) {
-        const long long k = thread->rand.Next() % FLAGS_num;
-        unique_ptr<char []> key = GenerateKeyFromInt(k);
+        const int64_t k = thread->rand.Next() % FLAGS_num;
+        std::string key = GenerateKeyFromInt(k, FLAGS_num);
         if (FLAGS_use_snapshot) {
           options.snapshot = db_->GetSnapshot();
         }
 
         if (FLAGS_read_range < 2) {
-          if (db_->Get(options, key.get(), &value).ok()) {
+          if (db_->Get(options, key, &value).ok()) {
             found++;
           }
         } else {
-          Slice skey(key.get());
           int count = 1;
 
           if (FLAGS_get_approx) {
-            unique_ptr<char []> key2 =
-                GenerateKeyFromInt(k + (int) FLAGS_read_range);
-            Slice skey2(key2.get());
-            Range range(skey, skey2);
+            std::string key2 =
+                GenerateKeyFromInt(k + static_cast<int>(FLAGS_read_range),
+                                   FLAGS_num + FLAGS_read_range);
+            Range range(key, key2);
             uint64_t sizes;
             db_->GetApproximateSizes(&range, 1, &sizes);
           }
 
-          for (iter->Seek(skey);
+          for (iter->Seek(key);
                iter->Valid() && count <= FLAGS_read_range;
                ++count, iter->Next()) {
             found++;
@@ -1915,7 +1967,8 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%lld of %lld found)", found, reads_);
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             found, reads_);
     thread->stats.AddMessage(msg);
   }
 
@@ -1928,13 +1981,13 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     Duration duration(FLAGS_duration, reads_);
 
-    long long found = 0;
+    int64_t found = 0;
 
     while (!duration.Done(1)) {
       std::string value;
       const int k = thread->rand.Next() % FLAGS_num;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
-      Slice skey(key.get());
+      std::string key = GenerateKeyFromInt(k, FLAGS_num);
+      Slice skey(key);
       Slice prefix = prefix_extractor_->Transform(skey);
       options.prefix = FLAGS_use_prefix_api ? &prefix : nullptr;
 
@@ -1950,7 +2003,8 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%lld of %lld found)", found, reads_);
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             found, reads_);
     thread->stats.AddMessage(msg);
   }
 
@@ -1968,7 +2022,8 @@ class Benchmark {
       long num_keys;
       long found;
       while(num_keys = std::min(keys_left, kpg), !duration.Done(num_keys)) {
-        found = MultiGetRandom(options, num_keys, thread->rand, FLAGS_num, ".");
+        found =
+          MultiGetRandom(options, num_keys, &thread->rand, FLAGS_num, ".");
 
         // We should not find any key since the key we try to get has a
         // different suffix
@@ -1983,9 +2038,9 @@ class Benchmark {
       std::string value;
       Status s;
       while (!duration.Done(1)) {
-        const long long k = thread->rand.Next() % FLAGS_num;
-        unique_ptr<char []> key = GenerateKeyFromInt(k, ".");
-        s = db_->Get(options, key.get(), &value);
+        const int64_t k = thread->rand.Next() % FLAGS_num;
+        std::string key = GenerateKeyFromInt(k, FLAGS_num) + ".";
+        s = db_->Get(options, key, &value);
         assert(!s.ok() && s.IsNotFound());
         thread->stats.FinishedSingleOp(db_);
       }
@@ -1995,26 +2050,26 @@ class Benchmark {
   void ReadHot(ThreadState* thread) {
     Duration duration(FLAGS_duration, reads_);
     ReadOptions options(FLAGS_verify_checksum, true);
-    const long long range = (FLAGS_num + 99) / 100;
-    long long found = 0;
+    const int64_t range = (FLAGS_num + 99) / 100;
+    int64_t found = 0;
 
     if (FLAGS_use_multiget) {
-      const long long kpg = FLAGS_keys_per_multiget;  // keys per multiget group
-      long long keys_left = reads_;
+      const int64_t kpg = FLAGS_keys_per_multiget;  // keys per multiget group
+      int64_t keys_left = reads_;
 
       // Recalculate number of keys per group, and call MultiGet until done
       long num_keys;
       while(num_keys = std::min(keys_left, kpg), !duration.Done(num_keys)) {
-        found += MultiGetRandom(options, num_keys, thread->rand, range, "");
+        found += MultiGetRandom(options, num_keys, &thread->rand, range, "");
         thread->stats.FinishedSingleOp(db_);
         keys_left -= num_keys;
       }
     } else {
       std::string value;
       while (!duration.Done(1)) {
-        const long long k = thread->rand.Next() % range;
-        unique_ptr<char []> key = GenerateKeyFromInt(k);
-        if (db_->Get(options, key.get(), &value).ok()){
+        const int64_t k = thread->rand.Next() % range;
+        std::string key = GenerateKeyFromInt(k, range);
+        if (db_->Get(options, key, &value).ok()) {
           ++found;
         }
         thread->stats.FinishedSingleOp(db_);
@@ -2022,7 +2077,8 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%lld of %lld found)", found, reads_);
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             found, reads_);
     thread->stats.AddMessage(msg);
   }
 
@@ -2040,18 +2096,19 @@ class Benchmark {
     Duration duration(FLAGS_duration, reads_);
     ReadOptions options(FLAGS_verify_checksum, true);
     std::string value;
-    long long found = 0;
+    int64_t found = 0;
     while (!duration.Done(1)) {
       Iterator* iter = db_->NewIterator(options);
-      const long long k = thread->rand.Next() % FLAGS_num;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
-      iter->Seek(key.get());
-      if (iter->Valid() && iter->key() == key.get()) found++;
+      const int64_t k = thread->rand.Next() % FLAGS_num;
+      std::string key = GenerateKeyFromInt(k, FLAGS_num);
+      iter->Seek(key);
+      if (iter->Valid() && iter->key() == Slice(key)) found++;
       delete iter;
       thread->stats.FinishedSingleOp(db_);
     }
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%lld of %lld found)", found, num_);
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+             found, num_);
     thread->stats.AddMessage(msg);
   }
 
@@ -2063,9 +2120,9 @@ class Benchmark {
     while (!duration.Done(entries_per_batch_)) {
       batch.Clear();
       for (int j = 0; j < entries_per_batch_; j++) {
-        const long long k = seq ? i+j : (thread->rand.Next() % FLAGS_num);
-        unique_ptr<char []> key = GenerateKeyFromInt(k);
-        batch.Delete(key.get());
+        const int64_t k = seq ? i+j : (thread->rand.Next() % FLAGS_num);
+        std::string key = GenerateKeyFromInt(k, FLAGS_num);
+        batch.Delete(key);
         thread->stats.FinishedSingleOp(db_);
       }
       s = db_->Write(write_options_, &batch);
@@ -2113,10 +2170,9 @@ class Benchmark {
           }
         }
 
-        const long long k = thread->rand.Next() % FLAGS_num;
-        unique_ptr<char []> key = GenerateKeyFromInt(k);
-        Status s = db_->Put(write_options_, key.get(),
-                            gen.Generate(value_size_));
+        const int64_t k = thread->rand.Next() % FLAGS_num;
+        std::string key = GenerateKeyFromInt(k, FLAGS_num);
+        Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
@@ -2228,18 +2284,18 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
-    long long found = 0;
+    int64_t found = 0;
     int get_weight = 0;
     int put_weight = 0;
     int delete_weight = 0;
-    long long gets_done = 0;
-    long long puts_done = 0;
-    long long deletes_done = 0;
+    int64_t gets_done = 0;
+    int64_t puts_done = 0;
+    int64_t deletes_done = 0;
 
     // the number of iterations is the larger of read_ or write_
-    for (long long i = 0; i < readwrites_; i++) {
-      const long long k = thread->rand.Next() % (FLAGS_numdistinct);
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
+    for (int64_t i = 0; i < readwrites_; i++) {
+      const int64_t k = thread->rand.Next() % (FLAGS_numdistinct);
+      std::string key = GenerateKeyFromInt(k, FLAGS_numdistinct);
       if (get_weight == 0 && put_weight == 0 && delete_weight == 0) {
         // one batch completed, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
@@ -2248,7 +2304,7 @@ class Benchmark {
       }
       if (get_weight > 0) {
         // do all the gets first
-        Status s = GetMany(options, key.get(), &value);
+        Status s = GetMany(options, key, &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "getmany error: %s\n", s.ToString().c_str());
           // we continue after error rather than exiting so that we can
@@ -2261,8 +2317,7 @@ class Benchmark {
       } else if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
-        Status s = PutMany(write_options_, key.get(),
-                           gen.Generate(value_size_));
+        Status s = PutMany(write_options_, key, gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "putmany error: %s\n", s.ToString().c_str());
           exit(1);
@@ -2270,7 +2325,7 @@ class Benchmark {
         put_weight--;
         puts_done++;
       } else if (delete_weight > 0) {
-        Status s = DeleteMany(write_options_, key.get());
+        Status s = DeleteMany(write_options_, key);
         if (!s.ok()) {
           fprintf(stderr, "deletemany error: %s\n", s.ToString().c_str());
           exit(1);
@@ -2283,7 +2338,8 @@ class Benchmark {
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "( get:%lld put:%lld del:%lld total:%lld found:%lld)",
+             "( get:%" PRIu64 " put:%" PRIu64 " del:%" PRIu64 " total:%" \
+             PRIu64 " found:%" PRIu64 ")",
              gets_done, puts_done, deletes_done, readwrites_, found);
     thread->stats.AddMessage(msg);
   }
@@ -2300,17 +2356,17 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
-    long long found = 0;
+    int64_t found = 0;
     int get_weight = 0;
     int put_weight = 0;
-    long long reads_done = 0;
-    long long writes_done = 0;
+    int64_t reads_done = 0;
+    int64_t writes_done = 0;
     Duration duration(FLAGS_duration, readwrites_);
 
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
-      const long long k = thread->rand.Next() % FLAGS_num;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      const int64_t k = thread->rand.Next() % FLAGS_num;
+      std::string key = GenerateKeyFromInt(k, FLAGS_num);
       if (get_weight == 0 && put_weight == 0) {
         // one batch completed, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
@@ -2323,17 +2379,14 @@ class Benchmark {
         }
 
         if (FLAGS_get_approx) {
-          char key2[100];
-          snprintf(key2, sizeof(key2), "%016lld", k + 1);
-          Slice skey2(key2);
-          Slice skey(key2);
-          Range range(skey, skey2);
+          std::string key2 = GenerateKeyFromInt(k + 1, FLAGS_num + 1);
+          Range range(key, key2);
           uint64_t sizes;
           db_->GetApproximateSizes(&range, 1, &sizes);
         }
 
         // do all the gets first
-        Status s = db_->Get(options, key.get(), &value);
+        Status s = db_->Get(options, key, &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
           // we continue after error rather than exiting so that we can
@@ -2352,8 +2405,7 @@ class Benchmark {
       } else  if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
-        Status s = db_->Put(write_options_, key.get(),
-                            gen.Generate(value_size_));
+        Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           exit(1);
@@ -2364,8 +2416,8 @@ class Benchmark {
       thread->stats.FinishedSingleOp(db_);
     }
     char msg[100];
-    snprintf(msg, sizeof(msg),
-             "( reads:%lld writes:%lld total:%lld found:%lld)",
+    snprintf(msg, sizeof(msg), "( reads:%" PRIu64 " writes:%" PRIu64 \
+             " total:%" PRIu64 " found:%" PRIu64 ")",
              reads_done, writes_done, readwrites_, found);
     thread->stats.AddMessage(msg);
   }
@@ -2388,10 +2440,10 @@ class Benchmark {
     long num_keys;                  // number of keys to read in current group
     long num_put_keys;              // number of keys to put in current group
 
-    long found = 0;
-    long reads_done = 0;
-    long writes_done = 0;
-    long multigets_done = 0;
+    int64_t found = 0;
+    int64_t reads_done = 0;
+    int64_t writes_done = 0;
+    int64_t multigets_done = 0;
 
     // the number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
@@ -2415,18 +2467,18 @@ class Benchmark {
       assert(num_keys + num_put_keys <= keys_left);
 
       // Apply the MultiGet operations
-      found += MultiGetRandom(options, num_keys, thread->rand, FLAGS_num, "");
+      found += MultiGetRandom(options, num_keys, &thread->rand, FLAGS_num, "");
       ++multigets_done;
       reads_done+=num_keys;
       thread->stats.FinishedSingleOp(db_);
 
       // Now do the puts
       int i;
-      long long k;
+      int64_t k;
       for(i=0; i<num_put_keys; ++i) {
         k = thread->rand.Next() % FLAGS_num;
-        unique_ptr<char []> key = GenerateKeyFromInt(k);
-        Status s = db_->Put(write_options_, key.get(),
+        std::string key = GenerateKeyFromInt(k, FLAGS_num);
+        Status s = db_->Put(write_options_, key,
                             gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
@@ -2440,7 +2492,8 @@ class Benchmark {
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "( reads:%ld writes:%ld total:%lld multiget_ops:%ld found:%ld)",
+             "( reads:%" PRIu64 " writes:%" PRIu64 " total:%" PRIu64 \
+             " multiget_ops:%" PRIu64 " found:%" PRIu64 ")",
              reads_done, writes_done, readwrites_, multigets_done, found);
     thread->stats.AddMessage(msg);
   }
@@ -2451,29 +2504,26 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
-    long long found = 0;
+    int64_t found = 0;
     Duration duration(FLAGS_duration, readwrites_);
 
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
-      const long long k = thread->rand.Next() % FLAGS_num;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      const int64_t k = thread->rand.Next() % FLAGS_num;
+      std::string key = GenerateKeyFromInt(k, FLAGS_num);
 
       if (FLAGS_use_snapshot) {
         options.snapshot = db_->GetSnapshot();
       }
 
       if (FLAGS_get_approx) {
-        char key2[100];
-        snprintf(key2, sizeof(key2), "%016lld", k + 1);
-        Slice skey2(key2);
-        Slice skey(key2);
-        Range range(skey, skey2);
+        std::string key2 = GenerateKeyFromInt(k + 1, FLAGS_num + 1);
+        Range range(key, key2);
         uint64_t sizes;
         db_->GetApproximateSizes(&range, 1, &sizes);
       }
 
-      if (db_->Get(options, key.get(), &value).ok()) {
+      if (db_->Get(options, key, &value).ok()) {
         found++;
       }
 
@@ -2481,7 +2531,7 @@ class Benchmark {
         db_->ReleaseSnapshot(options.snapshot);
       }
 
-      Status s = db_->Put(write_options_, key.get(), gen.Generate(value_size_));
+      Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
@@ -2490,7 +2540,7 @@ class Benchmark {
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "( updates:%lld found:%lld)", readwrites_, found);
+             "( updates:%" PRIu64 " found:%" PRIu64 ")", readwrites_, found);
     thread->stats.AddMessage(msg);
   }
 
@@ -2501,30 +2551,27 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
-    long found = 0;
+    int64_t found = 0;
 
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
-      const long long k = thread->rand.Next() % FLAGS_num;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      const int64_t k = thread->rand.Next() % FLAGS_num;
+      std::string key = GenerateKeyFromInt(k, FLAGS_num);
 
       if (FLAGS_use_snapshot) {
         options.snapshot = db_->GetSnapshot();
       }
 
       if (FLAGS_get_approx) {
-        char key2[100];
-        snprintf(key2, sizeof(key2), "%016lld", k + 1);
-        Slice skey2(key2);
-        Slice skey(key2);
-        Range range(skey, skey2);
+        std::string key2 = GenerateKeyFromInt(k + 1, FLAGS_num + 1);
+        Range range(key, key2);
         uint64_t sizes;
         db_->GetApproximateSizes(&range, 1, &sizes);
       }
 
       // Get the existing value
-      if (db_->Get(options, key.get(), &value).ok()) {
+      if (db_->Get(options, key, &value).ok()) {
         found++;
       } else {
         // If not existing, then just assume an empty string of data
@@ -2544,7 +2591,7 @@ class Benchmark {
       value.append(operand.data(), operand.size());
 
       // Write back to the database
-      Status s = db_->Put(write_options_, key.get(), value);
+      Status s = db_->Put(write_options_, key, value);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
@@ -2552,7 +2599,8 @@ class Benchmark {
       thread->stats.FinishedSingleOp(db_);
     }
     char msg[100];
-    snprintf(msg, sizeof(msg), "( updates:%lld found:%ld)", readwrites_, found);
+    snprintf(msg, sizeof(msg), "( updates:%" PRIu64 " found:%" PRIu64 ")",
+            readwrites_, found);
     thread->stats.AddMessage(msg);
   }
 
@@ -2572,11 +2620,10 @@ class Benchmark {
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
-      const long long k = thread->rand.Next() % merge_keys_;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      const int64_t k = thread->rand.Next() % merge_keys_;
+      std::string key = GenerateKeyFromInt(k, merge_keys_);
 
-      Status s = db_->Merge(write_options_, key.get(),
-                            gen.Generate(value_size_));
+      Status s = db_->Merge(write_options_, key, gen.Generate(value_size_));
 
       if (!s.ok()) {
         fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
@@ -2587,7 +2634,7 @@ class Benchmark {
 
     // Print some statistics
     char msg[100];
-    snprintf(msg, sizeof(msg), "( updates:%lld)", readwrites_);
+    snprintf(msg, sizeof(msg), "( updates:%" PRIu64 ")", readwrites_);
     thread->stats.AddMessage(msg);
   }
 
@@ -2602,23 +2649,22 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
-    long long num_hits = 0;
-    long long num_gets = 0;
-    long long num_merges = 0;
+    int64_t num_hits = 0;
+    int64_t num_gets = 0;
+    int64_t num_merges = 0;
     size_t max_length = 0;
 
     // the number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
 
     while (!duration.Done(1)) {
-      const long long k = thread->rand.Next() % merge_keys_;
-      unique_ptr<char []> key = GenerateKeyFromInt(k);
+      const int64_t k = thread->rand.Next() % merge_keys_;
+      std::string key = GenerateKeyFromInt(k, merge_keys_);
 
       bool do_merge = int(thread->rand.Next() % 100) < FLAGS_mergereadpercent;
 
       if (do_merge) {
-        Status s = db_->Merge(write_options_, key.get(),
-                              gen.Generate(value_size_));
+        Status s = db_->Merge(write_options_, key, gen.Generate(value_size_));
         if (!s.ok()) {
           fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
           exit(1);
@@ -2627,7 +2673,7 @@ class Benchmark {
         num_merges++;
 
       } else {
-        Status s = db_->Get(options, key.get(), &value);
+        Status s = db_->Get(options, key, &value);
         if (value.length() > max_length)
           max_length = value.length();
 
@@ -2647,7 +2693,8 @@ class Benchmark {
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "(reads:%lld merges:%lld total:%lld hits:%lld maxlength:%zu)",
+             "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64 " hits:%" \
+             PRIu64 " maxlength:%zu)",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
   }
