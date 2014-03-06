@@ -584,7 +584,7 @@ class LogBuffer {
   ~LogBuffer();
 
   // Add a log entry to the buffer.
-  void AddLogToBuffer(const char* format, ...);
+  void AddLogToBuffer(const char* format, va_list ap);
 
   // Flush all buffered log to the info log.
   void FlushBufferToLog() const;
