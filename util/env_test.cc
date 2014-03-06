@@ -12,6 +12,11 @@
 #include <iostream>
 #include <unordered_set>
 
+#ifdef OS_LINUX
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 #include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/coding.h"
@@ -257,6 +262,41 @@ TEST(EnvPosixTest, RandomAccessUniqueID) {
   // Delete the file
   env_->DeleteFile(fname);
 }
+
+// only works in linux platforms
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+TEST(EnvPosixTest, AllocateTest) {
+  std::string fname = GetOnDiskTestDir() + "/preallocate_testfile";
+  EnvOptions soptions;
+  soptions.use_mmap_writes = false;
+  unique_ptr<WritableFile> wfile;
+  ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
+
+  // allocate 100 MB
+  size_t kPreallocateSize = 100 * 1024 * 1024;
+  size_t kBlockSize = 512;
+  size_t kPageSize = 4096;
+  std::string data = "test";
+  wfile->SetPreallocationBlockSize(kPreallocateSize);
+  ASSERT_OK(wfile->Append(Slice(data)));
+  ASSERT_OK(wfile->Flush());
+
+  struct stat f_stat;
+  stat(fname.c_str(), &f_stat);
+  ASSERT_EQ(data.size(), f_stat.st_size);
+  // verify that blocks are preallocated
+  ASSERT_EQ(kPreallocateSize / kBlockSize, f_stat.st_blocks);
+
+  // close the file, should deallocate the blocks
+  wfile.reset();
+
+  stat(fname.c_str(), &f_stat);
+  ASSERT_EQ(data.size(), f_stat.st_size);
+  // verify that preallocated blocks were deallocated on file close
+  size_t data_blocks_pages = ((data.size() + kPageSize - 1) / kPageSize);
+  ASSERT_EQ(data_blocks_pages * kPageSize / kBlockSize, f_stat.st_blocks);
+}
+#endif
 
 // Returns true if any of the strings in ss are the prefix of another string.
 bool HasPrefix(const std::unordered_set<std::string>& ss) {
