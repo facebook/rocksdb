@@ -147,7 +147,7 @@ class ColumnFamilyData {
   TableCache* table_cache() const { return table_cache_.get(); }
 
   // See documentation in compaction_picker.h
-  Compaction* PickCompaction();
+  Compaction* PickCompaction(LogBuffer* log_buffer);
   Compaction* CompactRange(int input_level, int output_level,
                            const InternalKey* begin, const InternalKey* end,
                            InternalKey** compaction_end);

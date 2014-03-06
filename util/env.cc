@@ -8,7 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/env.h"
+
+#include <sys/time.h>
 #include "rocksdb/options.h"
+#include "util/arena.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -27,7 +31,80 @@ WritableFile::~WritableFile() {
 Logger::~Logger() {
 }
 
+// One log entry with its timestamp
+struct BufferedLog {
+  struct timeval now_tv;  // Timestamp of the log
+  char message[1];        // Beginning of log message
+};
+
+struct LogBuffer::Rep {
+  Arena arena_;
+  autovector<BufferedLog*> logs_;
+};
+
+// Lazily initialize Rep to avoid allocations when new log is added.
+LogBuffer::LogBuffer(const InfoLogLevel log_level,
+                     const shared_ptr<Logger>& info_log)
+    : rep_(nullptr), log_level_(log_level), info_log_(info_log) {}
+
+LogBuffer::~LogBuffer() { delete rep_; }
+
+void LogBuffer::AddLogToBuffer(const char* format, ...) {
+  if (!info_log_ || log_level_ < info_log_->GetInfoLogLevel()) {
+    // Skip the level because of its level.
+    return;
+  }
+  if (rep_ == nullptr) {
+    rep_ = new Rep();
+  }
+
+  const size_t kLogSizeLimit = 512;
+  char* alloc_mem = rep_->arena_.AllocateAligned(kLogSizeLimit);
+  BufferedLog* buffered_log = new (alloc_mem) BufferedLog();
+  char* p = buffered_log->message;
+  char* limit = alloc_mem + kLogSizeLimit - 1;
+
+  // store the time
+  gettimeofday(&(buffered_log->now_tv), nullptr);
+
+  // Print the message
+  if (p < limit) {
+    va_list ap;
+    va_start(ap, format);
+    p += vsnprintf(p, limit - p, format, ap);
+    va_end(ap);
+  }
+
+  // Add '\0' to the end
+  *p = '\0';
+
+  rep_->logs_.push_back(buffered_log);
+}
+
+void LogBuffer::FlushBufferToLog() const {
+  if (rep_ != nullptr) {
+    for (BufferedLog* log : rep_->logs_) {
+      const time_t seconds = log->now_tv.tv_sec;
+      struct tm t;
+      localtime_r(&seconds, &t);
+      Log(log_level_, info_log_,
+          "(Original Log Time %04d/%02d/%02d-%02d:%02d:%02d.%06d) %s",
+          t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min,
+          t.tm_sec, static_cast<int>(log->now_tv.tv_usec), log->message);
+    }
+  }
+}
+
 FileLock::~FileLock() {
+}
+
+void LogToBuffer(LogBuffer* log_buffer, const char* format, ...) {
+  if (log_buffer != nullptr) {
+    va_list ap;
+    va_start(ap, format);
+    log_buffer->AddLogToBuffer(format);
+    va_end(ap);
+  }
 }
 
 void LogFlush(Logger *info_log) {
@@ -40,7 +117,7 @@ void Log(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(format, ap);
+    info_log->Logv(InfoLogLevel::INFO, format, ap);
     va_end(ap);
   }
 }
@@ -163,7 +240,7 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(format, ap);
+    info_log->Logv(InfoLogLevel::INFO, format, ap);
     va_end(ap);
   }
 }

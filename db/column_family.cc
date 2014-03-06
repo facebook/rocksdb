@@ -270,8 +270,8 @@ void ColumnFamilyData::CreateNewMemtable() {
   mem_->Ref();
 }
 
-Compaction* ColumnFamilyData::PickCompaction() {
-  return compaction_picker_->PickCompaction(current_);
+Compaction* ColumnFamilyData::PickCompaction(LogBuffer* log_buffer) {
+  return compaction_picker_->PickCompaction(current_, log_buffer);
 }
 
 Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,

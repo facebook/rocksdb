@@ -513,7 +513,7 @@ class Directory {
   virtual Status Fsync() = 0;
 };
 
-enum InfoLogLevel {
+enum InfoLogLevel : unsigned char {
   DEBUG = 0,
   INFO,
   WARN,
@@ -526,7 +526,7 @@ enum InfoLogLevel {
 class Logger {
  public:
   enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
-  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::ERROR)
+  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO)
       : log_level_(log_level) {}
   virtual ~Logger();
 
@@ -543,10 +543,20 @@ class Logger {
     if (log_level < log_level_) {
       return;
     }
-    char new_format[500];
-    snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
-             kInfoLogLevelNames[log_level], format);
-    Logv(new_format, ap);
+
+    if (log_level == INFO) {
+      // Doesn't print log level if it is INFO level.
+      // This is to avoid unexpected performance regression after we add
+      // the feature of log level. All the logs before we add the feature
+      // are INFO level. We don't want to add extra costs to those existing
+      // logging.
+      Logv(format, ap);
+    } else {
+      char new_format[500];
+      snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
+               kInfoLogLevelNames[log_level], format);
+      Logv(new_format, ap);
+    }
   }
   virtual size_t GetLogFileSize() const {
     return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;
@@ -565,6 +575,26 @@ class Logger {
   InfoLogLevel log_level_;
 };
 
+// A class to buffer info log entries and flush them in the end.
+class LogBuffer {
+ public:
+  // log_level: the log level for all the logs
+  // info_log:  logger to write the logs to
+  LogBuffer(const InfoLogLevel log_level, const shared_ptr<Logger>& info_log);
+  ~LogBuffer();
+
+  // Add a log entry to the buffer.
+  void AddLogToBuffer(const char* format, ...);
+
+  // Flush all buffered log to the info log.
+  void FlushBufferToLog() const;
+
+ private:
+  struct Rep;
+  Rep* rep_;
+  const InfoLogLevel log_level_;
+  const shared_ptr<Logger>& info_log_;
+};
 
 // Identifies a locked file.
 class FileLock {
@@ -577,6 +607,9 @@ class FileLock {
   void operator=(const FileLock&);
 };
 
+// Add log to the LogBuffer for a delayed info logging. It can be used when
+// we want to add some logs inside a mutex.
+extern void LogToBuffer(LogBuffer* log_buffer, const char* format, ...);
 
 extern void LogFlush(const shared_ptr<Logger>& info_log);
 
