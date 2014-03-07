@@ -402,6 +402,15 @@ void DBImpl::TEST_Destroy_DBImpl() {
          bg_logstats_scheduled_) {
     bg_cv_.Wait();
   }
+  mutex_.Unlock();
+
+  // Release SuperVersion reference kept in ThreadLocalPtr.
+  // This must be done outside of mutex_ since unref handler can lock mutex.
+  // It also needs to be done after FlushMemTable, which can trigger local_sv_
+  // access.
+  delete local_sv_;
+
+  mutex_.Lock();
   if (super_version_ != nullptr) {
     bool is_last_reference __attribute__((unused));
     is_last_reference = super_version_->Unref();
