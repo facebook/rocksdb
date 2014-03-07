@@ -287,8 +287,7 @@ void PlainTableReader::AllocateIndexAndBloom(int num_prefixes) {
 
 size_t PlainTableReader::BucketizeIndexesAndFillBloom(
     IndexRecordList* record_list, std::vector<IndexRecord*>* hash_to_offsets,
-    std::vector<uint32_t>* bucket_count) {
-  size_t sub_index_size_needed = 0;
+    std::vector<uint32_t>* entries_per_bucket) {
   bool first = true;
   uint32_t prev_hash = 0;
   size_t num_records = record_list->GetNumRecords();
@@ -306,36 +305,31 @@ size_t PlainTableReader::BucketizeIndexesAndFillBloom(
     IndexRecord* prev_bucket_head = (*hash_to_offsets)[bucket];
     index_record->next = prev_bucket_head;
     (*hash_to_offsets)[bucket] = index_record;
-    auto& item_count = (*bucket_count)[bucket];
-    if (item_count > 0) {
-      if (item_count == 1) {
-        sub_index_size_needed += kOffsetLen + 1;
-      }
-      if (item_count == 127) {
-        // Need more than one byte for length
-        sub_index_size_needed++;
-      }
-      sub_index_size_needed += kOffsetLen;
-    }
-    item_count++;
+    (*entries_per_bucket)[bucket]++;
   }
-  return sub_index_size_needed;
+  size_t sub_index_size = 0;
+  for (auto entry_count : *entries_per_bucket) {
+    if (entry_count <= 1) {
+      continue;
+    }
+    // Only buckets with more than 1 entry will have subindex.
+    sub_index_size += VarintLength(entry_count);
+    // total bytes needed to store these entries' in-file offsets.
+    sub_index_size += entry_count * kOffsetLen;
+  }
+  return sub_index_size;
 }
 
 void PlainTableReader::FillIndexes(
-    size_t sub_index_size_needed,
+    const size_t kSubIndexSize,
     const std::vector<IndexRecord*>& hash_to_offsets,
-    const std::vector<uint32_t>& bucket_count) {
-  Log(options_.info_log, "Reserving %zu bytes for sub index",
-      sub_index_size_needed);
-  // 8 bytes buffer for variable length size
-  size_t buffer_size = 8 * 8;
-  size_t buffer_used = 0;
-  sub_index_size_needed += buffer_size;
-  sub_index_.reset(new char[sub_index_size_needed]);
+    const std::vector<uint32_t>& entries_per_bucket) {
+  Log(options_.info_log, "Reserving %zu bytes for plain table's sub_index",
+      kSubIndexSize);
+  sub_index_.reset(new char[kSubIndexSize]);
   size_t sub_index_offset = 0;
   for (int i = 0; i < index_size_; i++) {
-    uint32_t num_keys_for_bucket = bucket_count[i];
+    uint32_t num_keys_for_bucket = entries_per_bucket[i];
     switch (num_keys_for_bucket) {
     case 0:
       // No key for bucket
@@ -351,21 +345,6 @@ void PlainTableReader::FillIndexes(
       char* prev_ptr = &sub_index_[sub_index_offset];
       char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
       sub_index_offset += (cur_ptr - prev_ptr);
-      if (cur_ptr - prev_ptr > 2
-          || (cur_ptr - prev_ptr == 2 && num_keys_for_bucket <= 127)) {
-        // Need to resize sub_index. Exponentially grow buffer.
-        buffer_used += cur_ptr - prev_ptr - 1;
-        if (buffer_used + 4 > buffer_size) {
-          Log(options_.info_log, "Recalculate suffix_map length to %zu",
-              sub_index_size_needed);
-
-          sub_index_size_needed += buffer_size;
-          buffer_size *= 2;
-          char* new_sub_index = new char[sub_index_size_needed];
-          memcpy(new_sub_index, sub_index_.get(), sub_index_offset);
-          sub_index_.reset(new_sub_index);
-        }
-      }
       char* sub_index_pos = &sub_index_[sub_index_offset];
       IndexRecord* record = hash_to_offsets[i];
       int j;
@@ -375,12 +354,14 @@ void PlainTableReader::FillIndexes(
       }
       assert(j == -1 && record == nullptr);
       sub_index_offset += kOffsetLen * num_keys_for_bucket;
+      assert(sub_index_offset <= kSubIndexSize);
       break;
     }
   }
+  assert(sub_index_offset == kSubIndexSize);
 
   Log(options_.info_log, "hash table size: %d, suffix_map length %zu",
-      index_size_, sub_index_size_needed);
+      index_size_, kSubIndexSize);
 }
 
 Status PlainTableReader::PopulateIndex() {
@@ -422,11 +403,11 @@ Status PlainTableReader::PopulateIndex() {
   // Bucketize all the index records to a temp data structure, in which for
   // each bucket, we generate a linked list of IndexRecord, in reversed order.
   std::vector<IndexRecord*> hash_to_offsets(index_size_, nullptr);
-  std::vector<uint32_t> bucket_count(index_size_, 0);
+  std::vector<uint32_t> entries_per_bucket(index_size_, 0);
   size_t sub_index_size_needed = BucketizeIndexesAndFillBloom(
-      &record_list, &hash_to_offsets, &bucket_count);
+      &record_list, &hash_to_offsets, &entries_per_bucket);
   // From the temp data structure, populate indexes.
-  FillIndexes(sub_index_size_needed, hash_to_offsets, bucket_count);
+  FillIndexes(sub_index_size_needed, hash_to_offsets, entries_per_bucket);
 
   return Status::OK();
 }
