@@ -688,7 +688,8 @@ class PosixWritableFile : public WritableFile {
     GetPreallocationStatus(&block_size, &last_allocated_block);
     if (last_allocated_block > 0) {
       // trim the extra space preallocated at the end of the file
-      ftruncate(fd_, filesize_);  // ignore errors
+      int dummy __attribute__((unused));
+      dummy = ftruncate(fd_, filesize_);  // ignore errors
     }
 
     if (close(fd_) < 0) {
