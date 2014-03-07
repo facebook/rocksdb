@@ -138,12 +138,25 @@ void* ThreadLocalPtr::StaticMeta::Swap(uint32_t id, void* ptr) {
   return tls->entries[id].ptr.exchange(ptr, std::memory_order_relaxed);
 }
 
-void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs) {
+bool ThreadLocalPtr::StaticMeta::CompareAndSwap(uint32_t id, void* ptr,
+    void*& expected) {
+  auto* tls = GetThreadLocal();
+  if (UNLIKELY(id >= tls->entries.size())) {
+    // Need mutex to protect entries access within ReclaimId
+    MutexLock l(&mutex_);
+    tls->entries.resize(id + 1);
+  }
+  return tls->entries[id].ptr.compare_exchange_strong(expected, ptr,
+      std::memory_order_relaxed, std::memory_order_relaxed);
+}
+
+void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
+    void* const replacement) {
   MutexLock l(&mutex_);
   for (ThreadData* t = head_.next; t != &head_; t = t->next) {
     if (id < t->entries.size()) {
       void* ptr =
-          t->entries[id].ptr.exchange(nullptr, std::memory_order_relaxed);
+          t->entries[id].ptr.exchange(replacement, std::memory_order_relaxed);
       if (ptr != nullptr) {
         ptrs->push_back(ptr);
       }
@@ -225,8 +238,12 @@ void* ThreadLocalPtr::Swap(void* ptr) {
   return StaticMeta::Instance()->Swap(id_, ptr);
 }
 
-void ThreadLocalPtr::Scrape(autovector<void*>* ptrs) {
-  StaticMeta::Instance()->Scrape(id_, ptrs);
+bool ThreadLocalPtr::CompareAndSwap(void* ptr, void*& expected) {
+  return StaticMeta::Instance()->CompareAndSwap(id_, ptr, expected);
+}
+
+void ThreadLocalPtr::Scrape(autovector<void*>* ptrs, void* const replacement) {
+  StaticMeta::Instance()->Scrape(id_, ptrs, replacement);
 }
 
 }  // namespace rocksdb

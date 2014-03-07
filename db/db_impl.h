@@ -174,9 +174,22 @@ class DBImpl : public DB {
     void Cleanup();
     void Init(MemTable* new_mem, MemTableListVersion* new_imm,
               Version* new_current);
+
+    // The value of dummy is not actually used. kSVInUse takes its address as a
+    // mark in the thread local storage to indicate the SuperVersion is in use
+    // by thread. This way, the value of kSVInUse is guaranteed to have no
+    // conflict with SuperVersion object address and portable on different
+    // platform.
+    static int dummy;
+    static void* const kSVInUse;
+    static void* const kSVObsolete;
   };
 
   static void SuperVersionUnrefHandle(void* ptr) {
+    // UnrefHandle is called when a thread exists or a ThreadLocalPtr gets
+    // destroyed. When former happens, the thread shouldn't see kSVInUse.
+    // When latter happens, we are in ~DBImpl(), no get should happen as well.
+    assert(ptr != SuperVersion::kSVInUse);
     DBImpl::SuperVersion* sv = static_cast<DBImpl::SuperVersion*>(ptr);
     if (sv->Unref()) {
       sv->db->mutex_.Lock();

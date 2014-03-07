@@ -435,8 +435,8 @@ TEST(ThreadLocalTest, Scrape) {
     // Scrape all thread local data. No unref at thread
     // exit or ThreadLocalPtr destruction
     autovector<void*> ptrs;
-    p.tls1.Scrape(&ptrs);
-    p.tls2->Scrape(&ptrs);
+    p.tls1.Scrape(&ptrs, nullptr);
+    p.tls2->Scrape(&ptrs, nullptr);
     delete p.tls2;
     // Signal to exit
     mu.Lock();
@@ -447,6 +447,22 @@ TEST(ThreadLocalTest, Scrape) {
 
     ASSERT_EQ(unref_count, 0);
   }
+}
+
+TEST(ThreadLocalTest, CompareAndSwap) {
+  ThreadLocalPtr tls;
+  ASSERT_TRUE(tls.Swap(reinterpret_cast<void*>(1)) == nullptr);
+  void* expected = reinterpret_cast<void*>(1);
+  // Swap in 2
+  ASSERT_TRUE(tls.CompareAndSwap(reinterpret_cast<void*>(2), expected));
+  expected = reinterpret_cast<void*>(100);
+  // Fail Swap, still 2
+  ASSERT_TRUE(!tls.CompareAndSwap(reinterpret_cast<void*>(2), expected));
+  ASSERT_EQ(expected, reinterpret_cast<void*>(2));
+  // Swap in 3
+  expected = reinterpret_cast<void*>(2);
+  ASSERT_TRUE(tls.CompareAndSwap(reinterpret_cast<void*>(3), expected));
+  ASSERT_EQ(tls.Get(), reinterpret_cast<void*>(3));
 }
 
 }  // namespace rocksdb

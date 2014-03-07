@@ -63,6 +63,10 @@
 
 namespace rocksdb {
 
+int DBImpl::SuperVersion::dummy = 0;
+void* const DBImpl::SuperVersion::kSVInUse = &DBImpl::SuperVersion::dummy;
+void* const DBImpl::SuperVersion::kSVObsolete = nullptr;
+
 void DumpLeveldbBuildVersion(Logger * log);
 
 // Information kept for every waiting writer
@@ -1327,10 +1331,6 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   if (s.ok()) {
     InstallSuperVersion(deletion_state);
-    // Reset SuperVersions cached in thread local storage
-    if (options_.allow_thread_local) {
-      ResetThreadLocalSuperVersions(&deletion_state);
-    }
     if (madeProgress) {
       *madeProgress = 1;
     }
@@ -2874,6 +2874,10 @@ void DBImpl::InstallSuperVersion(DeletionState& deletion_state) {
   SuperVersion* old_superversion = InstallSuperVersion(new_superversion);
   deletion_state.new_superversion = nullptr;
   deletion_state.superversions_to_free.push_back(old_superversion);
+  // Reset SuperVersions cached in thread local storage
+  if (options_.allow_thread_local) {
+    ResetThreadLocalSuperVersions(&deletion_state);
+  }
 }
 
 DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
@@ -2896,9 +2900,12 @@ DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
 void DBImpl::ResetThreadLocalSuperVersions(DeletionState* deletion_state) {
   mutex_.AssertHeld();
   autovector<void*> sv_ptrs;
-  local_sv_->Scrape(&sv_ptrs);
+  local_sv_->Scrape(&sv_ptrs, SuperVersion::kSVObsolete);
   for (auto ptr : sv_ptrs) {
     assert(ptr);
+    if (ptr == SuperVersion::kSVInUse) {
+      continue;
+    }
     auto sv = static_cast<SuperVersion*>(ptr);
     if (static_cast<SuperVersion*>(ptr)->Unref()) {
       sv->Cleanup();
@@ -2936,10 +2943,17 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // is being used while a new SuperVersion is installed, the cached
     // SuperVersion can become stale. It will eventually get refreshed either
     // on the next GetImpl() call or next SuperVersion installation.
-    sv = static_cast<SuperVersion*>(local_sv_->Swap(nullptr));
-    if (!sv || sv->version_number !=
-               super_version_number_.load(std::memory_order_relaxed)) {
-      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_UPDATES);
+    void* ptr = local_sv_->Swap(SuperVersion::kSVInUse);
+    // Invariant:
+    // (1) Scrape (always) installs kSVObsolete in ThreadLocal storage
+    // (2) the Swap above (always) installs kSVInUse, ThreadLocal storage
+    // should only keep kSVInUse during a GetImpl.
+    assert(ptr != SuperVersion::kSVInUse);
+    sv = static_cast<SuperVersion*>(ptr);
+    if (sv == SuperVersion::kSVObsolete ||
+        sv->version_number != super_version_number_.load(
+          std::memory_order_relaxed)) {
+      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_ACQUIRES);
       SuperVersion* sv_to_delete = nullptr;
 
       if (sv && sv->Unref()) {
@@ -2999,11 +3013,25 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     mutex_.Unlock();
   }
 
-  // Release SuperVersion
+  bool unref_sv = true;
   if (LIKELY(options_.allow_thread_local)) {
     // Put the SuperVersion back
-    local_sv_->Reset(static_cast<void*>(sv));
-  } else {
+    void* expected = SuperVersion::kSVInUse;
+    if (local_sv_->CompareAndSwap(static_cast<void*>(sv), expected)) {
+      // When we see kSVInUse in the ThreadLocal, we are sure ThreadLocal
+      // storage has not been altered and no Scrape has happend. The
+      // SuperVersion is still current.
+      unref_sv = false;
+    } else {
+      // ThreadLocal scrape happened in the process of this GetImpl call (after
+      // thread local Swap() at the beginning and before CompareAndSwap()).
+      // This means the SuperVersion it holds is obsolete.
+      assert(expected == SuperVersion::kSVObsolete);
+    }
+  }
+
+  if (unref_sv) {
+    // Release SuperVersion
     bool delete_sv = false;
     if (sv->Unref()) {
       mutex_.Lock();
@@ -3014,6 +3042,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     if (delete_sv) {
       delete sv;
     }
+    RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_RELEASES);
   }
 
   // Note, tickers are atomic now - no lock protection needed any more.

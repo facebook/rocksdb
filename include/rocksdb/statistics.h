@@ -122,7 +122,8 @@ enum Tickers {
   // Number of table's properties loaded directly from file, without creating
   // table reader object.
   NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
-  NUMBER_SUPERVERSION_UPDATES,
+  NUMBER_SUPERVERSION_ACQUIRES,
+  NUMBER_SUPERVERSION_RELEASES,
   TICKER_ENUM_MAX
 };
 
@@ -178,7 +179,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
     {NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
      "rocksdb.number.direct.load.table.properties"},
-    {NUMBER_SUPERVERSION_UPDATES, "rocksdb.number.superversion_updates"},
+    {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
+    {NUMBER_SUPERVERSION_RELEASES, "rocksdb.number.superversion_releases"},
 };
 
 /**
