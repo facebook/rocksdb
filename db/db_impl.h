@@ -86,7 +86,7 @@ class DBImpl : public DB {
                                 ColumnFamilyHandle* column_family);
   virtual Status NewIterators(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);

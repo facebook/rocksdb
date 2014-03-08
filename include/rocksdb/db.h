@@ -255,7 +255,7 @@ class DB {
   // before the db is deleted
   virtual Status NewIterators(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) = 0;
 
   // Return a handle to the current DB state.  Iterators created with

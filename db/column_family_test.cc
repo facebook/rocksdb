@@ -788,6 +788,63 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   Close();
 }
 
+namespace {
+std::string IterStatus(Iterator* iter) {
+  std::string result;
+  if (iter->Valid()) {
+    result = iter->key().ToString() + "->" + iter->value().ToString();
+  } else {
+    result = "(invalid)";
+  }
+  return result;
+}
+}  // namespace anonymous
+
+TEST(ColumnFamilyTest, NewIteratorsTest) {
+  // iter == 0 -- no tailing
+  // iter == 2 -- tailing
+  for (int iter = 0; iter < 2; ++iter) {
+    Open();
+    CreateColumnFamiliesAndReopen({"one", "two"});
+    ASSERT_OK(Put(0, "a", "b"));
+    ASSERT_OK(Put(1, "b", "a"));
+    ASSERT_OK(Put(2, "c", "m"));
+    ASSERT_OK(Put(2, "v", "t"));
+    std::vector<Iterator*> iterators;
+    ReadOptions options;
+    options.tailing = (iter == 1);
+    ASSERT_OK(db_->NewIterators(options, handles_, &iterators));
+
+    for (auto it : iterators) {
+      it->SeekToFirst();
+    }
+    ASSERT_EQ(IterStatus(iterators[0]), "a->b");
+    ASSERT_EQ(IterStatus(iterators[1]), "b->a");
+    ASSERT_EQ(IterStatus(iterators[2]), "c->m");
+
+    ASSERT_OK(Put(1, "x", "x"));
+
+    for (auto it : iterators) {
+      it->Next();
+    }
+
+    ASSERT_EQ(IterStatus(iterators[0]), "(invalid)");
+    if (iter == 0) {
+      // no tailing
+      ASSERT_EQ(IterStatus(iterators[1]), "(invalid)");
+    } else {
+      // tailing
+      ASSERT_EQ(IterStatus(iterators[1]), "x->x");
+    }
+    ASSERT_EQ(IterStatus(iterators[2]), "v->t");
+
+    for (auto it : iterators) {
+      delete it;
+    }
+    Destroy();
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

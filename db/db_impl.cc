@@ -3214,12 +3214,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
   SuperVersion* super_version = nullptr;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-  mutex_.Lock();
   if (!options.tailing) {
+    mutex_.Lock();
     super_version = cfd->GetSuperVersion()->Ref();
     latest_snapshot = versions_->LastSequence();
+    mutex_.Unlock();
   }
-  mutex_.Unlock();
 
   Iterator* iter;
   if (options.tailing) {
@@ -3227,11 +3227,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
   } else {
     iter = NewInternalIterator(options, cfd, super_version);
 
-    iter = NewDBIterator(
-        &dbname_, env_, *cfd->full_options(), cfd->user_comparator(), iter,
-        (options.snapshot != nullptr
-             ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-             : latest_snapshot));
+    auto snapshot =
+        options.snapshot != nullptr
+            ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+            : latest_snapshot;
+    iter = NewDBIterator(&dbname_, env_, *cfd->full_options(),
+                         cfd->user_comparator(), iter, snapshot);
   }
 
   if (options.prefix) {
@@ -3245,10 +3246,53 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
 
 Status DBImpl::NewIterators(
     const ReadOptions& options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
-  // TODO(icanadi)
-  return Status::NotSupported("Not yet!");
+
+  if (options.prefix) {
+    return Status::NotSupported(
+        "NewIterators doesn't support ReadOptions::prefix");
+  }
+
+  iterators->clear();
+  iterators->reserve(column_families.size());
+  SequenceNumber latest_snapshot = 0;
+  std::vector<SuperVersion*> super_versions;
+  super_versions.reserve(column_families.size());
+
+  if (!options.tailing) {
+    mutex_.Lock();
+    latest_snapshot = versions_->LastSequence();
+    for (auto cfh : column_families) {
+      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+      super_versions.push_back(cfd->GetSuperVersion()->Ref());
+    }
+    mutex_.Unlock();
+  }
+
+  if (options.tailing) {
+    for (auto cfh : column_families) {
+      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+      iterators->push_back(new TailingIterator(this, options, cfd));
+    }
+  } else {
+    for (size_t i = 0; i < column_families.size(); ++i) {
+      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_families[i]);
+      auto cfd = cfh->cfd();
+
+      auto snapshot =
+          options.snapshot != nullptr
+              ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+              : latest_snapshot;
+
+      auto iter = NewInternalIterator(options, cfd, super_versions[i]);
+      iter = NewDBIterator(&dbname_, env_, *cfd->full_options(),
+                           cfd->user_comparator(), iter, snapshot);
+      iterators->push_back(iter);
+    }
+  }
+
+  return Status::OK();
 }
 
 const Snapshot* DBImpl::GetSnapshot() {
