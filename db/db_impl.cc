@@ -279,7 +279,8 @@ DBImpl::~DBImpl() {
   if (flush_on_destroy_) {
     autovector<ColumnFamilyData*> to_delete;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->mem()->GetFirstSequenceNumber() != 0) {
+      // TODO(icanadi) do this in ColumnFamilyData destructor
+      if (!cfd->IsDropped() && cfd->mem()->GetFirstSequenceNumber() != 0) {
         cfd->Ref();
         mutex_.Unlock();
         FlushMemTable(cfd, FlushOptions());
@@ -1792,7 +1793,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     bool is_flush_pending = false;
     // no need to refcount since we're under a mutex
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->imm()->IsFlushPending()) {
+      if (!cfd->IsDropped() && cfd->imm()->IsFlushPending()) {
         is_flush_pending = true;
       }
     }
@@ -1809,7 +1810,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     bool is_compaction_needed = false;
     // no need to refcount since we're under a mutex
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->current()->NeedsCompaction()) {
+      if (!cfd->IsDropped() && cfd->current()->NeedsCompaction()) {
         is_compaction_needed = true;
         break;
       }
@@ -3381,6 +3382,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   autovector<ColumnFamilyData*> to_delete;
   // refcounting cfd in iteration
   for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
     cfd->Ref();
     // May temporarily unlock and wait.
     status = MakeRoomForWrite(cfd, my_batch == nullptr);
