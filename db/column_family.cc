@@ -111,6 +111,9 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
   return result;
 }
 
+int SuperVersion::dummy = 0;
+void* const SuperVersion::kSVInUse = &SuperVersion::dummy;
+void* const SuperVersion::kSVObsolete = nullptr;
 
 SuperVersion::~SuperVersion() {
   for (auto td : to_delete) {
@@ -153,6 +156,10 @@ void SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
 
 namespace {
 void SuperVersionUnrefHandle(void* ptr) {
+  // UnrefHandle is called when a thread exists or a ThreadLocalPtr gets
+  // destroyed. When former happens, the thread shouldn't see kSVInUse.
+  // When latter happens, we are in ~ColumnFamilyData(), no get should happen as
+  // well.
   SuperVersion* sv = static_cast<SuperVersion*>(ptr);
   if (sv->Unref()) {
     sv->db_mutex->Lock();
@@ -299,9 +306,12 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
 
 void ColumnFamilyData::ResetThreadLocalSuperVersions() {
   autovector<void*> sv_ptrs;
-  local_sv_->Scrape(&sv_ptrs);
+  local_sv_->Scrape(&sv_ptrs, SuperVersion::kSVObsolete);
   for (auto ptr : sv_ptrs) {
     assert(ptr);
+    if (ptr == SuperVersion::kSVInUse) {
+      continue;
+    }
     auto sv = static_cast<SuperVersion*>(ptr);
     if (sv->Unref()) {
       sv->Cleanup();

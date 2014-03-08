@@ -92,6 +92,15 @@ struct SuperVersion {
   void Cleanup();
   void Init(MemTable* new_mem, MemTableListVersion* new_imm,
             Version* new_current);
+
+  // The value of dummy is not actually used. kSVInUse takes its address as a
+  // mark in the thread local storage to indicate the SuperVersion is in use
+  // by thread. This way, the value of kSVInUse is guaranteed to have no
+  // conflict with SuperVersion object address and portable on different
+  // platform.
+  static int dummy;
+  static void* const kSVInUse;
+  static void* const kSVObsolete;
 };
 
 extern ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
@@ -163,12 +172,7 @@ class ColumnFamilyData {
   }
 
   SuperVersion* GetSuperVersion() const { return super_version_; }
-  SuperVersion* GetAndResetThreadLocalSuperVersion() const {
-    return static_cast<SuperVersion*>(local_sv_->Swap(nullptr));
-  }
-  void SetThreadLocalSuperVersion(SuperVersion* super_version) {
-    local_sv_->Reset(static_cast<void*>(super_version));
-  }
+  ThreadLocalPtr* GetThreadLocalSuperVersion() const { return local_sv_.get(); }
   uint64_t GetSuperVersionNumber() const {
     return super_version_number_.load();
   }

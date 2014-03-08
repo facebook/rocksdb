@@ -49,7 +49,7 @@ LogBuffer::LogBuffer(const InfoLogLevel log_level,
 
 LogBuffer::~LogBuffer() { delete rep_; }
 
-void LogBuffer::AddLogToBuffer(const char* format, ...) {
+void LogBuffer::AddLogToBuffer(const char* format, va_list ap) {
   if (!info_log_ || log_level_ < info_log_->GetInfoLogLevel()) {
     // Skip the level because of its level.
     return;
@@ -69,10 +69,10 @@ void LogBuffer::AddLogToBuffer(const char* format, ...) {
 
   // Print the message
   if (p < limit) {
-    va_list ap;
-    va_start(ap, format);
-    p += vsnprintf(p, limit - p, format, ap);
-    va_end(ap);
+    va_list backup_ap;
+    va_copy(backup_ap, ap);
+    p += vsnprintf(p, limit - p, format, backup_ap);
+    va_end(backup_ap);
   }
 
   // Add '\0' to the end
@@ -102,7 +102,7 @@ void LogToBuffer(LogBuffer* log_buffer, const char* format, ...) {
   if (log_buffer != nullptr) {
     va_list ap;
     va_start(ap, format);
-    log_buffer->AddLogToBuffer(format);
+    log_buffer->AddLogToBuffer(format, ap);
     va_end(ap);
   }
 }

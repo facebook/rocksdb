@@ -1263,10 +1263,6 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
 
   if (s.ok()) {
     InstallSuperVersion(cfd, deletion_state);
-    // Reset SuperVersions cached in thread local storage
-    if (options_.allow_thread_local) {
-      cfd->ResetThreadLocalSuperVersions();
-    }
     if (madeProgress) {
       *madeProgress = 1;
     }
@@ -2876,6 +2872,10 @@ void DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
       cfd->InstallSuperVersion(new_superversion, &mutex_);
   deletion_state.new_superversion = nullptr;
   deletion_state.superversions_to_free.push_back(old_superversion);
+  // Reset SuperVersions cached in thread local storage
+  if (options_.allow_thread_local) {
+    cfd->ResetThreadLocalSuperVersions();
+  }
 }
 
 Status DBImpl::GetImpl(const ReadOptions& options,
@@ -2897,6 +2897,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   // Acquire SuperVersion
   SuperVersion* sv = nullptr;
+  ThreadLocalPtr* thread_local_sv = nullptr;
   if (LIKELY(options_.allow_thread_local)) {
     // The SuperVersion is cached in thread local storage to avoid acquiring
     // mutex when SuperVersion does not change since the last use. When a new
@@ -2907,9 +2908,17 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // is being used while a new SuperVersion is installed, the cached
     // SuperVersion can become stale. It will eventually get refreshed either
     // on the next GetImpl() call or next SuperVersion installation.
-    sv = cfd->GetAndResetThreadLocalSuperVersion();
-    if (!sv || sv->version_number != cfd->GetSuperVersionNumber()) {
-      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_UPDATES);
+    thread_local_sv = cfd->GetThreadLocalSuperVersion();
+    void* ptr = thread_local_sv->Swap(SuperVersion::kSVInUse);
+    // Invariant:
+    // (1) Scrape (always) installs kSVObsolete in ThreadLocal storage
+    // (2) the Swap above (always) installs kSVInUse, ThreadLocal storage
+    // should only keep kSVInUse during a GetImpl.
+    assert(ptr != SuperVersion::kSVInUse);
+    sv = static_cast<SuperVersion*>(ptr);
+    if (sv == SuperVersion::kSVObsolete ||
+        sv->version_number != cfd->GetSuperVersionNumber()) {
+      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_ACQUIRES);
       SuperVersion* sv_to_delete = nullptr;
 
       if (sv && sv->Unref()) {
@@ -2972,11 +2981,25 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     mutex_.Unlock();
   }
 
-  // Release SuperVersion
+  bool unref_sv = true;
   if (LIKELY(options_.allow_thread_local)) {
     // Put the SuperVersion back
-    cfd->SetThreadLocalSuperVersion(sv);
-  } else {
+    void* expected = SuperVersion::kSVInUse;
+    if (thread_local_sv->CompareAndSwap(static_cast<void*>(sv), expected)) {
+      // When we see kSVInUse in the ThreadLocal, we are sure ThreadLocal
+      // storage has not been altered and no Scrape has happend. The
+      // SuperVersion is still current.
+      unref_sv = false;
+    } else {
+      // ThreadLocal scrape happened in the process of this GetImpl call (after
+      // thread local Swap() at the beginning and before CompareAndSwap()).
+      // This means the SuperVersion it holds is obsolete.
+      assert(expected == SuperVersion::kSVObsolete);
+    }
+  }
+
+  if (unref_sv) {
+    // Release SuperVersion
     bool delete_sv = false;
     if (sv->Unref()) {
       mutex_.Lock();
@@ -2987,9 +3010,9 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     if (delete_sv) {
       delete sv;
     }
+    RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_RELEASES);
   }
 
-  // Note, tickers are atomic now - no lock protection needed any more.
   RecordTick(options_.statistics.get(), NUMBER_KEYS_READ);
   RecordTick(options_.statistics.get(), BYTES_READ, value->size());
   BumpPerfTime(&perf_context.get_post_process_time, &post_process_timer);

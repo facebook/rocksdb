@@ -48,9 +48,15 @@ class ThreadLocalPtr {
   // Atomically swap the supplied ptr and return the previous value
   void* Swap(void* ptr);
 
-  // Return non-nullptr data for all existing threads and reset them
-  // to nullptr
-  void Scrape(autovector<void*>* ptrs);
+  // Atomically compare the stored value with expected. Set the new
+  // pointer value to thread local only if the comparision is true.
+  // Otherwise, expected returns the stored value.
+  // Return true on success, false on failure
+  bool CompareAndSwap(void* ptr, void*& expected);
+
+  // Reset all thread local data to replacement, and return non-nullptr
+  // data for all existing threads
+  void Scrape(autovector<void*>* ptrs, void* const replacement);
 
  protected:
   struct Entry {
@@ -100,8 +106,12 @@ class ThreadLocalPtr {
     void Reset(uint32_t id, void* ptr);
     // Atomically swap the supplied ptr and return the previous value
     void* Swap(uint32_t id, void* ptr);
-    // Return data for all existing threads and return them to nullptr
-    void Scrape(uint32_t id, autovector<void*>* ptrs);
+    // Atomically compare and swap the provided value only if it equals
+    // to expected value.
+    bool CompareAndSwap(uint32_t id, void* ptr, void*& expected);
+    // Reset all thread local data to replacement, and return non-nullptr
+    // data for all existing threads
+    void Scrape(uint32_t id, autovector<void*>* ptrs, void* const replacement);
 
     // Register the UnrefHandler for id
     void SetHandler(uint32_t id, UnrefHandler handler);

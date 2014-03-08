@@ -678,9 +678,19 @@ class PosixWritableFile : public WritableFile {
     Status s;
     s = Flush(); // flush cache to OS
     if (!s.ok()) {
+      return s;
     }
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
+
+    size_t block_size;
+    size_t last_allocated_block;
+    GetPreallocationStatus(&block_size, &last_allocated_block);
+    if (last_allocated_block > 0) {
+      // trim the extra space preallocated at the end of the file
+      int dummy __attribute__((unused));
+      dummy = ftruncate(fd_, filesize_);  // ignore errors
+    }
 
     if (close(fd_) < 0) {
       if (s.ok()) {
