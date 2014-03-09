@@ -541,6 +541,7 @@ bool DBImpl::SuperVersion::Unref() {
 }
 
 void DBImpl::SuperVersion::Cleanup() {
+  db->mutex_.AssertHeld();
   assert(refs.load(std::memory_order_relaxed) == 0);
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
@@ -552,6 +553,7 @@ void DBImpl::SuperVersion::Cleanup() {
 
 void DBImpl::SuperVersion::Init(MemTable* new_mem, MemTableListVersion* new_imm,
                                 Version* new_current) {
+  db->mutex_.AssertHeld();
   mem = new_mem;
   imm = new_imm;
   current = new_current;
@@ -2960,8 +2962,10 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // acquiring mutex for this operation, we use atomic Swap() on the thread
     // local pointer to guarantee exclusive access. If the thread local pointer
     // is being used while a new SuperVersion is installed, the cached
-    // SuperVersion can become stale. It will eventually get refreshed either
-    // on the next GetImpl() call or next SuperVersion installation.
+    // SuperVersion can become stale. In that case, the background thread would
+    // have swapped in kSVObsolete. We re-check the value at the end of
+    // Get, with an atomic compare and swap. The superversion will be released
+    // if detected to be stale.
     void* ptr = local_sv_->Swap(SuperVersion::kSVInUse);
     // Invariant:
     // (1) Scrape (always) installs kSVObsolete in ThreadLocal storage
@@ -2976,7 +2980,10 @@ Status DBImpl::GetImpl(const ReadOptions& options,
       SuperVersion* sv_to_delete = nullptr;
 
       if (sv && sv->Unref()) {
+        RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
         mutex_.Lock();
+        // TODO underlying resources held by superversion (sst files) might
+        // not be released until the next background job.
         sv->Cleanup();
         sv_to_delete = sv;
       } else {
@@ -3051,15 +3058,12 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   if (unref_sv) {
     // Release SuperVersion
-    bool delete_sv = false;
     if (sv->Unref()) {
       mutex_.Lock();
       sv->Cleanup();
       mutex_.Unlock();
-      delete_sv = true;
-    }
-    if (delete_sv) {
       delete sv;
+      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
     }
     RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_RELEASES);
   }

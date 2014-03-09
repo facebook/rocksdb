@@ -291,6 +291,7 @@ class DBImpl : public DB {
  private:
   friend class DB;
   friend class TailingIterator;
+  friend struct SuperVersion;
   struct CompactionState;
   struct Writer;
 

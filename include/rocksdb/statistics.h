@@ -124,6 +124,7 @@ enum Tickers {
   NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
   NUMBER_SUPERVERSION_ACQUIRES,
   NUMBER_SUPERVERSION_RELEASES,
+  NUMBER_SUPERVERSION_CLEANUPS,
   TICKER_ENUM_MAX
 };
 
@@ -181,6 +182,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
      "rocksdb.number.direct.load.table.properties"},
     {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
     {NUMBER_SUPERVERSION_RELEASES, "rocksdb.number.superversion_releases"},
+    {NUMBER_SUPERVERSION_CLEANUPS, "rocksdb.number.superversion_cleanups"},
 };
 
 /**
