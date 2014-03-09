@@ -638,12 +638,8 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
-  // check if there is anything to do
-  if (state.candidate_files.empty() &&
-      state.sst_delete_files.empty() &&
-      state.log_delete_files.empty()) {
-    return;
-  }
+  // we'd better have sth to delete
+  assert(state.HaveSomethingToDelete());
 
   // this checks if FindObsoleteFiles() was run before. If not, don't do
   // PurgeObsoleteFiles(). If FindObsoleteFiles() was run, we need to also
@@ -651,7 +647,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   if (state.manifest_file_number == 0) {
     return;
   }
-  std::vector<std::string> old_log_files;
+
 
   // Now, convert live list to an unordered set, WITHOUT mutex held;
   // set is slow.
@@ -689,6 +685,8 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       candidate_files.end()
   );
 
+  std::vector<std::string> old_info_log_files;
+
   for (const auto& to_delete : candidate_files) {
     uint64_t number;
     FileType type;
@@ -719,7 +717,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       case kInfoLogFile:
         keep = true;
         if (number != 0) {
-          old_log_files.push_back(to_delete);
+          old_info_log_files.push_back(to_delete);
         }
         break;
       case kCurrentFile:
@@ -738,44 +736,40 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       // evict from cache
       table_cache_->Evict(number);
     }
+
     std::string fname = ((type == kLogFile) ? options_.wal_dir : dbname_) +
         "/" + to_delete;
-    Log(options_.info_log,
-        "Delete type=%d #%lu",
-        int(type),
-        (unsigned long)number);
-
     if (type == kLogFile &&
         (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0)) {
-      Status s = env_->RenameFile(fname,
-          ArchivedLogFileName(options_.wal_dir, number));
-      if (!s.ok()) {
-        Log(options_.info_log,
-            "RenameFile logfile #%lu FAILED -- %s\n",
-            (unsigned long)number, s.ToString().c_str());
-      }
+      auto archived_log_name = ArchivedLogFileName(options_.wal_dir, number);
+      Status s = env_->RenameFile(fname, archived_log_name);
+      Log(options_.info_log,
+          "Move log file %s to %s -- %s\n",
+          fname.c_str(), archived_log_name.c_str(), s.ToString().c_str());
     } else {
       Status s = env_->DeleteFile(fname);
-      if (!s.ok()) {
-        Log(options_.info_log, "Delete type=%d #%lu FAILED -- %s\n",
-            int(type), (unsigned long)number, s.ToString().c_str());
-      }
+      Log(options_.info_log, "Delete %s type=%d #%lu -- %s\n",
+          fname.c_str(), type, (unsigned long)number,
+          s.ToString().c_str());
     }
   }
 
   // Delete old info log files.
-  size_t old_log_file_count = old_log_files.size();
+  size_t old_info_log_file_count = old_info_log_files.size();
   // NOTE: Currently we only support log purge when options_.db_log_dir is
   // located in `dbname` directory.
-  if (old_log_file_count >= options_.keep_log_file_num &&
+  if (old_info_log_file_count >= options_.keep_log_file_num &&
       options_.db_log_dir.empty()) {
-    std::sort(old_log_files.begin(), old_log_files.end());
-    size_t end = old_log_file_count - options_.keep_log_file_num;
+    std::sort(old_info_log_files.begin(), old_info_log_files.end());
+    size_t end = old_info_log_file_count - options_.keep_log_file_num;
     for (unsigned int i = 0; i <= end; i++) {
-      std::string& to_delete = old_log_files.at(i);
-      // Log(options_.info_log, "Delete type=%d %s\n",
-      //     int(kInfoLogFile), to_delete.c_str());
-      env_->DeleteFile(dbname_ + "/" + to_delete);
+      std::string& to_delete = old_info_log_files.at(i);
+      Log(options_.info_log, "Delete info log file %s\n", to_delete.c_str());
+      Status s = env_->DeleteFile(dbname_ + "/" + to_delete);
+      if (!s.ok()) {
+        Log(options_.info_log, "Delete info log file %s FAILED -- %s\n",
+            to_delete.c_str(), s.ToString().c_str());
+      }
     }
   }
   PurgeObsoleteWALFiles();
@@ -3712,12 +3706,14 @@ Status DBImpl::DeleteFile(std::string name) {
   if (type == kLogFile) {
     // Only allow deleting archived log files
     if (log_type != kArchivedLogFile) {
-      Log(options_.info_log, "DeleteFile %s failed.\n", name.c_str());
+      Log(options_.info_log, "DeleteFile %s failed - not archived log.\n",
+          name.c_str());
       return Status::NotSupported("Delete only supported for archived logs");
     }
     status = env_->DeleteFile(options_.wal_dir + "/" + name.c_str());
     if (!status.ok()) {
-      Log(options_.info_log, "DeleteFile %s failed.\n", name.c_str());
+      Log(options_.info_log, "DeleteFile %s failed -- %s.\n",
+          name.c_str(), status.ToString().c_str());
     }
     return status;
   }
