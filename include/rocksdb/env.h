@@ -575,26 +575,6 @@ class Logger {
   InfoLogLevel log_level_;
 };
 
-// A class to buffer info log entries and flush them in the end.
-class LogBuffer {
- public:
-  // log_level: the log level for all the logs
-  // info_log:  logger to write the logs to
-  LogBuffer(const InfoLogLevel log_level, const shared_ptr<Logger>& info_log);
-  ~LogBuffer();
-
-  // Add a log entry to the buffer.
-  void AddLogToBuffer(const char* format, va_list ap);
-
-  // Flush all buffered log to the info log.
-  void FlushBufferToLog() const;
-
- private:
-  struct Rep;
-  Rep* rep_;
-  const InfoLogLevel log_level_;
-  const shared_ptr<Logger>& info_log_;
-};
 
 // Identifies a locked file.
 class FileLock {
@@ -606,10 +586,6 @@ class FileLock {
   FileLock(const FileLock&);
   void operator=(const FileLock&);
 };
-
-// Add log to the LogBuffer for a delayed info logging. It can be used when
-// we want to add some logs inside a mutex.
-extern void LogToBuffer(LogBuffer* log_buffer, const char* format, ...);
 
 extern void LogFlush(const shared_ptr<Logger>& info_log);
 

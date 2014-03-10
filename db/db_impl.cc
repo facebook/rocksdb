@@ -57,6 +57,7 @@
 #include "util/coding.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/logging.h"
+#include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
@@ -1192,7 +1193,8 @@ Status DBImpl::WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit) {
 
 
 Status DBImpl::WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
-                                uint64_t* filenumber) {
+                                uint64_t* filenumber,
+                                LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
@@ -1208,6 +1210,7 @@ Status DBImpl::WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
   Status s;
   {
     mutex_.Unlock();
+    log_buffer->FlushBufferToLog();
     std::vector<Iterator*> memtables;
     for (MemTable* m : mems) {
       Log(options_.info_log,
@@ -1278,7 +1281,8 @@ Status DBImpl::WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
 }
 
 Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
-                                         DeletionState& deletion_state) {
+                                         DeletionState& deletion_state,
+                                         LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   assert(imm_.size() != 0);
   assert(imm_.IsFlushPending());
@@ -1288,7 +1292,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   autovector<MemTable*> mems;
   imm_.PickMemtablesToFlush(&mems);
   if (mems.empty()) {
-    Log(options_.info_log, "Nothing in memstore to flush");
+    LogToBuffer(log_buffer, "Nothing in memstore to flush");
     return Status::OK();
   }
 
@@ -1311,7 +1315,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   }
 
   // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table(mems, edit, &file_number);
+  Status s = WriteLevel0Table(mems, edit, &file_number, log_buffer);
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
     s = Status::ShutdownInProgress(
@@ -1866,13 +1870,14 @@ void DBImpl::BGWorkCompaction(void* db) {
 }
 
 Status DBImpl::BackgroundFlush(bool* madeProgress,
-                               DeletionState& deletion_state) {
+                               DeletionState& deletion_state,
+                               LogBuffer* log_buffer) {
   Status stat;
   while (stat.ok() && imm_.IsFlushPending()) {
     Log(options_.info_log,
         "BackgroundCallFlush doing FlushMemTableToOutputFile, flush slots available %d",
         options_.max_background_flushes - bg_flush_scheduled_);
-    stat = FlushMemTableToOutputFile(madeProgress, deletion_state);
+    stat = FlushMemTableToOutputFile(madeProgress, deletion_state, log_buffer);
   }
   return stat;
 }
@@ -1881,41 +1886,48 @@ void DBImpl::BackgroundCallFlush() {
   bool madeProgress = false;
   DeletionState deletion_state(true);
   assert(bg_flush_scheduled_);
-  MutexLock l(&mutex_);
 
-  Status s;
-  if (!shutting_down_.Acquire_Load()) {
-    s = BackgroundFlush(&madeProgress, deletion_state);
-    if (!s.ok()) {
-      // Wait a little bit before retrying background compaction in
-      // case this is an environmental problem and we do not want to
-      // chew up resources for failed compactions for the duration of
-      // the problem.
-      bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
-      Log(options_.info_log, "Waiting after background flush error: %s",
-          s.ToString().c_str());
+  LogBuffer log_buffer(INFO, options_.info_log.get());
+  {
+    MutexLock l(&mutex_);
+
+    Status s;
+    if (!shutting_down_.Acquire_Load()) {
+      s = BackgroundFlush(&madeProgress, deletion_state, &log_buffer);
+      if (!s.ok()) {
+        // Wait a little bit before retrying background compaction in
+        // case this is an environmental problem and we do not want to
+        // chew up resources for failed compactions for the duration of
+        // the problem.
+        bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
+        Log(options_.info_log, "Waiting after background flush error: %s",
+            s.ToString().c_str());
+        mutex_.Unlock();
+        log_buffer.FlushBufferToLog();
+        LogFlush(options_.info_log);
+        env_->SleepForMicroseconds(1000000);
+        mutex_.Lock();
+      }
+    }
+
+    // If !s.ok(), this means that Flush failed. In that case, we want
+    // to delete all obsolete files and we force FindObsoleteFiles()
+    FindObsoleteFiles(deletion_state, !s.ok());
+    // delete unnecessary files if any, this is done outside the mutex
+    if (deletion_state.HaveSomethingToDelete()) {
       mutex_.Unlock();
-      LogFlush(options_.info_log);
-      env_->SleepForMicroseconds(1000000);
+      log_buffer.FlushBufferToLog();
+      PurgeObsoleteFiles(deletion_state);
       mutex_.Lock();
     }
-  }
 
-  // If !s.ok(), this means that Flush failed. In that case, we want
-  // to delete all obsolete files and we force FindObsoleteFiles()
-  FindObsoleteFiles(deletion_state, !s.ok());
-  // delete unnecessary files if any, this is done outside the mutex
-  if (deletion_state.HaveSomethingToDelete()) {
-    mutex_.Unlock();
-    PurgeObsoleteFiles(deletion_state);
-    mutex_.Lock();
+    bg_flush_scheduled_--;
+    if (madeProgress) {
+      MaybeScheduleFlushOrCompaction();
+    }
+    bg_cv_.SignalAll();
   }
-
-  bg_flush_scheduled_--;
-  if (madeProgress) {
-    MaybeScheduleFlushOrCompaction();
-  }
-  bg_cv_.SignalAll();
+  log_buffer.FlushBufferToLog();
 }
 
 
@@ -1933,7 +1945,7 @@ void DBImpl::BackgroundCallCompaction() {
   DeletionState deletion_state(true);
 
   MaybeDumpStats();
-  LogBuffer log_buffer(INFO, options_.info_log);
+  LogBuffer log_buffer(INFO, options_.info_log.get());
   {
     MutexLock l(&mutex_);
     // Log(options_.info_log, "XXX BG Thread %llx process new work item",
@@ -1949,6 +1961,7 @@ void DBImpl::BackgroundCallCompaction() {
         // the problem.
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
         mutex_.Unlock();
+        log_buffer.FlushBufferToLog();
         Log(options_.info_log, "Waiting after background compaction error: %s",
             s.ToString().c_str());
         LogFlush(options_.info_log);
@@ -1966,6 +1979,7 @@ void DBImpl::BackgroundCallCompaction() {
     // delete unnecessary files if any, this is done outside the mutex
     if (deletion_state.HaveSomethingToDelete()) {
       mutex_.Unlock();
+      log_buffer.FlushBufferToLog();
       PurgeObsoleteFiles(deletion_state);
       mutex_.Lock();
     }
@@ -2005,7 +2019,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
                 "compaction slots "
                 "available %d",
                 options_.max_background_compactions - bg_compaction_scheduled_);
-    Status stat = FlushMemTableToOutputFile(madeProgress, deletion_state);
+    Status stat = FlushMemTableToOutputFile(madeProgress, deletion_state,
+                                            log_buffer);
     if (!stat.ok()) {
       if (is_manual) {
         manual_compaction_->status = stat;
@@ -2067,7 +2082,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   } else {
     MaybeScheduleFlushOrCompaction(); // do more compaction work in parallel.
     CompactionState* compact = new CompactionState(c.get());
-    status = DoCompactionWork(compact, deletion_state);
+    status = DoCompactionWork(compact, deletion_state, log_buffer);
     CleanupCompaction(compact, status);
     versions_->ReleaseCompactionFiles(c.get(), status);
     c->ReleaseInputs();
@@ -2336,7 +2351,8 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
 }
 
 Status DBImpl::DoCompactionWork(CompactionState* compact,
-                                DeletionState& deletion_state) {
+                                DeletionState& deletion_state,
+                                LogBuffer* log_buffer) {
   assert(compact);
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   Log(options_.info_log,
@@ -2379,6 +2395,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
+  // flush log buffer immediately after releasing the mutex
+  log_buffer->FlushBufferToLog();
 
   const uint64_t start_micros = env_->NowMicros();
   unique_ptr<Iterator> input(versions_->MakeInputIterator(compact->compaction));
@@ -2412,10 +2430,11 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       LogFlush(options_.info_log);
       mutex_.Lock();
       if (imm_.IsFlushPending()) {
-        FlushMemTableToOutputFile(nullptr, deletion_state);
+        FlushMemTableToOutputFile(nullptr, deletion_state, log_buffer);
         bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
       }
       mutex_.Unlock();
+      log_buffer->FlushBufferToLog();
       imm_micros += (env_->NowMicros() - imm_start);
     }
 

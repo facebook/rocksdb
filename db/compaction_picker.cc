@@ -10,6 +10,7 @@
 #include "db/compaction_picker.h"
 
 #include <limits>
+#include "util/log_buffer.h"
 #include "util/statistics.h"
 
 namespace rocksdb {
@@ -702,7 +703,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       uint64_t sz = (candidate_size * (100L + ratio)) /100;
       if (sz < f->file_size) {
         break;
-      } 
+      }
       if (options_->compaction_options_universal.stop_style == kCompactionStopStyleSimilarSize) {
         // Similar-size stopping rule: also check the last picked file isn't
         // far larger than the next candidate file.

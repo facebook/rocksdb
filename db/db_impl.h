@@ -310,7 +310,8 @@ class DBImpl : public DB {
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
   Status FlushMemTableToOutputFile(bool* madeProgress,
-                                   DeletionState& deletion_state);
+                                   DeletionState& deletion_state,
+                                   LogBuffer* log_buffer);
 
   Status RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
                         bool read_only);
@@ -322,7 +323,8 @@ class DBImpl : public DB {
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit);
   Status WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
-                                uint64_t* filenumber);
+                          uint64_t* filenumber,
+                          LogBuffer* log_buffer);
 
   uint64_t SlowdownAmount(int n, double bottom, double top);
   // MakeRoomForWrite will return superversion_to_free through an arugment,
@@ -350,10 +352,12 @@ class DBImpl : public DB {
   void BackgroundCallFlush();
   Status BackgroundCompaction(bool* madeProgress, DeletionState& deletion_state,
                               LogBuffer* log_buffer);
-  Status BackgroundFlush(bool* madeProgress, DeletionState& deletion_state);
+  Status BackgroundFlush(bool* madeProgress, DeletionState& deletion_state,
+                         LogBuffer* log_buffer);
   void CleanupCompaction(CompactionState* compact, Status status);
   Status DoCompactionWork(CompactionState* compact,
-                          DeletionState& deletion_state);
+                          DeletionState& deletion_state,
+                          LogBuffer* log_buffer);
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
