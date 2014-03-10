@@ -55,6 +55,8 @@ struct BackupableDBOptions {
   // Default: false
   bool destroy_old_data;
 
+  void Dump(Logger* logger) const;
+
   explicit BackupableDBOptions(const std::string& _backup_dir,
                                Env* _backup_env = nullptr,
                                bool _share_table_files = true,
