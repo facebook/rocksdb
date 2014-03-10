@@ -64,6 +64,7 @@ struct BackupableDBOptions {
                                bool _destroy_old_data = false)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
+        share_table_files(_share_table_files),
         info_log(_info_log),
         sync(_sync),
         destroy_old_data(_destroy_old_data) {}

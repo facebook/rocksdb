@@ -29,10 +29,12 @@ namespace rocksdb {
 void BackupableDBOptions::Dump(Logger* logger) const {
   Log(logger, "       Options.backup_dir: %s", backup_dir.c_str());
   Log(logger, "       Options.backup_env: %p", backup_env);
-  Log(logger, "Options.share_table_files: %d", share_table_files);
+  Log(logger, "Options.share_table_files: %d",
+      static_cast<int>(share_table_files));
   Log(logger, "         Options.info_log: %p", info_log);
-  Log(logger, "             Options.sync: %d", sync);
-  Log(logger, " Options.destroy_old_data: %d", destroy_old_data);
+  Log(logger, "             Options.sync: %d", static_cast<int>(sync));
+  Log(logger, " Options.destroy_old_data: %d",
+      static_cast<int>(destroy_old_data));
 }
 
 // -------- BackupEngineImpl class ---------
