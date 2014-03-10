@@ -1442,12 +1442,7 @@ TEST(DBTest, IterMulti) {
     iter->Seek("ax");
     ASSERT_EQ(IterStatus(iter), "b->vb");
 
-    SetPerfLevel(kEnableTime);
-    perf_context.Reset();
     iter->Seek("b");
-    ASSERT_TRUE((int) perf_context.seek_internal_seek_time > 0);
-    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
-    SetPerfLevel(kDisable);
     ASSERT_EQ(IterStatus(iter), "b->vb");
     iter->Seek("z");
     ASSERT_EQ(IterStatus(iter), "(invalid)");
@@ -1462,12 +1457,7 @@ TEST(DBTest, IterMulti) {
     // Switch from forward to reverse
     iter->SeekToFirst();
     iter->Next();
-    SetPerfLevel(kEnableTime);
-    perf_context.Reset();
     iter->Next();
-    ASSERT_EQ(0, (int) perf_context.seek_internal_seek_time);
-    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
-    SetPerfLevel(kDisable);
     iter->Prev();
     ASSERT_EQ(IterStatus(iter), "b->vb");
 
