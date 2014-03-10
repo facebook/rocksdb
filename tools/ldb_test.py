@@ -205,10 +205,12 @@ class LDBTestCase(unittest.TestCase):
     def testTtlPutGet(self):
         print "Running testTtlPutGet..."
         self.assertRunOK("put a1 b1 --ttl --create_if_missing", "OK")
-        self.assertRunOK("scan ", "a1 : b1", True)
+        self.assertRunOK("scan --hex", "0x6131 : 0x6231", True)
         self.assertRunOK("dump --ttl ", "a1 ==> b1", True)
+        self.assertRunOK("dump --hex --ttl ",
+                         "0x6131 ==> 0x6231\nKeys in range: 1")
         self.assertRunOK("scan --hex --ttl", "0x6131 : 0x6231")
-        self.assertRunOK("get a1", "b1", True)
+        self.assertRunOK("get --value_hex a1", "0x6231", True)
         self.assertRunOK("get --ttl a1", "b1")
         self.assertRunOK("put a3 b3 --create_if_missing", "OK")
         # fails because timstamp's length is greater than value's
