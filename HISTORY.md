@@ -9,6 +9,7 @@
 * Added is_manual_compaction to CompactionFilter::Context
 * Added "virtual void WaitForJoin() = 0" in class Env
 * Removed BackupEngine::DeleteBackupsNewerThan() function
+* Added new option -- verify_checksums_in_compaction
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,

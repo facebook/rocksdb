@@ -612,6 +612,11 @@ struct Options {
   // The options needed to support Universal Style compactions
   CompactionOptionsUniversal compaction_options_universal;
 
+  // If true, compaction will verify checksum on every read that happens
+  // as part of compaction
+  // Default: true
+  bool verify_checksums_in_compaction;
+
   // Use KeyMayExist API to filter deletes when this is true.
   // If KeyMayExist returns false, i.e. the key definitely does not exist, then
   // the delete is a noop. KeyMayExist only incurs in-memory look up.

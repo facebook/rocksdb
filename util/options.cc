@@ -101,6 +101,7 @@ Options::Options()
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       compaction_style(kCompactionStyleLevel),
+      verify_checksums_in_compaction(true),
       filter_deletes(false),
       max_sequential_skip_in_iterations(8),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
@@ -278,6 +279,8 @@ Options::Dump(Logger* log) const
         (unsigned long)bytes_per_sync);
     Log(log,"                          Options.filter_deletes: %d",
         filter_deletes);
+    Log(log, "          Options.verify_checksums_in_compaction: %d",
+        verify_checksums_in_compaction);
     Log(log,"                        Options.compaction_style: %d",
         compaction_style);
     Log(log," Options.compaction_options_universal.size_ratio: %u",
