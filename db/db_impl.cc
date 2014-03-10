@@ -361,7 +361,9 @@ DBImpl::~DBImpl() {
       FindObsoleteFiles(deletion_state, true);
       // manifest number starting from 2
       deletion_state.manifest_file_number = 1;
-      PurgeObsoleteFiles(deletion_state);
+      if (deletion_state.HaveSomethingToDelete()) {
+        PurgeObsoleteFiles(deletion_state);
+      }
     }
   }
 
@@ -780,7 +782,9 @@ void DBImpl::DeleteObsoleteFiles() {
   mutex_.AssertHeld();
   DeletionState deletion_state;
   FindObsoleteFiles(deletion_state, true);
-  PurgeObsoleteFiles(deletion_state);
+  if (deletion_state.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(deletion_state);
+  }
 }
 
 // 1. Go through all archived files and
@@ -2782,7 +2786,9 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
     state->mu->Unlock();
 
     delete state->super_version;
-    state->db->PurgeObsoleteFiles(deletion_state);
+    if (deletion_state.HaveSomethingToDelete()) {
+      state->db->PurgeObsoleteFiles(deletion_state);
+    }
   }
 
   delete state;
@@ -3759,7 +3765,9 @@ Status DBImpl::DeleteFile(std::string name) {
   } // lock released here
   LogFlush(options_.info_log);
   // remove files outside the db-lock
-  PurgeObsoleteFiles(deletion_state);
+  if (deletion_state.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(deletion_state);
+  }
   {
     MutexLock l(&mutex_);
     // schedule flush if file deletion means we freed the space for flushes to
