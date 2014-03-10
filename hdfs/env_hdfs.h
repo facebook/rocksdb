@@ -110,6 +110,11 @@ class HdfsEnv : public Env {
 
   virtual void WaitForJoin() { posixEnv->WaitForJoin(); }
 
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const
+      override {
+    return posixEnv->GetThreadPoolQueueLen(pri);
+  }
+
   virtual Status GetTestDirectory(std::string* path) {
     return posixEnv->GetTestDirectory(path);
   }
@@ -291,6 +296,10 @@ class HdfsEnv : public Env {
   virtual void StartThread(void (*function)(void* arg), void* arg) {}
 
   virtual void WaitForJoin() {}
+
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
+    return 0;
+  }
 
   virtual Status GetTestDirectory(std::string* path) {return notsup;}
 
