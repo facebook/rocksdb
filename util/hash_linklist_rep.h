@@ -14,25 +14,20 @@ namespace rocksdb {
 
 class HashLinkListRepFactory : public MemTableRepFactory {
  public:
-  explicit HashLinkListRepFactory(
-    const SliceTransform* transform,
-    size_t bucket_count)
-      : transform_(transform),
-        bucket_count_(bucket_count) { }
+  explicit HashLinkListRepFactory(size_t bucket_count)
+      : bucket_count_(bucket_count) { }
 
-  virtual ~HashLinkListRepFactory() { delete transform_; }
+  virtual ~HashLinkListRepFactory() {}
 
-  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator& compare,
-                                         Arena* arena) override;
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& compare, Arena* arena,
+      const SliceTransform* transform) override;
 
   virtual const char* Name() const override {
     return "HashLinkListRepFactory";
   }
 
-  const SliceTransform* GetTransform() { return transform_; }
-
  private:
-  const SliceTransform* transform_;
   const size_t bucket_count_;
 };
 

@@ -158,7 +158,7 @@ class SkipList {
 
 // Implementation details follow
 template<typename Key, class Comparator>
-struct SkipList<Key,Comparator>::Node {
+struct SkipList<Key, Comparator>::Node {
   explicit Node(const Key& k) : key(k) { }
 
   Key const key;
@@ -194,43 +194,43 @@ struct SkipList<Key,Comparator>::Node {
 };
 
 template<typename Key, class Comparator>
-typename SkipList<Key,Comparator>::Node*
-SkipList<Key,Comparator>::NewNode(const Key& key, int height) {
+typename SkipList<Key, Comparator>::Node*
+SkipList<Key, Comparator>::NewNode(const Key& key, int height) {
   char* mem = arena_->AllocateAligned(
       sizeof(Node) + sizeof(port::AtomicPointer) * (height - 1));
   return new (mem) Node(key);
 }
 
 template<typename Key, class Comparator>
-inline SkipList<Key,Comparator>::Iterator::Iterator(const SkipList* list) {
+inline SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
   SetList(list);
 }
 
 template<typename Key, class Comparator>
-inline void SkipList<Key,Comparator>::Iterator::SetList(const SkipList* list) {
+inline void SkipList<Key, Comparator>::Iterator::SetList(const SkipList* list) {
   list_ = list;
   node_ = nullptr;
 }
 
 template<typename Key, class Comparator>
-inline bool SkipList<Key,Comparator>::Iterator::Valid() const {
+inline bool SkipList<Key, Comparator>::Iterator::Valid() const {
   return node_ != nullptr;
 }
 
 template<typename Key, class Comparator>
-inline const Key& SkipList<Key,Comparator>::Iterator::key() const {
+inline const Key& SkipList<Key, Comparator>::Iterator::key() const {
   assert(Valid());
   return node_->key;
 }
 
 template<typename Key, class Comparator>
-inline void SkipList<Key,Comparator>::Iterator::Next() {
+inline void SkipList<Key, Comparator>::Iterator::Next() {
   assert(Valid());
   node_ = node_->Next(0);
 }
 
 template<typename Key, class Comparator>
-inline void SkipList<Key,Comparator>::Iterator::Prev() {
+inline void SkipList<Key, Comparator>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
@@ -241,17 +241,17 @@ inline void SkipList<Key,Comparator>::Iterator::Prev() {
 }
 
 template<typename Key, class Comparator>
-inline void SkipList<Key,Comparator>::Iterator::Seek(const Key& target) {
+inline void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
   node_ = list_->FindGreaterOrEqual(target, nullptr);
 }
 
 template<typename Key, class Comparator>
-inline void SkipList<Key,Comparator>::Iterator::SeekToFirst() {
+inline void SkipList<Key, Comparator>::Iterator::SeekToFirst() {
   node_ = list_->head_->Next(0);
 }
 
 template<typename Key, class Comparator>
-inline void SkipList<Key,Comparator>::Iterator::SeekToLast() {
+inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
   node_ = list_->FindLast();
   if (node_ == list_->head_) {
     node_ = nullptr;
@@ -259,7 +259,7 @@ inline void SkipList<Key,Comparator>::Iterator::SeekToLast() {
 }
 
 template<typename Key, class Comparator>
-int SkipList<Key,Comparator>::RandomHeight() {
+int SkipList<Key, Comparator>::RandomHeight() {
   // Increase height with probability 1 in kBranching
   int height = 1;
   while (height < kMaxHeight_ && ((rnd_.Next() % kBranching_) == 0)) {
@@ -271,14 +271,14 @@ int SkipList<Key,Comparator>::RandomHeight() {
 }
 
 template<typename Key, class Comparator>
-bool SkipList<Key,Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
+bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
   // nullptr n is considered infinite
   return (n != nullptr) && (compare_(n->key, key) < 0);
 }
 
 template<typename Key, class Comparator>
-typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOrEqual(const Key& key, Node** prev)
-    const {
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::
+  FindGreaterOrEqual(const Key& key, Node** prev) const {
   // Use prev as an optimization hint and fallback to slow path
   if (prev && !KeyIsAfterNode(key, prev[0]->Next(0))) {
     Node* x = prev[0];
@@ -315,8 +315,8 @@ typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindGreaterOr
 }
 
 template<typename Key, class Comparator>
-typename SkipList<Key,Comparator>::Node*
-SkipList<Key,Comparator>::FindLessThan(const Key& key) const {
+typename SkipList<Key, Comparator>::Node*
+SkipList<Key, Comparator>::FindLessThan(const Key& key) const {
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   while (true) {
@@ -336,7 +336,7 @@ SkipList<Key,Comparator>::FindLessThan(const Key& key) const {
 }
 
 template<typename Key, class Comparator>
-typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindLast()
+typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
     const {
   Node* x = head_;
   int level = GetMaxHeight() - 1;
@@ -356,7 +356,7 @@ typename SkipList<Key,Comparator>::Node* SkipList<Key,Comparator>::FindLast()
 }
 
 template<typename Key, class Comparator>
-SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena,
+SkipList<Key, Comparator>::SkipList(const Comparator cmp, Arena* arena,
                                    int32_t max_height,
                                    int32_t branching_factor)
     : kMaxHeight_(max_height),
@@ -380,7 +380,7 @@ SkipList<Key,Comparator>::SkipList(Comparator cmp, Arena* arena,
 }
 
 template<typename Key, class Comparator>
-void SkipList<Key,Comparator>::Insert(const Key& key) {
+void SkipList<Key, Comparator>::Insert(const Key& key) {
   // TODO(opt): We can use a barrier-free variant of FindGreaterOrEqual()
   // here since Insert() is externally synchronized.
   Node* x = FindGreaterOrEqual(key, prev_);
@@ -417,7 +417,7 @@ void SkipList<Key,Comparator>::Insert(const Key& key) {
 }
 
 template<typename Key, class Comparator>
-bool SkipList<Key,Comparator>::Contains(const Key& key) const {
+bool SkipList<Key, Comparator>::Contains(const Key& key) const {
   Node* x = FindGreaterOrEqual(key, nullptr);
   if (x != nullptr && Equal(key, x->key)) {
     return true;

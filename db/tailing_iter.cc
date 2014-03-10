@@ -155,7 +155,7 @@ bool TailingIterator::IsCurrentVersion() const {
 }
 
 bool TailingIterator::IsSamePrefix(const Slice& target) const {
-  const SliceTransform* extractor = db_->options_.prefix_extractor;
+  const SliceTransform* extractor = db_->options_.prefix_extractor.get();
 
   assert(extractor);
   assert(is_prev_set_);

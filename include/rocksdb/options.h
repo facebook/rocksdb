@@ -277,7 +277,7 @@ struct Options {
   // 4) prefix(prefix(key)) == prefix(key)
   //
   // Default: nullptr
-  const SliceTransform* prefix_extractor;
+  std::shared_ptr<const SliceTransform> prefix_extractor;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.

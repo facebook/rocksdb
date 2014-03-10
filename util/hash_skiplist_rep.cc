@@ -21,7 +21,7 @@ namespace {
 
 class HashSkipListRep : public MemTableRep {
  public:
-  HashSkipListRep(MemTableRep::KeyComparator& compare, Arena* arena,
+  HashSkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
                   const SliceTransform* transform, size_t bucket_size,
                   int32_t skiplist_height, int32_t skiplist_branching_factor);
 
@@ -48,7 +48,7 @@ class HashSkipListRep : public MemTableRep {
 
  private:
   friend class DynamicIterator;
-  typedef SkipList<const char*, MemTableRep::KeyComparator&> Bucket;
+  typedef SkipList<const char*, const MemTableRep::KeyComparator&> Bucket;
 
   size_t bucket_size_;
 
@@ -62,7 +62,7 @@ class HashSkipListRep : public MemTableRep {
   // The user-supplied transform whose domain is the user keys.
   const SliceTransform* transform_;
 
-  MemTableRep::KeyComparator& compare_;
+  const MemTableRep::KeyComparator& compare_;
   // immutable after construction
   Arena* const arena_;
 
@@ -221,7 +221,7 @@ class HashSkipListRep : public MemTableRep {
   };
 };
 
-HashSkipListRep::HashSkipListRep(MemTableRep::KeyComparator& compare,
+HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
                                  Arena* arena, const SliceTransform* transform,
                                  size_t bucket_size, int32_t skiplist_height,
                                  int32_t skiplist_branching_factor)
@@ -321,16 +321,17 @@ MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator() {
 } // anon namespace
 
 MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
-    MemTableRep::KeyComparator& compare, Arena* arena) {
-  return new HashSkipListRep(compare, arena, transform_, bucket_count_,
+    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const SliceTransform* transform) {
+  return new HashSkipListRep(compare, arena, transform, bucket_count_,
                              skiplist_height_, skiplist_branching_factor_);
 }
 
 MemTableRepFactory* NewHashSkipListRepFactory(
-    const SliceTransform* transform, size_t bucket_count,
-    int32_t skiplist_height, int32_t skiplist_branching_factor) {
-  return new HashSkipListRepFactory(transform, bucket_count,
-                                    skiplist_height, skiplist_branching_factor);
+    size_t bucket_count, int32_t skiplist_height,
+    int32_t skiplist_branching_factor) {
+  return new HashSkipListRepFactory(bucket_count, skiplist_height,
+      skiplist_branching_factor);
 }
 
 } // namespace rocksdb

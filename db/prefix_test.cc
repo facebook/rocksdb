@@ -161,16 +161,15 @@ class PrefixTest {
     // skip some options
     option_config_++;
     if (option_config_ < kEnd) {
-      auto prefix_extractor = NewFixedPrefixTransform(8);
-      options.prefix_extractor = prefix_extractor;
+      options.prefix_extractor.reset(NewFixedPrefixTransform(8));
       switch(option_config_) {
         case kHashSkipList:
-          options.memtable_factory.reset(NewHashSkipListRepFactory(
-              options.prefix_extractor, bucket_count, FLAGS_skiplist_height));
+          options.memtable_factory.reset(
+              NewHashSkipListRepFactory(bucket_count, FLAGS_skiplist_height));
           return true;
         case kHashLinkList:
-          options.memtable_factory.reset(NewHashLinkListRepFactory(
-              options.prefix_extractor, bucket_count));
+          options.memtable_factory.reset(
+              NewHashLinkListRepFactory(bucket_count));
           return true;
         default:
           return false;

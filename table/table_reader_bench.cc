@@ -240,8 +240,8 @@ int main(int argc, char** argv) {
   rocksdb::TableFactory* tf = new rocksdb::BlockBasedTableFactory();
   rocksdb::Options options;
   if (FLAGS_prefix_len < 16) {
-    options.prefix_extractor = rocksdb::NewFixedPrefixTransform(
-        FLAGS_prefix_len);
+    options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
+        FLAGS_prefix_len));
   }
   rocksdb::ReadOptions ro;
   rocksdb::EnvOptions env_options;
@@ -254,8 +254,8 @@ int main(int argc, char** argv) {
     env_options.use_mmap_reads = true;
     tf = new rocksdb::PlainTableFactory(16, (FLAGS_prefix_len == 16) ? 0 : 8,
                                         0.75);
-    options.prefix_extractor = rocksdb::NewFixedPrefixTransform(
-        FLAGS_prefix_len);
+    options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
+        FLAGS_prefix_len));
   } else {
     tf = new rocksdb::BlockBasedTableFactory();
   }

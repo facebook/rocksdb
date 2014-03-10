@@ -24,7 +24,7 @@ static const size_t kFilterBase = 1 << kFilterBaseLg;
 FilterBlockBuilder::FilterBlockBuilder(const Options& opt,
                                        const Comparator* internal_comparator)
     : policy_(opt.filter_policy),
-      prefix_extractor_(opt.prefix_extractor),
+      prefix_extractor_(opt.prefix_extractor.get()),
       whole_key_filtering_(opt.whole_key_filtering),
       comparator_(internal_comparator) {}
 
@@ -133,7 +133,7 @@ void FilterBlockBuilder::GenerateFilter() {
 FilterBlockReader::FilterBlockReader(
     const Options& opt, const Slice& contents, bool delete_contents_after_use)
     : policy_(opt.filter_policy),
-      prefix_extractor_(opt.prefix_extractor),
+      prefix_extractor_(opt.prefix_extractor.get()),
       whole_key_filtering_(opt.whole_key_filtering),
       data_(nullptr),
       offset_(nullptr),

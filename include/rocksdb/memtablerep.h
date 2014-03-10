@@ -160,8 +160,8 @@ class MemTableRep {
 class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() {}
-  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
-                                         Arena*) = 0;
+  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+      Arena*, const SliceTransform*) = 0;
   virtual const char* Name() const = 0;
 };
 
@@ -178,8 +178,9 @@ class VectorRepFactory : public MemTableRepFactory {
 
  public:
   explicit VectorRepFactory(size_t count = 0) : count_(count) { }
-  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
-                                         Arena*) override;
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator&, Arena*,
+      const SliceTransform*) override;
   virtual const char* Name() const override {
     return "VectorRepFactory";
   }
@@ -188,8 +189,9 @@ class VectorRepFactory : public MemTableRepFactory {
 // This uses a skip list to store keys. It is the default.
 class SkipListFactory : public MemTableRepFactory {
  public:
-  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator&,
-                                         Arena*) override;
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator&, Arena*,
+      const SliceTransform*) override;
   virtual const char* Name() const override {
     return "SkipListFactory";
   }
@@ -202,8 +204,8 @@ class SkipListFactory : public MemTableRepFactory {
 // skiplist_branching_factor: probabilistic size ratio between adjacent
 //                            link lists in the skiplist
 extern MemTableRepFactory* NewHashSkipListRepFactory(
-  const SliceTransform* transform, size_t bucket_count = 1000000,
-  int32_t skiplist_height = 4, int32_t skiplist_branching_factor = 4
+    size_t bucket_count = 1000000, int32_t skiplist_height = 4,
+    int32_t skiplist_branching_factor = 4
 );
 
 // The factory is to create memtables with a hashed linked list:
@@ -211,6 +213,6 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 // linked list (null if the bucket is empty).
 // bucket_count: number of fixed array buckets
 extern MemTableRepFactory* NewHashLinkListRepFactory(
-    const SliceTransform* transform, size_t bucket_count = 50000);
+    size_t bucket_count = 50000);
 
 }  // namespace rocksdb

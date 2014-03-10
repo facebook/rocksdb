@@ -1538,9 +1538,10 @@ class Benchmark {
     options.compaction_style = FLAGS_compaction_style_e;
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
-    options.prefix_extractor =
-      (FLAGS_use_plain_table || FLAGS_use_prefix_blooms) ? prefix_extractor_
-                                                         : nullptr;
+    if (FLAGS_use_plain_table || FLAGS_use_prefix_blooms) {
+      options.prefix_extractor.reset(
+          NewFixedPrefixTransform(FLAGS_prefix_size));
+    }
     options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
@@ -1564,7 +1565,6 @@ class Benchmark {
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
         options.memtable_factory.reset(NewHashSkipListRepFactory(
-            prefix_extractor_,
             FLAGS_hash_bucket_count));
         break;
       case kSkipList:
@@ -1572,7 +1572,6 @@ class Benchmark {
         break;
       case kHashLinkedList:
         options.memtable_factory.reset(NewHashLinkListRepFactory(
-            prefix_extractor_,
             FLAGS_hash_bucket_count));
         break;
       case kVectorRep:

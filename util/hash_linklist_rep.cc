@@ -55,7 +55,7 @@ private:
 
 class HashLinkListRep : public MemTableRep {
  public:
-  HashLinkListRep(MemTableRep::KeyComparator& compare, Arena* arena,
+  HashLinkListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
                   const SliceTransform* transform, size_t bucket_size);
 
   virtual void Insert(const char* key) override;
@@ -81,7 +81,7 @@ class HashLinkListRep : public MemTableRep {
 
  private:
   friend class DynamicIterator;
-  typedef SkipList<const char*, MemTableRep::KeyComparator&> FullList;
+  typedef SkipList<const char*, const MemTableRep::KeyComparator&> FullList;
 
   size_t bucket_size_;
 
@@ -92,7 +92,7 @@ class HashLinkListRep : public MemTableRep {
   // The user-supplied transform whose domain is the user keys.
   const SliceTransform* transform_;
 
-  MemTableRep::KeyComparator& compare_;
+  const MemTableRep::KeyComparator& compare_;
   // immutable after construction
   Arena* const arena_;
 
@@ -314,7 +314,7 @@ class HashLinkListRep : public MemTableRep {
   };
 };
 
-HashLinkListRep::HashLinkListRep(MemTableRep::KeyComparator& compare,
+HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
                                  Arena* arena, const SliceTransform* transform,
                                  size_t bucket_size)
   : bucket_size_(bucket_size),
@@ -475,13 +475,13 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 } // anon namespace
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
-    MemTableRep::KeyComparator& compare, Arena* arena) {
-  return new HashLinkListRep(compare, arena, transform_, bucket_count_);
+    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const SliceTransform* transform) {
+  return new HashLinkListRep(compare, arena, transform, bucket_count_);
 }
 
-MemTableRepFactory* NewHashLinkListRepFactory(
-    const SliceTransform* transform, size_t bucket_count) {
-  return new HashLinkListRepFactory(transform, bucket_count);
+MemTableRepFactory* NewHashLinkListRepFactory(size_t bucket_count) {
+  return new HashLinkListRepFactory(bucket_count);
 }
 
 } // namespace rocksdb

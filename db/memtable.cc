@@ -32,7 +32,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     : comparator_(cmp),
       refs_(0),
       arena_(options.arena_block_size),
-      table_(options.memtable_factory->CreateMemTableRep(comparator_, &arena_)),
+      table_(options.memtable_factory->CreateMemTableRep(
+             comparator_, &arena_, options.prefix_extractor.get())),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
@@ -41,7 +42,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
       mem_logfile_number_(0),
       locks_(options.inplace_update_support ? options.inplace_update_num_locks
                                             : 0),
-      prefix_extractor_(options.prefix_extractor) {
+      prefix_extractor_(options.prefix_extractor.get()) {
   if (prefix_extractor_ && options.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(options.memtable_prefix_bloom_bits,
                                          options.memtable_prefix_bloom_probes));

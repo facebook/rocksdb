@@ -10,6 +10,8 @@
 * Added "virtual void WaitForJoin() = 0" in class Env
 * Removed BackupEngine::DeleteBackupsNewerThan() function
 * Added new option -- verify_checksums_in_compaction
+* Chagned Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
+  Changed HashSkipListRepFactory and HashLinkListRepFactory constructor to not take SliceTransform object (use Options.prefix_extractor implicitly)
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,

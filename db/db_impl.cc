@@ -56,6 +56,7 @@
 #include "util/build_version.h"
 #include "util/coding.h"
 #include "util/hash_skiplist_rep.h"
+#include "util/hash_linklist_rep.h"
 #include "util/logging.h"
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
@@ -176,19 +177,16 @@ Options SanitizeOptions(const std::string& dbname,
     Log(result.info_log, "Compaction filter specified, ignore factory");
   }
   if (result.prefix_extractor) {
-    // If a prefix extractor has been supplied and a HashSkipListRepFactory is
-    // being used, make sure that the latter uses the former as its transform
-    // function.
-    auto factory = dynamic_cast<HashSkipListRepFactory*>(
-      result.memtable_factory.get());
-    if (factory &&
-        factory->GetTransform() != result.prefix_extractor) {
-      Log(result.info_log, "A prefix hash representation factory was supplied "
-          "whose prefix extractor does not match options.prefix_extractor. "
-          "Falling back to skip list representation factory");
+    Log(result.info_log, "prefix extractor %s in use.",
+        result.prefix_extractor->Name());
+  } else {
+    assert(result.memtable_factory);
+    Slice name = result.memtable_factory->Name();
+    if (name.compare("HashSkipListRepFactory") == 0 ||
+        name.compare("HashLinkListRepFactory") == 0) {
+      Log(result.info_log, "prefix extractor is not provided while using %s. "
+          "fallback to skiplist", name.ToString().c_str());
       result.memtable_factory = std::make_shared<SkipListFactory>();
-    } else if (factory) {
-      Log(result.info_log, "Prefix hash memtable rep is in use.");
     }
   }
 
@@ -3207,7 +3205,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
     // use extra wrapper to exclude any keys from the results which
     // don't begin with the prefix
     iter = new PrefixFilterIterator(iter, *options.prefix,
-                                    options_.prefix_extractor);
+                                    options_.prefix_extractor.get());
   }
   return iter;
 }

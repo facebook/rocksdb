@@ -688,9 +688,6 @@ class StressTest {
         filter_policy_(FLAGS_bloom_bits >= 0
                        ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                        : nullptr),
-        prefix_extractor_(NewFixedPrefixTransform(
-                          FLAGS_test_batches_snapshots ?
-                          sizeof(long) : sizeof(long)-1)),
         db_(nullptr),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
@@ -708,7 +705,6 @@ class StressTest {
   ~StressTest() {
     delete db_;
     delete filter_policy_;
-    delete prefix_extractor_;
   }
 
   void Run() {
@@ -1373,7 +1369,7 @@ class StressTest {
       static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
     options.block_size = FLAGS_block_size;
     options.filter_policy = filter_policy_;
-    options.prefix_extractor = prefix_extractor_;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
     options.env = FLAGS_env;
@@ -1405,16 +1401,13 @@ class StressTest {
     }
     switch (FLAGS_rep_factory) {
       case kHashSkipList:
-        options.memtable_factory.reset(NewHashSkipListRepFactory(
-            NewFixedPrefixTransform(FLAGS_prefix_size)));
+        options.memtable_factory.reset(NewHashSkipListRepFactory());
         break;
       case kSkipList:
         // no need to do anything
         break;
       case kVectorRep:
-        options.memtable_factory.reset(
-          new VectorRepFactory()
-        );
+        options.memtable_factory.reset(new VectorRepFactory());
         break;
     }
     static Random purge_percent(1000); // no benefit from non-determinism here
@@ -1488,7 +1481,6 @@ class StressTest {
   shared_ptr<Cache> cache_;
   shared_ptr<Cache> compressed_cache_;
   const FilterPolicy* filter_policy_;
-  const SliceTransform* prefix_extractor_;
   DB* db_;
   StackableDB* sdb_;
   int num_times_reopened_;

@@ -15,28 +15,24 @@ namespace rocksdb {
 class HashSkipListRepFactory : public MemTableRepFactory {
  public:
   explicit HashSkipListRepFactory(
-    const SliceTransform* transform,
     size_t bucket_count,
     int32_t skiplist_height,
     int32_t skiplist_branching_factor)
-      : transform_(transform),
-        bucket_count_(bucket_count),
+      : bucket_count_(bucket_count),
         skiplist_height_(skiplist_height),
         skiplist_branching_factor_(skiplist_branching_factor) { }
 
-  virtual ~HashSkipListRepFactory() { delete transform_; }
+  virtual ~HashSkipListRepFactory() {}
 
-  virtual MemTableRep* CreateMemTableRep(MemTableRep::KeyComparator& compare,
-                                         Arena* arena) override;
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& compare, Arena* arena,
+      const SliceTransform* transform) override;
 
   virtual const char* Name() const override {
     return "HashSkipListRepFactory";
   }
 
-  const SliceTransform* GetTransform() { return transform_; }
-
  private:
-  const SliceTransform* transform_;
   const size_t bucket_count_;
   const int32_t skiplist_height_;
   const int32_t skiplist_branching_factor_;
