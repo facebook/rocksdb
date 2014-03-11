@@ -1924,6 +1924,10 @@ void DBImpl::BackgroundCallFlush() {
       MaybeScheduleFlushOrCompaction();
     }
     bg_cv_.SignalAll();
+    // IMPORTANT: there should be no code after calling SignalAll. This call may
+    // signal the DB destructor that it's OK to proceed with destruction. In
+    // that case, all DB variables will be dealloacated and referencing them
+    // will cause trouble.
   }
   log_buffer.FlushBufferToLog();
 }
@@ -1993,6 +1997,10 @@ void DBImpl::BackgroundCallCompaction() {
       MaybeScheduleFlushOrCompaction();
     }
     bg_cv_.SignalAll();
+    // IMPORTANT: there should be no code after calling SignalAll. This call may
+    // signal the DB destructor that it's OK to proceed with destruction. In
+    // that case, all DB variables will be dealloacated and referencing them
+    // will cause trouble.
   }
   log_buffer.FlushBufferToLog();
 }
