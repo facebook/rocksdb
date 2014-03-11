@@ -521,7 +521,7 @@ class Stats {
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
-  static const uint32_t SENTINEL = 0xffffffff;
+  static const uint32_t SENTINEL;
 
   explicit SharedState(StressTest* stress_test) :
       cv_(&mu_),
@@ -675,6 +675,8 @@ class SharedState {
   std::vector<std::vector<uint32_t>> values_;
   std::vector<std::vector<port::Mutex>> key_locks_;
 };
+
+const uint32_t SharedState::SENTINEL = 0xffffffff;
 
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
