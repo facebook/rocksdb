@@ -1097,19 +1097,19 @@ class StressTest {
         }
       } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
         // OPERATION prefix scan
-        // keys are longs (e.g., 8 bytes), so we let prefixes be
-        // everything except the last byte.  So there will be 2^8=256
-        // keys per prefix.
+        // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
+        // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
+        // be 2 ^ ((8 - FLAGS_prefix_size * 8) combinations.
         if (!FLAGS_test_batches_snapshots) {
           Slice prefix = Slice(key.data(), FLAGS_prefix_size);
           read_opts.prefix = &prefix;
           Iterator* iter = db_->NewIterator(read_opts);
-          int count = 0;
+          int64_t count = 0;
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             assert(iter->key().starts_with(prefix));
-            count++;
+            ++count;
           }
-          assert(count <= 256);
+          assert(count <= (1 << ((8 - FLAGS_prefix_size) * 8)));
           if (iter->status().ok()) {
             thread->stats.AddPrefixes(1, count);
           } else {
