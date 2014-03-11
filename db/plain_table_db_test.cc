@@ -44,7 +44,6 @@ class PlainTableDBTest {
   DB* db_;
 
   Options last_options_;
-  static std::unique_ptr<const SliceTransform> prefix_transform;
 
  public:
   PlainTableDBTest() : env_(Env::Default()) {
@@ -66,7 +65,7 @@ class PlainTableDBTest {
   Options CurrentOptions() {
     Options options;
     options.table_factory.reset(NewPlainTableFactory(16, 2, 0.8, 3));
-    options.prefix_extractor = prefix_transform.get();
+    options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.allow_mmap_reads = true;
     return options;
   }
@@ -172,9 +171,6 @@ class PlainTableDBTest {
     return result;
   }
 };
-
-std::unique_ptr<const SliceTransform> PlainTableDBTest::prefix_transform(
-    NewFixedPrefixTransform(8));
 
 TEST(PlainTableDBTest, Empty) {
   ASSERT_TRUE(dbfull() != nullptr);

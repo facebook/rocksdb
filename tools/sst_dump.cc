@@ -130,7 +130,7 @@ Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
     options_.allow_mmap_reads = true;
     options_.table_factory = std::make_shared<PlainTableFactory>(
         table_properties->fixed_key_len, 2, 0.8);
-    options_.prefix_extractor = NewNoopTransform();
+    options_.prefix_extractor.reset(NewNoopTransform());
     fprintf(stdout, "Sst file format: plain table\n");
   } else {
     char error_msg_buffer[80];

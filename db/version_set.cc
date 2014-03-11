@@ -2505,6 +2505,8 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
 
 Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   ReadOptions options;
+  options.verify_checksums =
+      c->column_family_data()->options()->verify_checksums_in_compaction;
   options.fill_cache = false;
 
   // Level-0 files have to be merged together.  For other levels,

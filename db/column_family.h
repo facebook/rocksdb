@@ -33,6 +33,7 @@ class InternalKey;
 class InternalStats;
 class ColumnFamilyData;
 class DBImpl;
+class LogBuffer;
 
 class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
  public:

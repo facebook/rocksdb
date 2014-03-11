@@ -10,6 +10,8 @@
 #include "db/compaction_picker.h"
 
 #include <limits>
+#include "util/log_buffer.h"
+#include "util/statistics.h"
 
 namespace rocksdb {
 

@@ -237,7 +237,7 @@ struct ColumnFamilyOptions {
   // 4) prefix(prefix(key)) == prefix(key)
   //
   // Default: nullptr
-  const SliceTransform* prefix_extractor;
+  std::shared_ptr<const SliceTransform> prefix_extractor;
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
@@ -384,6 +384,11 @@ struct ColumnFamilyOptions {
 
   // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style;
+
+  // If true, compaction will verify checksum on every read that happens
+  // as part of compaction
+  // Default: true
+  bool verify_checksums_in_compaction;
 
   // The options needed to support Universal Style compactions
   CompactionOptionsUniversal compaction_options_universal;

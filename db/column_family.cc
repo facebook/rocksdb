@@ -40,7 +40,9 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
     }
     db_->FindObsoleteFiles(deletion_state, false, true);
     mutex_->Unlock();
-    db_->PurgeObsoleteFiles(deletion_state);
+    if (deletion_state.HaveSomethingToDelete()) {
+      db_->PurgeObsoleteFiles(deletion_state);
+    }
   }
 }
 
@@ -84,13 +86,11 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
   if (result.soft_rate_limit > result.hard_rate_limit) {
     result.soft_rate_limit = result.hard_rate_limit;
   }
-  if (result.prefix_extractor) {
-    // If a prefix extractor has been supplied and a HashSkipListRepFactory is
-    // being used, make sure that the latter uses the former as its transform
-    // function.
-    auto factory =
-        dynamic_cast<HashSkipListRepFactory*>(result.memtable_factory.get());
-    if (factory && factory->GetTransform() != result.prefix_extractor) {
+  if (!result.prefix_extractor) {
+    assert(result.memtable_factory);
+    Slice name = result.memtable_factory->Name();
+    if (name.compare("HashSkipListRepFactory") == 0 ||
+        name.compare("HashLinkListRepFactory") == 0) {
       result.memtable_factory = std::make_shared<SkipListFactory>();
     }
   }

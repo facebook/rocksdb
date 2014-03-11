@@ -294,10 +294,10 @@ struct rocksdb_universal_compaction_options_t {
 };
 
 static bool SaveError(char** errptr, const Status& s) {
-  assert(errptr != NULL);
+  assert(errptr != nullptr);
   if (s.ok()) {
     return false;
-  } else if (*errptr == NULL) {
+  } else if (*errptr == nullptr) {
     *errptr = strdup(s.ToString().c_str());
   } else {
     // TODO(sanjay): Merge with existing error?
@@ -319,7 +319,7 @@ rocksdb_t* rocksdb_open(
     char** errptr) {
   DB* db;
   if (SaveError(errptr, DB::Open(options->rep, std::string(name), &db))) {
-    return NULL;
+    return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
   result->rep = db;
@@ -373,7 +373,7 @@ char* rocksdb_get(
     const char* key, size_t keylen,
     size_t* vallen,
     char** errptr) {
-  char* result = NULL;
+  char* result = nullptr;
   std::string tmp;
   Status s = db->rep->Get(options->rep, Slice(key, keylen), &tmp);
   if (s.ok()) {
@@ -418,7 +418,7 @@ char* rocksdb_property_value(
     // We use strdup() since we expect human readable output.
     return strdup(tmp.c_str());
   } else {
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -456,9 +456,9 @@ void rocksdb_compact_range(
     const char* limit_key, size_t limit_key_len) {
   Slice a, b;
   db->rep->CompactRange(
-      // Pass NULL Slice if corresponding "const char*" is NULL
-      (start_key ? (a = Slice(start_key, start_key_len), &a) : NULL),
-      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : NULL));
+      // Pass nullptr Slice if corresponding "const char*" is nullptr
+      (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
 }
 
 void rocksdb_flush(
@@ -647,7 +647,7 @@ void rocksdb_options_set_paranoid_checks(
 }
 
 void rocksdb_options_set_env(rocksdb_options_t* opt, rocksdb_env_t* env) {
-  opt->rep.env = (env ? env->rep : NULL);
+  opt->rep.env = (env ? env->rep : nullptr);
 }
 
 void rocksdb_options_set_info_log(rocksdb_options_t* opt, rocksdb_logger_t* l) {
@@ -765,7 +765,7 @@ void rocksdb_options_set_compression_options(
 
 void rocksdb_options_set_prefix_extractor(
     rocksdb_options_t* opt, rocksdb_slicetransform_t* prefix_extractor) {
-  opt->rep.prefix_extractor = prefix_extractor;
+  opt->rep.prefix_extractor.reset(prefix_extractor);
 }
 
 void rocksdb_options_set_whole_key_filtering(
@@ -1087,8 +1087,8 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
   };
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = NewBloomFilterPolicy(bits_per_key);
-  wrapper->state_ = NULL;
-  wrapper->delete_filter_ = NULL;
+  wrapper->state_ = nullptr;
+  wrapper->delete_filter_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
 }
@@ -1154,7 +1154,7 @@ void rocksdb_readoptions_set_prefix_seek(
 void rocksdb_readoptions_set_snapshot(
     rocksdb_readoptions_t* opt,
     const rocksdb_snapshot_t* snap) {
-  opt->rep.snapshot = (snap ? snap->rep : NULL);
+  opt->rep.snapshot = (snap ? snap->rep : nullptr);
 }
 
 void rocksdb_readoptions_set_prefix(
@@ -1280,7 +1280,7 @@ rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t pref
   };
   Wrapper* wrapper = new Wrapper;
   wrapper->rep_ = rocksdb::NewFixedPrefixTransform(prefixLen);
-  wrapper->state_ = NULL;
+  wrapper->state_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
 }

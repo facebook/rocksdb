@@ -259,8 +259,6 @@ class SpecialEnv : public EnvWrapper {
 class DBTest {
  private:
   const FilterPolicy* filter_policy_;
-  static std::unique_ptr<const SliceTransform> prefix_1_transform;
-  static std::unique_ptr<const SliceTransform> noop_transform;
 
  protected:
   // Sequence of option configurations to try
@@ -375,18 +373,18 @@ class DBTest {
     Options options;
     switch (option_config_) {
       case kHashSkipList:
-        options.memtable_factory.reset(
-            NewHashSkipListRepFactory(NewFixedPrefixTransform(1)));
+        options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+        options.memtable_factory.reset(NewHashSkipListRepFactory());
         break;
       case kPlainTableFirstBytePrefix:
         options.table_factory.reset(new PlainTableFactory());
-        options.prefix_extractor = prefix_1_transform.get();
+        options.prefix_extractor.reset(NewFixedPrefixTransform(1));
         options.allow_mmap_reads = true;
         options.max_sequential_skip_in_iterations = 999999;
         break;
       case kPlainTableAllBytesPrefix:
         options.table_factory.reset(new PlainTableFactory());
-        options.prefix_extractor = noop_transform.get();
+        options.prefix_extractor.reset(NewNoopTransform());
         options.allow_mmap_reads = true;
         options.max_sequential_skip_in_iterations = 999999;
         break;
@@ -426,8 +424,8 @@ class DBTest {
         options.memtable_factory.reset(new VectorRepFactory(100));
         break;
       case kHashLinkList:
-      options.memtable_factory.reset(
-          NewHashLinkListRepFactory(NewFixedPrefixTransform(1), 4));
+        options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+        options.memtable_factory.reset(NewHashLinkListRepFactory(4));
         break;
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;
@@ -945,10 +943,6 @@ class DBTest {
   }
 
 };
-std::unique_ptr<const SliceTransform> DBTest::prefix_1_transform(
-    NewFixedPrefixTransform(1));
-std::unique_ptr<const SliceTransform> DBTest::noop_transform(
-    NewNoopTransform());
 
 static std::string Key(int i) {
   char buf[100];
@@ -1587,12 +1581,7 @@ TEST(DBTest, IterMulti) {
     iter->Seek("ax");
     ASSERT_EQ(IterStatus(iter), "b->vb");
 
-    SetPerfLevel(kEnableTime);
-    perf_context.Reset();
     iter->Seek("b");
-    ASSERT_TRUE((int) perf_context.seek_internal_seek_time > 0);
-    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
-    SetPerfLevel(kDisable);
     ASSERT_EQ(IterStatus(iter), "b->vb");
     iter->Seek("z");
     ASSERT_EQ(IterStatus(iter), "(invalid)");
@@ -1607,12 +1596,7 @@ TEST(DBTest, IterMulti) {
     // Switch from forward to reverse
     iter->SeekToFirst();
     iter->Next();
-    SetPerfLevel(kEnableTime);
-    perf_context.Reset();
     iter->Next();
-    ASSERT_EQ(0, (int) perf_context.seek_internal_seek_time);
-    ASSERT_TRUE((int) perf_context.find_next_user_entry_time > 0);
-    SetPerfLevel(kDisable);
     iter->Prev();
     ASSERT_EQ(IterStatus(iter), "b->vb");
 
@@ -5690,7 +5674,7 @@ TEST(DBTest, PrefixScan) {
   options.env = env_;
   options.no_block_cache = true;
   options.filter_policy = NewBloomFilterPolicy(10);
-  options.prefix_extractor = NewFixedPrefixTransform(8);
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
   options.whole_key_filtering = false;
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
@@ -5698,8 +5682,7 @@ TEST(DBTest, PrefixScan) {
   options.disable_seek_compaction = true;
   // Tricky: options.prefix_extractor will be released by
   // NewHashSkipListRepFactory after use.
-  options.memtable_factory.reset(
-      NewHashSkipListRepFactory(options.prefix_extractor));
+  options.memtable_factory.reset(NewHashSkipListRepFactory());
 
   // prefix specified, with blooms: 2 RAND I/Os
   // SeekToFirst
@@ -5899,14 +5882,12 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   read_options.tailing = true;
   read_options.prefix_seek = true;
 
-  auto prefix_extractor = NewFixedPrefixTransform(2);
-
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
-  options.prefix_extractor = prefix_extractor;
-  options.memtable_factory.reset(NewHashSkipListRepFactory(prefix_extractor));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  options.memtable_factory.reset(NewHashSkipListRepFactory());
   DestroyAndReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 

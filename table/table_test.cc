@@ -697,7 +697,7 @@ class Harness {
       case PLAIN_TABLE_SEMI_FIXED_PREFIX:
         support_prev_ = false;
         only_support_prefix_seek_ = true;
-        options_.prefix_extractor = prefix_transform.get();
+        options_.prefix_extractor.reset(new FixedOrLessPrefixTransform(2));
         options_.allow_mmap_reads = true;
         options_.table_factory.reset(NewPlainTableFactory());
         constructor_ = new TableConstructor(options_.comparator, true, true);
@@ -707,7 +707,7 @@ class Harness {
       case PLAIN_TABLE_FULL_STR_PREFIX:
         support_prev_ = false;
         only_support_prefix_seek_ = true;
-        options_.prefix_extractor = noop_transform.get();
+        options_.prefix_extractor.reset(NewNoopTransform());
         options_.allow_mmap_reads = true;
         options_.table_factory.reset(NewPlainTableFactory());
         constructor_ = new TableConstructor(options_.comparator, true, true);
@@ -920,14 +920,7 @@ class Harness {
   bool support_prev_;
   bool only_support_prefix_seek_;
   shared_ptr<InternalKeyComparator> internal_comparator_;
-  static std::unique_ptr<const SliceTransform> noop_transform;
-  static std::unique_ptr<const SliceTransform> prefix_transform;
 };
-
-std::unique_ptr<const SliceTransform> Harness::noop_transform(
-    NewNoopTransform());
-std::unique_ptr<const SliceTransform> Harness::prefix_transform(
-    new FixedOrLessPrefixTransform(2));
 
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   bool result = (val >= low) && (val <= high);

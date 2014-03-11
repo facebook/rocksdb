@@ -26,6 +26,17 @@
 
 namespace rocksdb {
 
+void BackupableDBOptions::Dump(Logger* logger) const {
+  Log(logger, "       Options.backup_dir: %s", backup_dir.c_str());
+  Log(logger, "       Options.backup_env: %p", backup_env);
+  Log(logger, "Options.share_table_files: %d",
+      static_cast<int>(share_table_files));
+  Log(logger, "         Options.info_log: %p", info_log);
+  Log(logger, "             Options.sync: %d", static_cast<int>(sync));
+  Log(logger, " Options.destroy_old_data: %d",
+      static_cast<int>(destroy_old_data));
+}
+
 // -------- BackupEngineImpl class ---------
 class BackupEngineImpl : public BackupEngine {
  public:
@@ -204,6 +215,8 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
       db_env_(db_env),
       backup_env_(options.backup_env != nullptr ? options.backup_env
                                                 : db_env_) {
+
+  options_.Dump(options_.info_log);
 
   // create all the dirs we need
   backup_env_->CreateDirIfMissing(GetAbsolutePath());

@@ -67,6 +67,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       purge_redundant_kvs_while_flush(true),
       block_size_deviation(10),
       compaction_style(kCompactionStyleLevel),
+      verify_checksums_in_compaction(true),
       filter_deletes(false),
       max_sequential_skip_in_iterations(8),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
@@ -126,6 +127,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
       block_size_deviation(options.block_size_deviation),
       compaction_style(options.compaction_style),
+      verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       compaction_options_universal(options.compaction_options_universal),
       filter_deletes(options.filter_deletes),
       max_sequential_skip_in_iterations(
@@ -379,6 +381,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         block_size_deviation);
     Log(log,"                          Options.filter_deletes: %d",
         filter_deletes);
+    Log(log, "          Options.verify_checksums_in_compaction: %d",
+        verify_checksums_in_compaction);
     Log(log,"                        Options.compaction_style: %d",
         compaction_style);
     Log(log," Options.compaction_options_universal.size_ratio: %u",

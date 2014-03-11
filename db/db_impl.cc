@@ -61,7 +61,9 @@
 #include "util/build_version.h"
 #include "util/coding.h"
 #include "util/hash_skiplist_rep.h"
+#include "util/hash_linklist_rep.h"
 #include "util/logging.h"
+#include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
@@ -320,7 +322,9 @@ DBImpl::~DBImpl() {
       FindObsoleteFiles(deletion_state, true);
       // manifest number starting from 2
       deletion_state.manifest_file_number = 1;
-      PurgeObsoleteFiles(deletion_state);
+      if (deletion_state.HaveSomethingToDelete()) {
+        PurgeObsoleteFiles(deletion_state);
+      }
     }
   }
 
@@ -536,12 +540,8 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
-  // check if there is anything to do
-  if (state.candidate_files.empty() &&
-      state.sst_delete_files.empty() &&
-      state.log_delete_files.empty()) {
-    return;
-  }
+  // we'd better have sth to delete
+  assert(state.HaveSomethingToDelete());
 
   // this checks if FindObsoleteFiles() was run before. If not, don't do
   // PurgeObsoleteFiles(). If FindObsoleteFiles() was run, we need to also
@@ -549,7 +549,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   if (state.manifest_file_number == 0) {
     return;
   }
-  std::vector<std::string> old_log_files;
+
 
   // Now, convert live list to an unordered set, WITHOUT mutex held;
   // set is slow.
@@ -587,6 +587,8 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       candidate_files.end()
   );
 
+  std::vector<std::string> old_info_log_files;
+
   for (const auto& to_delete : candidate_files) {
     uint64_t number;
     FileType type;
@@ -617,7 +619,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       case kInfoLogFile:
         keep = true;
         if (number != 0) {
-          old_log_files.push_back(to_delete);
+          old_info_log_files.push_back(to_delete);
         }
         break;
       case kCurrentFile:
@@ -636,44 +638,40 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
     }
+
     std::string fname = ((type == kLogFile) ? options_.wal_dir : dbname_) +
         "/" + to_delete;
-    Log(options_.info_log,
-        "Delete type=%d #%lu",
-        int(type),
-        (unsigned long)number);
-
     if (type == kLogFile &&
         (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0)) {
-      Status s = env_->RenameFile(fname,
-          ArchivedLogFileName(options_.wal_dir, number));
-      if (!s.ok()) {
-        Log(options_.info_log,
-            "RenameFile logfile #%lu FAILED -- %s\n",
-            (unsigned long)number, s.ToString().c_str());
-      }
+      auto archived_log_name = ArchivedLogFileName(options_.wal_dir, number);
+      Status s = env_->RenameFile(fname, archived_log_name);
+      Log(options_.info_log,
+          "Move log file %s to %s -- %s\n",
+          fname.c_str(), archived_log_name.c_str(), s.ToString().c_str());
     } else {
       Status s = env_->DeleteFile(fname);
-      if (!s.ok()) {
-        Log(options_.info_log, "Delete type=%d #%lu FAILED -- %s\n",
-            int(type), (unsigned long)number, s.ToString().c_str());
-      }
+      Log(options_.info_log, "Delete %s type=%d #%lu -- %s\n",
+          fname.c_str(), type, (unsigned long)number,
+          s.ToString().c_str());
     }
   }
 
   // Delete old info log files.
-  size_t old_log_file_count = old_log_files.size();
+  size_t old_info_log_file_count = old_info_log_files.size();
   // NOTE: Currently we only support log purge when options_.db_log_dir is
   // located in `dbname` directory.
-  if (old_log_file_count >= options_.keep_log_file_num &&
+  if (old_info_log_file_count >= options_.keep_log_file_num &&
       options_.db_log_dir.empty()) {
-    std::sort(old_log_files.begin(), old_log_files.end());
-    size_t end = old_log_file_count - options_.keep_log_file_num;
+    std::sort(old_info_log_files.begin(), old_info_log_files.end());
+    size_t end = old_info_log_file_count - options_.keep_log_file_num;
     for (unsigned int i = 0; i <= end; i++) {
-      std::string& to_delete = old_log_files.at(i);
-      // Log(options_.info_log, "Delete type=%d %s\n",
-      //     int(kInfoLogFile), to_delete.c_str());
-      env_->DeleteFile(dbname_ + "/" + to_delete);
+      std::string& to_delete = old_info_log_files.at(i);
+      Log(options_.info_log, "Delete info log file %s\n", to_delete.c_str());
+      Status s = env_->DeleteFile(dbname_ + "/" + to_delete);
+      if (!s.ok()) {
+        Log(options_.info_log, "Delete info log file %s FAILED -- %s\n",
+            to_delete.c_str(), s.ToString().c_str());
+      }
     }
   }
   PurgeObsoleteWALFiles();
@@ -684,7 +682,9 @@ void DBImpl::DeleteObsoleteFiles() {
   mutex_.AssertHeld();
   DeletionState deletion_state;
   FindObsoleteFiles(deletion_state, true);
-  PurgeObsoleteFiles(deletion_state);
+  if (deletion_state.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(deletion_state);
+  }
 }
 
 // 1. Go through all archived files and
@@ -1132,7 +1132,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
 
 Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
                                 autovector<MemTable*>& mems, VersionEdit* edit,
-                                uint64_t* filenumber) {
+                                uint64_t* filenumber, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
@@ -1148,6 +1148,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
   Status s;
   {
     mutex_.Unlock();
+    log_buffer->FlushBufferToLog();
     std::vector<Iterator*> memtables;
     for (MemTable* m : mems) {
       Log(options_.info_log,
@@ -1218,7 +1219,8 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
 
 Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
                                          bool* madeProgress,
-                                         DeletionState& deletion_state) {
+                                         DeletionState& deletion_state,
+                                         LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   assert(cfd->imm()->size() != 0);
   assert(cfd->imm()->IsFlushPending());
@@ -1228,7 +1230,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
   autovector<MemTable*> mems;
   cfd->imm()->PickMemtablesToFlush(&mems);
   if (mems.empty()) {
-    Log(options_.info_log, "Nothing in memstore to flush");
+    LogToBuffer(log_buffer, "Nothing in memstore to flush");
     return Status::OK();
   }
 
@@ -1245,7 +1247,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
   edit->SetColumnFamily(cfd->GetID());
 
   // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table(cfd, mems, edit, &file_number);
+  Status s = WriteLevel0Table(cfd, mems, edit, &file_number, log_buffer);
 
   if (s.ok() && shutting_down_.Acquire_Load() && cfd->IsDropped()) {
     s = Status::ShutdownInProgress(
@@ -1838,7 +1840,8 @@ void DBImpl::BGWorkCompaction(void* db) {
 }
 
 Status DBImpl::BackgroundFlush(bool* madeProgress,
-                               DeletionState& deletion_state) {
+                               DeletionState& deletion_state,
+                               LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   // call_status is failure if at least one flush was a failure. even if
   // flushing one column family reports a failure, we will continue flushing
@@ -1857,8 +1860,8 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
           "BackgroundCallFlush doing FlushMemTableToOutputFile with column "
           "family %u, flush slots available %d",
           cfd->GetID(), options_.max_background_flushes - bg_flush_scheduled_);
-      flush_status =
-          FlushMemTableToOutputFile(cfd, madeProgress, deletion_state);
+      flush_status = FlushMemTableToOutputFile(cfd, madeProgress,
+                                               deletion_state, log_buffer);
     }
     if (call_status.ok() && !flush_status.ok()) {
       call_status = flush_status;
@@ -1877,41 +1880,48 @@ void DBImpl::BackgroundCallFlush() {
   bool madeProgress = false;
   DeletionState deletion_state(true);
   assert(bg_flush_scheduled_);
-  MutexLock l(&mutex_);
 
-  Status s;
-  if (!shutting_down_.Acquire_Load()) {
-    s = BackgroundFlush(&madeProgress, deletion_state);
-    if (!s.ok()) {
-      // Wait a little bit before retrying background compaction in
-      // case this is an environmental problem and we do not want to
-      // chew up resources for failed compactions for the duration of
-      // the problem.
-      bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
-      Log(options_.info_log, "Waiting after background flush error: %s",
-          s.ToString().c_str());
+  LogBuffer log_buffer(INFO, options_.info_log.get());
+  {
+    MutexLock l(&mutex_);
+
+    Status s;
+    if (!shutting_down_.Acquire_Load()) {
+      s = BackgroundFlush(&madeProgress, deletion_state, &log_buffer);
+      if (!s.ok()) {
+        // Wait a little bit before retrying background compaction in
+        // case this is an environmental problem and we do not want to
+        // chew up resources for failed compactions for the duration of
+        // the problem.
+        bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
+        Log(options_.info_log, "Waiting after background flush error: %s",
+            s.ToString().c_str());
+        mutex_.Unlock();
+        log_buffer.FlushBufferToLog();
+        LogFlush(options_.info_log);
+        env_->SleepForMicroseconds(1000000);
+        mutex_.Lock();
+      }
+    }
+
+    // If !s.ok(), this means that Flush failed. In that case, we want
+    // to delete all obsolete files and we force FindObsoleteFiles()
+    FindObsoleteFiles(deletion_state, !s.ok());
+    // delete unnecessary files if any, this is done outside the mutex
+    if (deletion_state.HaveSomethingToDelete()) {
       mutex_.Unlock();
-      LogFlush(options_.info_log);
-      env_->SleepForMicroseconds(1000000);
+      log_buffer.FlushBufferToLog();
+      PurgeObsoleteFiles(deletion_state);
       mutex_.Lock();
     }
-  }
 
-  // If !s.ok(), this means that Flush failed. In that case, we want
-  // to delete all obsolete files and we force FindObsoleteFiles()
-  FindObsoleteFiles(deletion_state, !s.ok());
-  // delete unnecessary files if any, this is done outside the mutex
-  if (deletion_state.HaveSomethingToDelete()) {
-    mutex_.Unlock();
-    PurgeObsoleteFiles(deletion_state);
-    mutex_.Lock();
+    bg_flush_scheduled_--;
+    if (madeProgress) {
+      MaybeScheduleFlushOrCompaction();
+    }
+    bg_cv_.SignalAll();
   }
-
-  bg_flush_scheduled_--;
-  if (madeProgress) {
-    MaybeScheduleFlushOrCompaction();
-  }
-  bg_cv_.SignalAll();
+  log_buffer.FlushBufferToLog();
 }
 
 
@@ -1929,7 +1939,7 @@ void DBImpl::BackgroundCallCompaction() {
   DeletionState deletion_state(true);
 
   MaybeDumpStats();
-  LogBuffer log_buffer(INFO, options_.info_log);
+  LogBuffer log_buffer(INFO, options_.info_log.get());
   {
     MutexLock l(&mutex_);
     // Log(options_.info_log, "XXX BG Thread %llx process new work item",
@@ -1945,6 +1955,7 @@ void DBImpl::BackgroundCallCompaction() {
         // the problem.
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
         mutex_.Unlock();
+        log_buffer.FlushBufferToLog();
         Log(options_.info_log, "Waiting after background compaction error: %s",
             s.ToString().c_str());
         LogFlush(options_.info_log);
@@ -1962,6 +1973,7 @@ void DBImpl::BackgroundCallCompaction() {
     // delete unnecessary files if any, this is done outside the mutex
     if (deletion_state.HaveSomethingToDelete()) {
       mutex_.Unlock();
+      log_buffer.FlushBufferToLog();
       PurgeObsoleteFiles(deletion_state);
       mutex_.Lock();
     }
@@ -2054,7 +2066,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   } else {
     MaybeScheduleFlushOrCompaction(); // do more compaction work in parallel.
     CompactionState* compact = new CompactionState(c.get());
-    status = DoCompactionWork(compact, deletion_state);
+    status = DoCompactionWork(compact, deletion_state, log_buffer);
     CleanupCompaction(compact, status);
     c->ReleaseCompactionFiles(status);
     c->ReleaseInputs();
@@ -2327,7 +2339,8 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
 }
 
 Status DBImpl::DoCompactionWork(CompactionState* compact,
-                                DeletionState& deletion_state) {
+                                DeletionState& deletion_state,
+                                LogBuffer* log_buffer) {
   assert(compact);
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   ColumnFamilyData* cfd = compact->compaction->column_family_data();
@@ -2370,6 +2383,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
+  // flush log buffer immediately after releasing the mutex
+  log_buffer->FlushBufferToLog();
 
   const uint64_t start_micros = env_->NowMicros();
   unique_ptr<Iterator> input(versions_->MakeInputIterator(compact->compaction));
@@ -2745,7 +2760,9 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
     state->mu->Unlock();
 
     delete state->super_version;
-    state->db->PurgeObsoleteFiles(deletion_state);
+    if (deletion_state.HaveSomethingToDelete()) {
+      state->db->PurgeObsoleteFiles(deletion_state);
+    }
   }
 
   delete state;
@@ -2907,8 +2924,10 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // acquiring mutex for this operation, we use atomic Swap() on the thread
     // local pointer to guarantee exclusive access. If the thread local pointer
     // is being used while a new SuperVersion is installed, the cached
-    // SuperVersion can become stale. It will eventually get refreshed either
-    // on the next GetImpl() call or next SuperVersion installation.
+    // SuperVersion can become stale. In that case, the background thread would
+    // have swapped in kSVObsolete. We re-check the value at the end of
+    // Get, with an atomic compare and swap. The superversion will be released
+    // if detected to be stale.
     thread_local_sv = cfd->GetThreadLocalSuperVersion();
     void* ptr = thread_local_sv->Swap(SuperVersion::kSVInUse);
     // Invariant:
@@ -2923,7 +2942,10 @@ Status DBImpl::GetImpl(const ReadOptions& options,
       SuperVersion* sv_to_delete = nullptr;
 
       if (sv && sv->Unref()) {
+        RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
         mutex_.Lock();
+        // TODO underlying resources held by superversion (sst files) might
+        // not be released until the next background job.
         sv->Cleanup();
         sv_to_delete = sv;
       } else {
@@ -3001,15 +3023,12 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   if (unref_sv) {
     // Release SuperVersion
-    bool delete_sv = false;
     if (sv->Unref()) {
       mutex_.Lock();
       sv->Cleanup();
       mutex_.Unlock();
-      delete_sv = true;
-    }
-    if (delete_sv) {
       delete sv;
+      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
     }
     RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_RELEASES);
   }
@@ -3263,7 +3282,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
     // use extra wrapper to exclude any keys from the results which
     // don't begin with the prefix
     iter = new PrefixFilterIterator(iter, *options.prefix,
-                                    cfd->options()->prefix_extractor);
+                                    cfd->options()->prefix_extractor.get());
   }
   return iter;
 }
@@ -3864,12 +3883,14 @@ Status DBImpl::DeleteFile(std::string name) {
   if (type == kLogFile) {
     // Only allow deleting archived log files
     if (log_type != kArchivedLogFile) {
-      Log(options_.info_log, "DeleteFile %s failed.\n", name.c_str());
+      Log(options_.info_log, "DeleteFile %s failed - not archived log.\n",
+          name.c_str());
       return Status::NotSupported("Delete only supported for archived logs");
     }
     status = env_->DeleteFile(options_.wal_dir + "/" + name.c_str());
     if (!status.ok()) {
-      Log(options_.info_log, "DeleteFile %s failed.\n", name.c_str());
+      Log(options_.info_log, "DeleteFile %s failed -- %s.\n",
+          name.c_str(), status.ToString().c_str());
     }
     return status;
   }
@@ -3915,7 +3936,9 @@ Status DBImpl::DeleteFile(std::string name) {
   } // lock released here
   LogFlush(options_.info_log);
   // remove files outside the db-lock
-  PurgeObsoleteFiles(deletion_state);
+  if (deletion_state.HaveSomethingToDelete()) {
+    PurgeObsoleteFiles(deletion_state);
+  }
   {
     MutexLock l(&mutex_);
     // schedule flush if file deletion means we freed the space for flushes to

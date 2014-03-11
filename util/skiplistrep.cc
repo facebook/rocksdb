@@ -10,11 +10,11 @@
 namespace rocksdb {
 namespace {
 class SkipListRep : public MemTableRep {
-  SkipList<const char*, MemTableRep::KeyComparator&> skip_list_;
+  SkipList<const char*, const MemTableRep::KeyComparator&> skip_list_;
 public:
-  explicit SkipListRep(MemTableRep::KeyComparator& compare, Arena* arena)
+  explicit SkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena)
     : skip_list_(compare, arena) {
-}
+  }
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
@@ -47,12 +47,12 @@ public:
 
   // Iteration over the contents of a skip list
   class Iterator : public MemTableRep::Iterator {
-    SkipList<const char*, MemTableRep::KeyComparator&>::Iterator iter_;
+    SkipList<const char*, const MemTableRep::KeyComparator&>::Iterator iter_;
    public:
     // Initialize an iterator over the specified list.
     // The returned iterator is not valid.
     explicit Iterator(
-      const SkipList<const char*, MemTableRep::KeyComparator&>* list
+      const SkipList<const char*, const MemTableRep::KeyComparator&>* list
     ) : iter_(list) { }
 
     virtual ~Iterator() override { }
@@ -115,7 +115,8 @@ public:
 }
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
-    MemTableRep::KeyComparator& compare, Arena* arena) {
+    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const SliceTransform*) {
   return new SkipListRep(compare, arena);
 }
 

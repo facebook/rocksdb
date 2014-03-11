@@ -159,7 +159,7 @@ bool TailingIterator::IsCurrentVersion() const {
 }
 
 bool TailingIterator::IsSamePrefix(const Slice& target) const {
-  const SliceTransform* extractor = cfd_->options()->prefix_extractor;
+  const SliceTransform* extractor = cfd_->options()->prefix_extractor.get();
 
   assert(extractor);
   assert(is_prev_set_);

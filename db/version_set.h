@@ -41,13 +41,15 @@ namespace log { class Writer; }
 class Compaction;
 class CompactionPicker;
 class Iterator;
+class LogBuffer;
+class LookupKey;
 class MemTable;
 class Version;
 class VersionSet;
 class MergeContext;
 class ColumnFamilyData;
 class ColumnFamilySet;
-class LookupKey;
+class TableCache;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.
