@@ -29,7 +29,7 @@
 namespace rocksdb {
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
-                   const ColumnFamilyOptions& options)
+                   const Options& options)
     : comparator_(cmp),
       refs_(0),
       arena_(options.arena_block_size),

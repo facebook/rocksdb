@@ -63,11 +63,11 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
   if (super_version->mem->Get(lkey, value, &s, merge_context,
-                              *cfd->full_options())) {
+                              *cfd->options())) {
   } else {
     Version::GetStats stats;
     super_version->current->Get(options, lkey, value, &s, &merge_context,
-                                &stats, *cfd->full_options());
+                                &stats, *cfd->options());
   }
   return s;
 }
@@ -80,8 +80,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options,
   SequenceNumber latest_snapshot = versions_->LastSequence();
   Iterator* internal_iter = NewInternalIterator(options, cfd, super_version);
   return NewDBIterator(
-      &dbname_, env_, *cfd->full_options(), cfd->user_comparator(),
-      internal_iter,
+      &dbname_, env_, *cfd->options(), cfd->user_comparator(), internal_iter,
       (options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
            : latest_snapshot));

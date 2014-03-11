@@ -289,7 +289,7 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    const Options* options = cf_mems_->GetFullOptions();
+    const Options* options = cf_mems_->GetOptions();
     if (!options->inplace_update_support) {
       mem->Add(sequence_, kTypeValue, key, value);
     } else if (options->inplace_callback == nullptr) {
@@ -344,7 +344,7 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    const Options* options = cf_mems_->GetFullOptions();
+    const Options* options = cf_mems_->GetOptions();
     bool perform_merge = false;
 
     if (options->max_successive_merges > 0 && db_ != nullptr) {
@@ -413,7 +413,7 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    const Options* options = cf_mems_->GetFullOptions();
+    const Options* options = cf_mems_->GetOptions();
     if (!dont_filter_deletes_ && options->filter_deletes) {
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;

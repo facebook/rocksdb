@@ -185,9 +185,8 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       dropped_(false),
       internal_comparator_(options.comparator),
       internal_filter_policy_(options.filter_policy),
-      options_(SanitizeOptions(&internal_comparator_, &internal_filter_policy_,
-                               options)),
-      full_options_(*db_options, options_),
+      options_(*db_options, SanitizeOptions(&internal_comparator_,
+                                            &internal_filter_policy_, options)),
       mem_(nullptr),
       imm_(options.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -205,18 +204,19 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
     internal_stats_.reset(new InternalStats(options.num_levels, db_options->env,
                                             db_options->statistics.get()));
     table_cache_.reset(
-        new TableCache(dbname, &full_options_, storage_options, table_cache));
+        new TableCache(dbname, &options_, storage_options, table_cache));
     if (options_.compaction_style == kCompactionStyleUniversal) {
-      compaction_picker_.reset(new UniversalCompactionPicker(
-          &options_, &internal_comparator_, db_options->info_log.get()));
+      compaction_picker_.reset(
+          new UniversalCompactionPicker(&options_, &internal_comparator_));
     } else {
-      compaction_picker_.reset(new LevelCompactionPicker(
-          &options_, &internal_comparator_, db_options->info_log.get()));
+      compaction_picker_.reset(
+          new LevelCompactionPicker(&options_, &internal_comparator_));
     }
 
-    Log(full_options_.info_log, "Options for column family \"%s\":\n",
+    Log(options_.info_log, "Options for column family \"%s\":\n",
         name.c_str());
-    options_.Dump(full_options_.info_log.get());
+    const ColumnFamilyOptions* cf_options = &options_;
+    cf_options->Dump(options_.info_log.get());
   }
 }
 
@@ -232,14 +232,27 @@ ColumnFamilyData::~ColumnFamilyData() {
   // it's nullptr for dummy CFD
   if (column_family_set_ != nullptr) {
     // remove from column_family_set
-    column_family_set_->DropColumnFamily(this);
+    column_family_set_->RemoveColumnFamily(this);
   }
 
   if (current_ != nullptr) {
     current_->Unref();
   }
 
-  DeleteSuperVersion();
+  if (super_version_ != nullptr) {
+    // Release SuperVersion reference kept in ThreadLocalPtr.
+    // This must be done outside of mutex_ since unref handler can lock mutex.
+    super_version_->db_mutex->Unlock();
+    local_sv_.reset();
+    super_version_->db_mutex->Lock();
+
+    bool is_last_reference __attribute__((unused));
+    is_last_reference = super_version_->Unref();
+    assert(is_last_reference);
+    super_version_->Cleanup();
+    delete super_version_;
+    super_version_ = nullptr;
+  }
 
   if (dummy_versions_ != nullptr) {
     // List must be empty
@@ -255,10 +268,6 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (MemTable* m : to_delete) {
     delete m;
   }
-}
-
-InternalStats* ColumnFamilyData::internal_stats() {
-  return internal_stats_.get();
 }
 
 void ColumnFamilyData::SetCurrent(Version* current) {
@@ -320,23 +329,6 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
   }
 }
 
-void ColumnFamilyData::DeleteSuperVersion() {
-  if (super_version_ != nullptr) {
-    // Release SuperVersion reference kept in ThreadLocalPtr.
-    // This must be done outside of mutex_ since unref handler can lock mutex.
-    super_version_->db_mutex->Unlock();
-    local_sv_.reset();
-    super_version_->db_mutex->Lock();
-
-    bool is_last_reference __attribute__((unused));
-    is_last_reference = super_version_->Unref();
-    assert(is_last_reference);
-    super_version_->Cleanup();
-    delete super_version_;
-    super_version_ = nullptr;
-  }
-}
-
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const DBOptions* db_options,
                                  const EnvOptions& storage_options,
@@ -345,6 +337,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       dummy_cfd_(new ColumnFamilyData(dbname, 0, "", nullptr, nullptr,
                                       ColumnFamilyOptions(), db_options,
                                       storage_options_, nullptr)),
+      default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
       storage_options_(storage_options),
@@ -367,10 +360,8 @@ ColumnFamilySet::~ColumnFamilySet() {
 }
 
 ColumnFamilyData* ColumnFamilySet::GetDefault() const {
-  auto cfd = GetColumnFamily(0);
-  // default column family should always exist
-  assert(cfd != nullptr);
-  return cfd;
+  assert(default_cfd_cache_ != nullptr);
+  return default_cfd_cache_;
 }
 
 ColumnFamilyData* ColumnFamilySet::GetColumnFamily(uint32_t id) const {
@@ -385,24 +376,13 @@ ColumnFamilyData* ColumnFamilySet::GetColumnFamily(uint32_t id) const {
 ColumnFamilyData* ColumnFamilySet::GetColumnFamily(const std::string& name)
     const {
   auto cfd_iter = column_families_.find(name);
-  if (cfd_iter == column_families_.end()) {
+  if (cfd_iter != column_families_.end()) {
+    auto cfd = GetColumnFamily(cfd_iter->second);
+    assert(cfd != nullptr);
+    return cfd;
+  } else {
     return nullptr;
   }
-  return GetColumnFamily(cfd_iter->second);
-}
-
-bool ColumnFamilySet::Exists(uint32_t id) {
-  return column_family_data_.find(id) != column_family_data_.end();
-}
-
-bool ColumnFamilySet::Exists(const std::string& name) {
-  return column_families_.find(name) != column_families_.end();
-}
-
-uint32_t ColumnFamilySet::GetID(const std::string& name) {
-  auto cfd_iter = column_families_.find(name);
-  assert(cfd_iter != column_families_.end());
-  return cfd_iter->second;
 }
 
 uint32_t ColumnFamilySet::GetNextColumnFamilyID() {
@@ -434,17 +414,10 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   new_cfd->prev_ = prev;
   prev->next_ = new_cfd;
   dummy_cfd_->prev_ = new_cfd;
+  if (id == 0) {
+    default_cfd_cache_ = new_cfd;
+  }
   return new_cfd;
-}
-
-// under a DB mutex
-void ColumnFamilySet::DropColumnFamily(ColumnFamilyData* cfd) {
-  auto cfd_iter = column_family_data_.find(cfd->GetID());
-  assert(cfd_iter != column_family_data_.end());
-  Lock();
-  column_family_data_.erase(cfd_iter);
-  column_families_.erase(cfd->GetName());
-  Unlock();
 }
 
 void ColumnFamilySet::Lock() {
@@ -455,11 +428,26 @@ void ColumnFamilySet::Lock() {
 
 void ColumnFamilySet::Unlock() { spin_lock_.clear(std::memory_order_release); }
 
+// under a DB mutex
+void ColumnFamilySet::RemoveColumnFamily(ColumnFamilyData* cfd) {
+  auto cfd_iter = column_family_data_.find(cfd->GetID());
+  assert(cfd_iter != column_family_data_.end());
+  Lock();
+  column_family_data_.erase(cfd_iter);
+  column_families_.erase(cfd->GetName());
+  Unlock();
+}
+
 bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
-  // maybe outside of db mutex, should lock
-  column_family_set_->Lock();
-  current_ = column_family_set_->GetColumnFamily(column_family_id);
-  column_family_set_->Unlock();
+  if (column_family_id == 0) {
+    // optimization for common case
+    current_ = column_family_set_->GetDefault();
+  } else {
+    // maybe outside of db mutex, should lock
+    column_family_set_->Lock();
+    current_ = column_family_set_->GetColumnFamily(column_family_id);
+    column_family_set_->Unlock();
+  }
   handle_.SetCFD(current_);
   return current_ != nullptr;
 }
@@ -474,9 +462,9 @@ MemTable* ColumnFamilyMemTablesImpl::GetMemTable() const {
   return current_->mem();
 }
 
-const Options* ColumnFamilyMemTablesImpl::GetFullOptions() const {
+const Options* ColumnFamilyMemTablesImpl::GetOptions() const {
   assert(current_ != nullptr);
-  return current_->full_options();
+  return current_->options();
 }
 
 ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {

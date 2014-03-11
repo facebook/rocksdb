@@ -249,7 +249,7 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
 
 Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   auto table_cache = cfd_->table_cache();
-  auto options = cfd_->full_options();
+  auto options = cfd_->options();
   for (int level = 0; level < num_levels_; level++) {
     for (const auto& file_meta : files_[level]) {
       auto fname = TableFileName(vset_->dbname_, file_meta->number);
@@ -1491,11 +1491,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
   assert(column_family_data != nullptr || edit->is_column_family_add_);
 
-  if (column_family_data != nullptr && column_family_data->IsDropped()) {
-    // if column family is dropped no need to write anything to the manifest
-    // (unless, of course, thit is the drop column family write)
-    return Status::OK();
-  }
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -1510,6 +1505,16 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   }
   if (w.done) {
     return w.status;
+  }
+  if (column_family_data != nullptr && column_family_data->IsDropped()) {
+    // if column family is dropped by the time we get here, no need to write
+    // anything to the manifest
+    manifest_writers_.pop_front();
+    // Notify new head of write queue
+    if (!manifest_writers_.empty()) {
+      manifest_writers_.front()->cv.Signal();
+    }
+    return Status::OK();
   }
 
   std::vector<VersionEdit*> batch_edits;
@@ -2353,9 +2358,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe
   for (auto cfd : *column_family_set_) {
-    if (cfd->IsDropped()) {
-      continue;
-    }
     {
       // Store column family info
       VersionEdit edit;
@@ -2401,19 +2403,18 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     }
   }
 
-  // save max column family to avoid reusing the same column
-  // family ID for two different column families
-  if (column_family_set_->GetMaxColumnFamily() > 0) {
+  {
+    // persist max column family, last sequence and next file
     VersionEdit edit;
-    edit.SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
+    if (column_family_set_->GetMaxColumnFamily() > 0) {
+      edit.SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
+    }
+    edit.SetLastSequence(last_sequence_);
+    edit.SetNextFile(next_file_number_);
     std::string record;
     edit.EncodeTo(&record);
-    Status s = log->AddRecord(record);
-    if (!s.ok()) {
-      return s;
-    }
+    return log->AddRecord(record);
   }
-  return Status::OK();
 }
 
 // Opens the mainfest file and reads all records

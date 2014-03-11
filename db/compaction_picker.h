@@ -26,8 +26,7 @@ class Version;
 
 class CompactionPicker {
  public:
-  CompactionPicker(const ColumnFamilyOptions* options,
-                   const InternalKeyComparator* icmp, Logger* logger);
+  CompactionPicker(const Options* options, const InternalKeyComparator* icmp);
   virtual ~CompactionPicker();
 
   // Pick level and inputs for a new compaction.
@@ -119,8 +118,7 @@ class CompactionPicker {
   // Per-level max bytes
   std::unique_ptr<uint64_t[]> level_max_bytes_;
 
-  Logger* logger_;
-  const ColumnFamilyOptions* const options_;
+  const Options* const options_;
 
  private:
   int num_levels_;
@@ -130,9 +128,9 @@ class CompactionPicker {
 
 class UniversalCompactionPicker : public CompactionPicker {
  public:
-  UniversalCompactionPicker(const ColumnFamilyOptions* options,
-                            const InternalKeyComparator* icmp, Logger* logger)
-      : CompactionPicker(options, icmp, logger) {}
+  UniversalCompactionPicker(const Options* options,
+                            const InternalKeyComparator* icmp)
+      : CompactionPicker(options, icmp) {}
   virtual Compaction* PickCompaction(Version* version,
                                      LogBuffer* log_buffer) override;
 
@@ -150,9 +148,9 @@ class UniversalCompactionPicker : public CompactionPicker {
 
 class LevelCompactionPicker : public CompactionPicker {
  public:
-  LevelCompactionPicker(const ColumnFamilyOptions* options,
-                        const InternalKeyComparator* icmp, Logger* logger)
-      : CompactionPicker(options, icmp, logger) {}
+  LevelCompactionPicker(const Options* options,
+                        const InternalKeyComparator* icmp)
+      : CompactionPicker(options, icmp) {}
   virtual Compaction* PickCompaction(Version* version,
                                      LogBuffer* log_buffer) override;
 

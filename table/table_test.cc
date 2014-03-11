@@ -410,8 +410,7 @@ class MemTableConstructor: public Constructor {
         table_factory_(new SkipListFactory) {
     Options options;
     options.memtable_factory = table_factory_;
-    memtable_ =
-        new MemTable(internal_comparator_, ColumnFamilyOptions(options));
+    memtable_ = new MemTable(internal_comparator_, options);
     memtable_->Ref();
   }
   ~MemTableConstructor() {

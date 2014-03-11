@@ -42,11 +42,9 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
 
 }  // anonymous namespace
 
-CompactionPicker::CompactionPicker(const ColumnFamilyOptions* options,
-                                   const InternalKeyComparator* icmp,
-                                   Logger* logger)
+CompactionPicker::CompactionPicker(const Options* options,
+                                   const InternalKeyComparator* icmp)
     : compactions_in_progress_(options->num_levels),
-      logger_(logger),
       options_(options),
       num_levels_(options->num_levels),
       icmp_(icmp) {
@@ -272,7 +270,7 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
                                               &c->parent_index_);
       if (expanded1.size() == c->inputs_[1].size() &&
           !FilesInCompaction(expanded1)) {
-        Log(logger_,
+        Log(options_->info_log,
             "Expanding@%lu %lu+%lu (%lu+%lu bytes) to %lu+%lu (%lu+%lu bytes)"
             "\n",
             (unsigned long)level, (unsigned long)(c->inputs_[0].size()),
@@ -343,7 +341,7 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
   c->inputs_[0] = inputs;
   if (ExpandWhileOverlapping(c) == false) {
     delete c;
-    Log(logger_, "Could not compact due to expansion failure.\n");
+    Log(options_->info_log, "Could not compact due to expansion failure.\n");
     return nullptr;
   }
 
@@ -514,7 +512,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
     }
 
     //if (i > Version::number_of_files_to_sort_) {
-    //  Log(logger_, "XXX Looking at index %d", i);
+    //  Log(options_->info_log, "XXX Looking at index %d", i);
     //}
 
     // Do not pick this file if its parents at level+1 are being compacted.
@@ -609,6 +607,10 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
   if (c->inputs_[0][c->inputs_[0].size()-1] == last_file) {
     c->bottommost_level_ = true;
   }
+
+  // update statistics
+  MeasureTime(options_->statistics.get(), NUM_FILES_IN_SINGLE_COMPACTION,
+              c->inputs_[0].size());
 
   // mark all the files that are being compacted
   c->MarkFilesBeingCompacted(true);

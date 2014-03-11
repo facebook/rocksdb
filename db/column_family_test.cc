@@ -797,7 +797,7 @@ std::string IterStatus(Iterator* iter) {
   }
   return result;
 }
-}  // namespace anonymous
+}  // anonymous namespace
 
 TEST(ColumnFamilyTest, NewIteratorsTest) {
   // iter == 0 -- no tailing

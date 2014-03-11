@@ -26,7 +26,7 @@ class ColumnFamilyMemTables {
   // been processed)
   virtual uint64_t GetLogNumber() const = 0;
   virtual MemTable* GetMemTable() const = 0;
-  virtual const Options* GetFullOptions() const = 0;
+  virtual const Options* GetOptions() const = 0;
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
 };
 
@@ -47,7 +47,7 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
     return mem_;
   }
 
-  const Options* GetFullOptions() const override {
+  const Options* GetOptions() const override {
     assert(ok_);
     return options_;
   }
