@@ -353,6 +353,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (is_column_family_drop_) {
     r.append("\n  ColumnFamilyDrop");
   }
+  if (has_max_column_family_) {
+    r.append("\n  MaxColumnFamily: ");
+    r.append(max_column_family_);
+  }
   r.append("\n}\n");
   return r;
 }
