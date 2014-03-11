@@ -1500,7 +1500,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
     edit->SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
-    column_family_data->SetDropped();
   }
 
   // queue our request
@@ -1682,6 +1681,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       CreateColumnFamily(*options, edit);
     } else if (edit->is_column_family_drop_) {
       assert(batch_edits.size() == 1);
+      column_family_data->SetDropped();
       if (column_family_data->Unref()) {
         delete column_family_data;
       }
@@ -2349,7 +2349,13 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
 Status VersionSet::WriteSnapshot(log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
+  // This is done without DB mutex lock held, but only within single-threaded
+  // LogAndApply. Column family manipulations can only happen within LogAndApply
+  // (the same single thread), so we're safe
   for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
     {
       // Store column family info
       VersionEdit edit;
