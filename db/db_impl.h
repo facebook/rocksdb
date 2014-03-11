@@ -454,6 +454,10 @@ class DBImpl : public DB {
   // part of ongoing compactions.
   std::set<uint64_t> pending_outputs_;
 
+  // At least one compaction or flush job is pending but not yet scheduled
+  // because of the max background thread limit.
+  bool bg_schedule_needed_;
+
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;
 
