@@ -93,6 +93,8 @@ def main(argv):
             --max_background_compactions=20
             --max_bytes_for_level_base=10485760
             --filter_deletes=%s
+            --memtablerep=prefix_hash
+            --prefix_size=7
             """ % (ops_per_thread,
                    threads,
                    write_buf_size,
@@ -108,16 +110,23 @@ def main(argv):
         print("Running db_stress with pid=%d: %s\n\n"
               % (child.pid, cmd))
 
+        stop_early = False
         while time.time() < killtime:
-            time.sleep(10)
+            if child.poll() is not None:
+                print("WARNING: db_stress ended before kill: exitcode=%d\n"
+                      % child.returncode)
+                stop_early = True
+                break
+            time.sleep(1)
 
-        if child.poll() is not None:
-            print("WARNING: db_stress ended before kill: exitcode=%d\n"
-                  % child.returncode)
-        else:
-            child.kill()
-            print("KILLED %d\n" % child.pid)
-            time.sleep(1)  # time to stabilize after a kill
+        if not stop_early:
+            if child.poll() is not None:
+                print("WARNING: db_stress ended before kill: exitcode=%d\n"
+                      % child.returncode)
+            else:
+                child.kill()
+                print("KILLED %d\n" % child.pid)
+                time.sleep(1)  # time to stabilize after a kill
 
         while True:
             line = child.stderr.readline().strip()

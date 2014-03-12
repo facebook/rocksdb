@@ -107,6 +107,8 @@ def main(argv):
             --max_background_compactions=20
             --max_bytes_for_level_base=10485760
             --filter_deletes=%s
+            --memtablerep=prefix_hash
+            --prefix_size=7
             %s
             """ % (random.randint(0, 1),
                    threads,

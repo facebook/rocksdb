@@ -23,6 +23,8 @@ class LogBuffer {
   // Add a log entry to the buffer.
   void AddLogToBuffer(const char* format, va_list ap);
 
+  size_t IsEmpty() const { return logs_.empty(); }
+
   // Flush all buffered log to the info log.
   void FlushBufferToLog();
 

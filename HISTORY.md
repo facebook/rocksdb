@@ -20,6 +20,7 @@
 * Added new option -- verify_checksums_in_compaction
 * Chagned Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
   Changed HashSkipListRepFactory and HashLinkListRepFactory constructor to not take SliceTransform object (use Options.prefix_extractor implicitly)
+* Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,

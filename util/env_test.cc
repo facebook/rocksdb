@@ -172,17 +172,30 @@ TEST(EnvPosixTest, TwoPools) {
   env_->SetBackgroundThreads(kLowPoolSize);
   env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
 
+  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
   // schedule same number of jobs in each pool
   for (int i = 0; i < kJobs; i++) {
     env_->Schedule(&CB::Run, &low_pool_job);
     env_->Schedule(&CB::Run, &high_pool_job, Env::Priority::HIGH);
   }
+  // Wait a short while for the jobs to be dispatched.
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(kJobs - kLowPoolSize, env_->GetThreadPoolQueueLen());
+  ASSERT_EQ(kJobs - kLowPoolSize,
+            env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(kJobs - kHighPoolSize,
+            env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
 
   // wait for all jobs to finish
   while (low_pool_job.NumFinished() < kJobs ||
          high_pool_job.NumFinished() < kJobs) {
     env_->SleepForMicroseconds(kDelayMicros);
   }
+
+  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
 }
 
 bool IsSingleVarint(const std::string& s) {

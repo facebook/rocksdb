@@ -1206,6 +1206,8 @@ class PosixEnv : public Env {
 
   virtual void WaitForJoin();
 
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
+
   virtual Status GetTestDirectory(std::string* result) {
     const char* env = getenv("TEST_TMPDIR");
     if (env && env[0] != '\0') {
@@ -1370,12 +1372,12 @@ class PosixEnv : public Env {
 
   class ThreadPool {
    public:
-
-    ThreadPool() :
-        total_threads_limit_(1),
-        bgthreads_(0),
-        queue_(),
-        exit_all_threads_(false) {
+    ThreadPool()
+        : total_threads_limit_(1),
+          bgthreads_(0),
+          queue_(),
+          queue_len_(0),
+          exit_all_threads_(false) {
       PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
       PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
     }
@@ -1405,6 +1407,7 @@ class PosixEnv : public Env {
         void (*function)(void*) = queue_.front().function;
         void* arg = queue_.front().arg;
         queue_.pop_front();
+        queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
         PthreadCall("unlock", pthread_mutex_unlock(&mu_));
         (*function)(arg);
@@ -1459,11 +1462,16 @@ class PosixEnv : public Env {
       queue_.push_back(BGItem());
       queue_.back().function = function;
       queue_.back().arg = arg;
+      queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
       // always wake up at least one waiting thread.
       PthreadCall("signal", pthread_cond_signal(&bgsignal_));
 
       PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    }
+
+    unsigned int GetQueueLen() const {
+      return queue_len_.load(std::memory_order_relaxed);
     }
 
    private:
@@ -1476,6 +1484,7 @@ class PosixEnv : public Env {
     int total_threads_limit_;
     std::vector<pthread_t> bgthreads_;
     BGQueue queue_;
+    std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
     bool exit_all_threads_;
   };
 
@@ -1496,6 +1505,11 @@ PosixEnv::PosixEnv() : checkedDiskForMmap_(false),
 void PosixEnv::Schedule(void (*function)(void*), void* arg, Priority pri) {
   assert(pri >= Priority::LOW && pri <= Priority::HIGH);
   thread_pools_[pri].Schedule(function, arg);
+}
+
+unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {
+  assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+  return thread_pools_[pri].GetQueueLen();
 }
 
 namespace {

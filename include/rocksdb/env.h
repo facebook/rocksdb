@@ -210,6 +210,11 @@ class Env {
   // Wait for all threads started by StartThread to terminate.
   virtual void WaitForJoin() = 0;
 
+  // Get thread pool queue length for specific thrad pool.
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
+    return 0;
+  }
+
   // *path is set to a temporary directory that can be used for testing. It may
   // or many not have just been created. The directory may or may not differ
   // between runs of the same process, but subsequent calls will return the
@@ -702,6 +707,9 @@ class EnvWrapper : public Env {
     return target_->StartThread(f, a);
   }
   void WaitForJoin() { return target_->WaitForJoin(); }
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
+    return target_->GetThreadPoolQueueLen(pri);
+  }
   virtual Status GetTestDirectory(std::string* path) {
     return target_->GetTestDirectory(path);
   }

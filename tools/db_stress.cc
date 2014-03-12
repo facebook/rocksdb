@@ -334,19 +334,19 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   return kSkipList;
 }
 static enum RepFactory FLAGS_rep_factory;
-DEFINE_string(memtablerep, "skip_list", "");
+DEFINE_string(memtablerep, "prefix_hash", "");
 
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
-  if (value < 0 || value>=2000000000) {
-    fprintf(stderr, "Invalid value for --%s: %d. 0<= PrefixSize <=2000000000\n",
+  if (value < 0 || value > 8) {
+    fprintf(stderr, "Invalid value for --%s: %d. 0 <= PrefixSize <= 8\n",
             flagname, value);
     return false;
   }
   return true;
 }
-DEFINE_int32(prefix_size, 0, "Control the prefix size for HashSkipListRep");
-static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
-    google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
+DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
+static const bool FLAGS_prefix_size_dummy =
+  google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
             "that behaves like a Put");
@@ -951,15 +951,15 @@ class StressTest {
     return s;
   }
 
-  // Given a prefix P, this does prefix scans for "0"+P, "1"+P,..."9"+P
-  // in the same snapshot.  Each of these 10 scans returns a series of
-  // values; each series should be the same length, and it is verified
-  // for each index i that all the i'th values are of the form "0"+V,
-  // "1"+V,..."9"+V.
+  // Given a key, this does prefix scans for "0"+P, "1"+P,..."9"+P
+  // in the same snapshot where P is the first FLAGS_prefix_size - 1 bytes
+  // of the key. Each of these 10 scans returns a series of values;
+  // each series should be the same length, and it is verified for each
+  // index i that all the i'th values are of the form "0"+V, "1"+V,..."9"+V.
   // ASSUMES that MultiPut was used to put (K, V)
   Status MultiPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
                          ColumnFamilyHandle* column_family,
-                         const Slice& prefix) {
+                         const Slice& key) {
     std::string prefixes[10] = {"0", "1", "2", "3", "4",
                                 "5", "6", "7", "8", "9"};
     Slice prefix_slices[10];
@@ -968,8 +968,9 @@ class StressTest {
     Iterator* iters[10];
     Status s = Status::OK();
     for (int i = 0; i < 10; i++) {
-      prefixes[i] += prefix.ToString();
-      prefix_slices[i] = prefixes[i];
+      prefixes[i] += key.ToString();
+      prefixes[i].resize(FLAGS_prefix_size);
+      prefix_slices[i] = Slice(prefixes[i]);
       readoptionscopy[i] = readoptions;
       readoptionscopy[i].prefix = &prefix_slices[i];
       readoptionscopy[i].snapshot = snapshot;
@@ -1000,7 +1001,7 @@ class StressTest {
       for (int i = 0; i < 10; i++) {
         if (values[i] != values[0]) {
           fprintf(stderr, "error : inconsistent values for prefix %s: %s, %s\n",
-                  prefix.ToString().c_str(), values[0].c_str(),
+                  prefixes[i].c_str(), values[0].c_str(),
                   values[i].c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any
@@ -1035,6 +1036,7 @@ class StressTest {
     const Snapshot* snapshot = db_->GetSnapshot();
     ReadOptions readoptionscopy = readoptions;
     readoptionscopy.snapshot = snapshot;
+    readoptionscopy.prefix_seek = FLAGS_prefix_size > 0;
     unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, column_family));
 
     iter->Seek(key);
@@ -1149,19 +1151,21 @@ class StressTest {
         }
       } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
         // OPERATION prefix scan
-        // keys are longs (e.g., 8 bytes), so we let prefixes be
-        // everything except the last byte.  So there will be 2^8=256
-        // keys per prefix.
-        Slice prefix = Slice(key.data(), key.size() - 1);
+        // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
+        // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
+        // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
+        // prefix
         if (!FLAGS_test_batches_snapshots) {
+          Slice prefix = Slice(key.data(), FLAGS_prefix_size);
           read_opts.prefix = &prefix;
           Iterator* iter = db_->NewIterator(read_opts, column_family);
-          int count = 0;
+          int64_t count = 0;
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             assert(iter->key().starts_with(prefix));
-            count++;
+            ++count;
           }
-          assert(count <= 256);
+          assert(count <=
+                 (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
           if (iter->status().ok()) {
             thread->stats.AddPrefixes(1, count);
           } else {
@@ -1169,7 +1173,7 @@ class StressTest {
           }
           delete iter;
         } else {
-          MultiPrefixScan(thread, read_opts, column_family, prefix);
+          MultiPrefixScan(thread, read_opts, column_family, key);
         }
         read_opts.prefix = nullptr;
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
@@ -1617,6 +1621,18 @@ int main(int argc, char** argv) {
   // max number of concurrent compactions.
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
 
+  if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size <= 0) {
+    fprintf(stderr,
+            "Error: prefixpercent is non-zero while prefix_size is "
+            "not positive!\n");
+    exit(1);
+  }
+  if (FLAGS_test_batches_snapshots && FLAGS_prefix_size <= 0) {
+    fprintf(stderr,
+            "Error: please specify prefix_size for "
+            "test_batches_snapshots test!\n");
+    exit(1);
+  }
   if ((FLAGS_readpercent + FLAGS_prefixpercent +
        FLAGS_writepercent + FLAGS_delpercent + FLAGS_iterpercent) != 100) {
       fprintf(stderr,

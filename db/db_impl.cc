@@ -226,6 +226,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       logfile_number_(0),
       default_cf_handle_(nullptr),
       tmp_batch_(),
+      bg_schedule_needed_(false),
       bg_compaction_scheduled_(0),
       bg_manual_only_(0),
       bg_flush_scheduled_(0),
@@ -1732,6 +1733,7 @@ Status DBImpl::TEST_WaitForCompact() {
 
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
+  bg_schedule_needed_ = false;
   if (bg_work_gate_closed_) {
     // gate closed for backgrond work
   } else if (shutting_down_.Acquire_Load()) {
@@ -1752,6 +1754,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       if (bg_flush_scheduled_ < options_.max_background_flushes) {
         bg_flush_scheduled_++;
         env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH);
+      } else {
+        bg_schedule_needed_ = true;
       }
     }
     bool is_compaction_needed = false;
@@ -1767,11 +1771,13 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // Do it only if max_background_compactions hasn't been reached and, in case
     // bg_manual_only_ > 0, if it's a manual compaction.
     if ((manual_compaction_ || is_compaction_needed) &&
-        bg_compaction_scheduled_ < options_.max_background_compactions &&
         (!bg_manual_only_ || manual_compaction_)) {
-
-      bg_compaction_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
+      if (bg_compaction_scheduled_ < options_.max_background_compactions) {
+        bg_compaction_scheduled_++;
+        env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
+      } else {
+        bg_schedule_needed_ = true;
+      }
     }
   }
 }
@@ -1850,20 +1856,34 @@ void DBImpl::BackgroundCallFlush() {
     // to delete all obsolete files and we force FindObsoleteFiles()
     FindObsoleteFiles(deletion_state, !s.ok());
     // delete unnecessary files if any, this is done outside the mutex
-    if (deletion_state.HaveSomethingToDelete()) {
+    if (deletion_state.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
       mutex_.Unlock();
+      // Have to flush the info logs before bg_flush_scheduled_--
+      // because if bg_flush_scheduled_ becomes 0 and the lock is
+      // released, the deconstructor of DB can kick in and destroy all the
+      // states of DB so info_log might not be available after that point.
+      // It also applies to access other states that DB owns.
       log_buffer.FlushBufferToLog();
-      PurgeObsoleteFiles(deletion_state);
+      if (deletion_state.HaveSomethingToDelete()) {
+        PurgeObsoleteFiles(deletion_state);
+      }
       mutex_.Lock();
     }
 
     bg_flush_scheduled_--;
-    if (madeProgress) {
+    // Any time the mutex is released After finding the work to do, another
+    // thread might execute MaybeScheduleFlushOrCompaction(). It is possible
+    // that there is a pending job but it is not scheduled because of the
+    // max thread limit.
+    if (madeProgress || bg_schedule_needed_) {
       MaybeScheduleFlushOrCompaction();
     }
     bg_cv_.SignalAll();
+    // IMPORTANT: there should be no code after calling SignalAll. This call may
+    // signal the DB destructor that it's OK to proceed with destruction. In
+    // that case, all DB variables will be dealloacated and referencing them
+    // will cause trouble.
   }
-  log_buffer.FlushBufferToLog();
 }
 
 
@@ -1913,10 +1933,17 @@ void DBImpl::BackgroundCallCompaction() {
     FindObsoleteFiles(deletion_state, !s.ok());
 
     // delete unnecessary files if any, this is done outside the mutex
-    if (deletion_state.HaveSomethingToDelete()) {
+    if (deletion_state.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
       mutex_.Unlock();
+      // Have to flush the info logs before bg_compaction_scheduled_--
+      // because if bg_flush_scheduled_ becomes 0 and the lock is
+      // released, the deconstructor of DB can kick in and destroy all the
+      // states of DB so info_log might not be available after that point.
+      // It also applies to access other states that DB owns.
       log_buffer.FlushBufferToLog();
-      PurgeObsoleteFiles(deletion_state);
+      if (deletion_state.HaveSomethingToDelete()) {
+        PurgeObsoleteFiles(deletion_state);
+      }
       mutex_.Lock();
     }
 
@@ -1927,12 +1954,20 @@ void DBImpl::BackgroundCallCompaction() {
     // Previous compaction may have produced too many files in a level,
     // So reschedule another compaction if we made progress in the
     // last compaction.
-    if (madeProgress) {
+    //
+    // Also, any time the mutex is released After finding the work to do,
+    // another thread might execute MaybeScheduleFlushOrCompaction(). It is
+    // possible  that there is a pending job but it is not scheduled because of
+    // the max thread limit.
+    if (madeProgress || bg_schedule_needed_) {
       MaybeScheduleFlushOrCompaction();
     }
     bg_cv_.SignalAll();
+    // IMPORTANT: there should be no code after calling SignalAll. This call may
+    // signal the DB destructor that it's OK to proceed with destruction. In
+    // that case, all DB variables will be dealloacated and referencing them
+    // will cause trouble.
   }
-  log_buffer.FlushBufferToLog();
 }
 
 Status DBImpl::BackgroundCompaction(bool* madeProgress,
