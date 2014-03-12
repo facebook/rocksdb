@@ -721,6 +721,8 @@ TEST(BackupableDBTest, FailOverwritingBackups) {
   OpenBackupableDB(true);
   for (int i = 0; i < 5; ++i) {
     FillDB(db_.get(), 100 * i, 100 * (i + 1));
+    CloseBackupableDB();
+    OpenBackupableDB(false);
     ASSERT_OK(db_->CreateNewBackup(true));
     CloseBackupableDB();
     OpenBackupableDB(false);

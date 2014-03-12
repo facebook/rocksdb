@@ -277,16 +277,25 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 }
 
 DBImpl::~DBImpl() {
-  // only the default CFD is alive at this point
-  if (default_cf_handle_ != nullptr) {
-    auto default_cfd = default_cf_handle_->cfd();
-    if (flush_on_destroy_ &&
-        default_cfd->mem()->GetFirstSequenceNumber() != 0) {
-      FlushMemTable(default_cfd, FlushOptions());
+  mutex_.Lock();
+  if (flush_on_destroy_) {
+    autovector<ColumnFamilyData*> to_delete;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->mem()->GetFirstSequenceNumber() != 0) {
+        cfd->Ref();
+        mutex_.Unlock();
+        FlushMemTable(cfd, FlushOptions());
+        mutex_.Lock();
+        if (cfd->Unref()) {
+          to_delete.push_back(cfd);
+        }
+      }
+    }
+    for (auto cfd : to_delete) {
+      delete cfd;
     }
   }
 
-  mutex_.Lock();
   // Wait for background work to finish
   shutting_down_.Release_Store(this);  // Any non-nullptr value is ok
   while (bg_compaction_scheduled_ ||

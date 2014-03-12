@@ -1998,34 +1998,35 @@ TEST(DBTest, RollLog) {
 
 TEST(DBTest, WAL) {
   do {
+    CreateAndReopenWithCF({"pikachu"});
     WriteOptions writeOpt = WriteOptions();
     writeOpt.disableWAL = true;
-    ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v1"));
-    ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v1"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
 
-    Reopen();
-    ASSERT_EQ("v1", Get("foo"));
-    ASSERT_EQ("v1", Get("bar"));
+    ReopenWithColumnFamilies({"default", "pikachu"});
+    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_EQ("v1", Get(1, "bar"));
 
     writeOpt.disableWAL = false;
-    ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v2"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v2"));
     writeOpt.disableWAL = true;
-    ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v2"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v2"));
 
-    Reopen();
+    ReopenWithColumnFamilies({"default", "pikachu"});
     // Both value's should be present.
-    ASSERT_EQ("v2", Get("bar"));
-    ASSERT_EQ("v2", Get("foo"));
+    ASSERT_EQ("v2", Get(1, "bar"));
+    ASSERT_EQ("v2", Get(1, "foo"));
 
     writeOpt.disableWAL = true;
-    ASSERT_OK(dbfull()->Put(writeOpt, "bar", "v3"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v3"));
     writeOpt.disableWAL = false;
-    ASSERT_OK(dbfull()->Put(writeOpt, "foo", "v3"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v3"));
 
-    Reopen();
+    ReopenWithColumnFamilies({"default", "pikachu"});
     // again both values should be present.
-    ASSERT_EQ("v3", Get("foo"));
-    ASSERT_EQ("v3", Get("bar"));
+    ASSERT_EQ("v3", Get(1, "foo"));
+    ASSERT_EQ("v3", Get(1, "bar"));
   } while (ChangeCompactOptions());
 }
 
@@ -2130,7 +2131,7 @@ TEST(DBTest, FLUSH) {
 
     ReopenWithColumnFamilies({"default", "pikachu"});
     ASSERT_EQ("v1", Get(1, "foo"));
-    ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
+    ASSERT_EQ("v1", Get(1, "bar"));
 
     writeOpt.disableWAL = true;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v2"));
