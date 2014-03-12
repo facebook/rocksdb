@@ -424,6 +424,19 @@ class BackupableDBTest {
     }
   }
 
+  void DeleteLogFiles() {
+    std::vector<std::string> delete_logs;
+    env_->GetChildren(dbname_, &delete_logs);
+    for (auto f : delete_logs) {
+      uint64_t number;
+      FileType type;
+      bool ok = ParseFileName(f, &number, &type);
+      if (ok && type == kLogFile) {
+        env_->DeleteFile(dbname_ + "/" + f);
+      }
+    }
+  }
+
   // files
   std::string dbname_;
   std::string backupdir_;
@@ -720,12 +733,11 @@ TEST(BackupableDBTest, FailOverwritingBackups) {
   // create backups 1, 2, 3, 4, 5
   OpenBackupableDB(true);
   for (int i = 0; i < 5; ++i) {
+    CloseBackupableDB();
+    DeleteLogFiles();
+    OpenBackupableDB(false);
     FillDB(db_.get(), 100 * i, 100 * (i + 1));
-    CloseBackupableDB();
-    OpenBackupableDB(false);
     ASSERT_OK(db_->CreateNewBackup(true));
-    CloseBackupableDB();
-    OpenBackupableDB(false);
   }
   CloseBackupableDB();
 
