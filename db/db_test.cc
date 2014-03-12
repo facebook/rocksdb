@@ -4543,16 +4543,43 @@ TEST(DBTest, TransactionLogIterator) {
     {
       auto iter = OpenTransactionLogIter(0);
       ExpectRecords(3, iter);
-    }
-    Reopen(&options);
-      env_->SleepForMicroseconds(2 * 1000 * 1000);{
+      assert(!iter->IsObsolete());
+      iter->Next();
+      assert(!iter->Valid());
+      assert(!iter->IsObsolete());
+      assert(iter->status().ok());
+
+      Reopen(&options);
+      env_->SleepForMicroseconds(2 * 1000 * 1000);
       Put("key4", DummyString(1024));
       Put("key5", DummyString(1024));
       Put("key6", DummyString(1024));
+
+      iter->Next();
+      assert(!iter->Valid());
+      assert(iter->IsObsolete());
+      assert(iter->status().ok());
     }
     {
       auto iter = OpenTransactionLogIter(0);
       ExpectRecords(6, iter);
+      assert(!iter->IsObsolete());
+      iter->Next();
+      assert(!iter->Valid());
+      assert(!iter->IsObsolete());
+      assert(iter->status().ok());
+
+      Put("key7", DummyString(1024));
+      iter->Next();
+      assert(iter->Valid());
+      assert(iter->status().ok());
+
+      dbfull()->Flush(FlushOptions());
+      Put("key8", DummyString(1024));
+      iter->Next();
+      assert(!iter->Valid());
+      assert(iter->IsObsolete());
+      assert(iter->status().ok());
     }
   } while (ChangeCompactOptions());
 }

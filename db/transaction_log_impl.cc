@@ -21,6 +21,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       files_(std::move(files)),
       started_(false),
       isValid_(false),
+      is_obsolete_(false),
       currentFileIndex_(0),
       currentBatchSeq_(0),
       currentLastSeq_(0),
@@ -69,14 +70,15 @@ bool TransactionLogIteratorImpl::Valid() {
   return started_ && isValid_;
 }
 
-bool TransactionLogIteratorImpl::RestrictedRead(
-    Slice* record,
-    std::string* scratch) {
-  // Don't read if no more complete entries to read from logs
-  if (currentLastSeq_ >= dbimpl_->GetLatestSequenceNumber()) {
-    return false;
+bool TransactionLogIteratorImpl::RestrictedRead(Slice* record,
+                                                std::string* scratch) {
+  bool ret = currentLogReader_->ReadRecord(record, scratch);
+
+  if (!reporter_.last_status.ok()) {
+    currentStatus_ = reporter_.last_status;
   }
-  return currentLogReader_->ReadRecord(record, scratch);
+
+  return ret;
 }
 
 void TransactionLogIteratorImpl::SeekToStartSequence(
@@ -86,6 +88,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   Slice record;
   started_ = false;
   isValid_ = false;
+  is_obsolete_ = false;
   if (files_->size() <= startFileIndex) {
     return;
   }
@@ -94,6 +97,18 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
     currentStatus_ = s;
     return;
   }
+  auto latest_seq_num = dbimpl_->GetLatestSequenceNumber();
+  if (startingSequenceNumber_ > latest_seq_num) {
+    if (strict) {
+      currentStatus_ = Status::Corruption("Gap in sequence number. Could not "
+                                          "seek to required sequence number");
+      reporter_.Info(currentStatus_.ToString().c_str());
+    } else {
+      // isValid_ is false;
+      return;
+    }
+  }
+
   while (RestrictedRead(&record, &scratch)) {
     if (record.size() < 12) {
       reporter_.Corruption(
@@ -123,11 +138,11 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   // only file. Otherwise log the error and let the iterator return next entry
   // If strict is set, we want to seek exactly till the start sequence and it
   // should have been present in the file we scanned above
-  if (strict) {
+  if (strict || files_->size() == 1) {
     currentStatus_ = Status::Corruption("Gap in sequence number. Could not "
                                         "seek to required sequence number");
     reporter_.Info(currentStatus_.ToString().c_str());
-  } else if (files_->size() != 1) {
+  } else {
     currentStatus_ = Status::Corruption("Start sequence was not found, "
                                         "skipping to the next available");
     reporter_.Info(currentStatus_.ToString().c_str());
@@ -149,11 +164,30 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     // Runs every time until we can seek to the start sequence
     return SeekToStartSequence();
   }
-  while(true) {
+
+  is_obsolete_ = false;
+  auto latest_seq_num = dbimpl_->GetLatestSequenceNumber();
+  if (currentLastSeq_ >= latest_seq_num) {
+    isValid_ = false;
+    return;
+  }
+
+  bool first = true;
+  while (currentFileIndex_ < files_->size()) {
+    if (!first) {
+      Status status =OpenLogReader(files_->at(currentFileIndex_).get());
+      if (!status.ok()) {
+        isValid_ = false;
+        currentStatus_ = status;
+        return;
+      }
+    }
+    first = false;
     assert(currentLogReader_);
     if (currentLogReader_->IsEOF()) {
       currentLogReader_->UnmarkEOF();
     }
+
     while (RestrictedRead(&record, &scratch)) {
       if (record.size() < 12) {
         reporter_.Corruption(
@@ -171,26 +205,14 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
         return;
       }
     }
-
     // Open the next file
-    if (currentFileIndex_ < files_->size() - 1) {
-      ++currentFileIndex_;
-      Status status =OpenLogReader(files_->at(currentFileIndex_).get());
-      if (!status.ok()) {
-        isValid_ = false;
-        currentStatus_ = status;
-        return;
-      }
-    } else {
-      isValid_ = false;
-      if (currentLastSeq_ == dbimpl_->GetLatestSequenceNumber()) {
-        currentStatus_ = Status::OK();
-      } else {
-        currentStatus_ = Status::Corruption("NO MORE DATA LEFT");
-      }
-      return;
-    }
+    ++currentFileIndex_;
   }
+
+  // Read all the files but cannot find next record expected.
+  // TODO(sdong): support to auto fetch new log files from DB and continue.
+  isValid_ = false;
+  is_obsolete_ = true;
 }
 
 bool TransactionLogIteratorImpl::IsBatchExpected(
