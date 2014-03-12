@@ -972,6 +972,10 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
     }
   }
 
+  if (versions_->LastSequence() < *max_sequence) {
+    versions_->SetLastSequence(*max_sequence);
+  }
+
   if (!read_only) {
     // no need to refcount since client still doesn't have access
     // to the DB and can not drop column families while we iterate
@@ -1012,9 +1016,6 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
       versions_->MarkFileNumberUsed(log_number + 1);
-      if (versions_->LastSequence() < *max_sequence) {
-        versions_->SetLastSequence(*max_sequence);
-      }
       status = versions_->LogAndApply(cfd, edit, &mutex_);
       if (!status.ok()) {
         return status;
@@ -4071,7 +4072,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         soptions.AdaptForLogWrite());
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
-      VersionEdit edit;
       impl->logfile_number_ = new_log_number;
       impl->log_.reset(new log::Writer(std::move(lfile)));
 

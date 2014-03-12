@@ -1771,15 +1771,20 @@ Status VersionSet::Recover(
   }
   // remove the trailing '\n'
   manifest_filename.resize(manifest_filename.size() - 1);
+  FileType type;
+  bool parse_ok =
+      ParseFileName(manifest_filename, &manifest_file_number_, &type);
+  if (!parse_ok || type != kDescriptorFile) {
+    return Status::Corruption("CURRENT file corrupted");
+  }
 
   Log(options_->info_log, "Recovering from manifest file:%s\n",
       manifest_filename.c_str());
 
   manifest_filename = dbname_ + "/" + manifest_filename;
   unique_ptr<SequentialFile> manifest_file;
-  s = env_->NewSequentialFile(
-      manifest_filename, &manifest_file, storage_options_
-  );
+  s = env_->NewSequentialFile(manifest_filename, &manifest_file,
+                              storage_options_);
   if (!s.ok()) {
     return s;
   }
@@ -1988,7 +1993,6 @@ Status VersionSet::Recover(
     }
 
     manifest_file_size_ = manifest_file_size;
-    manifest_file_number_ = next_file;
     next_file_number_ = next_file + 1;
     last_sequence_ = last_sequence;
     prev_log_number_ = prev_log_number;
@@ -2329,16 +2333,15 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       delete v;
     }
 
-    manifest_file_number_ = next_file;
     next_file_number_ = next_file + 1;
     last_sequence_ = last_sequence;
     prev_log_number_ = prev_log_number;
 
     printf(
-        "manifest_file_number %lu next_file_number %lu last_sequence "
+        "next_file_number %lu last_sequence "
         "%lu  prev_log_number %lu max_column_family %u\n",
-        (unsigned long)manifest_file_number_, (unsigned long)next_file_number_,
-        (unsigned long)last_sequence, (unsigned long)prev_log_number,
+        (unsigned long)next_file_number_, (unsigned long)last_sequence,
+        (unsigned long)prev_log_number,
         column_family_set_->GetMaxColumnFamily());
   }
 
