@@ -1941,7 +1941,6 @@ void DBImpl::BackgroundCallFlush() {
     if (madeProgress || bg_schedule_needed_) {
       MaybeScheduleFlushOrCompaction();
     }
-    log_buffer.FlushBufferToLog();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
@@ -2026,7 +2025,6 @@ void DBImpl::BackgroundCallCompaction() {
     if (madeProgress || bg_schedule_needed_) {
       MaybeScheduleFlushOrCompaction();
     }
-    log_buffer.FlushBufferToLog();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
