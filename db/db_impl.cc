@@ -1094,8 +1094,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
       *max_sequence = last_seq;
     }
 
-    if (!read_only &&
-        mem_->ApproximateMemoryUsage() > options_.write_buffer_size) {
+    if (!read_only && mem_->ShouldFlush()) {
       status = WriteLevel0TableForRecovery(mem_, &edit);
       // we still want to clear memtable, even if the recovery failed
       delete mem_->Unref();
@@ -3533,8 +3532,7 @@ Status DBImpl::MakeRoomForWrite(bool force,
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
       delayed_writes_++;
-    } else if (!force &&
-               (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+    } else if (!force && !mem_->ShouldFlush()) {
       // There is room in current memtable
       if (allow_delay) {
         DelayLoggingAndReset();

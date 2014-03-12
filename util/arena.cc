@@ -42,6 +42,7 @@ Arena::~Arena() {
 
 char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   if (bytes > kBlockSize / 4) {
+    ++irregular_block_num;
     // Object is more than a quarter of our block size.  Allocate it separately
     // to avoid wasting too much space in leftover bytes.
     return AllocateNewBlock(bytes);

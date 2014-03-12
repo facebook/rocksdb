@@ -46,12 +46,19 @@ class Arena {
 
   size_t MemoryAllocatedBytes() const { return blocks_memory_; }
 
+  size_t AllocatedAndUnused() const { return alloc_bytes_remaining_; }
+
+  // If an allocation is too big, we'll allocate an irregular block with the
+  // same size of that allocation.
+  virtual size_t IrregularBlockNum() const { return irregular_block_num; }
+
  private:
   // Number of bytes allocated in one block
   const size_t kBlockSize;
   // Array of new[] allocated memory blocks
   typedef std::vector<char*> Blocks;
   Blocks blocks_;
+  size_t irregular_block_num = 0;
 
   // Stats for current active block.
   // For each block, we allocate aligned memory chucks from one end and
