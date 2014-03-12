@@ -94,7 +94,7 @@ def main(argv):
             --max_bytes_for_level_base=10485760
             --filter_deletes=%s
             --memtablerep=prefix_hash
-            --prefix_size=2
+            --prefix_size=7
             """ % (ops_per_thread,
                    threads,
                    write_buf_size,

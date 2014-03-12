@@ -338,7 +338,7 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(prefix_size, 2, "Control the prefix size for HashSkipListRep");
+DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
 static const bool FLAGS_prefix_size_dummy =
   google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
@@ -1099,7 +1099,8 @@ class StressTest {
         // OPERATION prefix scan
         // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
         // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
-        // be 2 ^ ((8 - FLAGS_prefix_size * 8) combinations.
+        // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
+        // prefix
         if (!FLAGS_test_batches_snapshots) {
           Slice prefix = Slice(key.data(), FLAGS_prefix_size);
           read_opts.prefix = &prefix;
@@ -1109,7 +1110,8 @@ class StressTest {
             assert(iter->key().starts_with(prefix));
             ++count;
           }
-          assert(count <= (1 << ((8 - FLAGS_prefix_size) * 8)));
+          assert(count <=
+                 (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
           if (iter->status().ok()) {
             thread->stats.AddPrefixes(1, count);
           } else {
