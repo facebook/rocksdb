@@ -73,12 +73,6 @@ class TransactionLogIterator {
   // Can read data from a valid iterator.
   virtual bool Valid() = 0;
 
-  // IsObsolete() returns true if new log files were created. This usually
-  // means that the user needs to close the current iterator and create a new
-  // one to get the newest updates. It should happen only when mem tables are
-  // flushed.
-  virtual bool IsObsolete() = 0;
-
   // Moves the iterator to the next WriteBatch.
   // REQUIRES: Valid() to be true.
   virtual void Next() = 0;

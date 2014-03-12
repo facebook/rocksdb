@@ -19,9 +19,7 @@ namespace rocksdb {
 struct LogReporter : public log::Reader::Reporter {
   Env* env;
   Logger* info_log;
-  Status last_status;
   virtual void Corruption(size_t bytes, const Status& s) {
-    last_status = s;
     Log(info_log, "dropping %zu bytes; %s", bytes, s.ToString().c_str());
   }
   virtual void Info(const char* s) {
@@ -76,8 +74,6 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
   virtual bool Valid();
 
-  virtual bool IsObsolete() override { return is_obsolete_; }
-
   virtual void Next();
 
   virtual Status status();
@@ -93,7 +89,6 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   std::unique_ptr<VectorLogPtr> files_;
   bool started_;
   bool isValid_;  // not valid when it starts of.
-  bool is_obsolete_;
   Status currentStatus_;
   size_t currentFileIndex_;
   std::unique_ptr<WriteBatch> currentBatch_;

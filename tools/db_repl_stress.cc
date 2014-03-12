@@ -67,21 +67,8 @@ static void ReplicationThreadBody(void* arg) {
       }
     }
     fprintf(stderr, "Refreshing iterator\n");
-    for (; !iter->IsObsolete(); iter->Next()) {
-      if (!iter->Valid()) {
-        if (t->stop.Acquire_Load() == nullptr) {
-          return;
-        }
-        // need to wait for new rows.
-        continue;
-      }
-
+    for(;iter->Valid(); iter->Next(), t->no_read++, currentSeqNum++) {
       BatchResult res = iter->GetBatch();
-      if (!iter->status().ok()) {
-        fprintf(stderr, "Corruption reported when reading seq no. b/w %ld",
-                static_cast<uint64_t>(currentSeqNum));
-        exit(1);
-      }
       if (res.sequence != currentSeqNum) {
         fprintf(stderr,
                 "Missed a seq no. b/w %ld and %ld\n",
@@ -89,8 +76,6 @@ static void ReplicationThreadBody(void* arg) {
                 (long)res.sequence);
         exit(1);
       }
-      t->no_read++;
-      currentSeqNum++;
     }
   }
 }
