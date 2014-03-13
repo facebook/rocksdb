@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <iostream>
 #include <set>
 #include <unistd.h>
 #include <unordered_set>
@@ -23,20 +24,20 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/perf_context.h"
-#include "table/plain_table_factory.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "util/hash.h"
 #include "util/hash_linklist_rep.h"
+#include "utilities/merge_operators.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/statistics.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "utilities/merge_operators.h"
 
 namespace rocksdb {
 
@@ -974,6 +975,28 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
   ASSERT_EQ(props.size(), unique_entries.size());
   ASSERT_EQ(expected_entries_size, sum);
+}
+
+std::unordered_map<std::string, size_t> GetMemoryUsage(MemTable* memtable) {
+  const auto& arena = memtable->TEST_GetArena();
+  return {{"memtable.approximate.usage", memtable->ApproximateMemoryUsage()},
+          {"arena.approximate.usage", arena.ApproximateMemoryUsage()},
+          {"arena.allocated.memory", arena.MemoryAllocatedBytes()},
+          {"arena.unused.bytes", arena.AllocatedAndUnused()},
+          {"irregular.blocks", arena.IrregularBlockNum()}};
+}
+
+void PrintMemoryUsage(const std::unordered_map<std::string, size_t>& usage) {
+  for (const auto& item : usage) {
+    std::cout << "\t" << item.first << ": " << item.second << std::endl;
+  }
+}
+
+void AddRandomKV(MemTable* memtable, Random* rnd, size_t arena_block_size) {
+  memtable->Add(0, kTypeValue, RandomString(rnd, 20) /* key */,
+                // make sure we will be able to generate some over sized entries
+                RandomString(rnd, rnd->Uniform(arena_block_size / 4) * 1.15 +
+                                      10) /* value */);
 }
 
 TEST(DBTest, Empty) {
@@ -2069,7 +2092,7 @@ TEST(DBTest, NumImmutableMemTable) {
     options.write_buffer_size = 1000000;
     CreateAndReopenWithCF({"pikachu"}, &options);
 
-    std::string big_value(1000000, 'x');
+    std::string big_value(1000000 * 2, 'x');
     std::string num;
     SetPerfLevel(kEnableTime);;
 
@@ -2353,6 +2376,10 @@ TEST(DBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 1);
 }
 
+// TODO(kailiu) The tests on UniversalCompaction has some issues:
+//  1. A lot of magic numbers ("11" or "12").
+//  2. Made assumption on the memtable flush conidtions, which may change from
+//     time to time.
 TEST(DBTest, UniversalCompactionTrigger) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
@@ -2369,7 +2396,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   //   compaction.
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
        num++) {
-    // Write 120KB (12 values, each 10K)
+    // Write 110KB (11 values, each 10K)
     for (int i = 0; i < 12; i++) {
       ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
@@ -2380,7 +2407,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
   }
@@ -2403,8 +2430,8 @@ TEST(DBTest, UniversalCompactionTrigger) {
   ASSERT_OK(Flush(1));
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 3;
        num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
@@ -2414,7 +2441,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
   }
@@ -2431,8 +2458,8 @@ TEST(DBTest, UniversalCompactionTrigger) {
   //   generating new files at level 0.
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 3;
        num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
@@ -2457,7 +2484,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   // Stage 4:
   //   Now we have 3 files at level 0, with size 4, 2.4, 2. Let's generate a
   //   new file of size 1.
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
   }
@@ -2471,7 +2498,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   // Stage 5:
   //   Now we have 4 files at level 0, with size 4, 2.4, 2, 1. Let's generate
   //   a new file of size 1.
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
   }
@@ -2500,8 +2527,8 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
   //   Generate two files in Level 0. Both files are approx the same size.
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
        num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
@@ -2534,8 +2561,8 @@ TEST(DBTest, UniversalCompactionOptions) {
   int key_idx = 0;
 
   for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
@@ -2573,8 +2600,8 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   for (int num = 0;
        num < options.level0_file_num_compaction_trigger-1;
        num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
@@ -2584,7 +2611,7 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
   }
@@ -2605,8 +2632,8 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   for (int num = 0;
        num < options.level0_file_num_compaction_trigger-3;
        num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
       key_idx++;
     }
@@ -2616,7 +2643,7 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
   }
@@ -2627,7 +2654,7 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   // Stage 3:
   //   Now we have 3 files at level 0, with size 4, 0.4, 2. Generate one
   //   more file at level-0, which should trigger level-0 compaction.
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
   }
@@ -2744,54 +2771,54 @@ TEST(DBTest, UniversalCompactionCompressRatio1) {
 
   // The first compaction (2) is compressed.
   for (int num = 0; num < 2; num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(), 120000 * 2 * 0.9);
+  ASSERT_LT((int)dbfull()->TEST_GetLevel0TotalSize(), 110000 * 2 * 0.9);
 
   // The second compaction (4) is compressed
   for (int num = 0; num < 2; num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(), 120000 * 4 * 0.9);
+  ASSERT_LT((int)dbfull()->TEST_GetLevel0TotalSize(), 110000 * 4 * 0.9);
 
   // The third compaction (2 4) is compressed since this time it is
   // (1 1 3.2) and 3.2/5.2 doesn't reach ratio.
   for (int num = 0; num < 2; num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(), 120000 * 6 * 0.9);
+  ASSERT_LT((int)dbfull()->TEST_GetLevel0TotalSize(), 110000 * 6 * 0.9);
 
   // When we start for the compaction up to (2 4 8), the latest
   // compressed is not compressed.
   for (int num = 0; num < 8; num++) {
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(key_idx), CompressibleString(&rnd, 10000)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_GT((int) dbfull()->TEST_GetLevel0TotalSize(),
-            120000 * 12 * 0.8 + 110000 * 2);
+  ASSERT_GT((int)dbfull()->TEST_GetLevel0TotalSize(),
+            110000 * 11 * 0.8 + 110000 * 2);
 }
 
 TEST(DBTest, UniversalCompactionCompressRatio2) {
@@ -2817,8 +2844,8 @@ TEST(DBTest, UniversalCompactionCompressRatio2) {
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_LT((int ) dbfull()->TEST_GetLevel0TotalSize(),
-            120000 * 12 * 0.8 + 110000 * 2);
+  ASSERT_LT((int)dbfull()->TEST_GetLevel0TotalSize(),
+            120000 * 12 * 0.8 + 120000 * 2);
 }
 #endif
 

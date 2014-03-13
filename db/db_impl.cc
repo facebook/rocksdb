@@ -960,8 +960,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
       // no need to refcount since client still doesn't have access
       // to the DB and can not drop column families while we iterate
       for (auto cfd : *versions_->GetColumnFamilySet()) {
-        if (cfd->mem()->ApproximateMemoryUsage() >
-            cfd->options()->write_buffer_size) {
+        if (cfd->mem()->ShouldFlush()) {
           // If this asserts, it means that InsertInto failed in
           // filtering updates to already-flushed column families
           assert(cfd->GetLogNumber() <= log_number);
@@ -1764,7 +1763,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       if (bg_flush_scheduled_ < options_.max_background_flushes) {
         bg_flush_scheduled_++;
         env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH);
-      } else {
+      } else if (options_.max_background_flushes > 0) {
         bg_schedule_needed_ = true;
       }
     }
@@ -3636,8 +3635,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
       delayed_writes_++;
-    } else if (!force && (cfd->mem()->ApproximateMemoryUsage() <=
-                          cfd->options()->write_buffer_size)) {
+    } else if (!force && !cfd->mem()->ShouldFlush()) {
       // There is room in current memtable
       if (allow_delay) {
         DelayLoggingAndReset();

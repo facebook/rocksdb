@@ -10,6 +10,7 @@
 #include "db/memtable.h"
 
 #include <memory>
+#include <algorithm>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
@@ -32,6 +33,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const Options& options)
     : comparator_(cmp),
       refs_(0),
+      kArenaBlockSize(OptimizeBlockSize(options.arena_block_size)),
+      kWriteBufferSize(options.write_buffer_size),
       arena_(options.arena_block_size),
       table_(options.memtable_factory->CreateMemTableRep(
              comparator_, &arena_, options.prefix_extractor.get())),
@@ -42,7 +45,11 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       mem_next_logfile_number_(0),
       locks_(options.inplace_update_support ? options.inplace_update_num_locks
                                             : 0),
-      prefix_extractor_(options.prefix_extractor.get()) {
+      prefix_extractor_(options.prefix_extractor.get()),
+      should_flush_(ShouldFlushNow()) {
+  // if should_flush_ == true without an entry inserted, something must have
+  // gone wrong already.
+  assert(!should_flush_);
   if (prefix_extractor_ && options.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(options.memtable_prefix_bloom_bits,
                                          options.memtable_prefix_bloom_probes));
@@ -55,6 +62,60 @@ MemTable::~MemTable() {
 
 size_t MemTable::ApproximateMemoryUsage() {
   return arena_.ApproximateMemoryUsage() + table_->ApproximateMemoryUsage();
+}
+
+bool MemTable::ShouldFlushNow() const {
+  // In a lot of times, we cannot allocate arena blocks that exactly matches the
+  // buffer size. Thus we have to decide if we should over-allocate or
+  // under-allocate.
+  // This constant avariable can be interpreted as: if we still have more than
+  // "kAllowOverAllocationRatio * kArenaBlockSize" space left, we'd try to over
+  // allocate one more block.
+  const double kAllowOverAllocationRatio = 0.6;
+
+  // If arena still have room for new block allocation, we can safely say it
+  // shouldn't flush.
+  auto allocated_memory =
+      table_->ApproximateMemoryUsage() + arena_.MemoryAllocatedBytes();
+
+  if (allocated_memory + kArenaBlockSize * kAllowOverAllocationRatio <
+      kWriteBufferSize) {
+    return false;
+  }
+
+  // if user keeps adding entries that exceeds kWriteBufferSize, we need to
+  // flush
+  // earlier even though we still have much available memory left.
+  if (allocated_memory > kWriteBufferSize * (1 + kAllowOverAllocationRatio)) {
+    return true;
+  }
+
+  // In this code path, Arena has already allocated its "last block", which
+  // means the total allocatedmemory size is either:
+  //  (1) "moderately" over allocated the memory (no more than `0.4 * arena
+  // block size`. Or,
+  //  (2) the allocated memory is less than write buffer size, but we'll stop
+  // here since if we allocate a new arena block, we'll over allocate too much
+  // more (half of the arena block size) memory.
+  //
+  // In either case, to avoid over-allocate, the last block will stop allocation
+  // when its usage reaches a certain ratio, which we carefully choose "0.75
+  // full" as the stop condition because it addresses the following issue with
+  // great simplicity: What if the next inserted entry's size is
+  // bigger than AllocatedAndUnused()?
+  //
+  // The answer is: if the entry size is also bigger than 0.25 *
+  // kArenaBlockSize, a dedicated block will be allocated for it; otherwise
+  // arena will anyway skip the AllocatedAndUnused() and allocate a new, empty
+  // and regular block. In either case, we *overly* over-allocated.
+  //
+  // Therefore, setting the last block to be at most "0.75 full" avoids both
+  // cases.
+  //
+  // NOTE: the average percentage of waste space of this approach can be counted
+  // as: "arena block size * 0.25 / write buffer size". User who specify a small
+  // write buffer size and/or big arena block size may suffer.
+  return arena_.AllocatedAndUnused() < kArenaBlockSize / 4;
 }
 
 int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
@@ -198,6 +259,8 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   if (first_seqno_ == 0) {
     first_seqno_ = s;
   }
+
+  should_flush_ = ShouldFlushNow();
 }
 
 // Callback from MemTable::Get()
@@ -460,13 +523,16 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
               }
             }
             RecordTick(options.statistics.get(), NUMBER_KEYS_UPDATED);
+            should_flush_ = ShouldFlushNow();
             return true;
           } else if (status == UpdateStatus::UPDATED) {
             Add(seq, kTypeValue, key, Slice(str_value));
             RecordTick(options.statistics.get(), NUMBER_KEYS_WRITTEN);
+            should_flush_ = ShouldFlushNow();
             return true;
           } else if (status == UpdateStatus::UPDATE_FAILED) {
             // No action required. Return.
+            should_flush_ = ShouldFlushNow();
             return true;
           }
         }

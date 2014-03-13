@@ -64,6 +64,10 @@ class MemTable {
   // operations on the same MemTable.
   size_t ApproximateMemoryUsage();
 
+  // This method heuristically determines if the memtable should continue to
+  // host more data.
+  bool ShouldFlush() const { return should_flush_; }
+
   // Return an iterator that yields the contents of the memtable.
   //
   // The caller must ensure that the underlying MemTable remains live
@@ -153,13 +157,20 @@ class MemTable {
     return comparator_.comparator;
   }
 
+  const Arena& TEST_GetArena() const { return arena_; }
+
  private:
+  // Dynamically check if we can add more incoming entries.
+  bool ShouldFlushNow() const;
+
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
   friend class MemTableList;
 
   KeyComparator comparator_;
   int refs_;
+  const size_t kArenaBlockSize;
+  const size_t kWriteBufferSize;
   Arena arena_;
   unique_ptr<MemTableRep> table_;
 
@@ -187,6 +198,9 @@ class MemTable {
 
   const SliceTransform* const prefix_extractor_;
   std::unique_ptr<DynamicBloom> prefix_bloom_;
+
+  // a flag indicating if a memtable has met the criteria to flush
+  bool should_flush_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

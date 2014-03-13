@@ -1232,10 +1232,17 @@ class StressTest {
     for (size_t cf = 0; cf < column_families_.size(); ++cf) {
       if (!thread->rand.OneIn(2)) {
         // Use iterator to verify this range
+        options.prefix_seek = FLAGS_prefix_size > 0;
         unique_ptr<Iterator> iter(
             db_->NewIterator(options, column_families_[cf]));
         iter->Seek(Key(start));
         for (long i = start; i < end; i++) {
+          // TODO(ljin): update "long" to uint64_t
+          // Reseek when the prefix changes
+          if (i % (static_cast<int64_t>(1) << 8 * (8 - FLAGS_prefix_size)) ==
+              0) {
+            iter->Seek(Key(i));
+          }
           std::string from_db;
           std::string keystr = Key(i);
           Slice k = keystr;
@@ -1266,10 +1273,10 @@ class StressTest {
           std::string keystr = Key(i);
           Slice k = keystr;
           Status s = db_->Get(options, column_families_[cf], k, &from_db);
+          VerifyValue(cf, i, options, shared, from_db, s, true);
           if (from_db.length()) {
             PrintKeyValue(cf, i, from_db.data(), from_db.length());
           }
-          VerifyValue(cf, i, options, shared, from_db, s, true);
         }
       }
     }

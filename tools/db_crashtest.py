@@ -84,9 +84,9 @@ def main(argv):
             --cache_size=1048576
             --open_files=500000
             --verify_checksum=1
-            --sync=%s
+            --sync=0
             --disable_wal=0
-            --disable_data_sync=%s
+            --disable_data_sync=1
             --target_file_size_base=2097152
             --target_file_size_multiplier=2
             --max_write_buffer_number=3
@@ -99,8 +99,6 @@ def main(argv):
                    threads,
                    write_buf_size,
                    tempfile.mkdtemp(),
-                   random.randint(0, 1),
-                   random.randint(0, 1),
                    random.randint(0, 1),
                    random.randint(0, 1),
                    random.randint(0, 1)))
