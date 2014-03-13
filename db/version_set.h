@@ -466,6 +466,7 @@ class VersionSet {
   VersionSet(const VersionSet&);
   void operator=(const VersionSet&);
 
+  void LogAndApplyCFHelper(VersionEdit* edit);
   void LogAndApplyHelper(ColumnFamilyData* cfd, Builder* b, Version* v,
                          VersionEdit* edit, port::Mutex* mu);
 };

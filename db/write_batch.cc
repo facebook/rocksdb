@@ -177,7 +177,6 @@ void WriteBatch::Put(uint32_t column_family_id, const Slice& key,
                      const Slice& value) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   if (column_family_id == 0) {
-    // save some data on disk by not writing default column family
     rep_.push_back(static_cast<char>(kTypeValue));
   } else {
     rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
