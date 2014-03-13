@@ -1842,7 +1842,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
         // memtable flush needed
         bg_flush_scheduled_++;
         env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH);
-      } else {
+      } else if (options_.max_background_flushes > 0) {
         bg_schedule_needed_ = true;
       }
     }
