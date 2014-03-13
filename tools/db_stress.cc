@@ -328,7 +328,7 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   return kSkipList;
 }
 static enum RepFactory FLAGS_rep_factory;
-DEFINE_string(memtablerep, "prefix_hash", "");
+DEFINE_string(memtablerep, "skip_list", "");
 
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   if (value < 0 || value > 8) {
@@ -1517,12 +1517,6 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
             "not positive!\n");
-    exit(1);
-  }
-  if (FLAGS_test_batches_snapshots && FLAGS_prefix_size <= 0) {
-    fprintf(stderr,
-            "Error: please specify prefix_size for "
-            "test_batches_snapshots test!\n");
     exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent +

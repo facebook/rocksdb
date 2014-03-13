@@ -72,8 +72,8 @@ def main(argv):
             --destroy_db_initially=0
             --reopen=20
             --readpercent=45
-            --prefixpercent=5
-            --writepercent=35
+            --prefixpercent=0
+            --writepercent=40
             --delpercent=5
             --iterpercent=10
             --db=%s
@@ -93,8 +93,8 @@ def main(argv):
             --max_background_compactions=20
             --max_bytes_for_level_base=10485760
             --filter_deletes=%s
-            --memtablerep=prefix_hash
-            --prefix_size=7
+            --memtablerep=skip_list
+            --prefix_size=0
             """ % (ops_per_thread,
                    threads,
                    write_buf_size,
