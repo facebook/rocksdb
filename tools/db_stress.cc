@@ -1181,11 +1181,18 @@ class StressTest {
     if (thread->tid == shared.GetNumThreads() - 1) {
       end = max_key;
     }
+
     if (!thread->rand.OneIn(2)) {
+      options.prefix_seek = FLAGS_prefix_size > 0;
       // Use iterator to verify this range
       unique_ptr<Iterator> iter(db_->NewIterator(options));
       iter->Seek(Key(start));
       for (long i = start; i < end; i++) {
+        // TODO(ljin): update "long" to uint64_t
+        // Reseek when the prefix changes
+        if (i % (static_cast<int64_t>(1) << 8 * (8 - FLAGS_prefix_size)) == 0) {
+          iter->Seek(Key(i));
+        }
         std::string from_db;
         std::string keystr = Key(i);
         Slice k = keystr;
@@ -1209,8 +1216,7 @@ class StressTest {
           PrintKeyValue(i, from_db.data(), from_db.length());
         }
       }
-    }
-    else {
+    } else {
       // Use Get to verify this range
       for (long i = start; i < end; i++) {
         std::string from_db;
