@@ -182,7 +182,8 @@ TEST(EnvPosixTest, TwoPools) {
   }
   // Wait a short while for the jobs to be dispatched.
   Env::Default()->SleepForMicroseconds(kDelayMicros);
-  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize), env_->GetThreadPoolQueueLen());
+  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize),
+            env_->GetThreadPoolQueueLen());
   ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize),
             env_->GetThreadPoolQueueLen(Env::Priority::LOW));
   ASSERT_EQ((unsigned int)(kJobs - kHighPoolSize),
