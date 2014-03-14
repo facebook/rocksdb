@@ -289,7 +289,8 @@ TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
     Open();
     CreateColumnFamilies({"one", "two", "three"});
     for (size_t i = 0; i < handles_.size(); ++i) {
-      ASSERT_EQ(i, handles_[i]->GetID());
+      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      ASSERT_EQ(i, cfh->GetID());
     }
     if (iter == 1) {
       Reopen();
@@ -303,7 +304,8 @@ TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
     }
     CreateColumnFamilies({"three2"});
     // ID 3 that was used for dropped column family "three" should not be reused
-    ASSERT_EQ(4, handles_[3]->GetID());
+    auto cfh3 = reinterpret_cast<ColumnFamilyHandleImpl*>(handles_[3]);
+    ASSERT_EQ(4, cfh3->GetID());
     Close();
     Destroy();
   }
@@ -362,12 +364,13 @@ TEST(ColumnFamilyTest, DropTest) {
 
 TEST(ColumnFamilyTest, WriteBatchFailure) {
   Open();
+  CreateColumnFamiliesAndReopen({"one", "two"});
   WriteBatch batch;
-  batch.Put(1, Slice("non-existing"), Slice("column-family"));
+  batch.Put(handles_[1], Slice("non-existing"), Slice("column-family"));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  DropColumnFamilies({1});
   Status s = db_->Write(WriteOptions(), &batch);
   ASSERT_TRUE(s.IsInvalidArgument());
-  CreateColumnFamilies({"one"});
-  ASSERT_OK(db_->Write(WriteOptions(), &batch));
   Close();
 }
 

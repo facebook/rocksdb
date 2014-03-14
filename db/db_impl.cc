@@ -3992,21 +3992,21 @@ Status DB::Put(const WriteOptions& opt, ColumnFamilyHandle* column_family,
   // 8 bytes are taken by header, 4 bytes for count, 1 byte for type,
   // and we allocate 11 extra bytes for key length, as well as value length.
   WriteBatch batch(key.size() + value.size() + 24);
-  batch.Put(column_family->GetID(), key, value);
+  batch.Put(column_family, key, value);
   return Write(opt, &batch);
 }
 
 Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key) {
   WriteBatch batch;
-  batch.Delete(column_family->GetID(), key);
+  batch.Delete(column_family, key);
   return Write(opt, &batch);
 }
 
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
   WriteBatch batch;
-  batch.Merge(column_family->GetID(), key, value);
+  batch.Merge(column_family, key, value);
   return Write(opt, &batch);
 }
 

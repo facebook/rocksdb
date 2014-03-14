@@ -31,6 +31,7 @@
 namespace rocksdb {
 
 class Slice;
+class ColumnFamilyHandle;
 struct SliceParts;
 
 class WriteBatch {
@@ -39,31 +40,33 @@ class WriteBatch {
   ~WriteBatch();
 
   // Store the mapping "key->value" in the database.
-  void Put(uint32_t column_family_id, const Slice& key, const Slice& value);
+  void Put(ColumnFamilyHandle* column_family, const Slice& key,
+           const Slice& value);
   void Put(const Slice& key, const Slice& value) {
-    Put(0, key, value);
+    Put(nullptr, key, value);
   }
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatentations of arrays of
   // slices.
-  void Put(uint32_t column_family_id, const SliceParts& key,
+  void Put(ColumnFamilyHandle* column_family, const SliceParts& key,
            const SliceParts& value);
   void Put(const SliceParts& key, const SliceParts& value) {
-    Put(0, key, value);
+    Put(nullptr, key, value);
   }
 
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
-  void Merge(uint32_t column_family_id, const Slice& key, const Slice& value);
+  void Merge(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& value);
   void Merge(const Slice& key, const Slice& value) {
-    Merge(0, key, value);
+    Merge(nullptr, key, value);
   }
 
   // If the database contains a mapping for "key", erase it.  Else do nothing.
-  void Delete(uint32_t column_family_id, const Slice& key);
+  void Delete(ColumnFamilyHandle* column_family, const Slice& key);
   void Delete(const Slice& key) {
-    Delete(0, key);
+    Delete(nullptr, key);
   }
 
   // Append a blob of arbitrary size to the records in this batch. The blob will

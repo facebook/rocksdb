@@ -173,8 +173,14 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
-void WriteBatch::Put(uint32_t column_family_id, const Slice& key,
+void WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   if (column_family_id == 0) {
     rep_.push_back(static_cast<char>(kTypeValue));
@@ -186,8 +192,14 @@ void WriteBatch::Put(uint32_t column_family_id, const Slice& key,
   PutLengthPrefixedSlice(&rep_, value);
 }
 
-void WriteBatch::Put(uint32_t column_family_id, const SliceParts& key,
+void WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
                      const SliceParts& value) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   if (column_family_id == 0) {
     rep_.push_back(static_cast<char>(kTypeValue));
@@ -199,7 +211,13 @@ void WriteBatch::Put(uint32_t column_family_id, const SliceParts& key,
   PutLengthPrefixedSliceParts(&rep_, value);
 }
 
-void WriteBatch::Delete(uint32_t column_family_id, const Slice& key) {
+void WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   if (column_family_id == 0) {
     rep_.push_back(static_cast<char>(kTypeDeletion));
@@ -210,8 +228,14 @@ void WriteBatch::Delete(uint32_t column_family_id, const Slice& key) {
   PutLengthPrefixedSlice(&rep_, key);
 }
 
-void WriteBatch::Merge(uint32_t column_family_id, const Slice& key,
+void WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   if (column_family_id == 0) {
     rep_.push_back(static_cast<char>(kTypeMerge));
