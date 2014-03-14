@@ -172,8 +172,8 @@ TEST(EnvPosixTest, TwoPools) {
   env_->SetBackgroundThreads(kLowPoolSize);
   env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
 
-  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
-  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
 
   // schedule same number of jobs in each pool
   for (int i = 0; i < kJobs; i++) {
@@ -182,10 +182,10 @@ TEST(EnvPosixTest, TwoPools) {
   }
   // Wait a short while for the jobs to be dispatched.
   Env::Default()->SleepForMicroseconds(kDelayMicros);
-  ASSERT_EQ(kJobs - kLowPoolSize, env_->GetThreadPoolQueueLen());
-  ASSERT_EQ(kJobs - kLowPoolSize,
+  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize), env_->GetThreadPoolQueueLen());
+  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize),
             env_->GetThreadPoolQueueLen(Env::Priority::LOW));
-  ASSERT_EQ(kJobs - kHighPoolSize,
+  ASSERT_EQ((unsigned int)(kJobs - kHighPoolSize),
             env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
 
   // wait for all jobs to finish
@@ -194,8 +194,8 @@ TEST(EnvPosixTest, TwoPools) {
     env_->SleepForMicroseconds(kDelayMicros);
   }
 
-  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
-  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
 }
 
 bool IsSingleVarint(const std::string& s) {
@@ -296,18 +296,18 @@ TEST(EnvPosixTest, AllocateTest) {
 
   struct stat f_stat;
   stat(fname.c_str(), &f_stat);
-  ASSERT_EQ(data.size(), f_stat.st_size);
+  ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that blocks are preallocated
-  ASSERT_EQ(kPreallocateSize / kBlockSize, f_stat.st_blocks);
+  ASSERT_EQ((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
 
   // close the file, should deallocate the blocks
   wfile.reset();
 
   stat(fname.c_str(), &f_stat);
-  ASSERT_EQ(data.size(), f_stat.st_size);
+  ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that preallocated blocks were deallocated on file close
   size_t data_blocks_pages = ((data.size() + kPageSize - 1) / kPageSize);
-  ASSERT_EQ(data_blocks_pages * kPageSize / kBlockSize, f_stat.st_blocks);
+  ASSERT_EQ((unsigned int)(data_blocks_pages * kPageSize / kBlockSize), f_stat.st_blocks);
 }
 #endif
 

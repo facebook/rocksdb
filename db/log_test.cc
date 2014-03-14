@@ -451,7 +451,7 @@ TEST(LogTest, TruncatedTrailingRecordIsIgnored) {
   ShrinkSize(4);   // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read());
   // Truncated last record is ignored, not treated as an error
-  ASSERT_EQ(0, DroppedBytes());
+  ASSERT_EQ(0U, DroppedBytes());
   ASSERT_EQ("", ReportMessage());
 }
 
@@ -470,7 +470,7 @@ TEST(LogTest, BadLengthAtEndIsIgnored) {
   Write("foo");
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(0, DroppedBytes());
+  ASSERT_EQ(0U, DroppedBytes());
   ASSERT_EQ("", ReportMessage());
 }
 
@@ -528,7 +528,7 @@ TEST(LogTest, MissingLastIsIgnored) {
   ShrinkSize(14);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ("", ReportMessage());
-  ASSERT_EQ(0, DroppedBytes());
+  ASSERT_EQ(0U, DroppedBytes());
 }
 
 TEST(LogTest, PartialLastIsIgnored) {
@@ -537,7 +537,7 @@ TEST(LogTest, PartialLastIsIgnored) {
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ("", ReportMessage());
-  ASSERT_EQ(0, DroppedBytes());
+  ASSERT_EQ(0U, DroppedBytes());
 }
 
 TEST(LogTest, ErrorJoinsRecords) {
