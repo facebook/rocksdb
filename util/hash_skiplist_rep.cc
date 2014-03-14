@@ -81,10 +81,9 @@ class HashSkipListRep : public MemTableRep {
 
   class Iterator : public MemTableRep::Iterator {
    public:
-    explicit Iterator(Bucket* list, bool own_list = true)
-      : list_(list),
-        iter_(list),
-        own_list_(own_list) {}
+    explicit Iterator(Bucket* list, bool own_list = true,
+                      Arena* arena = nullptr)
+        : list_(list), iter_(list), own_list_(own_list), arena_(arena) {}
 
     virtual ~Iterator() {
       // if we own the list, we should also delete it
@@ -163,6 +162,7 @@ class HashSkipListRep : public MemTableRep {
     // here we track if we own list_. If we own it, we are also
     // responsible for it's cleaning. This is a poor man's shared_ptr
     bool own_list_;
+    std::unique_ptr<Arena> arena_;
     std::string tmp_;       // For passing to EncodeKey
   };
 
@@ -289,7 +289,9 @@ void HashSkipListRep::Get(const LookupKey& k, void* callback_args,
 }
 
 MemTableRep::Iterator* HashSkipListRep::GetIterator() {
-  auto list = new Bucket(compare_, arena_);
+  // allocate a new arena of similar size to the one currently in use
+  Arena* new_arena = new Arena(arena_->BlockSize());
+  auto list = new Bucket(compare_, new_arena);
   for (size_t i = 0; i < bucket_size_; ++i) {
     auto bucket = GetBucket(i);
     if (bucket != nullptr) {
@@ -299,7 +301,7 @@ MemTableRep::Iterator* HashSkipListRep::GetIterator() {
       }
     }
   }
-  return new Iterator(list);
+  return new Iterator(list, true, new_arena);
 }
 
 MemTableRep::Iterator* HashSkipListRep::GetPrefixIterator(const Slice& prefix) {

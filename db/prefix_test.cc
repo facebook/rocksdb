@@ -369,6 +369,43 @@ TEST(PrefixTest, TestResult) {
   }
 }
 
+TEST(PrefixTest, FullIterator) {
+  while (NextOptions(1000000)) {
+    DestroyDB(kDbName, Options());
+    auto db = OpenDb();
+    WriteOptions write_options;
+
+    std::vector<uint64_t> prefixes;
+    for (uint64_t i = 0; i < 100; ++i) {
+      prefixes.push_back(i);
+    }
+    std::random_shuffle(prefixes.begin(), prefixes.end());
+
+    for (auto prefix : prefixes) {
+      for (uint64_t i = 0; i < 200; ++i) {
+        TestKey test_key(prefix, i);
+        Slice key = TestKeyToSlice(test_key);
+        ASSERT_OK(db->Put(write_options, key, Slice("0")));
+      }
+    }
+
+    auto func = [](void* db_void) {
+      auto db = reinterpret_cast<DB*>(db_void);
+      std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
+      iter->SeekToFirst();
+      for (int i = 0; i < 3; ++i) {
+        iter->Next();
+      }
+    };
+
+    auto env = Env::Default();
+    for (int i = 0; i < 16; ++i) {
+      env->StartThread(func, reinterpret_cast<void*>(db.get()));
+    }
+    env->WaitForJoin();
+  }
+}
+
 TEST(PrefixTest, DynamicPrefixIterator) {
   while (NextOptions(FLAGS_bucket_count)) {
     std::cout << "*** Mem table: " << options.memtable_factory->Name()
