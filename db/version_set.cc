@@ -1693,7 +1693,17 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         delete column_family_data;
       }
     } else {
-      column_family_data->SetLogNumber(batch_edits.back()->log_number_);
+      uint64_t max_log_number_in_batch  = 0;
+      for (auto& e : batch_edits) {
+        if (e->has_log_number_) {
+          max_log_number_in_batch =
+              std::max(max_log_number_in_batch, e->log_number_);
+        }
+      }
+      if (max_log_number_in_batch != 0) {
+        assert(column_family_data->GetLogNumber() < max_log_number_in_batch);
+        column_family_data->SetLogNumber(max_log_number_in_batch);
+      }
       AppendVersion(column_family_data, v);
     }
 
@@ -1746,10 +1756,8 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd, Builder* builder,
 
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= cfd->GetLogNumber());
-  } else {
-    edit->SetLogNumber(cfd->GetLogNumber());
+    assert(edit->log_number_ < next_file_number_);
   }
-  assert(edit->log_number_ < next_file_number_);
 
   if (!edit->has_prev_log_number_) {
     edit->SetPrevLogNumber(prev_log_number_);
@@ -1923,6 +1931,10 @@ Status VersionSet::Recover(
 
       if (cfd != nullptr) {
         if (edit.has_log_number_) {
+          if (cfd->GetLogNumber() > edit.log_number_) {
+            s = Status::Corruption(
+                "Log Numbers in MANIFEST are not always increasing");
+          }
           cfd->SetLogNumber(edit.log_number_);
           have_log_number = true;
         }
