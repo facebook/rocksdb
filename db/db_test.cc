@@ -1457,20 +1457,20 @@ TEST(DBTest, FilterDeletes) {
     CreateAndReopenWithCF({"pikachu"}, &options);
     WriteBatch batch;
 
-    batch.Delete(1, "a");
+    batch.Delete(handles_[1], "a");
     dbfull()->Write(WriteOptions(), &batch);
     ASSERT_EQ(AllEntriesFor("a", 1), "[ ]");  // Delete skipped
     batch.Clear();
 
-    batch.Put(1, "a", "b");
-    batch.Delete(1, "a");
+    batch.Put(handles_[1], "a", "b");
+    batch.Delete(handles_[1], "a");
     dbfull()->Write(WriteOptions(), &batch);
     ASSERT_EQ(Get(1, "a"), "NOT_FOUND");
     ASSERT_EQ(AllEntriesFor("a", 1), "[ DEL, b ]");  // Delete issued
     batch.Clear();
 
-    batch.Delete(1, "c");
-    batch.Put(1, "c", "d");
+    batch.Delete(handles_[1], "c");
+    batch.Put(handles_[1], "c", "d");
     dbfull()->Write(WriteOptions(), &batch);
     ASSERT_EQ(Get(1, "c"), "d");
     ASSERT_EQ(AllEntriesFor("c", 1), "[ d ]");  // Delete skipped
@@ -1478,7 +1478,7 @@ TEST(DBTest, FilterDeletes) {
 
     ASSERT_OK(Flush(1));  // A stray Flush
 
-    batch.Delete(1, "c");
+    batch.Delete(handles_[1], "c");
     dbfull()->Write(WriteOptions(), &batch);
     ASSERT_EQ(AllEntriesFor("c", 1), "[ DEL, d ]");  // Delete issued
     batch.Clear();
@@ -4882,10 +4882,10 @@ TEST(DBTest, TransactionLogIteratorBatchOperations) {
     DestroyAndReopen(&options);
     CreateAndReopenWithCF({"pikachu"}, &options);
     WriteBatch batch;
-    batch.Put(1, "key1", DummyString(1024));
-    batch.Put(0, "key2", DummyString(1024));
-    batch.Put(1, "key3", DummyString(1024));
-    batch.Delete(0, "key2");
+    batch.Put(handles_[1], "key1", DummyString(1024));
+    batch.Put(handles_[0], "key2", DummyString(1024));
+    batch.Put(handles_[1], "key3", DummyString(1024));
+    batch.Delete(handles_[0], "key2");
     dbfull()->Write(WriteOptions(), &batch);
     Flush(1);
     Flush(0);
@@ -4902,12 +4902,12 @@ TEST(DBTest, TransactionLogIteratorBlobs) {
   CreateAndReopenWithCF({"pikachu"}, &options);
   {
     WriteBatch batch;
-    batch.Put(1, "key1", DummyString(1024));
-    batch.Put(0, "key2", DummyString(1024));
+    batch.Put(handles_[1], "key1", DummyString(1024));
+    batch.Put(handles_[0], "key2", DummyString(1024));
     batch.PutLogData(Slice("blob1"));
-    batch.Put(1, "key3", DummyString(1024));
+    batch.Put(handles_[1], "key3", DummyString(1024));
     batch.PutLogData(Slice("blob2"));
-    batch.Delete(0, "key2");
+    batch.Delete(handles_[0], "key2");
     dbfull()->Write(WriteOptions(), &batch);
     ReopenWithColumnFamilies({"default", "pikachu"}, &options);
   }
@@ -5050,7 +5050,7 @@ static void MTThreadBody(void* arg) {
       for (int cf = 0; cf < kColumnFamilies; ++cf) {
         snprintf(valbuf, sizeof(valbuf), "%d.%d.%d.%d.%-1000d", key, id,
                  static_cast<int>(counter), cf, unique_id);
-        batch.Put(cf, Slice(keybuf), Slice(valbuf));
+        batch.Put(t->state->test->handles_[cf], Slice(keybuf), Slice(valbuf));
       }
       ASSERT_OK(db->Write(WriteOptions(), &batch));
     } else {
@@ -5225,21 +5225,21 @@ class ModelDB: public DB {
   virtual Status Put(const WriteOptions& o, ColumnFamilyHandle* cf,
                      const Slice& k, const Slice& v) {
     WriteBatch batch;
-    batch.Put(0, k, v);
+    batch.Put(cf, k, v);
     return Write(o, &batch);
   }
   using DB::Merge;
   virtual Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf,
                        const Slice& k, const Slice& v) {
     WriteBatch batch;
-    batch.Merge(0, k, v);
+    batch.Merge(cf, k, v);
     return Write(o, &batch);
   }
   using DB::Delete;
   virtual Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
                         const Slice& key) {
     WriteBatch batch;
-    batch.Delete(0, key);
+    batch.Delete(cf, key);
     return Write(o, &batch);
   }
   using DB::Get;

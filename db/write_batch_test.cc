@@ -11,6 +11,7 @@
 
 #include <memory>
 #include "db/memtable.h"
+#include "db/column_family.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -279,14 +280,27 @@ TEST(WriteBatchTest, PutGatherSlices) {
   ASSERT_EQ(3, batch.Count());
 }
 
+namespace {
+class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
+ public:
+  ColumnFamilyHandleImplDummy(int id)
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
+  uint32_t GetID() const override { return id_; }
+
+ private:
+  uint32_t id_;
+};
+}  // namespace anonymous
+
 TEST(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
-  batch.Put(0, Slice("foo"), Slice("bar"));
-  batch.Put(2, Slice("twofoo"), Slice("bar2"));
-  batch.Put(8, Slice("eightfoo"), Slice("bar8"));
-  batch.Delete(8, Slice("eightfoo"));
-  batch.Merge(3, Slice("threethree"), Slice("3three"));
-  batch.Put(0, Slice("foo"), Slice("bar"));
+  ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
+  batch.Put(&zero, Slice("foo"), Slice("bar"));
+  batch.Put(&two, Slice("twofoo"), Slice("bar2"));
+  batch.Put(&eight, Slice("eightfoo"), Slice("bar8"));
+  batch.Delete(&eight, Slice("eightfoo"));
+  batch.Merge(&three, Slice("threethree"), Slice("3three"));
+  batch.Put(&zero, Slice("foo"), Slice("bar"));
   batch.Merge(Slice("omom"), Slice("nom"));
 
   TestHandler handler;

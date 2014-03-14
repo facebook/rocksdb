@@ -69,7 +69,7 @@ DEFINE_int64(max_key, 1 * KB* KB,
 DEFINE_int32(column_families, 10, "Number of column families");
 
 DEFINE_bool(test_batches_snapshots, false,
-            "If set, the test uses MultiGet(), MultiPut() and MultiDelete()"
+            "If set, the test uses MultiGet(), Multiut() and MultiDelete()"
             " which read/write/delete multiple keys in a batch. In this mode,"
             " we do not verify db content by comparing the content with the "
             "pre-allocated array. Instead, we do partial verification inside"
@@ -853,9 +853,9 @@ class StressTest {
       values[i] += value.ToString();
       value_slices[i] = values[i];
       if (FLAGS_use_merge) {
-        batch.Merge(column_family->GetID(), keys[i], value_slices[i]);
+        batch.Merge(column_family, keys[i], value_slices[i]);
       } else {
-        batch.Put(column_family->GetID(), keys[i], value_slices[i]);
+        batch.Put(column_family, keys[i], value_slices[i]);
       }
     }
 
@@ -882,7 +882,7 @@ class StressTest {
     Status s;
     for (int i = 0; i < 10; i++) {
       keys[i] += key.ToString();
-      batch.Delete(column_family->GetID(), keys[i]);
+      batch.Delete(column_family, keys[i]);
     }
 
     s = db_->Write(writeoptions, &batch);
