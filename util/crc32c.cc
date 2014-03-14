@@ -295,7 +295,7 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
 static inline uint64_t LE_LOAD64(const uint8_t *p) {
   return DecodeFixed64(reinterpret_cast<const char*>(p));
 }
-#else
+#endif
 
 static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   uint32_t c = *l ^ LE_LOAD32(*p);
