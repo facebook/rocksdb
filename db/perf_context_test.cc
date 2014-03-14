@@ -10,6 +10,8 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/memtablerep.h"
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"

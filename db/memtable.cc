@@ -562,8 +562,8 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (!comparator_.comparator.user_comparator()->Compare(
-        Slice(iter_key_ptr, key_length - 8), key.user_key()) == 0) {
+    if (comparator_.comparator.user_comparator()->Compare(
+            Slice(iter_key_ptr, key_length - 8), key.user_key()) != 0) {
       break;
     }
 

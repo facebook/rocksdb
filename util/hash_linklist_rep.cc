@@ -141,8 +141,8 @@ class HashLinkListRep : public MemTableRep {
 
   class FullListIterator : public MemTableRep::Iterator {
    public:
-    explicit FullListIterator(FullList* list)
-      : iter_(list), full_list_(list) {}
+    explicit FullListIterator(FullList* list, Arena* arena)
+      : iter_(list), full_list_(list), arena_(arena) {}
 
     virtual ~FullListIterator() {
     }
@@ -196,6 +196,7 @@ class HashLinkListRep : public MemTableRep {
     FullList::Iterator iter_;
     // To destruct with the iterator.
     std::unique_ptr<FullList> full_list_;
+    std::unique_ptr<Arena> arena_;
     std::string tmp_;       // For passing to EncodeKey
   };
 
@@ -416,7 +417,9 @@ void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetIterator() {
-  auto list = new FullList(compare_, arena_);
+  // allocate a new arena of similar size to the one currently in use
+  Arena* new_arena = new Arena(arena_->BlockSize());
+  auto list = new FullList(compare_, new_arena);
   for (size_t i = 0; i < bucket_size_; ++i) {
     auto bucket = GetBucket(i);
     if (bucket != nullptr) {
@@ -426,7 +429,7 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator() {
       }
     }
   }
-  return new FullListIterator(list);
+  return new FullListIterator(list, new_arena);
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetPrefixIterator(

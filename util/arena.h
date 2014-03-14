@@ -52,6 +52,8 @@ class Arena {
   // same size of that allocation.
   virtual size_t IrregularBlockNum() const { return irregular_block_num; }
 
+  size_t BlockSize() const { return kBlockSize; }
+
  private:
   // Number of bytes allocated in one block
   const size_t kBlockSize;
