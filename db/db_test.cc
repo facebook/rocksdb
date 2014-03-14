@@ -1368,6 +1368,75 @@ TEST(DBTest, IterSeekBeforePrev) {
   delete iter;
 }
 
+TEST(DBTest, IterNextWithNewerSeq) {
+  ASSERT_OK(Put("0", "0"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("a", "b"));
+  ASSERT_OK(Put("c", "d"));
+  ASSERT_OK(Put("d", "e"));
+  auto iter = db_->NewIterator(ReadOptions());
+
+  // Create a key that needs to be skipped for Seq too new
+  for (uint64_t i = 0; i < last_options_.max_sequential_skip_in_iterations + 1;
+       i++) {
+    ASSERT_OK(Put("b", "f"));
+  }
+
+  iter->Seek(Slice("a"));
+  ASSERT_EQ(IterStatus(iter), "a->b");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), "c->d");
+  delete iter;
+}
+
+TEST(DBTest, IterPrevWithNewerSeq) {
+  ASSERT_OK(Put("0", "0"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("a", "b"));
+  ASSERT_OK(Put("c", "d"));
+  ASSERT_OK(Put("d", "e"));
+  auto iter = db_->NewIterator(ReadOptions());
+
+  // Create a key that needs to be skipped for Seq too new
+  for (uint64_t i = 0; i < last_options_.max_sequential_skip_in_iterations + 1;
+       i++) {
+    ASSERT_OK(Put("b", "f"));
+  }
+
+  iter->Seek(Slice("d"));
+  ASSERT_EQ(IterStatus(iter), "d->e");
+  iter->Prev();
+  ASSERT_EQ(IterStatus(iter), "c->d");
+  iter->Prev();
+  ASSERT_EQ(IterStatus(iter), "a->b");
+
+  iter->Prev();
+  delete iter;
+}
+
+TEST(DBTest, IterPrevWithNewerSeq2) {
+  ASSERT_OK(Put("0", "0"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("a", "b"));
+  ASSERT_OK(Put("c", "d"));
+  ASSERT_OK(Put("d", "e"));
+  auto iter = db_->NewIterator(ReadOptions());
+  iter->Seek(Slice("c"));
+  ASSERT_EQ(IterStatus(iter), "c->d");
+
+  // Create a key that needs to be skipped for Seq too new
+  for (uint64_t i = 0; i < last_options_.max_sequential_skip_in_iterations + 1;
+      i++) {
+    ASSERT_OK(Put("b", "f"));
+  }
+
+  iter->Prev();
+  ASSERT_EQ(IterStatus(iter), "a->b");
+
+  iter->Prev();
+  delete iter;
+}
+
 TEST(DBTest, IterEmpty) {
   do {
     Iterator* iter = db_->NewIterator(ReadOptions());
