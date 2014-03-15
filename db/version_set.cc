@@ -1507,9 +1507,20 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   ManifestWriter* last_writer = &w;
   assert(!manifest_writers_.empty());
   assert(manifest_writers_.front() == &w);
+
+  uint64_t max_log_number_in_batch = 0;
   for (const auto& writer : manifest_writers_) {
     last_writer = writer;
     LogAndApplyHelper(&builder, v, writer->edit, mu);
+    if (edit->has_log_number_) {
+      // When batch commit of manifest writes, we could have multiple flush and
+      // compaction edits. A flush edit has a bigger log number than what
+      // VersionSet has while a compaction edit does not have a log number.
+      // In this case, we want to make sure the largest log number is updated
+      // to VersionSet
+      max_log_number_in_batch =
+        std::max(max_log_number_in_batch, edit->log_number_);
+    }
     batch_edits.push_back(writer->edit);
   }
   builder.SaveTo(v);
@@ -1640,7 +1651,10 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   if (s.ok()) {
     manifest_file_size_ = new_manifest_file_size;
     AppendVersion(v);
-    log_number_ = edit->log_number_;
+    if (max_log_number_in_batch != 0) {
+      assert(log_number_ < max_log_number_in_batch);
+      log_number_ = max_log_number_in_batch;
+    }
     prev_log_number_ = edit->prev_log_number_;
 
   } else {
@@ -1678,9 +1692,9 @@ void VersionSet::LogAndApplyHelper(Builder* builder, Version* v,
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= log_number_);
     assert(edit->log_number_ < next_file_number_);
-  } else {
-    edit->SetLogNumber(log_number_);
   }
+  // If the edit does not have log number, it must be generated
+  // from a compaction
 
   if (!edit->has_prev_log_number_) {
     edit->SetPrevLogNumber(prev_log_number_);
@@ -1772,7 +1786,15 @@ Status VersionSet::Recover() {
 
       builder.Apply(&edit);
 
+      // Only a flush's edit or a new snapshot can write log number during
+      // LogAndApply. Since memtables are flushed and inserted into
+      // manifest_writers_ queue in order, the log number in MANIFEST file
+      // should be monotonically increasing.
       if (edit.has_log_number_) {
+        if (have_log_number && log_number > edit.log_number_) {
+          s = Status::Corruption("log number decreases");
+          break;
+        }
         log_number = edit.log_number_;
         have_log_number = true;
       }
@@ -2072,6 +2094,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
                    f->smallest_seqno, f->largest_seqno);
     }
   }
+  edit.SetLogNumber(log_number_);
 
   std::string record;
   edit.EncodeTo(&record);
