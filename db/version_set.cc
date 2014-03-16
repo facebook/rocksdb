@@ -1512,14 +1512,14 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
   for (const auto& writer : manifest_writers_) {
     last_writer = writer;
     LogAndApplyHelper(&builder, v, writer->edit, mu);
-    if (edit->has_log_number_) {
+    if (writer->edit->has_log_number_) {
       // When batch commit of manifest writes, we could have multiple flush and
       // compaction edits. A flush edit has a bigger log number than what
       // VersionSet has while a compaction edit does not have a log number.
       // In this case, we want to make sure the largest log number is updated
       // to VersionSet
       max_log_number_in_batch =
-        std::max(max_log_number_in_batch, edit->log_number_);
+        std::max(max_log_number_in_batch, writer->edit->log_number_);
     }
     batch_edits.push_back(writer->edit);
   }
