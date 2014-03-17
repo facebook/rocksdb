@@ -972,10 +972,10 @@ class StressTest {
       prefixes[i].resize(FLAGS_prefix_size);
       prefix_slices[i] = Slice(prefixes[i]);
       readoptionscopy[i] = readoptions;
-      readoptionscopy[i].prefix = &prefix_slices[i];
+      readoptionscopy[i].prefix_seek = true;
       readoptionscopy[i].snapshot = snapshot;
       iters[i] = db_->NewIterator(readoptionscopy[i], column_family);
-      iters[i]->SeekToFirst();
+      iters[i]->Seek(prefix_slices[i]);
     }
 
     int count = 0;
@@ -1157,11 +1157,11 @@ class StressTest {
         // prefix
         if (!FLAGS_test_batches_snapshots) {
           Slice prefix = Slice(key.data(), FLAGS_prefix_size);
-          read_opts.prefix = &prefix;
+          read_opts.prefix_seek = true;
           Iterator* iter = db_->NewIterator(read_opts, column_family);
           int64_t count = 0;
-          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-            assert(iter->key().starts_with(prefix));
+          for (iter->Seek(prefix);
+               iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
             ++count;
           }
           assert(count <=
@@ -1175,7 +1175,6 @@ class StressTest {
         } else {
           MultiPrefixScan(thread, read_opts, column_family, key);
         }
-        read_opts.prefix = nullptr;
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
         uint32_t value_base = thread->rand.Next();
