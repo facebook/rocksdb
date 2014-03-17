@@ -37,6 +37,7 @@
 #include "util/string_util.h"
 #include "util/statistics.h"
 #include "util/testutil.h"
+#include "util/xxhash.h"
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
 
@@ -62,6 +63,7 @@ DEFINE_string(benchmarks,
               "randomwithverify,"
               "fill100K,"
               "crc32c,"
+              "xxhash,"
               "compress,"
               "uncompress,"
               "acquireload,"
@@ -105,6 +107,7 @@ DEFINE_string(benchmarks,
               "\tnewiterator   -- repeated iterator creation\n"
               "\tseekrandom    -- N random seeks\n"
               "\tcrc32c        -- repeated crc32c of 4K of data\n"
+              "\txxhash        -- repeated xxHash of 4K of data\n"
               "\tacquireload   -- load N*1000 times\n"
               "Meta operations:\n"
               "\tcompact     -- Compact the entire DB\n"
@@ -1235,6 +1238,8 @@ class Benchmark {
         method = &Benchmark::Compact;
       } else if (name == Slice("crc32c")) {
         method = &Benchmark::Crc32c;
+      } else if (name == Slice("xxhash")) {
+        method = &Benchmark::xxHash;
       } else if (name == Slice("acquireload")) {
         method = &Benchmark::AcquireLoad;
       } else if (name == Slice("compress")) {
@@ -1372,6 +1377,25 @@ class Benchmark {
     }
     // Print so result is not dead
     fprintf(stderr, "... crc=0x%x\r", static_cast<unsigned int>(crc));
+
+    thread->stats.AddBytes(bytes);
+    thread->stats.AddMessage(label);
+  }
+
+  void xxHash(ThreadState* thread) {
+    // Checksum about 500MB of data total
+    const int size = 4096;
+    const char* label = "(4K per op)";
+    std::string data(size, 'x');
+    int64_t bytes = 0;
+    unsigned int xxh32 = 0;
+    while (bytes < 500 * 1048576) {
+      xxh32 = XXH32(data.data(), size, 0);
+      thread->stats.FinishedSingleOp(nullptr);
+      bytes += size;
+    }
+    // Print so result is not dead
+    fprintf(stderr, "... xxh32=0x%x\r", static_cast<unsigned int>(xxh32));
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(label);

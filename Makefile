@@ -44,6 +44,7 @@ LDFLAGS += $(PLATFORM_LDFLAGS)
 
 LIBOBJECTS = $(SOURCES:.cc=.o)
 LIBOBJECTS += $(SOURCESCPP:.cpp=.o)
+LIBOBJECTS += util/xxhash.o
 MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
 
 TESTUTIL = ./util/testutil.o

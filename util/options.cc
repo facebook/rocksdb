@@ -48,6 +48,7 @@ Options::Options()
       block_size(4096),
       block_restart_interval(16),
       compression(kSnappyCompression),
+      checksum(kCRC32c),
       filter_policy(nullptr),
       prefix_extractor(nullptr),
       whole_key_filtering(true),
@@ -163,6 +164,7 @@ Options::Dump(Logger* log) const
     } else {
       Log(log,"         Options.compression: %d", compression);
     }
+    Log(log,"         Options.checksum: %d", checksum);
     Log(log,"         Options.filter_policy: %s",
         filter_policy == nullptr ? "nullptr" : filter_policy->Name());
     Log(log,"      Options.prefix_extractor: %s",

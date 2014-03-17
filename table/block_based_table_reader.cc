@@ -52,12 +52,12 @@ const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
 // Set *didIO to true if didIO is not null.
 // On failure return non-OK.
 // On success fill *result and return OK - caller owns *result
-Status ReadBlockFromFile(RandomAccessFile* file, const ReadOptions& options,
+Status ReadBlockFromFile(RandomAccessFile* file, const Footer& footer, const ReadOptions& options,
                          const BlockHandle& handle, Block** result, Env* env,
                          bool* didIO = nullptr, bool do_uncompress = true) {
   BlockContents contents;
   Status s =
-      ReadBlockContents(file, options, handle, &contents, env, do_uncompress);
+      ReadBlockContents(file, footer, options, handle, &contents, env, do_uncompress);
   if (s.ok()) {
     *result = new Block(contents);
   }
@@ -150,12 +150,13 @@ class BinarySearchIndexReader : public IndexReader {
   // `BinarySearchIndexReader`.
   // On success, index_reader will be populated; otherwise it will remain
   // unmodified.
-  static Status Create(RandomAccessFile* file, const BlockHandle& index_handle,
-                       Env* env, const Comparator* comparator,
-                       IndexReader** index_reader) {
-    Block* index_block = nullptr;
-    auto s = ReadBlockFromFile(file, ReadOptions(), index_handle,
-                               &index_block, env);
+   static Status Create(RandomAccessFile *file, const Footer &footer,
+                        const BlockHandle &index_handle, Env *env,
+                        const Comparator *comparator,
+                        IndexReader **index_reader) {
+     Block *index_block = nullptr;
+     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
+                                &index_block, env);
 
     if (s.ok()) {
       *index_reader = new BinarySearchIndexReader(comparator, index_block);
@@ -184,13 +185,13 @@ class BinarySearchIndexReader : public IndexReader {
 // key.
 class HashIndexReader : public IndexReader {
  public:
-  static Status Create(RandomAccessFile* file, const BlockHandle& index_handle,
-                       Env* env, const Comparator* comparator,
-                       BlockBasedTable* table,
-                       const SliceTransform* prefix_extractor,
-                       IndexReader** index_reader) {
-    return Status::NotSupported("not implemented yet!");
-  }
+   static Status Create(RandomAccessFile *file, const Footer &footer,
+                        const BlockHandle &index_handle, Env *env,
+                        const Comparator *comparator, BlockBasedTable *table,
+                        const SliceTransform *prefix_extractor,
+                        IndexReader **index_reader) {
+     return Status::NotSupported("not implemented yet!");
+   }
 };
 
 
@@ -209,10 +210,8 @@ struct BlockBasedTable::Rep {
   char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size = 0;
 
-  // Handle to metaindex_block: saved from footer
-  BlockHandle metaindex_handle;
-  // Handle to index: saved from footer
-  BlockHandle index_handle;
+  // Footer contains the fixed table information
+  Footer footer;
   // index_reader and filter will be populated and used only when
   // options.block_cache is nullptr; otherwise we will get the index block via
   // the block cache.
@@ -313,8 +312,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
   Rep* rep = new BlockBasedTable::Rep(soptions, internal_comparator);
   rep->options = options;
   rep->file = std::move(file);
-  rep->metaindex_handle = footer.metaindex_handle();
-  rep->index_handle = footer.index_handle();
+  rep->footer = footer;
   rep->index_type = table_options.index_type;
   SetupCacheKeyPrefix(rep);
   unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
@@ -330,8 +328,9 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
     s = meta_iter->status();
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
-      s = ReadProperties(meta_iter->value(), rep->file.get(), rep->options.env,
-                         rep->options.info_log.get(), &table_properties);
+      s = ReadProperties(meta_iter->value(), rep->file.get(), rep->footer,
+                         rep->options.env, rep->options.info_log.get(),
+                         &table_properties);
     }
 
     if (!s.ok()) {
@@ -424,8 +423,9 @@ Status BlockBasedTable::ReadMetaBlock(
   Block* meta = nullptr;
   Status s = ReadBlockFromFile(
       rep->file.get(),
+      rep->footer,
       ReadOptions(),
-      rep->metaindex_handle,
+      rep->footer.metaindex_handle(),
       &meta,
       rep->options.env);
 
@@ -583,8 +583,8 @@ FilterBlockReader* BlockBasedTable::ReadFilter (
   // requiring checksum verification in Table::Open.
   ReadOptions opt;
   BlockContents block;
-  if (!ReadBlockContents(rep->file.get(), opt, filter_handle, &block,
-                        rep->options.env, false).ok()) {
+  if (!ReadBlockContents(rep->file.get(), rep->footer, opt, filter_handle,
+                         &block, rep->options.env, false).ok()) {
     return nullptr;
   }
 
@@ -648,8 +648,9 @@ Iterator* BlockBasedTable::DataBlockReader(void* arg,
       Block* raw_block = nullptr;
       {
         StopWatch sw(table->rep_->options.env, statistics, histogram);
-        s = ReadBlockFromFile(table->rep_->file.get(), options, handle,
-                              &raw_block, table->rep_->options.env, didIO,
+        s = ReadBlockFromFile(table->rep_->file.get(), table->rep_->footer,
+                              options, handle, &raw_block,
+                              table->rep_->options.env, didIO,
                               block_cache_compressed == nullptr);
       }
 
@@ -666,8 +667,9 @@ Iterator* BlockBasedTable::DataBlockReader(void* arg,
       // Could not read from block_cache and can't do IO
       return NewErrorIterator(Status::Incomplete("no blocking io"));
     }
-    s = ReadBlockFromFile(table->rep_->file.get(), options, handle,
-                          &block.value, table->rep_->options.env, didIO);
+    s = ReadBlockFromFile(table->rep_->file.get(), table->rep_->footer, options,
+                          handle, &block.value, table->rep_->options.env,
+                          didIO);
   }
 
   Iterator* iter;
@@ -703,7 +705,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   auto key = GetCacheKey(
       rep_->cache_key_prefix,
       rep_->cache_key_prefix_size,
-      rep_->metaindex_handle,
+      rep_->footer.metaindex_handle(),
       cache_key
   );
 
@@ -756,7 +758,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options)
   Cache* block_cache = rep_->options.block_cache.get();
   char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
-                         rep_->index_handle, cache_key);
+                         rep_->footer.index_handle(), cache_key);
   Statistics* statistics = rep_->options.statistics.get();
   auto cache_handle =
       GetEntryFromCache(block_cache, key, BLOCK_CACHE_INDEX_MISS,
@@ -987,8 +989,8 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) const {
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(
-          rep_->file.get(), rep_->index_handle, rep_->options.env,
-          &rep_->internal_comparator, index_reader);
+          rep_->file.get(), rep_->footer, rep_->footer.index_handle(),
+          rep_->options.env, &rep_->internal_comparator, index_reader);
     }
     default: {
       std::string error_message =
@@ -1015,7 +1017,7 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
       // Strange: we can't decode the block handle in the index block.
       // We'll just return the offset of the metaindex block, which is
       // close to the whole file size for this case.
-      result = rep_->metaindex_handle.offset();
+      result = rep_->footer.metaindex_handle().offset();
     }
   } else {
     // key is past the last key in the file. If table_properties is not
@@ -1024,7 +1026,7 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
     result = rep_->table_properties->data_size;
     // table_properties is not present in the table.
     if (result == 0) {
-      result = rep_->metaindex_handle.offset();
+      result = rep_->footer.metaindex_handle().offset();
     }
   }
   return result;

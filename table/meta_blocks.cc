@@ -133,9 +133,9 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
-Status ReadProperties(const Slice& handle_value, RandomAccessFile* file,
-                      Env* env, Logger* logger,
-                      TableProperties** table_properties) {
+Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
+                      const Footer &footer, Env *env, Logger *logger,
+                      TableProperties **table_properties) {
   assert(table_properties);
 
   Slice v = handle_value;
@@ -147,8 +147,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFile* file,
   BlockContents block_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  Status s = ReadBlockContents(file, read_options, handle, &block_contents, env,
-                               false);
+  Status s = ReadBlockContents(file, footer, read_options, handle,
+                               &block_contents, env, false);
 
   if (!s.ok()) {
     return s;
@@ -234,7 +234,7 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  s = ReadBlockContents(file, read_options, metaindex_handle,
+  s = ReadBlockContents(file, footer, read_options, metaindex_handle,
                         &metaindex_contents, env, false);
   if (!s.ok()) {
     return s;
@@ -249,7 +249,8 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
   if (meta_iter->Valid() &&
       meta_iter->key() == kPropertiesBlock &&
       meta_iter->status().ok()) {
-    s = ReadProperties(meta_iter->value(), file, env, info_log, properties);
+    s = ReadProperties(meta_iter->value(), file, footer, env, info_log,
+                       properties);
   } else {
     s = Status::Corruption(
         "Unable to read the property block from the plain table");
@@ -274,14 +275,10 @@ Status ReadTableMagicNumber(const std::string& file_path,
                               table_magic_number);
 }
 
-Status ReadTableMagicNumber(RandomAccessFile* file, uint64_t file_size,
-                            const Options& options,
-                            const EnvOptions& env_options,
-                            uint64_t* table_magic_number) {
-  if (file_size < Footer::kEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
-  }
-
+Status ReadTableMagicNumber(RandomAccessFile *file, uint64_t file_size,
+                            const Options &options,
+                            const EnvOptions &env_options,
+                            uint64_t *table_magic_number) {
   Footer footer;
   auto s = ReadFooterFromFile(file, file_size, &footer);
   if (!s.ok()) {

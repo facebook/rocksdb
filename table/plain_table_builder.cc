@@ -46,9 +46,9 @@ Status WriteBlock(
 }  // namespace
 
 // kPlainTableMagicNumber was picked by running
-//    echo rocksdb.plain.table | sha1sum
+//    echo rocksdb.table.plain | sha1sum
 // and taking the leading 64 bits.
-extern const uint64_t kPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
+extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 
 PlainTableBuilder::PlainTableBuilder(const Options& options,
                                      WritableFile* file,
@@ -173,6 +173,7 @@ Status PlainTableBuilder::Finish() {
   Footer footer(kPlainTableMagicNumber);
   footer.set_metaindex_handle(metaindex_block_handle);
   footer.set_index_handle(BlockHandle::NullBlockHandle());
+  footer.set_checksum(options_.checksum);
   std::string footer_encoding;
   footer.EncodeTo(&footer_encoding);
   s = file_->Append(footer_encoding);
