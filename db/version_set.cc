@@ -2708,7 +2708,11 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   auto new_cfd = column_family_set_->CreateColumnFamily(
       edit->column_family_name_, edit->column_family_, dummy_versions, options);
 
-  AppendVersion(new_cfd, new Version(new_cfd, this, current_version_number_++));
+  Version* v = new Version(new_cfd, this, current_version_number_++);
+  std::vector<uint64_t> size_being_compacted(options.num_levels - 1, 0);
+  v->Finalize(size_being_compacted);
+
+  AppendVersion(new_cfd, v);
   new_cfd->CreateNewMemtable();
   new_cfd->SetLogNumber(edit->log_number_);
   return new_cfd;
