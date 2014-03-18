@@ -46,6 +46,10 @@ class VersionEdit {
 
   void Clear();
 
+  void SetVersionNumber() {
+    has_version_number_ = true;
+    version_number_ = kManifestVersion;
+  }
   void SetComparatorName(const Slice& name) {
     has_comparator_ = true;
     comparator_ = name.ToString();
@@ -110,11 +114,13 @@ class VersionEdit {
   bool GetLevel(Slice* input, int* level, const char** msg);
 
   int max_level_;
+  uint32_t version_number_;
   std::string comparator_;
   uint64_t log_number_;
   uint64_t prev_log_number_;
   uint64_t next_file_number_;
   SequenceNumber last_sequence_;
+  bool has_version_number_;
   bool has_comparator_;
   bool has_log_number_;
   bool has_prev_log_number_;
@@ -123,6 +129,10 @@ class VersionEdit {
 
   DeletedFileSet deleted_files_;
   std::vector<std::pair<int, FileMetaData> > new_files_;
+
+  enum {
+    kManifestVersion = 1
+  };
 };
 
 }  // namespace rocksdb
