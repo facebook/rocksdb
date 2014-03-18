@@ -731,10 +731,12 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[0]);
   ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);
-  // write some new keys into level 0
-  PutRandomData(0, 120, 4096);
+  // write some new keys into level 0 and 1
+  PutRandomData(0, 1024, 512);
   ASSERT_OK(Flush(0));
   WaitForCompaction();
+  PutRandomData(0, 10, 512);
+  ASSERT_OK(Flush(0));
   // remember number of files in each level
   int l1 = NumTableFilesAtLevel(0, 0);
   int l2 = NumTableFilesAtLevel(1, 0);
@@ -745,14 +747,14 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
 
   // SETUP column family "one" -- universal style
   for (int i = 0; i < one.level0_file_num_compaction_trigger - 1; ++i) {
-    PutRandomData(1, 20, 10000);
+    PutRandomData(1, 11, 10000);
     WaitForFlush(1);
     ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(1));
   }
 
   // SETUP column family "two" -- level style with 4 levels
   for (int i = 0; i < two.level0_file_num_compaction_trigger - 1; ++i) {
-    PutRandomData(2, 20, 10000);
+    PutRandomData(2, 15, 10000);
     WaitForFlush(2);
     ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(2));
   }
@@ -767,7 +769,7 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   PutRandomData(1, 12, 10000);
 
   // TRIGGER compaction "two"
-  PutRandomData(2, 12, 10000);
+  PutRandomData(2, 10, 10000);
 
   // WAIT for compactions
   WaitForCompaction();
