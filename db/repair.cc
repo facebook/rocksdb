@@ -315,8 +315,8 @@ class Repairer {
   Status WriteDescriptor() {
     std::string tmp = TempFileName(dbname_, 1);
     unique_ptr<WritableFile> file;
-    Status status =
-        env_->NewWritableFile(tmp, &file, storage_options_.AdaptForLogWrite());
+    Status status = env_->NewWritableFile(
+        tmp, &file, env_->OptimizeForManifestWrite(storage_options_));
     if (!status.ok()) {
       return status;
     }

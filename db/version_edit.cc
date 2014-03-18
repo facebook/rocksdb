@@ -30,6 +30,7 @@ enum Tag {
 
   // these are new formats divergent from open source leveldb
   kNewFile2             = 100,  // store smallest & largest seqno
+  kVersionNumber        = 101,  // manifest version number, available after 2.8
 
   kColumnFamily         = 200,  // specify column family for version edit
   kColumnFamilyAdd      = 201,
@@ -38,6 +39,7 @@ enum Tag {
 };
 
 void VersionEdit::Clear() {
+  version_number_ = 0;
   comparator_.clear();
   max_level_ = 0;
   log_number_ = 0;
@@ -45,6 +47,7 @@ void VersionEdit::Clear() {
   last_sequence_ = 0;
   next_file_number_ = 0;
   max_column_family_ = 0;
+  has_version_number_ = false;
   has_comparator_ = false;
   has_log_number_ = false;
   has_prev_log_number_ = false;
@@ -60,6 +63,10 @@ void VersionEdit::Clear() {
 }
 
 void VersionEdit::EncodeTo(std::string* dst) const {
+  if (has_version_number_) {
+    PutVarint32(dst, kVersionNumber);
+    PutVarint32(dst, version_number_);
+  }
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
@@ -157,6 +164,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
   while (msg == nullptr && GetVarint32(&input, &tag)) {
     switch (tag) {
+      case kVersionNumber:
+        if (GetVarint32(&input, &version_number_)) {
+          has_version_number_ = true;
+        } else {
+          msg = "version number";
+        }
+        break;
+
       case kComparator:
         if (GetLengthPrefixedSlice(&input, &str)) {
           comparator_ = str.ToString();

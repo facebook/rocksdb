@@ -7,9 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/version_set.h"
-
 #define __STDC_FORMAT_MACROS
+#include "db/version_set.h"
 
 #include <inttypes.h>
 #include <algorithm>
@@ -1446,6 +1445,7 @@ VersionSet::VersionSet(const std::string& dbname, const DBOptions* options,
       options_(options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
+      pending_manifest_file_number_(0),
       last_sequence_(0),
       prev_log_number_(0),
       current_version_number_(0),
@@ -1548,24 +1548,21 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
-  std::string new_manifest_filename;
   uint64_t new_manifest_file_size = 0;
   Status s;
-  // we will need this if we are creating new manifest
-  uint64_t old_manifest_file_number = manifest_file_number_;
 
-  //  No need to perform this check if a new Manifest is being created anyways.
+  assert(pending_manifest_file_number_ == 0);
   if (!descriptor_log_ ||
       manifest_file_size_ > options_->max_manifest_file_size) {
+    pending_manifest_file_number_ = NewFileNumber();
+    batch_edits.back()->SetNextFile(next_file_number_);
     new_descriptor_log = true;
-    manifest_file_number_ = NewFileNumber(); // Change manifest file no.
+  } else {
+    pending_manifest_file_number_ = manifest_file_number_;
   }
 
   if (new_descriptor_log) {
-    new_manifest_filename = DescriptorFileName(dbname_, manifest_file_number_);
-    edit->SetNextFile(next_file_number_);
-    // if we're writing out new snapshot make sure to persist max column
-    // family
+    // if we're writing out new snapshot make sure to persist max column family
     if (column_family_set_->GetMaxColumnFamily() > 0) {
       edit->SetMaxColumnFamily(column_family_set_->GetMaxColumnFamily());
     }
@@ -1594,8 +1591,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // only one thread can be here at the same time
     if (new_descriptor_log) {
       unique_ptr<WritableFile> descriptor_file;
-      s = env_->NewWritableFile(new_manifest_filename, &descriptor_file,
-                                storage_options_.AdaptForLogWrite());
+      s = env_->NewWritableFile(
+          DescriptorFileName(dbname_, pending_manifest_file_number_),
+          &descriptor_file, env_->OptimizeForManifestWrite(storage_options_));
       if (s.ok()) {
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
         s = WriteSnapshot(descriptor_log_.get());
@@ -1636,7 +1634,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         for (auto& e : batch_edits) {
           std::string record;
           e->EncodeTo(&record);
-          if (!ManifestContains(record)) {
+          if (!ManifestContains(pending_manifest_file_number_, record)) {
             all_records_in = false;
             break;
           }
@@ -1653,17 +1651,16 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
-    if (s.ok() && !new_manifest_filename.empty()) {
-      s = SetCurrentFile(env_, dbname_, manifest_file_number_);
-      if (s.ok() && old_manifest_file_number < manifest_file_number_) {
+    if (s.ok() && new_descriptor_log) {
+      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_);
+      if (s.ok() && pending_manifest_file_number_ > manifest_file_number_) {
         // delete old manifest file
         Log(options_->info_log,
-            "Deleting manifest %lu current manifest %lu\n",
-            (unsigned long)old_manifest_file_number,
-            (unsigned long)manifest_file_number_);
+            "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
+            manifest_file_number_, pending_manifest_file_number_);
         // we don't care about an error here, PurgeObsoleteFiles will take care
         // of it later
-        env_->DeleteFile(DescriptorFileName(dbname_, old_manifest_file_number));
+        env_->DeleteFile(DescriptorFileName(dbname_, manifest_file_number_));
       }
       if (!options_->disableDataSync && db_directory != nullptr) {
         db_directory->Fsync();
@@ -1707,17 +1704,20 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       AppendVersion(column_family_data, v);
     }
 
+    manifest_file_number_ = pending_manifest_file_number_;
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = edit->prev_log_number_;
   } else {
     Log(options_->info_log, "Error in committing version %lu",
         (unsigned long)v->GetVersionNumber());
     delete v;
-    if (!new_manifest_filename.empty()) {
+    if (new_descriptor_log) {
       descriptor_log_.reset();
-      env_->DeleteFile(new_manifest_filename);
+      env_->DeleteFile(
+          DescriptorFileName(dbname_, pending_manifest_file_number_));
     }
   }
+  pending_manifest_file_number_ = 0;
 
   // wake up all the waiting writers
   while (true) {
@@ -1816,6 +1816,8 @@ Status VersionSet::Recover(
     return s;
   }
 
+  bool have_version_number = false;
+  bool log_number_decrease = false;
   bool have_log_number = false;
   bool have_prev_log_number = false;
   bool have_next_file = false;
@@ -1932,11 +1934,11 @@ Status VersionSet::Recover(
       if (cfd != nullptr) {
         if (edit.has_log_number_) {
           if (cfd->GetLogNumber() > edit.log_number_) {
-            s = Status::Corruption(
-                "Log Numbers in MANIFEST are not always increasing");
+            log_number_decrease = true;
+          } else {
+            cfd->SetLogNumber(edit.log_number_);
+            have_log_number = true;
           }
-          cfd->SetLogNumber(edit.log_number_);
-          have_log_number = true;
         }
         if (edit.has_comparator_ &&
             edit.comparator_ != cfd->user_comparator()->Name()) {
@@ -1945,6 +1947,10 @@ Status VersionSet::Recover(
               "does not match existing comparator " + edit.comparator_);
           break;
         }
+      }
+
+      if (edit.has_version_number_) {
+        have_version_number = true;
       }
 
       if (edit.has_prev_log_number_) {
@@ -1964,6 +1970,23 @@ Status VersionSet::Recover(
       if (edit.has_last_sequence_) {
         last_sequence = edit.last_sequence_;
         have_last_sequence = true;
+      }
+    }
+
+    if (s.ok() && log_number_decrease) {
+      // Since release 2.8, version number is added into MANIFEST file.
+      // Prior release 2.8, a bug in LogAndApply() can cause log_number
+      // to be smaller than the one from previous edit. To ensure backward
+      // compatibility, only fail for MANIFEST genearated by release 2.8
+      // and after.
+      if (have_version_number) {
+        s = Status::Corruption(
+            "MANIFEST corruption - Log numbers in records NOT "
+            "monotonically increasing");
+      } else {
+        Log(options_->info_log,
+            "MANIFEST corruption detected, but ignored - Log numbers in "
+            "records NOT monotonically increasing");
       }
     }
   }
@@ -2389,6 +2412,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
   // WARNING: This method doesn't hold a mutex!!
 
+  bool first_record = false;
+
   // This is done without DB mutex lock held, but only within single-threaded
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
@@ -2396,6 +2421,10 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     {
       // Store column family info
       VersionEdit edit;
+      if (first_record) {
+        edit.SetVersionNumber();
+        first_record = false;
+      }
       if (cfd->GetID() != 0) {
         // default column family is always there,
         // no need to explicitly write it
@@ -2443,8 +2472,10 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
 // Opens the mainfest file and reads all records
 // till it finds the record we are looking for.
-bool VersionSet::ManifestContains(const std::string& record) const {
-  std::string fname = DescriptorFileName(dbname_, manifest_file_number_);
+bool VersionSet::ManifestContains(uint64_t manifest_file_number,
+                                  const std::string& record) const {
+  std::string fname =
+      DescriptorFileName(dbname_, manifest_file_number);
   Log(options_->info_log, "ManifestContains: checking %s\n", fname.c_str());
   unique_ptr<SequentialFile> file;
   Status s = env_->NewSequentialFile(fname, &file, storage_options_);

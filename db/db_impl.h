@@ -210,10 +210,12 @@ class DBImpl : public DB {
 
     // the current manifest_file_number, log_number and prev_log_number
     // that corresponds to the set of files in 'live'.
-    uint64_t manifest_file_number, log_number, prev_log_number;
+    uint64_t manifest_file_number, pending_manifest_file_number, log_number,
+        prev_log_number;
 
     explicit DeletionState(bool create_superversion = false) {
       manifest_file_number = 0;
+      pending_manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
       new_superversion = create_superversion ? new SuperVersion() : nullptr;

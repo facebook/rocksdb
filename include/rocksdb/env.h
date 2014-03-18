@@ -49,8 +49,6 @@ struct EnvOptions {
   // construct from Options
   explicit EnvOptions(const DBOptions& options);
 
-  EnvOptions AdaptForLogWrite() const;
-
   // If true, then allow caching of data in environment buffers
   bool use_os_buffer = true;
 
@@ -61,13 +59,21 @@ struct EnvOptions {
   bool use_mmap_writes = true;
 
   // If true, set the FD_CLOEXEC on open fd.
-  bool set_fd_cloexec= true;
+  bool set_fd_cloexec = true;
 
   // Allows OS to incrementally sync files to disk while they are being
   // written, in the background. Issue one request for every bytes_per_sync
   // written. 0 turns it off.
   // Default: 0
   uint64_t bytes_per_sync = 0;
+
+  // If true, we will preallocate the file with FALLOC_FL_KEEP_SIZE flag, which
+  // means that file size won't change as part of preallocation.
+  // If false, preallocation will also change the file size. This option will
+  // improve the performance in workloads where you sync the data on every
+  // write. By default, we set it to true for MANIFEST writes and false for
+  // WAL writes
+  bool fallocate_with_keep_size = true;
 };
 
 class Env {
@@ -259,6 +265,16 @@ class Env {
 
   // Generates a unique id that can be used to identify a db
   virtual std::string GenerateUniqueId();
+
+  // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
+  // the EnvOptions in the parameters, but is optimized for writing log files.
+  // Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const;
+  // OptimizeForManifestWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for writing manifest
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
+      const;
 
  private:
   // No copying allowed
