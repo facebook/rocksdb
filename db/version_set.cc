@@ -2014,6 +2014,7 @@ Status VersionSet::Recover(
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
       v->Finalize(size_being_compacted);
+      v->UpdateFilesBySize();
       AppendVersion(cfd, v);
     }
 
@@ -2343,6 +2344,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
       Version* v = new Version(cfd, this, current_version_number_++);
       builder->SaveTo(v);
+      std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
+      cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
+      v->Finalize(size_being_compacted);
+      v->UpdateFilesBySize();
       delete builder;
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",
