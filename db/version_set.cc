@@ -461,6 +461,7 @@ Version::Version(VersionSet* vset, uint64_t version_number)
       prev_(this),
       refs_(0),
       num_levels_(vset->num_levels_),
+      finalized_(false),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
@@ -478,6 +479,7 @@ void Version::Get(const ReadOptions& options,
                   GetStats* stats,
                   const Options& db_options,
                   bool* value_found) {
+  assert(finalized_);
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -642,6 +644,8 @@ bool Version::UpdateStats(const GetStats& stats) {
 }
 
 void Version::Finalize(std::vector<uint64_t>& size_being_compacted) {
+  assert(!finalized_);
+  finalized_ = true;
   // Pre-sort level0 for Get()
   if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
     std::sort(files_[0].begin(), files_[0].end(), NewestFirstBySeqNo);

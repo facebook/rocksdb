@@ -227,6 +227,7 @@ class Version {
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
   int num_levels_;              // Number of levels
+  bool finalized_;              // True if Finalized is called
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys
