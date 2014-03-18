@@ -327,6 +327,10 @@ class VersionSet {
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
+  uint64_t PendingManifestFileNumber() const {
+    return pending_manifest_file_number_;
+  }
+
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_++; }
 
@@ -436,7 +440,8 @@ class VersionSet {
 
   void AppendVersion(Version* v);
 
-  bool ManifestContains(const std::string& record) const;
+  bool ManifestContains(uint64_t manifest_file_number,
+                        const std::string& record) const;
 
   Env* const env_;
   const std::string dbname_;
@@ -445,6 +450,7 @@ class VersionSet {
   const InternalKeyComparator icmp_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
+  uint64_t pending_manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;
   uint64_t log_number_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted

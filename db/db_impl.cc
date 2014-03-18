@@ -601,6 +601,8 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
 
   // store the current filenum, lognum, etc
   deletion_state.manifest_file_number = versions_->ManifestFileNumber();
+  deletion_state.pending_manifest_file_number =
+      versions_->PendingManifestFileNumber();
   deletion_state.log_number = versions_->LogNumber();
   deletion_state.prev_log_number = versions_->PrevLogNumber();
 
@@ -651,12 +653,10 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
     return;
   }
 
-
   // Now, convert live list to an unordered set, WITHOUT mutex held;
   // set is slow.
-  std::unordered_set<uint64_t> sst_live(
-      state.sst_live.begin(), state.sst_live.end()
-  );
+  std::unordered_set<uint64_t> sst_live(state.sst_live.begin(),
+                                        state.sst_live.end());
 
   auto& candidate_files = state.candidate_files;
   candidate_files.reserve(
@@ -674,19 +674,15 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
 
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.push_back(
-          LogFileName(kDumbDbName, file_num).substr(1)
-      );
+      candidate_files.push_back(LogFileName(kDumbDbName, file_num).substr(1));
     }
   }
 
   // dedup state.candidate_files so we don't try to delete the same
   // file twice
   sort(candidate_files.begin(), candidate_files.end());
-  candidate_files.erase(
-      unique(candidate_files.begin(), candidate_files.end()),
-      candidate_files.end()
-  );
+  candidate_files.erase(unique(candidate_files.begin(), candidate_files.end()),
+                        candidate_files.end());
 
   std::vector<std::string> old_info_log_files;
 
@@ -706,7 +702,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
         break;
       case kDescriptorFile:
         // Keep my manifest file, and any newer incarnations'
-        // (in case there is a race that allows other incarnations)
+        // (can happen during manifest roll)
         keep = (number >= state.manifest_file_number);
         break;
       case kTableFile:
@@ -714,8 +710,12 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
         break;
       case kTempFile:
         // Any temp files that are currently being written to must
-        // be recorded in pending_outputs_, which is inserted into "live"
-        keep = (sst_live.find(number) != sst_live.end());
+        // be recorded in pending_outputs_, which is inserted into "live".
+        // Also, SetCurrentFile creates a temp file when writing out new
+        // manifest, which is equal to state.pending_manifest_file_number. We
+        // should not delete that file
+        keep = (sst_live.find(number) != sst_live.end()) ||
+               (number == state.pending_manifest_file_number);
         break;
       case kInfoLogFile:
         keep = true;
