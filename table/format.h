@@ -75,7 +75,15 @@ class Footer {
   //  1. Identify different types of the tables.
   //  2. Help us to identify if a given file is a valid sst.
   explicit Footer(uint64_t table_magic_number)
-      : table_magic_number_(table_magic_number) {}
+      : version_(kFooterVersion), checksum_(kCRC32c),
+        table_magic_number_(table_magic_number) {}
+
+  // The version of the footer in this file
+  uint32_t version() const { return version_; }
+
+  // The checksum type used in this file
+  ChecksumType checksum() const { return checksum_; }
+  void set_checksum(const ChecksumType c) { checksum_ = c; }
 
   // The block handle for the metaindex block of the table
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
@@ -92,7 +100,12 @@ class Footer {
 
   uint64_t table_magic_number() const { return table_magic_number_; }
 
-  void EncodeTo(std::string* dst) const;
+  // The version of Footer we encode
+  enum {
+    kFooterVersion = 1
+  };
+
+  void EncodeTo(std::string *dst) const;
 
   // Set the current footer based on the input slice.  If table_magic_number_
   // is not set (i.e., HasInitializedTableMagicNumber() is true), then this
@@ -102,11 +115,21 @@ class Footer {
   // when the test passes.
   Status DecodeFrom(Slice* input);
 
-  // Encoded length of a Footer.  Note that the serialization of a
-  // Footer will always occupy exactly this many bytes.  It consists
-  // of two block handles and a magic number.
+  // Encoded length of a Footer.  Note that the serialization of a Footer will
+  // always occupy at least kMinEncodedLength bytes.  If fields are changed
+  // the version number should be incremented and kMaxEncodedLength should be
+  // increased accordingly.
   enum {
-    kEncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8
+    // Footer version 0 (legacy) will always occupy exactly this many bytes.
+    // It consists of two block handles, padding, and a magic number.
+    kVersion0EncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8,
+    // Footer version 1 will always occupy exactly this many bytes.
+    // It consists of the checksum type, two block handles, padding,
+    // a version number, and a magic number
+    kVersion1EncodedLength = 4 + 2 * BlockHandle::kMaxEncodedLength + 4 + 8,
+
+    kMinEncodedLength = kVersion0EncodedLength,
+    kMaxEncodedLength = kVersion1EncodedLength
   };
 
   static const uint64_t kInvalidTableMagicNumber = 0;
@@ -115,7 +138,7 @@ class Footer {
   // Set the table_magic_number only when it was not previously
   // initialized.  Return true on success.
   bool set_table_magic_number(uint64_t magic_number) {
-    if (HasInitializedTableMagicNumber()) {
+    if (!HasInitializedTableMagicNumber()) {
       table_magic_number_ = magic_number;
       return true;
     }
@@ -128,6 +151,8 @@ class Footer {
     return (table_magic_number_ != kInvalidTableMagicNumber);
   }
 
+  uint32_t version_;
+  ChecksumType checksum_;
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
   uint64_t table_magic_number_;
@@ -151,6 +176,7 @@ struct BlockContents {
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
 extern Status ReadBlockContents(RandomAccessFile* file,
+                                const Footer& footer,
                                 const ReadOptions& options,
                                 const BlockHandle& handle,
                                 BlockContents* result,

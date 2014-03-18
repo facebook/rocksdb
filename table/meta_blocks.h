@@ -20,6 +20,7 @@ namespace rocksdb {
 class BlockBuilder;
 class BlockHandle;
 class Env;
+class Footer;
 class Logger;
 class RandomAccessFile;
 struct TableProperties;
@@ -106,9 +107,9 @@ bool NotifyCollectTableCollectorsOnFinish(
 // @returns a status to indicate if the operation succeeded. On success,
 //          *table_properties will point to a heap-allocated TableProperties
 //          object, otherwise value of `table_properties` will not be modified.
-Status ReadProperties(const Slice& handle_value, RandomAccessFile* file,
-                      Env* env, Logger* logger,
-                      TableProperties** table_properties);
+Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
+                      const Footer &footer, Env *env, Logger *logger,
+                      TableProperties **table_properties);
 
 // Directly read the properties from the properties block of a plain table.
 // @returns a status to indicate if the operation succeeded. On success,

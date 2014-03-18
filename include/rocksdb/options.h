@@ -65,6 +65,11 @@ struct CompressionOptions {
       : window_bits(wbits), level(lev), strategy(strategy) {}
 };
 
+enum ChecksumType : char {
+  kCRC32c = 0x0,
+  kxxHash = 0x1,
+};
+
 enum UpdateStatus {    // Return status For inplace update callback
   UPDATE_FAILED   = 0, // Nothing to update
   UPDATED_INPLACE = 1, // Value updated inplace
@@ -255,6 +260,9 @@ struct Options {
 
   // different options for compression algorithms
   CompressionOptions compression_opts;
+
+  // Use the specified checksum type
+  ChecksumType checksum;
 
   // If non-nullptr, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of

@@ -18,6 +18,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/perf_context_imp.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -39,28 +40,40 @@ Status BlockHandle::DecodeFrom(Slice* input) {
 }
 const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 
-void Footer::EncodeTo(std::string* dst) const {
-#ifndef NDEBUG
+void Footer::EncodeTo(std::string *dst) const {
   const size_t original_size = dst->size();
-#endif
+  PutVarint32(dst, static_cast<uint32_t>(checksum_));
   metaindex_handle_.EncodeTo(dst);
   index_handle_.EncodeTo(dst);
-  dst->resize(2 * BlockHandle::kMaxEncodedLength);  // Padding
+  dst->resize(original_size + kVersion1EncodedLength - 12); // Padding
+  PutFixed32(dst, kFooterVersion);
   PutFixed32(dst, static_cast<uint32_t>(table_magic_number() & 0xffffffffu));
   PutFixed32(dst, static_cast<uint32_t>(table_magic_number() >> 32));
-  assert(dst->size() == original_size + kEncodedLength);
+  assert(dst->size() == original_size + kVersion1EncodedLength);
 }
 
 Status Footer::DecodeFrom(Slice* input) {
   assert(input != nullptr);
-  assert(input->size() >= kEncodedLength);
+  assert(input->size() >= kMinEncodedLength);
 
-  const char* magic_ptr =
-      input->data() + kEncodedLength - kMagicNumberLengthByte;
+  const char *magic_ptr =
+      input->data() + input->size() - kMagicNumberLengthByte;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
-  const uint64_t magic = ((static_cast<uint64_t>(magic_hi) << 32) |
-                          (static_cast<uint64_t>(magic_lo)));
+  uint64_t magic = ((static_cast<uint64_t>(magic_hi) << 32) |
+                    (static_cast<uint64_t>(magic_lo)));
+
+  // We check for legacy formats here and silently upconvert them
+  bool legacy = false;
+  if (magic == 0xdb4775248b80fb57ull) {
+    legacy = true;
+    extern uint64_t kBlockBasedTableMagicNumber;
+    magic = kBlockBasedTableMagicNumber;
+  } else if (magic == 0x4f3418eb7a8f13b8ull) {
+    legacy = true;
+    extern uint64_t kPlainTableMagicNumber;
+    magic = kPlainTableMagicNumber;
+  }
   if (HasInitializedTableMagicNumber()) {
     if (magic != table_magic_number()) {
       char buffer[80];
@@ -73,13 +86,44 @@ Status Footer::DecodeFrom(Slice* input) {
     set_table_magic_number(magic);
   }
 
+  if (legacy) {
+    // Footer version 0 (legacy) will always occupy exactly this many bytes.
+    // It consists of two block handles, padding, and a magic number.
+    if (input->size() < kVersion0EncodedLength) {
+      return Status::InvalidArgument("input is too short to be a legacy sstable");
+    } else {
+      input->remove_prefix(input->size() - kVersion0EncodedLength);
+    }
+    // we use version 0 to denore the legacy footer format
+    version_ = 0;
+    checksum_ = kCRC32c;
+  } else {
+    version_ = DecodeFixed32(magic_ptr - 4);
+    if (version_ != kFooterVersion) {
+      return Status::Corruption("bad footer version");
+    }
+    // Footer version 1 will always occupy exactly this many bytes.
+    // It consists of the checksum type, two block handles, padding,
+    // a version number, and a magic number
+    if (input->size() < kVersion1EncodedLength) {
+      return Status::InvalidArgument("input is too short to be an sstable");
+    } else {
+      input->remove_prefix(input->size() - kVersion1EncodedLength);
+    }
+    uint32_t checksum;
+    if (!GetVarint32(input, &checksum)) {
+      return Status::Corruption("bad checksum type");
+    }
+    checksum_ = static_cast<ChecksumType>(checksum);
+  }
+
   Status result = metaindex_handle_.DecodeFrom(input);
   if (result.ok()) {
     result = index_handle_.DecodeFrom(input);
   }
   if (result.ok()) {
     // We skip over any leftover data (just padding for now) in "input"
-    const char* end = magic_ptr + 8;
+    const char *end = magic_ptr + kMagicNumberLengthByte;
     *input = Slice(end, input->data() + input->size() - end);
   }
   return result;
@@ -88,21 +132,21 @@ Status Footer::DecodeFrom(Slice* input) {
 Status ReadFooterFromFile(RandomAccessFile* file,
                           uint64_t file_size,
                           Footer* footer) {
-  if (file_size < Footer::kEncodedLength) {
+  if (file_size < Footer::kMinEncodedLength) {
     return Status::InvalidArgument("file is too short to be an sstable");
   }
 
-  char footer_space[Footer::kEncodedLength];
+  char footer_space[Footer::kMaxEncodedLength];
   Slice footer_input;
-  Status s = file->Read(file_size - Footer::kEncodedLength,
-                        Footer::kEncodedLength,
+  Status s = file->Read(file_size - Footer::kMaxEncodedLength,
+                        Footer::kMaxEncodedLength,
                         &footer_input,
                         footer_space);
   if (!s.ok()) return s;
 
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
-  if (footer_input.size() != Footer::kEncodedLength) {
+  if (footer_input.size() < Footer::kMinEncodedLength) {
     return Status::InvalidArgument("file is too short to be an sstable");
   }
 
@@ -110,6 +154,7 @@ Status ReadFooterFromFile(RandomAccessFile* file,
 }
 
 Status ReadBlockContents(RandomAccessFile* file,
+                         const Footer& footer,
                          const ReadOptions& options,
                          const BlockHandle& handle,
                          BlockContents* result,
@@ -144,9 +189,21 @@ Status ReadBlockContents(RandomAccessFile* file,
   // Check the crc of the type and the block contents
   const char* data = contents.data();    // Pointer to where Read put the data
   if (options.verify_checksums) {
-    const uint32_t crc = crc32c::Unmask(DecodeFixed32(data + n + 1));
-    const uint32_t actual = crc32c::Value(data, n + 1);
-    if (actual != crc) {
+    uint32_t value = DecodeFixed32(data + n + 1);
+    uint32_t actual;
+    switch (footer.checksum()) {
+    case kCRC32c:
+      value = crc32c::Unmask(value);
+      actual = crc32c::Value(data, n + 1);
+      break;
+    case kxxHash:
+      actual = XXH32(data, n + 1, 0);
+      break;
+    default:
+      // FIXME warn about unknown checksum type
+      actual = ~value;
+    }
+    if (actual != value) {
       delete[] buf;
       s = Status::Corruption("block checksum mismatch");
       return s;
@@ -154,8 +211,9 @@ Status ReadBlockContents(RandomAccessFile* file,
     BumpPerfTime(&perf_context.block_checksum_time, &timer);
   }
 
+  rocksdb::CompressionType type = (rocksdb::CompressionType)(data[n]);
   // If the caller has requested that the block not be uncompressed
-  if (!do_uncompress || data[n] == kNoCompression) {
+  if (!do_uncompress || type == kNoCompression) {
     if (data != buf) {
       // File implementation gave us pointer to some other data.
       // Use it directly under the assumption that it will be live
@@ -169,8 +227,8 @@ Status ReadBlockContents(RandomAccessFile* file,
       result->heap_allocated = true;
       result->cachable = true;
     }
-    result->compression_type = (rocksdb::CompressionType)data[n];
-    s =  Status::OK();
+    result->compression_type = type;
+    s = Status::OK();
   } else {
     s = UncompressBlockContents(data, n, result);
     delete[] buf;

@@ -37,6 +37,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -206,12 +207,11 @@ Slice CompressBlock(const Slice& raw,
 }  // anonymous namespace
 
 // kBlockBasedTableMagicNumber was picked by running
-//    echo http://code.google.com/p/leveldb/ | sha1sum
+//    echo rocksdb.table.block_based | sha1sum
 // and taking the leading 64 bits.
 // Please note that kBlockBasedTableMagicNumber may also be accessed by
 // other .cc files so it have to be explicitly declared with "extern".
-extern const uint64_t kBlockBasedTableMagicNumber
-    = 0xdb4775248b80fb57ull;
+extern const uint64_t kBlockBasedTableMagicNumber = 0x88e241b785f4cff7ull;
 
 // A collector that collects properties of interest to block-based table.
 // For now this class looks heavy-weight since we only write one additional
@@ -264,6 +264,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string last_key;
   CompressionType compression_type;
+  ChecksumType checksum_type;
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
@@ -415,9 +416,24 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
-    uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
-    crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
-    EncodeFixed32(trailer+1, crc32c::Mask(crc));
+    switch (r->options.checksum) {
+      case kCRC32c:
+      {
+        uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
+        crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
+        EncodeFixed32(trailer+1, crc32c::Mask(crc));
+        break;
+      }
+      case kxxHash:
+      {
+        void * xxh = XXH32_init(0);
+        XXH32_update(xxh, block_contents.data(), block_contents.size());
+        XXH32_update(xxh, trailer, 1); // Extend xxh to cover block type
+        EncodeFixed32(trailer+1, XXH32_digest(xxh));
+        break;
+      }
+    }
+
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
@@ -571,6 +587,7 @@ Status BlockBasedTableBuilder::Finish() {
     Footer footer(kBlockBasedTableMagicNumber);
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
+    footer.set_checksum(r->options.checksum);
     std::string footer_encoding;
     footer.EncodeTo(&footer_encoding);
     r->status = r->file->Append(footer_encoding);
