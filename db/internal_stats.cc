@@ -30,9 +30,11 @@ DBPropertyType GetPropertyType(const Slice& property) {
   } else if (in == "num-immutable-mem-table") {
     return kNumImmutableMemTable;
   } else if (in == "mem-table-flush-pending") {
-    return MemtableFlushPending;
+    return kMemtableFlushPending;
   } else if (in == "compaction-pending") {
-    return CompactionPending;
+    return kCompactionPending;
+  } else if (in == "background-errors") {
+    return kBackgroundErrors;
   }
   return kUnknown;
 }
@@ -330,15 +332,21 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
     case kNumImmutableMemTable:
       *value = std::to_string(imm.size());
       return true;
-    case MemtableFlushPending:
+    case kMemtableFlushPending:
       // Return number of mem tables that are ready to flush (made immutable)
       *value = std::to_string(imm.IsFlushPending() ? 1 : 0);
       return true;
-    case CompactionPending:
+    case kCompactionPending:
       // 1 if the system already determines at least one compacdtion is needed.
       // 0 otherwise,
       *value = std::to_string(current->NeedsCompaction() ? 1 : 0);
       return true;
+    /////////////
+    case kBackgroundErrors:
+      // Accumulated number of  errors in background flushes or compactions.
+      *value = std::to_string(GetBackgroundErrorCount());
+      return true;
+    /////////
     default:
       return false;
   }

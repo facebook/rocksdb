@@ -4188,11 +4188,53 @@ TEST(DBTest, NoSpace) {
         dbfull()->TEST_CompactRange(level, nullptr, nullptr);
       }
     }
+
+    std::string property_value;
+    ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
+    ASSERT_EQ("5", property_value);
+
     env_->no_space_.Release_Store(nullptr);
     ASSERT_LT(CountFiles(), num_files + 3);
 
     // Check that compaction attempts slept after errors
     ASSERT_GE(env_->sleep_counter_.Read(), 5);
+  } while (ChangeCompactOptions());
+}
+
+// Check background error counter bumped on flush failures.
+TEST(DBTest, NoSpaceFlush) {
+  do {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.max_background_flushes = 1;
+    Reopen(&options);
+
+    ASSERT_OK(Put("foo", "v1"));
+    env_->no_space_.Release_Store(env_);  // Force out-of-space errors
+
+    std::string property_value;
+    // Background error count is 0 now.
+    ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
+    ASSERT_EQ("0", property_value);
+
+    dbfull()->TEST_FlushMemTable(false);
+
+    // Wait 300 milliseconds or background-errors turned 1 from 0.
+    int time_to_sleep_limit = 300000;
+    while (time_to_sleep_limit > 0) {
+      int to_sleep = (time_to_sleep_limit > 1000) ? 1000 : time_to_sleep_limit;
+      time_to_sleep_limit -= to_sleep;
+      env_->SleepForMicroseconds(to_sleep);
+
+      ASSERT_TRUE(
+          db_->GetProperty("rocksdb.background-errors", &property_value));
+      if (property_value == "1") {
+        break;
+      }
+    }
+    ASSERT_EQ("1", property_value);
+
+    env_->no_space_.Release_Store(nullptr);
   } while (ChangeCompactOptions());
 }
 

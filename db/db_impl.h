@@ -109,7 +109,7 @@ class DBImpl : public DB {
                            const Slice* end);
 
   // Force current memtable contents to be flushed.
-  Status TEST_FlushMemTable();
+  Status TEST_FlushMemTable(bool wait = true);
 
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable();

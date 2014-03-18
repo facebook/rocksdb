@@ -26,9 +26,11 @@ enum DBPropertyType {
   kStats,            // Return general statitistics of DB
   kSsTables,         // Return a human readable string of current SST files
   kNumImmutableMemTable,  // Return number of immutable mem tables
-  MemtableFlushPending,  // Return 1 if mem table flushing is pending, otherwise
-                         // 0.
-  CompactionPending,     // Return 1 if a compaction is pending. Otherwise 0.
+  kMemtableFlushPending,  // Return 1 if mem table flushing is pending,
+                          // otherwise
+                          // 0.
+  kCompactionPending,     // Return 1 if a compaction is pending. Otherwise 0.
+  kBackgroundErrors,      // Return accumulated background errors encountered.
   kUnknown,
 };
 
@@ -49,6 +51,7 @@ class InternalStats {
         stall_counts_(WRITE_STALLS_ENUM_MAX, 0),
         stall_leveln_slowdown_(num_levels, 0),
         stall_leveln_slowdown_count_(num_levels, 0),
+        bg_error_count_(0),
         number_levels_(num_levels),
         statistics_(statistics),
         env_(env),
@@ -116,6 +119,10 @@ class InternalStats {
     stall_leveln_slowdown_count_[level] += micros;
   }
 
+  uint64_t GetBackgroundErrorCount() const { return bg_error_count_; }
+
+  uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
+
   bool GetProperty(DBPropertyType property_type, const Slice& property,
                    std::string* value, VersionSet* version_set,
                    const MemTableList& imm);
@@ -157,6 +164,13 @@ class InternalStats {
   std::vector<uint64_t> stall_counts_;
   std::vector<uint64_t> stall_leveln_slowdown_;
   std::vector<uint64_t> stall_leveln_slowdown_count_;
+
+  // Total number of background errors encountered. Every time a flush task
+  // or compaction task fails, this counter is incremented. The failure can
+  // be caused by any possible reason, including file system errors, out of
+  // resources, or input file corruption. Failing when retrying the same flush
+  // or compaction will cause the counter to increase too.
+  uint64_t bg_error_count_;
 
   int number_levels_;
   Statistics* statistics_;

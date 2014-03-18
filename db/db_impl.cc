@@ -9,6 +9,8 @@
 
 #include "db/db_impl.h"
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <algorithm>
 #include <climits>
 #include <cstdio>
@@ -1806,8 +1808,10 @@ Status DBImpl::WaitForFlushMemTable() {
   return s;
 }
 
-Status DBImpl::TEST_FlushMemTable() {
-  return FlushMemTable(FlushOptions());
+Status DBImpl::TEST_FlushMemTable(bool wait) {
+  FlushOptions fo;
+  fo.wait = wait;
+  return FlushMemTable(fo);
 }
 
 Status DBImpl::TEST_WaitForFlushMemTable() {
@@ -1904,10 +1908,13 @@ void DBImpl::BackgroundCallFlush() {
         // case this is an environmental problem and we do not want to
         // chew up resources for failed compactions for the duration of
         // the problem.
+        uint64_t error_cnt = internal_stats_.BumpAndGetBackgroundErrorCount();
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
-        Log(options_.info_log, "Waiting after background flush error: %s",
-            s.ToString().c_str());
         mutex_.Unlock();
+        Log(options_.info_log,
+            "Waiting after background flush error: %s"
+            "Accumulated background error counts: %" PRIu64,
+            s.ToString().c_str(), error_cnt);
         log_buffer.FlushBufferToLog();
         LogFlush(options_.info_log);
         env_->SleepForMicroseconds(1000000);
@@ -1978,11 +1985,14 @@ void DBImpl::BackgroundCallCompaction() {
         // case this is an environmental problem and we do not want to
         // chew up resources for failed compactions for the duration of
         // the problem.
+        uint64_t error_cnt = internal_stats_.BumpAndGetBackgroundErrorCount();
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
         mutex_.Unlock();
         log_buffer.FlushBufferToLog();
-        Log(options_.info_log, "Waiting after background compaction error: %s",
-            s.ToString().c_str());
+        Log(options_.info_log,
+            "Waiting after background compaction error: %s, "
+            "Accumulated background error counts: %" PRIu64,
+            s.ToString().c_str(), error_cnt);
         LogFlush(options_.info_log);
         env_->SleepForMicroseconds(1000000);
         mutex_.Lock();
