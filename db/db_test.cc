@@ -2055,6 +2055,94 @@ TEST(DBTest, NumImmutableMemTable) {
   } while (ChangeCompactOptions());
 }
 
+class SleepingBackgroundTask {
+ public:
+  explicit SleepingBackgroundTask(Env* env)
+      : env_(env), bg_cv_(&mutex_), should_sleep_(true) {}
+  void DoSleep() {
+    MutexLock l(&mutex_);
+    while (should_sleep_) {
+      bg_cv_.Wait();
+    }
+  }
+  void WakeUp() {
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    bg_cv_.SignalAll();
+  }
+
+  static void DoSleepTask(void* arg) {
+    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+  }
+
+ private:
+  const Env* env_;
+  port::Mutex mutex_;
+  port::CondVar bg_cv_;  // Signalled when background work finishes
+  bool should_sleep_;
+};
+
+TEST(DBTest, GetProperty) {
+  // Set sizes to both background thread pool to be 1 and block them.
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  SleepingBackgroundTask sleeping_task_low(env_);
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  SleepingBackgroundTask sleeping_task_high(env_);
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_high,
+                 Env::Priority::HIGH);
+
+  Options options = CurrentOptions();
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = 1;
+  options.compaction_options_universal.size_ratio = 50;
+  options.max_background_compactions = 1;
+  options.max_background_flushes = 1;
+  options.max_write_buffer_number = 10;
+  options.min_write_buffer_number_to_merge = 1;
+  options.write_buffer_size = 1000000;
+  Reopen(&options);
+
+  std::string big_value(1000000 * 2, 'x');
+  std::string num;
+  SetPerfLevel(kEnableTime);
+
+  ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
+  ASSERT_EQ(num, "0");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.mem-table-flush-pending", &num));
+  ASSERT_EQ(num, "0");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
+  ASSERT_EQ(num, "0");
+  perf_context.Reset();
+
+  ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
+  ASSERT_EQ(num, "1");
+  ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
+  ASSERT_EQ(num, "2");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.mem-table-flush-pending", &num));
+  ASSERT_EQ(num, "1");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
+  ASSERT_EQ(num, "0");
+
+  sleeping_task_high.WakeUp();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  ASSERT_OK(dbfull()->Put(writeOpt, "k4", big_value));
+  ASSERT_OK(dbfull()->Put(writeOpt, "k5", big_value));
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.mem-table-flush-pending", &num));
+  ASSERT_EQ(num, "0");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
+  ASSERT_EQ(num, "1");
+  sleeping_task_low.WakeUp();
+}
+
 TEST(DBTest, FLUSH) {
   do {
     Options options = CurrentOptions();

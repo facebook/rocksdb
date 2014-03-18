@@ -86,7 +86,7 @@ class MemTableList {
 
   // Returns true if there is at least one memtable on which flush has
   // not yet started.
-  bool IsFlushPending();
+  bool IsFlushPending() const;
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.

@@ -17,6 +17,23 @@
 #include <string>
 
 namespace rocksdb {
+
+class MemTableList;
+
+enum DBPropertyType {
+  kNumFilesAtLevel,  // Number of files at a specific level
+  kLevelStats,       // Return number of files and total sizes of each level
+  kStats,            // Return general statitistics of DB
+  kSsTables,         // Return a human readable string of current SST files
+  kNumImmutableMemTable,  // Return number of immutable mem tables
+  MemtableFlushPending,  // Return 1 if mem table flushing is pending, otherwise
+                         // 0.
+  CompactionPending,     // Return 1 if a compaction is pending. Otherwise 0.
+  kUnknown,
+};
+
+extern DBPropertyType GetPropertyType(const Slice& property);
+
 class InternalStats {
  public:
   enum WriteStallType {
@@ -99,8 +116,9 @@ class InternalStats {
     stall_leveln_slowdown_count_[level] += micros;
   }
 
-  bool GetProperty(const Slice& property, std::string* value,
-                   VersionSet* version_set, int immsize);
+  bool GetProperty(DBPropertyType property_type, const Slice& property,
+                   std::string* value, VersionSet* version_set,
+                   const MemTableList& imm);
 
  private:
   std::vector<CompactionStats> compaction_stats_;

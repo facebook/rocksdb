@@ -92,7 +92,7 @@ void MemTableListVersion::Remove(MemTable* m) {
 
 // Returns true if there is at least one memtable on which flush has
 // not yet started.
-bool MemTableList::IsFlushPending() {
+bool MemTableList::IsFlushPending() const {
   if ((flush_requested_ && num_flush_not_started_ >= 1) ||
       (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
     assert(imm_flush_needed.NoBarrier_Load() != nullptr);

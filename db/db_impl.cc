@@ -3696,9 +3696,10 @@ const Options& DBImpl::GetOptions() const {
 
 bool DBImpl::GetProperty(const Slice& property, std::string* value) {
   value->clear();
+  DBPropertyType property_type = GetPropertyType(property);
   MutexLock l(&mutex_);
-  return internal_stats_.GetProperty(property, value, versions_.get(),
-                                     imm_.size());
+  return internal_stats_.GetProperty(property_type, property, value,
+                                     versions_.get(), imm_);
 }
 
 void DBImpl::GetApproximateSizes(
