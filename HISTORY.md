@@ -5,8 +5,6 @@
   removed from background compaction process. Flush process is now always
   executed in high priority thread pool.
 * Column family support
-* If you write something to the non-default column family with disableWAL = true,
-  you need to Flush the column family before exiting if you want your data to be persistent
 
 ## Unreleased (will be relased in 2.8)
 
