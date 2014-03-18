@@ -68,7 +68,7 @@ libraries. You are on your own.
     We did not run any production workloads on it.
 
 ## Compilation
-`make clean; make` will compile librocksdb.a (RocskDB static library) and all
+`make clean; make` will compile librocksdb.a (RocksDB static library) and all
 the unit tests. You can run all unit tests with `make check`.
 
 For shared library builds, exec `make shared_lib` instead.
