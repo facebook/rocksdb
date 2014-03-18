@@ -354,9 +354,9 @@ class PosixMmapFile : public WritableFile {
   char* dst_;             // Where to write next  (in range [base_,limit_])
   char* last_sync_;       // Where have we synced up to
   uint64_t file_offset_;  // Offset of base_ in file
-
   // Have we done an munmap of unsynced data?
   bool pending_sync_;
+  bool fallocate_with_keep_size_;
 
   // Roundup x to a multiple of y
   static size_t Roundup(size_t x, size_t y) {
@@ -399,7 +399,12 @@ class PosixMmapFile : public WritableFile {
     assert(base_ == nullptr);
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
-    int alloc_status = posix_fallocate(fd_, file_offset_, map_size_);
+    // we can't fallocate with FALLOC_FL_KEEP_SIZE here
+    int alloc_status = fallocate(fd_, 0, file_offset_, map_size_);
+    if (alloc_status != 0) {
+      // fallback to posix_fallocate
+      alloc_status = posix_fallocate(fd_, file_offset_, map_size_);
+    }
     if (alloc_status != 0) {
       return Status::IOError("Error allocating space to file : " + filename_ +
         "Error : " + strerror(alloc_status));
@@ -436,7 +441,8 @@ class PosixMmapFile : public WritableFile {
         dst_(nullptr),
         last_sync_(nullptr),
         file_offset_(0),
-        pending_sync_(false) {
+        pending_sync_(false),
+        fallocate_with_keep_size_(options.fallocate_with_keep_size) {
     assert((page_size & (page_size - 1)) == 0);
     assert(options.use_mmap_writes);
   }
@@ -584,7 +590,9 @@ class PosixMmapFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
-    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+    int alloc_status = fallocate(
+        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
+    if (alloc_status == 0) {
       return Status::OK();
     } else {
       return IOError(filename_, errno);
@@ -606,20 +614,22 @@ class PosixWritableFile : public WritableFile {
   bool pending_fsync_;
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
+  bool fallocate_with_keep_size_;
 
  public:
   PosixWritableFile(const std::string& fname, int fd, size_t capacity,
-                    const EnvOptions& options) :
-    filename_(fname),
-    fd_(fd),
-    cursize_(0),
-    capacity_(capacity),
-    buf_(new char[capacity]),
-    filesize_(0),
-    pending_sync_(false),
-    pending_fsync_(false),
-    last_sync_size_(0),
-    bytes_per_sync_(options.bytes_per_sync) {
+                    const EnvOptions& options)
+      : filename_(fname),
+        fd_(fd),
+        cursize_(0),
+        capacity_(capacity),
+        buf_(new char[capacity]),
+        filesize_(0),
+        pending_sync_(false),
+        pending_fsync_(false),
+        last_sync_size_(0),
+        bytes_per_sync_(options.bytes_per_sync),
+        fallocate_with_keep_size_(options.fallocate_with_keep_size) {
     assert(!options.use_mmap_writes);
   }
 
@@ -771,7 +781,9 @@ class PosixWritableFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
-    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+    int alloc_status = fallocate(
+        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
+    if (alloc_status == 0) {
       return Status::OK();
     } else {
       return IOError(filename_, errno);
@@ -797,14 +809,15 @@ class PosixRandomRWFile : public RandomRWFile {
   int fd_;
   bool pending_sync_;
   bool pending_fsync_;
+  bool fallocate_with_keep_size_;
 
  public:
-  PosixRandomRWFile(const std::string& fname, int fd,
-                    const EnvOptions& options) :
-      filename_(fname),
-      fd_(fd),
-      pending_sync_(false),
-      pending_fsync_(false) {
+  PosixRandomRWFile(const std::string& fname, int fd, const EnvOptions& options)
+      : filename_(fname),
+        fd_(fd),
+        pending_sync_(false),
+        pending_fsync_(false),
+        fallocate_with_keep_size_(options.fallocate_with_keep_size) {
     assert(!options.use_mmap_writes && !options.use_mmap_reads);
   }
 
@@ -874,7 +887,10 @@ class PosixRandomRWFile : public RandomRWFile {
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) {
-    if (!fallocate(fd_, FALLOC_FL_KEEP_SIZE, offset, len)) {
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    int alloc_status = fallocate(
+        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
+    if (alloc_status == 0) {
       return Status::OK();
     } else {
       return IOError(filename_, errno);
@@ -1330,6 +1346,20 @@ class PosixEnv : public Env {
              t.tm_min,
              t.tm_sec);
     return dummy;
+  }
+
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const {
+    EnvOptions optimized = env_options;
+    optimized.use_mmap_writes = false;
+    optimized.fallocate_with_keep_size = true;
+    return optimized;
+  }
+
+  EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options) const {
+    EnvOptions optimized = env_options;
+    optimized.use_mmap_writes = false;
+    optimized.fallocate_with_keep_size = true;
+    return optimized;
   }
 
  private:

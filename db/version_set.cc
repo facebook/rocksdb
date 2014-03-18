@@ -1564,7 +1564,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       unique_ptr<WritableFile> descriptor_file;
       s = env_->NewWritableFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_),
-          &descriptor_file, storage_options_.AdaptForLogWrite());
+          &descriptor_file, env_->OptimizeForManifestWrite(storage_options_));
       if (s.ok()) {
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
         s = WriteSnapshot(descriptor_log_.get());

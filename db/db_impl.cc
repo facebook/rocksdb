@@ -456,8 +456,8 @@ Status DBImpl::NewDB() {
 
   const std::string manifest = DescriptorFileName(dbname_, 1);
   unique_ptr<WritableFile> file;
-  Status s = env_->NewWritableFile(manifest, &file,
-                                   storage_options_.AdaptForLogWrite());
+  Status s = env_->NewWritableFile(
+      manifest, &file, env_->OptimizeForManifestWrite(storage_options_));
   if (!s.ok()) {
     return s;
   }
@@ -3626,7 +3626,8 @@ Status DBImpl::MakeRoomForWrite(bool force,
       {
         DelayLoggingAndReset();
         s = env_->NewWritableFile(LogFileName(options_.wal_dir, new_log_number),
-                                  &lfile, storage_options_.AdaptForLogWrite());
+                                  &lfile,
+                                  env_->OptimizeForLogWrite(storage_options_));
         if (s.ok()) {
           // Our final size should be less than write_buffer_size
           // (compression, etc) but err on the side of caution.
@@ -3912,7 +3913,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     EnvOptions soptions(options);
     s = impl->options_.env->NewWritableFile(
         LogFileName(impl->options_.wal_dir, new_log_number), &lfile,
-        soptions.AdaptForLogWrite());
+        impl->options_.env->OptimizeForLogWrite(soptions));
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * impl->options_.write_buffer_size);
       VersionEdit edit;
