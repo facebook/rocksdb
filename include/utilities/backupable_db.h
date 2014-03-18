@@ -55,19 +55,39 @@ struct BackupableDBOptions {
   // Default: false
   bool destroy_old_data;
 
+  // If false, we won't backup log files. This option can be useful for backing
+  // up in-memory databases where log file are persisted, but table files are in
+  // memory.
+  // Default: true
+  bool backup_log_files;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(const std::string& _backup_dir,
                                Env* _backup_env = nullptr,
                                bool _share_table_files = true,
                                Logger* _info_log = nullptr, bool _sync = true,
-                               bool _destroy_old_data = false)
+                               bool _destroy_old_data = false,
+                               bool _backup_log_files = true)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
         info_log(_info_log),
         sync(_sync),
-        destroy_old_data(_destroy_old_data) {}
+        destroy_old_data(_destroy_old_data),
+        backup_log_files(_backup_log_files) {}
+};
+
+struct RestoreOptions {
+  // If true, restore won't overwrite the existing log files in wal_dir. It will
+  // also move all log files from archive directory to wal_dir. Use this option
+  // in combination with BackupableDBOptions::backup_log_files = false for
+  // persisting in-memory databases.
+  // Default: false
+  bool keep_log_files;
+
+  explicit RestoreOptions(bool _keep_log_files = false)
+      : keep_log_files(_keep_log_files) {}
 };
 
 typedef uint32_t BackupID;
@@ -96,11 +116,12 @@ class BackupEngine {
   virtual void StopBackup() = 0;
 
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
-  virtual Status RestoreDBFromBackup(BackupID backup_id,
-                                     const std::string& db_dir,
-                                     const std::string& wal_dir) = 0;
-  virtual Status RestoreDBFromLatestBackup(const std::string& db_dir,
-                                           const std::string& wal_dir) = 0;
+  virtual Status RestoreDBFromBackup(
+      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
+      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+  virtual Status RestoreDBFromLatestBackup(
+      const std::string& db_dir, const std::string& wal_dir,
+      const RestoreOptions& restore_options = RestoreOptions()) = 0;
 };
 
 // Stack your DB with BackupableDB to be able to backup the DB
@@ -156,11 +177,15 @@ class RestoreBackupableDB {
   // If you want to create new backup, you will first have to delete backups 4
   // and 5.
   Status RestoreDBFromBackup(BackupID backup_id, const std::string& db_dir,
-                             const std::string& wal_dir);
+                             const std::string& wal_dir,
+                             const RestoreOptions& restore_options =
+                                 RestoreOptions());
 
   // restore from the latest backup
   Status RestoreDBFromLatestBackup(const std::string& db_dir,
-                                   const std::string& wal_dir);
+                                   const std::string& wal_dir,
+                                   const RestoreOptions& restore_options =
+                                       RestoreOptions());
   // deletes old backups, keeping latest num_backups_to_keep alive
   Status PurgeOldBackups(uint32_t num_backups_to_keep);
   // deletes a specific backup

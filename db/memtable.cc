@@ -78,21 +78,23 @@ bool MemTable::ShouldFlushNow() const {
   auto allocated_memory =
       table_->ApproximateMemoryUsage() + arena_.MemoryAllocatedBytes();
 
-  if (allocated_memory + kArenaBlockSize * kAllowOverAllocationRatio <
-      kWriteBufferSize) {
+  // if we can still allocate one more block without exceeding the
+  // over-allocation ratio, then we should not flush.
+  if (allocated_memory + kArenaBlockSize <
+      kWriteBufferSize + kArenaBlockSize * kAllowOverAllocationRatio) {
     return false;
   }
 
   // if user keeps adding entries that exceeds kWriteBufferSize, we need to
-  // flush
-  // earlier even though we still have much available memory left.
-  if (allocated_memory > kWriteBufferSize * (1 + kAllowOverAllocationRatio)) {
+  // flush earlier even though we still have much available memory left.
+  if (allocated_memory >
+      kWriteBufferSize + kArenaBlockSize * kAllowOverAllocationRatio) {
     return true;
   }
 
   // In this code path, Arena has already allocated its "last block", which
   // means the total allocatedmemory size is either:
-  //  (1) "moderately" over allocated the memory (no more than `0.4 * arena
+  //  (1) "moderately" over allocated the memory (no more than `0.6 * arena
   // block size`. Or,
   //  (2) the allocated memory is less than write buffer size, but we'll stop
   // here since if we allocate a new arena block, we'll over allocate too much

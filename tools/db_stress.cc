@@ -979,13 +979,14 @@ class StressTest {
     }
 
     int count = 0;
-    while (iters[0]->Valid()) {
+    while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
       count++;
       std::string values[10];
       // get list of all values for this iteration
       for (int i = 0; i < 10; i++) {
         // no iterator should finish before the first one
-        assert(iters[i]->Valid());
+        assert(iters[i]->Valid() &&
+               iters[i]->key().starts_with(prefix_slices[i]));
         values[i] = iters[i]->value().ToString();
 
         char expected_first = (prefixes[i])[0];
@@ -1013,7 +1014,8 @@ class StressTest {
     // cleanup iterators and snapshot
     for (int i = 0; i < 10; i++) {
       // if the first iterator finished, they should have all finished
-      assert(!iters[i]->Valid());
+      assert(!iters[i]->Valid() ||
+             !iters[i]->key().starts_with(prefix_slices[i]));
       assert(iters[i]->status().ok());
       delete iters[i];
     }

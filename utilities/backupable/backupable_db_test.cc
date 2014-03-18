@@ -402,16 +402,20 @@ class BackupableDBTest {
   // if backup_id == 0, it means restore from latest
   // if end == 0, don't check AssertEmpty
   void AssertBackupConsistency(BackupID backup_id, uint32_t start_exist,
-                               uint32_t end_exist, uint32_t end = 0) {
+                               uint32_t end_exist, uint32_t end = 0,
+                               bool keep_log_files = false) {
+    RestoreOptions restore_options(keep_log_files);
     bool opened_restore = false;
     if (restore_db_.get() == nullptr) {
       opened_restore = true;
       OpenRestoreDB();
     }
     if (backup_id > 0) {
-      ASSERT_OK(restore_db_->RestoreDBFromBackup(backup_id, dbname_, dbname_));
+      ASSERT_OK(restore_db_->RestoreDBFromBackup(backup_id, dbname_, dbname_,
+                                                 restore_options));
     } else {
-      ASSERT_OK(restore_db_->RestoreDBFromLatestBackup(dbname_, dbname_));
+      ASSERT_OK(restore_db_->RestoreDBFromLatestBackup(dbname_, dbname_,
+                                                       restore_options));
     }
     DB* db = OpenDB();
     AssertExists(db, start_exist, end_exist);
@@ -793,6 +797,27 @@ TEST(BackupableDBTest, DeleteTmpFiles) {
   ASSERT_EQ(false, file_manager_->FileExists(shared_tmp));
   ASSERT_EQ(false, file_manager_->FileExists(private_tmp_file));
   ASSERT_EQ(false, file_manager_->FileExists(private_tmp_dir));
+}
+
+TEST(BackupableDBTest, KeepLogFiles) {
+  // basically infinite
+  backupable_options_->backup_log_files = false;
+  options_.WAL_ttl_seconds = 24 * 60 * 60;
+  OpenBackupableDB(true);
+  FillDB(db_.get(), 0, 100);
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  FillDB(db_.get(), 100, 200);
+  ASSERT_OK(db_->CreateNewBackup(false));
+  FillDB(db_.get(), 200, 300);
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  FillDB(db_.get(), 300, 400);
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  FillDB(db_.get(), 400, 500);
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseBackupableDB();
+
+  // all data should be there if we call with keep_log_files = true
+  AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
 } // anon namespace

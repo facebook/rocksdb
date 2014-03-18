@@ -35,6 +35,8 @@ void BackupableDBOptions::Dump(Logger* logger) const {
   Log(logger, "             Options.sync: %d", static_cast<int>(sync));
   Log(logger, " Options.destroy_old_data: %d",
       static_cast<int>(destroy_old_data));
+  Log(logger, " Options.backup_log_files: %d",
+      static_cast<int>(backup_log_files));
 }
 
 // -------- BackupEngineImpl class ---------
@@ -50,14 +52,21 @@ class BackupEngineImpl : public BackupEngine {
   }
 
   void GetBackupInfo(std::vector<BackupInfo>* backup_info);
-  Status RestoreDBFromBackup(BackupID backup_id, const std::string &db_dir,
-                             const std::string &wal_dir);
-  Status RestoreDBFromLatestBackup(const std::string &db_dir,
-                                   const std::string &wal_dir) {
-    return RestoreDBFromBackup(latest_backup_id_, db_dir, wal_dir);
+  Status RestoreDBFromBackup(BackupID backup_id, const std::string& db_dir,
+                             const std::string& wal_dir,
+                             const RestoreOptions& restore_options =
+                                 RestoreOptions());
+  Status RestoreDBFromLatestBackup(const std::string& db_dir,
+                                   const std::string& wal_dir,
+                                   const RestoreOptions& restore_options =
+                                       RestoreOptions()) {
+    return RestoreDBFromBackup(latest_backup_id_, db_dir, wal_dir,
+                               restore_options);
   }
 
  private:
+  void DeleteChildren(const std::string& dir, uint32_t file_type_filter = 0);
+
   struct FileInfo {
     FileInfo(const std::string& fname, uint64_t sz, uint32_t checksum)
       : refs(0), filename(fname), size(sz), checksum_value(checksum) {}
@@ -314,7 +323,8 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     // this will return live_files prefixed with "/"
     s = db->GetLiveFiles(live_files, &manifest_file_size, flush_before_backup);
   }
-  if (s.ok()) {
+  // if we didn't flush before backup, we need to also get WAL files
+  if (s.ok() && !flush_before_backup && options_.backup_log_files) {
     // returns file names prefixed with "/"
     s = db->GetSortedWalFiles(live_wal_files);
   }
@@ -468,9 +478,9 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
   }
 }
 
-Status BackupEngineImpl::RestoreDBFromBackup(BackupID backup_id,
-                                             const std::string& db_dir,
-                                             const std::string& wal_dir) {
+Status BackupEngineImpl::RestoreDBFromBackup(
+    BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
+    const RestoreOptions& restore_options) {
   auto backup_itr = backups_.find(backup_id);
   if (backup_itr == backups_.end()) {
     return Status::NotFound("Backup not found");
@@ -481,25 +491,40 @@ Status BackupEngineImpl::RestoreDBFromBackup(BackupID backup_id,
   }
 
   Log(options_.info_log, "Restoring backup id %u\n", backup_id);
+  Log(options_.info_log, "keep_log_files: %d\n",
+      static_cast<int>(restore_options.keep_log_files));
 
   // just in case. Ignore errors
   db_env_->CreateDirIfMissing(db_dir);
   db_env_->CreateDirIfMissing(wal_dir);
 
-  // delete log files that might have been already in wal_dir.
-  // This is important since they might get replayed to the restored DB,
-  // which will then differ from the backuped DB
-  std::vector<std::string> delete_children;
-  db_env_->GetChildren(wal_dir, &delete_children); // ignore errors
-  for (auto f : delete_children) {
-    db_env_->DeleteFile(wal_dir + "/" + f); // ignore errors
-  }
-  // Also delete all the db_dir children. This is not so important
-  // because obsolete files will be deleted by DBImpl::PurgeObsoleteFiles()
-  delete_children.clear();
-  db_env_->GetChildren(db_dir, &delete_children); // ignore errors
-  for (auto f : delete_children) {
-    db_env_->DeleteFile(db_dir + "/" + f); // ignore errors
+  if (restore_options.keep_log_files) {
+    // delete files in db_dir, but keep all the log files
+    DeleteChildren(db_dir, 1 << kLogFile);
+    // move all the files from archive dir to wal_dir
+    std::string archive_dir = ArchivalDirectory(wal_dir);
+    std::vector<std::string> archive_files;
+    db_env_->GetChildren(archive_dir, &archive_files);  // ignore errors
+    for (const auto& f : archive_files) {
+      uint64_t number;
+      FileType type;
+      bool ok = ParseFileName(f, &number, &type);
+      if (ok && type == kLogFile) {
+        Log(options_.info_log, "Moving log file from archive/ to wal_dir: %s",
+            f.c_str());
+        Status s =
+            db_env_->RenameFile(archive_dir + "/" + f, wal_dir + "/" + f);
+        if (!s.ok()) {
+          // if we can't move log file from archive_dir to wal_dir,
+          // we should fail, since it might mean data loss
+          return s;
+        }
+      }
+    }
+  } else {
+    DeleteChildren(wal_dir);
+    DeleteChildren(ArchivalDirectory(wal_dir));
+    DeleteChildren(db_dir);
   }
 
   Status s;
@@ -758,6 +783,23 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
   } while (data.size() > 0 && size_limit > 0);
 
   return s;
+}
+
+void BackupEngineImpl::DeleteChildren(const std::string& dir,
+                                      uint32_t file_type_filter) {
+  std::vector<std::string> children;
+  db_env_->GetChildren(dir, &children);  // ignore errors
+
+  for (const auto& f : children) {
+    uint64_t number;
+    FileType type;
+    bool ok = ParseFileName(f, &number, &type);
+    if (ok && (file_type_filter & (1 << type))) {
+      // don't delete this file
+      continue;
+    }
+    db_env_->DeleteFile(dir + "/" + f);  // ignore errors
+  }
 }
 
 void BackupEngineImpl::GarbageCollection(bool full_scan) {
@@ -1042,16 +1084,18 @@ RestoreBackupableDB::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
   backup_engine_->GetBackupInfo(backup_info);
 }
 
-Status RestoreBackupableDB::RestoreDBFromBackup(BackupID backup_id,
-                                                const std::string& db_dir,
-                                                const std::string& wal_dir) {
-  return backup_engine_->RestoreDBFromBackup(backup_id, db_dir, wal_dir);
+Status RestoreBackupableDB::RestoreDBFromBackup(
+    BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
+    const RestoreOptions& restore_options) {
+  return backup_engine_->RestoreDBFromBackup(backup_id, db_dir, wal_dir,
+                                             restore_options);
 }
 
-Status
-RestoreBackupableDB::RestoreDBFromLatestBackup(const std::string& db_dir,
-                                               const std::string& wal_dir) {
-  return backup_engine_->RestoreDBFromLatestBackup(db_dir, wal_dir);
+Status RestoreBackupableDB::RestoreDBFromLatestBackup(
+    const std::string& db_dir, const std::string& wal_dir,
+    const RestoreOptions& restore_options) {
+  return backup_engine_->RestoreDBFromLatestBackup(db_dir, wal_dir,
+                                                   restore_options);
 }
 
 Status RestoreBackupableDB::PurgeOldBackups(uint32_t num_backups_to_keep) {
