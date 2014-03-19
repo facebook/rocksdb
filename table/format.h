@@ -112,14 +112,10 @@ class Footer {
   static const uint64_t kInvalidTableMagicNumber = 0;
 
  private:
-  // Set the table_magic_number only when it was not previously
-  // initialized.  Return true on success.
-  bool set_table_magic_number(uint64_t magic_number) {
-    if (HasInitializedTableMagicNumber()) {
-      table_magic_number_ = magic_number;
-      return true;
-    }
-    return false;
+  // REQUIRES: magic number wasn't initialized.
+  void set_table_magic_number(uint64_t magic_number) {
+    assert(!HasInitializedTableMagicNumber());
+    table_magic_number_ = magic_number;
   }
 
   // return true if @table_magic_number_ is set to a value different
@@ -130,7 +126,7 @@ class Footer {
 
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
-  uint64_t table_magic_number_;
+  uint64_t table_magic_number_ = 0;
 };
 
 // Read the footer from file
