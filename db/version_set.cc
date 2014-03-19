@@ -461,7 +461,6 @@ Version::Version(VersionSet* vset, uint64_t version_number)
       prev_(this),
       refs_(0),
       num_levels_(vset->num_levels_),
-      finalized_(false),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
@@ -479,7 +478,6 @@ void Version::Get(const ReadOptions& options,
                   GetStats* stats,
                   const Options& db_options,
                   bool* value_found) {
-  assert(finalized_);
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = vset_->icmp_.user_comparator();
@@ -643,16 +641,8 @@ bool Version::UpdateStats(const GetStats& stats) {
   return false;
 }
 
-void Version::Finalize(std::vector<uint64_t>& size_being_compacted) {
-  assert(!finalized_);
-  finalized_ = true;
-  // Pre-sort level0 for Get()
-  if (vset_->options_->compaction_style == kCompactionStyleUniversal) {
-    std::sort(files_[0].begin(), files_[0].end(), NewestFirstBySeqNo);
-  } else {
-    std::sort(files_[0].begin(), files_[0].end(), NewestFirst);
-  }
-
+void Version::ComputeCompactionScore(
+    std::vector<uint64_t>& size_being_compacted) {
   double max_score = 0;
   int max_score_level = 0;
 
@@ -1398,6 +1388,13 @@ class VersionSet::Builder {
       }
     }
 
+    // TODO(icanadi) do it in the loop above, which already sorts the files
+    // Pre-sort level0 for Get()
+    if (v->vset_->options_->compaction_style == kCompactionStyleUniversal) {
+      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirstBySeqNo);
+    } else {
+      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirst);
+    }
     CheckConsistency(v);
   }
 
@@ -1575,9 +1572,9 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
       }
     }
 
-    // The calls to Finalize and UpdateFilesBySize are cpu-heavy
+    // The calls to ComputeCompactionScore and UpdateFilesBySize are cpu-heavy
     // and is best called outside the mutex.
-    v->Finalize(size_being_compacted);
+    v->ComputeCompactionScore(size_being_compacted);
     v->UpdateFilesBySize();
 
     // Write new record to MANIFEST log
@@ -1870,7 +1867,7 @@ Status VersionSet::Recover() {
     // Install recovered version
     std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
     compaction_picker_->SizeBeingCompacted(size_being_compacted);
-    v->Finalize(size_being_compacted);
+    v->ComputeCompactionScore(size_being_compacted);
 
     manifest_file_size_ = manifest_file_size;
     AppendVersion(v);
@@ -2074,7 +2071,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     // Install recovered version
     std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
     compaction_picker_->SizeBeingCompacted(size_being_compacted);
-    v->Finalize(size_being_compacted);
+    v->ComputeCompactionScore(size_being_compacted);
 
     AppendVersion(v);
     manifest_file_number_ = next_file;

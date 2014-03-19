@@ -377,6 +377,12 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
   Compaction* c = nullptr;
   int level = -1;
 
+  // Compute the compactions needed. It is better to do it here
+  // and also in LogAndApply(), otherwise the values could be stale.
+  std::vector<uint64_t> size_being_compacted(NumberLevels() - 1);
+  SizeBeingCompacted(size_being_compacted);
+  version->ComputeCompactionScore(size_being_compacted);
+
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   //
