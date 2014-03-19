@@ -97,7 +97,10 @@ DEFINE_bool(histogram, false, "Print histogram of operation timings");
 DEFINE_bool(destroy_db_initially, true,
             "Destroys the database dir before start if this is true");
 
-DEFINE_bool (verbose, false, "Verbose");
+DEFINE_bool(verbose, false, "Verbose");
+
+DEFINE_bool(progress_reports, true,
+            "If true, db_stress will report number of finished operations");
 
 DEFINE_int32(write_buffer_size, rocksdb::Options().write_buffer_size,
              "Number of bytes to buffer in memtable before compacting");
@@ -444,16 +447,18 @@ class Stats {
       last_op_finish_ = now;
     }
 
-    done_++;
-    if (done_ >= next_report_) {
-      if      (next_report_ < 1000)   next_report_ += 100;
-      else if (next_report_ < 5000)   next_report_ += 500;
-      else if (next_report_ < 10000)  next_report_ += 1000;
-      else if (next_report_ < 50000)  next_report_ += 5000;
-      else if (next_report_ < 100000) next_report_ += 10000;
-      else if (next_report_ < 500000) next_report_ += 50000;
-      else                            next_report_ += 100000;
-      fprintf(stdout, "... finished %ld ops%30s\r", done_, "");
+    if (FLAGS_progress_reports) {
+      done_++;
+      if (done_ >= next_report_) {
+        if      (next_report_ < 1000)   next_report_ += 100;
+        else if (next_report_ < 5000)   next_report_ += 500;
+        else if (next_report_ < 10000)  next_report_ += 1000;
+        else if (next_report_ < 50000)  next_report_ += 5000;
+        else if (next_report_ < 100000) next_report_ += 10000;
+        else if (next_report_ < 500000) next_report_ += 50000;
+        else                            next_report_ += 100000;
+        fprintf(stdout, "... finished %ld ops%30s\r", done_, "");
+      }
     }
   }
 
