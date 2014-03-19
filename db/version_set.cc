@@ -485,7 +485,7 @@ void Version::Get(const ReadOptions& options,
   const Comparator* ucmp = vset_->icmp_.user_comparator();
 
   auto merge_operator = db_options.merge_operator.get();
-  auto logger = db_options.info_log;
+  auto logger = db_options.info_log.get();
 
   assert(status->ok() || status->IsMergeInProgress());
   Saver saver;
@@ -496,7 +496,7 @@ void Version::Get(const ReadOptions& options,
   saver.value = value;
   saver.merge_operator = merge_operator;
   saver.merge_context = merge_context;
-  saver.logger = logger.get();
+  saver.logger = logger;
   saver.didIO = false;
   saver.statistics = db_options.statistics.get();
 
@@ -618,7 +618,7 @@ void Version::Get(const ReadOptions& options,
     // do a final merge of nullptr and operands;
     if (merge_operator->FullMerge(user_key, nullptr,
                                   saver.merge_context->GetOperands(),
-                                  value, logger.get())) {
+                                  value, logger)) {
       *status = Status::OK();
     } else {
       RecordTick(db_options.statistics.get(), NUMBER_MERGE_FAILURES);
