@@ -2057,8 +2057,7 @@ TEST(DBTest, NumImmutableMemTable) {
 
 class SleepingBackgroundTask {
  public:
-  explicit SleepingBackgroundTask(Env* env)
-      : env_(env), bg_cv_(&mutex_), should_sleep_(true) {}
+  SleepingBackgroundTask() : bg_cv_(&mutex_), should_sleep_(true) {}
   void DoSleep() {
     MutexLock l(&mutex_);
     while (should_sleep_) {
@@ -2076,7 +2075,6 @@ class SleepingBackgroundTask {
   }
 
  private:
-  const Env* env_;
   port::Mutex mutex_;
   port::CondVar bg_cv_;  // Signalled when background work finishes
   bool should_sleep_;
@@ -2086,10 +2084,10 @@ TEST(DBTest, GetProperty) {
   // Set sizes to both background thread pool to be 1 and block them.
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low(env_);
+  SleepingBackgroundTask sleeping_task_low;
   env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
-  SleepingBackgroundTask sleeping_task_high(env_);
+  SleepingBackgroundTask sleeping_task_high;
   env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_high,
                  Env::Priority::HIGH);
 
