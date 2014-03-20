@@ -1306,9 +1306,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
   edit->SetPrevLogNumber(0);
   // SetLogNumber(log_num) indicates logs with number smaller than log_num
   // will no longer be picked up for recovery.
-  edit->SetLogNumber(
-      mems.back()->GetNextLogNumber()
-  );
+  edit->SetLogNumber(mems.back()->GetNextLogNumber());
 
   std::vector<uint64_t> logs_to_delete;
   for (auto mem : mems) {
@@ -1320,19 +1318,18 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
 
   if (s.ok() && shutting_down_.Acquire_Load()) {
     s = Status::ShutdownInProgress(
-      "Database shutdown started during memtable compaction"
-    );
+        "Database shutdown started during memtable compaction");
   }
 
   if (!s.ok()) {
     imm_.RollbackMemtableFlush(mems, file_number, &pending_outputs_);
-    return s;
+  } else {
+    // Replace immutable memtable with the generated Table
+    s = imm_.InstallMemtableFlushResults(
+        mems, versions_.get(), &mutex_, options_.info_log.get(), file_number,
+        pending_outputs_, &deletion_state.memtables_to_free,
+        db_directory_.get());
   }
-
-  // Replace immutable memtable with the generated Table
-  s = imm_.InstallMemtableFlushResults(
-      mems, versions_.get(), &mutex_, options_.info_log.get(), file_number,
-      pending_outputs_, &deletion_state.memtables_to_free, db_directory_.get());
 
   if (s.ok()) {
     InstallSuperVersion(deletion_state);
@@ -1349,6 +1346,13 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
           logs_to_delete.begin(),
           logs_to_delete.end());
     }
+  }
+
+  if (!s.ok() && !s.IsShutdownInProgress() && options_.paranoid_checks &&
+      bg_error_.ok()) {
+    // if a bad error happened (not ShutdownInProgress) and paranoid_checks is
+    // true, mark DB read-only
+    bg_error_ = s;
   }
   return s;
 }
