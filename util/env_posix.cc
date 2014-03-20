@@ -356,7 +356,9 @@ class PosixMmapFile : public WritableFile {
   uint64_t file_offset_;  // Offset of base_ in file
   // Have we done an munmap of unsynced data?
   bool pending_sync_;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
+#endif
 
   // Roundup x to a multiple of y
   static size_t Roundup(size_t x, size_t y) {
@@ -441,8 +443,10 @@ class PosixMmapFile : public WritableFile {
         dst_(nullptr),
         last_sync_(nullptr),
         file_offset_(0),
-        pending_sync_(false),
-        fallocate_with_keep_size_(options.fallocate_with_keep_size) {
+        pending_sync_(false) {
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+    fallocate_with_keep_size_ = options.fallocate_with_keep_size;
+#endif
     assert((page_size & (page_size - 1)) == 0);
     assert(options.use_mmap_writes);
   }
@@ -614,7 +618,9 @@ class PosixWritableFile : public WritableFile {
   bool pending_fsync_;
   uint64_t last_sync_size_;
   uint64_t bytes_per_sync_;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
+#endif
 
  public:
   PosixWritableFile(const std::string& fname, int fd, size_t capacity,
@@ -628,8 +634,10 @@ class PosixWritableFile : public WritableFile {
         pending_sync_(false),
         pending_fsync_(false),
         last_sync_size_(0),
-        bytes_per_sync_(options.bytes_per_sync),
-        fallocate_with_keep_size_(options.fallocate_with_keep_size) {
+        bytes_per_sync_(options.bytes_per_sync) {
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+    fallocate_with_keep_size_ = options.fallocate_with_keep_size;
+#endif
     assert(!options.use_mmap_writes);
   }
 
@@ -809,15 +817,19 @@ class PosixRandomRWFile : public RandomRWFile {
   int fd_;
   bool pending_sync_;
   bool pending_fsync_;
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
+#endif
 
  public:
   PosixRandomRWFile(const std::string& fname, int fd, const EnvOptions& options)
       : filename_(fname),
         fd_(fd),
         pending_sync_(false),
-        pending_fsync_(false),
-        fallocate_with_keep_size_(options.fallocate_with_keep_size) {
+        pending_fsync_(false) {
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+    fallocate_with_keep_size_ = options.fallocate_with_keep_size;
+#endif
     assert(!options.use_mmap_writes && !options.use_mmap_reads);
   }
 

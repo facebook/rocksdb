@@ -10,7 +10,6 @@
 #include "db/db_impl.h"
 
 #define __STDC_FORMAT_MACROS
-
 #include <inttypes.h>
 #include <algorithm>
 #include <climits>
@@ -1711,8 +1710,10 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
   return s;
 }
 
-Status DBImpl::TEST_FlushMemTable() {
-  return FlushMemTable(default_cf_handle_->cfd(), FlushOptions());
+Status DBImpl::TEST_FlushMemTable(bool wait) {
+  FlushOptions fo;
+  fo.wait = wait;
+  return FlushMemTable(default_cf_handle_->cfd(), fo);
 }
 
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
@@ -1851,10 +1852,15 @@ void DBImpl::BackgroundCallFlush() {
         // case this is an environmental problem and we do not want to
         // chew up resources for failed compactions for the duration of
         // the problem.
+        uint64_t error_cnt = default_cf_handle_->cfd()
+                                 ->internal_stats()
+                                 ->BumpAndGetBackgroundErrorCount();
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
-        Log(options_.info_log, "Waiting after background flush error: %s",
-            s.ToString().c_str());
         mutex_.Unlock();
+        Log(options_.info_log,
+            "Waiting after background flush error: %s"
+            "Accumulated background error counts: %" PRIu64,
+            s.ToString().c_str(), error_cnt);
         log_buffer.FlushBufferToLog();
         LogFlush(options_.info_log);
         env_->SleepForMicroseconds(1000000);
@@ -1925,11 +1931,16 @@ void DBImpl::BackgroundCallCompaction() {
         // case this is an environmental problem and we do not want to
         // chew up resources for failed compactions for the duration of
         // the problem.
+        uint64_t error_cnt = default_cf_handle_->cfd()
+                                 ->internal_stats()
+                                 ->BumpAndGetBackgroundErrorCount();
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
         mutex_.Unlock();
         log_buffer.FlushBufferToLog();
-        Log(options_.info_log, "Waiting after background compaction error: %s",
-            s.ToString().c_str());
+        Log(options_.info_log,
+            "Waiting after background compaction error: %s, "
+            "Accumulated background error counts: %" PRIu64,
+            s.ToString().c_str(), error_cnt);
         LogFlush(options_.info_log);
         env_->SleepForMicroseconds(1000000);
         mutex_.Lock();
@@ -3820,8 +3831,10 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
   value->clear();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  DBPropertyType property_type = GetPropertyType(property);
   MutexLock l(&mutex_);
-  return cfd->internal_stats()->GetProperty(property, value, cfd);
+  return cfd->internal_stats()->GetProperty(property_type, property, value,
+                                            cfd);
 }
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,

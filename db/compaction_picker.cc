@@ -178,7 +178,11 @@ bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
   // If, after the expansion, there are files that are already under
   // compaction, then we must drop/cancel this compaction.
   int parent_index = -1;
-  if (FilesInCompaction(c->inputs_[0]) ||
+  if (c->inputs_[0].empty()) {
+    Log(options_->info_log,
+        "ExpandWhileOverlapping() failure because zero input files");
+  }
+  if (c->inputs_[0].empty() || FilesInCompaction(c->inputs_[0]) ||
       (c->level() != c->output_level() &&
        ParentRangeInCompaction(c->input_version_, &smallest, &largest, level,
                                &parent_index))) {
@@ -368,6 +372,12 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
                                                   LogBuffer* log_buffer) {
   Compaction* c = nullptr;
   int level = -1;
+
+  // Compute the compactions needed. It is better to do it here
+  // and also in LogAndApply(), otherwise the values could be stale.
+  std::vector<uint64_t> size_being_compacted(NumberLevels() - 1);
+  SizeBeingCompacted(size_being_compacted);
+  version->ComputeCompactionScore(size_being_compacted);
 
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.

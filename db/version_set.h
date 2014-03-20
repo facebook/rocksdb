@@ -99,8 +99,9 @@ class Version {
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next
-  // Also pre-sorts level0 files for Get()
-  void Finalize(std::vector<uint64_t>& size_being_compacted);
+  // REQUIRES: If Version is not yet saved to current_, it can be called without
+  // a lock. Once a version is saved to current_, call only with mutex held
+  void ComputeCompactionScore(std::vector<uint64_t>& size_being_compacted);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -234,7 +235,6 @@ class Version {
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
   int num_levels_;              // Number of levels
-  bool finalized_;              // True if Finalized is called
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys

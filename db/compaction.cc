@@ -213,6 +213,7 @@ static void FileSizeSummary(unsigned long long sz, char* output, int len) {
 
 static int InputSummary(std::vector<FileMetaData*>& files, char* output,
                          int len) {
+  *output = '\0';
   int write = 0;
   for (unsigned int i = 0; i < files.size(); i++) {
     int sz = len - write;
@@ -249,9 +250,7 @@ void Compaction::Summary(char* output, int len) {
     return;
   }
 
-  if (inputs_[1].size()) {
-    write += InputSummary(inputs_[1], output+write, len-write);
-  }
+  write += InputSummary(inputs_[1], output+write, len-write);
   if (write < 0 || write >= len) {
     return;
   }

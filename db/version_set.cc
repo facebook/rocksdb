@@ -469,7 +469,6 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       refs_(0),
       // cfd is nullptr if Version is dummy
       num_levels_(cfd == nullptr ? 0 : cfd->NumberLevels()),
-      finalized_(false),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
@@ -487,13 +486,12 @@ void Version::Get(const ReadOptions& options,
                   GetStats* stats,
                   const Options& db_options,
                   bool* value_found) {
-  assert(finalized_);
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
 
   auto merge_operator = db_options.merge_operator.get();
-  auto logger = db_options.info_log;
+  auto logger = db_options.info_log.get();
 
   assert(status->ok() || status->IsMergeInProgress());
   Saver saver;
@@ -504,7 +502,7 @@ void Version::Get(const ReadOptions& options,
   saver.value = value;
   saver.merge_operator = merge_operator;
   saver.merge_context = merge_context;
-  saver.logger = logger.get();
+  saver.logger = logger;
   saver.didIO = false;
   saver.statistics = db_options.statistics.get();
 
@@ -627,7 +625,7 @@ void Version::Get(const ReadOptions& options,
     // do a final merge of nullptr and operands;
     if (merge_operator->FullMerge(user_key, nullptr,
                                   saver.merge_context->GetOperands(),
-                                  value, logger.get())) {
+                                  value, logger)) {
       *status = Status::OK();
     } else {
       RecordTick(db_options.statistics.get(), NUMBER_MERGE_FAILURES);
@@ -652,16 +650,8 @@ bool Version::UpdateStats(const GetStats& stats) {
   return false;
 }
 
-void Version::Finalize(std::vector<uint64_t>& size_being_compacted) {
-  assert(!finalized_);
-  finalized_ = true;
-  // Pre-sort level0 for Get()
-  if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
-    std::sort(files_[0].begin(), files_[0].end(), NewestFirstBySeqNo);
-  } else {
-    std::sort(files_[0].begin(), files_[0].end(), NewestFirst);
-  }
-
+void Version::ComputeCompactionScore(
+    std::vector<uint64_t>& size_being_compacted) {
   double max_score = 0;
   int max_score_level = 0;
 
@@ -1408,6 +1398,13 @@ class VersionSet::Builder {
       }
     }
 
+    // TODO(icanadi) do it in the loop above, which already sorts the files
+    // Pre-sort level0 for Get()
+    if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
+      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirstBySeqNo);
+    } else {
+      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirst);
+    }
     CheckConsistency(v);
   }
 
@@ -1605,9 +1602,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     }
 
     if (!edit->IsColumnFamilyManipulation()) {
-      // The calls to Finalize and UpdateFilesBySize are cpu-heavy
+      // The calls to ComputeCompactionScore and UpdateFilesBySize are cpu-heavy
       // and is best called outside the mutex.
-      v->Finalize(size_being_compacted);
+      v->ComputeCompactionScore(size_being_compacted);
       v->UpdateFilesBySize();
     }
 
@@ -2040,7 +2037,7 @@ Status VersionSet::Recover(
       // Install recovered version
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->Finalize(size_being_compacted);
+      v->ComputeCompactionScore(size_being_compacted);
       v->UpdateFilesBySize();
       AppendVersion(cfd, v);
     }
@@ -2373,7 +2370,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       builder->SaveTo(v);
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->Finalize(size_being_compacted);
+      v->ComputeCompactionScore(size_being_compacted);
       v->UpdateFilesBySize();
       delete builder;
 
@@ -2709,8 +2706,6 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
       edit->column_family_name_, edit->column_family_, dummy_versions, options);
 
   Version* v = new Version(new_cfd, this, current_version_number_++);
-  std::vector<uint64_t> size_being_compacted(options.num_levels - 1, 0);
-  v->Finalize(size_being_compacted);
 
   AppendVersion(new_cfd, v);
   new_cfd->CreateNewMemtable();

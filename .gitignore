@@ -22,3 +22,4 @@ build_tools/VALGRIND_LOGS/
 coverage/COVERAGE_REPORT
 .gdbhistory
 .phutil_module_cache
+tags
