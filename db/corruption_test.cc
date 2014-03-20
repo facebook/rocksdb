@@ -391,6 +391,7 @@ TEST(CorruptionTest, FileSystemStateCorrupted) {
     std::string filename = dbname_ + metadata[0].name;
 
     delete db_;
+    db_ = nullptr;
 
     if (iter == 0) {  // corrupt file size
       unique_ptr<WritableFile> file;
