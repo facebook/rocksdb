@@ -1765,10 +1765,13 @@ void CheckConsistencyCommand::Help(string& ret) {
 
 void CheckConsistencyCommand::DoCommand() {
   Options opt = PrepareOptionsForOpenDB();
+  opt.paranoid_checks = true;
   if (!exec_state_.IsNotStarted()) {
     return;
   }
-  Status st = DB::CheckConsistency(opt, db_path_);
+  DB* db;
+  Status st = DB::OpenForReadOnly(opt, db_path_, &db, false);
+  delete db;
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {

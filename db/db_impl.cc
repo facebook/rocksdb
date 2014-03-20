@@ -969,6 +969,9 @@ Status DBImpl::Recover(bool read_only, bool error_if_log_file_exist) {
   }
 
   Status s = versions_->Recover();
+  if (options_.paranoid_checks && s.ok()) {
+    s = CheckConsistency();
+  }
   if (s.ok()) {
     SequenceNumber max_sequence(0);
 
@@ -3828,9 +3831,36 @@ Status DBImpl::DeleteFile(std::string name) {
   return status;
 }
 
-void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata) {
+void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   MutexLock l(&mutex_);
   return versions_->GetLiveFilesMetaData(metadata);
+}
+
+Status DBImpl::CheckConsistency() {
+  mutex_.AssertHeld();
+  std::vector<LiveFileMetaData> metadata;
+  versions_->GetLiveFilesMetaData(&metadata);
+
+  std::string corruption_messages;
+  for (const auto& md : metadata) {
+    std::string file_path = dbname_ + md.name;
+    uint64_t fsize = 0;
+    Status s = env_->GetFileSize(file_path, &fsize);
+    if (!s.ok()) {
+      corruption_messages +=
+          "Can't access " + md.name + ": " + s.ToString() + "\n";
+    } else if (fsize != md.size) {
+      corruption_messages += "Sst file size mismatch: " + md.name +
+                             ". Size recorded in manifest " +
+                             std::to_string(md.size) + ", actual size " +
+                             std::to_string(fsize) + "\n";
+    }
+  }
+  if (corruption_messages.size() == 0) {
+    return Status::OK();
+  } else {
+    return Status::Corruption(corruption_messages);
+  }
 }
 
 void DBImpl::TEST_GetFilesMetaData(

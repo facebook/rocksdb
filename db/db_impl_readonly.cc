@@ -99,46 +99,4 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
   return s;
 }
 
-Status DB::CheckConsistency(const Options& options,
-    const std::string& name) {
-  DB *db = nullptr;
-  Status st;
-
-  st = DB::OpenForReadOnly(options, name, &db);
-  if (!st.ok()) {
-    return st;
-  }
-
-  std::vector<LiveFileMetaData> metadata;
-  db->GetLiveFilesMetaData(&metadata);
-
-  for (const auto& md : metadata) {
-    std::string file_path = name + md.name;
-
-    if (!db->GetEnv()->FileExists(file_path)) {
-      st = Status::Corruption("sst file " + md.name + " doesn't exist");
-      break;
-    }
-
-    uint64_t fsize = 0;
-    st = db->GetEnv()->GetFileSize(file_path, &fsize);
-    if (!st.ok()) {
-      st = Status::Corruption(
-          "Failed to determine the actual size of file " + md.name +
-          ": " + st.ToString());
-      break;
-    }
-    if (fsize != md.size) {
-      st = Status::Corruption(
-          "sst file size mismatch: " + md.name +
-          ". Size recorded in manifest " + std::to_string(md.size) +
-          ", actual size " + std::to_string(fsize));
-      break;
-    }
-  }
-
-  delete db;
-  return st;
-}
-
 }   // namespace rocksdb

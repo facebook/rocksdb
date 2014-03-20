@@ -94,6 +94,10 @@ class DBImpl : public DB {
   virtual void GetLiveFilesMetaData(
     std::vector<LiveFileMetaData> *metadata);
 
+  // checks if all live files exist on file system and that their file sizes
+  // match to our in-memory records
+  virtual Status CheckConsistency();
+
   virtual Status GetDbIdentity(std::string& identity);
 
   Status RunManualCompaction(int input_level,

@@ -13,8 +13,8 @@
 * Chagned Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
   Changed HashSkipListRepFactory and HashLinkListRepFactory constructor to not take SliceTransform object (use Options.prefix_extractor implicitly)
 * Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
-* Added DB::CheckConsistency(), which checks the consistency of live files' metadata
-  Added a corresponding command "checkconsistency" in ldb tool
+* Added a command "checkconsistency" in ldb tool, which checks
+  if file system state matches DB state (file existence and file sizes)
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,
