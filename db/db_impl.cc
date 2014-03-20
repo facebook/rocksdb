@@ -826,6 +826,9 @@ Status DBImpl::Recover(
   }
 
   Status s = versions_->Recover(column_families);
+  if (options_.paranoid_checks && s.ok()) {
+    s = CheckConsistency();
+  }
   if (s.ok()) {
     SequenceNumber max_sequence(0);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
@@ -1211,13 +1214,13 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
 
   if (!s.ok()) {
     cfd->imm()->RollbackMemtableFlush(mems, file_number, &pending_outputs_);
-    return s;
+  } else {
+    // Replace immutable memtable with the generated Table
+    s = cfd->imm()->InstallMemtableFlushResults(
+        cfd, mems, versions_.get(), &mutex_, options_.info_log.get(),
+        file_number, pending_outputs_, &deletion_state.memtables_to_free,
+        db_directory_.get());
   }
-
-  // Replace immutable memtable with the generated Table
-  s = cfd->imm()->InstallMemtableFlushResults(
-      cfd, mems, versions_.get(), &mutex_, options_.info_log.get(), file_number,
-      pending_outputs_, &deletion_state.memtables_to_free, db_directory_.get());
 
   if (s.ok()) {
     InstallSuperVersion(cfd, deletion_state);
@@ -1235,6 +1238,13 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
         alive_log_files_.pop_front();
       }
     }
+  }
+
+  if (!s.ok() && !s.IsShutdownInProgress() && options_.paranoid_checks &&
+      bg_error_.ok()) {
+    // if a bad error happened (not ShutdownInProgress) and paranoid_checks is
+    // true, mark DB read-only
+    bg_error_ = s;
   }
   return s;
 }
@@ -3953,6 +3963,33 @@ Status DBImpl::DeleteFile(std::string name) {
 void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   MutexLock l(&mutex_);
   versions_->GetLiveFilesMetaData(metadata);
+}
+
+Status DBImpl::CheckConsistency() {
+  mutex_.AssertHeld();
+  std::vector<LiveFileMetaData> metadata;
+  versions_->GetLiveFilesMetaData(&metadata);
+
+  std::string corruption_messages;
+  for (const auto& md : metadata) {
+    std::string file_path = dbname_ + md.name;
+    uint64_t fsize = 0;
+    Status s = env_->GetFileSize(file_path, &fsize);
+    if (!s.ok()) {
+      corruption_messages +=
+          "Can't access " + md.name + ": " + s.ToString() + "\n";
+    } else if (fsize != md.size) {
+      corruption_messages += "Sst file size mismatch: " + md.name +
+                             ". Size recorded in manifest " +
+                             std::to_string(md.size) + ", actual size " +
+                             std::to_string(fsize) + "\n";
+    }
+  }
+  if (corruption_messages.size() == 0) {
+    return Status::OK();
+  } else {
+    return Status::Corruption(corruption_messages);
+  }
 }
 
 void DBImpl::TEST_GetFilesMetaData(

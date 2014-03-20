@@ -703,4 +703,20 @@ private:
   static const char* DELETE_CMD;
 };
 
+class CheckConsistencyCommand : public LDBCommand {
+public:
+  static string Name() { return "checkconsistency"; }
+
+  CheckConsistencyCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  virtual void DoCommand();
+
+  virtual bool NoDBOpen() {
+    return true;
+  }
+
+  static void Help(string& ret);
+};
+
 } // namespace rocksdb

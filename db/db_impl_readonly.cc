@@ -114,4 +114,4 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
   return s;
 }
 
-}
+}   // namespace rocksdb

@@ -376,6 +376,39 @@ TEST(CorruptionTest, UnrelatedKeys) {
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
 }
 
+TEST(CorruptionTest, FileSystemStateCorrupted) {
+  for (int iter = 0; iter < 2; ++iter) {
+    Options options;
+    options.paranoid_checks = true;
+    options.create_if_missing = true;
+    Reopen(&options);
+    Build(10);
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+    std::vector<LiveFileMetaData> metadata;
+    dbi->GetLiveFilesMetaData(&metadata);
+    ASSERT_GT(metadata.size(), 0);
+    std::string filename = dbname_ + metadata[0].name;
+
+    delete db_;
+    db_ = nullptr;
+
+    if (iter == 0) {  // corrupt file size
+      unique_ptr<WritableFile> file;
+      env_.NewWritableFile(filename, &file, EnvOptions());
+      file->Append(Slice("corrupted sst"));
+      file.reset();
+    } else {  // delete the file
+      env_.DeleteFile(filename);
+    }
+
+    Status x = TryReopen(&options);
+    ASSERT_TRUE(x.IsCorruption());
+    DestroyDB(dbname_, options_);
+    Reopen(&options);
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

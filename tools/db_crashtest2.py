@@ -8,6 +8,7 @@ import getopt
 import logging
 import tempfile
 import subprocess
+import shutil
 
 # This python script runs db_stress multiple times. Some runs with
 # kill_random_test that causes rocksdb to crash at various points in code.
@@ -78,6 +79,7 @@ def main(argv):
             # nomral run
             additional_opts = "--ops_per_thread=" + str(ops_per_thread)
 
+        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
         cmd = re.sub('\s+', ' ', """
             ./db_stress
             --test_batches_snapshots=%s
@@ -114,7 +116,7 @@ def main(argv):
             """ % (random.randint(0, 1),
                    threads,
                    write_buf_size,
-                   tempfile.mkdtemp(),
+                   dbname,
                    random.randint(0, 1),
                    random.randint(0, 1),
                    random.randint(0, 1),
@@ -155,6 +157,8 @@ def main(argv):
         if (stdoutdata.find('fail') >= 0):
             print "TEST FAILED. Output has 'fail'!!!\n"
             sys.exit(2)
+        # we need to clean up after ourselves -- only do this on test success
+        shutil.rmtree(dbname, True)
 
         check_mode = (check_mode + 1) % total_check_mode
 

@@ -8,9 +8,10 @@ import getopt
 import logging
 import tempfile
 import subprocess
+import shutil
 
 # This script runs and kills db_stress multiple times. It checks consistency
-# in case of unsafe crashes in Rocksdb.
+# in case of unsafe crashes in RocksDB.
 
 def main(argv):
     try:
@@ -59,6 +60,8 @@ def main(argv):
           + str(ops_per_thread) + "\nwrite_buffer_size="
           + str(write_buf_size) + "\n")
 
+    dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
+
     while time.time() < exit_time:
         run_had_errors = False
         killtime = time.time() + interval
@@ -99,7 +102,7 @@ def main(argv):
             """ % (ops_per_thread,
                    threads,
                    write_buf_size,
-                   tempfile.mkdtemp(),
+                   dbname,
                    random.randint(0, 1),
                    random.randint(0, 1),
                    random.randint(0, 1)))
@@ -139,6 +142,9 @@ def main(argv):
             sys.exit(2)
 
         time.sleep(1)  # time to stabilize before the next run
+
+    # we need to clean up after ourselves -- only do this on test success
+    shutil.rmtree(dbname, True)
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

@@ -129,6 +129,8 @@ class LDBTestCase(unittest.TestCase):
         # It is weird that GET and SCAN raise exception for
         # non-existent key, while delete does not
 
+        self.assertRunOK("checkconsistency", "OK")
+
     def dumpDb(self, params, dumpFile):
         return 0 == run_err_null("./ldb dump %s > %s" % (params, dumpFile))
 
@@ -201,6 +203,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("scan", "a1 : b1\na2 : b2\na3 : b3\na4 : b4")
         self.assertRunOK("delete --hex 0x6133", "OK")
         self.assertRunOK("scan", "a1 : b1\na2 : b2\na4 : b4")
+        self.assertRunOK("checkconsistency", "OK")
 
     def testTtlPutGet(self):
         print "Running testTtlPutGet..."
@@ -215,6 +218,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("put a3 b3 --create_if_missing", "OK")
         # fails because timstamp's length is greater than value's
         self.assertRunFAIL("get --ttl a3")
+        self.assertRunOK("checkconsistency", "OK")
 
     def testInvalidCmdLines(self):
         print "Running testInvalidCmdLines..."
@@ -353,6 +357,27 @@ class LDBTestCase(unittest.TestCase):
             "./ldb dump_wal --db=%s --walfile=%s --header" % (
                 origDbPath, os.path.join(origDbPath, "LOG"))))
         self.assertRunOK("scan", "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
+
+    def testCheckConsistency(self):
+        print "Running testCheckConsistency..."
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put x1 y1 --create_if_missing", "OK")
+        self.assertRunOK("put x2 y2", "OK")
+        self.assertRunOK("get x1", "y1")
+        self.assertRunOK("checkconsistency", "OK")
+
+        sstFilePath = my_check_output("ls %s" % os.path.join(dbPath, "*.sst"),
+                                      shell=True)
+
+        # Modify the file
+        my_check_output("echo 'evil' > %s" % sstFilePath, shell=True)
+        self.assertRunFAIL("checkconsistency")
+
+        # Delete the file
+        my_check_output("rm -f %s" % sstFilePath, shell=True)
+        self.assertRunFAIL("checkconsistency")
+
 
 if __name__ == "__main__":
     unittest.main()
