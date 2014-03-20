@@ -91,6 +91,14 @@ class DB {
       const std::string& name, DB** dbptr,
       bool error_if_log_file_exist = false);
 
+  // Check the consistency of live files' metadata.
+  // It will return Corruption Status when a file in manifest
+  // doesn't actually exist or doesn't match the actual file size.
+  // Note: This call should be invoked only when the database is
+  // not already open and serving data.
+  static Status CheckConsistency(const Options& options,
+      const std::string& name);
+
   DB() { }
   virtual ~DB();
 

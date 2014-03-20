@@ -154,6 +154,8 @@ LDBCommand* LDBCommand::SelectCommand(
     return new ManifestDumpCommand(cmdParams, option_map, flags);
   } else if (cmd == InternalDumpCommand::Name()) {
     return new InternalDumpCommand(cmdParams, option_map, flags);
+  } else if (cmd == CheckConsistencyCommand::Name()) {
+    return new CheckConsistencyCommand(cmdParams, option_map, flags);
   }
   return nullptr;
 }
@@ -1749,5 +1751,29 @@ void DBQuerierCommand::DoCommand() {
   }
 }
 
-
+CheckConsistencyCommand::CheckConsistencyCommand(const vector<string>& params,
+    const map<string, string>& options, const vector<string>& flags) :
+  LDBCommand(options, flags, false,
+             BuildCmdLineOptions({})) {
 }
+
+void CheckConsistencyCommand::Help(string& ret) {
+  ret.append("  ");
+  ret.append(CheckConsistencyCommand::Name());
+  ret.append("\n");
+}
+
+void CheckConsistencyCommand::DoCommand() {
+  Options opt = PrepareOptionsForOpenDB();
+  if (!exec_state_.IsNotStarted()) {
+    return;
+  }
+  Status st = DB::CheckConsistency(opt, db_path_);
+  if (st.ok()) {
+    fprintf(stdout, "OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());
+  }
+}
+
+}   // namespace rocksdb

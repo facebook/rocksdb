@@ -53,6 +53,7 @@ public:
     DeleteCommand::Help(ret);
     DBQuerierCommand::Help(ret);
     ApproxSizeCommand::Help(ret);
+    CheckConsistencyCommand::Help(ret);
 
     ret.append("\n\n");
     ret.append("Admin Commands:\n");
