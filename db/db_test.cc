@@ -2511,7 +2511,6 @@ TEST(DBTest, UniversalCompactionTrigger) {
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  filter->expect_full_compaction_.store(false);
   for (int i = 0; i < 11; i++) {
     ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
     key_idx++;
@@ -2532,6 +2531,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   //   First, clean up memtable before inserting new data. This will generate
   //   a level-0 file, with size around 0.4 (according to previously written
   //   data amount).
+  filter->expect_full_compaction_.store(false);
   dbfull()->Flush(FlushOptions());
   for (int num = 0;
        num < options.level0_file_num_compaction_trigger-3;
