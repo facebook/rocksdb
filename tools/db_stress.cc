@@ -447,8 +447,8 @@ class Stats {
       last_op_finish_ = now;
     }
 
-    if (FLAGS_progress_reports) {
       done_++;
+    if (FLAGS_progress_reports) {
       if (done_ >= next_report_) {
         if      (next_report_ < 1000)   next_report_ += 100;
         else if (next_report_ < 5000)   next_report_ += 500;
