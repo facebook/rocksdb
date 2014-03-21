@@ -3330,6 +3330,7 @@ TEST(DBTest, InPlaceUpdateCallbackNoAction) {
 
 TEST(DBTest, CompactionFilter) {
   Options options = CurrentOptions();
+  options.max_open_files = -1;
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();

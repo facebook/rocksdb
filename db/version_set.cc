@@ -181,18 +181,14 @@ class Version::LevelFileNumIterator : public Iterator {
   }
   Slice value() const {
     assert(Valid());
-    EncodeFixed64(value_buf_, (*flist_)[index_]->number);
-    EncodeFixed64(value_buf_+8, (*flist_)[index_]->file_size);
-    return Slice(value_buf_, sizeof(value_buf_));
+    return Slice(reinterpret_cast<const char*>((*flist_)[index_]),
+                 sizeof(FileMetaData));
   }
   virtual Status status() const { return Status::OK(); }
  private:
   const InternalKeyComparator icmp_;
   const std::vector<FileMetaData*>* const flist_;
   uint32_t index_;
-
-  // Backing store for value().  Holds the file number and size.
-  mutable char value_buf_[16];
 };
 
 static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
@@ -200,7 +196,7 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const InternalKeyComparator& icomparator,
                                  const Slice& file_value, bool for_compaction) {
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
-  if (file_value.size() != 16) {
+  if (file_value.size() != sizeof(FileMetaData)) {
     return NewErrorIterator(
         Status::Corruption("FileReader invoked with unexpected value"));
   } else {
@@ -211,11 +207,12 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
       options_copy = options;
       options_copy.prefix = nullptr;
     }
-    FileMetaData meta(DecodeFixed64(file_value.data()),
-                      DecodeFixed64(file_value.data() + 8));
+
+    const FileMetaData* meta_file =
+        reinterpret_cast<const FileMetaData*>(file_value.data());
     return cache->NewIterator(
-        options.prefix ? options_copy : options, soptions, icomparator, meta,
-        nullptr /* don't need reference to table*/, for_compaction);
+        options.prefix ? options_copy : options, soptions, icomparator,
+        *meta_file, nullptr /* don't need reference to table*/, for_compaction);
   }
 }
 
@@ -234,10 +231,11 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
     // key() will always be the biggest value for this SST?
     may_match = true;
   } else {
+    const FileMetaData* meta_file =
+        reinterpret_cast<const FileMetaData*>(level_iter->value().data());
+
     may_match = vset_->table_cache_->PrefixMayMatch(
-        options, vset_->icmp_, DecodeFixed64(level_iter->value().data()),
-        DecodeFixed64(level_iter->value().data() + 8), internal_prefix,
-        nullptr);
+        options, vset_->icmp_, *meta_file, internal_prefix, nullptr);
   }
   return may_match;
 }
