@@ -20,6 +20,7 @@
 #include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/coding.h"
+#include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/testharness.h"
 
@@ -463,6 +464,78 @@ TEST(EnvPosixTest, PosixRandomRWFileTest) {
   ASSERT_OK(file.get()->Read(100, 16, &result, scratch));
   ASSERT_EQ(result.compare("HelloHello world"), 0);
   ASSERT_OK(file.get()->Close());
+}
+
+class TestLogger : public Logger {
+ public:
+  virtual void Logv(const char* format, va_list ap) override {
+    log_count++;
+
+    char new_format[550];
+    std::fill_n(new_format, sizeof(new_format), '2');
+    {
+      va_list backup_ap;
+      va_copy(backup_ap, ap);
+      int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
+      // 48 bytes for extra information + bytes allocated
+
+      if (new_format[0] == '[') {
+        // "[DEBUG] "
+        ASSERT_TRUE(n <= 56 + (512 - sizeof(struct timeval)));
+      } else {
+        ASSERT_TRUE(n <= 48 + (512 - sizeof(struct timeval)));
+      }
+      va_end(backup_ap);
+    }
+
+    for (size_t i = 0; i < sizeof(new_format); i++) {
+      if (new_format[i] == 'x') {
+        char_x_count++;
+      } else if (new_format[i] == '\0') {
+        char_0_count++;
+      }
+    }
+  }
+  int log_count;
+  int char_x_count;
+  int char_0_count;
+};
+
+TEST(EnvPosixTest, LogBufferTest) {
+  TestLogger test_logger;
+  test_logger.SetInfoLogLevel(INFO);
+  test_logger.log_count = 0;
+  test_logger.char_x_count = 0;
+  test_logger.char_0_count = 0;
+  LogBuffer log_buffer(INFO, &test_logger);
+  LogBuffer log_buffer_debug(DEBUG, &test_logger);
+
+  char bytes200[200];
+  std::fill_n(bytes200, sizeof(bytes200), '1');
+  bytes200[sizeof(bytes200) - 1] = '\0';
+  char bytes600[600];
+  std::fill_n(bytes600, sizeof(bytes600), '1');
+  bytes600[sizeof(bytes600) - 1] = '\0';
+  char bytes9000[9000];
+  std::fill_n(bytes9000, sizeof(bytes9000), '1');
+  bytes9000[sizeof(bytes9000) - 1] = '\0';
+
+  LogToBuffer(&log_buffer, "x%sx", bytes200);
+  LogToBuffer(&log_buffer, "x%sx", bytes600);
+  LogToBuffer(&log_buffer, "x%sx%sx%sx", bytes200, bytes200, bytes200);
+  LogToBuffer(&log_buffer, "x%sx%sx", bytes200, bytes600);
+  LogToBuffer(&log_buffer, "x%sx%sx", bytes600, bytes9000);
+
+  LogToBuffer(&log_buffer_debug, "x%sx", bytes200);
+  test_logger.SetInfoLogLevel(DEBUG);
+  LogToBuffer(&log_buffer_debug, "x%sx%sx%sx", bytes600, bytes9000, bytes200);
+
+  ASSERT_EQ(0, test_logger.log_count);
+  log_buffer.FlushBufferToLog();
+  log_buffer_debug.FlushBufferToLog();
+  ASSERT_EQ(6, test_logger.log_count);
+  ASSERT_EQ(6, test_logger.char_0_count);
+  ASSERT_EQ(10, test_logger.char_x_count);
 }
 
 }  // namespace rocksdb

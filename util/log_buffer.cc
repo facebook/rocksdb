@@ -32,8 +32,14 @@ void LogBuffer::AddLogToBuffer(const char* format, va_list ap) {
   if (p < limit) {
     va_list backup_ap;
     va_copy(backup_ap, ap);
-    p += vsnprintf(p, limit - p, format, backup_ap);
+    auto n = vsnprintf(p, limit - p, format, backup_ap);
+    assert(n >= 0);
+    p += n;
     va_end(backup_ap);
+  }
+
+  if (p > limit) {
+    p = limit;
   }
 
   // Add '\0' to the end
