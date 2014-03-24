@@ -394,9 +394,9 @@ class DBImpl : public DB {
 
   void PurgeObsoleteWALFiles();
 
-  Status AppendSortedWalsOfType(const std::string& path,
-                                VectorLogPtr& log_files,
-                                WalFileType type);
+  Status GetSortedWalsOfType(const std::string& path,
+                             VectorLogPtr& log_files,
+                             WalFileType type);
 
   // Requires: all_logs should be sorted with earliest log file first
   // Retains all log files in all_logs which contain updates with seq no.

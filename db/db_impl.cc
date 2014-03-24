@@ -64,6 +64,7 @@
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -872,7 +873,11 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
     if (type == kLogFile &&
         (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0)) {
       auto archived_log_name = ArchivedLogFileName(options_.wal_dir, number);
+      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
+      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:1");
       Status s = env_->RenameFile(fname, archived_log_name);
+      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
+      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:2");
       Log(options_.info_log,
           "Move log file %s to %s -- %s\n",
           fname.c_str(), archived_log_name.c_str(), s.ToString().c_str());
@@ -1020,7 +1025,7 @@ void DBImpl::PurgeObsoleteWALFiles() {
 
   size_t files_del_num = log_files_num - files_keep_num;
   VectorLogPtr archived_logs;
-  AppendSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
+  GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
 
   if (files_del_num > archived_logs.size()) {
     Log(options_.info_log, "Trying to delete more archived log files than "
@@ -1791,20 +1796,14 @@ struct CompareLogByPointer {
   }
 };
 
-Status DBImpl::AppendSortedWalsOfType(const std::string& path,
+Status DBImpl::GetSortedWalsOfType(const std::string& path,
     VectorLogPtr& log_files, WalFileType log_type) {
   std::vector<std::string> all_files;
   const Status status = env_->GetChildren(path, &all_files);
   if (!status.ok()) {
     return status;
   }
-  log_files.reserve(log_files.size() + all_files.size());
-  VectorLogPtr::iterator pos_start;
-  if (!log_files.empty()) {
-    pos_start = log_files.end() - 1;
-  } else {
-    pos_start = log_files.begin();
-  }
+  log_files.reserve(all_files.size());
   for (const auto& f : all_files) {
     uint64_t number;
     FileType type;
@@ -1830,7 +1829,7 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
     }
   }
   CompareLogByPointer compare_log_files;
-  std::sort(pos_start, log_files.end(), compare_log_files);
+  std::sort(log_files.begin(), log_files.end(), compare_log_files);
   return status;
 }
 
