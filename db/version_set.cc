@@ -419,18 +419,7 @@ static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
         assert(s->state == kNotFound || s->state == kMerge);
         s->state = kMerge;
         merge_contex->PushOperand(v);
-        while (merge_contex->GetNumOperands() >= 2) {
-          // Attempt to merge operands together via user associateive merge
-          if (s->merge_operator->PartialMerge(
-                  s->user_key, merge_contex->GetOperand(0),
-                  merge_contex->GetOperand(1), &merge_result, s->logger)) {
-            merge_contex->PushPartialMergeResult(merge_result);
-          } else {
-            // Associative merge returns false ==> stack the operands
-          break;
-          }
-      }
-      return true;
+        return true;
 
       default:
         assert(false);

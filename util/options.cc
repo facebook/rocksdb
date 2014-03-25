@@ -30,16 +30,15 @@ Options::Options()
     : comparator(BytewiseComparator()),
       merge_operator(nullptr),
       compaction_filter(nullptr),
-      compaction_filter_factory(
-          std::shared_ptr<CompactionFilterFactory>(
-            new DefaultCompactionFilterFactory())),
+      compaction_filter_factory(std::shared_ptr<CompactionFilterFactory>(
+          new DefaultCompactionFilterFactory())),
       create_if_missing(false),
       error_if_exists(false),
       paranoid_checks(false),
       env(Env::Default()),
       info_log(nullptr),
       info_log_level(INFO),
-      write_buffer_size(4<<20),
+      write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
       max_open_files(1000),
@@ -95,7 +94,7 @@ Options::Options()
       is_fd_close_on_exec(true),
       skip_log_error_on_recovery(false),
       stats_dump_period_sec(3600),
-      block_size_deviation (10),
+      block_size_deviation(10),
       advise_random_on_open(true),
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
@@ -106,13 +105,14 @@ Options::Options()
       max_sequential_skip_in_iterations(8),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
       table_factory(
-        std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
+          std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       inplace_update_support(false),
       inplace_update_num_locks(10000),
       inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(6),
       max_successive_merges(0),
+      min_partial_merge_operands(2),
       allow_thread_local(true) {
   assert(memtable_factory.get() != nullptr);
 }
@@ -306,6 +306,8 @@ Options::Dump(Logger* log) const
         inplace_update_support);
     Log(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
+    Log(log, "              Options.min_partial_merge_operands: %u",
+        min_partial_merge_operands);
     // TODO: easier config for bloom (maybe based on avg key/value size)
     Log(log, "              Options.memtable_prefix_bloom_bits: %d",
         memtable_prefix_bloom_bits);

@@ -3,6 +3,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <deque>
+#include <string>
+
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/compaction_filter.h"
@@ -268,24 +271,27 @@ class TtlMergeOperator : public MergeOperator {
     }
   }
 
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const override {
+  virtual bool PartialMergeMulti(const Slice& key,
+                                 const std::deque<Slice>& operand_list,
+                                 std::string* new_value, Logger* logger) const
+      override {
     const uint32_t ts_len = DBWithTTL::kTSLength;
+    std::deque<Slice> operands_without_ts;
 
-    if (left_operand.size() < ts_len || right_operand.size() < ts_len) {
-      Log(logger, "Error: Could not remove timestamp from value.");
-      return false;
+    for (const auto& operand : operand_list) {
+      if (operand.size() < ts_len) {
+        Log(logger, "Error: Could not remove timestamp from value.");
+        return false;
+      }
+
+      operands_without_ts.push_back(
+          Slice(operand.data(), operand.size() - ts_len));
     }
 
     // Apply the user partial-merge operator (store result in *new_value)
     assert(new_value);
-    Slice left_without_ts(left_operand.data(), left_operand.size() - ts_len);
-    Slice right_without_ts(right_operand.data(), right_operand.size() - ts_len);
-    if (!user_merge_op_->PartialMerge(key, left_without_ts, right_without_ts,
-                                      new_value, logger)) {
+    if (!user_merge_op_->PartialMergeMulti(key, operands_without_ts, new_value,
+                                           logger)) {
       return false;
     }
 

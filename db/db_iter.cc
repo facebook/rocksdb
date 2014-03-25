@@ -313,21 +313,6 @@ void DBIter::MergeValuesNewToOld() {
       // when complete, add result to operands and continue.
       const Slice& value = iter_->value();
       operands.push_front(value.ToString());
-      while(operands.size() >= 2) {
-        // Call user associative-merge until it returns false
-        if (user_merge_operator_->PartialMerge(ikey.user_key,
-                                               Slice(operands[0]),
-                                               Slice(operands[1]),
-                                               &merge_result,
-                                               logger_)) {
-          operands.pop_front();
-          swap(operands.front(), merge_result);
-        } else {
-          // Associative merge returns false ==> stack the operands
-          break;
-        }
-      }
-
     }
   }
 

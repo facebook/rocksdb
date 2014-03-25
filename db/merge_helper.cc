@@ -129,28 +129,10 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => then continue because we haven't yet seen a Put/Delete.
       assert(!operands_.empty()); // Should have at least one element in it
 
+      // keep queuing keys and operands until we either meet a put / delete
+      // request or later did a partial merge.
       keys_.push_front(iter->key().ToString());
       operands_.push_front(iter->value().ToString());
-      while (operands_.size() >= 2) {
-        // Returns false when the merge_operator can no longer process it
-        if (user_merge_operator_->PartialMerge(ikey.user_key,
-                                               Slice(operands_[0]),
-                                               Slice(operands_[1]),
-                                               &merge_result,
-                                               logger_)) {
-          // Merging of operands (associative merge) was successful.
-          // Replace these frontmost two operands with the merge result
-          keys_.pop_front();
-          operands_.pop_front();
-          swap(operands_.front(), merge_result);
-        } else {
-          // Merging of operands (associative merge) returned false.
-          // The user merge_operator does not know how to merge these operands.
-          // So we just stack them up until we find a Put/Delete or end of key.
-          break;
-        }
-      }
-      continue;
     }
   }
 
@@ -191,6 +173,23 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     } else {
       RecordTick(stats, NUMBER_MERGE_FAILURES);
       // Do nothing if not success_. Leave keys() and operands() as they are.
+    }
+  } else {
+    // We haven't seen the beginning of the key nor a Put/Delete.
+    // Attempt to use the user's associative merge function to
+    // merge the stacked merge operands into a single operand.
+
+    if (operands_.size() >= 2 &&
+        operands_.size() >= min_partial_merge_operands_ &&
+        user_merge_operator_->PartialMergeMulti(
+            ikey.user_key,
+            std::deque<Slice>(operands_.begin(), operands_.end()),
+            &merge_result, logger_)) {
+      // Merging of operands (associative merge) was successful.
+      // Replace operands with the merge result
+      operands_.clear();
+      operands_.push_front(std::move(merge_result));
+      keys_.erase(keys_.begin(), keys_.end() - 1);
     }
   }
 }

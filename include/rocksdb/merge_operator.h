@@ -32,9 +32,9 @@ class Logger;
 //
 //  b) MergeOperator - the generic class for all the more abstract / complex
 //    operations; one method (FullMerge) to merge a Put/Delete value with a
-//    merge operand; and another method (PartialMerge) that merges two
-//    operands together. this is especially useful if your key values have a
-//    complex structure but you would still like to support client-specific
+//    merge operand; and another method (PartialMerge) that merges multiple
+//    operands together. this is especially useful if your key values have
+//    complex structures but you would still like to support client-specific
 //    incremental updates.
 //
 // AssociativeMergeOperator is simpler to implement. MergeOperator is simply
@@ -80,6 +80,13 @@ class MergeOperator {
   // DB::Merge(key, *new_value) would yield the same result as a call
   // to DB::Merge(key, left_op) followed by DB::Merge(key, right_op).
   //
+  // The default implementation of PartialMergeMulti will use this function
+  // as a helper, for backward compatibility.  Any successor class of
+  // MergeOperator should either implement PartialMerge or PartialMergeMulti,
+  // although implementing PartialMergeMulti is suggested as it is in general
+  // more effective to merge multiple operands at a time instead of two
+  // operands at a time.
+  //
   // If it is impossible or infeasible to combine the two operations,
   // leave new_value unchanged and return false. The library will
   // internally keep track of the operations, and apply them in the
@@ -89,12 +96,38 @@ class MergeOperator {
   // and simply "return false". For now, the client should simply return
   // false in any case it cannot perform partial-merge, regardless of reason.
   // If there is corruption in the data, handle it in the FullMerge() function,
-  // and return false there.
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const = 0;
+  // and return false there.  The default implementation of PartialMerge will
+  // always return false.
+  virtual bool PartialMerge(const Slice& key, const Slice& left_operand,
+                            const Slice& right_operand, std::string* new_value,
+                            Logger* logger) const {
+    return false;
+  }
+
+  // This function performs merge when all the operands are themselves merge
+  // operation types that you would have passed to a DB::Merge() call in the
+  // same order (front() first)
+  // (i.e. DB::Merge(key, operand_list[0]), followed by
+  //  DB::Merge(key, operand_list[1]), ...)
+  //
+  // PartialMergeMulti should combine them into a single merge operation that is
+  // saved into *new_value, and then it should return true.  *new_value should
+  // be constructed such that a call to DB::Merge(key, *new_value) would yield
+  // the same result as subquential individual calls to DB::Merge(key, operand)
+  // for each operand in operand_list from front() to back().
+  //
+  // The PartialMergeMulti function will be called only when the list of
+  // operands are long enough. The minimum amount of operands that will be
+  // passed to the function are specified by the "min_partial_merge_operands"
+  // option.
+  //
+  // In the default implementation, PartialMergeMulti will invoke PartialMerge
+  // multiple times, where each time it only merges two operands.  Developers
+  // should either implement PartialMergeMulti, or implement PartialMerge which
+  // is served as the helper function of the default PartialMergeMulti.
+  virtual bool PartialMergeMulti(const Slice& key,
+                                 const std::deque<Slice>& operand_list,
+                                 std::string* new_value, Logger* logger) const;
 
   // The name of the MergeOperator. Used to check for MergeOperator
   // mismatches (i.e., a DB created with one MergeOperator is

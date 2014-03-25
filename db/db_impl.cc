@@ -2463,6 +2463,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   std::vector<char> delete_key; // for compaction filter
   MergeHelper merge(user_comparator(), options_.merge_operator.get(),
                     options_.info_log.get(),
+                    options_.min_partial_merge_operands,
                     false /* internal key corruption is expected */);
   auto compaction_filter = options_.compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;

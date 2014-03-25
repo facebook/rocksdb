@@ -159,12 +159,10 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
       const char* const* operands_list, const size_t* operands_list_length,
       int num_operands,
       unsigned char* success, size_t* new_value_length);
-  char* (*partial_merge_)(
-      void*,
-      const char* key, size_t key_length,
-      const char* left_operand, size_t left_operand_length,
-      const char* right_operand, size_t right_operand_length,
-      unsigned char* success, size_t* new_value_length);
+  char* (*partial_merge_)(void*, const char* key, size_t key_length,
+                          const char* const* operands_list,
+                          const size_t* operands_list_length, int num_operands,
+                          unsigned char* success, size_t* new_value_length);
   void (*delete_value_)(
       void*,
       const char* value, size_t value_length);
@@ -219,21 +217,23 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     return success;
   }
 
-  virtual bool PartialMerge(
-      const Slice& key,
-      const Slice& left_operand,
-      const Slice& right_operand,
-      std::string* new_value,
-      Logger* logger) const {
+  virtual bool PartialMergeMulti(const Slice& key,
+                                 const std::deque<Slice>& operand_list,
+                                 std::string* new_value, Logger* logger) const {
+    size_t operand_count = operand_list.size();
+    std::vector<const char*> operand_pointers(operand_count);
+    std::vector<size_t> operand_sizes(operand_count);
+    for (size_t i = 0; i < operand_count; ++i) {
+      Slice operand(operand_list[i]);
+      operand_pointers[i] = operand.data();
+      operand_sizes[i] = operand.size();
+    }
 
     unsigned char success;
     size_t new_value_len;
     char* tmp_new_value = (*partial_merge_)(
-        state_,
-        key.data(), key.size(),
-        left_operand.data(), left_operand.size(),
-        right_operand.data(), right_operand.size(),
-        &success, &new_value_len);
+        state_, key.data(), key.size(), &operand_pointers[0], &operand_sizes[0],
+        operand_count, &success, &new_value_len);
     new_value->assign(tmp_new_value, new_value_len);
 
     if (delete_value_ != nullptr) {
@@ -1094,24 +1094,18 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
 }
 
 rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(
-    void* state,
-    void (*destructor)(void*),
-    char* (*full_merge)(
-        void*,
-        const char* key, size_t key_length,
-        const char* existing_value, size_t existing_value_length,
-        const char* const* operands_list, const size_t* operands_list_length,
-        int num_operands,
-        unsigned char* success, size_t* new_value_length),
-    char* (*partial_merge)(
-        void*,
-        const char* key, size_t key_length,
-        const char* left_operand, size_t left_operand_length,
-        const char* right_operand, size_t right_operand_length,
-        unsigned char* success, size_t* new_value_length),
-    void (*delete_value)(
-        void*,
-        const char* value, size_t value_length),
+    void* state, void (*destructor)(void*),
+    char* (*full_merge)(void*, const char* key, size_t key_length,
+                        const char* existing_value,
+                        size_t existing_value_length,
+                        const char* const* operands_list,
+                        const size_t* operands_list_length, int num_operands,
+                        unsigned char* success, size_t* new_value_length),
+    char* (*partial_merge)(void*, const char* key, size_t key_length,
+                           const char* const* operands_list,
+                           const size_t* operands_list_length, int num_operands,
+                           unsigned char* success, size_t* new_value_length),
+    void (*delete_value)(void*, const char* value, size_t value_length),
     const char* (*name)(void*)) {
   rocksdb_mergeoperator_t* result = new rocksdb_mergeoperator_t;
   result->state_ = state;

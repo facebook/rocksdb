@@ -24,9 +24,13 @@ using namespace rocksdb;
 
 namespace {
   int numMergeOperatorCalls;
-
   void resetNumMergeOperatorCalls() {
     numMergeOperatorCalls = 0;
+  }
+
+  int num_partial_merge_calls;
+  void resetNumPartialMergeCalls() {
+    num_partial_merge_calls = 0;
   }
 }
 
@@ -42,12 +46,25 @@ class CountMergeOperator : public AssociativeMergeOperator {
                      std::string* new_value,
                      Logger* logger) const override {
     ++numMergeOperatorCalls;
+    if (existing_value == nullptr) {
+      new_value->assign(value.data(), value.size());
+      return true;
+    }
+
     return mergeOperator_->PartialMerge(
         key,
         *existing_value,
         value,
         new_value,
         logger);
+  }
+
+  virtual bool PartialMergeMulti(const Slice& key,
+                                 const std::deque<Slice>& operand_list,
+                                 std::string* new_value, Logger* logger) const {
+    ++num_partial_merge_calls;
+    return mergeOperator_->PartialMergeMulti(key, operand_list, new_value,
+                                             logger);
   }
 
   virtual const char* Name() const override {
@@ -58,16 +75,16 @@ class CountMergeOperator : public AssociativeMergeOperator {
   std::shared_ptr<MergeOperator> mergeOperator_;
 };
 
-std::shared_ptr<DB> OpenDb(
-    const string& dbname,
-    const bool ttl = false,
-    const unsigned max_successive_merges = 0) {
+std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false,
+                           const size_t max_successive_merges = 0,
+                           const uint32_t min_partial_merge_operands = 2) {
   DB* db;
   StackableDB* sdb;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = std::make_shared<CountMergeOperator>();
   options.max_successive_merges = max_successive_merges;
+  options.min_partial_merge_operands = min_partial_merge_operands;
   Status s;
   DestroyDB(dbname, Options());
   if (ttl) {
@@ -306,6 +323,44 @@ void testSuccessiveMerge(
   }
 }
 
+void testPartialMerge(Counters* counters, DB* db, int max_merge, int min_merge,
+                      int count) {
+  FlushOptions o;
+  o.wait = true;
+
+  // Test case 1: partial merge should be called when the number of merge
+  //              operands exceeds the threshold.
+  uint64_t tmp_sum = 0;
+  resetNumPartialMergeCalls();
+  for (int i = 1; i <= count; i++) {
+    counters->assert_add("b", i);
+    tmp_sum += i;
+  }
+  db->Flush(o);
+  db->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(tmp_sum, counters->assert_get("b"));
+  if (count > max_merge) {
+    // in this case, FullMerge should be called instead.
+    ASSERT_EQ(num_partial_merge_calls, 0);
+  } else {
+    // if count >= min_merge, then partial merge should be called once.
+    ASSERT_EQ((count >= min_merge), (num_partial_merge_calls == 1));
+  }
+
+  // Test case 2: partial merge should not be called when a put is found.
+  resetNumPartialMergeCalls();
+  tmp_sum = 0;
+  db->Put(rocksdb::WriteOptions(), "c", "10");
+  for (int i = 1; i <= count; i++) {
+    counters->assert_add("c", i);
+    tmp_sum += i;
+  }
+  db->Flush(o);
+  db->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(tmp_sum, counters->assert_get("c"));
+  ASSERT_EQ(num_partial_merge_calls, 0);
+}
+
 void testSingleBatchSuccessiveMerge(
     DB* db,
     int max_num_merges,
@@ -370,20 +425,40 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
 
   {
     cout << "Test merge in memtable... \n";
-    unsigned maxMerge = 5;
-    auto db = OpenDb(dbname, use_ttl, maxMerge);
+    size_t max_merge = 5;
+    auto db = OpenDb(dbname, use_ttl, max_merge);
     MergeBasedCounters counters(db, 0);
     testCounters(counters, db.get(), compact);
-    testSuccessiveMerge(counters, maxMerge, maxMerge * 2);
+    testSuccessiveMerge(counters, max_merge, max_merge * 2);
     testSingleBatchSuccessiveMerge(db.get(), 5, 7);
     DestroyDB(dbname, Options());
   }
 
+  {
+    cout << "Test Partial-Merge\n";
+    size_t max_merge = 100;
+    for (uint32_t min_merge = 5; min_merge < 25; min_merge += 5) {
+      for (uint32_t count = min_merge - 1; count <= min_merge + 1; count++) {
+        auto db = OpenDb(dbname, use_ttl, max_merge, min_merge);
+        MergeBasedCounters counters(db, 0);
+        testPartialMerge(&counters, db.get(), max_merge, min_merge, count);
+        DestroyDB(dbname, Options());
+      }
+      {
+        auto db = OpenDb(dbname, use_ttl, max_merge, min_merge);
+        MergeBasedCounters counters(db, 0);
+        testPartialMerge(&counters, db.get(), max_merge, min_merge,
+                         min_merge * 10);
+        DestroyDB(dbname, Options());
+      }
+    }
+  }
 }
 
 int main(int argc, char *argv[]) {
   //TODO: Make this test like a general rocksdb unit-test
   runTest(argc, test::TmpDir() + "/merge_testdb");
   runTest(argc, test::TmpDir() + "/merge_testdbttl", true); // Run test on TTL database
+  printf("Passed all tests!\n");
   return 0;
 }

@@ -723,6 +723,15 @@ struct Options {
   // Default: 0 (disabled)
   size_t max_successive_merges;
 
+  // The number of partial merge operands to accumulate before partial
+  // merge will be performed. Partial merge will not be called
+  // if the list of values to merge is less than min_partial_merge_operands.
+  //
+  // If min_partial_merge_operands < 2, then it will be treated as 2.
+  //
+  // Default: 2
+  uint32_t min_partial_merge_operands;
+
   // Allow RocksDB to use thread local storage to optimize performance.
   // Default: true
   bool allow_thread_local;
