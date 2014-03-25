@@ -25,12 +25,12 @@ public:
       operand_list->clear();
     }
   }
-  // Replace the first two operands of merge_result, which are expected be the
-  // merge results of them.
+  // Replace all operands with merge_result, which are expected to be the
+  // merge result of them.
   void PushPartialMergeResult(std::string& merge_result) {
     assert (operand_list);
-    operand_list->pop_front();
-    swap(operand_list->front(), merge_result);
+    operand_list->clear();
+    operand_list->push_front(std::move(merge_result));
   }
   // Push a merge operand
   void PushOperand(const Slice& operand_slice) {

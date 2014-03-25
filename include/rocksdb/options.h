@@ -22,6 +22,7 @@ namespace rocksdb {
 class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
+class CompactionFilterFactoryV2;
 class Comparator;
 class Env;
 enum InfoLogLevel : unsigned char;
@@ -123,6 +124,10 @@ struct ColumnFamilyOptions {
   //
   // Default: a factory that doesn't provide any object
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
+
+  // Version TWO of the compaction_filter_factory
+  // It supports rolling compaction
+  std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------
   // Parameters that affect performance
@@ -499,6 +504,15 @@ struct ColumnFamilyOptions {
   // Default: 0 (disabled)
   size_t max_successive_merges;
 
+  // The number of partial merge operands to accumulate before partial
+  // merge will be performed. Partial merge will not be called
+  // if the list of values to merge is less than min_partial_merge_operands.
+  //
+  // If min_partial_merge_operands < 2, then it will be treated as 2.
+  //
+  // Default: 2
+  uint32_t min_partial_merge_operands;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -754,6 +768,7 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   // The reason that this is a function that returns "this" instead of a
   // constructor is to enable chaining of multiple similar calls in the future.
   //
+
   // All data will be in level 0 without any automatic compaction.
   // It's recommended to manually call CompactRange(NULL, NULL) before reading
   // from the database, because otherwise the read can be very slow.

@@ -214,7 +214,7 @@ class Env {
   virtual void StartThread(void (*function)(void* arg), void* arg) = 0;
 
   // Wait for all threads started by StartThread to terminate.
-  virtual void WaitForJoin() = 0;
+  virtual void WaitForJoin() {}
 
   // Get thread pool queue length for specific thrad pool.
   virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {

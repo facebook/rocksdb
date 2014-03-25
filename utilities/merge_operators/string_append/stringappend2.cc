@@ -6,6 +6,7 @@
 #include "stringappend2.h"
 
 #include <memory>
+#include <string>
 #include <assert.h>
 
 #include "rocksdb/slice.h"
@@ -61,31 +62,39 @@ bool StringAppendTESTOperator::FullMerge(
   return true;
 }
 
-bool StringAppendTESTOperator::PartialMerge(const Slice& key,
-                                            const Slice& left_operand,
-                                            const Slice& right_operand,
-                                            std::string* new_value,
-                                            Logger* logger) const {
+bool StringAppendTESTOperator::PartialMergeMulti(
+    const Slice& key, const std::deque<Slice>& operand_list,
+    std::string* new_value, Logger* logger) const {
   return false;
 }
 
 // A version of PartialMerge that actually performs "partial merging".
 // Use this to simulate the exact behaviour of the StringAppendOperator.
-bool StringAppendTESTOperator::_AssocPartialMerge(const Slice& key,
-                                            const Slice& left_operand,
-                                            const Slice& right_operand,
-                                            std::string* new_value,
-                                            Logger* logger) const {
-  // Clear the *new_value for writing.
+bool StringAppendTESTOperator::_AssocPartialMergeMulti(
+    const Slice& key, const std::deque<Slice>& operand_list,
+    std::string* new_value, Logger* logger) const {
+  // Clear the *new_value for writing
   assert(new_value);
   new_value->clear();
+  assert(operand_list.size() >= 2);
 
   // Generic append
-  // Reserve correct size for *new_value, and apply concatenation.
-  new_value->reserve(left_operand.size() + 1 + right_operand.size());
-  new_value->assign(left_operand.data(), left_operand.size());
-  new_value->append(1,delim_);
-  new_value->append(right_operand.data(), right_operand.size());
+  // Determine and reserve correct size for *new_value.
+  size_t size = 0;
+  for (const auto& operand : operand_list) {
+    size += operand.size();
+  }
+  size += operand_list.size() - 1;  // Delimiters
+  new_value->reserve(size);
+
+  // Apply concatenation
+  new_value->assign(operand_list.front().data(), operand_list.front().size());
+
+  for (std::deque<Slice>::const_iterator it = operand_list.begin() + 1;
+       it != operand_list.end(); ++it) {
+    new_value->append(1, delim_);
+    new_value->append(it->data(), it->size());
+  }
 
   return true;
 }

@@ -299,13 +299,16 @@ class FileManager : public EnvWrapper {
 }; // FileManager
 
 // utility functions
-static void FillDB(DB* db, int from, int to) {
+static size_t FillDB(DB* db, int from, int to) {
+  size_t bytes_written = 0;
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + std::to_string(i);
     std::string value = "testvalue" + std::to_string(i);
+    bytes_written += key.size() + value.size();
 
     ASSERT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
   }
+  return bytes_written;
 }
 
 static void AssertExists(DB* db, int from, int to) {
@@ -800,8 +803,8 @@ TEST(BackupableDBTest, DeleteTmpFiles) {
 }
 
 TEST(BackupableDBTest, KeepLogFiles) {
-  // basically infinite
   backupable_options_->backup_log_files = false;
+  // basically infinite
   options_.WAL_ttl_seconds = 24 * 60 * 60;
   OpenBackupableDB(true);
   FillDB(db_.get(), 0, 100);
@@ -818,6 +821,47 @@ TEST(BackupableDBTest, KeepLogFiles) {
 
   // all data should be there if we call with keep_log_files = true
   AssertBackupConsistency(0, 0, 500, 600, true);
+}
+
+TEST(BackupableDBTest, RateLimiting) {
+  uint64_t const KB = 1024 * 1024;
+  size_t const kMicrosPerSec = 1000 * 1000LL;
+
+  std::vector<std::pair<uint64_t, uint64_t>> limits(
+      {{KB, 5 * KB}, {2 * KB, 3 * KB}});
+
+  for (const auto& limit : limits) {
+    // destroy old data
+    DestroyDB(dbname_, Options());
+
+    backupable_options_->backup_rate_limit = limit.first;
+    backupable_options_->restore_rate_limit = limit.second;
+    options_.compression = kNoCompression;
+    OpenBackupableDB(true);
+    size_t bytes_written = FillDB(db_.get(), 0, 100000);
+
+    auto start_backup = env_->NowMicros();
+    ASSERT_OK(db_->CreateNewBackup(false));
+    auto backup_time = env_->NowMicros() - start_backup;
+    auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
+                                    backupable_options_->backup_rate_limit;
+    ASSERT_GT(backup_time, 0.9 * rate_limited_backup_time);
+    ASSERT_LT(backup_time, 1.3 * rate_limited_backup_time);
+
+    CloseBackupableDB();
+
+    OpenRestoreDB();
+    auto start_restore = env_->NowMicros();
+    ASSERT_OK(restore_db_->RestoreDBFromLatestBackup(dbname_, dbname_));
+    auto restore_time = env_->NowMicros() - start_restore;
+    CloseRestoreDB();
+    auto rate_limited_restore_time = (bytes_written * kMicrosPerSec) /
+                                     backupable_options_->restore_rate_limit;
+    ASSERT_GT(restore_time, 0.9 * rate_limited_restore_time);
+    ASSERT_LT(restore_time, 1.3 * rate_limited_restore_time);
+
+    AssertBackupConsistency(0, 0, 100000, 100010);
+  }
 }
 
 } // anon namespace

@@ -22,12 +22,13 @@ class Statistics;
 class MergeHelper {
  public:
   MergeHelper(const Comparator* user_comparator,
-              const MergeOperator* user_merge_operator,
-              Logger* logger,
+              const MergeOperator* user_merge_operator, Logger* logger,
+              unsigned min_partial_merge_operands,
               bool assert_valid_internal_key)
       : user_comparator_(user_comparator),
         user_merge_operator_(user_merge_operator),
         logger_(logger),
+        min_partial_merge_operands_(min_partial_merge_operands),
         assert_valid_internal_key_(assert_valid_internal_key),
         keys_(),
         operands_(),
@@ -46,7 +47,8 @@ class MergeHelper {
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
   void MergeUntil(Iterator* iter, SequenceNumber stop_before = 0,
-                  bool at_bottom = false, Statistics* stats = nullptr);
+                  bool at_bottom = false, Statistics* stats = nullptr,
+                  int* steps = nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call
@@ -88,6 +90,7 @@ class MergeHelper {
   const Comparator* user_comparator_;
   const MergeOperator* user_merge_operator_;
   Logger* logger_;
+  unsigned min_partial_merge_operands_;
   bool assert_valid_internal_key_; // enforce no internal key corruption?
 
   // the scratch area that holds the result of MergeUntil

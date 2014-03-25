@@ -30,10 +30,11 @@ ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
       merge_operator(nullptr),
       compaction_filter(nullptr),
-      compaction_filter_factory(
-          std::shared_ptr<CompactionFilterFactory>(
-            new DefaultCompactionFilterFactory())),
-      write_buffer_size(4<<20),
+      compaction_filter_factory(std::shared_ptr<CompactionFilterFactory>(
+          new DefaultCompactionFilterFactory())),
+      compaction_filter_factory_v2(
+          new DefaultCompactionFilterFactoryV2(NewFixedPrefixTransform(8))),
+      write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
       block_cache(nullptr),
@@ -72,13 +73,14 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_sequential_skip_in_iterations(8),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
       table_factory(
-        std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
+          std::shared_ptr<TableFactory>(new BlockBasedTableFactory())),
       inplace_update_support(false),
       inplace_update_num_locks(10000),
       inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(6),
-      max_successive_merges(0) {
+      max_successive_merges(0),
+      min_partial_merge_operands(2) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -87,6 +89,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       merge_operator(options.merge_operator),
       compaction_filter(options.compaction_filter),
       compaction_filter_factory(options.compaction_filter_factory),
+      compaction_filter_factory_v2(options.compaction_filter_factory_v2),
       write_buffer_size(options.write_buffer_size),
       max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
@@ -140,7 +143,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       inplace_callback(options.inplace_callback),
       memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
       memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
-      max_successive_merges(options.max_successive_merges) {
+      max_successive_merges(options.max_successive_merges),
+      min_partial_merge_operands(options.min_partial_merge_operands) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -292,6 +296,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
       merge_operator ? merge_operator->Name() : "None");
   Log(log, "       Options.compaction_filter_factory: %s",
       compaction_filter_factory->Name());
+  Log(log, "       Options.compaction_filter_factory_v2: %s",
+      compaction_filter_factory_v2->Name());
   Log(log, "        Options.memtable_factory: %s", memtable_factory->Name());
   Log(log, "           Options.table_factory: %s", table_factory->Name());
   Log(log, "       Options.write_buffer_size: %zd", write_buffer_size);
@@ -408,6 +414,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         inplace_update_support);
     Log(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
+    Log(log, "              Options.min_partial_merge_operands: %u",
+        min_partial_merge_operands);
     // TODO: easier config for bloom (maybe based on avg key/value size)
     Log(log, "              Options.memtable_prefix_bloom_bits: %d",
         memtable_prefix_bloom_bits);

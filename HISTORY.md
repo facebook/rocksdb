@@ -13,7 +13,7 @@
 * Removed arena.h from public header files.
 * By default, checksums are verified on every read from database
 * Added is_manual_compaction to CompactionFilter::Context
-* Added "virtual void WaitForJoin() = 0" in class Env
+* Added "virtual void WaitForJoin()" in class Env. Default operation is no-op.
 * Removed BackupEngine::DeleteBackupsNewerThan() function
 * Added new option -- verify_checksums_in_compaction
 * Chagned Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
@@ -21,11 +21,13 @@
 * Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
 * Added a command "checkconsistency" in ldb tool, which checks
   if file system state matches DB state (file existence and file sizes)
+* CompactionFilter::Context is now CompactionFilterContext. It is shared by CompactionFilter and CompactionFilterV2
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,
   we will ignore it. We assume that writers of these records were interrupted
   and that we can safely ignore it.
+* Now compaction filter has a V2 interface. It buffers the kv-pairs sharing the same key prefix, process them in batches, and return the batched results back to DB.
 
 ## 2.7.0 (01/28/2014)
 

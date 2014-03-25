@@ -38,6 +38,7 @@ class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
+class CompactionFilterV2;
 
 class DBImpl : public DB {
  public:
@@ -337,6 +338,24 @@ class DBImpl : public DB {
   Status DoCompactionWork(CompactionState* compact,
                           DeletionState& deletion_state,
                           LogBuffer* log_buffer);
+
+  // Call compaction filter if is_compaction_v2 is not true. Then iterate
+  // through input and compact the kv-pairs
+  Status ProcessKeyValueCompaction(
+    SequenceNumber visible_at_tip,
+    SequenceNumber earliest_snapshot,
+    SequenceNumber latest_snapshot,
+    DeletionState& deletion_state,
+    bool bottommost_level,
+    int64_t& imm_micros,
+    Iterator* input,
+    CompactionState* compact,
+    bool is_compaction_v2,
+    LogBuffer* log_buffer);
+
+  // Call compaction_filter_v2->Filter() on kv-pairs in compact
+  void CallCompactionFilterV2(CompactionState* compact,
+    CompactionFilterV2* compaction_filter_v2);
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);

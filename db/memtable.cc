@@ -37,7 +37,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       kWriteBufferSize(options.write_buffer_size),
       arena_(options.arena_block_size),
       table_(options.memtable_factory->CreateMemTableRep(
-             comparator_, &arena_, options.prefix_extractor.get())),
+          comparator_, &arena_, options.prefix_extractor.get())),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
@@ -353,17 +353,6 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(v);
-        while (merge_context->GetNumOperands() >= 2) {
-          // Attempt to associative merge. (Returns true if successful)
-          if (merge_operator->PartialMerge(
-                  s->key->user_key(), merge_context->GetOperand(0),
-                  merge_context->GetOperand(1), &merge_result, s->logger)) {
-            merge_context->PushPartialMergeResult(merge_result);
-          } else {
-            // Stack them because user can't associative merge
-            break;
-          }
-        }
         return true;
       }
       default:

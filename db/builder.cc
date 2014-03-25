@@ -73,6 +73,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
 
     MergeHelper merge(internal_comparator.user_comparator(),
                       options.merge_operator.get(), options.info_log.get(),
+                      options.min_partial_merge_operands,
                       true /* internal key corruption is not ok */);
 
     if (purge) {

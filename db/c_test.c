@@ -175,8 +175,8 @@ static char* MergeOperatorFullMerge(
 static char* MergeOperatorPartialMerge(
     void* arg,
     const char* key, size_t key_length,
-    const char* left_operand, size_t left_operand_length,
-    const char* right_operand, size_t right_operand_length,
+    const char* const* operands_list, const size_t* operands_list_length,
+    int num_operands,
     unsigned char* success, size_t* new_value_length) {
   *new_value_length = 4;
   *success = 1;

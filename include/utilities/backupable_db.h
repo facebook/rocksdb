@@ -61,6 +61,16 @@ struct BackupableDBOptions {
   // Default: true
   bool backup_log_files;
 
+  // Max bytes that can be transferred in a second during backup.
+  // If 0, go as fast as you can
+  // Default: 0
+  uint64_t backup_rate_limit;
+
+  // Max bytes that can be transferred in a second during restore.
+  // If 0, go as fast as you can
+  // Default: 0
+  uint64_t restore_rate_limit;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(const std::string& _backup_dir,
@@ -68,14 +78,18 @@ struct BackupableDBOptions {
                                bool _share_table_files = true,
                                Logger* _info_log = nullptr, bool _sync = true,
                                bool _destroy_old_data = false,
-                               bool _backup_log_files = true)
+                               bool _backup_log_files = true,
+                               uint64_t _backup_rate_limit = 0,
+                               uint64_t _restore_rate_limit = 0)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
         info_log(_info_log),
         sync(_sync),
         destroy_old_data(_destroy_old_data),
-        backup_log_files(_backup_log_files) {}
+        backup_log_files(_backup_log_files),
+        backup_rate_limit(_backup_rate_limit),
+        restore_rate_limit(_restore_rate_limit) {}
 };
 
 struct RestoreOptions {
