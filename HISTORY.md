@@ -7,7 +7,7 @@
 * Removed arena.h from public header files.
 * By default, checksums are verified on every read from database
 * Added is_manual_compaction to CompactionFilter::Context
-* Added "virtual void WaitForJoin() = 0" in class Env
+* Added "virtual void WaitForJoin()" in class Env. Default operation is no-op.
 * Removed BackupEngine::DeleteBackupsNewerThan() function
 * Added new option -- verify_checksums_in_compaction
 * Chagned Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
