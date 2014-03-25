@@ -1,1 +1,0 @@
-make CXXFLAGS="-O2 -DNDEBUG" CXX="/mnt/gvfs/third-party/d28c90311ca14f9f0b2bb720f4e34b285513d4f4/centos5.2-native/gcc/gcc-4.6.2-glibc-2.13/bin/g++" LIBS="/mnt/gvfs/third-party/d28c90311ca14f9f0b2bb720f4e34b285513d4f4/gcc-4.6.2-glibc-2.13/jemalloc/jemalloc-2.2.4/96de4f9/lib/libjemalloc_pic.a"
