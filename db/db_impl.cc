@@ -2827,6 +2827,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   compact->CleanupBatchBuffer();
   compact->CleanupMergedBuffer();
   compact->cur_prefix_ = kNullString;
+  bool prefix_initialized = false;
 
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   ColumnFamilyData* cfd = compact->compaction->column_family_data();
@@ -2903,8 +2904,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       const SliceTransform* transformer =
           cfd->options()->compaction_filter_factory_v2->GetPrefixExtractor();
       std::string key_prefix = transformer->Transform(key).ToString();
-      if (compact->cur_prefix_ == kNullString) {
+      if (!prefix_initialized) {
         compact->cur_prefix_ = key_prefix;
+        prefix_initialized = true;
       }
       if (!ParseInternalKey(key, &ikey)) {
         // log error

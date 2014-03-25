@@ -18,10 +18,13 @@ bool MergeOperator::PartialMergeMulti(const Slice& key,
                                       const std::deque<Slice>& operand_list,
                                       std::string* new_value,
                                       Logger* logger) const {
+  assert(operand_list.size() >= 2);
   // Simply loop through the operands
   std::string temp_value;
-  Slice temp_slice;
-  for (const auto& operand : operand_list) {
+  Slice temp_slice(operand_list[0]);
+
+  for (int i = 1; i < operand_list.size(); ++i) {
+    auto& operand = operand_list[i];
     if (!PartialMerge(key, temp_slice, operand, &temp_value, logger)) {
       return false;
     }

@@ -1363,7 +1363,7 @@ class PosixEnv : public Env {
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
-    optimized.fallocate_with_keep_size = true;
+    optimized.fallocate_with_keep_size = false;
     return optimized;
   }
 

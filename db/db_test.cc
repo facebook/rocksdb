@@ -3969,6 +3969,56 @@ TEST(DBTest, CompactionFilterV2WithValueChange) {
   }
 }
 
+TEST(DBTest, CompactionFilterV2NULLPrefix) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.max_mem_compaction_level = 0;
+  auto prefix_extractor = NewFixedPrefixTransform(8);
+  options.compaction_filter_factory_v2 =
+    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor);
+  // In a testing environment, we can only flush the application
+  // compaction filter buffer using universal compaction
+  option_config_ = kUniversalCompaction;
+  options.compaction_style = (rocksdb::CompactionStyle)1;
+  Reopen(&options);
+
+  // Write 100K+1 keys, these are written to a few files
+  // in L0. We do this so that the current snapshot points
+  // to the 100001 key.The compaction filter is  not invoked
+  // on keys that are visible via a snapshot because we
+  // anyways cannot delete it.
+  const std::string value(10, 'x');
+  char first_key[100];
+  snprintf(first_key, sizeof(first_key), "%s0000%010d", "NULL", 1);
+  Put(first_key, value);
+  for (int i = 1; i < 100000; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "%08d%010d", i, i);
+    Put(key, value);
+  }
+
+  char last_key[100];
+  snprintf(last_key, sizeof(last_key), "%s0000%010d", "NULL", 2);
+  Put(last_key, value);
+
+  // push all files to lower levels
+  dbfull()->TEST_FlushMemTable();
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+
+  // verify that all keys now have the new value that
+  // was set by the compaction process.
+  std::string newvalue = Get(first_key);
+  ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
+  newvalue = Get(last_key);
+  ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
+  for (int i = 1; i < 100000; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "%08d%010d", i, i);
+    std::string newvalue = Get(key);
+    ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
+  }
+}
+
 TEST(DBTest, SparseMerge) {
   do {
     Options options = CurrentOptions();
