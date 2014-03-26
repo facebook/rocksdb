@@ -1554,6 +1554,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu,
           DescriptorFileName(dbname_, pending_manifest_file_number_),
           &descriptor_file, env_->OptimizeForManifestWrite(storage_options_));
       if (s.ok()) {
+        descriptor_file->SetPreallocationBlockSize(
+            options_->manifest_preallocation_size);
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
         s = WriteSnapshot(descriptor_log_.get());
       }
