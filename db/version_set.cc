@@ -1207,6 +1207,7 @@ class VersionSet::Builder {
           return BySmallestKey(f1, f2, internal_comparator);
       }
       assert(false);
+      return false;
     }
   };
 
