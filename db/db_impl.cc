@@ -3331,10 +3331,10 @@ void DBImpl::InstallSuperVersion(DeletionState& deletion_state) {
 DBImpl::SuperVersion* DBImpl::InstallSuperVersion(
     SuperVersion* new_superversion) {
   mutex_.AssertHeld();
+  new_superversion->db = this;
   new_superversion->Init(mem_, imm_.current(), versions_->current());
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
-  super_version_->db = this;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
 
