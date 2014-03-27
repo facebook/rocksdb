@@ -19,6 +19,7 @@
 namespace rocksdb {
 
 class MemTableList;
+class DBImpl;
 
 enum DBPropertyType {
   kNumFilesAtLevel,  // Number of files at a specific level
@@ -31,6 +32,7 @@ enum DBPropertyType {
                           // 0.
   kCompactionPending,     // Return 1 if a compaction is pending. Otherwise 0.
   kBackgroundErrors,      // Return accumulated background errors encountered.
+  kCurSizeActiveMemTable,  // Return current size of the active memtable
   kUnknown,
 };
 
@@ -124,8 +126,7 @@ class InternalStats {
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
 
   bool GetProperty(DBPropertyType property_type, const Slice& property,
-                   std::string* value, VersionSet* version_set,
-                   const MemTableList& imm);
+                   std::string* value, DBImpl* db);
 
  private:
   std::vector<CompactionStats> compaction_stats_;

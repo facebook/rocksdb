@@ -2036,6 +2036,8 @@ TEST(DBTest, NumImmutableMemTable) {
     ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
+    ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cur-size-active-mem-table",
+                                      &num));
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "2");
     perf_context.Reset();
@@ -2051,6 +2053,11 @@ TEST(DBTest, NumImmutableMemTable) {
     dbfull()->Flush(FlushOptions());
     ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
+    ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cur-size-active-mem-table",
+                                      &num));
+    // "208" is the size of the metadata of an empty skiplist, this would
+    // break if we change the default skiplist implementation
+    ASSERT_EQ(num, "208");
     SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }

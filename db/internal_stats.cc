@@ -7,6 +7,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/internal_stats.h"
+#include "db/db_impl.h"
 #include "db/memtable_list.h"
 
 #include <vector>
@@ -35,15 +36,18 @@ DBPropertyType GetPropertyType(const Slice& property) {
     return kCompactionPending;
   } else if (in == "background-errors") {
     return kBackgroundErrors;
+  } else if (in == "cur-size-active-mem-table") {
+    return kCurSizeActiveMemTable;
   }
   return kUnknown;
 }
 
 bool InternalStats::GetProperty(DBPropertyType property_type,
                                 const Slice& property, std::string* value,
-                                VersionSet* version_set,
-                                const MemTableList& imm) {
+                                DBImpl* db) {
+  VersionSet* version_set = db->versions_.get();
   Version* current = version_set->current();
+  const MemTableList& imm = db->imm_;
   Slice in = property;
 
   switch (property_type) {
@@ -341,12 +345,14 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       // 0 otherwise,
       *value = std::to_string(current->NeedsCompaction() ? 1 : 0);
       return true;
-    /////////////
     case kBackgroundErrors:
       // Accumulated number of  errors in background flushes or compactions.
       *value = std::to_string(GetBackgroundErrorCount());
       return true;
-    /////////
+    case kCurSizeActiveMemTable:
+      // Current size of the active memtable
+      *value = std::to_string(db->mem_->ApproximateMemoryUsage());
+      return true;
     default:
       return false;
   }
