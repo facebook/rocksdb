@@ -139,6 +139,7 @@ class DefaultCompactionFilterFactory : public CompactionFilterFactory {
 //
 class CompactionFilterFactoryV2 {
  public:
+  // NOTE: CompactionFilterFactoryV2 will not delete prefix_extractor
   explicit CompactionFilterFactoryV2(const SliceTransform* prefix_extractor)
     : prefix_extractor_(prefix_extractor) { }
 
@@ -169,9 +170,8 @@ class CompactionFilterFactoryV2 {
 // return any filter
 class DefaultCompactionFilterFactoryV2 : public CompactionFilterFactoryV2 {
  public:
-  explicit DefaultCompactionFilterFactoryV2(
-    const SliceTransform* prefix_extractor)
-      : CompactionFilterFactoryV2(prefix_extractor) { }
+  explicit DefaultCompactionFilterFactoryV2()
+      : CompactionFilterFactoryV2(nullptr) { }
 
   virtual std::unique_ptr<CompactionFilterV2>
   CreateCompactionFilterV2(

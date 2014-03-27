@@ -70,7 +70,6 @@ namespace rocksdb {
 int DBImpl::SuperVersion::dummy = 0;
 void* const DBImpl::SuperVersion::kSVInUse = &DBImpl::SuperVersion::dummy;
 void* const DBImpl::SuperVersion::kSVObsolete = nullptr;
-const std::string kNullString = "NULL";
 
 void DumpLeveldbBuildVersion(Logger * log);
 
@@ -2897,7 +2896,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   assert(compact);
   compact->CleanupBatchBuffer();
   compact->CleanupMergedBuffer();
-  compact->cur_prefix_ = kNullString;
   bool prefix_initialized = false;
 
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions

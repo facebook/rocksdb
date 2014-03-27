@@ -126,6 +126,8 @@ struct Options {
 
   // Version TWO of the compaction_filter_factory
   // It supports rolling compaction
+  //
+  // Default: a factory that doesn't provide any object
   std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // If true, the database will be created if it is missing.

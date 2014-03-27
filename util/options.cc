@@ -32,9 +32,7 @@ Options::Options()
       compaction_filter(nullptr),
       compaction_filter_factory(std::shared_ptr<CompactionFilterFactory>(
           new DefaultCompactionFilterFactory())),
-      compaction_filter_factory_v2(
-            new DefaultCompactionFilterFactoryV2(
-              NewFixedPrefixTransform(8))),
+      compaction_filter_factory_v2(new DefaultCompactionFilterFactoryV2()),
       create_if_missing(false),
       error_if_exists(false),
       paranoid_checks(false),
