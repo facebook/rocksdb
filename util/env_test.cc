@@ -481,9 +481,9 @@ class TestLogger : public Logger {
 
       if (new_format[0] == '[') {
         // "[DEBUG] "
-        ASSERT_TRUE(n <= 56 + (512 - sizeof(struct timeval)));
+        ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(struct timeval))));
       } else {
-        ASSERT_TRUE(n <= 48 + (512 - sizeof(struct timeval)));
+        ASSERT_TRUE(n <= 48 + (512 - static_cast<int>(sizeof(struct timeval))));
       }
       va_end(backup_ap);
     }

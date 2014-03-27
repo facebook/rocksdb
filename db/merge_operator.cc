@@ -23,7 +23,7 @@ bool MergeOperator::PartialMergeMulti(const Slice& key,
   std::string temp_value;
   Slice temp_slice(operand_list[0]);
 
-  for (int i = 1; i < operand_list.size(); ++i) {
+  for (size_t i = 1; i < operand_list.size(); ++i) {
     auto& operand = operand_list[i];
     if (!PartialMerge(key, temp_slice, operand, &temp_value, logger)) {
       return false;
