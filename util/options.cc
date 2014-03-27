@@ -91,7 +91,7 @@ Options::Options()
       purge_redundant_kvs_while_flush(true),
       allow_os_buffer(true),
       allow_mmap_reads(false),
-      allow_mmap_writes(true),
+      allow_mmap_writes(false),
       is_fd_close_on_exec(true),
       skip_log_error_on_recovery(false),
       stats_dump_period_sec(3600),
