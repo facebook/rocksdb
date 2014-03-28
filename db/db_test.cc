@@ -306,6 +306,7 @@ class DBTest {
 
   DBTest() : option_config_(kDefault),
              env_(new SpecialEnv(Env::Default())) {
+    last_options_.max_background_flushes = 0;
     filter_policy_ = NewBloomFilterPolicy(10);
     dbname_ = test::TmpDir() + "/db_test";
     ASSERT_OK(DestroyDB(dbname_, Options()));
@@ -371,6 +372,8 @@ class DBTest {
   // Return the current option configuration.
   Options CurrentOptions() {
     Options options;
+    options.paranoid_checks = false;
+    options.max_background_flushes = 0;
     switch (option_config_) {
       case kHashSkipList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -431,6 +434,7 @@ class DBTest {
         options.compaction_style = kCompactionStyleUniversal;
         break;
       case kCompressedBlockCache:
+        options.allow_mmap_writes = true;
         options.block_cache_compressed = NewLRUCache(8*1024*1024);
         break;
       case kInfiniteMaxOpenFiles:
@@ -5306,6 +5310,7 @@ TEST(DBTest, ReadCompaction) {
     options.filter_policy = nullptr;
     options.block_size = 4096;
     options.no_block_cache = true;
+    options.disable_seek_compaction = false;
 
     Reopen(&options);
 

@@ -146,7 +146,7 @@ struct Options {
   // If any of the writes to the database fails (Put, Delete, Merge, Write),
   // the database will switch to read-only mode and fail all other
   // Write operations.
-  // Default: false
+  // Default: true
   bool paranoid_checks;
 
   // Use the specified object to interact with the environment,
@@ -199,7 +199,7 @@ struct Options {
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
   //
-  // Default: 1000
+  // Default: 5000
   int max_open_files;
 
   // Control over blocks (user data is stored in a set of blocks, and
@@ -436,7 +436,7 @@ struct Options {
   // Without a separate pool, long running major compaction jobs could
   // potentially block memtable flush jobs of other db instances, leading to
   // unnecessary Put stalls.
-  // Default: 0
+  // Default: 1
   int max_background_flushes;
 
   // Specify the maximal size of the info log file. If the log file
@@ -562,7 +562,7 @@ struct Options {
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
-  // Allow the OS to mmap file for writing. Default: true
+  // Allow the OS to mmap file for writing. Default: false
   bool allow_mmap_writes;
 
   // Disable child process inherit open files. Default: true
