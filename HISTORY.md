@@ -22,6 +22,7 @@
   we will ignore it. We assume that writers of these records were interrupted
   and that we can safely ignore it.
 * Now compaction filter has a V2 interface. It buffers the kv-pairs sharing the same key prefix, process them in batches, and return the batched results back to DB.
+* Geo-spatial support for locations and radial-search.
 
 ## 2.7.0 (01/28/2014)
 
