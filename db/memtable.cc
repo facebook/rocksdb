@@ -155,22 +155,24 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 class MemTableIterator: public Iterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& options)
-      : mem_(mem), iter_(), dynamic_prefix_seek_(false), valid_(false) {
+      : bloom_(nullptr),
+        prefix_extractor_(mem.prefix_extractor_),
+        iter_(),
+        valid_(false) {
     if (options.prefix) {
-      iter_.reset(mem_.table_->GetPrefixIterator(*options.prefix));
+      iter_.reset(mem.table_->GetPrefixIterator(*options.prefix));
     } else if (options.prefix_seek) {
-      dynamic_prefix_seek_ = true;
-      iter_.reset(mem_.table_->GetDynamicPrefixIterator());
+      bloom_ = mem.prefix_bloom_.get();
+      iter_.reset(mem.table_->GetDynamicPrefixIterator());
     } else {
-      iter_.reset(mem_.table_->GetIterator());
+      iter_.reset(mem.table_->GetIterator());
     }
   }
 
   virtual bool Valid() const { return valid_; }
   virtual void Seek(const Slice& k) {
-    if (dynamic_prefix_seek_ && mem_.prefix_bloom_ &&
-        !mem_.prefix_bloom_->MayContain(
-          mem_.prefix_extractor_->Transform(ExtractUserKey(k)))) {
+    if (bloom_ != nullptr &&
+        !bloom_->MayContain(prefix_extractor_->Transform(ExtractUserKey(k)))) {
       valid_ = false;
       return;
     }
@@ -208,9 +210,9 @@ class MemTableIterator: public Iterator {
   virtual Status status() const { return Status::OK(); }
 
  private:
-  const MemTable& mem_;
+  DynamicBloom* bloom_;
+  const SliceTransform* const prefix_extractor_;
   std::shared_ptr<MemTableRep::Iterator> iter_;
-  bool dynamic_prefix_seek_;
   bool valid_;
 
   // No copying allowed
