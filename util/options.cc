@@ -112,6 +112,7 @@ Options::Options()
       inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(6),
+      bloom_locality(0),
       max_successive_merges(0),
       min_partial_merge_operands(2),
       allow_thread_local(true) {

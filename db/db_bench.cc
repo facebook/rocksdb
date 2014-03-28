@@ -134,6 +134,8 @@ DEFINE_int64(read_range, 1, "When ==1 reads use ::Get, when >1 reads use"
 
 DEFINE_bool(use_prefix_blooms, false, "Whether to place prefixes in blooms");
 
+DEFINE_int32(bloom_locality, 0, "Control bloom filter probes locality");
+
 DEFINE_bool(use_prefix_api, false, "Whether to set ReadOptions.prefix for"
             " prefixscanrandom. If true, use_prefix_blooms must also be true.");
 
@@ -1543,6 +1545,7 @@ class Benchmark {
           NewFixedPrefixTransform(FLAGS_prefix_size));
     }
     options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
+    options.bloom_locality = FLAGS_bloom_locality;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
     options.env = FLAGS_env;
@@ -1916,7 +1919,7 @@ class Benchmark {
     Duration duration(FLAGS_duration, reads_);
 
     int64_t found = 0;
-
+    int64_t read = 0;
     if (FLAGS_use_multiget) {   // MultiGet
       const long& kpg = FLAGS_keys_per_multiget;  // keys per multiget group
       long keys_left = reads_;
@@ -1924,6 +1927,7 @@ class Benchmark {
       // Recalculate number of keys per group, and call MultiGet until done
       long num_keys;
       while(num_keys = std::min(keys_left, kpg), !duration.Done(num_keys)) {
+        read += num_keys;
         found +=
           MultiGetRandom(options, num_keys, &thread->rand, FLAGS_num, "");
         thread->stats.FinishedSingleOp(db_);
@@ -1937,8 +1941,9 @@ class Benchmark {
         std::string key = GenerateKeyFromInt(k, FLAGS_num);
 
         iter->Seek(key);
+        read++;
         if (iter->Valid() && iter->key().compare(Slice(key)) == 0) {
-          ++found;
+          found++;
         }
 
         thread->stats.FinishedSingleOp(db_);
@@ -1957,6 +1962,7 @@ class Benchmark {
         }
 
         if (FLAGS_read_range < 2) {
+          read++;
           if (db_->Get(options, key, &value).ok()) {
             found++;
           }
@@ -1972,6 +1978,7 @@ class Benchmark {
             db_->GetApproximateSizes(&range, 1, &sizes);
           }
 
+          read += FLAGS_read_range;
           for (iter->Seek(key);
                iter->Valid() && count <= FLAGS_read_range;
                ++count, iter->Next()) {
@@ -1992,7 +1999,7 @@ class Benchmark {
 
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
-             found, reads_);
+             found, read);
 
     thread->stats.AddMessage(msg);
 

@@ -15,13 +15,17 @@ class Slice;
 class DynamicBloom {
  public:
   // total_bits: fixed total bits for the bloom
-  // hash_func:  customized hash function
   // num_probes: number of hash probes for a single key
-  DynamicBloom(uint32_t total_bits,
-               uint32_t (*hash_func)(const Slice& key),
-               uint32_t num_probes = 6);
+  // cl_per_block: block size in cache lines. When this is non-zero, a
+  //               query/set is done within a block to improve cache locality.
+  // hash_func:  customized hash function
+  explicit DynamicBloom(uint32_t total_bits, uint32_t cl_per_block = 0,
+      uint32_t num_probes = 6,
+      uint32_t (*hash_func)(const Slice& key) = nullptr);
 
-  explicit DynamicBloom(uint32_t total_bits, uint32_t num_probes = 6);
+  ~DynamicBloom() {
+    delete[] raw_;
+  }
 
   // Assuming single threaded access to this function.
   void Add(const Slice& key);
@@ -36,10 +40,15 @@ class DynamicBloom {
   bool MayContainHash(uint32_t hash);
 
  private:
-  uint32_t (*hash_func_)(const Slice& key);
+  const bool kBlocked;
+  const uint32_t kBitsPerBlock;
   const uint32_t kTotalBits;
+  const uint32_t kNumBlocks;
   const uint32_t kNumProbes;
-  std::unique_ptr<unsigned char[]> data_;
+
+  uint32_t (*hash_func_)(const Slice& key);
+  unsigned char* data_;
+  unsigned char* raw_;
 };
 
 inline void DynamicBloom::Add(const Slice& key) { AddHash(hash_func_(key)); }
@@ -50,22 +59,42 @@ inline bool DynamicBloom::MayContain(const Slice& key) {
 
 inline bool DynamicBloom::MayContainHash(uint32_t h) {
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-  for (uint32_t i = 0; i < kNumProbes; i++) {
-    const uint32_t bitpos = h % kTotalBits;
-    if (((data_[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
-      return false;
+  if (kBlocked) {
+    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * kBitsPerBlock;
+    for (uint32_t i = 0; i < kNumProbes; ++i) {
+      const uint32_t bitpos = b + h % kBitsPerBlock;
+      if (((data_[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
+        return false;
+      }
+      h += delta;
     }
-    h += delta;
+  } else {
+    for (uint32_t i = 0; i < kNumProbes; ++i) {
+      const uint32_t bitpos = h % kTotalBits;
+      if (((data_[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
+        return false;
+      }
+      h += delta;
+    }
   }
   return true;
 }
 
 inline void DynamicBloom::AddHash(uint32_t h) {
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-  for (uint32_t i = 0; i < kNumProbes; i++) {
-    const uint32_t bitpos = h % kTotalBits;
-    data_[bitpos / 8] |= (1 << (bitpos % 8));
-    h += delta;
+  if (kBlocked) {
+    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * kBitsPerBlock;
+    for (uint32_t i = 0; i < kNumProbes; ++i) {
+      const uint32_t bitpos = b + h % kBitsPerBlock;
+      data_[bitpos / 8] |= (1 << (bitpos % 8));
+      h += delta;
+    }
+  } else {
+    for (uint32_t i = 0; i < kNumProbes; ++i) {
+      const uint32_t bitpos = h % kTotalBits;
+      data_[bitpos / 8] |= (1 << (bitpos % 8));
+      h += delta;
+    }
   }
 }
 

@@ -480,6 +480,8 @@ inline bool GetHeapProfile(void (*func)(void *, const char *, int), void *arg) {
   return false;
 }
 
+#define CACHE_LINE_SIZE 64U
+
 } // namespace port
 } // namespace rocksdb
 

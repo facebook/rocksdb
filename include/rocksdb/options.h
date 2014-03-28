@@ -719,6 +719,17 @@ struct Options {
   // number of hash probes per key
   uint32_t memtable_prefix_bloom_probes;
 
+  // Control locality of bloom filter probes to improve cache miss rate.
+  // This option only applies to memtable prefix bloom and plaintable
+  // prefix bloom. It essentially limits the max number of cache lines each
+  // bloom filter check can touch.
+  // This optimization is turned off when set to 0. The number should never
+  // be greater than number of probes. This option can boost performance
+  // for in-memory workload but should use with care since it can cause
+  // higher false positive rate.
+  // Default: 0
+  uint32_t bloom_locality;
+
   // Maximum number of successive merge operations on a key in the memtable.
   //
   // When a merge operation is added to the memtable and the maximum number of
