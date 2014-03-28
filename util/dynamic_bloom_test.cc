@@ -69,7 +69,7 @@ static uint32_t NextNum(uint32_t num) {
 }
 
 TEST(DynamicBloomTest, VaryingLengths) {
-  char buffer[sizeof(int)];
+  char buffer[sizeof(uint64_t)];
 
   // Count number of filters that significantly exceed the false positive rate
   int mediocre_filters = 0;
