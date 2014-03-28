@@ -1363,7 +1363,10 @@ class PosixEnv : public Env {
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
-    optimized.fallocate_with_keep_size = false;
+    // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
+    // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
+    // test and make this false
+    optimized.fallocate_with_keep_size = true;
     return optimized;
   }
 
