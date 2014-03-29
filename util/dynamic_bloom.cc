@@ -39,7 +39,7 @@ DynamicBloom::DynamicBloom(uint32_t total_bits,
     sz += CACHE_LINE_SIZE - 1;
   }
   raw_ = new unsigned char[sz]();
-  if (kBlocked) {
+  if (kBlocked && (reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE)) {
     data_ = raw_ + CACHE_LINE_SIZE -
       reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE;
   } else {
