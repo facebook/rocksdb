@@ -3707,9 +3707,11 @@ TEST(DBTest, CompactionFilterV2) {
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
   // extract prefix
-  auto prefix_extractor = NewFixedPrefixTransform(8);
+  std::unique_ptr<const SliceTransform> prefix_extractor;
+  prefix_extractor.reset(NewFixedPrefixTransform(8));
+
   options.compaction_filter_factory_v2
-    = std::make_shared<KeepFilterFactoryV2>(prefix_extractor);
+    = std::make_shared<KeepFilterFactoryV2>(prefix_extractor.get());
   // In a testing environment, we can only flush the application
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
@@ -3757,7 +3759,7 @@ TEST(DBTest, CompactionFilterV2) {
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
   options.compaction_filter_factory_v2 =
-    std::make_shared<DeleteFilterFactoryV2>(prefix_extractor);
+    std::make_shared<DeleteFilterFactoryV2>(prefix_extractor.get());
   options.create_if_missing = true;
   DestroyAndReopen(&options);
 
@@ -3792,9 +3794,10 @@ TEST(DBTest, CompactionFilterV2WithValueChange) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
-  auto prefix_extractor = NewFixedPrefixTransform(8);
+  std::unique_ptr<const SliceTransform> prefix_extractor;
+  prefix_extractor.reset(NewFixedPrefixTransform(8));
   options.compaction_filter_factory_v2 =
-    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor);
+    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor.get());
   // In a testing environment, we can only flush the application
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
@@ -3832,9 +3835,10 @@ TEST(DBTest, CompactionFilterV2NULLPrefix) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
-  auto prefix_extractor = NewFixedPrefixTransform(8);
+  std::unique_ptr<const SliceTransform> prefix_extractor;
+  prefix_extractor.reset(NewFixedPrefixTransform(8));
   options.compaction_filter_factory_v2 =
-    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor);
+    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor.get());
   // In a testing environment, we can only flush the application
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
