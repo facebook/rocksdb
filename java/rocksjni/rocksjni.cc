@@ -121,6 +121,9 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
     JNIEnv* env, jobject jdb,
     jbyteArray jkey, jint jkey_len,
     jbyteArray jvalue, jint jvalue_len) {
+  static const int kNotFound = -1;
+  static const int kStatusError = -2;
+
   rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
 
   jboolean isCopy;
@@ -142,24 +145,29 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
 
   if (s.IsNotFound()) {
     env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
-    return -1;
-  } else if (s.ok()) {
-    int cvalue_len = static_cast<int>(cvalue.size());
-    int length = cvalue_len;
-    // currently we prevent overflowing.
-    if (length > jvalue_len) {
-      length = jvalue_len;
-    }
-    memcpy(value, cvalue.c_str(), length);
-    env->ReleaseByteArrayElements(jvalue, value, JNI_COMMIT);
-    if (cvalue_len > length) {
-      return static_cast<jint>(cvalue.size());
-    }
-    return length;
-  }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    return kNotFound;
+  } else if (!s.ok()) {
+    // Here since we are throwing a Java exception from c++ side.
+    // As a result, c++ does not know calling this function will in fact
+    // throwing an exception.  As a result, the execution flow will
+    // not stop here, and codes after this throw will still be
+    // executed.
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 
-  return -1;
+    // Return a dummy const value to avoid compilation error, although
+    // java side might not have a chance to get the return value :)
+    return kStatusError;
+  }
+
+  int cvalue_len = static_cast<int>(cvalue.size());
+  int length = std::min(jvalue_len, cvalue_len);
+
+  memcpy(value, cvalue.c_str(), length);
+  env->ReleaseByteArrayElements(jvalue, value, JNI_COMMIT);
+  if (cvalue_len > length) {
+    return static_cast<jint>(cvalue_len);
+  }
+  return length;
 }
 
 /*

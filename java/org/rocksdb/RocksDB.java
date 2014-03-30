@@ -34,7 +34,9 @@ public class RocksDB implements Closeable {
   }
 
   @Override public void close() throws IOException {
-    close0();
+    if (nativeHandle != 0) {
+      close0();
+    }
   }
 
   /**

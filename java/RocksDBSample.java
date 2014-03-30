@@ -62,7 +62,7 @@ public class RocksDBSample {
       byte[] enoughArray = new byte[50];
       int len;
       len = db.get(testKey, insufficientArray);
-      assert(len > testKey.length);
+      assert(len > insufficientArray.length);
       len = db.get("asdfjkl;".getBytes(), enoughArray);
       assert(len == RocksDB.NOT_FOUND);
       len = db.get(testKey, enoughArray);
