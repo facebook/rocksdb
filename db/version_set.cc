@@ -184,18 +184,14 @@ class Version::LevelFileNumIterator : public Iterator {
   }
   Slice value() const {
     assert(Valid());
-    EncodeFixed64(value_buf_, (*flist_)[index_]->number);
-    EncodeFixed64(value_buf_+8, (*flist_)[index_]->file_size);
-    return Slice(value_buf_, sizeof(value_buf_));
+    return Slice(reinterpret_cast<const char*>((*flist_)[index_]),
+                 sizeof(FileMetaData));
   }
   virtual Status status() const { return Status::OK(); }
  private:
   const InternalKeyComparator icmp_;
   const std::vector<FileMetaData*>* const flist_;
   uint32_t index_;
-
-  // Backing store for value().  Holds the file number and size.
-  mutable char value_buf_[16];
 };
 
 static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
@@ -203,7 +199,7 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const InternalKeyComparator& icomparator,
                                  const Slice& file_value, bool for_compaction) {
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
-  if (file_value.size() != 16) {
+  if (file_value.size() != sizeof(FileMetaData)) {
     return NewErrorIterator(
         Status::Corruption("FileReader invoked with unexpected value"));
   } else {
@@ -214,11 +210,12 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
       options_copy = options;
       options_copy.prefix = nullptr;
     }
-    FileMetaData meta(DecodeFixed64(file_value.data()),
-                      DecodeFixed64(file_value.data() + 8));
+
+    const FileMetaData* meta_file =
+        reinterpret_cast<const FileMetaData*>(file_value.data());
     return cache->NewIterator(
-        options.prefix ? options_copy : options, soptions, icomparator, meta,
-        nullptr /* don't need reference to table*/, for_compaction);
+        options.prefix ? options_copy : options, soptions, icomparator,
+        *meta_file, nullptr /* don't need reference to table*/, for_compaction);
   }
 }
 
@@ -237,10 +234,11 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
     // key() will always be the biggest value for this SST?
     may_match = true;
   } else {
+    const FileMetaData* meta_file =
+        reinterpret_cast<const FileMetaData*>(level_iter->value().data());
+
     may_match = cfd_->table_cache()->PrefixMayMatch(
-        options, cfd_->internal_comparator(),
-        DecodeFixed64(level_iter->value().data()),
-        DecodeFixed64(level_iter->value().data() + 8), internal_prefix,
+        options, cfd_->internal_comparator(), *meta_file, internal_prefix,
         nullptr);
   }
   return may_match;
@@ -437,17 +435,30 @@ static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
   return false;
 }
 
-static bool NewestFirst(FileMetaData* a, FileMetaData* b) {
+namespace {
+bool NewestFirst(FileMetaData* a, FileMetaData* b) {
   return a->number > b->number;
 }
-static bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->smallest_seqno > b->smallest_seqno) {
-    assert(a->largest_seqno > b->largest_seqno);
-    return true;
+bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
+  if (a->smallest_seqno != b->smallest_seqno) {
+    return a->smallest_seqno > b->smallest_seqno;
   }
-  assert(a->largest_seqno <= b->largest_seqno);
-  return false;
+  if (a->largest_seqno != b->largest_seqno) {
+    return a->largest_seqno > b->largest_seqno;
+  }
+  // Break ties by file number
+  return NewestFirst(a, b);
 }
+bool BySmallestKey(FileMetaData* a, FileMetaData* b,
+                   const InternalKeyComparator* cmp) {
+  int r = cmp->Compare(a->smallest, b->smallest);
+  if (r != 0) {
+    return (r < 0);
+  }
+  // Break ties by file number
+  return (a->number < b->number);
+}
+}  // anonymous namespace
 
 Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
                  uint64_t version_number)
@@ -1186,22 +1197,33 @@ struct VersionSet::ManifestWriter {
 // Versions that contain full copies of the intermediate state.
 class VersionSet::Builder {
  private:
-  // Helper to sort by v->files_[file_number].smallest
-  struct BySmallestKey {
+  // Helper to sort v->files_
+  // kLevel0LevelCompaction -- NewestFirst
+  // kLevel0UniversalCompaction -- NewestFirstBySeqNo
+  // kLevelNon0 -- BySmallestKey
+  struct FileComparator {
+    enum SortMethod {
+      kLevel0LevelCompaction = 0,
+      kLevel0UniversalCompaction = 1,
+      kLevelNon0 = 2,
+    } sort_method;
     const InternalKeyComparator* internal_comparator;
 
     bool operator()(FileMetaData* f1, FileMetaData* f2) const {
-      int r = internal_comparator->Compare(f1->smallest, f2->smallest);
-      if (r != 0) {
-        return (r < 0);
-      } else {
-        // Break ties by file number
-        return (f1->number < f2->number);
+      switch (sort_method) {
+        case kLevel0LevelCompaction:
+          return NewestFirst(f1, f2);
+        case kLevel0UniversalCompaction:
+          return NewestFirstBySeqNo(f1, f2);
+        case kLevelNon0:
+          return BySmallestKey(f1, f2, internal_comparator);
       }
+      assert(false);
+      return false;
     }
   };
 
-  typedef std::set<FileMetaData*, BySmallestKey> FileSet;
+  typedef std::set<FileMetaData*, FileComparator> FileSet;
   struct LevelState {
     std::set<uint64_t> deleted_files;
     FileSet* added_files;
@@ -1210,15 +1232,23 @@ class VersionSet::Builder {
   ColumnFamilyData* cfd_;
   Version* base_;
   LevelState* levels_;
+  FileComparator level_zero_cmp_;
+  FileComparator level_nonzero_cmp_;
 
  public:
   Builder(ColumnFamilyData* cfd) : cfd_(cfd), base_(cfd->current()) {
     base_->Ref();
     levels_ = new LevelState[base_->NumberLevels()];
-    BySmallestKey cmp;
-    cmp.internal_comparator = &cfd_->internal_comparator();
-    for (int level = 0; level < base_->NumberLevels(); level++) {
-      levels_[level].added_files = new FileSet(cmp);
+    level_zero_cmp_.sort_method =
+        (cfd_->options()->compaction_style == kCompactionStyleUniversal)
+            ? FileComparator::kLevel0UniversalCompaction
+            : FileComparator::kLevel0LevelCompaction;
+    level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
+    level_nonzero_cmp_.internal_comparator = &cfd->internal_comparator();
+
+    levels_[0].added_files = new FileSet(level_zero_cmp_);
+    for (int level = 1; level < base_->NumberLevels(); level++) {
+        levels_[level].added_files = new FileSet(level_nonzero_cmp_);
     }
   }
 
@@ -1251,16 +1281,25 @@ class VersionSet::Builder {
 
   void CheckConsistency(Version* v) {
 #ifndef NDEBUG
+    // make sure the files are sorted correctly
     for (int level = 0; level < v->NumberLevels(); level++) {
-      // Make sure there is no overlap in levels > 0
-      if (level > 0) {
-        for (uint32_t i = 1; i < v->files_[level].size(); i++) {
-          const InternalKey& prev_end = v->files_[level][i-1]->largest;
-          const InternalKey& this_begin = v->files_[level][i]->smallest;
-          if (cfd_->internal_comparator().Compare(prev_end, this_begin) >= 0) {
+      for (size_t i = 1; i < v->files_[level].size(); i++) {
+        auto f1 = v->files_[level][i - 1];
+        auto f2 = v->files_[level][i];
+        if (level == 0) {
+          assert(level_zero_cmp_(f1, f2));
+          if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
+            assert(f1->largest_seqno > f2->largest_seqno);
+          }
+        } else {
+          assert(level_nonzero_cmp_(f1, f2));
+
+          // Make sure there is no overlap in levels > 0
+          if (cfd_->internal_comparator().Compare(f1->largest, f2->smallest) >=
+              0) {
             fprintf(stderr, "overlapping ranges in same level %s vs. %s\n",
-                    prev_end.DebugString().c_str(),
-                    this_begin.DebugString().c_str());
+                    (f1->largest).DebugString().c_str(),
+                    (f2->smallest).DebugString().c_str());
             abort();
           }
         }
@@ -1359,9 +1398,9 @@ class VersionSet::Builder {
   void SaveTo(Version* v) {
     CheckConsistency(base_);
     CheckConsistency(v);
-    BySmallestKey cmp;
-    cmp.internal_comparator = &cfd_->internal_comparator();
+
     for (int level = 0; level < base_->NumberLevels(); level++) {
+      const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
       const auto& base_files = base_->files_[level];
@@ -1387,13 +1426,6 @@ class VersionSet::Builder {
       }
     }
 
-    // TODO(icanadi) do it in the loop above, which already sorts the files
-    // Pre-sort level0 for Get()
-    if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
-      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirstBySeqNo);
-    } else {
-      std::sort(v->files_[0].begin(), v->files_[0].end(), NewestFirst);
-    }
     CheckConsistency(v);
   }
 
@@ -1585,6 +1617,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
           DescriptorFileName(dbname_, pending_manifest_file_number_),
           &descriptor_file, env_->OptimizeForManifestWrite(storage_options_));
       if (s.ok()) {
+        descriptor_file->SetPreallocationBlockSize(
+            options_->manifest_preallocation_size);
         descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
         s = WriteSnapshot(descriptor_log_.get());
       }
@@ -1806,8 +1840,6 @@ Status VersionSet::Recover(
     return s;
   }
 
-  bool have_version_number = false;
-  bool log_number_decrease = false;
   bool have_log_number = false;
   bool have_prev_log_number = false;
   bool have_next_file = false;
@@ -1924,7 +1956,9 @@ Status VersionSet::Recover(
       if (cfd != nullptr) {
         if (edit.has_log_number_) {
           if (cfd->GetLogNumber() > edit.log_number_) {
-            log_number_decrease = true;
+            Log(options_->info_log,
+                "MANIFEST corruption detected, but ignored - Log numbers in "
+                "records NOT monotonically increasing");
           } else {
             cfd->SetLogNumber(edit.log_number_);
             have_log_number = true;
@@ -1937,10 +1971,6 @@ Status VersionSet::Recover(
               "does not match existing comparator " + edit.comparator_);
           break;
         }
-      }
-
-      if (edit.has_version_number_) {
-        have_version_number = true;
       }
 
       if (edit.has_prev_log_number_) {
@@ -1960,23 +1990,6 @@ Status VersionSet::Recover(
       if (edit.has_last_sequence_) {
         last_sequence = edit.last_sequence_;
         have_last_sequence = true;
-      }
-    }
-
-    if (s.ok() && log_number_decrease) {
-      // Since release 2.8, version number is added into MANIFEST file.
-      // Prior release 2.8, a bug in LogAndApply() can cause log_number
-      // to be smaller than the one from previous edit. To ensure backward
-      // compatibility, only fail for MANIFEST genearated by release 2.8
-      // and after.
-      if (have_version_number) {
-        s = Status::Corruption(
-            "MANIFEST corruption - Log numbers in records NOT "
-            "monotonically increasing");
-      } else {
-        Log(options_->info_log,
-            "MANIFEST corruption detected, but ignored - Log numbers in "
-            "records NOT monotonically increasing");
       }
     }
   }
@@ -2402,8 +2415,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
   // WARNING: This method doesn't hold a mutex!!
 
-  bool first_record = false;
-
   // This is done without DB mutex lock held, but only within single-threaded
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
@@ -2411,10 +2422,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     {
       // Store column family info
       VersionEdit edit;
-      if (first_record) {
-        edit.SetVersionNumber();
-        first_record = false;
-      }
       if (cfd->GetID() != 0) {
         // default column family is always there,
         // no need to explicitly write it

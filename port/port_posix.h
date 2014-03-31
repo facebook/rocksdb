@@ -97,11 +97,16 @@ class Mutex {
 
   void Lock();
   void Unlock();
-  void AssertHeld() { }
+  // this will assert if the mutex is not locked
+  // it does NOT verify that mutex is held by a calling thread
+  void AssertHeld();
 
  private:
   friend class CondVar;
   pthread_mutex_t mu_;
+#ifndef NDEBUG
+  bool locked_;
+#endif
 
   // No copying
   Mutex(const Mutex&);
@@ -474,6 +479,8 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
 inline bool GetHeapProfile(void (*func)(void *, const char *, int), void *arg) {
   return false;
 }
+
+#define CACHE_LINE_SIZE 64U
 
 } // namespace port
 } // namespace rocksdb

@@ -127,6 +127,8 @@ struct ColumnFamilyOptions {
 
   // Version TWO of the compaction_filter_factory
   // It supports rolling compaction
+  //
+  // Default: a factory that doesn't provide any object
   std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------
@@ -493,6 +495,17 @@ struct ColumnFamilyOptions {
   // number of hash probes per key
   uint32_t memtable_prefix_bloom_probes;
 
+  // Control locality of bloom filter probes to improve cache miss rate.
+  // This option only applies to memtable prefix bloom and plaintable
+  // prefix bloom. It essentially limits the max number of cache lines each
+  // bloom filter check can touch.
+  // This optimization is turned off when set to 0. The number should never
+  // be greater than number of probes. This option can boost performance
+  // for in-memory workload but should use with care since it can cause
+  // higher false positive rate.
+  // Default: 0
+  uint32_t bloom_locality;
+
   // Maximum number of successive merge operations on a key in the memtable.
   //
   // When a merge operation is added to the memtable and the maximum number of
@@ -538,7 +551,7 @@ struct DBOptions {
   // If any of the  writes to the database fails (Put, Delete, Merge, Write),
   // the database will switch to read-only mode and fail all other
   // Write operations.
-  // Default: false
+  // Default: true
   bool paranoid_checks;
 
   // Use the specified object to interact with the environment,
@@ -559,7 +572,7 @@ struct DBOptions {
   // files opened are always kept open. You can estimate number of files based
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
-  // Default: 1000
+  // Default: 5000
   int max_open_files;
 
   // If non-null, then we should collect metrics about database operations
@@ -696,7 +709,7 @@ struct DBOptions {
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
-  // Allow the OS to mmap file for writing. Default: true
+  // Allow the OS to mmap file for writing. Default: false
   bool allow_mmap_writes;
 
   // Disable child process inherit open files. Default: true

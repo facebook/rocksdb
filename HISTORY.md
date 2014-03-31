@@ -16,7 +16,7 @@
 * Added "virtual void WaitForJoin()" in class Env. Default operation is no-op.
 * Removed BackupEngine::DeleteBackupsNewerThan() function
 * Added new option -- verify_checksums_in_compaction
-* Chagned Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
+* Changed Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
   Changed HashSkipListRepFactory and HashLinkListRepFactory constructor to not take SliceTransform object (use Options.prefix_extractor implicitly)
 * Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
 * Added a command "checkconsistency" in ldb tool, which checks
@@ -28,6 +28,7 @@
   we will ignore it. We assume that writers of these records were interrupted
   and that we can safely ignore it.
 * Now compaction filter has a V2 interface. It buffers the kv-pairs sharing the same key prefix, process them in batches, and return the batched results back to DB.
+* Geo-spatial support for locations and radial-search.
 
 ## 2.7.0 (01/28/2014)
 

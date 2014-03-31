@@ -187,17 +187,27 @@ Status TableCache::GetTableProperties(
 
 bool TableCache::PrefixMayMatch(const ReadOptions& options,
                                 const InternalKeyComparator& icomparator,
-                                uint64_t file_number, uint64_t file_size,
+                                const FileMetaData& file_meta,
                                 const Slice& internal_prefix, bool* table_io) {
-  Cache::Handle* handle = nullptr;
-  Status s = FindTable(storage_options_, icomparator, file_number, file_size,
-                       &handle, table_io);
   bool may_match = true;
-  if (s.ok()) {
-    TableReader* t = GetTableReaderFromHandle(handle);
-    may_match = t->PrefixMayMatch(internal_prefix);
-    ReleaseHandle(handle);
+  auto table_handle = file_meta.table_reader_handle;
+  if (table_handle == nullptr) {
+    // Need to get table handle from file number
+    Status s = FindTable(storage_options_, icomparator, file_meta.number,
+                         file_meta.file_size, &table_handle, table_io);
+    if (!s.ok()) {
+      return may_match;
+    }
   }
+
+  auto table = GetTableReaderFromHandle(table_handle);
+  may_match = table->PrefixMayMatch(internal_prefix);
+
+  if (file_meta.table_reader_handle == nullptr) {
+    // Need to release handle if it is generated from here.
+    ReleaseHandle(table_handle);
+  }
+
   return may_match;
 }
 

@@ -40,12 +40,12 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
   ParseInternalKey(keys_.back(), &orig_ikey);
 
   bool hit_the_next_user_key = false;
-  ParsedInternalKey ikey;
   std::string merge_result;  // Temporary value for merge results
   if (steps) {
     ++(*steps);
   }
   for (iter->Next(); iter->Valid(); iter->Next()) {
+    ParsedInternalKey ikey;
     assert(operands_.size() >= 1);        // Should be invariants!
     assert(keys_.size() == operands_.size());
 
@@ -194,7 +194,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     if (operands_.size() >= 2 &&
         operands_.size() >= min_partial_merge_operands_ &&
         user_merge_operator_->PartialMergeMulti(
-            ikey.user_key,
+            orig_ikey.user_key,
             std::deque<Slice>(operands_.begin(), operands_.end()),
             &merge_result, logger_)) {
       // Merging of operands (associative merge) was successful.

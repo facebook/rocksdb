@@ -21,6 +21,7 @@ class ColumnFamilyData;
 namespace rocksdb {
 
 class MemTableList;
+class DBImpl;
 
 enum DBPropertyType {
   kNumFilesAtLevel,  // Number of files at a specific level
@@ -33,6 +34,7 @@ enum DBPropertyType {
                           // 0.
   kCompactionPending,     // Return 1 if a compaction is pending. Otherwise 0.
   kBackgroundErrors,      // Return accumulated background errors encountered.
+  kCurSizeActiveMemTable,  // Return current size of the active memtable
   kUnknown,
 };
 

@@ -270,7 +270,7 @@ void PlainTableReader::AllocateIndexAndBloom(int num_prefixes) {
   if (options_.prefix_extractor != nullptr) {
     uint32_t bloom_total_bits = num_prefixes * kBloomBitsPerKey;
     if (bloom_total_bits > 0) {
-      bloom_.reset(new DynamicBloom(bloom_total_bits));
+      bloom_.reset(new DynamicBloom(bloom_total_bits, options_.bloom_locality));
     }
   }
 
@@ -388,7 +388,7 @@ Status PlainTableReader::PopulateIndex() {
   if (IsTotalOrderMode()) {
     uint32_t num_bloom_bits = table_properties_->num_entries * kBloomBitsPerKey;
     if (num_bloom_bits > 0) {
-      bloom_.reset(new DynamicBloom(num_bloom_bits));
+      bloom_.reset(new DynamicBloom(num_bloom_bits, options_.bloom_locality));
     }
   }
 

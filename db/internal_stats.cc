@@ -35,6 +35,8 @@ DBPropertyType GetPropertyType(const Slice& property) {
     return kCompactionPending;
   } else if (in == "background-errors") {
     return kBackgroundErrors;
+  } else if (in == "cur-size-active-mem-table") {
+    return kCurSizeActiveMemTable;
   }
   return kUnknown;
 }
@@ -339,12 +341,14 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       // 0 otherwise,
       *value = std::to_string(current->NeedsCompaction() ? 1 : 0);
       return true;
-    /////////////
     case kBackgroundErrors:
       // Accumulated number of  errors in background flushes or compactions.
       *value = std::to_string(GetBackgroundErrorCount());
       return true;
-    /////////
+    case kCurSizeActiveMemTable:
+      // Current size of the active memtable
+      *value = std::to_string(cfd->mem()->ApproximateMemoryUsage());
+      return true;
     default:
       return false;
   }

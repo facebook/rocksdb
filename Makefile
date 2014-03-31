@@ -94,7 +94,8 @@ TESTS = \
 	write_batch_test\
 	deletefile_test \
 	table_test \
-	thread_local_test
+	thread_local_test \
+        geodb_test
 
 TOOLS = \
         sst_dump \
@@ -370,6 +371,9 @@ merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
+geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 	rm -f $@
 	$(AR) -rs $@ $(MEMENVOBJECTS)
@@ -397,6 +401,31 @@ sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
 	$(CXX) tools/ldb.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+# ---------------------------------------------------------------------------
+# Jni stuff
+# ---------------------------------------------------------------------------
+JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc
+
+JAVA_INCLUDE = -I/usr/lib/jvm/java-openjdk/include/ -I/usr/lib/jvm/java-openjdk/include/linux 
+ROCKSDBJNILIB = ./java/librocksdbjni.so
+
+ifeq ($(PLATFORM), OS_MACOSX)
+ROCKSDBJNILIB = ./java/librocksdbjni.jnilib
+JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
+endif
+
+jni: clean
+	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32
+	cd java;$(MAKE) java;
+	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o $(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(LDFLAGS) $(COVERAGEFLAGS)
+
+jclean:
+	cd java;$(MAKE) clean;
+	rm -f $(ROCKSDBJNILIB)
+
+jtest:
+	cd java;$(MAKE) sample;
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
@@ -461,6 +490,10 @@ depend: $(DEPFILES)
 # working solution.
 ifneq ($(MAKECMDGOALS),clean)
 ifneq ($(MAKECMDGOALS),format)
+ifneq ($(MAKECMDGOALS),jclean)
+ifneq ($(MAKECMDGOALS),jtest)
 -include $(DEPFILES)
+endif
+endif
 endif
 endif

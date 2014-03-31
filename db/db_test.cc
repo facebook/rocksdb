@@ -432,6 +432,7 @@ class DBTest {
         options.compaction_style = kCompactionStyleUniversal;
         break;
       case kCompressedBlockCache:
+        options.allow_mmap_writes = true;
         options.block_cache_compressed = NewLRUCache(8*1024*1024);
         break;
       case kInfiniteMaxOpenFiles:
@@ -2185,6 +2186,8 @@ TEST(DBTest, NumImmutableMemTable) {
     ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
 
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k3", big_value));
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.cur-size-active-mem-table", &num));
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
                                       "rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "2");
@@ -2202,6 +2205,11 @@ TEST(DBTest, NumImmutableMemTable) {
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
                                       "rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.cur-size-active-mem-table", &num));
+    // "208" is the size of the metadata of an empty skiplist, this would
+    // break if we change the default skiplist implementation
+    ASSERT_EQ(num, "208");
     SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
@@ -3481,6 +3489,7 @@ TEST(DBTest, InPlaceUpdateCallbackNoAction) {
 
 TEST(DBTest, CompactionFilter) {
   Options options = CurrentOptions();
+  options.max_open_files = -1;
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
@@ -3848,9 +3857,11 @@ TEST(DBTest, CompactionFilterV2) {
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
   // extract prefix
-  auto prefix_extractor = NewFixedPrefixTransform(8);
+  std::unique_ptr<const SliceTransform> prefix_extractor;
+  prefix_extractor.reset(NewFixedPrefixTransform(8));
+
   options.compaction_filter_factory_v2
-    = std::make_shared<KeepFilterFactoryV2>(prefix_extractor);
+    = std::make_shared<KeepFilterFactoryV2>(prefix_extractor.get());
   // In a testing environment, we can only flush the application
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
@@ -3898,7 +3909,7 @@ TEST(DBTest, CompactionFilterV2) {
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
   options.compaction_filter_factory_v2 =
-    std::make_shared<DeleteFilterFactoryV2>(prefix_extractor);
+    std::make_shared<DeleteFilterFactoryV2>(prefix_extractor.get());
   options.create_if_missing = true;
   DestroyAndReopen(&options);
 
@@ -3933,9 +3944,10 @@ TEST(DBTest, CompactionFilterV2WithValueChange) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
-  auto prefix_extractor = NewFixedPrefixTransform(8);
+  std::unique_ptr<const SliceTransform> prefix_extractor;
+  prefix_extractor.reset(NewFixedPrefixTransform(8));
   options.compaction_filter_factory_v2 =
-    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor);
+    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor.get());
   // In a testing environment, we can only flush the application
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
@@ -3973,9 +3985,10 @@ TEST(DBTest, CompactionFilterV2NULLPrefix) {
   Options options = CurrentOptions();
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
-  auto prefix_extractor = NewFixedPrefixTransform(8);
+  std::unique_ptr<const SliceTransform> prefix_extractor;
+  prefix_extractor.reset(NewFixedPrefixTransform(8));
   options.compaction_filter_factory_v2 =
-    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor);
+    std::make_shared<ChangeFilterFactoryV2>(prefix_extractor.get());
   // In a testing environment, we can only flush the application
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
@@ -4713,6 +4726,7 @@ TEST(DBTest, NoSpace) {
   do {
     Options options = CurrentOptions();
     options.env = env_;
+    options.paranoid_checks = false;
     Reopen(&options);
 
     ASSERT_OK(Put("foo", "v1"));
@@ -5506,6 +5520,7 @@ TEST(DBTest, ReadCompaction) {
     options.filter_policy = nullptr;
     options.block_size = 4096;
     options.no_block_cache = true;
+    options.disable_seek_compaction = false;
 
     CreateAndReopenWithCF({"pikachu"}, &options);
 

@@ -58,7 +58,7 @@ class TableCache {
   // the table index or blooms are not in memory, this may cause an I/O
   bool PrefixMayMatch(const ReadOptions& options,
                       const InternalKeyComparator& internal_comparator,
-                      uint64_t file_number, uint64_t file_size,
+                      const FileMetaData& file_meta,
                       const Slice& internal_prefix, bool* table_io);
 
   // Evict any entry for the specified file number

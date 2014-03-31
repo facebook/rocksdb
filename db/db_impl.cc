@@ -70,7 +70,6 @@
 namespace rocksdb {
 
 const std::string default_column_family_name("default");
-const std::string kNullString = "NULL";
 
 void DumpLeveldbBuildVersion(Logger * log);
 
@@ -466,7 +465,6 @@ uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
-  new_db.SetVersionNumber();
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
@@ -2826,7 +2824,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   assert(compact);
   compact->CleanupBatchBuffer();
   compact->CleanupMergedBuffer();
-  compact->cur_prefix_ = kNullString;
   bool prefix_initialized = false;
 
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions

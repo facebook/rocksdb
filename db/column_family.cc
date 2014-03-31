@@ -300,12 +300,12 @@ Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
     SuperVersion* new_superversion, port::Mutex* db_mutex) {
+  new_superversion->db_mutex = db_mutex;
   new_superversion->Init(mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
-  super_version_->db_mutex = db_mutex;
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
     return old_superversion;  // will let caller delete outside of mutex

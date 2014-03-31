@@ -704,6 +704,7 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.filter_policy = nullptr;
   default_cf.no_block_cache = true;
   default_cf.source_compaction_factor = 100;
+  default_cf.disable_seek_compaction = false;
 
   one.compaction_style = kCompactionStyleUniversal;
   // trigger compaction if there are >= 4 files
