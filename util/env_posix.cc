@@ -174,7 +174,10 @@ class PosixSequentialFile: public SequentialFile {
 
   virtual Status Read(size_t n, Slice* result, char* scratch) {
     Status s;
-    size_t r = fread_unlocked(scratch, 1, n, file_);
+    size_t r = -1;
+    do {
+      r = fread_unlocked(scratch, 1, n, file_);
+    } while (r < 0 && errno == EINTR);
     *result = Slice(scratch, r);
     if (r < n) {
       if (feof(file_)) {
@@ -231,7 +234,10 @@ class PosixRandomAccessFile: public RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const {
     Status s;
-    ssize_t r = pread(fd_, scratch, n, static_cast<off_t>(offset));
+    ssize_t r = -1;
+    do {
+      r = pread(fd_, scratch, n, static_cast<off_t>(offset));
+    } while (r < 0 && errno == EINTR);
     *result = Slice(scratch, (r < 0) ? 0 : r);
     if (r < 0) {
       // An error: return a non-ok status
@@ -680,6 +686,9 @@ class PosixWritableFile : public WritableFile {
       while (left != 0) {
         ssize_t done = write(fd_, src, left);
         if (done < 0) {
+          if (errno == EINTR) {
+            continue;
+          }
           return IOError(filename_, errno);
         }
         TEST_KILL_RANDOM(rocksdb_kill_odds);
@@ -727,6 +736,9 @@ class PosixWritableFile : public WritableFile {
     while (left != 0) {
       ssize_t done = write(fd_, src, left);
       if (done < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
         return IOError(filename_, errno);
       }
       TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
@@ -849,6 +861,9 @@ class PosixRandomRWFile : public RandomRWFile {
     while (left != 0) {
       ssize_t done = pwrite(fd_, src, left, offset);
       if (done < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
         return IOError(filename_, errno);
       }
 
@@ -1003,7 +1018,10 @@ class PosixEnv : public Env {
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) {
     result->reset();
-    FILE* f = fopen(fname.c_str(), "r");
+    FILE* f = nullptr;
+    do {
+      f = fopen(fname.c_str(), "r");
+    } while (f == nullptr && errno == EINTR);
     if (f == nullptr) {
       *result = nullptr;
       return IOError(fname, errno);
@@ -1051,7 +1069,10 @@ class PosixEnv : public Env {
                                  const EnvOptions& options) {
     result->reset();
     Status s;
-    const int fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+    int fd = -1;
+    do {
+      fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+    } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       s = IOError(fname, errno);
     } else {
