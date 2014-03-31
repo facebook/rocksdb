@@ -433,6 +433,52 @@ int main(int argc, char** argv) {
 
   }
 
+  StartPhase("prefix");
+  {
+    // Create new database
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+
+    rocksdb_options_set_filter_policy(options, rocksdb_filterpolicy_create_bloom(10));
+    rocksdb_options_set_prefix_extractor(options, rocksdb_slicetransform_create_fixed_prefix(3));
+    rocksdb_options_set_hash_skip_list_rep(options, 50000, 4, 4);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_put(db, woptions, "foo1", 4, "foo", 3, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "foo2", 4, "foo", 3, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "foo3", 4, "foo", 3, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "bar1", 4, "bar", 3, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "bar2", 4, "bar", 3, &err);
+    CheckNoError(err);
+    rocksdb_put(db, woptions, "bar3", 4, "bar", 3, &err);
+    CheckNoError(err);
+
+    rocksdb_readoptions_set_prefix_seek(roptions, 1);
+
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
+    CheckCondition(!rocksdb_iter_valid(iter));
+
+    rocksdb_iter_seek(iter, "bar", 3);
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    CheckCondition(rocksdb_iter_valid(iter));
+
+    CheckIter(iter, "bar1", "bar");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "bar2", "bar");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "bar3", "bar");
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+  }
+
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);

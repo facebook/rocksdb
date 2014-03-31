@@ -983,6 +983,26 @@ void rocksdb_options_set_memtable_prefix_bloom_probes(
   opt->rep.memtable_prefix_bloom_probes = v;
 }
 
+void rocksdb_options_set_hash_skip_list_rep(
+    rocksdb_options_t *opt, size_t bucket_count,
+    int32_t skiplist_height, int32_t skiplist_branching_factor) {
+  static rocksdb::MemTableRepFactory* factory = 0;
+  if (!factory) {
+    factory = rocksdb::NewHashSkipListRepFactory(
+        bucket_count, skiplist_height, skiplist_branching_factor);
+  }
+  opt->rep.memtable_factory.reset(factory);
+}
+
+void rocksdb_options_set_hash_link_list_rep(
+    rocksdb_options_t *opt, size_t bucket_count) {
+  static rocksdb::MemTableRepFactory* factory = 0;
+  if (!factory) {
+    factory = rocksdb::NewHashLinkListRepFactory(bucket_count);
+  }
+  opt->rep.memtable_factory.reset(factory);
+}
+
 void rocksdb_options_set_max_successive_merges(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.max_successive_merges = v;
