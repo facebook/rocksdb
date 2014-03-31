@@ -568,7 +568,6 @@ uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
 
 Status DBImpl::NewDB() {
   VersionEdit new_db;
-  new_db.SetVersionNumber();
   new_db.SetComparatorName(user_comparator()->Name());
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);

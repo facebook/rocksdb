@@ -10,7 +10,7 @@
 * Added "virtual void WaitForJoin()" in class Env. Default operation is no-op.
 * Removed BackupEngine::DeleteBackupsNewerThan() function
 * Added new option -- verify_checksums_in_compaction
-* Chagned Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
+* Changed Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
   Changed HashSkipListRepFactory and HashLinkListRepFactory constructor to not take SliceTransform object (use Options.prefix_extractor implicitly)
 * Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
 * Added a command "checkconsistency" in ldb tool, which checks

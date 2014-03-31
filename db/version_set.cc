@@ -1768,8 +1768,6 @@ Status VersionSet::Recover() {
     return s;
   }
 
-  bool have_version_number = false;
-  bool log_number_decrease = false;
   bool have_log_number = false;
   bool have_prev_log_number = false;
   bool have_next_file = false;
@@ -1810,17 +1808,15 @@ Status VersionSet::Recover() {
 
       builder.Apply(&edit);
 
-      if (edit.has_version_number_) {
-        have_version_number = true;
-      }
-
       // Only a flush's edit or a new snapshot can write log number during
       // LogAndApply. Since memtables are flushed and inserted into
       // manifest_writers_ queue in order, the log number in MANIFEST file
       // should be monotonically increasing.
       if (edit.has_log_number_) {
         if (have_log_number && log_number >= edit.log_number_) {
-          log_number_decrease = true;
+          Log(options_->info_log,
+              "decreasing of log_number is detected "
+              "in MANIFEST\n");
         } else {
           log_number = edit.log_number_;
           have_log_number = true;
@@ -1840,20 +1836,6 @@ Status VersionSet::Recover() {
       if (edit.has_last_sequence_) {
         last_sequence = edit.last_sequence_;
         have_last_sequence = true;
-      }
-    }
-
-    if (s.ok() && log_number_decrease) {
-      // Since release 2.8, version number is added into MANIFEST file.
-      // Prior release 2.8, a bug in LogAndApply() can cause log_number
-      // to be smaller than the one from previous edit. To ensure backward
-      // compatibility, only fail for MANIFEST genearated by release 2.8
-      // and after.
-      if (have_version_number) {
-        s = Status::Corruption("log number decreases");
-      } else {
-        Log(options_->info_log, "decreasing of log_number is detected "
-            "in MANIFEST\n");
       }
     }
   }
@@ -2125,7 +2107,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
   // Save metadata
   VersionEdit edit;
-  edit.SetVersionNumber();
   edit.SetComparatorName(icmp_.user_comparator()->Name());
 
   // Save files
