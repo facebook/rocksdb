@@ -402,7 +402,7 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 # ---------------------------------------------------------------------------
 # Jni stuff
 # ---------------------------------------------------------------------------
-JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc
+JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc ./java/rocksjni/options.cc
 
 JAVA_INCLUDE = -I/usr/lib/jvm/java-openjdk/include/ -I/usr/lib/jvm/java-openjdk/include/linux 
 ROCKSDBJNILIB = ./java/librocksdbjni.so

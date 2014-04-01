@@ -19,9 +19,34 @@ public class RocksDBSample {
       return;
     }
     String db_path = args[0];
+    String db_path_not_found = db_path + "_not_found";
 
     System.out.println("RocksDBSample");
     RocksDB db = null;
+    Options options = new Options();
+    try {
+      db = RocksDB.open(options, db_path_not_found);
+      assert(false);
+    } catch (RocksDBException e) {
+      System.out.format("caught the expceted exception -- %s\n", e);
+      assert(db == null);
+    }
+
+    options.setCreateIfMissing(true);
+    try {
+      db = RocksDB.open(options, db_path_not_found);
+      db.put("hello".getBytes(), "world".getBytes());
+      byte[] value = db.get("hello".getBytes());
+      assert("world".equals(new String(value)));
+    } catch (RocksDBException e) {
+      System.out.format("[ERROR] caught the unexpceted exception -- %s\n", e);
+      assert(db == null);
+      assert(false);
+    }
+
+    // be sure to release the c++ pointer
+    options.dispose();
+    db.close();
 
     try {
       db = RocksDB.open(db_path);

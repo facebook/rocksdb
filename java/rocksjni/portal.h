@@ -77,5 +77,37 @@ class RocksDBExceptionJni {
   }
 };
 
+class OptionsJni {
+ public:
+  // Get the java class id of org.rocksdb.Options.
+  static jclass getJClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("org/rocksdb/Options");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.Options
+  // that stores the pointer to rocksdb::Options
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::Options
+  static rocksdb::Options* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::Options*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::Options pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jobj, rocksdb::Options* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

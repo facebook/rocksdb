@@ -20,16 +20,31 @@ public class RocksDB {
   public static final int NOT_FOUND = -1;
   /**
    * The factory constructor of RocksDB that opens a RocksDB instance given
-   * the path to the database.
+   * the path to the database using the default options w/ createIfMissing
+   * set to true.
    *
    * @param path the path to the rocksdb.
    * @param status an out value indicating the status of the Open().
    * @return a rocksdb instance on success, null if the specified rocksdb can
    *     not be opened.
+   *
+   * @see Options.setCreateIfMissing()
+   * @see Options.createIfMissing()
    */
   public static RocksDB open(String path) throws RocksDBException {
     RocksDB db = new RocksDB();
     db.open0(path);
+    return db;
+  }
+
+  /**
+   * The factory constructor of RocksDB that opens a RocksDB instance given
+   * the path to the database using the specified options and db path.
+   */
+  public static RocksDB open(Options options, String path)
+      throws RocksDBException {
+    RocksDB db = new RocksDB();
+    db.open(options.nativeHandle_, path);
     return db;
   }
 
@@ -93,6 +108,7 @@ public class RocksDB {
 
   // native methods
   private native void open0(String path) throws RocksDBException;
+  private native void open(long optionsHandle, String path) throws RocksDBException;
   private native void put(
       byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
