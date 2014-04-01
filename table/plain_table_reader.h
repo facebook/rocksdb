@@ -247,7 +247,7 @@ class PlainTableReader: public TableReader {
   }
 
   bool IsTotalOrderMode() const {
-    return (options_.prefix_extractor == nullptr);
+    return (options_.prefix_extractor.get() == nullptr);
   }
 
   // No copying allowed
