@@ -47,7 +47,11 @@ void AutoRollLogger::Logv(const char* format, va_list ap) {
     if ((kLogFileTimeToRoll > 0 && LogExpired()) ||
         (kMaxLogFileSize > 0 && logger_->GetLogFileSize() >= kMaxLogFileSize)) {
       RollLogFile();
-      ResetLogger();
+      Status s = ResetLogger();
+      if (!s.ok()) {
+        // can't really log the error if creating a new LOG file failed
+        return;
+      }
     }
 
     // pin down the current logger_ instance before releasing the mutex.
