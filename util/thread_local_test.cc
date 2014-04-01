@@ -152,12 +152,12 @@ TEST(ThreadLocalTest, ConcurrentReadWriteTest) {
   ThreadLocalPtr tls2;
   port::Mutex mu1;
   port::CondVar cv1(&mu1);
-  Params p1(&mu1, &cv1, nullptr, 128);
+  Params p1(&mu1, &cv1, nullptr, 16);
   p1.tls2 = &tls2;
 
   port::Mutex mu2;
   port::CondVar cv2(&mu2);
-  Params p2(&mu2, &cv2, nullptr, 128);
+  Params p2(&mu2, &cv2, nullptr, 16);
   p2.doWrite = true;
   p2.tls2 = &tls2;
 
