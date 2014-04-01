@@ -147,6 +147,7 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
     env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
     return kNotFound;
   } else if (!s.ok()) {
+    env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
     // Here since we are throwing a Java exception from c++ side.
     // As a result, c++ does not know calling this function will in fact
     // throwing an exception.  As a result, the execution flow will
@@ -164,10 +165,7 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
 
   memcpy(value, cvalue.c_str(), length);
   env->ReleaseByteArrayElements(jvalue, value, JNI_COMMIT);
-  if (cvalue_len > length) {
-    return static_cast<jint>(cvalue_len);
-  }
-  return length;
+  return static_cast<jint>(cvalue_len);
 }
 
 /*

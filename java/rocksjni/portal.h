@@ -29,7 +29,7 @@ class RocksDBJni {
   // that stores the pointer to rocksdb::DB.
   static jfieldID getHandleFieldID(JNIEnv* env) {
     static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle", "J");
+        getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
   }

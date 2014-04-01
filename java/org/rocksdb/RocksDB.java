@@ -16,7 +16,7 @@ import java.io.IOException;
  * All methods of this class could potentially throw RocksDBException, which
  * indicates sth wrong at the rocksdb library side and the call failed.
  */
-public class RocksDB implements Closeable {
+public class RocksDB {
   public static final int NOT_FOUND = -1;
   /**
    * The factory constructor of RocksDB that opens a RocksDB instance given
@@ -33,8 +33,8 @@ public class RocksDB implements Closeable {
     return db;
   }
 
-  @Override public void close() throws IOException {
-    if (nativeHandle != 0) {
+  public synchronized void close() {
+    if (nativeHandle_ != 0) {
       close0();
     }
   }
@@ -80,11 +80,15 @@ public class RocksDB implements Closeable {
     return get(key, key.length);
   }
 
+  @Override protected void finalize() {
+    close();
+  }
+
   /**
    * Private constructor.
    */
   private RocksDB() {
-    nativeHandle = -1;
+    nativeHandle_ = 0;
   }
 
   // native methods
@@ -99,5 +103,5 @@ public class RocksDB implements Closeable {
       byte[] key, int keyLen) throws RocksDBException;
   private native void close0();
 
-  private long nativeHandle;
+  private long nativeHandle_;
 }

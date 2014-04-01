@@ -21,9 +21,10 @@ public class RocksDBSample {
     String db_path = args[0];
 
     System.out.println("RocksDBSample");
+    RocksDB db = null;
 
     try {
-      RocksDB db = RocksDB.open(db_path);
+      db = RocksDB.open(db_path);
       db.put("hello".getBytes(), "world".getBytes());
       byte[] value = db.get("hello".getBytes());
       System.out.format("Get('hello') = %s\n",
@@ -67,13 +68,11 @@ public class RocksDBSample {
       assert(len == RocksDB.NOT_FOUND);
       len = db.get(testKey, enoughArray);
       assert(len == testValue.length);
-      try {
-        db.close();
-      } catch (IOException e) {
-        System.err.println(e);
-      }
     } catch (RocksDBException e) {
       System.err.println(e);
+    }
+    if (db != null) {
+      db.close();
     }
   }
 }
