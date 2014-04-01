@@ -82,7 +82,7 @@ TESTS = \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
-  prefix_test \
+	prefix_test \
 	simple_table_db_test \
 	skiplist_test \
 	stringappend_test \
@@ -98,6 +98,7 @@ TESTS = \
 
 TOOLS = \
         sst_dump \
+	db_sanity_test \
         db_stress \
         ldb \
 	db_repl_stress \
