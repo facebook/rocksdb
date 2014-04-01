@@ -39,6 +39,71 @@ static void DumpInternalIter(Iterator* iter) {
 
 namespace {
 
+class IterLookupKey {
+ public:
+  IterLookupKey() : key_(space_), buf_size_(sizeof(space_)), key_size_(0) {}
+
+  ~IterLookupKey() { Clear(); }
+
+  Slice GetKey() const {
+    if (key_ != nullptr) {
+      return Slice(key_, key_size_);
+    } else {
+      return Slice();
+    }
+  }
+
+  bool Valid() const { return key_ != nullptr; }
+
+  void Clear() {
+    if (key_ != nullptr && key_ != space_) {
+      delete[] key_;
+    }
+    key_ = space_;
+    buf_size_ = sizeof(buf_size_);
+  }
+
+  // Enlarge the buffer size if needed based on key_size.
+  // By default, static allocated buffer is used. Once there is a key
+  // larger than the static allocated buffer, another buffer is dynamically
+  // allocated, until a larger key buffer is requested. In that case, we
+  // reallocate buffer and delete the old one.
+  void EnlargeBufferIfNeeded(size_t key_size) {
+    // If size is smaller than buffer size, continue using current buffer,
+    // or the static allocated one, as default
+    if (key_size > buf_size_) {
+      // Need to enlarge the buffer.
+      Clear();
+      key_ = new char[key_size];
+      buf_size_ = key_size;
+    }
+    key_size_ = key_size;
+  }
+
+  void SetUserKey(const Slice& user_key) {
+    size_t size = user_key.size();
+    EnlargeBufferIfNeeded(size);
+    memcpy(key_, user_key.data(), size);
+  }
+
+  void SetInternalKey(const Slice& user_key, SequenceNumber s) {
+    size_t usize = user_key.size();
+    EnlargeBufferIfNeeded(usize + sizeof(uint64_t));
+    memcpy(key_, user_key.data(), usize);
+    EncodeFixed64(key_ + usize, PackSequenceAndType(s, kValueTypeForSeek));
+  }
+
+ private:
+  char* key_;
+  size_t buf_size_;
+  size_t key_size_;
+  char space_[32];  // Avoid allocation for short keys
+
+  // No copying allowed
+  IterLookupKey(const IterLookupKey&) = delete;
+  void operator=(const LookupKey&) = delete;
+};
+
 // Memtables and sstables that make the DB representation contain
 // (userkey,seq,type) => uservalue entries.  DBIter
 // combines multiple entries for the same userkey found in the DB
@@ -80,7 +145,7 @@ class DBIter: public Iterator {
   virtual bool Valid() const { return valid_; }
   virtual Slice key() const {
     assert(valid_);
-    return saved_key_;
+    return saved_key_.GetKey();
   }
   virtual Slice value() const {
     assert(valid_);
@@ -108,10 +173,6 @@ class DBIter: public Iterator {
   bool ParseKey(ParsedInternalKey* key);
   void MergeValuesNewToOld();
 
-  inline void SaveKey(const Slice& k, std::string* dst) {
-    dst->assign(k.data(), k.size());
-  }
-
   inline void ClearSavedValue() {
     if (saved_value_.capacity() > 1048576) {
       std::string empty;
@@ -130,7 +191,7 @@ class DBIter: public Iterator {
   SequenceNumber const sequence_;
 
   Status status_;
-  std::string saved_key_;     // == current key when direction_==kReverse
+  IterLookupKey saved_key_;   // == current key when direction_==kReverse
   std::string saved_value_;   // == current raw value when direction_==kReverse
   std::string skip_key_;
   Direction direction_;
@@ -170,7 +231,7 @@ void DBIter::Next() {
     }
     if (!iter_->Valid()) {
       valid_ = false;
-      saved_key_.clear();
+      saved_key_.Clear();
       return;
     }
   }
@@ -210,7 +271,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
     ParsedInternalKey ikey;
     if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
       if (skipping &&
-          user_comparator_->Compare(ikey.user_key, saved_key_) <= 0) {
+          user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0) {
         num_skipped++; // skip this entry
         BumpPerfCount(&perf_context.internal_key_skipped_count);
       } else {
@@ -219,18 +280,18 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
           case kTypeDeletion:
             // Arrange to skip all upcoming entries for this key since
             // they are hidden by this deletion.
-            SaveKey(ikey.user_key, &saved_key_);
+            saved_key_.SetUserKey(ikey.user_key);
             skipping = true;
             num_skipped = 0;
             BumpPerfCount(&perf_context.internal_delete_skipped_count);
             break;
           case kTypeValue:
             valid_ = true;
-            SaveKey(ikey.user_key, &saved_key_);
+            saved_key_.SetUserKey(ikey.user_key);
             return;
           case kTypeMerge:
             // By now, we are sure the current ikey is going to yield a value
-            SaveKey(ikey.user_key, &saved_key_);
+            saved_key_.SetUserKey(ikey.user_key);
             current_entry_is_merged_ = true;
             valid_ = true;
             MergeValuesNewToOld();  // Go to a different state machine
@@ -248,8 +309,8 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
     if (skipping && num_skipped > max_skip_) {
       num_skipped = 0;
       std::string last_key;
-      AppendInternalKey(&last_key,
-        ParsedInternalKey(Slice(saved_key_), 0, kValueTypeForSeek));
+      AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetKey(), 0,
+                                                     kValueTypeForSeek));
       iter_->Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     } else {
@@ -284,7 +345,7 @@ void DBIter::MergeValuesNewToOld() {
       continue;
     }
 
-    if (user_comparator_->Compare(ikey.user_key, saved_key_) != 0) {
+    if (user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) != 0) {
       // hit the next user key, stop right here
       break;
     }
@@ -320,7 +381,7 @@ void DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  user_merge_operator_->FullMerge(saved_key_, nullptr, operands,
+  user_merge_operator_->FullMerge(saved_key_.GetKey(), nullptr, operands,
                                   &saved_value_, logger_);
 }
 
@@ -339,17 +400,17 @@ void DBIter::Prev() {
     // iter_ is pointing at the current entry.  Scan backwards until
     // the key changes so we can use the normal reverse scanning code.
     assert(iter_->Valid());  // Otherwise valid_ would have been false
-    SaveKey(ExtractUserKey(iter_->key()), &saved_key_);
+    saved_key_.SetUserKey(ExtractUserKey(iter_->key()));
     while (true) {
       iter_->Prev();
       if (!iter_->Valid()) {
         valid_ = false;
-        saved_key_.clear();
+        saved_key_.Clear();
         ClearSavedValue();
         return;
       }
       if (user_comparator_->Compare(ExtractUserKey(iter_->key()),
-                                    saved_key_) < 0) {
+                                    saved_key_.GetKey()) < 0) {
         break;
       }
     }
@@ -370,13 +431,13 @@ void DBIter::FindPrevUserEntry() {
       ParsedInternalKey ikey;
       if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
         if ((value_type != kTypeDeletion) &&
-            user_comparator_->Compare(ikey.user_key, saved_key_) < 0) {
+            user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) < 0) {
           // We encountered a non-deleted value in entries for previous keys,
           break;
         }
         value_type = ikey.type;
         if (value_type == kTypeDeletion) {
-          saved_key_.clear();
+          saved_key_.Clear();
           ClearSavedValue();
           saved_key_valid = false;
         } else {
@@ -385,7 +446,7 @@ void DBIter::FindPrevUserEntry() {
             std::string empty;
             swap(empty, saved_value_);
           }
-          SaveKey(ExtractUserKey(iter_->key()), &saved_key_);
+          saved_key_.SetUserKey(ExtractUserKey(iter_->key()));
           saved_value_.assign(raw_value.data(), raw_value.size());
         }
       } else {
@@ -401,9 +462,9 @@ void DBIter::FindPrevUserEntry() {
       if (saved_key_valid && num_skipped > max_skip_) {
         num_skipped = 0;
         std::string last_key;
-        AppendInternalKey(&last_key,
-          ParsedInternalKey(Slice(saved_key_), kMaxSequenceNumber,
-                            kValueTypeForSeek));
+        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetKey(),
+                                                       kMaxSequenceNumber,
+                                                       kValueTypeForSeek));
         iter_->Seek(last_key);
         RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
       } else {
@@ -415,7 +476,7 @@ void DBIter::FindPrevUserEntry() {
   if (value_type == kTypeDeletion) {
     // End
     valid_ = false;
-    saved_key_.clear();
+    saved_key_.Clear();
     ClearSavedValue();
     direction_ = kForward;
   } else {
@@ -424,12 +485,12 @@ void DBIter::FindPrevUserEntry() {
 }
 
 void DBIter::Seek(const Slice& target) {
-  saved_key_.clear();
-  AppendInternalKey(
-      &saved_key_, ParsedInternalKey(target, sequence_, kValueTypeForSeek));
+  saved_key_.Clear();
+  // now savved_key is used to store internal key.
+  saved_key_.SetInternalKey(target, sequence_);
   StopWatchNano internal_seek_timer(env_, false);
   StartPerfTimer(&internal_seek_timer);
-  iter_->Seek(saved_key_);
+  iter_->Seek(saved_key_.GetKey());
   BumpPerfTime(&perf_context.seek_internal_seek_time, &internal_seek_timer);
   if (iter_->Valid()) {
     direction_ = kForward;

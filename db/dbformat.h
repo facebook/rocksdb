@@ -64,6 +64,8 @@ inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
   return key.user_key.size() + 8;
 }
 
+extern uint64_t PackSequenceAndType(uint64_t seq, ValueType t);
+
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
                               const ParsedInternalKey& key);

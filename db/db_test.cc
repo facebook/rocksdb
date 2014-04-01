@@ -1372,6 +1372,44 @@ TEST(DBTest, IterSeekBeforePrev) {
   delete iter;
 }
 
+std::string MakeLongKey(size_t length, char c) {
+  return std::string(length, c);
+}
+
+TEST(DBTest, IterLongKeys) {
+  ASSERT_OK(Put(MakeLongKey(20, 0), "0"));
+  ASSERT_OK(Put(MakeLongKey(32, 2), "2"));
+  ASSERT_OK(Put("a", "b"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put(MakeLongKey(50, 1), "1"));
+  ASSERT_OK(Put(MakeLongKey(127, 3), "3"));
+  ASSERT_OK(Put(MakeLongKey(64, 4), "4"));
+  auto iter = db_->NewIterator(ReadOptions());
+
+  // Create a key that needs to be skipped for Seq too new
+  iter->Seek(MakeLongKey(20, 0));
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(20, 0) + "->0");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(50, 1) + "->1");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(32, 2) + "->2");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(127, 3) + "->3");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(64, 4) + "->4");
+  delete iter;
+
+  iter = db_->NewIterator(ReadOptions());
+  iter->Seek(MakeLongKey(50, 1));
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(50, 1) + "->1");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(32, 2) + "->2");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(127, 3) + "->3");
+  delete iter;
+}
+
+
 TEST(DBTest, IterNextWithNewerSeq) {
   ASSERT_OK(Put("0", "0"));
   dbfull()->Flush(FlushOptions());
