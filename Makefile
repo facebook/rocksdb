@@ -402,7 +402,7 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 # ---------------------------------------------------------------------------
 # Jni stuff
 # ---------------------------------------------------------------------------
-JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc ./java/rocksjni/options.cc
+JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc ./java/rocksjni/options.cc ./java/rocksjni/write_batch.cc
 
 JAVA_INCLUDE = -I/usr/lib/jvm/java-openjdk/include/ -I/usr/lib/jvm/java-openjdk/include/linux 
 ROCKSDBJNILIB = ./java/librocksdbjni.so
@@ -415,6 +415,7 @@ endif
 jni: clean
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32
 	cd java;$(MAKE) java;
+	rm -f $(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o $(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(LDFLAGS) $(COVERAGEFLAGS)
 
 jclean:
@@ -422,7 +423,7 @@ jclean:
 	rm -f $(ROCKSDBJNILIB)
 
 jtest:
-	cd java;$(MAKE) sample;
+	cd java;$(MAKE) sample;$(MAKE) test;
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

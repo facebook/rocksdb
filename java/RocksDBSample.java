@@ -93,6 +93,21 @@ public class RocksDBSample {
       assert(len == RocksDB.NOT_FOUND);
       len = db.get(testKey, enoughArray);
       assert(len == testValue.length);
+
+      db.remove(testKey);
+      len = db.get(testKey, enoughArray);
+      assert(len == RocksDB.NOT_FOUND);
+
+      // repeat the test with WriteOptions
+      WriteOptions writeOpts = new WriteOptions();
+      writeOpts.setSync(true);
+      writeOpts.setDisableWAL(true);
+      db.put(writeOpts, testKey, testValue);
+      len = db.get(testKey, enoughArray);
+      assert(len == testValue.length);
+      assert(new String(testValue).equals(
+          new String(enoughArray, 0, len)));
+      writeOpts.dispose();
     } catch (RocksDBException e) {
       System.err.println(e);
     }

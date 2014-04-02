@@ -1,4 +1,4 @@
-NATIVE_JAVA_CLASSES = org.rocksdb.RocksDB org.rocksdb.Options
+NATIVE_JAVA_CLASSES = org.rocksdb.RocksDB org.rocksdb.Options org.rocksdb.WriteBatch org.rocksdb.WriteBatchInternal org.rocksdb.WriteBatchTest org.rocksdb.WriteOptions
 NATIVE_INCLUDE = ./include
 ROCKSDB_JAR = rocksdbjni.jar
 
@@ -19,3 +19,6 @@ sample:
 	java -ea -Djava.library.path=.:../ -cp ".:./*" RocksDBSample /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni_not_found
+
+test:
+	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.WriteBatchTest

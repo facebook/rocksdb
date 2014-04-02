@@ -15,6 +15,9 @@
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::Open
+
 void rocksdb_open_helper(
   JNIEnv* env, jobject java_db, jstring jdb_path, const rocksdb::Options& opt) {
   rocksdb::DB* db;
@@ -54,27 +57,20 @@ void Java_org_rocksdb_RocksDB_open(
   rocksdb_open_helper(env, jdb, jdb_path, *options);
 }
 
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    put
- * Signature: ([BI[BI)V
- */
-void Java_org_rocksdb_RocksDB_put(
-    JNIEnv* env, jobject jdb,
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::Put
+
+void rocksdb_put_helper(
+    JNIEnv* env, rocksdb::DB* db, const rocksdb::WriteOptions& write_options,
     jbyteArray jkey, jint jkey_len,
     jbyteArray jvalue, jint jvalue_len) {
-  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
 
-  jboolean isCopy;
-  jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
-  jbyte* value = env->GetByteArrayElements(jvalue, &isCopy);
-  rocksdb::Slice key_slice(
-      reinterpret_cast<char*>(key), jkey_len);
-  rocksdb::Slice value_slice(
-      reinterpret_cast<char*>(value), jvalue_len);
+  jbyte* key = env->GetByteArrayElements(jkey, 0);
+  jbyte* value = env->GetByteArrayElements(jvalue, 0);
+  rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+  rocksdb::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
 
-  rocksdb::Status s = db->Put(
-      rocksdb::WriteOptions(), key_slice, value_slice);
+  rocksdb::Status s = db->Put(write_options, key_slice, value_slice);
 
   // trigger java unref on key and value.
   // by passing JNI_ABORT, it will simply release the reference without
@@ -87,6 +83,45 @@ void Java_org_rocksdb_RocksDB_put(
   }
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 }
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    put
+ * Signature: ([BI[BI)V
+ */
+void Java_org_rocksdb_RocksDB_put___3BI_3BI(
+    JNIEnv* env, jobject jdb,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  static const rocksdb::WriteOptions default_write_options =
+      rocksdb::WriteOptions();
+
+  rocksdb_put_helper(env, db, default_write_options,
+                     jkey, jkey_len,
+                     jvalue, jvalue_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    put
+ * Signature: (J[BI[BI)V
+ */
+void Java_org_rocksdb_RocksDB_put__J_3BI_3BI(
+    JNIEnv* env, jobject jdb, jlong jwrite_options_handle,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(
+      jwrite_options_handle);
+
+  rocksdb_put_helper(env, db, *write_options,
+                     jkey, jkey_len,
+                     jvalue, jvalue_len);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::Get
 
 /*
  * Class:     org_rocksdb_RocksDB
@@ -184,6 +219,59 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
   return static_cast<jint>(cvalue_len);
 }
 
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::Delete()
+void rocksdb_remove_helper(
+    JNIEnv* env, rocksdb::DB* db, const rocksdb::WriteOptions& write_options,
+    jbyteArray jkey, jint jkey_len) {
+  jbyte* key = env->GetByteArrayElements(jkey, 0);
+  rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+  rocksdb::Status s = db->Delete(write_options, key_slice);
+
+  // trigger java unref on key and value.
+  // by passing JNI_ABORT, it will simply release the reference without
+  // copying the result back to the java byte array.
+  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+  return;
+}
+
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    remove
+ * Signature: ([BI)V
+ */
+void Java_org_rocksdb_RocksDB_remove___3BI(
+    JNIEnv* env, jobject jdb, jbyteArray jkey, jint jkey_len) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  static const rocksdb::WriteOptions default_write_options =
+      rocksdb::WriteOptions();
+
+  rocksdb_remove_helper(env, db, default_write_options, jkey, jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    remove
+ * Signature: (J[BI)V
+ */
+void Java_org_rocksdb_RocksDB_remove__J_3BI(
+    JNIEnv* env, jobject jdb, jlong jwrite_options,
+    jbyteArray jkey, jint jkey_len) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options);
+
+  rocksdb_remove_helper(env, db, *write_options, jkey, jkey_len);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::~DB()
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    close0
@@ -192,8 +280,8 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
 void Java_org_rocksdb_RocksDB_close0(
     JNIEnv* env, jobject java_db) {
   rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, java_db);
+  assert(db != nullptr);
   delete db;
-  db = nullptr;
 
-  rocksdb::RocksDBJni::setHandle(env, java_db, db);
+  rocksdb::RocksDBJni::setHandle(env, java_db, nullptr);
 }

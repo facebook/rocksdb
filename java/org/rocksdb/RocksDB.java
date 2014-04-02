@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -65,6 +65,17 @@ public class RocksDB {
   }
 
   /**
+   * Set the database entry for "key" to "value".
+   *
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
+   */
+  public void put(WriteOptions writeOpts, byte[] key, byte[] value)
+      throws RocksDBException {
+    put(writeOpts.nativeHandle_, key, key.length, value, value.length);
+  }
+
+  /**
    * Get the value associated with the specified key.
    *
    * @param key the key to retrieve the value.
@@ -95,6 +106,25 @@ public class RocksDB {
     return get(key, key.length);
   }
 
+  /**
+   * Remove the database entry (if any) for "key".  Returns OK on
+   * success, and a non-OK status on error.  It is not an error if "key"
+   * did not exist in the database.
+   */
+  public void remove(byte[] key) throws RocksDBException {
+    remove(key, key.length);
+  }
+
+  /**
+   * Remove the database entry (if any) for "key".  Returns OK on
+   * success, and a non-OK status on error.  It is not an error if "key"
+   * did not exist in the database.
+   */
+  public void remove(WriteOptions writeOpt, byte[] key)
+      throws RocksDBException {
+    remove(writeOpt.nativeHandle_, key, key.length);
+  }
+
   @Override protected void finalize() {
     close();
   }
@@ -108,15 +138,23 @@ public class RocksDB {
 
   // native methods
   private native void open0(String path) throws RocksDBException;
-  private native void open(long optionsHandle, String path) throws RocksDBException;
+  private native void open(
+      long optionsHandle, String path) throws RocksDBException;
   private native void put(
       byte[] key, int keyLen,
+      byte[] value, int valueLen) throws RocksDBException;
+  private native void put(
+      long writeOptHandle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
   private native int get(
       byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
   private native byte[] get(
       byte[] key, int keyLen) throws RocksDBException;
+  private native void remove(
+      byte[] key, int keyLen) throws RocksDBException;
+  private native void remove(
+      long writeOptHandle, byte[] key, int keyLen) throws RocksDBException;
   private native void close0();
 
   private long nativeHandle_;
