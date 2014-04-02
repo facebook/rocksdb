@@ -334,19 +334,8 @@ static bool isSSE42() {
   #endif
 }
 
-typedef void (*Function)(uint64_t*, uint8_t const**);
-
-static inline Function Choose_CRC32() {
-  return isSSE42() ? Fast_CRC32 : Slow_CRC32;
-}
-
-static Function func = Choose_CRC32();
-
-static inline void CRC32(uint64_t* l, uint8_t const **p) {
-  func(l, p);
-}
-
-uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
+template<void (*CRC32)(uint64_t*, uint8_t const**)>
+uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   const uint8_t *p = reinterpret_cast<const uint8_t *>(buf);
   const uint8_t *e = p + size;
   uint64_t l = crc ^ 0xffffffffu;
@@ -386,6 +375,18 @@ uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
 #undef STEP1
 #undef ALIGN
   return l ^ 0xffffffffu;
+}
+
+typedef uint32_t (*Function)(uint32_t, const char*, size_t);
+
+static inline Function Choose_Extend() {
+  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+}
+
+Function ChosenExtend = Choose_Extend();
+
+uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
+  return ChosenExtend(crc, buf, size);
 }
 
 }  // namespace crc32c
