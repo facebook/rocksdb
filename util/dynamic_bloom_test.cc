@@ -76,11 +76,12 @@ TEST(DynamicBloomTest, VaryingLengths) {
   // Count number of filters that significantly exceed the false positive rate
   int mediocre_filters = 0;
   int good_filters = 0;
+  uint32_t num_probes = static_cast<uint32_t>(FLAGS_num_probes);
 
   fprintf(stderr, "bits_per_key: %d  num_probes: %d\n",
-          FLAGS_bits_per_key, FLAGS_num_probes);
+          FLAGS_bits_per_key, num_probes);
 
-  for (uint32_t cl_per_block = 0; cl_per_block < FLAGS_num_probes;
+  for (uint32_t cl_per_block = 0; cl_per_block < num_probes;
       ++cl_per_block) {
     for (uint32_t num = 1; num <= 10000; num = NextNum(num)) {
       uint32_t bloom_bits = 0;
@@ -90,7 +91,7 @@ TEST(DynamicBloomTest, VaryingLengths) {
         bloom_bits = std::max(num * FLAGS_bits_per_key,
             cl_per_block * CACHE_LINE_SIZE * 8);
       }
-      DynamicBloom bloom(bloom_bits, cl_per_block, FLAGS_num_probes);
+      DynamicBloom bloom(bloom_bits, cl_per_block, num_probes);
       for (uint64_t i = 0; i < num; i++) {
         bloom.Add(Key(i, buffer));
         ASSERT_TRUE(bloom.MayContain(Key(i, buffer)));
@@ -129,6 +130,7 @@ TEST(DynamicBloomTest, VaryingLengths) {
 
 TEST(DynamicBloomTest, perf) {
   StopWatchNano timer(Env::Default());
+  uint32_t num_probes = static_cast<uint32_t>(FLAGS_num_probes);
 
   if (!FLAGS_enable_perf) {
     return;
@@ -138,7 +140,7 @@ TEST(DynamicBloomTest, perf) {
     const uint64_t num_keys = m * 8 * 1024 * 1024;
     fprintf(stderr, "testing %" PRIu64 "M keys\n", m * 8);
 
-    DynamicBloom std_bloom(num_keys * 10, 0, FLAGS_num_probes);
+    DynamicBloom std_bloom(num_keys * 10, 0, num_probes);
 
     timer.Start();
     for (uint64_t i = 1; i <= num_keys; ++i) {
@@ -161,9 +163,9 @@ TEST(DynamicBloomTest, perf) {
             elapsed / count);
     ASSERT_TRUE(count == num_keys);
 
-    for (int cl_per_block = 1; cl_per_block <= FLAGS_num_probes;
+    for (uint32_t cl_per_block = 1; cl_per_block <= num_probes;
         ++cl_per_block) {
-      DynamicBloom blocked_bloom(num_keys * 10, cl_per_block, FLAGS_num_probes);
+      DynamicBloom blocked_bloom(num_keys * 10, cl_per_block, num_probes);
 
       timer.Start();
       for (uint64_t i = 1; i <= num_keys; ++i) {
