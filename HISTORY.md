@@ -15,13 +15,12 @@
 * Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
 * Added a command "checkconsistency" in ldb tool, which checks
   if file system state matches DB state (file existence and file sizes)
-* CompactionFilter::Context is now CompactionFilterContext. It is shared by CompactionFilter and CompactionFilterV2
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,
   we will ignore it. We assume that writers of these records were interrupted
   and that we can safely ignore it.
-* Now compaction filter has a V2 interface. It buffers the kv-pairs sharing the same key prefix, process them in batches, and return the batched results back to DB.
+* Now compaction filter has a V2 interface. It buffers the kv-pairs sharing the same key prefix, process them in batches, and return the batched results back to DB. The new interface uses a new structure CompactionFilterContext for the same purpose as CompactionFilter::Context in V1.
 * Geo-spatial support for locations and radial-search.
 
 ## 2.7.0 (01/28/2014)

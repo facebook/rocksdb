@@ -118,6 +118,14 @@ struct DBImpl::CompactionState {
   }
 
   // Create a client visible context of this compaction
+  CompactionFilter::Context GetFilterContextV1() {
+    CompactionFilter::Context context;
+    context.is_full_compaction = compaction->IsFullCompaction();
+    context.is_manual_compaction = compaction->IsManualCompaction();
+    return context;
+  }
+
+  // Create a client visible context of this compaction
   CompactionFilterContext GetFilterContext() {
     CompactionFilterContext context;
     context.is_full_compaction = compaction->IsFullCompaction();
@@ -2545,7 +2553,7 @@ Status DBImpl::ProcessKeyValueCompaction(
   auto compaction_filter = options_.compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (!compaction_filter) {
-    auto context = compact->GetFilterContext();
+    auto context = compact->GetFilterContextV1();
     compaction_filter_from_factory =
       options_.compaction_filter_factory->CreateCompactionFilter(context);
     compaction_filter = compaction_filter_from_factory.get();

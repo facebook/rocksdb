@@ -2483,7 +2483,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
       : check_context_(check_context) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilterContext& context) override {
+      const CompactionFilter::Context& context) override {
     if (check_context_) {
       ASSERT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
       ASSERT_EQ(expect_manual_compaction_.load(), context.is_manual_compaction);
@@ -2500,7 +2500,7 @@ class KeepFilterFactory : public CompactionFilterFactory {
 class DeleteFilterFactory : public CompactionFilterFactory {
  public:
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilterContext& context) override {
+      const CompactionFilter::Context& context) override {
     if (context.is_manual_compaction) {
       return std::unique_ptr<CompactionFilter>(new DeleteFilter());
     } else {
@@ -2516,7 +2516,7 @@ class ChangeFilterFactory : public CompactionFilterFactory {
   explicit ChangeFilterFactory() {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilterContext& context) override {
+      const CompactionFilter::Context& context) override {
     return std::unique_ptr<CompactionFilter>(new ChangeFilter());
   }
 
