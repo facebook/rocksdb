@@ -83,7 +83,7 @@ TESTS = \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
-  prefix_test \
+	prefix_test \
 	simple_table_db_test \
 	skiplist_test \
 	stringappend_test \
@@ -99,6 +99,7 @@ TESTS = \
 
 TOOLS = \
         sst_dump \
+	db_sanity_test \
         db_stress \
         ldb \
 	db_repl_stress \
@@ -405,7 +406,7 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 # ---------------------------------------------------------------------------
 # Jni stuff
 # ---------------------------------------------------------------------------
-JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc
+JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc ./java/rocksjni/options.cc
 
 JAVA_INCLUDE = -I/usr/lib/jvm/java-openjdk/include/ -I/usr/lib/jvm/java-openjdk/include/linux 
 ROCKSDBJNILIB = ./java/librocksdbjni.so

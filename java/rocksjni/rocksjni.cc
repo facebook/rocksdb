@@ -15,20 +15,12 @@
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    open0
- * Signature: (Ljava/lang/String;)V
- */
-void Java_org_rocksdb_RocksDB_open0(
-    JNIEnv* env, jobject java_db, jstring jdb_path) {
+void rocksdb_open_helper(
+  JNIEnv* env, jobject java_db, jstring jdb_path, const rocksdb::Options& opt) {
   rocksdb::DB* db;
-  rocksdb::Options options;
-  options.create_if_missing = true;
 
-  jboolean isCopy = false;
-  const char* db_path = env->GetStringUTFChars(jdb_path, &isCopy);
-  rocksdb::Status s = rocksdb::DB::Open(options, db_path, &db);
+  const char* db_path = env->GetStringUTFChars(jdb_path, 0);
+  rocksdb::Status s = rocksdb::DB::Open(opt, db_path, &db);
   env->ReleaseStringUTFChars(jdb_path, db_path);
 
   if (s.ok()) {
@@ -36,6 +28,30 @@ void Java_org_rocksdb_RocksDB_open0(
     return;
   }
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    open0
+ * Signature: (Ljava/lang/String;)V
+ */
+void Java_org_rocksdb_RocksDB_open0(
+    JNIEnv* env, jobject jdb, jstring jdb_path) {
+  rocksdb::Options options;
+  options.create_if_missing = true;
+
+  rocksdb_open_helper(env, jdb, jdb_path, options);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    open
+ * Signature: (JLjava/lang/String;)V
+ */
+void Java_org_rocksdb_RocksDB_open(
+    JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path) {
+  auto options = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+  rocksdb_open_helper(env, jdb, jdb_path, *options);
 }
 
 /*
@@ -147,6 +163,7 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
     env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
     return kNotFound;
   } else if (!s.ok()) {
+    env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
     // Here since we are throwing a Java exception from c++ side.
     // As a result, c++ does not know calling this function will in fact
     // throwing an exception.  As a result, the execution flow will
@@ -164,10 +181,7 @@ jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
 
   memcpy(value, cvalue.c_str(), length);
   env->ReleaseByteArrayElements(jvalue, value, JNI_COMMIT);
-  if (cvalue_len > length) {
-    return static_cast<jint>(cvalue_len);
-  }
-  return length;
+  return static_cast<jint>(cvalue_len);
 }
 
 /*

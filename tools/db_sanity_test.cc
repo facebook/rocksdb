@@ -134,10 +134,10 @@ class SanityTestPlainTableFactory : public SanityTest {
   explicit SanityTestPlainTableFactory(const std::string& path)
       : SanityTest(path) {
     options_.table_factory.reset(NewPlainTableFactory());
-    options_.prefix_extractor = NewFixedPrefixTransform(2);
+    options_.prefix_extractor.reset(NewFixedPrefixTransform(2));
     options_.allow_mmap_reads = true;
   }
-  ~SanityTestPlainTableFactory() { delete options_.prefix_extractor; }
+  ~SanityTestPlainTableFactory() {}
   virtual Options GetOptions() const { return options_; }
   virtual std::string Name() const { return "PlainTable"; }
 

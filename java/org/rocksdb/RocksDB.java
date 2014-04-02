@@ -16,16 +16,20 @@ import java.io.IOException;
  * All methods of this class could potentially throw RocksDBException, which
  * indicates sth wrong at the rocksdb library side and the call failed.
  */
-public class RocksDB implements Closeable {
+public class RocksDB {
   public static final int NOT_FOUND = -1;
   /**
    * The factory constructor of RocksDB that opens a RocksDB instance given
-   * the path to the database.
+   * the path to the database using the default options w/ createIfMissing
+   * set to true.
    *
    * @param path the path to the rocksdb.
    * @param status an out value indicating the status of the Open().
    * @return a rocksdb instance on success, null if the specified rocksdb can
    *     not be opened.
+   *
+   * @see Options.setCreateIfMissing()
+   * @see Options.createIfMissing()
    */
   public static RocksDB open(String path) throws RocksDBException {
     RocksDB db = new RocksDB();
@@ -33,8 +37,19 @@ public class RocksDB implements Closeable {
     return db;
   }
 
-  @Override public void close() throws IOException {
-    if (nativeHandle != 0) {
+  /**
+   * The factory constructor of RocksDB that opens a RocksDB instance given
+   * the path to the database using the specified options and db path.
+   */
+  public static RocksDB open(Options options, String path)
+      throws RocksDBException {
+    RocksDB db = new RocksDB();
+    db.open(options.nativeHandle_, path);
+    return db;
+  }
+
+  public synchronized void close() {
+    if (nativeHandle_ != 0) {
       close0();
     }
   }
@@ -80,15 +95,20 @@ public class RocksDB implements Closeable {
     return get(key, key.length);
   }
 
+  @Override protected void finalize() {
+    close();
+  }
+
   /**
    * Private constructor.
    */
   private RocksDB() {
-    nativeHandle = -1;
+    nativeHandle_ = 0;
   }
 
   // native methods
   private native void open0(String path) throws RocksDBException;
+  private native void open(long optionsHandle, String path) throws RocksDBException;
   private native void put(
       byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
@@ -99,5 +119,5 @@ public class RocksDB implements Closeable {
       byte[] key, int keyLen) throws RocksDBException;
   private native void close0();
 
-  private long nativeHandle;
+  private long nativeHandle_;
 }

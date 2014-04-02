@@ -247,7 +247,7 @@ class TestPlainTableFactory : public PlainTableFactory {
 };
 
 TEST(PlainTableDBTest, Flush) {
-  for (int bloom_bits = 0; bloom_bits <= 8; bloom_bits += 8) {
+  for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
     for (int total_order = 0; total_order <= 1; total_order++) {
       Options options = CurrentOptions();
       options.create_if_missing = true;
@@ -272,7 +272,7 @@ TEST(PlainTableDBTest, Flush) {
 }
 
 TEST(PlainTableDBTest, Flush2) {
-  for (int bloom_bits = 0; bloom_bits <= 10; bloom_bits += 10) {
+  for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
     for (int total_order = 0; total_order <= 1; total_order++) {
       bool expect_bloom_not_match = false;
       Options options = CurrentOptions();
@@ -327,7 +327,7 @@ TEST(PlainTableDBTest, Flush2) {
 }
 
 TEST(PlainTableDBTest, Iterator) {
-  for (int bloom_bits = 0; bloom_bits <= 8; bloom_bits += 8) {
+  for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
     for (int total_order = 0; total_order <= 1; total_order++) {
       bool expect_bloom_not_match = false;
       Options options = CurrentOptions();
@@ -410,17 +410,18 @@ TEST(PlainTableDBTest, Iterator) {
 
       // Test Bloom Filter
       if (bloom_bits > 0) {
-        // Neither key nor value should exist.
-        expect_bloom_not_match = true;
-        iter->Seek("2not000000000bar");
-        ASSERT_TRUE(!iter->Valid());
-
-        // Key doesn't exist any more but prefix exists.
-        if (total_order) {
+        if (!total_order) {
+          // Neither key nor value should exist.
+          expect_bloom_not_match = true;
           iter->Seek("2not000000000bar");
           ASSERT_TRUE(!iter->Valid());
+          ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
+          expect_bloom_not_match = false;
+        } else {
+          expect_bloom_not_match = true;
+          ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
+          expect_bloom_not_match = false;
         }
-        expect_bloom_not_match = false;
       }
 
       delete iter;

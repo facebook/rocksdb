@@ -267,14 +267,14 @@ Status PlainTableReader::PopulateIndexRecordList(IndexRecordList* record_list,
 void PlainTableReader::AllocateIndexAndBloom(int num_prefixes) {
   index_.reset();
 
-  if (options_.prefix_extractor != nullptr) {
+  if (options_.prefix_extractor.get() != nullptr) {
     uint32_t bloom_total_bits = num_prefixes * kBloomBitsPerKey;
     if (bloom_total_bits > 0) {
       bloom_.reset(new DynamicBloom(bloom_total_bits, options_.bloom_locality));
     }
   }
 
-  if (options_.prefix_extractor == nullptr || kHashTableRatio <= 0) {
+  if (options_.prefix_extractor.get() == nullptr || kHashTableRatio <= 0) {
     // Fall back to pure binary search if the user fails to specify a prefix
     // extractor.
     index_size_ = 1;
@@ -366,7 +366,7 @@ void PlainTableReader::FillIndexes(
 
 Status PlainTableReader::PopulateIndex() {
   // options.prefix_extractor is requried for a hash-based look-up.
-  if (options_.prefix_extractor == nullptr && kHashTableRatio != 0) {
+  if (options_.prefix_extractor.get() == nullptr && kHashTableRatio != 0) {
     return Status::NotSupported(
         "PlainTable requires a prefix extractor enable prefix hash mode.");
   }
@@ -488,7 +488,7 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
 }
 
 bool PlainTableReader::MatchBloom(uint32_t hash) const {
-  return bloom_ == nullptr || bloom_->MayContainHash(hash);
+  return bloom_.get() == nullptr || bloom_->MayContainHash(hash);
 }
 
 Slice PlainTableReader::GetPrefix(const ParsedInternalKey& target) const {
@@ -676,20 +676,14 @@ void PlainTableIterator::Seek(const Slice& target) {
   }
 
   Slice prefix_slice = table_->GetPrefix(target);
-  uint32_t prefix_hash;
-  uint32_t bloom_hash;
-  if (table_->IsTotalOrderMode()) {
-    // The total order mode, there is only one hash bucket 0. The bloom filter
-    // is checked against the whole user key.
-    prefix_hash = 0;
-    bloom_hash = GetSliceHash(table_->GetUserKey(target));
-  } else {
+  uint32_t prefix_hash = 0;
+  // Bloom filter is ignored in total-order mode.
+  if (!table_->IsTotalOrderMode()) {
     prefix_hash = GetSliceHash(prefix_slice);
-    bloom_hash = prefix_hash;
-  }
-  if (!table_->MatchBloom(bloom_hash)) {
-    offset_ = next_offset_ = table_->data_end_offset_;
-    return;
+    if (!table_->MatchBloom(prefix_hash)) {
+      offset_ = next_offset_ = table_->data_end_offset_;
+      return;
+    }
   }
   bool prefix_match;
   status_ = table_->GetOffset(target, prefix_slice, prefix_hash, prefix_match,

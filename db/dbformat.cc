@@ -15,7 +15,7 @@
 
 namespace rocksdb {
 
-static uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
+uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
   assert(t <= kValueTypeForSeek);
   return (seq << 8) | t;
