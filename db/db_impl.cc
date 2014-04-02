@@ -4034,6 +4034,9 @@ Status DBImpl::MakeRoomForWrite(bool force,
           new_mem = new MemTable(internal_comparator_, options_);
           new_superversion = new SuperVersion();
         }
+        Log(options_.info_log,
+            "New memtable created with log file: #%lu\n",
+            (unsigned long)new_log_number);
       }
       mutex_.Lock();
       if (!s.ok()) {
@@ -4051,9 +4054,6 @@ Status DBImpl::MakeRoomForWrite(bool force,
       }
       mem_ = new_mem;
       mem_->Ref();
-      Log(options_.info_log,
-          "New memtable created with log file: #%lu\n",
-          (unsigned long)logfile_number_);
       mem_->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
