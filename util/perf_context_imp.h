@@ -9,7 +9,7 @@
 
 namespace rocksdb {
 
-extern enum PerfLevel perf_level;
+extern __thread PerfLevel perf_level;
 
 inline void StartPerfTimer(StopWatchNano* timer) {
   if (perf_level >= PerfLevel::kEnableTime) {

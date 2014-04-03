@@ -10,7 +10,7 @@
 namespace rocksdb {
 
 // by default, enable counts only
-PerfLevel perf_level = kEnableCount;
+__thread PerfLevel perf_level = kEnableCount;
 
 void SetPerfLevel(PerfLevel level) { perf_level = level; }
 
