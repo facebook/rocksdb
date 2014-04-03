@@ -32,6 +32,7 @@ using rocksdb::Comparator;
 using rocksdb::CompressionType;
 using rocksdb::DB;
 using rocksdb::Env;
+using rocksdb::InfoLogLevel;
 using rocksdb::FileLock;
 using rocksdb::FilterPolicy;
 using rocksdb::FlushOptions;
@@ -657,6 +658,11 @@ void rocksdb_options_set_info_log(rocksdb_options_t* opt, rocksdb_logger_t* l) {
   }
 }
 
+void rocksdb_options_set_info_log_level(
+    rocksdb_options_t* opt, int v) {
+  opt->rep.info_log_level = static_cast<InfoLogLevel>(v);
+}
+
 void rocksdb_options_set_write_buffer_size(rocksdb_options_t* opt, size_t s) {
   opt->rep.write_buffer_size = s;
 }
@@ -713,6 +719,14 @@ void rocksdb_options_set_expanded_compaction_factor(
 void rocksdb_options_set_max_grandparent_overlap_factor(
     rocksdb_options_t* opt, int n) {
   opt->rep.max_grandparent_overlap_factor = n;
+}
+
+void rocksdb_options_set_max_bytes_for_level_multiplier_additional(
+    rocksdb_options_t* opt, int* level_values, size_t num_levels) {
+  opt->rep.max_bytes_for_level_multiplier_additional.resize(num_levels);
+  for (size_t i = 0; i < num_levels; ++i) {
+    opt->rep.max_bytes_for_level_multiplier_additional[i] = level_values[i];
+  }
 }
 
 void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
@@ -858,6 +872,24 @@ void rocksdb_options_set_advise_random_on_open(
   opt->rep.advise_random_on_open = v;
 }
 
+void rocksdb_options_set_access_hint_on_compaction_start(
+    rocksdb_options_t* opt, int v) {
+  switch(v) {
+    case 0:
+      opt->rep.access_hint_on_compaction_start = rocksdb::Options::NONE;
+      break;
+    case 1:
+      opt->rep.access_hint_on_compaction_start = rocksdb::Options::NORMAL;
+      break;
+    case 2:
+      opt->rep.access_hint_on_compaction_start = rocksdb::Options::SEQUENTIAL;
+      break;
+    case 3:
+      opt->rep.access_hint_on_compaction_start = rocksdb::Options::WILLNEED;
+      break;
+  }
+}
+
 void rocksdb_options_set_use_adaptive_mutex(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.use_adaptive_mutex = v;
@@ -866,6 +898,11 @@ void rocksdb_options_set_use_adaptive_mutex(
 void rocksdb_options_set_bytes_per_sync(
     rocksdb_options_t* opt, uint64_t v) {
   opt->rep.bytes_per_sync = v;
+}
+
+void rocksdb_options_set_verify_checksums_in_compaction(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.verify_checksums_in_compaction = v;
 }
 
 void rocksdb_options_set_filter_deletes(
@@ -1021,6 +1058,31 @@ void rocksdb_options_set_max_successive_merges(
   opt->rep.max_successive_merges = v;
 }
 
+void rocksdb_options_set_min_partial_merge_operands(
+    rocksdb_options_t* opt, uint32_t v) {
+  opt->rep.min_partial_merge_operands = v;
+}
+
+void rocksdb_options_set_bloom_locality(
+    rocksdb_options_t* opt, uint32_t v) {
+  opt->rep.bloom_locality = v;
+}
+
+void rocksdb_options_set_allow_thread_local(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.allow_thread_local = v;
+}
+
+void rocksdb_options_set_inplace_update_support(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.inplace_update_support = v;
+}
+
+void rocksdb_options_set_inplace_update_num_locks(
+    rocksdb_options_t* opt, size_t v) {
+  opt->rep.inplace_update_num_locks = v;
+}
+
 void rocksdb_options_set_compaction_style(rocksdb_options_t *opt, int style) {
   opt->rep.compaction_style = static_cast<rocksdb::CompactionStyle>(style);
 }
@@ -1035,21 +1097,14 @@ DB::OpenForReadOnly
 DB::MultiGet
 DB::KeyMayExist
 DB::GetOptions
-DB::GetLiveFiles
 DB::GetSortedWalFiles
 DB::GetLatestSequenceNumber
 DB::GetUpdatesSince
-DB::DeleteFile
 DB::GetDbIdentity
 DB::RunManualCompaction
 custom cache
 compaction_filter
-max_bytes_for_level_multiplier_additional
-access_hint_on_compaction_start
-table_factory
 table_properties_collectors
-inplace_update_support
-inplace_update_num_locks
 */
 
 rocksdb_comparator_t* rocksdb_comparator_create(

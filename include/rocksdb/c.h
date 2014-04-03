@@ -243,6 +243,7 @@ extern void rocksdb_options_set_paranoid_checks(
     rocksdb_options_t*, unsigned char);
 extern void rocksdb_options_set_env(rocksdb_options_t*, rocksdb_env_t*);
 extern void rocksdb_options_set_info_log(rocksdb_options_t*, rocksdb_logger_t*);
+extern void rocksdb_options_set_info_log_level(rocksdb_options_t*, int);
 extern void rocksdb_options_set_write_buffer_size(rocksdb_options_t*, size_t);
 extern void rocksdb_options_set_max_open_files(rocksdb_options_t*, int);
 extern void rocksdb_options_set_cache(rocksdb_options_t*, rocksdb_cache_t*);
@@ -275,6 +276,8 @@ extern void rocksdb_options_set_expanded_compaction_factor(
     rocksdb_options_t*, int);
 extern void rocksdb_options_set_max_grandparent_overlap_factor(
     rocksdb_options_t*, int);
+extern void rocksdb_options_set_max_bytes_for_level_multiplier_additional(
+    rocksdb_options_t*, int* level_values, size_t num_levels);
 extern void rocksdb_options_enable_statistics(rocksdb_options_t*);
 
 extern void rocksdb_options_set_max_write_buffer_number(rocksdb_options_t*, int);
@@ -330,10 +333,14 @@ extern void rocksdb_options_set_block_size_deviation(
     rocksdb_options_t*, int);
 extern void rocksdb_options_set_advise_random_on_open(
     rocksdb_options_t*, unsigned char);
+extern void rocksdb_options_set_access_hint_on_compaction_start(
+    rocksdb_options_t*, int);
 extern void rocksdb_options_set_use_adaptive_mutex(
     rocksdb_options_t*, unsigned char);
 extern void rocksdb_options_set_bytes_per_sync(
     rocksdb_options_t*, uint64_t);
+extern void rocksdb_options_set_verify_checksums_in_compaction(
+    rocksdb_options_t*, unsigned char);
 extern void rocksdb_options_set_filter_deletes(
     rocksdb_options_t*, unsigned char);
 extern void rocksdb_options_set_max_sequential_skip_in_iterations(
@@ -360,6 +367,16 @@ extern void rocksdb_options_set_memtable_prefix_bloom_bits(
 extern void rocksdb_options_set_memtable_prefix_bloom_probes(
     rocksdb_options_t*, uint32_t);
 extern void rocksdb_options_set_max_successive_merges(
+    rocksdb_options_t*, size_t);
+extern void rocksdb_options_set_min_partial_merge_operands(
+    rocksdb_options_t*, uint32_t);
+extern void rocksdb_options_set_bloom_locality(
+    rocksdb_options_t*, uint32_t);
+extern void rocksdb_options_set_allow_thread_local(
+    rocksdb_options_t*, unsigned char);
+extern void rocksdb_options_set_inplace_update_support(
+    rocksdb_options_t*, unsigned char);
+extern void rocksdb_options_set_inplace_update_num_locks(
     rocksdb_options_t*, size_t);
 
 enum {
