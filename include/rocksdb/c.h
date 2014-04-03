@@ -348,6 +348,7 @@ extern void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t*);
 extern void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t*);
 extern void rocksdb_options_set_hash_skip_list_rep(rocksdb_options_t*, size_t, int32_t, int32_t);
 extern void rocksdb_options_set_hash_link_list_rep(rocksdb_options_t*, size_t);
+extern void rocksdb_options_set_plain_table_factory(rocksdb_options_t*, uint32_t, int, double, size_t);
 
 extern void rocksdb_options_set_max_bytes_for_level_base(rocksdb_options_t* opt, uint64_t n);
 extern void rocksdb_options_set_stats_dump_period_sec(rocksdb_options_t* opt, unsigned int sec);

@@ -25,6 +25,7 @@
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
 
 using rocksdb::Cache;
 using rocksdb::Comparator;
@@ -1001,6 +1002,18 @@ void rocksdb_options_set_hash_link_list_rep(
     factory = rocksdb::NewHashLinkListRepFactory(bucket_count);
   }
   opt->rep.memtable_factory.reset(factory);
+}
+
+void rocksdb_options_set_plain_table_factory(
+    rocksdb_options_t *opt, uint32_t user_key_len, int bloom_bits_per_key,
+    double hash_table_ratio, size_t index_sparseness) {
+  static rocksdb::TableFactory* factory = 0;
+  if (!factory) {
+    factory = rocksdb::NewPlainTableFactory(
+        user_key_len, bloom_bits_per_key,
+        hash_table_ratio, index_sparseness);
+  }
+  opt->rep.table_factory.reset(factory);
 }
 
 void rocksdb_options_set_max_successive_merges(
