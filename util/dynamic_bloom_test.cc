@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <algorithm>
 #include <gflags/gflags.h>
 
@@ -134,7 +136,7 @@ TEST(DynamicBloomTest, perf) {
 
   for (uint64_t m = 1; m <= 8; ++m) {
     const uint64_t num_keys = m * 8 * 1024 * 1024;
-    fprintf(stderr, "testing %luM keys\n", m * 8);
+    fprintf(stderr, "testing %" PRIu64 "M keys\n", m * 8);
 
     DynamicBloom std_bloom(num_keys * 10, 0, FLAGS_num_probes);
 
@@ -144,7 +146,7 @@ TEST(DynamicBloomTest, perf) {
     }
 
     uint64_t elapsed = timer.ElapsedNanos();
-    fprintf(stderr, "standard bloom, avg add latency %lu\n",
+    fprintf(stderr, "standard bloom, avg add latency %" PRIu64 "\n",
             elapsed / num_keys);
 
     uint64_t count = 0;
@@ -155,7 +157,7 @@ TEST(DynamicBloomTest, perf) {
       }
     }
     elapsed = timer.ElapsedNanos();
-    fprintf(stderr, "standard bloom, avg query latency %lu\n",
+    fprintf(stderr, "standard bloom, avg query latency %" PRIu64 "\n",
             elapsed / count);
     ASSERT_TRUE(count == num_keys);
 
@@ -169,7 +171,7 @@ TEST(DynamicBloomTest, perf) {
       }
 
       uint64_t elapsed = timer.ElapsedNanos();
-      fprintf(stderr, "blocked bloom(%d), avg add latency %lu\n",
+      fprintf(stderr, "blocked bloom(%d), avg add latency %" PRIu64 "\n",
               cl_per_block, elapsed / num_keys);
 
       uint64_t count = 0;
@@ -182,7 +184,7 @@ TEST(DynamicBloomTest, perf) {
       }
 
       elapsed = timer.ElapsedNanos();
-      fprintf(stderr, "blocked bloom(%d), avg query latency %lu\n",
+      fprintf(stderr, "blocked bloom(%d), avg query latency %" PRIu64 "\n",
               cl_per_block, elapsed / count);
       ASSERT_TRUE(count == num_keys);
     }

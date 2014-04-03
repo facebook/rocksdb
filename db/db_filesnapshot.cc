@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <algorithm>
 #include <string>
 #include <stdint.h>
@@ -126,7 +128,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   uint64_t latest_archived_log_number = 0;
   if (!files.empty()) {
     latest_archived_log_number = files.back()->LogNumber();
-    Log(options_.info_log, "Latest Archived log: %lu",
+    Log(options_.info_log, "Latest Archived log: %" PRIu64,
         latest_archived_log_number);
   }
 
