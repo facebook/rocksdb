@@ -87,13 +87,13 @@ void rocksdb_put_helper(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    put
- * Signature: ([BI[BI)V
+ * Signature: (J[BI[BI)V
  */
-void Java_org_rocksdb_RocksDB_put___3BI_3BI(
-    JNIEnv* env, jobject jdb,
+void Java_org_rocksdb_RocksDB_put__J_3BI_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
     jbyteArray jkey, jint jkey_len,
     jbyteArray jvalue, jint jvalue_len) {
-  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   static const rocksdb::WriteOptions default_write_options =
       rocksdb::WriteOptions();
 
@@ -105,13 +105,14 @@ void Java_org_rocksdb_RocksDB_put___3BI_3BI(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    put
- * Signature: (J[BI[BI)V
+ * Signature: (JJ[BI[BI)V
  */
-void Java_org_rocksdb_RocksDB_put__J_3BI_3BI(
-    JNIEnv* env, jobject jdb, jlong jwrite_options_handle,
+void Java_org_rocksdb_RocksDB_put__JJ_3BI_3BI(
+    JNIEnv* env, jobject jdb,
+    jlong jdb_handle, jlong jwrite_options_handle,
     jbyteArray jkey, jint jkey_len,
     jbyteArray jvalue, jint jvalue_len) {
-  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(
       jwrite_options_handle);
 
@@ -126,11 +127,12 @@ void Java_org_rocksdb_RocksDB_put__J_3BI_3BI(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    get
- * Signature: ([BI)[B
+ * Signature: (J[BI)[B
  */
-jbyteArray Java_org_rocksdb_RocksDB_get___3BI(
-    JNIEnv* env, jobject jdb, jbyteArray jkey, jint jkey_len) {
-  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+jbyteArray Java_org_rocksdb_RocksDB_get__J_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jbyteArray jkey, jint jkey_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
 
   jboolean isCopy;
   jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
@@ -166,16 +168,15 @@ jbyteArray Java_org_rocksdb_RocksDB_get___3BI(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    get
- * Signature: ([BI[BI)I
+ * Signature: (J[BI[BI)I
  */
-jint Java_org_rocksdb_RocksDB_get___3BI_3BI(
-    JNIEnv* env, jobject jdb,
+jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
     jbyteArray jkey, jint jkey_len,
     jbyteArray jvalue, jint jvalue_len) {
   static const int kNotFound = -1;
   static const int kStatusError = -2;
-
-  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
 
   jboolean isCopy;
   jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
@@ -240,15 +241,15 @@ void rocksdb_remove_helper(
   return;
 }
 
-
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    remove
- * Signature: ([BI)V
+ * Signature: (J[BI)V
  */
-void Java_org_rocksdb_RocksDB_remove___3BI(
-    JNIEnv* env, jobject jdb, jbyteArray jkey, jint jkey_len) {
-  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+void Java_org_rocksdb_RocksDB_remove__J_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jbyteArray jkey, jint jkey_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   static const rocksdb::WriteOptions default_write_options =
       rocksdb::WriteOptions();
 
@@ -258,12 +259,12 @@ void Java_org_rocksdb_RocksDB_remove___3BI(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    remove
- * Signature: (J[BI)V
+ * Signature: (JJ[BI)V
  */
-void Java_org_rocksdb_RocksDB_remove__J_3BI(
-    JNIEnv* env, jobject jdb, jlong jwrite_options,
-    jbyteArray jkey, jint jkey_len) {
-  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+void Java_org_rocksdb_RocksDB_remove__JJ_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jlong jwrite_options, jbyteArray jkey, jint jkey_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options);
 
   rocksdb_remove_helper(env, db, *write_options, jkey, jkey_len);

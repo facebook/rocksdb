@@ -61,7 +61,7 @@ public class RocksDB {
    * @param value the value associated with the specified key.
    */
   public void put(byte[] key, byte[] value) throws RocksDBException {
-    put(key, key.length, value, value.length);
+    put(nativeHandle_, key, key.length, value, value.length);
   }
 
   /**
@@ -72,7 +72,7 @@ public class RocksDB {
    */
   public void put(WriteOptions writeOpts, byte[] key, byte[] value)
       throws RocksDBException {
-    put(writeOpts.nativeHandle_, key, key.length, value, value.length);
+    put(nativeHandle_, writeOpts.nativeHandle_, key, key.length, value, value.length);
   }
 
   /**
@@ -88,7 +88,7 @@ public class RocksDB {
    *     found.
    */
   public int get(byte[] key, byte[] value) throws RocksDBException {
-    return get(key, key.length, value, value.length);
+    return get(nativeHandle_, key, key.length, value, value.length);
   }
 
   /**
@@ -103,7 +103,7 @@ public class RocksDB {
    * @see RocksDBException
    */
   public byte[] get(byte[] key) throws RocksDBException {
-    return get(key, key.length);
+    return get(nativeHandle_, key, key.length);
   }
 
   /**
@@ -112,7 +112,7 @@ public class RocksDB {
    * did not exist in the database.
    */
   public void remove(byte[] key) throws RocksDBException {
-    remove(key, key.length);
+    remove(nativeHandle_, key, key.length);
   }
 
   /**
@@ -122,7 +122,7 @@ public class RocksDB {
    */
   public void remove(WriteOptions writeOpt, byte[] key)
       throws RocksDBException {
-    remove(writeOpt.nativeHandle_, key, key.length);
+    remove(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
 
   @Override protected void finalize() {
@@ -141,20 +141,22 @@ public class RocksDB {
   private native void open(
       long optionsHandle, String path) throws RocksDBException;
   private native void put(
-      byte[] key, int keyLen,
+      long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
   private native void put(
-      long writeOptHandle, byte[] key, int keyLen,
-      byte[] value, int valueLen) throws RocksDBException;
-  private native int get(
+      long handle, long writeOptHandle,
       byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
+  private native int get(
+      long handle, byte[] key, int keyLen,
+      byte[] value, int valueLen) throws RocksDBException;
   private native byte[] get(
-      byte[] key, int keyLen) throws RocksDBException;
+      long handle, byte[] key, int keyLen) throws RocksDBException;
   private native void remove(
-      byte[] key, int keyLen) throws RocksDBException;
+      long handle, byte[] key, int keyLen) throws RocksDBException;
   private native void remove(
-      long writeOptHandle, byte[] key, int keyLen) throws RocksDBException;
+      long handle, long writeOptHandle,
+      byte[] key, int keyLen) throws RocksDBException;
   private native void close0();
 
   private long nativeHandle_;
