@@ -1460,7 +1460,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
     s = imm_.InstallMemtableFlushResults(
         mems, versions_.get(), &mutex_, options_.info_log.get(), file_number,
         pending_outputs_, &deletion_state.memtables_to_free,
-        db_directory_.get());
+        db_directory_.get(), log_buffer);
   }
 
   if (s.ok()) {
@@ -2013,9 +2013,10 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
                                LogBuffer* log_buffer) {
   Status stat;
   while (stat.ok() && imm_.IsFlushPending()) {
-    Log(options_.info_log,
-        "BackgroundCallFlush doing FlushMemTableToOutputFile, flush slots available %d",
-        options_.max_background_flushes - bg_flush_scheduled_);
+    LogToBuffer(log_buffer,
+                "BackgroundCallFlush doing FlushMemTableToOutputFile, "
+                "flush slots available %d",
+                options_.max_background_flushes - bg_flush_scheduled_);
     stat = FlushMemTableToOutputFile(madeProgress, deletion_state, log_buffer);
   }
   return stat;
@@ -2461,7 +2462,8 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
 }
 
 
-Status DBImpl::InstallCompactionResults(CompactionState* compact) {
+Status DBImpl::InstallCompactionResults(CompactionState* compact,
+                                        LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
   // paranoia: verify that the files that we started with
@@ -2477,11 +2479,10 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
     return Status::Corruption("Compaction input files inconsistent");
   }
 
-  Log(options_.info_log,  "Compacted %d@%d + %d@%d files => %lld bytes",
-      compact->compaction->num_input_files(0),
-      compact->compaction->level(),
-      compact->compaction->num_input_files(1),
-      compact->compaction->level() + 1,
+  LogToBuffer(
+      log_buffer, "Compacted %d@%d + %d@%d files => %lld bytes",
+      compact->compaction->num_input_files(0), compact->compaction->level(),
+      compact->compaction->num_input_files(1), compact->compaction->level() + 1,
       static_cast<long long>(compact->total_bytes));
 
   // Add compaction outputs
@@ -2905,17 +2906,16 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   bool prefix_initialized = false;
 
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
-  Log(options_.info_log,
-      "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
-      compact->compaction->num_input_files(0),
-      compact->compaction->level(),
-      compact->compaction->num_input_files(1),
-      compact->compaction->output_level(),
-      compact->compaction->score(),
-      options_.max_background_compactions - bg_compaction_scheduled_);
+  LogToBuffer(log_buffer,
+              "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
+              compact->compaction->num_input_files(0),
+              compact->compaction->level(),
+              compact->compaction->num_input_files(1),
+              compact->compaction->output_level(), compact->compaction->score(),
+              options_.max_background_compactions - bg_compaction_scheduled_);
   char scratch[2345];
   compact->compaction->Summary(scratch, sizeof(scratch));
-  Log(options_.info_log, "Compaction start summary: %s\n", scratch);
+  LogToBuffer(log_buffer, "Compaction start summary: %s\n", scratch);
 
   assert(versions_->current()->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
@@ -3173,11 +3173,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   ReleaseCompactionUnusedFileNumbers(compact);
 
   if (status.ok()) {
-    status = InstallCompactionResults(compact);
+    status = InstallCompactionResults(compact, log_buffer);
     InstallSuperVersion(deletion_state);
   }
   Version::LevelSummaryStorage tmp;
-  Log(options_.info_log,
+  LogToBuffer(
+      log_buffer,
       "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s\n",

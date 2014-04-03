@@ -587,7 +587,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
                                options_->level0_file_num_compaction_trigger;
       if ((c = PickCompactionUniversalReadAmp(
                version, score, UINT_MAX, num_files, log_buffer)) != nullptr) {
-        Log(options_->info_log, "Universal: compacting for file num\n");
+        LogToBuffer(log_buffer, "Universal: compacting for file num\n");
       }
     }
   }
