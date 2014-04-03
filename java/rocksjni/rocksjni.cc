@@ -178,9 +178,7 @@ jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
   static const int kStatusError = -2;
   auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
 
-  jboolean isCopy;
-  jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
-  jbyte* value = env->GetByteArrayElements(jvalue, &isCopy);
+  jbyte* key = env->GetByteArrayElements(jkey, 0);
   rocksdb::Slice key_slice(
       reinterpret_cast<char*>(key), jkey_len);
 
@@ -196,10 +194,8 @@ jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
 
   if (s.IsNotFound()) {
-    env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
     return kNotFound;
   } else if (!s.ok()) {
-    env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
     // Here since we are throwing a Java exception from c++ side.
     // As a result, c++ does not know calling this function will in fact
     // throwing an exception.  As a result, the execution flow will
@@ -215,9 +211,10 @@ jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
   int cvalue_len = static_cast<int>(cvalue.size());
   int length = std::min(jvalue_len, cvalue_len);
 
-  memcpy(value, cvalue.c_str(), length);
-  env->ReleaseByteArrayElements(jvalue, value, JNI_COMMIT);
-  return static_cast<jint>(cvalue_len);
+  env->SetByteArrayRegion(
+      jvalue, 0, length,
+      reinterpret_cast<const jbyte*>(cvalue.c_str()));
+  return cvalue_len;
 }
 
 //////////////////////////////////////////////////////////////////////////////
