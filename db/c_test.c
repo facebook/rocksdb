@@ -443,6 +443,7 @@ int main(int argc, char** argv) {
     rocksdb_options_set_filter_policy(options, policy);
     rocksdb_options_set_prefix_extractor(options, rocksdb_slicetransform_create_fixed_prefix(3));
     rocksdb_options_set_hash_skip_list_rep(options, 50000, 4, 4);
+    rocksdb_options_set_plain_table_factory(options, 4, 10, 0.75, 16);
 
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);

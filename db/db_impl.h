@@ -388,15 +388,16 @@ class DBImpl : public DB {
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
-  Status InstallCompactionResults(CompactionState* compact);
+  Status InstallCompactionResults(CompactionState* compact,
+                                  LogBuffer* log_buffer);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
   void PurgeObsoleteWALFiles();
 
-  Status AppendSortedWalsOfType(const std::string& path,
-                                VectorLogPtr& log_files,
-                                WalFileType type);
+  Status GetSortedWalsOfType(const std::string& path,
+                             VectorLogPtr& log_files,
+                             WalFileType type);
 
   // Requires: all_logs should be sorted with earliest log file first
   // Retains all log files in all_logs which contain updates with seq no.

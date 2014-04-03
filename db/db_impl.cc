@@ -64,6 +64,7 @@
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -872,7 +873,11 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
     if (type == kLogFile &&
         (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0)) {
       auto archived_log_name = ArchivedLogFileName(options_.wal_dir, number);
+      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
+      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:1");
       Status s = env_->RenameFile(fname, archived_log_name);
+      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
+      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:2");
       Log(options_.info_log,
           "Move log file %s to %s -- %s\n",
           fname.c_str(), archived_log_name.c_str(), s.ToString().c_str());
@@ -1020,7 +1025,7 @@ void DBImpl::PurgeObsoleteWALFiles() {
 
   size_t files_del_num = log_files_num - files_keep_num;
   VectorLogPtr archived_logs;
-  AppendSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
+  GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
 
   if (files_del_num > archived_logs.size()) {
     Log(options_.info_log, "Trying to delete more archived log files than "
@@ -1455,7 +1460,7 @@ Status DBImpl::FlushMemTableToOutputFile(bool* madeProgress,
     s = imm_.InstallMemtableFlushResults(
         mems, versions_.get(), &mutex_, options_.info_log.get(), file_number,
         pending_outputs_, &deletion_state.memtables_to_free,
-        db_directory_.get());
+        db_directory_.get(), log_buffer);
   }
 
   if (s.ok()) {
@@ -1791,20 +1796,14 @@ struct CompareLogByPointer {
   }
 };
 
-Status DBImpl::AppendSortedWalsOfType(const std::string& path,
+Status DBImpl::GetSortedWalsOfType(const std::string& path,
     VectorLogPtr& log_files, WalFileType log_type) {
   std::vector<std::string> all_files;
   const Status status = env_->GetChildren(path, &all_files);
   if (!status.ok()) {
     return status;
   }
-  log_files.reserve(log_files.size() + all_files.size());
-  VectorLogPtr::iterator pos_start;
-  if (!log_files.empty()) {
-    pos_start = log_files.end() - 1;
-  } else {
-    pos_start = log_files.begin();
-  }
+  log_files.reserve(all_files.size());
   for (const auto& f : all_files) {
     uint64_t number;
     FileType type;
@@ -1830,7 +1829,7 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
     }
   }
   CompareLogByPointer compare_log_files;
-  std::sort(pos_start, log_files.end(), compare_log_files);
+  std::sort(log_files.begin(), log_files.end(), compare_log_files);
   return status;
 }
 
@@ -2014,9 +2013,10 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
                                LogBuffer* log_buffer) {
   Status stat;
   while (stat.ok() && imm_.IsFlushPending()) {
-    Log(options_.info_log,
-        "BackgroundCallFlush doing FlushMemTableToOutputFile, flush slots available %d",
-        options_.max_background_flushes - bg_flush_scheduled_);
+    LogToBuffer(log_buffer,
+                "BackgroundCallFlush doing FlushMemTableToOutputFile, "
+                "flush slots available %d",
+                options_.max_background_flushes - bg_flush_scheduled_);
     stat = FlushMemTableToOutputFile(madeProgress, deletion_state, log_buffer);
   }
   return stat;
@@ -2462,7 +2462,8 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
 }
 
 
-Status DBImpl::InstallCompactionResults(CompactionState* compact) {
+Status DBImpl::InstallCompactionResults(CompactionState* compact,
+                                        LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
   // paranoia: verify that the files that we started with
@@ -2478,11 +2479,10 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
     return Status::Corruption("Compaction input files inconsistent");
   }
 
-  Log(options_.info_log,  "Compacted %d@%d + %d@%d files => %lld bytes",
-      compact->compaction->num_input_files(0),
-      compact->compaction->level(),
-      compact->compaction->num_input_files(1),
-      compact->compaction->level() + 1,
+  LogToBuffer(
+      log_buffer, "Compacted %d@%d + %d@%d files => %lld bytes",
+      compact->compaction->num_input_files(0), compact->compaction->level(),
+      compact->compaction->num_input_files(1), compact->compaction->level() + 1,
       static_cast<long long>(compact->total_bytes));
 
   // Add compaction outputs
@@ -2906,17 +2906,16 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   bool prefix_initialized = false;
 
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
-  Log(options_.info_log,
-      "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
-      compact->compaction->num_input_files(0),
-      compact->compaction->level(),
-      compact->compaction->num_input_files(1),
-      compact->compaction->output_level(),
-      compact->compaction->score(),
-      options_.max_background_compactions - bg_compaction_scheduled_);
+  LogToBuffer(log_buffer,
+              "Compacting %d@%d + %d@%d files, score %.2f slots available %d",
+              compact->compaction->num_input_files(0),
+              compact->compaction->level(),
+              compact->compaction->num_input_files(1),
+              compact->compaction->output_level(), compact->compaction->score(),
+              options_.max_background_compactions - bg_compaction_scheduled_);
   char scratch[2345];
   compact->compaction->Summary(scratch, sizeof(scratch));
-  Log(options_.info_log, "Compaction start summary: %s\n", scratch);
+  LogToBuffer(log_buffer, "Compaction start summary: %s\n", scratch);
 
   assert(versions_->current()->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
@@ -3174,11 +3173,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   ReleaseCompactionUnusedFileNumbers(compact);
 
   if (status.ok()) {
-    status = InstallCompactionResults(compact);
+    status = InstallCompactionResults(compact, log_buffer);
     InstallSuperVersion(deletion_state);
   }
   Version::LevelSummaryStorage tmp;
-  Log(options_.info_log,
+  LogToBuffer(
+      log_buffer,
       "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s\n",
