@@ -338,9 +338,12 @@ class DBImpl : public DB {
   uint64_t SlowdownAmount(int n, double bottom, double top);
   // MakeRoomForWrite will return superversion_to_free through an arugment,
   // which the caller needs to delete. We do it because caller can delete
-  // the superversion outside of mutex
+  // the superversion outside of mutex.
+  // old_log if not nullptr is the old log writer that should be safely
+  // closed whenever DB mutex is released.
   Status MakeRoomForWrite(bool force /* compact even if there is room? */,
-                          SuperVersion** superversion_to_free);
+                          SuperVersion** superversion_to_free,
+                          log::Writer** old_log);
   void BuildBatchGroup(Writer** last_writer,
                        autovector<WriteBatch*>* write_batch_group);
 
