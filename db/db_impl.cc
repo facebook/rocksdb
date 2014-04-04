@@ -2945,6 +2945,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
+  log_buffer->FlushBufferToLog();
 
   const uint64_t start_micros = env_->NowMicros();
   unique_ptr<Iterator> input(versions_->MakeInputIterator(compact->compaction));
