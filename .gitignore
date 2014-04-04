@@ -16,6 +16,7 @@ build_config.mk
 *.class
 *.jar
 *.*jnilib*
+*.d-e
 
 ldb
 manifest_dump

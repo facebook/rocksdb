@@ -313,26 +313,12 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
+#ifdef __SSE4_2__
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
-  #ifdef __SSE4_2__
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
-  #else
-  Slow_CRC32(l, p);
-  #endif
 }
-
-// Detect if SS42 or not.
-static bool isSSE42() {
-  #ifdef __GNUC__
-  uint32_t c_;
-  uint32_t d_;
-  __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
-  return c_ & (1U << 20); // copied from CpuId.h in Folly.
-  #else
-  return false;
-  #endif
-}
+#endif
 
 template<void (*CRC32)(uint64_t*, uint8_t const**)>
 uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
@@ -380,7 +366,11 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
 static inline Function Choose_Extend() {
-  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+#ifdef __SSE4_2__
+  return ExtendImpl<Fast_CRC32>;
+#else
+  return ExtendImpl<Slow_CRC32>;
+#endif
 }
 
 Function ChosenExtend = Choose_Extend();

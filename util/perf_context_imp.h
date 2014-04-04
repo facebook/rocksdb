@@ -9,7 +9,13 @@
 
 namespace rocksdb {
 
+// TODO(icanadi): when calling perf_context is macro-ed (TODO ljin), make it
+// noop in case IOS_CROSS_COMPILE
+#if defined(IOS_CROSS_COMPILE)
+extern enum PerfLevel perf_level;
+#else
 extern __thread PerfLevel perf_level;
+#endif
 
 inline void StartPerfTimer(StopWatchNano* timer) {
   if (perf_level >= PerfLevel::kEnableTime) {

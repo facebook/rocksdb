@@ -10,7 +10,11 @@
 namespace rocksdb {
 
 // by default, enable counts only
+#if defined(IOS_CROSS_COMPILE)
+PerfLevel perf_level = kEnableCount;
+#else
 __thread PerfLevel perf_level = kEnableCount;
+#endif
 
 void SetPerfLevel(PerfLevel level) { perf_level = level; }
 
@@ -69,6 +73,9 @@ std::string PerfContext::ToString() const {
   return ss.str();
 }
 
+#if defined(IOS_CROSS_COMPILE)
+PerfContext perf_context;
+#else
 __thread PerfContext perf_context;
-
+#endif
 }
