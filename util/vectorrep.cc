@@ -30,7 +30,7 @@ class VectorRep : public MemTableRep {
   // single buffer and pass that in as the parameter to Insert)
   // REQUIRES: nothing that compares equal to key is currently in the
   // collection.
-  virtual void Insert(const char* key) override;
+  virtual void Insert(KeyHandle handle) override;
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const override;
@@ -106,7 +106,8 @@ class VectorRep : public MemTableRep {
   const KeyComparator& compare_;
 };
 
-void VectorRep::Insert(const char* key) {
+void VectorRep::Insert(KeyHandle handle) {
+  auto* key = static_cast<char*>(handle);
   assert(!Contains(key));
   WriteLock l(&rwlock_);
   assert(!immutable_);
@@ -134,7 +135,8 @@ size_t VectorRep::ApproximateMemoryUsage() {
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Arena* arena, size_t count)
-  : bucket_(new Bucket()),
+  : MemTableRep(arena),
+    bucket_(new Bucket()),
     immutable_(false),
     sorted_(false),
     compare_(compare) { bucket_.get()->reserve(count); }

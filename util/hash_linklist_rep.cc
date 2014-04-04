@@ -22,12 +22,6 @@ namespace {
 typedef const char* Key;
 
 struct Node {
-  explicit Node(const Key& k) :
-      key(k) {
-  }
-
-  Key const key;
-
   // Accessors/mutators for links.  Wrapped in methods so we can
   // add the appropriate barriers as necessary.
   Node* Next() {
@@ -40,17 +34,19 @@ struct Node {
     // pointer observes a fully initialized version of the inserted node.
     next_.Release_Store(x);
   }
-
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next() {
     return reinterpret_cast<Node*>(next_.NoBarrier_Load());
   }
+
   void NoBarrier_SetNext(Node* x) {
     next_.NoBarrier_Store(x);
   }
 
-private:
+ private:
   port::AtomicPointer next_;
+ public:
+  char key[0];
 };
 
 class HashLinkListRep : public MemTableRep {
@@ -58,7 +54,9 @@ class HashLinkListRep : public MemTableRep {
   HashLinkListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
                   const SliceTransform* transform, size_t bucket_size);
 
-  virtual void Insert(const char* key) override;
+  virtual KeyHandle Allocate(const size_t len, char** buf) override;
+
+  virtual void Insert(KeyHandle handle) override;
 
   virtual bool Contains(const char* key) const override;
 
@@ -93,8 +91,6 @@ class HashLinkListRep : public MemTableRep {
   const SliceTransform* transform_;
 
   const MemTableRep::KeyComparator& compare_;
-  // immutable after construction
-  Arena* const arena_;
 
   bool BucketContains(Node* head, const Slice& key) const;
 
@@ -112,11 +108,6 @@ class HashLinkListRep : public MemTableRep {
 
   Node* GetBucket(const Slice& slice) const {
     return GetBucket(GetHash(slice));
-  }
-
-  Node* NewNode(const Key& key) {
-    char* mem = arena_->AllocateAligned(sizeof(Node));
-    return new (mem) Node(key);
   }
 
   bool Equal(const Slice& a, const Key& b) const {
@@ -318,10 +309,10 @@ class HashLinkListRep : public MemTableRep {
 HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
                                  Arena* arena, const SliceTransform* transform,
                                  size_t bucket_size)
-  : bucket_size_(bucket_size),
+  : MemTableRep(arena),
+    bucket_size_(bucket_size),
     transform_(transform),
-    compare_(compare),
-    arena_(arena) {
+    compare_(compare) {
   char* mem = arena_->AllocateAligned(
       sizeof(port::AtomicPointer) * bucket_size);
 
@@ -335,15 +326,22 @@ HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
 HashLinkListRep::~HashLinkListRep() {
 }
 
-void HashLinkListRep::Insert(const char* key) {
-  assert(!Contains(key));
-  Slice internal_key = GetLengthPrefixedSlice(key);
+KeyHandle HashLinkListRep::Allocate(const size_t len, char** buf) {
+  char* mem = arena_->AllocateAligned(sizeof(Node) + len);
+  Node* x = new (mem) Node();
+  *buf = x->key;
+  return static_cast<void*>(x);
+}
+
+void HashLinkListRep::Insert(KeyHandle handle) {
+  Node* x = static_cast<Node*>(handle);
+  assert(!Contains(x->key));
+  Slice internal_key = GetLengthPrefixedSlice(x->key);
   auto transformed = GetPrefix(internal_key);
   auto& bucket = buckets_[GetHash(transformed)];
   Node* head = static_cast<Node*>(bucket.Acquire_Load());
 
   if (!head) {
-    Node* x = NewNode(key);
     // NoBarrier_SetNext() suffices since we will add a barrier when
     // we publish a pointer to "x" in prev[i].
     x->NoBarrier_SetNext(nullptr);
@@ -372,9 +370,7 @@ void HashLinkListRep::Insert(const char* key) {
   }
 
   // Our data structure does not allow duplicate insertion
-  assert(cur == nullptr || !Equal(key, cur->key));
-
-  Node* x = NewNode(key);
+  assert(cur == nullptr || !Equal(x->key, cur->key));
 
   // NoBarrier_SetNext() suffices since we will add a barrier when
   // we publish a pointer to "x" in prev[i].

@@ -1162,8 +1162,8 @@ class Benchmark {
         fresh_db = true;
         if (num_threads > 1) {
           fprintf(stderr, "filluniquerandom multithreaded not supported"
-                           " set --threads=1");
-          exit(1);
+                           ", use 1 thread");
+          num_threads = 1;
         }
         method = &Benchmark::WriteUniqueRandom;
       } else if (name == Slice("overwrite")) {
