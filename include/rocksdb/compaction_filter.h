@@ -31,6 +31,15 @@ struct CompactionFilterContext {
 
 class CompactionFilter {
  public:
+  // Context information of a compaction run
+  struct Context {
+    // Does this compaction run include all data files
+    bool is_full_compaction;
+    // Is this compaction requested by the client (true),
+    // or is it occurring as an automatic compaction process
+    bool is_manual_compaction;
+  };
+
   virtual ~CompactionFilter() {}
 
   // The compaction process invokes this
@@ -105,7 +114,7 @@ class CompactionFilterFactory {
   virtual ~CompactionFilterFactory() { }
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-    const CompactionFilterContext& context) = 0;
+      const CompactionFilter::Context& context) = 0;
 
   // Returns a name that identifies this compaction filter factory.
   virtual const char* Name() const = 0;
@@ -115,8 +124,8 @@ class CompactionFilterFactory {
 // return any filter
 class DefaultCompactionFilterFactory : public CompactionFilterFactory {
  public:
-  virtual std::unique_ptr<CompactionFilter>
-  CreateCompactionFilter(const CompactionFilterContext& context) override {
+  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) override {
     return std::unique_ptr<CompactionFilter>(nullptr);
   }
 

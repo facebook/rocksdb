@@ -25,6 +25,8 @@ namespace rocksdb {
 class Env;
 struct FileMetaData;
 
+// TODO(sdong): try to come up with a better API to pass the file information
+//              other than simply passing FileMetaData.
 class TableCache {
  public:
   TableCache(const std::string& dbname, const Options* options,

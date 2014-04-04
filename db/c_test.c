@@ -439,7 +439,8 @@ int main(int argc, char** argv) {
     rocksdb_close(db);
     rocksdb_destroy_db(options, dbname, &err);
 
-    rocksdb_options_set_filter_policy(options, rocksdb_filterpolicy_create_bloom(10));
+    rocksdb_filterpolicy_t* policy = rocksdb_filterpolicy_create_bloom(10);
+    rocksdb_options_set_filter_policy(options, policy);
     rocksdb_options_set_prefix_extractor(options, rocksdb_slicetransform_create_fixed_prefix(3));
     rocksdb_options_set_hash_skip_list_rep(options, 50000, 4, 4);
 
@@ -477,6 +478,7 @@ int main(int argc, char** argv) {
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
+    rocksdb_filterpolicy_destroy(policy);
   }
 
   StartPhase("cleanup");

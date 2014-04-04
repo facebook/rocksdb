@@ -283,9 +283,8 @@ class TtlTest {
           kNewValue_(kNewValue) {
       }
 
-      virtual std::unique_ptr<CompactionFilter>
-      CreateCompactionFilter(
-          const CompactionFilterContext& context) override {
+      virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+          const CompactionFilter::Context& context) override {
         return std::unique_ptr<CompactionFilter>(
             new TestFilter(kSampleSize_, kNewValue_));
       }

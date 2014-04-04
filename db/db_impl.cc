@@ -118,6 +118,14 @@ struct DBImpl::CompactionState {
   }
 
   // Create a client visible context of this compaction
+  CompactionFilter::Context GetFilterContextV1() {
+    CompactionFilter::Context context;
+    context.is_full_compaction = compaction->IsFullCompaction();
+    context.is_manual_compaction = compaction->IsManualCompaction();
+    return context;
+  }
+
+  // Create a client visible context of this compaction
   CompactionFilterContext GetFilterContext() {
     CompactionFilterContext context;
     context.is_full_compaction = compaction->IsFullCompaction();
@@ -2545,7 +2553,7 @@ Status DBImpl::ProcessKeyValueCompaction(
   auto compaction_filter = options_.compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (!compaction_filter) {
-    auto context = compact->GetFilterContext();
+    auto context = compact->GetFilterContextV1();
     compaction_filter_from_factory =
       options_.compaction_filter_factory->CreateCompactionFilter(context);
     compaction_filter = compaction_filter_from_factory.get();
@@ -4026,6 +4034,9 @@ Status DBImpl::MakeRoomForWrite(bool force,
           new_mem = new MemTable(internal_comparator_, options_);
           new_superversion = new SuperVersion();
         }
+        Log(options_.info_log,
+            "New memtable created with log file: #%lu\n",
+            (unsigned long)new_log_number);
       }
       mutex_.Lock();
       if (!s.ok()) {
@@ -4043,9 +4054,6 @@ Status DBImpl::MakeRoomForWrite(bool force,
       }
       mem_ = new_mem;
       mem_->Ref();
-      Log(options_.info_log,
-          "New memtable created with log file: #%lu\n",
-          (unsigned long)logfile_number_);
       mem_->SetLogNumber(logfile_number_);
       force = false;   // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
