@@ -107,31 +107,77 @@ public class Options {
     return maxWriteBufferNumber(nativeHandle_);
   }
   
+  /*
+   * Approximate size of user data packed per block.  Note that the
+   * block size specified here corresponds to uncompressed data.  The
+   * actual size of the unit read from disk may be smaller if
+   * compression is enabled.  This parameter can be changed dynamically.
+   * 
+   * Default: 4K
+   * 
+   * @param block size
+   * @see RocksDB::Open()
+   */
   public void setBlockSize(int blockSize) {
     checkInitialization();
     setBlockSize(nativeHandle_, blockSize);
   }
   
+  /*
+   * Returns block size.
+   * 
+   * @return block size.
+   * @see setBlockSize()   
+   */
   public int blockSize() {
     checkInitialization();
     return blockSize(nativeHandle_);
   }
   
+  /*
+   * Disable compaction triggered by seek.
+   * With bloomfilter and fast storage, a miss on one level
+   * is very cheap if the file handle is cached in table cache
+   * (which is true if max_open_files is large).
+   * 
+   * @param disable seek compaction
+   * @see RocksDB::Open()
+   */
   public void setDisableSeekCompaction(boolean disableSeekCompaction) {
     checkInitialization();
     setDisableSeekCompaction(nativeHandle_, disableSeekCompaction);
   }
   
+  /*
+   * Returns true if disable seek compaction is set to true.
+   * 
+   * @return true if disable seek compaction is set to true.
+   * @see setDisableSeekCompaction()
+   */
   public boolean disableSeekCompaction() {
     checkInitialization();
     return disableSeekCompaction(nativeHandle_);
   }
   
+  /*
+   * Maximum number of concurrent background jobs, submitted to
+   * the default LOW priority thread pool
+   * Default: 1
+   * 
+   * @param maximum number of concurrent background jobs.
+   * @see RocksDB::Open()
+   */
   public void setMaxBackgroundCompactions(int maxBackgroundCompactions) {
     checkInitialization();
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
   }
   
+  /*
+   * Returns maximum number of background concurrent jobs
+   * 
+   * @return maximum number of background concurrent jobs
+   * @see setMaxBackgroundCompactions
+   */
   public int maxBackgroundCompactions() {
     checkInitialization();  
     return maxBackgroundCompactions(nativeHandle_);
