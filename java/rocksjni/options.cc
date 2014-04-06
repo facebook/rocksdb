@@ -58,6 +58,111 @@ jboolean Java_org_rocksdb_Options_createIfMissing(
   return reinterpret_cast<rocksdb::Options*>(jhandle)->create_if_missing;
 }
 
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWriteBufferSize
+ * Signature: (JZ)I
+ */
+void Java_org_rocksdb_Options_setWriteBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jwrite_buffer_size) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size = 
+          static_cast<size_t>(jwrite_buffer_size);
+}
+
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    writeBufferSize
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_writeBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size; 
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMaxWriteBufferNumber
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMaxWriteBufferNumber(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_write_buffer_number) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number = jmax_write_buffer_number;
+}
+
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxWriteBufferNumber
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_maxWriteBufferNumber(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number; 
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setBlockSize
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setBlockSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jblock_size) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->block_size = 
+          static_cast<size_t>(jblock_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    blockSize
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_blockSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size; 
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setDisableSeekCompaction
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setDisableSeekCompaction(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jdisable_seek_compaction) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction = jdisable_seek_compaction;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    disableSeekCompaction
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_disableSeekCompaction(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMaxBackgroundCompactions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMaxBackgroundCompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_background_compactions) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_compactions = jmax_background_compactions;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxBackgroundCompactions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_maxBackgroundCompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_compactions; 
+}
+
+
 //////////////////////////////////////////////////////////////////////////////
 // WriteOptions
 
