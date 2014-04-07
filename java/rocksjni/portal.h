@@ -109,5 +109,66 @@ class OptionsJni {
   }
 };
 
+class WriteOptionsJni {
+ public:
+  // Get the java class id of org.rocksdb.WriteOptions.
+  static jclass getJClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("org/rocksdb/WriteOptions");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.WriteOptions
+  // that stores the pointer to rocksdb::WriteOptions
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::WriteOptions
+  static rocksdb::WriteOptions* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::WriteOptions*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::WriteOptions pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jobj, rocksdb::WriteOptions* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
+class WriteBatchJni {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("org/rocksdb/WriteBatch");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::WriteBatch of the specified
+  // org.rocksdb.WriteBatch.
+  static rocksdb::WriteBatch* getHandle(JNIEnv* env, jobject jwb) {
+    return reinterpret_cast<rocksdb::WriteBatch*>(
+        env->GetLongField(jwb, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::WriteBatch pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jwb, rocksdb::WriteBatch* wb) {
+    env->SetLongField(
+        jwb, getHandleFieldID(env),
+        reinterpret_cast<jlong>(wb));
+  }
+};
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

@@ -66,6 +66,7 @@
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -115,6 +116,14 @@ struct DBImpl::CompactionState {
   explicit CompactionState(Compaction* c)
       : compaction(c),
         total_bytes(0) {
+  }
+
+  // Create a client visible context of this compaction
+  CompactionFilter::Context GetFilterContextV1() {
+    CompactionFilter::Context context;
+    context.is_full_compaction = compaction->IsFullCompaction();
+    context.is_manual_compaction = compaction->IsManualCompaction();
+    return context;
   }
 
   // Create a client visible context of this compaction
@@ -283,6 +292,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;
+  }
+  if (result.wal_dir.back() == '/') {
+    result.wal_dir = result.wal_dir.substr(result.wal_dir.size() - 1);
   }
 
   return result;
@@ -719,7 +731,11 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
     if (type == kLogFile &&
         (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0)) {
       auto archived_log_name = ArchivedLogFileName(options_.wal_dir, number);
+      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
+      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:1");
       Status s = env_->RenameFile(fname, archived_log_name);
+      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
+      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:2");
       Log(options_.info_log,
           "Move log file %s to %s -- %s\n",
           fname.c_str(), archived_log_name.c_str(), s.ToString().c_str());
@@ -867,7 +883,7 @@ void DBImpl::PurgeObsoleteWALFiles() {
 
   size_t files_del_num = log_files_num - files_keep_num;
   VectorLogPtr archived_logs;
-  AppendSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
+  GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
 
   if (files_del_num > archived_logs.size()) {
     Log(options_.info_log, "Trying to delete more archived log files than "
@@ -1335,7 +1351,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     s = cfd->imm()->InstallMemtableFlushResults(
         cfd, mems, versions_.get(), &mutex_, options_.info_log.get(),
         file_number, pending_outputs_, &deletion_state.memtables_to_free,
-        db_directory_.get());
+        db_directory_.get(), log_buffer);
   }
 
   if (s.ok()) {
@@ -1679,20 +1695,14 @@ struct CompareLogByPointer {
   }
 };
 
-Status DBImpl::AppendSortedWalsOfType(const std::string& path,
+Status DBImpl::GetSortedWalsOfType(const std::string& path,
     VectorLogPtr& log_files, WalFileType log_type) {
   std::vector<std::string> all_files;
   const Status status = env_->GetChildren(path, &all_files);
   if (!status.ok()) {
     return status;
   }
-  log_files.reserve(log_files.size() + all_files.size());
-  VectorLogPtr::iterator pos_start;
-  if (!log_files.empty()) {
-    pos_start = log_files.end() - 1;
-  } else {
-    pos_start = log_files.begin();
-  }
+  log_files.reserve(all_files.size());
   for (const auto& f : all_files) {
     uint64_t number;
     FileType type;
@@ -1718,7 +1728,7 @@ Status DBImpl::AppendSortedWalsOfType(const std::string& path,
     }
   }
   CompareLogByPointer compare_log_files;
-  std::sort(pos_start, log_files.end(), compare_log_files);
+  std::sort(log_files.begin(), log_files.end(), compare_log_files);
   return status;
 }
 
@@ -1941,7 +1951,8 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
     cfd->Ref();
     Status flush_status;
     while (flush_status.ok() && cfd->imm()->IsFlushPending()) {
-      Log(options_.info_log,
+      LogToBuffer(
+          log_buffer,
           "BackgroundCallFlush doing FlushMemTableToOutputFile with column "
           "family %u, flush slots available %d",
           cfd->GetID(), options_.max_background_flushes - bg_flush_scheduled_);
@@ -2398,7 +2409,8 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
 }
 
 
-Status DBImpl::InstallCompactionResults(CompactionState* compact) {
+Status DBImpl::InstallCompactionResults(CompactionState* compact,
+                                        LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
   // paranoia: verify that the files that we started with
@@ -2414,12 +2426,12 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
     return Status::Corruption("Compaction input files inconsistent");
   }
 
-  Log(options_.info_log,  "Compacted %d@%d + %d@%d files => %lld bytes",
-      compact->compaction->num_input_files(0),
-      compact->compaction->level(),
-      compact->compaction->num_input_files(1),
-      compact->compaction->output_level(),
-      static_cast<long long>(compact->total_bytes));
+  LogToBuffer(log_buffer, "Compacted %d@%d + %d@%d files => %lld bytes",
+              compact->compaction->num_input_files(0),
+              compact->compaction->level(),
+              compact->compaction->num_input_files(1),
+              compact->compaction->output_level(),
+              static_cast<long long>(compact->total_bytes));
 
   // Add compaction outputs
   compact->compaction->AddInputDeletions(compact->compaction->edit());
@@ -2491,7 +2503,7 @@ Status DBImpl::ProcessKeyValueCompaction(
   auto compaction_filter = cfd->options()->compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (!compaction_filter) {
-    auto context = compact->GetFilterContext();
+    auto context = compact->GetFilterContextV1();
     compaction_filter_from_factory =
         cfd->options()->compaction_filter_factory->CreateCompactionFilter(
             context);
@@ -2828,7 +2840,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   ColumnFamilyData* cfd = compact->compaction->column_family_data();
-  Log(options_.info_log,
+  LogToBuffer(
+      log_buffer,
       "[CF %u] Compacting %d@%d + %d@%d files, score %.2f slots available %d",
       cfd->GetID(), compact->compaction->num_input_files(0),
       compact->compaction->level(), compact->compaction->num_input_files(1),
@@ -2836,7 +2849,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       options_.max_background_compactions - bg_compaction_scheduled_);
   char scratch[2345];
   compact->compaction->Summary(scratch, sizeof(scratch));
-  Log(options_.info_log, "Compaction start summary: %s\n", scratch);
+  LogToBuffer(log_buffer, "Compaction start summary: %s\n", scratch);
 
   assert(cfd->current()->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
@@ -2866,6 +2879,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
+  log_buffer->FlushBufferToLog();
 
   const uint64_t start_micros = env_->NowMicros();
   unique_ptr<Iterator> input(versions_->MakeInputIterator(compact->compaction));
@@ -3083,11 +3097,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   ReleaseCompactionUnusedFileNumbers(compact);
 
   if (status.ok()) {
-    status = InstallCompactionResults(compact);
+    status = InstallCompactionResults(compact, log_buffer);
     InstallSuperVersion(cfd, deletion_state);
   }
   Version::LevelSummaryStorage tmp;
-  Log(options_.info_log,
+  LogToBuffer(
+      log_buffer,
       "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s\n",
@@ -4103,6 +4118,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
 
     } else {
       unique_ptr<WritableFile> lfile;
+      log::Writer* new_log = nullptr;
       MemTable* new_mem = nullptr;
 
       // Attempt to switch to a new memtable and trigger flush of old.
@@ -4121,19 +4137,27 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
           // (compression, etc) but err on the side of caution.
           lfile->SetPreallocationBlockSize(1.1 *
                                            cfd->options()->write_buffer_size);
+          new_log = new log::Writer(std::move(lfile));
           new_mem = new MemTable(cfd->internal_comparator(), *cfd->options());
           new_superversion = new SuperVersion();
         }
+        Log(options_.info_log,
+            "New memtable created with log file: #%lu\n",
+            (unsigned long)new_log_number);
       }
       mutex_.Lock();
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
         assert(!new_mem);
+        assert(!new_log);
         break;
       }
       logfile_number_ = new_log_number;
-      log_.reset(new log::Writer(std::move(lfile)));
+      assert(new_log != nullptr);
+      // TODO(icanadi) delete outside of mutex
+      delete log_.release();
+      log_.reset(new_log);
       cfd->mem()->SetNextLogNumber(logfile_number_);
       cfd->imm()->Add(cfd->mem());
       if (force) {
@@ -4157,6 +4181,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
           cfd->GetID(), (unsigned long)logfile_number_);
       force = false;  // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
+      // TODO(icanadi) delete outside of mutex)
       delete cfd->InstallSuperVersion(new_superversion, &mutex_);
     }
   }

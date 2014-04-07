@@ -45,7 +45,9 @@ namespace {
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
 // varints.
-const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
+// For some reason, compiling for iOS complains that this variable is unused
+const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
+    kMaxVarint64Length * 3 + 1;
 
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.

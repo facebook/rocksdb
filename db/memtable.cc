@@ -142,6 +142,11 @@ Slice MemTableRep::UserKey(const char* key) const {
   return Slice(slice.data(), slice.size() - 8);
 }
 
+KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
+  *buf = arena_->Allocate(len);
+  return static_cast<KeyHandle>(*buf);
+}
+
 // Encode a suitable internal key target for "target" and return it.
 // Uses *scratch as scratch space, and the returned pointer will point
 // into this scratch space.
@@ -243,7 +248,9 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   const size_t encoded_len =
       VarintLength(internal_key_size) + internal_key_size +
       VarintLength(val_size) + val_size;
-  char* buf = arena_.Allocate(encoded_len);
+  char* buf = nullptr;
+  KeyHandle handle = table_->Allocate(encoded_len, &buf);
+  assert(buf != nullptr);
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
   p += key_size;
@@ -252,7 +259,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-  table_->Insert(buf);
+  table_->Insert(handle);
 
   if (prefix_bloom_) {
     assert(prefix_extractor_);

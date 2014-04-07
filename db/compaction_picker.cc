@@ -649,7 +649,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   FileMetaData* f = nullptr;
   bool done = false;
   int start_index = 0;
-  unsigned int candidate_count;
+  unsigned int candidate_count = 0;
   assert(file_by_time.size() == version->files_[level].size());
 
   unsigned int max_files_to_compact = std::min(max_merge_width,

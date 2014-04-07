@@ -21,6 +21,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "util/autovector.h"
+#include "util/log_buffer.h"
 
 namespace rocksdb {
 
@@ -110,7 +111,8 @@ class MemTableList {
                                      Logger* info_log, uint64_t file_number,
                                      std::set<uint64_t>& pending_outputs,
                                      autovector<MemTable*>* to_delete,
-                                     Directory* db_directory);
+                                     Directory* db_directory,
+                                     LogBuffer* log_buffer);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().

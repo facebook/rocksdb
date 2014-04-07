@@ -143,6 +143,18 @@ bool SomeFileOverlapsRange(
   return !BeforeFile(ucmp, largest_user_key, files[index]);
 }
 
+namespace {
+// Used for LevelFileNumIterator to pass "block handle" value,
+// which actually means file information in this iterator.
+// It contains subset of fields of FileMetaData, that is sufficient
+// for table cache to use.
+struct EncodedFileMetaData {
+  uint64_t number;   // file number
+  uint64_t file_size;   // file size
+  Cache::Handle* table_reader_handle;   // cached table reader's handler
+};
+}  // namespace
+
 // An internal iterator.  For a given version/level pair, yields
 // information about the files in the level.  For a given entry, key()
 // is the largest key that occurs in the file, and value() is an
@@ -184,14 +196,19 @@ class Version::LevelFileNumIterator : public Iterator {
   }
   Slice value() const {
     assert(Valid());
-    return Slice(reinterpret_cast<const char*>((*flist_)[index_]),
-                 sizeof(FileMetaData));
+    auto* file_meta = (*flist_)[index_];
+    current_value_.number = file_meta->number;
+    current_value_.file_size = file_meta->file_size;
+    current_value_.table_reader_handle = file_meta->table_reader_handle;
+    return Slice(reinterpret_cast<const char*>(&current_value_),
+                 sizeof(EncodedFileMetaData));
   }
   virtual Status status() const { return Status::OK(); }
  private:
   const InternalKeyComparator icmp_;
   const std::vector<FileMetaData*>* const flist_;
   uint32_t index_;
+  mutable EncodedFileMetaData current_value_;
 };
 
 static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
@@ -199,7 +216,7 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const InternalKeyComparator& icomparator,
                                  const Slice& file_value, bool for_compaction) {
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
-  if (file_value.size() != sizeof(FileMetaData)) {
+  if (file_value.size() != sizeof(EncodedFileMetaData)) {
     return NewErrorIterator(
         Status::Corruption("FileReader invoked with unexpected value"));
   } else {
@@ -211,11 +228,13 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
       options_copy.prefix = nullptr;
     }
 
-    const FileMetaData* meta_file =
-        reinterpret_cast<const FileMetaData*>(file_value.data());
+    const EncodedFileMetaData* encoded_meta =
+        reinterpret_cast<const EncodedFileMetaData*>(file_value.data());
+    FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
+    meta.table_reader_handle = encoded_meta->table_reader_handle;
     return cache->NewIterator(
-        options.prefix ? options_copy : options, soptions, icomparator,
-        *meta_file, nullptr /* don't need reference to table*/, for_compaction);
+        options.prefix ? options_copy : options, soptions, icomparator, meta,
+        nullptr /* don't need reference to table*/, for_compaction);
   }
 }
 
@@ -234,12 +253,13 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
     // key() will always be the biggest value for this SST?
     may_match = true;
   } else {
-    const FileMetaData* meta_file =
-        reinterpret_cast<const FileMetaData*>(level_iter->value().data());
-
+    const EncodedFileMetaData* encoded_meta =
+        reinterpret_cast<const EncodedFileMetaData*>(
+            level_iter->value().data());
+    FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
+    meta.table_reader_handle = encoded_meta->table_reader_handle;
     may_match = cfd_->table_cache()->PrefixMayMatch(
-        options, cfd_->internal_comparator(), *meta_file, internal_prefix,
-        nullptr);
+        options, cfd_->internal_comparator(), meta, internal_prefix, nullptr);
   }
   return may_match;
 }

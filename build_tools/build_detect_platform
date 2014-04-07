@@ -87,7 +87,7 @@ PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=false
 
 # generic port files (working on all platform by #ifdef) go directly in /port
-GENERIC_PORT_FILES=`find $ROCKSDB_ROOT/port -name '*.cc' | tr "\n" " "`
+GENERIC_PORT_FILES=`cd $ROCKSDB_ROOT; find port -name '*.cc' | tr "\n" " "`
 
 # On GCC, we pick libc's memcmp over GCC's memcmp via -fno-builtin-memcmp
 case "$TARGET_OS" in
@@ -97,6 +97,13 @@ case "$TARGET_OS" in
         PLATFORM_SHARED_EXT=dylib
         PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
         # PORT_FILES=port/darwin/darwin_specific.cc
+        ;;
+    IOS)
+        PLATFORM=IOS
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_MACOSX -DIOS_CROSS_COMPILE"
+        PLATFORM_SHARED_EXT=dylib
+        PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
+        CROSS_COMPILE=true
         ;;
     Linux)
         PLATFORM=OS_LINUX
