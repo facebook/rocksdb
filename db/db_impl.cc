@@ -322,6 +322,9 @@ Options SanitizeOptions(const std::string& dbname,
     // Use dbname as default
     result.wal_dir = dbname;
   }
+  if (result.wal_dir.back() == '/') {
+    result.wal_dir = result.wal_dir.substr(result.wal_dir.size() - 1);
+  }
 
   // -- Sanitize the table properties collector
   // All user defined properties collectors will be wrapped by
