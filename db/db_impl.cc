@@ -323,7 +323,7 @@ Options SanitizeOptions(const std::string& dbname,
     result.wal_dir = dbname;
   }
   if (result.wal_dir.back() == '/') {
-    result.wal_dir = result.wal_dir.substr(result.wal_dir.size() - 1);
+    result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
   }
 
   // -- Sanitize the table properties collector
