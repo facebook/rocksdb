@@ -429,6 +429,48 @@ TEST(PlainTableDBTest, Iterator) {
   }
 }
 
+std::string MakeLongKey(size_t length, char c) {
+  return std::string(length, c);
+}
+
+TEST(PlainTableDBTest, IteratorLargeKeys) {
+  Options options = CurrentOptions();
+  options.table_factory.reset(NewTotalOrderPlainTableFactory(0, 0, 16));
+  options.create_if_missing = true;
+  options.prefix_extractor.reset();
+  DestroyAndReopen(&options);
+
+  std::string key_list[] = {
+      MakeLongKey(30, '0'),
+      MakeLongKey(16, '1'),
+      MakeLongKey(32, '2'),
+      MakeLongKey(60, '3'),
+      MakeLongKey(90, '4'),
+      MakeLongKey(50, '5'),
+      MakeLongKey(26, '6')
+  };
+
+  for (size_t i = 0; i < 7; i++) {
+    ASSERT_OK(Put(key_list[i], std::to_string(i)));
+  }
+
+  dbfull()->TEST_FlushMemTable();
+
+  Iterator* iter = dbfull()->NewIterator(ro_);
+  iter->Seek(key_list[0]);
+
+  for (size_t i = 0; i < 7; i++) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(key_list[i], iter->key().ToString());
+    ASSERT_EQ(std::to_string(i), iter->value().ToString());
+    iter->Next();
+  }
+
+  ASSERT_TRUE(!iter->Valid());
+
+  delete iter;
+}
+
 // A test comparator which compare two strings in this way:
 // (1) first compare prefix of 8 bytes in alphabet order,
 // (2) if two strings share the same prefix, sort the other part of the string
