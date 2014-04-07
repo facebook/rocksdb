@@ -343,6 +343,13 @@ class DBImpl : public DB {
                           DeletionState& deletion_state,
                           LogBuffer* log_buffer);
 
+  // This function is called as part of compaction. It enables Flush process to
+  // preempt compaction, since it's higher prioirty
+  // Returns: micros spent executing
+  uint64_t CallFlushDuringCompaction(ColumnFamilyData* cfd,
+                                     DeletionState& deletion_state,
+                                     LogBuffer* log_buffer);
+
   // Call compaction filter if is_compaction_v2 is not true. Then iterate
   // through input and compact the kv-pairs
   Status ProcessKeyValueCompaction(
