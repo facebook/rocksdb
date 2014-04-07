@@ -79,6 +79,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(6),
+      bloom_locality(0),
       max_successive_merges(0),
       min_partial_merge_operands(2) {
   assert(memtable_factory.get() != nullptr);
@@ -143,6 +144,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       inplace_callback(options.inplace_callback),
       memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
       memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
+      bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands) {
   assert(memtable_factory.get() != nullptr);
@@ -421,6 +423,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         memtable_prefix_bloom_bits);
     Log(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
+    Log(log, "                          Options.bloom_locality: %d",
+        bloom_locality);
     Log(log, "                   Options.max_successive_merges: %zd",
         max_successive_merges);
 }  // ColumnFamilyOptions::Dump
