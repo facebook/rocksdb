@@ -39,71 +39,6 @@ static void DumpInternalIter(Iterator* iter) {
 
 namespace {
 
-class IterLookupKey {
- public:
-  IterLookupKey() : key_(space_), buf_size_(sizeof(space_)), key_size_(0) {}
-
-  ~IterLookupKey() { Clear(); }
-
-  Slice GetKey() const {
-    if (key_ != nullptr) {
-      return Slice(key_, key_size_);
-    } else {
-      return Slice();
-    }
-  }
-
-  bool Valid() const { return key_ != nullptr; }
-
-  void Clear() {
-    if (key_ != nullptr && key_ != space_) {
-      delete[] key_;
-    }
-    key_ = space_;
-    buf_size_ = sizeof(buf_size_);
-  }
-
-  // Enlarge the buffer size if needed based on key_size.
-  // By default, static allocated buffer is used. Once there is a key
-  // larger than the static allocated buffer, another buffer is dynamically
-  // allocated, until a larger key buffer is requested. In that case, we
-  // reallocate buffer and delete the old one.
-  void EnlargeBufferIfNeeded(size_t key_size) {
-    // If size is smaller than buffer size, continue using current buffer,
-    // or the static allocated one, as default
-    if (key_size > buf_size_) {
-      // Need to enlarge the buffer.
-      Clear();
-      key_ = new char[key_size];
-      buf_size_ = key_size;
-    }
-    key_size_ = key_size;
-  }
-
-  void SetUserKey(const Slice& user_key) {
-    size_t size = user_key.size();
-    EnlargeBufferIfNeeded(size);
-    memcpy(key_, user_key.data(), size);
-  }
-
-  void SetInternalKey(const Slice& user_key, SequenceNumber s) {
-    size_t usize = user_key.size();
-    EnlargeBufferIfNeeded(usize + sizeof(uint64_t));
-    memcpy(key_, user_key.data(), usize);
-    EncodeFixed64(key_ + usize, PackSequenceAndType(s, kValueTypeForSeek));
-  }
-
- private:
-  char* key_;
-  size_t buf_size_;
-  size_t key_size_;
-  char space_[32];  // Avoid allocation for short keys
-
-  // No copying allowed
-  IterLookupKey(const IterLookupKey&) = delete;
-  void operator=(const LookupKey&) = delete;
-};
-
 // Memtables and sstables that make the DB representation contain
 // (userkey,seq,type) => uservalue entries.  DBIter
 // combines multiple entries for the same userkey found in the DB
@@ -191,7 +126,7 @@ class DBIter: public Iterator {
   SequenceNumber const sequence_;
 
   Status status_;
-  IterLookupKey saved_key_;   // == current key when direction_==kReverse
+  IterKey saved_key_;   // == current key when direction_==kReverse
   std::string saved_value_;   // == current raw value when direction_==kReverse
   std::string skip_key_;
   Direction direction_;
