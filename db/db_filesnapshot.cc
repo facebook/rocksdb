@@ -67,23 +67,19 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   if (flush_memtable) {
     // flush all dirty data to disk.
-    autovector<ColumnFamilyData*> to_delete;
     Status status;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       cfd->Ref();
       mutex_.Unlock();
       status = FlushMemTable(cfd, FlushOptions());
       mutex_.Lock();
-      if (cfd->Unref()) {
-        to_delete.push_back(cfd);
-      }
+      cfd->Unref();
       if (!status.ok()) {
         break;
       }
     }
-    for (auto cfd : to_delete) {
-      delete cfd;
-    }
+    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
+
     if (!status.ok()) {
       mutex_.Unlock();
       Log(options_.info_log, "Cannot Flush data %s\n",

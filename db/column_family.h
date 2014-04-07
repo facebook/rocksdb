@@ -91,8 +91,7 @@ struct SuperVersion {
   SuperVersion() = default;
   ~SuperVersion();
   SuperVersion* Ref();
-  // Returns true if this was the last reference and caller should
-  // call Clenaup() and delete the object
+
   bool Unref();
 
   // call these two methods with db mutex held
@@ -133,8 +132,9 @@ class ColumnFamilyData {
 
   void Ref() { ++refs_; }
   // will just decrease reference count to 0, but will not delete it. returns
-  // true if the ref count was decreased to zero and needs to be cleaned up by
-  // the caller
+  // true if the ref count was decreased to zero. in that case, it can be
+  // deleted by the caller immediatelly, or later, by calling
+  // FreeDeadColumnFamilies()
   bool Unref() {
     assert(refs_ > 0);
     return --refs_ == 0;
@@ -342,6 +342,10 @@ class ColumnFamilySet {
 
   void Lock();
   void Unlock();
+
+  // REQUIRES: DB mutex held
+  // Don't call while iterating over ColumnFamilySet
+  void FreeDeadColumnFamilies();
 
  private:
   friend class ColumnFamilyData;

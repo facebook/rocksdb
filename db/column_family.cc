@@ -428,6 +428,20 @@ void ColumnFamilySet::Lock() {
 
 void ColumnFamilySet::Unlock() { spin_lock_.clear(std::memory_order_release); }
 
+// REQUIRES: DB mutex held
+void ColumnFamilySet::FreeDeadColumnFamilies() {
+  autovector<ColumnFamilyData*> to_delete;
+  for (auto cfd = dummy_cfd_->next_; cfd != dummy_cfd_; cfd = cfd->next_) {
+    if (cfd->refs_ == 0) {
+      to_delete.push_back(cfd);
+    }
+  }
+  for (auto cfd : to_delete) {
+    // this is very rare, so it's not a problem that we do it under a mutex
+    delete cfd;
+  }
+}
+
 // under a DB mutex
 void ColumnFamilySet::RemoveColumnFamily(ColumnFamilyData* cfd) {
   auto cfd_iter = column_family_data_.find(cfd->GetID());

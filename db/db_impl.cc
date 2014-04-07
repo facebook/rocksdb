@@ -404,21 +404,16 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 DBImpl::~DBImpl() {
   mutex_.Lock();
   if (flush_on_destroy_) {
-    autovector<ColumnFamilyData*> to_delete;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->mem()->GetFirstSequenceNumber() != 0) {
         cfd->Ref();
         mutex_.Unlock();
         FlushMemTable(cfd, FlushOptions());
         mutex_.Lock();
-        if (cfd->Unref()) {
-          to_delete.push_back(cfd);
-        }
+        cfd->Unref();
       }
     }
-    for (auto cfd : to_delete) {
-      delete cfd;
-    }
+    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
 
   // Wait for background work to finish
@@ -1941,7 +1936,6 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
   // flushing one column family reports a failure, we will continue flushing
   // other column families. however, call_status will be a failure in that case.
   Status call_status;
-  autovector<ColumnFamilyData*> to_delete;
   // refcounting in iteration
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     cfd->Ref();
@@ -1958,13 +1952,9 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
     if (call_status.ok() && !flush_status.ok()) {
       call_status = flush_status;
     }
-    if (cfd->Unref()) {
-      to_delete.push_back(cfd);
-    }
+    cfd->Unref();
   }
-  for (auto cfd : to_delete) {
-    delete cfd;
-  }
+  versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   return call_status;
 }
 
@@ -2105,6 +2095,8 @@ void DBImpl::BackgroundCallCompaction() {
 
     MaybeScheduleLogDBDeployStats();
 
+    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
+
     // Previous compaction may have produced too many files in a level,
     // So reschedule another compaction if we made progress in the
     // last compaction.
@@ -2139,7 +2131,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   }
 
   // FLUSH preempts compaction
-  autovector<ColumnFamilyData*> to_delete;
   Status flush_stat;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     while (cfd->imm()->IsFlushPending()) {
@@ -2151,9 +2142,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
       cfd->Ref();
       flush_stat = FlushMemTableToOutputFile(cfd, madeProgress, deletion_state,
                                              log_buffer);
-      if (cfd->Unref()) {
-        to_delete.push_back(cfd);
-      }
+      cfd->Unref();
       if (!flush_stat.ok()) {
         if (is_manual) {
           manual_compaction_->status = flush_stat;
@@ -2161,18 +2150,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
           manual_compaction_->in_progress = false;
           manual_compaction_ = nullptr;
         }
-        break;
+        return flush_stat;
       }
     }
-    if (!flush_stat.ok()) {
-      break;
-    }
-  }
-  for (auto cfd : to_delete) {
-    delete cfd;
-  }
-  if (!flush_stat.ok()) {
-    return flush_stat;
   }
 
   unique_ptr<Compaction> c;
@@ -3840,22 +3820,23 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   }
 
   Status status;
-  autovector<ColumnFamilyData*> to_delete;
   // refcounting cfd in iteration
+  bool dead_cfd = false;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     cfd->Ref();
     // May temporarily unlock and wait.
     status = MakeRoomForWrite(cfd, my_batch == nullptr);
     if (cfd->Unref()) {
-      to_delete.push_back(cfd);
+      dead_cfd = true;
     }
     if (!status.ok()) {
       break;
     }
   }
-  for (auto cfd : to_delete) {
-    delete cfd;
+  if (dead_cfd) {
+    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
+
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && my_batch != nullptr) {  // nullptr batch is for compactions
