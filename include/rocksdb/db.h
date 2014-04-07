@@ -104,6 +104,9 @@ class DB {
   // that modify data, like put/delete, will return error.
   // If the db is opened in read only mode, then no compactions
   // will happen.
+  // TODO(icanadi): implement OpenForReadOnly that specifies column families.
+  // User can open DB in read-only mode even if not specifying all column
+  // families
   static Status OpenForReadOnly(const Options& options,
       const std::string& name, DB** dbptr,
       bool error_if_log_file_exist = false);

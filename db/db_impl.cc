@@ -1333,7 +1333,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
 
   if (s.ok() && shutting_down_.Acquire_Load() && cfd->IsDropped()) {
     s = Status::ShutdownInProgress(
-        "Column family closed during memtable flush");
+        "Database shutdown or Column family drop during flush");
   }
 
   if (!s.ok()) {
@@ -3412,7 +3412,6 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
-    // Done
     StopWatchNano from_files_timer(env_, false);
     StartPerfTimer(&from_files_timer);
 
@@ -4055,8 +4054,6 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       // Yield previous error
       s = bg_error_;
       break;
-    } else if (cfd->IsDropped()) {
-      break;
     } else if (allow_delay && cfd->NeedSlowdownForNumLevel0Files()) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
@@ -4229,7 +4226,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
           cfd->GetID(), (unsigned long)logfile_number_);
       force = false;  // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
-      // TODO(icanadi) delete outside of mutex)
+      // TODO(icanadi) delete outside of mutex
       delete cfd->InstallSuperVersion(new_superversion, &mutex_);
     }
   }
@@ -4342,7 +4339,7 @@ Status DBImpl::DeleteFile(std::string name) {
   }
 
   int level;
-  FileMetaData *metadata;
+  FileMetaData* metadata;
   ColumnFamilyData* cfd;
   VersionEdit edit;
   DeletionState deletion_state(true);
