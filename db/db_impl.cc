@@ -2961,9 +2961,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
       const SliceTransform* transformer =
           cfd->options()->compaction_filter_factory_v2->GetPrefixExtractor();
-      std::string key_prefix = transformer->Transform(key).ToString();
+      const auto key_prefix = transformer->Transform(key);
       if (!prefix_initialized) {
-        compact->cur_prefix_ = key_prefix;
+        compact->cur_prefix_ = key_prefix.ToString();
         prefix_initialized = true;
       }
       if (!ParseInternalKey(key, &ikey)) {
@@ -2973,7 +2973,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         continue;
       } else {
         // If the prefix remains the same, keep buffering
-        if (key_prefix == compact->cur_prefix_) {
+        if (key_prefix.compare(Slice(compact->cur_prefix_)) == 0) {
           // Apply the compaction filter V2 to all the kv pairs sharing
           // the same prefix
           if (ikey.type == kTypeValue &&
@@ -2994,7 +2994,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
           if (compact->key_buf_.size() > 0) {
             CallCompactionFilterV2(compact, compaction_filter_v2);
           }
-          compact->cur_prefix_ = key_prefix;
+          compact->cur_prefix_ = key_prefix.ToString();
         }
       }
 
