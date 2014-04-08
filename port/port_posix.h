@@ -476,10 +476,6 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
   return false;
 }
 
-inline bool GetHeapProfile(void (*func)(void *, const char *, int), void *arg) {
-  return false;
-}
-
 #define CACHE_LINE_SIZE 64U
 
 } // namespace port
