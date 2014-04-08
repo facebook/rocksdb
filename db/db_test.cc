@@ -2255,17 +2255,26 @@ TEST(DBTest, NumImmutableMemTable) {
 
 class SleepingBackgroundTask {
  public:
-  SleepingBackgroundTask() : bg_cv_(&mutex_), should_sleep_(true) {}
+  SleepingBackgroundTask()
+      : bg_cv_(&mutex_), should_sleep_(true), done_with_sleep_(false) {}
   void DoSleep() {
     MutexLock l(&mutex_);
     while (should_sleep_) {
       bg_cv_.Wait();
     }
+    done_with_sleep_ = true;
+    bg_cv_.SignalAll();
   }
   void WakeUp() {
     MutexLock l(&mutex_);
     should_sleep_ = false;
     bg_cv_.SignalAll();
+  }
+  void WaitUntilDone() {
+    MutexLock l(&mutex_);
+    while (!done_with_sleep_) {
+      bg_cv_.Wait();
+    }
   }
 
   static void DoSleepTask(void* arg) {
@@ -2276,6 +2285,7 @@ class SleepingBackgroundTask {
   port::Mutex mutex_;
   port::CondVar bg_cv_;  // Signalled when background work finishes
   bool should_sleep_;
+  bool done_with_sleep_;
 };
 
 TEST(DBTest, GetProperty) {
@@ -2327,6 +2337,7 @@ TEST(DBTest, GetProperty) {
   ASSERT_EQ(num, "0");
 
   sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
   dbfull()->TEST_WaitForFlushMemTable();
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k4", big_value));
@@ -2337,6 +2348,7 @@ TEST(DBTest, GetProperty) {
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
   ASSERT_EQ(num, "1");
   sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 }
 
 TEST(DBTest, FLUSH) {
