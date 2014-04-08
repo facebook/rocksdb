@@ -208,7 +208,9 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   rocksdb::MemTable* mem = new rocksdb::MemTable(cmp, options);
   mem->Ref();
   std::string state;
-  rocksdb::Status s = rocksdb::WriteBatchInternal::InsertInto(b, mem, &options);
+  rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
+  rocksdb::Status s =
+      rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
   rocksdb::Iterator* iter = mem->NewIterator();
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
