@@ -38,14 +38,14 @@ public class RocksDBSample {
     options.setDisableSeekCompaction(true);
     options.setBlockSize(64*1024);
     options.setMaxBackgroundCompactions(10);
-    
+
     assert(options.createIfMissing() == true);
     assert(options.writeBufferSize() == 8192);
     assert(options.maxWriteBufferNumber() == 3);
     assert(options.disableSeekCompaction() == true);
     assert(options.blockSize() == 65536);
     assert(options.maxBackgroundCompactions() == 10);
-    
+
     try {
       db = RocksDB.open(options, db_path_not_found);
       db.put("hello".getBytes(), "world".getBytes());

@@ -65,7 +65,7 @@ jboolean Java_org_rocksdb_Options_createIfMissing(
  */
 void Java_org_rocksdb_Options_setWriteBufferSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jint jwrite_buffer_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size = 
+  reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
           static_cast<size_t>(jwrite_buffer_size);
 }
 
@@ -77,7 +77,7 @@ void Java_org_rocksdb_Options_setWriteBufferSize(
  */
 jint Java_org_rocksdb_Options_writeBufferSize(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size; 
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size;
 }
 
 /*
@@ -87,7 +87,8 @@ jint Java_org_rocksdb_Options_writeBufferSize(
  */
 void Java_org_rocksdb_Options_setMaxWriteBufferNumber(
     JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_write_buffer_number) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number = jmax_write_buffer_number;
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number =
+          jmax_write_buffer_number;
 }
 
 
@@ -98,7 +99,7 @@ void Java_org_rocksdb_Options_setMaxWriteBufferNumber(
  */
 jint Java_org_rocksdb_Options_maxWriteBufferNumber(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number; 
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number;
 }
 
 /*
@@ -108,7 +109,7 @@ jint Java_org_rocksdb_Options_maxWriteBufferNumber(
  */
 void Java_org_rocksdb_Options_setBlockSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jint jblock_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->block_size = 
+  reinterpret_cast<rocksdb::Options*>(jhandle)->block_size =
           static_cast<size_t>(jblock_size);
 }
 
@@ -119,7 +120,7 @@ void Java_org_rocksdb_Options_setBlockSize(
  */
 jint Java_org_rocksdb_Options_blockSize(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size; 
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size;
 }
 
 /*
@@ -128,8 +129,10 @@ jint Java_org_rocksdb_Options_blockSize(
  * Signature: (JZ)V
  */
 void Java_org_rocksdb_Options_setDisableSeekCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jdisable_seek_compaction) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction = jdisable_seek_compaction;
+    JNIEnv* env, jobject jobj, jlong jhandle,
+        jboolean jdisable_seek_compaction) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction =
+         jdisable_seek_compaction;
 }
 
 /*
@@ -148,8 +151,10 @@ jboolean Java_org_rocksdb_Options_disableSeekCompaction(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_Options_setMaxBackgroundCompactions(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_background_compactions) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_compactions = jmax_background_compactions;
+    JNIEnv* env, jobject jobj, jlong jhandle,
+        jint jmax_background_compactions) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_compactions =
+         jmax_background_compactions;
 }
 
 /*
@@ -159,7 +164,8 @@ void Java_org_rocksdb_Options_setMaxBackgroundCompactions(
  */
 jint Java_org_rocksdb_Options_maxBackgroundCompactions(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_compactions; 
+  return
+    reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_compactions;
 }
 
 
