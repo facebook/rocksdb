@@ -130,7 +130,7 @@ jint Java_org_rocksdb_Options_blockSize(
  */
 void Java_org_rocksdb_Options_setDisableSeekCompaction(
     JNIEnv* env, jobject jobj, jlong jhandle,
-        jboolean jdisable_seek_compaction) {
+    jboolean jdisable_seek_compaction) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction =
          jdisable_seek_compaction;
 }
@@ -152,7 +152,7 @@ jboolean Java_org_rocksdb_Options_disableSeekCompaction(
  */
 void Java_org_rocksdb_Options_setMaxBackgroundCompactions(
     JNIEnv* env, jobject jobj, jlong jhandle,
-        jint jmax_background_compactions) {
+    jint jmax_background_compactions) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_compactions =
          jmax_background_compactions;
 }

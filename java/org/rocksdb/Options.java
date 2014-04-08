@@ -162,7 +162,7 @@ public class Options {
 
   /*
    * Maximum number of concurrent background jobs, submitted to
-   * the default LOW priority thread pool
+   * the default LOW priority thread pool.
    * Default: 1
    *
    * @param maximum number of concurrent background jobs.
@@ -174,9 +174,9 @@ public class Options {
   }
 
   /*
-   * Returns maximum number of background concurrent jobs
+   * Returns maximum number of background concurrent jobs.
    *
-   * @return maximum number of background concurrent jobs
+   * @return maximum number of background concurrent jobs.
    * @see setMaxBackgroundCompactions
    */
   public int maxBackgroundCompactions() {
@@ -204,13 +204,16 @@ public class Options {
   private native boolean createIfMissing(long handle);
   private native void setWriteBufferSize(long handle, int writeBufferSize);
   private native int writeBufferSize(long handle);
-  private native void setMaxWriteBufferNumber(long handle, int maxWriteBufferNumber);
+  private native void setMaxWriteBufferNumber(
+      long handle, int maxWriteBufferNumber);
   private native int maxWriteBufferNumber(long handle);
   private native void setBlockSize(long handle, int blockSize);
   private native int blockSize(long handle);
-  private native void setDisableSeekCompaction(long handle, boolean disableSeekCompaction);
+  private native void setDisableSeekCompaction(
+      long handle, boolean disableSeekCompaction);
   private native boolean disableSeekCompaction(long handle);
-  private native void setMaxBackgroundCompactions(long handle, int maxBackgroundCompactions);
+  private native void setMaxBackgroundCompactions(
+      long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
 
   long nativeHandle_;
