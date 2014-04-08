@@ -3331,8 +3331,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        std::string* value, bool* value_found) {
   StopWatch sw(env_, options_.statistics.get(), DB_GET, false);
-  StopWatchNano snapshot_timer(env_, false);
-  StartPerfTimer(&snapshot_timer);
+  PERF_TIMER_AUTO(get_snapshot_time);
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -3404,7 +3403,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot);
-  BumpPerfTime(&perf_context.get_snapshot_time, &snapshot_timer);
+  PERF_TIMER_STOP(get_snapshot_time);
   if (sv->mem->Get(lkey, value, &s, merge_context, *cfd->options())) {
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
@@ -3412,18 +3411,16 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // Done
     RecordTick(options_.statistics.get(), MEMTABLE_HIT);
   } else {
-    StopWatchNano from_files_timer(env_, false);
-    StartPerfTimer(&from_files_timer);
+    PERF_TIMER_START(get_from_output_files_time);
 
     sv->current->Get(options, lkey, value, &s, &merge_context, &stats,
                      *cfd->options(), value_found);
     have_stat_update = true;
-    BumpPerfTime(&perf_context.get_from_output_files_time, &from_files_timer);
+    PERF_TIMER_STOP(get_from_output_files_time);
     RecordTick(options_.statistics.get(), MEMTABLE_MISS);
   }
 
-  StopWatchNano post_process_timer(env_, false);
-  StartPerfTimer(&post_process_timer);
+  PERF_TIMER_START(get_post_process_time);
 
   if (!cfd->options()->disable_seek_compaction && have_stat_update) {
     mutex_.Lock();
@@ -3464,7 +3461,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   RecordTick(options_.statistics.get(), NUMBER_KEYS_READ);
   RecordTick(options_.statistics.get(), BYTES_READ, value->size());
-  BumpPerfTime(&perf_context.get_post_process_time, &post_process_timer);
+  PERF_TIMER_STOP(get_post_process_time);
   return s;
 }
 
@@ -3474,8 +3471,7 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
 
   StopWatch sw(env_, options_.statistics.get(), DB_MULTIGET, false);
-  StopWatchNano snapshot_timer(env_, false);
-  StartPerfTimer(&snapshot_timer);
+  PERF_TIMER_AUTO(get_snapshot_time);
 
   SequenceNumber snapshot;
 
@@ -3519,7 +3515,7 @@ std::vector<Status> DBImpl::MultiGet(
 
   // Keep track of bytes that we read for statistics-recording later
   uint64_t bytes_read = 0;
-  BumpPerfTime(&perf_context.get_snapshot_time, &snapshot_timer);
+  PERF_TIMER_STOP(get_snapshot_time);
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
@@ -3555,8 +3551,7 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   // Post processing (decrement reference counts and record statistics)
-  StopWatchNano post_process_timer(env_, false);
-  StartPerfTimer(&post_process_timer);
+  PERF_TIMER_START(get_post_process_time);
   autovector<SuperVersion*> superversions_to_delete;
 
   bool schedule_flush_or_compaction = false;
@@ -3589,7 +3584,7 @@ std::vector<Status> DBImpl::MultiGet(
   RecordTick(options_.statistics.get(), NUMBER_MULTIGET_CALLS);
   RecordTick(options_.statistics.get(), NUMBER_MULTIGET_KEYS_READ, num_keys);
   RecordTick(options_.statistics.get(), NUMBER_MULTIGET_BYTES_READ, bytes_read);
-  BumpPerfTime(&perf_context.get_post_process_time, &post_process_timer);
+  PERF_TIMER_STOP(get_post_process_time);
 
   return stat_list;
 }
@@ -3803,8 +3798,7 @@ Status DBImpl::Delete(const WriteOptions& options,
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
-  StopWatchNano pre_post_process_timer(env_, false);
-  StartPerfTimer(&pre_post_process_timer);
+  PERF_TIMER_AUTO(write_pre_and_post_process_time);
   Writer w(&mutex_);
   w.batch = my_batch;
   w.sync = options.sync;
@@ -3883,12 +3877,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       if (options.disableWAL) {
         flush_on_destroy_ = true;
       }
-      BumpPerfTime(&perf_context.write_pre_and_post_process_time,
-                   &pre_post_process_timer);
+      PERF_TIMER_STOP(write_pre_and_post_process_time);
 
       if (!options.disableWAL) {
-        StopWatchNano timer(env_);
-        StartPerfTimer(&timer);
+        PERF_TIMER_START(write_wal_time);
         Slice log_entry = WriteBatchInternal::Contents(updates);
         status = log_->AddRecord(log_entry);
         RecordTick(options_.statistics.get(), WAL_FILE_SYNCED, 1);
@@ -3902,15 +3894,13 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
             status = log_->file()->Sync();
           }
         }
-        BumpPerfTime(&perf_context.write_wal_time, &timer);
+        PERF_TIMER_STOP(write_wal_time);
       }
       if (status.ok()) {
-        StopWatchNano write_memtable_timer(env_, false);
-
-        StartPerfTimer(&write_memtable_timer);
+        PERF_TIMER_START(write_memtable_time);
         status = WriteBatchInternal::InsertInto(
             updates, column_family_memtables_.get(), false, 0, this, false);
-        BumpPerfTime(&perf_context.write_memtable_time, &write_memtable_timer);
+        PERF_TIMER_STOP(write_memtable_time);
 
         if (!status.ok()) {
           // Iteration failed (either in-memory writebatch corruption (very
@@ -3924,7 +3914,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         SetTickerCount(options_.statistics.get(), SEQUENCE_NUMBER,
                        last_sequence);
       }
-      StartPerfTimer(&pre_post_process_timer);
+      PERF_TIMER_START(write_pre_and_post_process_time);
       if (updates == &tmp_batch_) tmp_batch_.Clear();
       mutex_.Lock();
       if (status.ok()) {
@@ -3952,8 +3942,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     writers_.front()->cv.Signal();
   }
   mutex_.Unlock();
-  BumpPerfTime(&perf_context.write_pre_and_post_process_time,
-               &pre_post_process_timer);
+  PERF_TIMER_STOP(write_pre_and_post_process_time);
   return status;
 }
 

@@ -418,7 +418,7 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 # ---------------------------------------------------------------------------
 JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc ./java/rocksjni/options.cc ./java/rocksjni/write_batch.cc
 
-JAVA_INCLUDE = -I/usr/lib/jvm/java-openjdk/include/ -I/usr/lib/jvm/java-openjdk/include/linux 
+JAVA_INCLUDE = -I/usr/lib/jvm/java-openjdk/include/ -I/usr/lib/jvm/java-openjdk/include/linux
 ROCKSDBJNILIB = ./java/librocksdbjni.so
 
 ifeq ($(PLATFORM), OS_MACOSX)

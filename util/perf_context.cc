@@ -9,16 +9,21 @@
 
 namespace rocksdb {
 
-// by default, enable counts only
-#if defined(IOS_CROSS_COMPILE)
+#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 PerfLevel perf_level = kEnableCount;
+// This is a dummy variable since some place references it
+PerfContext perf_context;
 #else
 __thread PerfLevel perf_level = kEnableCount;
+__thread PerfContext perf_context;
 #endif
 
-void SetPerfLevel(PerfLevel level) { perf_level = level; }
+void SetPerfLevel(PerfLevel level) {
+  perf_level = level;
+}
 
 void PerfContext::Reset() {
+#if !defined(NPERF_CONTEXT) && !defined(IOS_CROSS_COMPILE)
   user_key_comparison_count = 0;
   block_cache_hit_count = 0;
   block_read_count = 0;
@@ -42,11 +47,15 @@ void PerfContext::Reset() {
   find_next_user_entry_time = 0;
   write_pre_and_post_process_time = 0;
   write_memtable_time = 0;
+#endif
 }
 
 #define OUTPUT(counter) #counter << " = " << counter << ", "
 
 std::string PerfContext::ToString() const {
+#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+  return "";
+#else
   std::ostringstream ss;
   ss << OUTPUT(user_key_comparison_count)
      << OUTPUT(block_cache_hit_count)
@@ -71,11 +80,7 @@ std::string PerfContext::ToString() const {
      << OUTPUT(write_pre_and_post_process_time)
      << OUTPUT(write_memtable_time);
   return ss.str();
+#endif
 }
 
-#if defined(IOS_CROSS_COMPILE)
-PerfContext perf_context;
-#else
-__thread PerfContext perf_context;
-#endif
 }

@@ -125,12 +125,11 @@ Status ReadBlockContents(RandomAccessFile* file,
   char* buf = new char[n + kBlockTrailerSize];
   Slice contents;
 
-  StopWatchNano timer(env);
-  StartPerfTimer(&timer);
+  PERF_TIMER_AUTO(block_read_time);
   Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
-  BumpPerfCount(&perf_context.block_read_count);
-  BumpPerfCount(&perf_context.block_read_byte, n + kBlockTrailerSize);
-  BumpPerfTime(&perf_context.block_read_time, &timer);
+  PERF_TIMER_MEASURE(block_read_time);
+  PERF_COUNTER_ADD(block_read_count, 1);
+  PERF_COUNTER_ADD(block_read_byte, n + kBlockTrailerSize);
 
   if (!s.ok()) {
     delete[] buf;
@@ -151,7 +150,7 @@ Status ReadBlockContents(RandomAccessFile* file,
       s = Status::Corruption("block checksum mismatch");
       return s;
     }
-    BumpPerfTime(&perf_context.block_checksum_time, &timer);
+    PERF_TIMER_MEASURE(block_checksum_time);
   }
 
   // If the caller has requested that the block not be uncompressed
@@ -175,7 +174,7 @@ Status ReadBlockContents(RandomAccessFile* file,
     s = UncompressBlockContents(data, n, result);
     delete[] buf;
   }
-  BumpPerfTime(&perf_context.block_decompress_time, &timer);
+  PERF_TIMER_STOP(block_decompress_time);
   return s;
 }
 

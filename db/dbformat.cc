@@ -59,7 +59,7 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  BumpPerfCount(&perf_context.user_key_comparison_count);
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
   if (r == 0) {
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
@@ -79,7 +79,7 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_->Compare(a.user_key, b.user_key);
-  BumpPerfCount(&perf_context.user_key_comparison_count);
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
   if (r == 0) {
     if (a.sequence > b.sequence) {
       r = -1;

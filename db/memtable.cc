@@ -377,8 +377,7 @@ static bool SaveValue(void* arg, const char* entry) {
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext& merge_context, const Options& options) {
-  StopWatchNano memtable_get_timer(options.env, false);
-  StartPerfTimer(&memtable_get_timer);
+  PERF_TIMER_AUTO(get_from_memtable_time);
 
   Slice user_key = key.user_key();
   bool found_final_value = false;
@@ -408,8 +407,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   if (!found_final_value && merge_in_progress) {
     *s = Status::MergeInProgress("");
   }
-  BumpPerfTime(&perf_context.get_from_memtable_time, &memtable_get_timer);
-  BumpPerfCount(&perf_context.get_from_memtable_count);
+  PERF_TIMER_STOP(get_from_memtable_time);
+  PERF_COUNTER_ADD(get_from_memtable_count, 1);
   return found_final_value;
 }
 

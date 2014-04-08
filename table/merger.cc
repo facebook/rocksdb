@@ -79,13 +79,13 @@ class MergingIterator : public Iterator {
     // Invalidate the heap.
     use_heap_ = false;
     IteratorWrapper* first_child = nullptr;
-    StopWatchNano child_seek_timer(env_, false);
-    StopWatchNano min_heap_timer(env_, false);
+    PERF_TIMER_DECLARE();
+
     for (auto& child : children_) {
-      StartPerfTimer(&child_seek_timer);
+      PERF_TIMER_START(seek_child_seek_time);
       child.Seek(target);
-      BumpPerfTime(&perf_context.seek_child_seek_time, &child_seek_timer);
-      BumpPerfCount(&perf_context.seek_child_seek_count);
+      PERF_TIMER_STOP(seek_child_seek_time);
+      PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
       if (child.Valid()) {
         // This child has valid key
@@ -97,26 +97,24 @@ class MergingIterator : public Iterator {
           } else {
             // We have more than one children with valid keys. Initialize
             // the heap and put the first child into the heap.
-            StartPerfTimer(&min_heap_timer);
+            PERF_TIMER_START(seek_min_heap_time);
             ClearHeaps();
-            BumpPerfTime(&perf_context.seek_min_heap_time, &child_seek_timer);
-            StartPerfTimer(&min_heap_timer);
             minHeap_.push(first_child);
-            BumpPerfTime(&perf_context.seek_min_heap_time, &child_seek_timer);
+            PERF_TIMER_STOP(seek_min_heap_time);
           }
         }
         if (use_heap_) {
-          StartPerfTimer(&min_heap_timer);
+          PERF_TIMER_START(seek_min_heap_time);
           minHeap_.push(&child);
-          BumpPerfTime(&perf_context.seek_min_heap_time, &child_seek_timer);
+          PERF_TIMER_STOP(seek_min_heap_time);
         }
       }
     }
     if (use_heap_) {
       // If heap is valid, need to put the smallest key to curent_.
-      StartPerfTimer(&min_heap_timer);
+      PERF_TIMER_START(seek_min_heap_time);
       FindSmallest();
-      BumpPerfTime(&perf_context.seek_min_heap_time, &child_seek_timer);
+      PERF_TIMER_STOP(seek_min_heap_time);
     } else {
       // The heap is not valid, then the current_ iterator is the first
       // one, or null if there is no first child.

@@ -189,10 +189,9 @@ void DBIter::Next() {
 // NOTE: In between, saved_key_ can point to a user key that has
 //       a delete marker
 inline void DBIter::FindNextUserEntry(bool skipping) {
-  StopWatchNano timer(env_, false);
-  StartPerfTimer(&timer);
+  PERF_TIMER_AUTO(find_next_user_entry_time);
   FindNextUserEntryInternal(skipping);
-  BumpPerfTime(&perf_context.find_next_user_entry_time, &timer);
+  PERF_TIMER_STOP(find_next_user_entry_time);
 }
 
 // Actual implementation of DBIter::FindNextUserEntry()
@@ -208,7 +207,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
       if (skipping &&
           user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0) {
         num_skipped++; // skip this entry
-        BumpPerfCount(&perf_context.internal_key_skipped_count);
+        PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
         skipping = false;
         switch (ikey.type) {
@@ -218,7 +217,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
             saved_key_.SetUserKey(ikey.user_key);
             skipping = true;
             num_skipped = 0;
-            BumpPerfCount(&perf_context.internal_delete_skipped_count);
+            PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             break;
           case kTypeValue:
             valid_ = true;
@@ -423,10 +422,9 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.Clear();
   // now savved_key is used to store internal key.
   saved_key_.SetInternalKey(target, sequence_);
-  StopWatchNano internal_seek_timer(env_, false);
-  StartPerfTimer(&internal_seek_timer);
+  PERF_TIMER_AUTO(seek_internal_seek_time);
   iter_->Seek(saved_key_.GetKey());
-  BumpPerfTime(&perf_context.seek_internal_seek_time, &internal_seek_timer);
+  PERF_TIMER_STOP(seek_internal_seek_time);
   if (iter_->Valid()) {
     direction_ = kForward;
     ClearSavedValue();
@@ -439,10 +437,9 @@ void DBIter::Seek(const Slice& target) {
 void DBIter::SeekToFirst() {
   direction_ = kForward;
   ClearSavedValue();
-  StopWatchNano internal_seek_timer(env_, false);
-  StartPerfTimer(&internal_seek_timer);
+  PERF_TIMER_AUTO(seek_internal_seek_time);
   iter_->SeekToFirst();
-  BumpPerfTime(&perf_context.seek_internal_seek_time, &internal_seek_timer);
+  PERF_TIMER_STOP(seek_internal_seek_time);
   if (iter_->Valid()) {
     FindNextUserEntry(false /* not skipping */);
   } else {
@@ -461,10 +458,9 @@ void DBIter::SeekToLast() {
 
   direction_ = kReverse;
   ClearSavedValue();
-  StopWatchNano internal_seek_timer(env_, false);
-  StartPerfTimer(&internal_seek_timer);
+  PERF_TIMER_AUTO(seek_internal_seek_time);
   iter_->SeekToLast();
-  BumpPerfTime(&perf_context.seek_internal_seek_time, &internal_seek_timer);
+  PERF_TIMER_STOP(seek_internal_seek_time);
   FindPrevUserEntry();
 }
 
