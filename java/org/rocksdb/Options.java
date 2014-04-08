@@ -63,7 +63,7 @@ public class Options {
    * the next time the database is opened.
    *
    * Default: 4MB
-   * @param size of write buffer
+   * @param size of write buffer.
    * @see RocksDB::Open()
    */
   public void setWriteBufferSize(int writeBufferSize) {
@@ -88,7 +88,7 @@ public class Options {
    * storage, new writes can continue to the other write buffer.
    * Default: 2
    *
-   * @param maximum number of write buffers
+   * @param maximum number of write buffers.
    * @see RocksDB::Open()
    */
   public void setMaxWriteBufferNumber(int maxWriteBufferNumber) {
@@ -115,7 +115,7 @@ public class Options {
    *
    * Default: 4K
    *
-   * @param block size
+   * @param block size.
    * @see RocksDB::Open()
    */
   public void setBlockSize(int blockSize) {
@@ -141,7 +141,7 @@ public class Options {
    * (which is true if max_open_files is large).
    * Default: true
    *
-   * @param disable seek compaction
+   * @param disable seek compaction.
    * @see RocksDB::Open()
    */
   public void setDisableSeekCompaction(boolean disableSeekCompaction) {
