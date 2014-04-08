@@ -814,7 +814,6 @@ class Benchmark {
   int64_t writes_;
   int64_t readwrites_;
   int64_t merge_keys_;
-  int heap_counter_;
   void PrintHeader() {
     PrintEnvironment();
     fprintf(stdout, "Keys:       %d bytes each\n", FLAGS_key_size);
@@ -1011,8 +1010,7 @@ class Benchmark {
     readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num :
                 ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)
                ),
-    merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
-    heap_counter_(0) {
+    merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys) {
     if (FLAGS_prefix_size > FLAGS_key_size) {
       fprintf(stderr, "prefix size is larger than key size");
       exit(1);

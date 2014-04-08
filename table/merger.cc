@@ -267,15 +267,14 @@ void MergingIterator::ClearHeaps() {
 }
 }  // namespace
 
-Iterator* NewMergingIterator(Env* const env, const Comparator* cmp,
-                             Iterator** list, int n) {
+Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n) {
   assert(n >= 0);
   if (n == 0) {
     return NewEmptyIterator();
   } else if (n == 1) {
     return list[0];
   } else {
-    return new MergingIterator(env, cmp, list, n);
+    return new MergingIterator(cmp, list, n);
   }
 }
 
