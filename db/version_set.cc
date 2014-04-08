@@ -2617,7 +2617,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   }
   assert(num <= space);
   Iterator* result = NewMergingIterator(
-      env_, &c->column_family_data()->internal_comparator(), list, num);
+      &c->column_family_data()->internal_comparator(), list, num);
   delete[] list;
   return result;
 }

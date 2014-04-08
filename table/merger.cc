@@ -25,16 +25,14 @@ namespace {
 
 class MergingIterator : public Iterator {
  public:
-  MergingIterator(Env* const env, const Comparator* comparator,
-                  Iterator** children, int n)
+  MergingIterator(const Comparator* comparator, Iterator** children, int n)
       : comparator_(comparator),
         children_(n),
         current_(nullptr),
         use_heap_(true),
-        env_(env),
         direction_(kForward),
         maxHeap_(NewMaxIterHeap(comparator_)),
-        minHeap_ (NewMinIterHeap(comparator_)) {
+        minHeap_(NewMinIterHeap(comparator_)) {
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
     }
@@ -230,7 +228,6 @@ class MergingIterator : public Iterator {
   // This flag is always true for reverse direction, as we always use heap for
   // the reverse iterating case.
   bool use_heap_;
-  Env* const env_;
   // Which direction is the iterator moving?
   enum Direction {
     kForward,

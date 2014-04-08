@@ -1238,7 +1238,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
           (unsigned long)m->GetNextLogNumber());
       memtables.push_back(m->NewIterator());
     }
-    Iterator* iter = NewMergingIterator(env_, &cfd->internal_comparator(),
+    Iterator* iter = NewMergingIterator(&cfd->internal_comparator(),
                                         &memtables[0], memtables.size());
     Log(options_.info_log, "Level-0 flush table #%lu: started",
         (unsigned long)meta.number);
@@ -3211,9 +3211,8 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
   // Collect iterators for files in L0 - Ln
   super_version->current->AddIterators(options, storage_options_,
                                        &iterator_list);
-  Iterator* internal_iter =
-      NewMergingIterator(env_, &cfd->internal_comparator(), &iterator_list[0],
-                         iterator_list.size());
+  Iterator* internal_iter = NewMergingIterator(
+      &cfd->internal_comparator(), &iterator_list[0], iterator_list.size());
 
   IterState* cleanup = new IterState(this, &mutex_, super_version);
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
@@ -3262,8 +3261,8 @@ std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
   std::vector<Iterator*> list;
   super_version->imm->AddIterators(options, &list);
   super_version->current->AddIterators(options, storage_options_, &list);
-  Iterator* immutable_iter = NewMergingIterator(
-      env_, &cfd->internal_comparator(), &list[0], list.size());
+  Iterator* immutable_iter =
+      NewMergingIterator(&cfd->internal_comparator(), &list[0], list.size());
 
   // create a DBIter that only uses memtable content; see NewIterator()
   immutable_iter =
