@@ -70,7 +70,7 @@
 
 namespace rocksdb {
 
-const std::string default_column_family_name("default");
+const std::string kDefaultColumnFamilyName("default");
 
 void DumpLeveldbBuildVersion(Logger * log);
 
@@ -949,7 +949,7 @@ Status DBImpl::Recover(
     }
   }
 
-  Status s = versions_->Recover(column_families);
+  Status s = versions_->Recover(column_families, read_only);
   if (options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
@@ -4498,7 +4498,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
-      ColumnFamilyDescriptor(default_column_family_name, cf_options));
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
@@ -4568,8 +4568,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     if (s.ok()) {
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
         delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
-        impl->alive_log_files_.push_back(impl->logfile_number_);
       }
+      impl->alive_log_files_.push_back(impl->logfile_number_);
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleFlushOrCompaction();
       impl->MaybeScheduleLogDBDeployStats();

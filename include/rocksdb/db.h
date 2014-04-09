@@ -28,13 +28,13 @@ class ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
 };
-extern const std::string default_column_family_name;
+extern const std::string kDefaultColumnFamilyName;
 
 struct ColumnFamilyDescriptor {
   std::string name;
   ColumnFamilyOptions options;
   ColumnFamilyDescriptor()
-      : name(default_column_family_name), options(ColumnFamilyOptions()) {}
+      : name(kDefaultColumnFamilyName), options(ColumnFamilyOptions()) {}
   ColumnFamilyDescriptor(const std::string& name,
                          const ColumnFamilyOptions& options)
       : name(name), options(options) {}
@@ -104,18 +104,30 @@ class DB {
   // that modify data, like put/delete, will return error.
   // If the db is opened in read only mode, then no compactions
   // will happen.
-  // TODO(icanadi): implement OpenForReadOnly that specifies column families.
-  // User can open DB in read-only mode even if not specifying all column
-  // families
   static Status OpenForReadOnly(const Options& options,
       const std::string& name, DB** dbptr,
       bool error_if_log_file_exist = false);
 
+  // Open the database for read only with column families. When opening DB with
+  // read only, you can specify only a subset of column families in the
+  // database that should be opened. However, you always need to specify default
+  // column family. The default column family name is 'default' and it's stored
+  // in rocksdb::kDefaultColumnFamilyName
+  static Status OpenForReadOnly(
+      const DBOptions& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      bool error_if_log_file_exist = false);
+
   // Open DB with column families.
   // db_options specify database specific options
-  // column_families is the vector of all column families you'd like to open,
-  // containing column family name and options. The default column family name
-  // is 'default'.
+  // column_families is the vector of all column families in the databse,
+  // containing column family name and options. You need to open ALL column
+  // families in the database. To get the list of column families, you can use
+  // ListColumnFamilies(). Also, you can open only a subset of column families
+  // for read-only access.
+  // The default column family name is 'default' and it's stored
+  // in rocksdb::kDefaultColumnFamilyName.
   // If everything is OK, handles will on return be the same size
   // as column_families --- handles[i] will be a handle that you
   // will use to operate on column family column_family[i]

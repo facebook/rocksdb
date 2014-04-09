@@ -1519,7 +1519,7 @@ class StressTest {
         // DB doesn't exist
         assert(existing_column_families.empty());
         assert(column_family_names_.empty());
-        column_family_names_.push_back(default_column_family_name);
+        column_family_names_.push_back(kDefaultColumnFamilyName);
       } else if (column_family_names_.empty()) {
         // this is the first call to the function Open()
         column_family_names_ = existing_column_families;
@@ -1547,7 +1547,7 @@ class StressTest {
       }
       std::vector<ColumnFamilyDescriptor> cf_descriptors;
       for (auto name : column_family_names_) {
-        if (name != default_column_family_name) {
+        if (name != kDefaultColumnFamilyName) {
           new_column_family_name_ =
               std::max(new_column_family_name_.load(), std::stoi(name) + 1);
         }

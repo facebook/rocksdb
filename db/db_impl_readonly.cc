@@ -94,12 +94,44 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
-      ColumnFamilyDescriptor(default_column_family_name, cf_options));
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  std::vector<ColumnFamilyHandle*> handles;
+
+  Status s =
+      DB::OpenForReadOnly(db_options, dbname, column_families, &handles, dbptr);
+  if (s.ok()) {
+    assert(handles.size() == 1);
+    // i can delete the handle since DBImpl is always holding a
+    // reference to default column family
+    delete handles[0];
+  }
+  return s;
+}
+
+Status DB::OpenForReadOnly(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    bool error_if_log_file_exist) {
+  *dbptr = nullptr;
+  handles->clear();
 
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
                            error_if_log_file_exist);
+  if (s.ok()) {
+    // set column family handles
+    for (auto cf : column_families) {
+      auto cfd =
+          impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
+      if (cfd == nullptr) {
+        s = Status::InvalidArgument("Column family not found: ", cf.name);
+        break;
+      }
+      handles->push_back(new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
+    }
+  }
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
       delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
@@ -109,9 +141,14 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
   if (s.ok()) {
     *dbptr = impl;
   } else {
+    for (auto h : *handles) {
+      delete h;
+    }
+    handles->clear();
     delete impl;
   }
   return s;
 }
+
 
 }   // namespace rocksdb

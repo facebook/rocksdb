@@ -309,7 +309,10 @@ class VersionSet {
                          nullptr);
 
   // Recover the last saved descriptor from persistent storage.
-  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families);
+  // If read_only == true, Recover() will not complain if some column families
+  // are not opened
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                 bool read_only = false);
 
   // Reads a manifest file and returns a list of column families in
   // column_families.

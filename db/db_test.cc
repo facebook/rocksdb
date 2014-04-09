@@ -468,8 +468,7 @@ class DBTest {
                              const Options* options = nullptr) {
     CreateColumnFamilies(cfs, options);
     std::vector<std::string> cfs_plus_default = cfs;
-    cfs_plus_default.insert(cfs_plus_default.begin(),
-                            default_column_family_name);
+    cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
     ReopenWithColumnFamilies(cfs_plus_default, options);
   }
 

@@ -60,6 +60,25 @@ class ColumnFamilyTest {
     return DB::Open(db_options_, dbname_, column_families, &handles_, &db_);
   }
 
+  Status OpenReadOnly(std::vector<std::string> cf,
+                         std::vector<ColumnFamilyOptions> options = {}) {
+    std::vector<ColumnFamilyDescriptor> column_families;
+    names_.clear();
+    for (size_t i = 0; i < cf.size(); ++i) {
+      column_families.push_back(ColumnFamilyDescriptor(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      names_.push_back(cf[i]);
+    }
+    return DB::OpenForReadOnly(db_options_, dbname_, column_families, &handles_,
+                               &db_);
+  }
+
+  void AssertOpenReadOnly(std::vector<std::string> cf,
+                    std::vector<ColumnFamilyOptions> options = {}) {
+    ASSERT_OK(OpenReadOnly(cf, options));
+  }
+
+
   void Open(std::vector<std::string> cf,
             std::vector<ColumnFamilyOptions> options = {}) {
     ASSERT_OK(TryOpen(cf, options));
@@ -848,6 +867,32 @@ TEST(ColumnFamilyTest, NewIteratorsTest) {
     }
     Destroy();
   }
+}
+
+TEST(ColumnFamilyTest, ReadOnlyDBTest) {
+  Open();
+  CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
+  ASSERT_OK(Put(1, "foo", "bla"));
+  ASSERT_OK(Put(2, "foo", "blabla"));
+  ASSERT_OK(Put(3, "foo", "blablabla"));
+  ASSERT_OK(Put(4, "foo", "blablablabla"));
+
+  DropColumnFamilies({2});
+  Close();
+  // open only a subset of column families
+  AssertOpenReadOnly({"default", "one", "four"});
+  ASSERT_EQ("NOT_FOUND", Get(0, "foo"));
+  ASSERT_EQ("bla", Get(1, "foo"));
+  ASSERT_EQ("blablablabla", Get(2, "foo"));
+
+  Close();
+  // can't open dropped column family
+  Status s = OpenReadOnly({"default", "one", "two"});
+  ASSERT_TRUE(!s.ok());
+
+  // Can't open without specifying default column family
+  s = OpenReadOnly({"one", "four"});
+  ASSERT_TRUE(!s.ok());
 }
 
 }  // namespace rocksdb

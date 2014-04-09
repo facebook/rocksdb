@@ -1813,7 +1813,8 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd, Builder* builder,
 }
 
 Status VersionSet::Recover(
-    const std::vector<ColumnFamilyDescriptor>& column_families) {
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    bool read_only) {
   std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
   for (auto cf : column_families) {
     cf_name_to_options.insert({cf.name, cf.options});
@@ -1872,12 +1873,12 @@ Status VersionSet::Recover(
   std::unordered_map<uint32_t, Builder*> builders;
 
   // add default column family
-  auto default_cf_iter = cf_name_to_options.find(default_column_family_name);
+  auto default_cf_iter = cf_name_to_options.find(kDefaultColumnFamilyName);
   if (default_cf_iter == cf_name_to_options.end()) {
     return Status::InvalidArgument("Default column family not specified");
   }
   VersionEdit default_cf_edit;
-  default_cf_edit.AddColumnFamily(default_column_family_name);
+  default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
   default_cf_edit.SetColumnFamily(0);
   ColumnFamilyData* default_cfd =
       CreateColumnFamily(default_cf_iter->second, &default_cf_edit);
@@ -2034,11 +2035,16 @@ Status VersionSet::Recover(
   }
 
   // there were some column families in the MANIFEST that weren't specified
-  // in the argument
-  if (column_families_not_found.size() > 0) {
+  // in the argument. This is OK in read_only mode
+  if (read_only == false && column_families_not_found.size() > 0) {
+    std::string list_of_not_found;
+    for (auto cf : column_families_not_found) {
+      list_of_not_found += ", " + cf;
+    }
+    list_of_not_found = list_of_not_found.substr(2);
     s = Status::InvalidArgument(
-        "Found unexpected column families. You have to specify all column "
-        "families when opening the DB");
+        "You have to open all column families. Column families not opened: %s",
+        list_of_not_found.c_str());
   }
 
   if (s.ok()) {
@@ -2121,7 +2127,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
 
   std::map<uint32_t, std::string> column_family_names;
   // default column family is always implicitly there
-  column_family_names.insert({0, default_column_family_name});
+  column_family_names.insert({0, kDefaultColumnFamilyName});
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(std::move(file), &reporter, true /*checksum*/,
@@ -2180,7 +2186,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;
-  ColumnFamilyDescriptor dummy_descriptor(default_column_family_name,
+  ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(*options));
   dummy.push_back(dummy_descriptor);
   status = versions.Recover(dummy);
@@ -2264,7 +2270,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
   // add default column family
   VersionEdit default_cf_edit;
-  default_cf_edit.AddColumnFamily(default_column_family_name);
+  default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
   default_cf_edit.SetColumnFamily(0);
   ColumnFamilyData* default_cfd =
       CreateColumnFamily(ColumnFamilyOptions(options), &default_cf_edit);
