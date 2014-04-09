@@ -76,6 +76,14 @@ public class RocksDB {
   }
 
   /**
+   * Apply the specified updates to the database.
+   */
+  public void write(WriteOptions writeOpts, WriteBatch updates)
+      throws RocksDBException {
+    write(writeOpts.nativeHandle_, updates.nativeHandle_);
+  }
+
+  /**
    * Get the value associated with the specified key.
    *
    * @param key the key to retrieve the value.
@@ -147,6 +155,8 @@ public class RocksDB {
       long handle, long writeOptHandle,
       byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
+  private native void write(
+      long writeOptHandle, long batchHandle) throws RocksDBException;
   private native int get(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;

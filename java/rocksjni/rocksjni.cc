@@ -122,6 +122,28 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BI_3BI(
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::Write
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    write
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_RocksDB_write(
+    JNIEnv* env, jobject jdb,
+    jlong jwrite_options_handle, jlong jbatch_handle) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(
+      jwrite_options_handle);
+  auto batch = reinterpret_cast<rocksdb::WriteBatch*>(jbatch_handle);
+
+  rocksdb::Status s = db->Write(*write_options, batch);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Get
 
 /*

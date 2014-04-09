@@ -106,7 +106,7 @@ public class WriteBatch {
   private native void putLogData(byte[] blob, int blobLen);
   private native void dispose0();
 
-  private long nativeHandle_;
+  long nativeHandle_;
 }
 
 /**

@@ -439,6 +439,9 @@ jclean:
 jtest:
 	cd java;$(MAKE) sample;$(MAKE) test;
 
+jdb_bench:
+	cd java;$(MAKE) db_bench;
+
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
 # ---------------------------------------------------------------------------
