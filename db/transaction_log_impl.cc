@@ -9,7 +9,7 @@
 namespace rocksdb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
-    const std::string& dir, const Options* options,
+    const std::string& dir, const DBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
     std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl)

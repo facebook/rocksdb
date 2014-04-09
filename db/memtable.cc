@@ -29,7 +29,8 @@
 
 namespace rocksdb {
 
-MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
+MemTable::MemTable(const InternalKeyComparator& cmp,
+                   const Options& options)
     : comparator_(cmp),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(options.arena_block_size)),
@@ -42,7 +43,6 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
       file_number_(0),
       first_seqno_(0),
       mem_next_logfile_number_(0),
-      mem_logfile_number_(0),
       locks_(options.inplace_update_support ? options.inplace_update_num_locks
                                             : 0),
       prefix_extractor_(options.prefix_extractor.get()),
@@ -140,6 +140,11 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key,
 Slice MemTableRep::UserKey(const char* key) const {
   Slice slice = GetLengthPrefixedSlice(key);
   return Slice(slice.data(), slice.size() - 8);
+}
+
+KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
+  *buf = arena_->Allocate(len);
+  return static_cast<KeyHandle>(*buf);
 }
 
 // Encode a suitable internal key target for "target" and return it.
@@ -243,7 +248,9 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   const size_t encoded_len =
       VarintLength(internal_key_size) + internal_key_size +
       VarintLength(val_size) + val_size;
-  char* buf = arena_.Allocate(encoded_len);
+  char* buf = nullptr;
+  KeyHandle handle = table_->Allocate(encoded_len, &buf);
+  assert(buf != nullptr);
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
   p += key_size;
@@ -252,7 +259,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-  table_->Insert(buf);
+  table_->Insert(handle);
 
   if (prefix_bloom_) {
     assert(prefix_extractor_);
@@ -370,8 +377,7 @@ static bool SaveValue(void* arg, const char* entry) {
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext& merge_context, const Options& options) {
-  StopWatchNano memtable_get_timer(options.env, false);
-  StartPerfTimer(&memtable_get_timer);
+  PERF_TIMER_AUTO(get_from_memtable_time);
 
   Slice user_key = key.user_key();
   bool found_final_value = false;
@@ -401,8 +407,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   if (!found_final_value && merge_in_progress) {
     *s = Status::MergeInProgress("");
   }
-  BumpPerfTime(&perf_context.get_from_memtable_time, &memtable_get_timer);
-  BumpPerfCount(&perf_context.get_from_memtable_count);
+  PERF_TIMER_STOP(get_from_memtable_time);
+  PERF_COUNTER_ADD(get_from_memtable_count, 1);
   return found_final_value;
 }
 

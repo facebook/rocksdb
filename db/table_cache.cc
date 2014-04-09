@@ -35,18 +35,13 @@ static Slice GetSliceForFileNumber(uint64_t* file_number) {
                sizeof(*file_number));
 }
 
-TableCache::TableCache(const std::string& dbname,
-                       const Options* options,
-                       const EnvOptions& storage_options,
-                       int entries)
+TableCache::TableCache(const std::string& dbname, const Options* options,
+                       const EnvOptions& storage_options, Cache* const cache)
     : env_(options->env),
       dbname_(dbname),
       options_(options),
       storage_options_(storage_options),
-      cache_(
-        NewLRUCache(entries, options->table_cache_numshardbits,
-                    options->table_cache_remove_scan_count_limit)) {
-}
+      cache_(cache) {}
 
 TableCache::~TableCache() {
 }
@@ -124,7 +119,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   TableReader* table_reader = GetTableReaderFromHandle(handle);
   Iterator* result = table_reader->NewIterator(options);
   if (!file_meta.table_reader_handle) {
-    result->RegisterCleanup(&UnrefEntry, cache_.get(), handle);
+    result->RegisterCleanup(&UnrefEntry, cache_, handle);
   }
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = table_reader;
@@ -216,8 +211,8 @@ bool TableCache::PrefixMayMatch(const ReadOptions& options,
   return may_match;
 }
 
-void TableCache::Evict(uint64_t file_number) {
-  cache_->Erase(GetSliceForFileNumber(&file_number));
+void TableCache::Evict(Cache* cache, uint64_t file_number) {
+  cache->Erase(GetSliceForFileNumber(&file_number));
 }
 
 }  // namespace rocksdb

@@ -15,6 +15,9 @@
 //    kTypeValue varstring varstring
 //    kTypeMerge varstring varstring
 //    kTypeDeletion varstring
+//    kTypeColumnFamilyValue varint32 varstring varstring
+//    kTypeColumnFamilyMerge varint32 varstring varstring
+//    kTypeColumnFamilyDeletion varint32 varstring varstring
 // varstring :=
 //    len: varint32
 //    data: uint8[len]
@@ -45,8 +48,18 @@ WriteBatch::~WriteBatch() { }
 
 WriteBatch::Handler::~Handler() { }
 
+void WriteBatch::Handler::Put(const Slice& key, const Slice& value) {
+  // you need to either implement Put or PutCF
+  throw std::runtime_error("Handler::Put not implemented!");
+}
+
 void WriteBatch::Handler::Merge(const Slice& key, const Slice& value) {
   throw std::runtime_error("Handler::Merge not implemented!");
+}
+
+void WriteBatch::Handler::Delete(const Slice& key) {
+  // you need to either implement Delete or DeleteCF
+  throw std::runtime_error("Handler::Delete not implemented!");
 }
 
 void WriteBatch::Handler::LogData(const Slice& blob) {
@@ -76,31 +89,48 @@ Status WriteBatch::Iterate(Handler* handler) const {
   input.remove_prefix(kHeader);
   Slice key, value, blob;
   int found = 0;
-  while (!input.empty() && handler->Continue()) {
+  Status s;
+  while (s.ok() && !input.empty() && handler->Continue()) {
     char tag = input[0];
     input.remove_prefix(1);
+    uint32_t column_family = 0;  // default
     switch (tag) {
+      case kTypeColumnFamilyValue:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch Put");
+        }
+      // intentional fallthrough
       case kTypeValue:
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
-          handler->Put(key, value);
+          s = handler->PutCF(column_family, key, value);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Put");
         }
         break;
+      case kTypeColumnFamilyDeletion:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch Delete");
+        }
+      // intentional fallthrough
       case kTypeDeletion:
         if (GetLengthPrefixedSlice(&input, &key)) {
-          handler->Delete(key);
+          s = handler->DeleteCF(column_family, key);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Delete");
         }
         break;
+      case kTypeColumnFamilyMerge:
+        if (!GetVarint32(&input, &column_family)) {
+          return Status::Corruption("bad WriteBatch Merge");
+        }
+      // intentional fallthrough
       case kTypeMerge:
         if (GetLengthPrefixedSlice(&input, &key) &&
             GetLengthPrefixedSlice(&input, &value)) {
-          handler->Merge(key, value);
+          s = handler->MergeCF(column_family, key, value);
           found++;
         } else {
           return Status::Corruption("bad WriteBatch Merge");
@@ -117,7 +147,10 @@ Status WriteBatch::Iterate(Handler* handler) const {
         return Status::Corruption("unknown WriteBatch tag");
     }
   }
- if (found != WriteBatchInternal::Count(this)) {
+  if (!s.ok()) {
+    return s;
+  }
+  if (found != WriteBatchInternal::Count(this)) {
     return Status::Corruption("WriteBatch has wrong count");
   } else {
     return Status::OK();
@@ -140,29 +173,76 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
-void WriteBatch::Put(const Slice& key, const Slice& value) {
+void WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& value) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
-  rep_.push_back(static_cast<char>(kTypeValue));
+  if (column_family_id == 0) {
+    rep_.push_back(static_cast<char>(kTypeValue));
+  } else {
+    rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
+    PutVarint32(&rep_, column_family_id);
+  }
   PutLengthPrefixedSlice(&rep_, key);
   PutLengthPrefixedSlice(&rep_, value);
 }
 
-void WriteBatch::Put(const SliceParts& key, const SliceParts& value) {
+void WriteBatch::Put(ColumnFamilyHandle* column_family, const SliceParts& key,
+                     const SliceParts& value) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
-  rep_.push_back(static_cast<char>(kTypeValue));
+  if (column_family_id == 0) {
+    rep_.push_back(static_cast<char>(kTypeValue));
+  } else {
+    rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
+    PutVarint32(&rep_, column_family_id);
+  }
   PutLengthPrefixedSliceParts(&rep_, key);
   PutLengthPrefixedSliceParts(&rep_, value);
 }
 
-void WriteBatch::Delete(const Slice& key) {
+void WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
-  rep_.push_back(static_cast<char>(kTypeDeletion));
+  if (column_family_id == 0) {
+    rep_.push_back(static_cast<char>(kTypeDeletion));
+  } else {
+    rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
+    PutVarint32(&rep_, column_family_id);
+  }
   PutLengthPrefixedSlice(&rep_, key);
 }
 
-void WriteBatch::Merge(const Slice& key, const Slice& value) {
+void WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
-  rep_.push_back(static_cast<char>(kTypeMerge));
+  if (column_family_id == 0) {
+    rep_.push_back(static_cast<char>(kTypeMerge));
+  } else {
+    rep_.push_back(static_cast<char>(kTypeColumnFamilyMerge));
+    PutVarint32(&rep_, column_family_id);
+  }
   PutLengthPrefixedSlice(&rep_, key);
   PutLengthPrefixedSlice(&rep_, value);
 }
@@ -176,33 +256,70 @@ namespace {
 class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
-  MemTable* mem_;
-  const Options* options_;
+  ColumnFamilyMemTables* cf_mems_;
+  bool recovery_;
+  uint64_t log_number_;
   DBImpl* db_;
-  const bool filter_deletes_;
+  const bool dont_filter_deletes_;
 
-  MemTableInserter(SequenceNumber sequence, MemTable* mem, const Options* opts,
-                   DB* db, const bool filter_deletes)
-    : sequence_(sequence),
-      mem_(mem),
-      options_(opts),
-      db_(reinterpret_cast<DBImpl*>(db)),
-      filter_deletes_(filter_deletes) {
-    assert(mem_);
-    if (filter_deletes_) {
-      assert(options_);
+  MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
+                   bool recovery, uint64_t log_number, DB* db,
+                   const bool dont_filter_deletes)
+      : sequence_(sequence),
+        cf_mems_(cf_mems),
+        recovery_(recovery),
+        log_number_(log_number),
+        db_(reinterpret_cast<DBImpl*>(db)),
+        dont_filter_deletes_(dont_filter_deletes) {
+    assert(cf_mems);
+    if (!dont_filter_deletes_) {
       assert(db_);
     }
   }
 
-  virtual void Put(const Slice& key, const Slice& value) {
-    if (!options_->inplace_update_support) {
-      mem_->Add(sequence_, kTypeValue, key, value);
-    } else if (options_->inplace_callback == nullptr) {
-      mem_->Update(sequence_, key, value);
-      RecordTick(options_->statistics.get(), NUMBER_KEYS_UPDATED);
+  bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
+    bool found = cf_mems_->Seek(column_family_id);
+    if (recovery_ && (!found || log_number_ < cf_mems_->GetLogNumber())) {
+      // if in recovery envoronment:
+      // * If column family was not found, it might mean that the WAL write
+      // batch references to the column family that was dropped after the
+      // insert. We don't want to fail the whole write batch in that case -- we
+      // just ignore the update.
+      // * If log_number_ < cf_mems_->GetLogNumber(), this means that column
+      // family already contains updates from this log. We can't apply updates
+      // twice because of update-in-place or merge workloads -- ignore the
+      // update
+      *s = Status::OK();
+      return false;
+    }
+    if (!found) {
+      assert(!recovery_);
+      // If the column family was not found in non-recovery enviornment
+      // (client's write code-path), we have to fail the write and return
+      // the failure status to the client.
+      *s = Status::InvalidArgument(
+          "Invalid column family specified in write batch");
+      return false;
+    }
+    return true;
+  }
+
+  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) {
+    Status seek_status;
+    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+      ++sequence_;
+      return seek_status;
+    }
+    MemTable* mem = cf_mems_->GetMemTable();
+    const Options* options = cf_mems_->GetOptions();
+    if (!options->inplace_update_support) {
+      mem->Add(sequence_, kTypeValue, key, value);
+    } else if (options->inplace_callback == nullptr) {
+      mem->Update(sequence_, key, value);
+      RecordTick(options->statistics.get(), NUMBER_KEYS_UPDATED);
     } else {
-      if (mem_->UpdateCallback(sequence_, key, value, *options_)) {
+      if (mem->UpdateCallback(sequence_, key, value, *options)) {
       } else {
         // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
@@ -212,21 +329,26 @@ class MemTableInserter : public WriteBatch::Handler {
 
         std::string prev_value;
         std::string merged_value;
-        Status s = db_->Get(ropts, key, &prev_value);
+
+        auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+        if (cf_handle == nullptr) {
+          cf_handle = db_->DefaultColumnFamily();
+        }
+        Status s = db_->Get(ropts, cf_handle, key, &prev_value);
+
         char* prev_buffer = const_cast<char*>(prev_value.c_str());
         uint32_t prev_size = prev_value.size();
-        auto status =
-          options_->inplace_callback(s.ok() ? prev_buffer: nullptr,
-                                     s.ok() ? &prev_size: nullptr,
-                                     value, &merged_value);
+        auto status = options->inplace_callback(s.ok() ? prev_buffer : nullptr,
+                                                s.ok() ? &prev_size : nullptr,
+                                                value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
-          mem_->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
-          RecordTick(options_->statistics.get(), NUMBER_KEYS_WRITTEN);
+          mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
+          RecordTick(options->statistics.get(), NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
-          mem_->Add(sequence_, kTypeValue, key, Slice(merged_value));
-          RecordTick(options_->statistics.get(), NUMBER_KEYS_WRITTEN);
+          mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
+          RecordTick(options->statistics.get(), NUMBER_KEYS_WRITTEN);
         }
       }
     }
@@ -234,19 +356,28 @@ class MemTableInserter : public WriteBatch::Handler {
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
     sequence_++;
+    return Status::OK();
   }
 
-  virtual void Merge(const Slice& key, const Slice& value) {
+  virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
+    Status seek_status;
+    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+      ++sequence_;
+      return seek_status;
+    }
+    MemTable* mem = cf_mems_->GetMemTable();
+    const Options* options = cf_mems_->GetOptions();
     bool perform_merge = false;
 
-    if (options_->max_successive_merges > 0 && db_ != nullptr) {
+    if (options->max_successive_merges > 0 && db_ != nullptr) {
       LookupKey lkey(key, sequence_);
 
       // Count the number of successive merges at the head
       // of the key in the memtable
-      size_t num_merges = mem_->CountSuccessiveMergeEntries(lkey);
+      size_t num_merges = mem->CountSuccessiveMergeEntries(lkey);
 
-      if (num_merges >= options_->max_successive_merges) {
+      if (num_merges >= options->max_successive_merges) {
         perform_merge = true;
       }
     }
@@ -262,62 +393,78 @@ class MemTableInserter : public WriteBatch::Handler {
       ReadOptions read_options;
       read_options.snapshot = &read_from_snapshot;
 
-      db_->Get(read_options, key, &get_value);
+      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+      if (cf_handle == nullptr) {
+        cf_handle = db_->DefaultColumnFamily();
+      }
+      db_->Get(read_options, cf_handle, key, &get_value);
       Slice get_value_slice = Slice(get_value);
 
       // 2) Apply this merge
-      auto merge_operator = options_->merge_operator.get();
+      auto merge_operator = options->merge_operator.get();
       assert(merge_operator);
 
       std::deque<std::string> operands;
       operands.push_front(value.ToString());
       std::string new_value;
-      if (!merge_operator->FullMerge(key,
-                                     &get_value_slice,
-                                     operands,
-                                     &new_value,
-                                     options_->info_log.get())) {
+      if (!merge_operator->FullMerge(key, &get_value_slice, operands,
+                                     &new_value, options->info_log.get())) {
           // Failed to merge!
-          RecordTick(options_->statistics.get(), NUMBER_MERGE_FAILURES);
+        RecordTick(options->statistics.get(), NUMBER_MERGE_FAILURES);
 
           // Store the delta in memtable
           perform_merge = false;
       } else {
         // 3) Add value to memtable
-        mem_->Add(sequence_, kTypeValue, key, new_value);
+        mem->Add(sequence_, kTypeValue, key, new_value);
       }
     }
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      mem_->Add(sequence_, kTypeMerge, key, value);
+      mem->Add(sequence_, kTypeMerge, key, value);
     }
 
     sequence_++;
+    return Status::OK();
   }
-  virtual void Delete(const Slice& key) {
-    if (filter_deletes_) {
+
+  virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+    Status seek_status;
+    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+      ++sequence_;
+      return seek_status;
+    }
+    MemTable* mem = cf_mems_->GetMemTable();
+    const Options* options = cf_mems_->GetOptions();
+    if (!dont_filter_deletes_ && options->filter_deletes) {
       SnapshotImpl read_from_snapshot;
       read_from_snapshot.number_ = sequence_;
       ReadOptions ropts;
       ropts.snapshot = &read_from_snapshot;
       std::string value;
-      if (!db_->KeyMayExist(ropts, key, &value)) {
-        RecordTick(options_->statistics.get(), NUMBER_FILTERED_DELETES);
-        return;
+      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+      if (cf_handle == nullptr) {
+        cf_handle = db_->DefaultColumnFamily();
+      }
+      if (!db_->KeyMayExist(ropts, cf_handle, key, &value)) {
+        RecordTick(options->statistics.get(), NUMBER_FILTERED_DELETES);
+        return Status::OK();
       }
     }
-    mem_->Add(sequence_, kTypeDeletion, key, Slice());
+    mem->Add(sequence_, kTypeDeletion, key, Slice());
     sequence_++;
+    return Status::OK();
   }
 };
 }  // namespace
 
-Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* mem,
-                                      const Options* opts, DB* db,
-                                      const bool filter_deletes) {
-  MemTableInserter inserter(WriteBatchInternal::Sequence(b), mem, opts, db,
-                            filter_deletes);
+Status WriteBatchInternal::InsertInto(const WriteBatch* b,
+                                      ColumnFamilyMemTables* memtables,
+                                      bool recovery, uint64_t log_number,
+                                      DB* db, const bool dont_filter_deletes) {
+  MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables,
+                            recovery, log_number, db, dont_filter_deletes);
   return b->Iterate(&inserter);
 }
 

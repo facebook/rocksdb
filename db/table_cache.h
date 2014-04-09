@@ -30,7 +30,7 @@ struct FileMetaData;
 class TableCache {
  public:
   TableCache(const std::string& dbname, const Options* options,
-             const EnvOptions& storage_options, int entries);
+             const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -64,7 +64,7 @@ class TableCache {
                       const Slice& internal_prefix, bool* table_io);
 
   // Evict any entry for the specified file number
-  void Evict(uint64_t file_number);
+  static void Evict(Cache* cache, uint64_t file_number);
 
   // Find table reader
   Status FindTable(const EnvOptions& toptions,
@@ -95,7 +95,7 @@ class TableCache {
   const std::string dbname_;
   const Options* options_;
   const EnvOptions& storage_options_;
-  std::shared_ptr<Cache> cache_;
+  Cache* const cache_;
 };
 
 }  // namespace rocksdb

@@ -16,6 +16,8 @@
 #include <vector>
 #include <string>
 
+class ColumnFamilyData;
+
 namespace rocksdb {
 
 class MemTableList;
@@ -126,7 +128,7 @@ class InternalStats {
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
 
   bool GetProperty(DBPropertyType property_type, const Slice& property,
-                   std::string* value, DBImpl* db);
+                   std::string* value, ColumnFamilyData* cfd);
 
  private:
   std::vector<CompactionStats> compaction_stats_;

@@ -45,6 +45,8 @@ class LookupKey;
 class Slice;
 class SliceTransform;
 
+typedef void* KeyHandle;
+
 class MemTableRep {
  public:
   // KeyComparator provides a means to compare keys, which are internal keys
@@ -62,11 +64,19 @@ class MemTableRep {
     virtual ~KeyComparator() { }
   };
 
+  explicit MemTableRep(Arena* arena) : arena_(arena) {}
+
+  // Allocate a buf of len size for storing key. The idea is that a specific
+  // memtable representation knows its underlying data structure better. By
+  // allowing it to allocate memory, it can possibly put correlated stuff
+  // in consecutive memory area to make processor prefetching more efficient.
+  virtual KeyHandle Allocate(const size_t len, char** buf);
+
   // Insert key into the collection. (The caller will pack key and value into a
-  // single buffer and pass that in as the parameter to Insert)
+  // single buffer and pass that in as the parameter to Insert).
   // REQUIRES: nothing that compares equal to key is currently in the
   // collection.
-  virtual void Insert(const char* key) = 0;
+  virtual void Insert(KeyHandle handle) = 0;
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;
@@ -153,6 +163,8 @@ class MemTableRep {
   // When *key is an internal key concatenated with the value, returns the
   // user key.
   virtual Slice UserKey(const char* key) const;
+
+  Arena* arena_;
 };
 
 // This is the base class for all factories that are used by RocksDB to create

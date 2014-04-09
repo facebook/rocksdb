@@ -8,15 +8,19 @@
 #include <string>
 #include <utility>
 #include "db/db_impl.h"
+#include "db/column_family.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 
 namespace rocksdb {
 
 TailingIterator::TailingIterator(DBImpl* db, const ReadOptions& options,
-                                 const Comparator* comparator)
-    : db_(db), options_(options), comparator_(comparator),
-      version_number_(0), current_(nullptr),
+                                 ColumnFamilyData* cfd)
+    : db_(db),
+      options_(options),
+      cfd_(cfd),
+      version_number_(0),
+      current_(nullptr),
       status_(Status::InvalidArgument("Seek() not called on this iterator")) {}
 
 bool TailingIterator::Valid() const {
@@ -53,10 +57,9 @@ void TailingIterator::Seek(const Slice& target) {
   // 'target' -- in this case, prev_key_ is included in the interval, so
   // prev_inclusive_ has to be set.
 
-  if (!is_prev_set_ ||
-      comparator_->Compare(prev_key_, target) >= !is_prev_inclusive_ ||
-      (immutable_->Valid() &&
-       comparator_->Compare(target, immutable_->key()) > 0) ||
+  const Comparator* cmp = cfd_->user_comparator();
+  if (!is_prev_set_ || cmp->Compare(prev_key_, target) >= !is_prev_inclusive_ ||
+      (immutable_->Valid() && cmp->Compare(target, immutable_->key()) > 0) ||
       (options_.prefix_seek && !IsSamePrefix(target))) {
     SeekImmutable(target);
   }
@@ -121,7 +124,7 @@ void TailingIterator::SeekToLast() {
 
 void TailingIterator::CreateIterators() {
   std::pair<Iterator*, Iterator*> iters =
-    db_->GetTailingIteratorPair(options_, &version_number_);
+      db_->GetTailingIteratorPair(options_, cfd_, &version_number_);
 
   assert(iters.first && iters.second);
 
@@ -137,9 +140,10 @@ void TailingIterator::UpdateCurrent() {
   if (mutable_->Valid()) {
     current_ = mutable_.get();
   }
+  const Comparator* cmp = cfd_->user_comparator();
   if (immutable_->Valid() &&
       (current_ == nullptr ||
-       comparator_->Compare(immutable_->key(), current_->key()) < 0)) {
+       cmp->Compare(immutable_->key(), current_->key()) < 0)) {
     current_ = immutable_.get();
   }
 
@@ -151,11 +155,11 @@ void TailingIterator::UpdateCurrent() {
 
 bool TailingIterator::IsCurrentVersion() const {
   return mutable_ != nullptr && immutable_ != nullptr &&
-    version_number_ == db_->CurrentVersionNumber();
+         version_number_ == cfd_->GetSuperVersionNumber();
 }
 
 bool TailingIterator::IsSamePrefix(const Slice& target) const {
-  const SliceTransform* extractor = db_->options_.prefix_extractor.get();
+  const SliceTransform* extractor = cfd_->options()->prefix_extractor.get();
 
   assert(extractor);
   assert(is_prev_set_);

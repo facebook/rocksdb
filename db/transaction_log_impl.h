@@ -67,7 +67,7 @@ class LogFileImpl : public LogFile {
 class TransactionLogIteratorImpl : public TransactionLogIterator {
  public:
   TransactionLogIteratorImpl(
-      const std::string& dir, const Options* options,
+      const std::string& dir, const DBOptions* options,
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
       std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl);
@@ -82,7 +82,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
  private:
   const std::string& dir_;
-  const Options* options_;
+  const DBOptions* options_;
   const TransactionLogIterator::ReadOptions read_options_;
   const EnvOptions& soptions_;
   SequenceNumber startingSequenceNumber_;

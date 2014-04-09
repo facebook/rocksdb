@@ -13,10 +13,12 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <string>
 
 #include "db/dbformat.h"
 #include "db/log_writer.h"
 #include "db/snapshot.h"
+#include "db/column_family.h"
 #include "db/version_edit.h"
 #include "memtable_list.h"
 #include "port/port.h"
@@ -40,44 +42,79 @@ class CompactionFilterV2;
 
 class DBImpl : public DB {
  public:
-  DBImpl(const Options& options, const std::string& dbname);
+  DBImpl(const DBOptions& options, const std::string& dbname);
   virtual ~DBImpl();
 
   // Implementations of the DB interface
-  virtual Status Put(const WriteOptions&, const Slice& key, const Slice& value);
-  virtual Status Merge(const WriteOptions&, const Slice& key,
+  using DB::Put;
+  virtual Status Put(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& value);
+  using DB::Merge;
+  virtual Status Merge(const WriteOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value);
-  virtual Status Delete(const WriteOptions&, const Slice& key);
+  using DB::Delete;
+  virtual Status Delete(const WriteOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key);
+  using DB::Write;
   virtual Status Write(const WriteOptions& options, WriteBatch* updates);
+  using DB::Get;
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key,
+                     ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value);
-  virtual std::vector<Status> MultiGet(const ReadOptions& options,
-                                       const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values);
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys, std::vector<std::string>* values);
+
+  virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
+                                    const std::string& column_family,
+                                    ColumnFamilyHandle** handle);
+  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
 
   // Returns false if key doesn't exist in the database and true if it may.
   // If value_found is not passed in as null, then return the value if found in
   // memory. On return, if value was found, then value_found will be set to true
   // , otherwise false.
+  using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const Slice& key,
-                           std::string* value,
-                           bool* value_found = nullptr);
-  virtual Iterator* NewIterator(const ReadOptions&);
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value, bool* value_found = nullptr);
+  using DB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family);
+  virtual Status NewIterators(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<Iterator*>* iterators);
   virtual const Snapshot* GetSnapshot();
   virtual void ReleaseSnapshot(const Snapshot* snapshot);
-  virtual bool GetProperty(const Slice& property, std::string* value);
-  virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes);
-  virtual Status CompactRange(const Slice* begin, const Slice* end,
+  using DB::GetProperty;
+  virtual bool GetProperty(ColumnFamilyHandle* column_family,
+                           const Slice& property, std::string* value);
+  using DB::GetApproximateSizes;
+  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                   const Range* range, int n, uint64_t* sizes);
+  using DB::CompactRange;
+  virtual Status CompactRange(ColumnFamilyHandle* column_family,
+                              const Slice* begin, const Slice* end,
                               bool reduce_level = false, int target_level = -1);
-  virtual int NumberLevels();
-  virtual int MaxMemCompactionLevel();
-  virtual int Level0StopWriteTrigger();
+
+  using DB::NumberLevels;
+  virtual int NumberLevels(ColumnFamilyHandle* column_family);
+  using DB::MaxMemCompactionLevel;
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family);
+  using DB::Level0StopWriteTrigger;
+  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family);
   virtual const std::string& GetName() const;
   virtual Env* GetEnv() const;
-  virtual const Options& GetOptions() const;
-  virtual Status Flush(const FlushOptions& options);
+  using DB::GetOptions;
+  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const;
+  using DB::Flush;
+  virtual Status Flush(const FlushOptions& options,
+                       ColumnFamilyHandle* column_family);
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions(bool force);
   // All the returned filenames start with "/"
@@ -92,8 +129,7 @@ class DBImpl : public DB {
           read_options = TransactionLogIterator::ReadOptions());
   virtual Status DeleteFile(std::string name);
 
-  virtual void GetLiveFilesMetaData(
-    std::vector<LiveFileMetaData> *metadata);
+  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   // checks if all live files exist on file system and that their file sizes
   // match to our in-memory records
@@ -101,23 +137,21 @@ class DBImpl : public DB {
 
   virtual Status GetDbIdentity(std::string& identity);
 
-  Status RunManualCompaction(int input_level,
-                             int output_level,
-                             const Slice* begin,
+  Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
+                             int output_level, const Slice* begin,
                              const Slice* end);
 
   // Extra methods (for testing) that are not in the public DB interface
 
   // Compact any files in the named level that overlap [*begin, *end]
-  Status TEST_CompactRange(int level,
-                           const Slice* begin,
-                           const Slice* end);
+  Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
+                           ColumnFamilyHandle* column_family = nullptr);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true);
 
   // Wait for memtable compaction
-  Status TEST_WaitForFlushMemTable();
+  Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
 
   // Wait for any compaction
   Status TEST_WaitForCompact();
@@ -125,14 +159,13 @@ class DBImpl : public DB {
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
-  Iterator* TEST_NewInternalIterator();
+  Iterator* TEST_NewInternalIterator(ColumnFamilyHandle* column_family =
+                                         nullptr);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
-  int64_t TEST_MaxNextLevelOverlappingBytes();
-
-  // Simulate a db crash, no elegant closing of database.
-  void TEST_Destroy_DBImpl();
+  int64_t TEST_MaxNextLevelOverlappingBytes(ColumnFamilyHandle* column_family =
+                                                nullptr);
 
   // Return the current manifest file no.
   uint64_t TEST_Current_Manifest_FileNo();
@@ -148,61 +181,8 @@ class DBImpl : public DB {
     default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
   }
 
-  void TEST_GetFilesMetaData(std::vector<std::vector<FileMetaData>>* metadata);
-
-  // holds references to memtable, all immutable memtables and version
-  struct SuperVersion {
-    MemTable* mem;
-    MemTableListVersion* imm;
-    Version* current;
-    std::atomic<uint32_t> refs;
-    // We need to_delete because during Cleanup(), imm->Unref() returns
-    // all memtables that we need to free through this vector. We then
-    // delete all those memtables outside of mutex, during destruction
-    autovector<MemTable*> to_delete;
-    // Version number of the current SuperVersion
-    uint64_t version_number;
-    DBImpl* db;
-
-    // should be called outside the mutex
-    SuperVersion() = default;
-    ~SuperVersion();
-    SuperVersion* Ref();
-    // Returns true if this was the last reference and caller should
-    // call Clenaup() and delete the object
-    bool Unref();
-
-    // call these two methods with db mutex held
-    // Cleanup unrefs mem, imm and current. Also, it stores all memtables
-    // that needs to be deleted in to_delete vector. Unrefing those
-    // objects needs to be done in the mutex
-    void Cleanup();
-    void Init(MemTable* new_mem, MemTableListVersion* new_imm,
-              Version* new_current);
-
-    // The value of dummy is not actually used. kSVInUse takes its address as a
-    // mark in the thread local storage to indicate the SuperVersion is in use
-    // by thread. This way, the value of kSVInUse is guaranteed to have no
-    // conflict with SuperVersion object address and portable on different
-    // platform.
-    static int dummy;
-    static void* const kSVInUse;
-    static void* const kSVObsolete;
-  };
-
-  static void SuperVersionUnrefHandle(void* ptr) {
-    // UnrefHandle is called when a thread exists or a ThreadLocalPtr gets
-    // destroyed. When former happens, the thread shouldn't see kSVInUse.
-    // When latter happens, we are in ~DBImpl(), no get should happen as well.
-    assert(ptr != SuperVersion::kSVInUse);
-    DBImpl::SuperVersion* sv = static_cast<DBImpl::SuperVersion*>(ptr);
-    if (sv->Unref()) {
-      sv->db->mutex_.Lock();
-      sv->Cleanup();
-      sv->db->mutex_.Unlock();
-      delete sv;
-    }
-  }
+  void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
+                             std::vector<std::vector<FileMetaData>>* metadata);
 
   // needed for CleanupIteratorState
   struct DeletionState {
@@ -231,7 +211,7 @@ class DBImpl : public DB {
 
     autovector<SuperVersion*> superversions_to_free;
 
-    SuperVersion* new_superversion; // if nullptr no new superversion
+    SuperVersion* new_superversion;  // if nullptr no new superversion
 
     // the current manifest_file_number, log_number and prev_log_number
     // that corresponds to the set of files in 'live'.
@@ -243,8 +223,7 @@ class DBImpl : public DB {
       pending_manifest_file_number = 0;
       log_number = 0;
       prev_log_number = 0;
-      new_superversion =
-          create_superversion ? new SuperVersion() : nullptr;
+      new_superversion = create_superversion ? new SuperVersion() : nullptr;
     }
 
     ~DeletionState() {
@@ -277,23 +256,16 @@ class DBImpl : public DB {
   // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(DeletionState& deletion_state);
 
+  ColumnFamilyHandle* DefaultColumnFamily() const;
+
  protected:
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
-  const InternalKeyComparator internal_comparator_;
-  const Options options_;  // options_.comparator == &internal_comparator_
+  const DBOptions options_;
 
-  const Comparator* user_comparator() const {
-    return internal_comparator_.user_comparator();
-  }
-
-  SuperVersion* GetSuperVersion() {
-    return super_version_;
-  }
-
-  Iterator* NewInternalIterator(const ReadOptions&,
-                                SequenceNumber* latest_snapshot);
+  Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
+                                SuperVersion* super_version);
 
  private:
   friend class DB;
@@ -306,8 +278,10 @@ class DBImpl : public DB {
   Status NewDB();
 
   // Recover the descriptor from persistent storage.  May do a significant
-  // amount of work to recover recently logged updates.
-  Status Recover(bool read_only = false, bool error_if_log_file_exist = false);
+  // amount of work to recover recently logged updates.  Any changes to
+  // be made to the descriptor are added to *edit.
+  Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
+                 bool read_only = false, bool error_if_log_file_exist = false);
 
   void MaybeIgnoreError(Status* s) const;
 
@@ -318,7 +292,7 @@ class DBImpl : public DB {
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status FlushMemTableToOutputFile(bool* madeProgress,
+  Status FlushMemTableToOutputFile(ColumnFamilyData* cfd, bool* madeProgress,
                                    DeletionState& deletion_state,
                                    LogBuffer* log_buffer);
 
@@ -330,25 +304,26 @@ class DBImpl : public DB {
   // database is opened) and is heavyweight because it holds the mutex
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.
-  Status WriteLevel0TableForRecovery(MemTable* mem, VersionEdit* edit);
-  Status WriteLevel0Table(autovector<MemTable*>& mems, VersionEdit* edit,
-                          uint64_t* filenumber,
+  Status WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
+                                     VersionEdit* edit);
+  Status WriteLevel0Table(ColumnFamilyData* cfd, autovector<MemTable*>& mems,
+                          VersionEdit* edit, uint64_t* filenumber,
                           LogBuffer* log_buffer);
 
   uint64_t SlowdownAmount(int n, double bottom, double top);
-  // MakeRoomForWrite will return superversion_to_free through an arugment,
-  // which the caller needs to delete. We do it because caller can delete
-  // the superversion outside of mutex
-  Status MakeRoomForWrite(bool force /* compact even if there is room? */,
-                          SuperVersion** superversion_to_free);
+
+  // TODO(icanadi) free superversion_to_free and old_log outside of mutex
+  Status MakeRoomForWrite(ColumnFamilyData* cfd,
+                          bool force /* flush even if there is room? */);
+
   void BuildBatchGroup(Writer** last_writer,
                        autovector<WriteBatch*>* write_batch_group);
 
   // Force current memtable contents to be flushed.
-  Status FlushMemTable(const FlushOptions& options);
+  Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options);
 
   // Wait for memtable flushed
-  Status WaitForFlushMemTable();
+  Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
   void MaybeScheduleLogDBDeployStats();
   static void BGLogDBDeployStats(void* db);
@@ -367,6 +342,13 @@ class DBImpl : public DB {
   Status DoCompactionWork(CompactionState* compact,
                           DeletionState& deletion_state,
                           LogBuffer* log_buffer);
+
+  // This function is called as part of compaction. It enables Flush process to
+  // preempt compaction, since it's higher prioirty
+  // Returns: micros spent executing
+  uint64_t CallFlushDuringCompaction(ColumnFamilyData* cfd,
+                                     DeletionState& deletion_state,
+                                     LogBuffer* log_buffer);
 
   // Call compaction filter if is_compaction_v2 is not true. Then iterate
   // through input and compact the kv-pairs
@@ -388,15 +370,16 @@ class DBImpl : public DB {
 
   Status OpenCompactionOutputFile(CompactionState* compact);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
-  Status InstallCompactionResults(CompactionState* compact);
+  Status InstallCompactionResults(CompactionState* compact,
+                                  LogBuffer* log_buffer);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
   void PurgeObsoleteWALFiles();
 
-  Status AppendSortedWalsOfType(const std::string& path,
-                                VectorLogPtr& log_files,
-                                WalFileType type);
+  Status GetSortedWalsOfType(const std::string& path,
+                             VectorLogPtr& log_files,
+                             WalFileType type);
 
   // Requires: all_logs should be sorted with earliest log file first
   // Retains all log files in all_logs which contain updates with seq no.
@@ -419,30 +402,23 @@ class DBImpl : public DB {
 
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
-  int FindMinimumEmptyLevelFitting(int level);
+  int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd, int level);
 
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
   // hold the data set.
-  Status ReFitLevel(int level, int target_level = -1);
-
-  // Returns the current SuperVersion number.
-  uint64_t CurrentVersionNumber() const;
+  Status ReFitLevel(ColumnFamilyData* cfd, int level, int target_level = -1);
 
   // Returns a pair of iterators (mutable-only and immutable-only) used
-  // internally by TailingIterator and stores CurrentVersionNumber() in
+  // internally by TailingIterator and stores cfd->GetSuperVersionNumber() in
   // *superversion_number. These iterators are always up-to-date, i.e. can
   // be used to read new data.
   std::pair<Iterator*, Iterator*> GetTailingIteratorPair(
-    const ReadOptions& options,
-    uint64_t* superversion_number);
-
-  // Constant after construction
-  const InternalFilterPolicy internal_filter_policy_;
-  bool owns_info_log_;
+      const ReadOptions& options, ColumnFamilyData* cfd,
+      uint64_t* superversion_number);
 
   // table_cache_ provides its own synchronization
-  unique_ptr<TableCache> table_cache_;
+  std::shared_ptr<Cache> table_cache_;
 
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
@@ -451,20 +427,11 @@ class DBImpl : public DB {
   port::Mutex mutex_;
   port::AtomicPointer shutting_down_;
   port::CondVar bg_cv_;          // Signalled when background work finishes
-  MemTable* mem_;
-  MemTableList imm_;             // Memtable that are not changing
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
-
-  SuperVersion* super_version_;
-
-  // An ordinal representing the current SuperVersion. Updated by
-  // InstallSuperVersion(), i.e. incremented every time super_version_
-  // changes.
-  std::atomic<uint64_t> super_version_number_;
-  // Thread's local copy of SuperVersion pointer
-  // This needs to be destructed after mutex_
-  ThreadLocalPtr* local_sv_;
+  ColumnFamilyHandleImpl* default_cf_handle_;
+  unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
+  std::deque<uint64_t> alive_log_files_;
 
   std::string host_name_;
 
@@ -500,6 +467,7 @@ class DBImpl : public DB {
 
   // Information for a manual compaction
   struct ManualCompaction {
+    ColumnFamilyData* cfd;
     int input_level;
     int output_level;
     bool done;
@@ -541,8 +509,6 @@ class DBImpl : public DB {
 
   bool flush_on_destroy_; // Used when disableWAL is true.
 
-  InternalStats internal_stats_;
-
   static const int KEEP_LOG_FILE_NUM = 1000;
   std::string db_absolute_path_;
 
@@ -575,28 +541,21 @@ class DBImpl : public DB {
     std::vector<SequenceNumber>& snapshots,
     SequenceNumber* prev_snapshot);
 
-  // will return a pointer to SuperVersion* if previous SuperVersion
-  // if its reference count is zero and needs deletion or nullptr if not
-  // As argument takes a pointer to allocated SuperVersion
-  // Foreground threads call this function directly (they don't carry
-  // deletion state and have to handle their own creation and deletion
-  // of SuperVersion)
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion);
   // Background threads call this function, which is just a wrapper around
-  // the InstallSuperVersion() function above. Background threads carry
+  // the cfd->InstallSuperVersion() function. Background threads carry
   // deletion_state which can have new_superversion already allocated.
-  void InstallSuperVersion(DeletionState& deletion_state);
+  void InstallSuperVersion(ColumnFamilyData* cfd,
+                           DeletionState& deletion_state);
 
-  void ResetThreadLocalSuperVersions(DeletionState* deletion_state);
-
-  virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props)
+  using DB::GetPropertiesOfAllTables;
+  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
+                                          TablePropertiesCollection* props)
       override;
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
-  Status GetImpl(const ReadOptions& options,
-                 const Slice& key,
-                 std::string* value,
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, std::string* value,
                  bool* value_found = nullptr);
 };
 
@@ -606,7 +565,7 @@ extern Options SanitizeOptions(const std::string& db,
                                const InternalKeyComparator* icmp,
                                const InternalFilterPolicy* ipolicy,
                                const Options& src);
-
+extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 
 // Determine compression type, based on user options, level of the output
 // file and whether compression is disabled.

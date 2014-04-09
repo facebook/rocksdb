@@ -12,6 +12,7 @@
 #include "db/compaction.h"
 #include "rocksdb/status.h"
 #include "rocksdb/options.h"
+#include "rocksdb/env.h"
 
 #include <vector>
 #include <memory>
@@ -118,6 +119,7 @@ class CompactionPicker {
   std::unique_ptr<uint64_t[]> level_max_bytes_;
 
   const Options* const options_;
+
  private:
   int num_levels_;
 

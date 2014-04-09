@@ -67,6 +67,9 @@ libraries. You are on your own.
     * Please note that some of the optimizations/features are disabled in OSX.
     We did not run any production workloads on it.
 
+* **iOS**:
+  * Run: `TARGET_OS=IOS make static_lib`
+
 ## Compilation
 `make clean; make` will compile librocksdb.a (RocksDB static library) and all
 the unit tests. You can run all unit tests with `make check`.

@@ -7,8 +7,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/internal_stats.h"
-#include "db/db_impl.h"
-#include "db/memtable_list.h"
+#include "db/column_family.h"
 
 #include <vector>
 
@@ -44,10 +43,8 @@ DBPropertyType GetPropertyType(const Slice& property) {
 
 bool InternalStats::GetProperty(DBPropertyType property_type,
                                 const Slice& property, std::string* value,
-                                DBImpl* db) {
-  VersionSet* version_set = db->versions_.get();
-  Version* current = version_set->current();
-  const MemTableList& imm = db->imm_;
+                                ColumnFamilyData* cfd) {
+  Version* current = cfd->current();
   Slice in = property;
 
   switch (property_type) {
@@ -110,7 +107,6 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
         write_with_wal = statistics_->getTickerCount(WRITE_WITH_WAL);
       }
 
-      // Pardon the long line but I think it is easier to read this way.
       snprintf(
           buf, sizeof(buf),
           "                               Compactions\n"
@@ -159,7 +155,7 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
                    "%9lu\n",
                    level, files, current->NumLevelBytes(level) / 1048576.0,
                    current->NumLevelBytes(level) /
-                       version_set->MaxBytesForLevel(level),
+                       cfd->compaction_picker()->MaxBytesForLevel(level),
                    compaction_stats_[level].micros / 1e6,
                    bytes_read / 1048576.0,
                    compaction_stats_[level].bytes_written / 1048576.0,
@@ -334,11 +330,11 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       *value = current->DebugString();
       return true;
     case kNumImmutableMemTable:
-      *value = std::to_string(imm.size());
+      *value = std::to_string(cfd->imm()->size());
       return true;
     case kMemtableFlushPending:
       // Return number of mem tables that are ready to flush (made immutable)
-      *value = std::to_string(imm.IsFlushPending() ? 1 : 0);
+      *value = std::to_string(cfd->imm()->IsFlushPending() ? 1 : 0);
       return true;
     case kCompactionPending:
       // 1 if the system already determines at least one compacdtion is needed.
@@ -351,7 +347,7 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       return true;
     case kCurSizeActiveMemTable:
       // Current size of the active memtable
-      *value = std::to_string(db->mem_->ApproximateMemoryUsage());
+      *value = std::to_string(cfd->mem()->ApproximateMemoryUsage());
       return true;
     default:
       return false;

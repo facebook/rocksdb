@@ -11,6 +11,7 @@
 #include "db/filename.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/cache.h"
 #include "util/coding.h"
 
 #include <ctime>
@@ -152,6 +153,8 @@ LDBCommand* LDBCommand::SelectCommand(
     return new DBLoaderCommand(cmdParams, option_map, flags);
   } else if (cmd == ManifestDumpCommand::Name()) {
     return new ManifestDumpCommand(cmdParams, option_map, flags);
+  } else if (cmd == ListColumnFamiliesCommand::Name()) {
+    return new ListColumnFamiliesCommand(cmdParams, option_map, flags);
   } else if (cmd == InternalDumpCommand::Name()) {
     return new InternalDumpCommand(cmdParams, option_map, flags);
   } else if (cmd == CheckConsistencyCommand::Name()) {
@@ -540,11 +543,10 @@ void ManifestDumpCommand::DoCommand() {
   EnvOptions sopt;
   std::string file(manifestfile);
   std::string dbname("dummy");
-  TableCache* tc = new TableCache(dbname, &options, sopt, 10);
-  const InternalKeyComparator* cmp =
-    new InternalKeyComparator(options.comparator);
-
-  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc, cmp);
+  std::shared_ptr<Cache> tc(NewLRUCache(
+      options.max_open_files - 10, options.table_cache_numshardbits,
+      options.table_cache_remove_scan_count_limit));
+  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc.get());
   Status s = versions->DumpManifest(options, file, verbose_, is_key_hex_);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
@@ -552,6 +554,48 @@ void ManifestDumpCommand::DoCommand() {
   }
   if (verbose_) {
     printf("Processing Manifest file %s done\n", manifestfile.c_str());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+void ListColumnFamiliesCommand::Help(string& ret) {
+  ret.append("  ");
+  ret.append(ListColumnFamiliesCommand::Name());
+  ret.append(" full_path_to_db_directory ");
+  ret.append("\n");
+}
+
+ListColumnFamiliesCommand::ListColumnFamiliesCommand(
+    const vector<string>& params, const map<string, string>& options,
+    const vector<string>& flags)
+    : LDBCommand(options, flags, false, {}) {
+
+  if (params.size() != 1) {
+    exec_state_ = LDBCommandExecuteResult::FAILED(
+        "dbname must be specified for the list_column_families command");
+  } else {
+    dbname_ = params[0];
+  }
+}
+
+void ListColumnFamiliesCommand::DoCommand() {
+  vector<string> column_families;
+  Status s = DB::ListColumnFamilies(DBOptions(), dbname_, &column_families);
+  if (!s.ok()) {
+    printf("Error in processing db %s %s\n", dbname_.c_str(),
+           s.ToString().c_str());
+  } else {
+    printf("Column families in %s: \n{", dbname_.c_str());
+    bool first = true;
+    for (auto cf : column_families) {
+      if (!first) {
+        printf(", ");
+      }
+      first = false;
+      printf("%s", cf.c_str());
+    }
+    printf("}\n");
   }
 }
 
@@ -1018,19 +1062,26 @@ Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
     int* levels) {
   EnvOptions soptions;
-  TableCache tc(db_path_, &opt, soptions, 10);
+  std::shared_ptr<Cache> tc(
+      NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits,
+                  opt.table_cache_remove_scan_count_limit));
   const InternalKeyComparator cmp(opt.comparator);
-  VersionSet versions(db_path_, &opt, soptions, &tc, &cmp);
+  VersionSet versions(db_path_, &opt, soptions, tc.get());
+  std::vector<ColumnFamilyDescriptor> dummy;
+  ColumnFamilyDescriptor dummy_descriptor(default_column_family_name,
+                                          ColumnFamilyOptions(opt));
+  dummy.push_back(dummy_descriptor);
   // We rely the VersionSet::Recover to tell us the internal data structures
   // in the db. And the Recover() should never do any change
   // (like LogAndApply) to the manifest file.
-  Status st = versions.Recover();
+  Status st = versions.Recover(dummy);
   if (!st.ok()) {
     return st;
   }
   int max = -1;
-  for (int i = 0; i < versions.NumberLevels(); i++) {
-    if (versions.current()->NumLevelFiles(i)) {
+  auto default_cfd = versions.GetColumnFamilySet()->GetDefault();
+  for (int i = 0; i < default_cfd->NumberLevels(); i++) {
+    if (default_cfd->current()->NumLevelFiles(i)) {
       max = i;
     }
   }
@@ -1075,7 +1126,6 @@ void ReduceDBLevelsCommand::DoCommand() {
   CloseDB();
 
   EnvOptions soptions;
-
   st = VersionSet::ReduceNumberOfLevels(db_path_, &opt, soptions, new_levels_);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED(st.ToString());

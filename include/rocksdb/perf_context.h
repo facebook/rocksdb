@@ -64,7 +64,11 @@ struct PerfContext {
   uint64_t write_memtable_time;
 };
 
+#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+extern PerfContext perf_context;
+#else
 extern __thread PerfContext perf_context;
+#endif
 
 }
 

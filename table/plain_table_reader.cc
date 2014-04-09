@@ -81,10 +81,9 @@ class PlainTableIterator : public Iterator {
   bool use_prefix_seek_;
   uint32_t offset_;
   uint32_t next_offset_;
-  Slice key_;
+  IterKey key_;
   Slice value_;
   Status status_;
-  std::string tmp_str_;
   // No copying allowed
   PlainTableIterator(const PlainTableIterator&) = delete;
   void operator=(const Iterator&) = delete;
@@ -720,9 +719,7 @@ void PlainTableIterator::Next() {
     status_ = table_->Next(&next_offset_, &parsed_key, &value_);
     if (status_.ok()) {
       // Make a copy in this case. TODO optimize.
-      tmp_str_.clear();
-      AppendInternalKey(&tmp_str_, parsed_key);
-      key_ = Slice(tmp_str_);
+      key_.SetInternalKey(parsed_key);
     } else {
       offset_ = next_offset_ = table_->data_end_offset_;
     }
@@ -735,7 +732,7 @@ void PlainTableIterator::Prev() {
 
 Slice PlainTableIterator::key() const {
   assert(Valid());
-  return key_;
+  return key_.GetKey();
 }
 
 Slice PlainTableIterator::value() const {

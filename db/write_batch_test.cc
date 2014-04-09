@@ -11,6 +11,7 @@
 
 #include <memory>
 #include "db/memtable.h"
+#include "db/column_family.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -27,7 +28,8 @@ static std::string PrintContents(WriteBatch* b) {
   MemTable* mem = new MemTable(cmp, options);
   mem->Ref();
   std::string state;
-  Status s = WriteBatchInternal::InsertInto(b, mem, &options);
+  ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
+  Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
   Iterator* iter = mem->NewIterator();
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -144,17 +146,37 @@ TEST(WriteBatchTest, Append) {
 namespace {
   struct TestHandler : public WriteBatch::Handler {
     std::string seen;
-    virtual void Put(const Slice& key, const Slice& value) {
-      seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) {
+      if (column_family_id == 0) {
+        seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
+      } else {
+        seen += "PutCF(" + std::to_string(column_family_id) + ", " +
+                key.ToString() + ", " + value.ToString() + ")";
+      }
+      return Status::OK();
     }
-    virtual void Merge(const Slice& key, const Slice& value) {
-      seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
+      if (column_family_id == 0) {
+        seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
+      } else {
+        seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
+                key.ToString() + ", " + value.ToString() + ")";
+      }
+      return Status::OK();
     }
     virtual void LogData(const Slice& blob) {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    virtual void Delete(const Slice& key) {
-      seen += "Delete(" + key.ToString() + ")";
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+      if (column_family_id == 0) {
+        seen += "Delete(" + key.ToString() + ")";
+      } else {
+        seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
+                key.ToString() + ")";
+      }
+      return Status::OK();
     }
   };
 }
@@ -194,21 +216,23 @@ TEST(WriteBatchTest, Continue) {
 
   struct Handler : public TestHandler {
     int num_seen = 0;
-    virtual void Put(const Slice& key, const Slice& value) {
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) {
       ++num_seen;
-      TestHandler::Put(key, value);
+      return TestHandler::PutCF(column_family_id, key, value);
     }
-    virtual void Merge(const Slice& key, const Slice& value) {
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
       ++num_seen;
-      TestHandler::Merge(key, value);
+      return TestHandler::MergeCF(column_family_id, key, value);
     }
     virtual void LogData(const Slice& blob) {
       ++num_seen;
       TestHandler::LogData(blob);
     }
-    virtual void Delete(const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       ++num_seen;
-      TestHandler::Delete(key);
+      return TestHandler::DeleteCF(column_family_id, key);
     }
     virtual bool Continue() override {
       return num_seen < 3;
@@ -254,6 +278,42 @@ TEST(WriteBatchTest, PutGatherSlices) {
             "Put(keypart2part3, value)@102",
             PrintContents(&batch));
   ASSERT_EQ(3, batch.Count());
+}
+
+namespace {
+class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
+ public:
+  ColumnFamilyHandleImplDummy(int id)
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
+  uint32_t GetID() const override { return id_; }
+
+ private:
+  uint32_t id_;
+};
+}  // namespace anonymous
+
+TEST(WriteBatchTest, ColumnFamiliesBatchTest) {
+  WriteBatch batch;
+  ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
+  batch.Put(&zero, Slice("foo"), Slice("bar"));
+  batch.Put(&two, Slice("twofoo"), Slice("bar2"));
+  batch.Put(&eight, Slice("eightfoo"), Slice("bar8"));
+  batch.Delete(&eight, Slice("eightfoo"));
+  batch.Merge(&three, Slice("threethree"), Slice("3three"));
+  batch.Put(&zero, Slice("foo"), Slice("bar"));
+  batch.Merge(Slice("omom"), Slice("nom"));
+
+  TestHandler handler;
+  batch.Iterate(&handler);
+  ASSERT_EQ(
+      "Put(foo, bar)"
+      "PutCF(2, twofoo, bar2)"
+      "PutCF(8, eightfoo, bar8)"
+      "DeleteCF(8, eightfoo)"
+      "MergeCF(3, threethree, 3three)"
+      "Put(foo, bar)"
+      "Merge(omom, nom)",
+      handler.seen);
 }
 
 }  // namespace rocksdb

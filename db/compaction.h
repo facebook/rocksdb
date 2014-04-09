@@ -13,6 +13,7 @@
 namespace rocksdb {
 
 class Version;
+class ColumnFamilyData;
 
 // A Compaction encapsulates information about a compaction.
 class Compaction {
@@ -35,6 +36,8 @@ class Compaction {
 
   // Returns input version of the compaction
   Version* input_version() const { return input_version_; }
+
+  ColumnFamilyData* column_family_data() const { return cfd_; }
 
   // Return the ith input file at "level()+which" ("which" must be 0 or 1).
   FileMetaData* input(int which, int i) const { return inputs_[which][i]; }
@@ -67,6 +70,10 @@ class Compaction {
   // is successful.
   void ReleaseInputs();
 
+  // Clear all files to indicate that they are not being compacted
+  // Delete this compaction from the list of running compactions.
+  void ReleaseCompactionFiles(Status status);
+
   void Summary(char* output, int len);
 
   // Return the score that was used to pick this compaction run.
@@ -97,6 +104,7 @@ class Compaction {
   Version* input_version_;
   VersionEdit* edit_;
   int number_levels_;
+  ColumnFamilyData* cfd_;
 
   bool seek_compaction_;
   bool enable_compression_;

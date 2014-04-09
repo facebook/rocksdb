@@ -35,7 +35,7 @@ class GeoDBTest {
   }
 };
 
-const std::string GeoDBTest::kDefaultDbName = "/tmp/geodefault/";
+const std::string GeoDBTest::kDefaultDbName = "/tmp/geodefault";
 Options GeoDBTest::options = Options();
 
 // Insert, Get and Remove
@@ -106,14 +106,14 @@ TEST(GeoDBTest, Search) {
   std::vector<GeoObject> values;
   status = getdb()->SearchRadial(GeoPosition(46, 46), 200000, &values);
   ASSERT_TRUE(status.ok());
-  ASSERT_EQ(values.size(), 1);
+  ASSERT_EQ(values.size(), 1U);
 
   // search all objects centered at 46 degree latitude with
   // a radius of 2 kilometers. There should be none.
   values.clear();
   status = getdb()->SearchRadial(GeoPosition(46, 46), 2, &values);
   ASSERT_TRUE(status.ok());
-  ASSERT_EQ(values.size(), 0);
+  ASSERT_EQ(values.size(), 0U);
 }
 
 }  // namespace rocksdb

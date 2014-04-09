@@ -1,11 +1,15 @@
 # Rocksdb Change Log
 
-## Unreleased
+## Unreleased (will be released in 3.0)
+* Column family support
 
 ### Public API changes
 
+## 2.8.0 (04/04/2014)
+
 * Removed arena.h from public header files.
 * By default, checksums are verified on every read from database
+* Change default value of several options, including: paranoid_checks=true, max_open_files=5000, level0_slowdown_writes_trigger=20, level0_stop_writes_trigger=24, disable_seek_compaction=true, max_background_flushes=1 and allow_mmap_writes=false
 * Added is_manual_compaction to CompactionFilter::Context
 * Added "virtual void WaitForJoin()" in class Env. Default operation is no-op.
 * Removed BackupEngine::DeleteBackupsNewerThan() function
@@ -15,11 +19,18 @@
 * Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
 * Added a command "checkconsistency" in ldb tool, which checks
   if file system state matches DB state (file existence and file sizes)
+* Separate options related to block based table to a new struct BlockBasedTableOptions
+* WriteBatch has a new function Count() to return total size in the batch, and Data() now returns a reference instead of a copy
+* Add more counters to perf context.
+* Supports several more DB properties: compaction-pending, background-errors and cur-size-active-mem-table.
 
 ### New Features
 * If we find one truncated record at the end of the MANIFEST or WAL files,
   we will ignore it. We assume that writers of these records were interrupted
   and that we can safely ignore it.
+* A new SST format "PlainTable" is added, which is optimized for memory-only workloads. It can be created through NewPlainTableFactory() or NewTotalOrderPlainTableFactory().
+* A new mem table implementation hash linked list optimizing for the case that there are only few keys for each prefix, which can be created through NewHashLinkListRepFactory().
+* Merge operator supports a new function PartialMergeMulti() to allow users to do partial merges against multiple operands.
 * Now compaction filter has a V2 interface. It buffers the kv-pairs sharing the same key prefix, process them in batches, and return the batched results back to DB. The new interface uses a new structure CompactionFilterContext for the same purpose as CompactionFilter::Context in V1.
 * Geo-spatial support for locations and radial-search.
 

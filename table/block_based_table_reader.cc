@@ -45,7 +45,9 @@ namespace {
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
 // varints.
-const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
+// For some reason, compiling for iOS complains that this variable is unused
+const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
+    kMaxVarint64Length * 3 + 1;
 
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
@@ -105,7 +107,7 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                  Statistics* statistics) {
   auto cache_handle = block_cache->Lookup(key);
   if (cache_handle != nullptr) {
-    BumpPerfCount(&perf_context.block_cache_hit_count);
+    PERF_COUNTER_ADD(block_cache_hit_count, 1);
     // overall cache hit
     RecordTick(statistics, BLOCK_CACHE_HIT);
     // block-type specific cache hit

@@ -88,6 +88,7 @@ def main(argv):
             --open_files=500000
             --verify_checksum=1
             --sync=0
+            --progress_reports=0
             --disable_wal=0
             --disable_data_sync=1
             --target_file_size_base=2097152

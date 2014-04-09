@@ -277,14 +277,10 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
         Log(options_->info_log,
             "Expanding@%lu %lu+%lu (%lu+%lu bytes) to %lu+%lu (%lu+%lu bytes)"
             "\n",
-            (unsigned long)level,
-            (unsigned long)(c->inputs_[0].size()),
-            (unsigned long)(c->inputs_[1].size()),
-            (unsigned long)inputs0_size,
-            (unsigned long)inputs1_size,
-            (unsigned long)(expanded0.size()),
-            (unsigned long)(expanded1.size()),
-            (unsigned long)expanded0_size,
+            (unsigned long)level, (unsigned long)(c->inputs_[0].size()),
+            (unsigned long)(c->inputs_[1].size()), (unsigned long)inputs0_size,
+            (unsigned long)inputs1_size, (unsigned long)(expanded0.size()),
+            (unsigned long)(expanded1.size()), (unsigned long)expanded0_size,
             (unsigned long)inputs1_size);
         smallest = new_start;
         largest = new_limit;
@@ -587,7 +583,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
                                options_->level0_file_num_compaction_trigger;
       if ((c = PickCompactionUniversalReadAmp(
                version, score, UINT_MAX, num_files, log_buffer)) != nullptr) {
-        Log(options_->info_log, "Universal: compacting for file num\n");
+        LogToBuffer(log_buffer, "Universal: compacting for file num\n");
       }
     }
   }
@@ -653,7 +649,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   FileMetaData* f = nullptr;
   bool done = false;
   int start_index = 0;
-  unsigned int candidate_count;
+  unsigned int candidate_count = 0;
   assert(file_by_time.size() == version->files_[level].size());
 
   unsigned int max_files_to_compact = std::min(max_merge_width,

@@ -16,6 +16,7 @@
 
 #include "util/autovector.h"
 #include "port/port_posix.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 

@@ -13,13 +13,13 @@ class SkipListRep : public MemTableRep {
   SkipList<const char*, const MemTableRep::KeyComparator&> skip_list_;
 public:
   explicit SkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena)
-    : skip_list_(compare, arena) {
+    : MemTableRep(arena), skip_list_(compare, arena) {
   }
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual void Insert(const char* key) override {
-    skip_list_.Insert(key);
+  virtual void Insert(KeyHandle handle) override {
+    skip_list_.Insert(static_cast<char*>(handle));
   }
 
   // Returns true iff an entry that compares equal to key is in the list.

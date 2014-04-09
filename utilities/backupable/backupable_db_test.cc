@@ -44,7 +44,9 @@ class DummyDB : public StackableDB {
     return options_.env;
   }
 
-  virtual const Options& GetOptions() const override {
+  using DB::GetOptions;
+  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
+      override {
     return options_;
   }
 
@@ -66,6 +68,10 @@ class DummyDB : public StackableDB {
     vec = live_files_;
     *mfs = 100;
     return Status::OK();
+  }
+
+  virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
+    return nullptr;
   }
 
   class DummyLogFile : public LogFile {
@@ -345,7 +351,7 @@ class BackupableDBTest {
     options_.wal_dir = dbname_;
     // set up backup db options
     CreateLoggerFromOptions(dbname_, backupdir_, env_,
-                            Options(), &logger_);
+                            DBOptions(), &logger_);
     backupable_options_.reset(new BackupableDBOptions(
         backupdir_, test_backup_env_.get(), true, logger_.get(), true));
 
@@ -422,6 +428,19 @@ class BackupableDBTest {
     delete db;
     if (opened_restore) {
       CloseRestoreDB();
+    }
+  }
+
+  void DeleteLogFiles() {
+    std::vector<std::string> delete_logs;
+    env_->GetChildren(dbname_, &delete_logs);
+    for (auto f : delete_logs) {
+      uint64_t number;
+      FileType type;
+      bool ok = ParseFileName(f, &number, &type);
+      if (ok && type == kLogFile) {
+        env_->DeleteFile(dbname_ + "/" + f);
+      }
     }
   }
 
@@ -721,10 +740,11 @@ TEST(BackupableDBTest, FailOverwritingBackups) {
   // create backups 1, 2, 3, 4, 5
   OpenBackupableDB(true);
   for (int i = 0; i < 5; ++i) {
+    CloseBackupableDB();
+    DeleteLogFiles();
+    OpenBackupableDB(false);
     FillDB(db_.get(), 100 * i, 100 * (i + 1));
     ASSERT_OK(db_->CreateNewBackup(true));
-    CloseBackupableDB();
-    OpenBackupableDB(false);
   }
   CloseBackupableDB();
 
@@ -826,7 +846,7 @@ TEST(BackupableDBTest, RateLimiting) {
     auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
                                     backupable_options_->backup_rate_limit;
     ASSERT_GT(backup_time, 0.9 * rate_limited_backup_time);
-    ASSERT_LT(backup_time, 1.5 * rate_limited_backup_time);
+    ASSERT_LT(backup_time, 2.5 * rate_limited_backup_time);
 
     CloseBackupableDB();
 
@@ -838,7 +858,7 @@ TEST(BackupableDBTest, RateLimiting) {
     auto rate_limited_restore_time = (bytes_written * kMicrosPerSec) /
                                      backupable_options_->restore_rate_limit;
     ASSERT_GT(restore_time, 0.9 * rate_limited_restore_time);
-    ASSERT_LT(restore_time, 1.5 * rate_limited_restore_time);
+    ASSERT_LT(restore_time, 2.5 * rate_limited_restore_time);
 
     AssertBackupConsistency(0, 0, 100000, 100010);
   }

@@ -13,7 +13,7 @@
 #include <deque>
 #include "db/dbformat.h"
 #include "db/skiplist.h"
-#include "db/version_set.h"
+#include "db/version_edit.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "util/arena.h"
@@ -39,7 +39,7 @@ class MemTable {
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
   explicit MemTable(const InternalKeyComparator& comparator,
-                    const Options& options = Options());
+                    const Options& options);
 
   ~MemTable();
 
@@ -147,14 +147,6 @@ class MemTable {
   // be flushed to storage
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
-  // Returns the logfile number that can be safely deleted when this
-  // memstore is flushed to storage
-  uint64_t GetLogNumber() { return mem_logfile_number_; }
-
-  // Sets the logfile number that can be safely deleted when this
-  // memstore is flushed to storage
-  void SetLogNumber(uint64_t num) { mem_logfile_number_ = num; }
-
   // Notify the underlying storage that no more items will be added
   void MarkImmutable() { table_->MarkReadOnly(); }
 
@@ -196,10 +188,6 @@ class MemTable {
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;
-
-  // The log file that backs this memtable (to be deleted when
-  // memtable flush is done)
-  uint64_t mem_logfile_number_;
 
   // rw locks for inplace updates
   std::vector<port::RWMutex> locks_;

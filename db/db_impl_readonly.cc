@@ -42,8 +42,8 @@
 
 namespace rocksdb {
 
-DBImplReadOnly::DBImplReadOnly(const Options& options,
-    const std::string& dbname)
+DBImplReadOnly::DBImplReadOnly(const DBOptions& options,
+                               const std::string& dbname)
     : DBImpl(options, dbname) {
   Log(options_.info_log, "Opening the db in read only mode");
 }
@@ -53,42 +53,57 @@ DBImplReadOnly::~DBImplReadOnly() {
 
 // Implementations of the DB interface
 Status DBImplReadOnly::Get(const ReadOptions& options,
-                   const Slice& key,
-                   std::string* value) {
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value) {
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
-  SuperVersion* super_version = GetSuperVersion();
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+  SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, merge_context, options_)) {
+  if (super_version->mem->Get(lkey, value, &s, merge_context,
+                              *cfd->options())) {
   } else {
     Version::GetStats stats;
     super_version->current->Get(options, lkey, value, &s, &merge_context,
-                                &stats, options_);
+                                &stats, *cfd->options());
   }
   return s;
 }
 
-Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options) {
-  SequenceNumber latest_snapshot;
-  Iterator* internal_iter = NewInternalIterator(options, &latest_snapshot);
+Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options,
+                                      ColumnFamilyHandle* column_family) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
+  SequenceNumber latest_snapshot = versions_->LastSequence();
+  Iterator* internal_iter = NewInternalIterator(options, cfd, super_version);
   return NewDBIterator(
-    &dbname_, env_, options_,  user_comparator(),internal_iter,
+      &dbname_, env_, *cfd->options(), cfd->user_comparator(), internal_iter,
       (options.snapshot != nullptr
-      ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-      : latest_snapshot));
+           ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+           : latest_snapshot));
 }
 
-
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                DB** dbptr, bool error_if_log_file_exist) {
+                           DB** dbptr, bool error_if_log_file_exist) {
   *dbptr = nullptr;
 
-  DBImplReadOnly* impl = new DBImplReadOnly(options, dbname);
+  DBOptions db_options(options);
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(default_column_family_name, cf_options));
+
+  DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
-  Status s = impl->Recover(true /* read only */, error_if_log_file_exist);
+  Status s = impl->Recover(column_families, true /* read only */,
+                           error_if_log_file_exist);
   if (s.ok()) {
-    delete impl->InstallSuperVersion(new DBImpl::SuperVersion());
+    for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
+      delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
+    }
   }
   impl->mutex_.Unlock();
   if (s.ok()) {

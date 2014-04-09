@@ -81,7 +81,7 @@ Status CreateLoggerFromOptions(
     const std::string& dbname,
     const std::string& db_log_dir,
     Env* env,
-    const Options& options,
+    const DBOptions& options,
     std::shared_ptr<Logger>* logger) {
   std::string db_absolute_path;
   env->GetAbsolutePath(dbname, &db_absolute_path);
