@@ -242,24 +242,45 @@ class IterKey {
  public:
   IterKey() : key_(space_), buf_size_(sizeof(space_)), key_size_(0) {}
 
-  ~IterKey() { Clear(); }
+  ~IterKey() { ResetBuffer(); }
 
-  Slice GetKey() const {
-    if (key_ != nullptr) {
-      return Slice(key_, key_size_);
-    } else {
-      return Slice();
-    }
+  Slice GetKey() const { return Slice(key_, key_size_); }
+
+  void Clear() { key_size_ = 0; }
+
+  void SetUserKey(const Slice& user_key) {
+    size_t size = user_key.size();
+    EnlargeBufferIfNeeded(size);
+    memcpy(key_, user_key.data(), size);
+    key_size_ = size;
   }
 
-  bool Valid() const { return key_ != nullptr; }
+  void SetInternalKey(const Slice& user_key, SequenceNumber s,
+                      ValueType value_type = kValueTypeForSeek) {
+    size_t usize = user_key.size();
+    EnlargeBufferIfNeeded(usize + sizeof(uint64_t));
+    memcpy(key_, user_key.data(), usize);
+    EncodeFixed64(key_ + usize, PackSequenceAndType(s, value_type));
+    key_size_ = usize + sizeof(uint64_t);
+  }
 
-  void Clear() {
+  void SetInternalKey(const ParsedInternalKey& parsed_key) {
+    SetInternalKey(parsed_key.user_key, parsed_key.sequence, parsed_key.type);
+  }
+
+ private:
+  char* key_;
+  size_t buf_size_;
+  size_t key_size_;
+  char space_[32];  // Avoid allocation for short keys
+
+  void ResetBuffer() {
     if (key_ != nullptr && key_ != space_) {
       delete[] key_;
     }
     key_ = space_;
     buf_size_ = sizeof(buf_size_);
+    key_size_ = 0;
   }
 
   // Enlarge the buffer size if needed based on key_size.
@@ -272,36 +293,11 @@ class IterKey {
     // or the static allocated one, as default
     if (key_size > buf_size_) {
       // Need to enlarge the buffer.
-      Clear();
+      ResetBuffer();
       key_ = new char[key_size];
       buf_size_ = key_size;
     }
-    key_size_ = key_size;
   }
-
-  void SetUserKey(const Slice& user_key) {
-    size_t size = user_key.size();
-    EnlargeBufferIfNeeded(size);
-    memcpy(key_, user_key.data(), size);
-  }
-
-  void SetInternalKey(const Slice& user_key, SequenceNumber s,
-                      ValueType value_type = kValueTypeForSeek) {
-    size_t usize = user_key.size();
-    EnlargeBufferIfNeeded(usize + sizeof(uint64_t));
-    memcpy(key_, user_key.data(), usize);
-    EncodeFixed64(key_ + usize, PackSequenceAndType(s, value_type));
-  }
-
-  void SetInternalKey(const ParsedInternalKey& parsed_key) {
-    SetInternalKey(parsed_key.user_key, parsed_key.sequence, parsed_key.type);
-  }
-
- private:
-  char* key_;
-  size_t buf_size_;
-  size_t key_size_;
-  char space_[32];  // Avoid allocation for short keys
 
   // No copying allowed
   IterKey(const IterKey&) = delete;

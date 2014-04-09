@@ -2523,9 +2523,9 @@ Status DBImpl::ProcessKeyValueCompaction(
   Status status;
   std::string compaction_filter_value;
   ParsedInternalKey ikey;
-  std::string current_user_key;
+  IterKey current_user_key;
   bool has_current_user_key = false;
-  std::vector<char> delete_key;   // for compaction filter
+  IterKey delete_key;
   SequenceNumber last_sequence_for_key __attribute__((unused)) =
     kMaxSequenceNumber;
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
@@ -2589,16 +2589,16 @@ Status DBImpl::ProcessKeyValueCompaction(
       // Do not hide error keys
       // TODO: error key stays in db forever? Figure out the intention/rationale
       // v10 error v8 : we cannot hide v8 even though it's pretty obvious.
-      current_user_key.clear();
+      current_user_key.Clear();
       has_current_user_key = false;
       last_sequence_for_key = kMaxSequenceNumber;
       visible_in_snapshot = kMaxSequenceNumber;
     } else {
       if (!has_current_user_key ||
           cfd->user_comparator()->Compare(ikey.user_key,
-                                          Slice(current_user_key)) != 0) {
+                                          current_user_key.GetKey()) != 0) {
         // First occurrence of this user key
-        current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
+        current_user_key.SetUserKey(ikey.user_key);
         has_current_user_key = true;
         last_sequence_for_key = kMaxSequenceNumber;
         visible_in_snapshot = kMaxSequenceNumber;
@@ -2617,13 +2617,11 @@ Status DBImpl::ProcessKeyValueCompaction(
               compact->compaction->level(), ikey.user_key, value,
               &compaction_filter_value, &value_changed);
           if (to_delete) {
-            // make a copy of the original key
-            delete_key.assign(key.data(), key.data() + key.size());
-            // convert it to a delete
-            UpdateInternalKey(&delete_key[0], delete_key.size(),
-                ikey.sequence, kTypeDeletion);
+            // make a copy of the original key and convert it to a delete
+            delete_key.SetInternalKey(ExtractUserKey(key), ikey.sequence,
+                                      kTypeDeletion);
             // anchor the key again
-            key = Slice(&delete_key[0], delete_key.size());
+            key = delete_key.GetKey();
             // needed because ikey is backed by key
             ParseInternalKey(key, &ikey);
             // no value associated with delete
