@@ -1822,7 +1822,7 @@ Status VersionSet::Recover(
   // keeps track of column families in manifest that were not found in
   // column families parameters. if those column families are not dropped
   // by subsequent manifest records, Recover() will return failure status
-  std::set<int> column_families_not_found;
+  std::unordered_map<int, std::string> column_families_not_found;
 
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_filename;
@@ -1924,7 +1924,8 @@ Status VersionSet::Recover(
         }
         auto cf_options = cf_name_to_options.find(edit.column_family_name_);
         if (cf_options == cf_name_to_options.end()) {
-          column_families_not_found.insert(edit.column_family_);
+          column_families_not_found.insert(
+              {edit.column_family_, edit.column_family_name_});
         } else {
           cfd = CreateColumnFamily(cf_options->second, &edit);
           builders.insert({edit.column_family_, new Builder(cfd)});
@@ -2038,13 +2039,13 @@ Status VersionSet::Recover(
   // in the argument. This is OK in read_only mode
   if (read_only == false && column_families_not_found.size() > 0) {
     std::string list_of_not_found;
-    for (auto cf : column_families_not_found) {
-      list_of_not_found += ", " + cf;
+    for (const auto& cf : column_families_not_found) {
+      list_of_not_found += ", " + cf.second;
     }
     list_of_not_found = list_of_not_found.substr(2);
     s = Status::InvalidArgument(
-        "You have to open all column families. Column families not opened: %s",
-        list_of_not_found.c_str());
+        "You have to open all column families. Column families not opened: " +
+        list_of_not_found);
   }
 
   if (s.ok()) {
