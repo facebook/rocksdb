@@ -28,7 +28,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/perf_context.h"
 #include "port/port.h"
-#include "util/bit_set.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
@@ -151,6 +150,7 @@ static bool ValidateKeySize(const char* flagname, int32_t value) {
   }
   return true;
 }
+
 DEFINE_int32(key_size, 16, "size of each key");
 
 DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
@@ -1680,15 +1680,56 @@ class Benchmark {
     DoWrite(thread, UNIQUE_RANDOM);
   }
 
+  class KeyGenerator {
+   public:
+    KeyGenerator(Random64* rand, WriteMode mode,
+        uint64_t num, uint64_t num_per_set = 64 * 1024)
+      : rand_(rand),
+        mode_(mode),
+        num_(num),
+        next_(0) {
+      if (mode_ == UNIQUE_RANDOM) {
+        // NOTE: if memory consumption of this approach becomes a concern,
+        // we can either break it into pieces and only random shuffle a section
+        // each time. Alternatively, use a bit map implementation
+        // (https://reviews.facebook.net/differential/diff/54627/)
+        values_.resize(num_);
+        for (uint64_t i = 0; i < num_; ++i) {
+          values_[i] = i;
+        }
+        std::shuffle(values_.begin(), values_.end(),
+            std::default_random_engine(FLAGS_seed));
+      }
+    }
+
+    uint64_t Next() {
+      switch (mode_) {
+        case SEQUENTIAL:
+          return next_++;
+        case RANDOM:
+          return rand_->Next() % num_;
+        case UNIQUE_RANDOM:
+          return values_[next_++];
+      }
+      assert(false);
+      return std::numeric_limits<uint64_t>::max();
+    }
+
+   private:
+    Random64* rand_;
+    WriteMode mode_;
+    const uint64_t num_;
+    uint64_t next_;
+    std::vector<uint64_t> values_;
+  };
+
+
   void DoWrite(ThreadState* thread, WriteMode write_mode) {
     const int test_duration = write_mode == RANDOM ? FLAGS_duration : 0;
     const int64_t num_ops = writes_ == 0 ? num_ : writes_;
     Duration duration(test_duration, num_ops);
-    unique_ptr<BitSet> bit_set;
 
-    if (write_mode == UNIQUE_RANDOM) {
-      bit_set.reset(new BitSet(num_ops));
-    }
+    KeyGenerator key_gen(&(thread->rand), write_mode, num_ops);
 
     if (num_ != FLAGS_num) {
       char msg[100];
@@ -1700,52 +1741,13 @@ class Benchmark {
     WriteBatch batch;
     Status s;
     int64_t bytes = 0;
-    int64_t i = 0;
 
     Slice key = AllocateKey();
     std::unique_ptr<const char[]> key_guard(key.data());
     while (!duration.Done(entries_per_batch_)) {
       batch.Clear();
       for (int64_t j = 0; j < entries_per_batch_; j++) {
-        int64_t k = 0;
-        switch(write_mode) {
-          case SEQUENTIAL:
-            k = i +j;
-            break;
-          case RANDOM:
-            k = thread->rand.Next() % FLAGS_num;
-            break;
-          case UNIQUE_RANDOM:
-            {
-              const int64_t t = thread->rand.Next() % FLAGS_num;
-              if (!bit_set->test(t)) {
-                // best case
-                k = t;
-              } else {
-                bool found = false;
-                // look forward
-                for (size_t i = t + 1; i < bit_set->size(); ++i) {
-                  if (!bit_set->test(i)) {
-                    found = true;
-                    k = i;
-                    break;
-                  }
-                }
-                if (!found) {
-                  for (size_t i = t; i-- > 0;) {
-                    if (!bit_set->test(i)) {
-                      found = true;
-                      k = i;
-                      break;
-                    }
-                  }
-                }
-              }
-              bit_set->set(k);
-              break;
-            }
-        };
-        GenerateKeyFromInt(k, FLAGS_num, &key);
+        GenerateKeyFromInt(key_gen.Next(), FLAGS_num, &key);
         batch.Put(key, gen.Generate(value_size_));
         bytes += value_size_ + key_size_;
         thread->stats.FinishedSingleOp(db_);
@@ -1755,7 +1757,6 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      i += entries_per_batch_;
     }
     thread->stats.AddBytes(bytes);
   }
