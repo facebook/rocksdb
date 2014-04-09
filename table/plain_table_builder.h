@@ -69,9 +69,6 @@ private:
   const size_t user_key_len_;
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
-  std::string key_size_str_;
-  std::string value_size_str_;
-
   bool IsFixedLength() const {
     return user_key_len_ > 0;
   }

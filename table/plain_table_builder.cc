@@ -74,10 +74,12 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   if (!IsFixedLength()) {
     // Write key length
-    key_size_str_.clear();
-    PutVarint32(&key_size_str_, user_key_size);
-    file_->Append(key_size_str_);
-    offset_ += key_size_str_.length();
+    char key_size_buf[5];  // tmp buffer for key size as varint32
+    char* ptr = EncodeVarint32(key_size_buf, user_key_size);
+    assert(ptr <= key_size_buf + sizeof(key_size_buf));
+    auto len = ptr - key_size_buf;
+    file_->Append(Slice(key_size_buf, len));
+    offset_ += len;
   }
 
   // Write key
@@ -86,25 +88,32 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
     status_ = Status::Corruption(Slice());
     return;
   }
+  // For value size as varint32 (up to 5 bytes).
+  // If the row is of value type with seqId 0, flush the special flag together
+  // in this buffer to safe one file append call, which takes 1 byte.
+  char value_size_buf[6];
+  size_t value_size_buf_size = 0;
   if (parsed_key.sequence == 0 && parsed_key.type == kTypeValue) {
     file_->Append(Slice(key.data(), user_key_size));
-    char tmp_char = PlainTableFactory::kValueTypeSeqId0;
-    file_->Append(Slice(&tmp_char, 1));
-    offset_ += key.size() - 7;
+    offset_ += user_key_size;
+    value_size_buf[0] = PlainTableFactory::kValueTypeSeqId0;
+    value_size_buf_size = 1;
   } else {
     file_->Append(key);
     offset_ += key.size();
   }
 
   // Write value length
-  value_size_str_.clear();
   int value_size = value.size();
-  PutVarint32(&value_size_str_, value_size);
-  file_->Append(value_size_str_);
+  char* end_ptr =
+      EncodeVarint32(value_size_buf + value_size_buf_size, value_size);
+  assert(end_ptr <= value_size_buf + sizeof(value_size_buf));
+  value_size_buf_size = end_ptr - value_size_buf;
+  file_->Append(Slice(value_size_buf, value_size_buf_size));
 
   // Write value
   file_->Append(value);
-  offset_ += value_size + value_size_str_.length();
+  offset_ += value_size + value_size_buf_size;
 
   properties_.num_entries++;
   properties_.raw_key_size += key.size();
