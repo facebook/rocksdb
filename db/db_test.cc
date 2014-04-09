@@ -2974,7 +2974,7 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 4);
 }
 
-#if defined(SNAPPY) && defined(ZLIB) && defined(BZIP2)
+#if defined(SNAPPY)
 TEST(DBTest, CompressedCache) {
   int num_iter = 80;
 
@@ -2982,7 +2982,9 @@ TEST(DBTest, CompressedCache) {
   // Iteration 1: only a uncompressed block cache
   // Iteration 2: only a compressed block cache
   // Iteration 3: both block cache and compressed cache
-  for (int iter = 0; iter < 3; iter++) {
+  // Iteration 4: both block cache and compressed cache, but DB is not
+  // compressed
+  for (int iter = 0; iter < 4; iter++) {
     Options options = CurrentOptions();
     options.write_buffer_size = 64*1024;        // small write buffer
     options.statistics = rocksdb::CreateDBStatistics();
@@ -3003,6 +3005,13 @@ TEST(DBTest, CompressedCache) {
         // both compressed and uncompressed block cache
         options.block_cache = NewLRUCache(1024);
         options.block_cache_compressed = NewLRUCache(8*1024);
+        break;
+      case 3:
+        // both block cache and compressed cache, but DB is not compressed
+        // also, make block cache sizes bigger, to trigger block cache hits
+        options.block_cache = NewLRUCache(1024 * 1024);
+        options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
+        options.compression = kNoCompression;
         break;
       default:
         ASSERT_TRUE(false);
@@ -3052,6 +3061,15 @@ TEST(DBTest, CompressedCache) {
         // both compressed and uncompressed block cache
         ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
         ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 3:
+        // both compressed and uncompressed block cache
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_HIT), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
+        // compressed doesn't have any hits since blocks are not compressed on
+        // storage
+        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT), 0);
         break;
       default:
         ASSERT_TRUE(false);
