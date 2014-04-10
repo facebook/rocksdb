@@ -74,7 +74,7 @@ void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
                                                const string& log_message) {
-  logger->SetInfoLogLevel(InfoLogLevel::INFO);
+  logger->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
   LogMessage(logger, log_message.c_str());
@@ -254,19 +254,19 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
   // becomes out of scope.
   {
     AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0);
-    for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
-         log_level--) {
+    for (int log_level = InfoLogLevel::FATAL_LEVEL;
+         log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
       logger.SetInfoLogLevel((InfoLogLevel)log_level);
-      for (int log_type = InfoLogLevel::DEBUG; log_type <= InfoLogLevel::FATAL;
-           log_type++) {
+      for (int log_type = InfoLogLevel::DEBUG_LEVEL;
+           log_type <= InfoLogLevel::FATAL_LEVEL; log_type++) {
         // log messages with log level smaller than log_level will not be
         // logged.
         LogMessage((InfoLogLevel)log_type, &logger, kSampleMessage.c_str());
       }
-      log_lines += InfoLogLevel::FATAL - log_level + 1;
+      log_lines += InfoLogLevel::FATAL_LEVEL - log_level + 1;
     }
-    for (int log_level = InfoLogLevel::FATAL; log_level >= InfoLogLevel::DEBUG;
-         log_level--) {
+    for (int log_level = InfoLogLevel::FATAL_LEVEL;
+         log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
       logger.SetInfoLogLevel((InfoLogLevel)log_level);
 
       // again, messages with level smaller than log_level will not be logged.
@@ -275,7 +275,7 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
       Warn(&logger, "%s", kSampleMessage.c_str());
       Error(&logger, "%s", kSampleMessage.c_str());
       Fatal(&logger, "%s", kSampleMessage.c_str());
-      log_lines += InfoLogLevel::FATAL - log_level + 1;
+      log_lines += InfoLogLevel::FATAL_LEVEL - log_level + 1;
     }
   }
   std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());

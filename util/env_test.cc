@@ -510,7 +510,7 @@ TEST(EnvPosixTest, LogBufferTest) {
   test_logger.char_x_count = 0;
   test_logger.char_0_count = 0;
   LogBuffer log_buffer(INFO, &test_logger);
-  LogBuffer log_buffer_debug(DEBUG, &test_logger);
+  LogBuffer log_buffer_debug(DEBUG_LEVEL, &test_logger);
 
   char bytes200[200];
   std::fill_n(bytes200, sizeof(bytes200), '1');
@@ -529,7 +529,7 @@ TEST(EnvPosixTest, LogBufferTest) {
   LogToBuffer(&log_buffer, "x%sx%sx", bytes600, bytes9000);
 
   LogToBuffer(&log_buffer_debug, "x%sx", bytes200);
-  test_logger.SetInfoLogLevel(DEBUG);
+  test_logger.SetInfoLogLevel(DEBUG_LEVEL);
   LogToBuffer(&log_buffer_debug, "x%sx%sx%sx", bytes600, bytes9000, bytes200);
 
   ASSERT_EQ(0, test_logger.log_count);

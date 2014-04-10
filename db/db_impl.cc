@@ -1963,7 +1963,7 @@ void DBImpl::BackgroundCallFlush() {
   DeletionState deletion_state(true);
   assert(bg_flush_scheduled_);
 
-  LogBuffer log_buffer(INFO, options_.info_log.get());
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_.info_log.get());
   {
     MutexLock l(&mutex_);
 
@@ -2040,7 +2040,7 @@ void DBImpl::BackgroundCallCompaction() {
   DeletionState deletion_state(true);
 
   MaybeDumpStats();
-  LogBuffer log_buffer(INFO, options_.info_log.get());
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_.info_log.get());
   {
     MutexLock l(&mutex_);
     // Log(options_.info_log, "XXX BG Thread %llx process new work item",
@@ -2230,7 +2230,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   } else if (shutting_down_.Acquire_Load()) {
     // Ignore compaction errors found during shutting down
   } else {
-    Log(WARN, options_.info_log, "Compaction error: %s",
+    Log(InfoLogLevel::WARN_LEVEL, options_.info_log, "Compaction error: %s",
         status.ToString().c_str());
     if (options_.paranoid_checks && bg_error_.ok()) {
       bg_error_ = status;

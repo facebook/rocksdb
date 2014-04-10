@@ -535,11 +535,11 @@ class Directory {
 };
 
 enum InfoLogLevel : unsigned char {
-  DEBUG = 0,
-  INFO,
-  WARN,
-  ERROR,
-  FATAL,
+  DEBUG_LEVEL = 0,
+  INFO_LEVEL,
+  WARN_LEVEL,
+  ERROR_LEVEL,
+  FATAL_LEVEL,
   NUM_INFO_LOG_LEVELS,
 };
 
@@ -547,7 +547,7 @@ enum InfoLogLevel : unsigned char {
 class Logger {
  public:
   enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
-  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO)
+  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}
   virtual ~Logger();
 
@@ -565,7 +565,7 @@ class Logger {
       return;
     }
 
-    if (log_level == INFO) {
+    if (log_level == InfoLogLevel::INFO_LEVEL) {
       // Doesn't print log level if it is INFO level.
       // This is to avoid unexpected performance regression after we add
       // the feature of log level. All the logs before we add the feature

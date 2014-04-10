@@ -39,7 +39,7 @@ class PosixLogger : public Logger {
   bool flush_pending_;
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env,
-              const InfoLogLevel log_level = InfoLogLevel::ERROR)
+              const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),
         file_(f),
         gettid_(gettid),

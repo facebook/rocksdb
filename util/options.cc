@@ -156,7 +156,7 @@ DBOptions::DBOptions()
       paranoid_checks(true),
       env(Env::Default()),
       info_log(nullptr),
-      info_log_level(INFO),
+      info_log_level(INFO_LEVEL),
       max_open_files(5000),
       statistics(nullptr),
       disableDataSync(false),

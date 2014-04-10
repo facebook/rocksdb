@@ -44,7 +44,7 @@ void Log(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::INFO, format, ap);
+    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -63,7 +63,7 @@ void Debug(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::DEBUG, format, ap);
+    info_log->Logv(InfoLogLevel::DEBUG_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -72,7 +72,7 @@ void Info(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::INFO, format, ap);
+    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -81,7 +81,7 @@ void Warn(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::WARN, format, ap);
+    info_log->Logv(InfoLogLevel::WARN_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -89,7 +89,7 @@ void Error(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::ERROR, format, ap);
+    info_log->Logv(InfoLogLevel::ERROR_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -97,7 +97,7 @@ void Fatal(Logger* info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::FATAL, format, ap);
+    info_log->Logv(InfoLogLevel::FATAL_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -122,7 +122,7 @@ void Debug(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::DEBUG, format, ap);
+    info_log->Logv(InfoLogLevel::DEBUG_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -131,7 +131,7 @@ void Info(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::INFO, format, ap);
+    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -140,7 +140,7 @@ void Warn(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::WARN, format, ap);
+    info_log->Logv(InfoLogLevel::WARN_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -149,7 +149,7 @@ void Error(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::ERROR, format, ap);
+    info_log->Logv(InfoLogLevel::ERROR_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -158,7 +158,7 @@ void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::FATAL, format, ap);
+    info_log->Logv(InfoLogLevel::FATAL_LEVEL, format, ap);
     va_end(ap);
   }
 }
@@ -167,7 +167,7 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
   if (info_log) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(InfoLogLevel::INFO, format, ap);
+    info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
     va_end(ap);
   }
 }

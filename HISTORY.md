@@ -1,6 +1,11 @@
 # Rocksdb Change Log
 
 ## Unreleased (will be released in 3.0)
+
+### Public API changes
+* Added _LEVEL to all InfoLogLevel enums
+
+### New Features
 * Column family support
 
 ### Public API changes

@@ -19,7 +19,7 @@ class AutoRollLogger : public Logger {
   AutoRollLogger(Env* env, const std::string& dbname,
                  const std::string& db_log_dir, size_t log_max_size,
                  size_t log_file_time_to_roll,
-                 const InfoLogLevel log_level = InfoLogLevel::INFO)
+                 const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : Logger(log_level),
         dbname_(dbname),
         db_log_dir_(db_log_dir),
