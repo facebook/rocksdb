@@ -505,11 +505,11 @@ class TestLogger : public Logger {
 
 TEST(EnvPosixTest, LogBufferTest) {
   TestLogger test_logger;
-  test_logger.SetInfoLogLevel(INFO);
+  test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   test_logger.log_count = 0;
   test_logger.char_x_count = 0;
   test_logger.char_0_count = 0;
-  LogBuffer log_buffer(INFO, &test_logger);
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, &test_logger);
   LogBuffer log_buffer_debug(DEBUG_LEVEL, &test_logger);
 
   char bytes200[200];
