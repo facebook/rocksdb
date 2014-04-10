@@ -26,9 +26,14 @@ test: java
 db_bench: java
 	javac org/rocksdb/benchmark/*.java
 	rm -rf /tmp/rocksdbjni-bench
-	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=1 --benchmarks=fillseq,readrandom
-	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=2 --benchmarks=fillseq,readrandom
-	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=4 --benchmarks=fillseq,readrandom
-	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=8 --benchmarks=fillseq,readrandom
-	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=16 --benchmarks=fillseq,readrandom
-	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=32 --benchmarks=fillseq,readrandom
+	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=1 --benchmarks=fillseq,readrandom,readwhilewriting
+	rm -rf /tmp/rocksdbjni-bench
+	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=2 --benchmarks=fillseq,readrandom,readwhilewriting
+	rm -rf /tmp/rocksdbjni-bench
+	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=4 --benchmarks=fillseq,readrandom,readwhilewriting
+	rm -rf /tmp/rocksdbjni-bench
+	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=8 --benchmarks=fillseq,readrandom,readwhilewriting
+	rm -rf /tmp/rocksdbjni-bench
+	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=16 --benchmarks=fillseq,readrandom,readwhilewriting
+	rm -rf /tmp/rocksdbjni-bench
+	java -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.benchmark.DbBenchmark --threads=32 --benchmarks=fillseq,readrandom,readwhilewriting
