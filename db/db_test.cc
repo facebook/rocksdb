@@ -959,6 +959,7 @@ static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
 // A helper function that ensures the table properties returned in
 // `GetPropertiesOfAllTablesTest` is correct.
 // This test assumes entries size is differnt for each of the tables.
+namespace {
 void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
   TablePropertiesCollection props;
   ASSERT_OK(db->GetPropertiesOfAllTables(&props));
@@ -977,28 +978,7 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
   ASSERT_EQ(props.size(), unique_entries.size());
   ASSERT_EQ(expected_entries_size, sum);
 }
-
-std::unordered_map<std::string, size_t> GetMemoryUsage(MemTable* memtable) {
-  const auto& arena = memtable->TEST_GetArena();
-  return {{"memtable.approximate.usage", memtable->ApproximateMemoryUsage()},
-          {"arena.approximate.usage", arena.ApproximateMemoryUsage()},
-          {"arena.allocated.memory", arena.MemoryAllocatedBytes()},
-          {"arena.unused.bytes", arena.AllocatedAndUnused()},
-          {"irregular.blocks", arena.IrregularBlockNum()}};
-}
-
-void PrintMemoryUsage(const std::unordered_map<std::string, size_t>& usage) {
-  for (const auto& item : usage) {
-    std::cout << "\t" << item.first << ": " << item.second << std::endl;
-  }
-}
-
-void AddRandomKV(MemTable* memtable, Random* rnd, size_t arena_block_size) {
-  memtable->Add(0, kTypeValue, RandomString(rnd, 20) /* key */,
-                // make sure we will be able to generate some over sized entries
-                RandomString(rnd, rnd->Uniform(arena_block_size / 4) * 1.15 +
-                                      10) /* value */);
-}
+}  // namespace
 
 TEST(DBTest, Empty) {
   do {
@@ -1505,9 +1485,11 @@ TEST(DBTest, IterSeekBeforePrev) {
   delete iter;
 }
 
+namespace {
 std::string MakeLongKey(size_t length, char c) {
   return std::string(length, c);
 }
+}  // namespace
 
 TEST(DBTest, IterLongKeys) {
   ASSERT_OK(Put(MakeLongKey(20, 0), "0"));
@@ -3272,6 +3254,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   ASSERT_EQ(keys_in_db, expected_keys);
 }
 
+namespace {
 void MinLevelHelper(DBTest* self, Options& options) {
   Random rnd(301);
 
@@ -3345,6 +3328,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
   }
   return true;
 }
+}  // namespace
 
 TEST(DBTest, MinLevelToCompress1) {
   Options options = CurrentOptions();
@@ -5242,6 +5226,7 @@ TEST(DBTest, CompactOnFlush) {
   } while (ChangeCompactOptions());
 }
 
+namespace {
 std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
   std::vector<std::string> files;
   std::vector<uint64_t> log_files;
@@ -5257,6 +5242,7 @@ std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
   }
   return std::move(log_files);
 }
+}  // namespace
 
 TEST(DBTest, WALArchivalTtl) {
   do {
@@ -5304,6 +5290,7 @@ TEST(DBTest, WALArchivalTtl) {
   } while (ChangeCompactOptions());
 }
 
+namespace {
 uint64_t GetLogDirSize(std::string dir_path, SpecialEnv* env) {
   uint64_t dir_size = 0;
   std::vector<std::string> files;
@@ -5320,6 +5307,7 @@ uint64_t GetLogDirSize(std::string dir_path, SpecialEnv* env) {
   }
   return dir_size;
 }
+}  // namespace
 
 TEST(DBTest, WALArchivalSizeLimit) {
   do {
@@ -5364,6 +5352,7 @@ TEST(DBTest, WALArchivalSizeLimit) {
   } while (ChangeCompactOptions());
 }
 
+namespace {
 SequenceNumber ReadRecords(
     std::unique_ptr<TransactionLogIterator>& iter,
     int& count) {
@@ -5388,6 +5377,7 @@ void ExpectRecords(
   ReadRecords(iter, num_records);
   ASSERT_EQ(num_records, expected_no_records);
 }
+}  // namespace
 
 TEST(DBTest, TransactionLogIterator) {
   do {
@@ -6314,6 +6304,7 @@ TEST(DBTest, MultiGetEmpty) {
   } while (ChangeCompactOptions());
 }
 
+namespace {
 void PrefixScanInit(DBTest *dbtest) {
   char buf[100];
   std::string keystr;
@@ -6363,6 +6354,7 @@ void PrefixScanInit(DBTest *dbtest) {
     dbtest->Flush();
   }
 }
+}  // namespace
 
 TEST(DBTest, PrefixScan) {
   ReadOptions ro = ReadOptions();
@@ -6444,6 +6436,7 @@ TEST(DBTest, PrefixScan) {
   delete options.filter_policy;
 }
 
+namespace {
 std::string MakeKey(unsigned int num) {
   char buf[30];
   snprintf(buf, sizeof(buf), "%016u", num);
@@ -6503,6 +6496,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
           "BM_LogAndApply/%-6s   %8d iters : %9u us (%7.0f us / iter)\n",
           buf, iters, us, ((float)us) / iters);
 }
+}  // namespace
 
 TEST(DBTest, TailingIteratorSingle) {
   ReadOptions read_options;

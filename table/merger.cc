@@ -9,6 +9,9 @@
 
 #include "table/merger.h"
 
+#include <vector>
+#include <queue>
+
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -17,11 +20,28 @@
 #include "util/stop_watch.h"
 #include "util/perf_context_imp.h"
 
-#include <vector>
-
 namespace rocksdb {
-
 namespace {
+
+typedef std::priority_queue<
+          IteratorWrapper*,
+          std::vector<IteratorWrapper*>,
+          MaxIteratorComparator> MaxIterHeap;
+
+typedef std::priority_queue<
+          IteratorWrapper*,
+          std::vector<IteratorWrapper*>,
+          MinIteratorComparator> MinIterHeap;
+
+// Return's a new MaxHeap of IteratorWrapper's using the provided Comparator.
+MaxIterHeap NewMaxIterHeap(const Comparator* comparator) {
+  return MaxIterHeap(MaxIteratorComparator(comparator));
+}
+
+// Return's a new MinHeap of IteratorWrapper's using the provided Comparator.
+MinIterHeap NewMinIterHeap(const Comparator* comparator) {
+  return MinIterHeap(MinIteratorComparator(comparator));
+}
 
 class MergingIterator : public Iterator {
  public:

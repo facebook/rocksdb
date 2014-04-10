@@ -954,11 +954,14 @@ Status BlockBasedTable::Get(
   return s;
 }
 
+namespace {
 bool SaveDidIO(void* arg, const ParsedInternalKey& key, const Slice& value,
                bool didIO) {
   *reinterpret_cast<bool*>(arg) = didIO;
   return false;
 }
+}  // namespace
+
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
   // We use Get() as it has logic that checks whether we read the

@@ -172,9 +172,8 @@ void Log(const shared_ptr<Logger>& info_log, const char* format, ...) {
   }
 }
 
-static Status DoWriteStringToFile(Env* env, const Slice& data,
-                                  const std::string& fname,
-                                  bool should_sync) {
+Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
+                         bool should_sync) {
   unique_ptr<WritableFile> file;
   EnvOptions soptions;
   Status s = env->NewWritableFile(fname, &file, soptions);
@@ -189,16 +188,6 @@ static Status DoWriteStringToFile(Env* env, const Slice& data,
     env->DeleteFile(fname);
   }
   return s;
-}
-
-Status WriteStringToFile(Env* env, const Slice& data,
-                         const std::string& fname) {
-  return DoWriteStringToFile(env, data, fname, false);
-}
-
-Status WriteStringToFileSync(Env* env, const Slice& data,
-                             const std::string& fname) {
-  return DoWriteStringToFile(env, data, fname, true);
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {

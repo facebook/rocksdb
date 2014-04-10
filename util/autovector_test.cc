@@ -70,6 +70,7 @@ TEST(AutoVectorTest, EmplaceBack) {
   ASSERT_TRUE(!vec.only_in_stack());
 }
 
+namespace {
 void AssertEqual(
     const autovector<size_t, kSize>& a, const autovector<size_t, kSize>& b) {
   ASSERT_EQ(a.size(), b.size());
@@ -79,6 +80,7 @@ void AssertEqual(
     ASSERT_EQ(a[i], b[i]);
   }
 }
+}  // namespace
 
 TEST(AutoVectorTest, CopyAndAssignment) {
   // Test both heap-allocated and stack-allocated cases.
@@ -159,6 +161,7 @@ TEST(AutoVectorTest, Iterators) {
   }
 }
 
+namespace {
 vector<string> GetTestKeys(size_t size) {
   vector<string> keys;
   keys.resize(size);
@@ -169,6 +172,7 @@ vector<string> GetTestKeys(size_t size) {
   }
   return keys;
 }
+}  // namespace
 
 template<class TVector>
 void BenchmarkVectorCreationAndInsertion(

@@ -271,6 +271,7 @@ static const bool FLAGS_num_iterations_dummy __attribute__((unused)) =
 DEFINE_bool(disable_seek_compaction, false,
             "Option to disable compation triggered by read.");
 
+namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
@@ -290,6 +291,8 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
 }
+}  // namespace
+
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
@@ -323,6 +326,8 @@ enum RepFactory {
   kHashSkipList,
   kVectorRep
 };
+
+namespace {
 enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
@@ -336,6 +341,8 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
 }
+}  // namespace
+
 static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "prefix_hash", "");
 

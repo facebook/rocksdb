@@ -75,6 +75,7 @@ class CountMergeOperator : public AssociativeMergeOperator {
   std::shared_ptr<MergeOperator> mergeOperator_;
 };
 
+namespace {
 std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false,
                            const size_t max_successive_merges = 0,
                            const uint32_t min_partial_merge_operands = 2) {
@@ -100,6 +101,7 @@ std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false,
   }
   return std::shared_ptr<DB>(db);
 }
+}  // namespace
 
 // Imagine we are maintaining a set of uint64 counters.
 // Each counter has a distinct name. And we would like
@@ -237,6 +239,7 @@ class MergeBasedCounters : public Counters {
   }
 };
 
+namespace {
 void dumpDb(DB* db) {
   auto it = unique_ptr<Iterator>(db->NewIterator(ReadOptions()));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -454,6 +457,7 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
     }
   }
 }
+}  // namespace
 
 int main(int argc, char *argv[]) {
   //TODO: Make this test like a general rocksdb unit-test

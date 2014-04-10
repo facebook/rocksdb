@@ -104,6 +104,7 @@ class TestKeyComparator : public Comparator {
 
 };
 
+namespace {
 void PutKey(DB* db, WriteOptions write_options, uint64_t prefix,
             uint64_t suffix, const Slice& value) {
   TestKey test_key(prefix, suffix);
@@ -133,6 +134,7 @@ std::string Get(DB* db, const ReadOptions& read_options, uint64_t prefix,
   }
   return result;
 }
+}  // namespace
 
 class PrefixTest {
  public:

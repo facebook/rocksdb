@@ -19,6 +19,8 @@
 #include "util/testutil.h"
 
 namespace rocksdb {
+
+namespace {
 // Make a key that i determines the first 4 characters and j determines the
 // last 4 characters.
 static std::string MakeKey(int i, int j, bool through_db) {
@@ -43,6 +45,7 @@ static bool DummySaveValue(void* arg, const ParsedInternalKey& ikey,
 uint64_t Now(Env* env, bool measured_by_nanosecond) {
   return measured_by_nanosecond ? env->NowNanos() : env->NowMicros();
 }
+}  // namespace
 
 // A very simple benchmark that.
 // Create a table with roughly numKey1 * numKey2 keys,
@@ -57,6 +60,7 @@ uint64_t Now(Env* env, bool measured_by_nanosecond) {
 //
 // If for_terator=true, instead of just query one key each time, it queries
 // a range sharing the same prefix.
+namespace {
 void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                           ReadOptions& read_options, int num_keys1,
                           int num_keys2, int num_iter, int prefix_len,
@@ -215,6 +219,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     DestroyDB(dbname, opts);
   }
 }
+}  // namespace
 }  // namespace rocksdb
 
 DEFINE_bool(query_empty, false, "query non-existing keys instead of existing "
@@ -264,10 +269,10 @@ int main(int argc, char** argv) {
 
   options.table_factory =
       std::shared_ptr<rocksdb::TableFactory>(tf);
-  TableReaderBenchmark(options, env_options, ro, FLAGS_num_keys1,
-                       FLAGS_num_keys2, FLAGS_iter, FLAGS_prefix_len,
-                       FLAGS_query_empty, FLAGS_iterator, FLAGS_through_db,
-                       measured_by_nanosecond);
+  rocksdb::TableReaderBenchmark(options, env_options, ro, FLAGS_num_keys1,
+                                FLAGS_num_keys2, FLAGS_iter, FLAGS_prefix_len,
+                                FLAGS_query_empty, FLAGS_iterator,
+                                FLAGS_through_db, measured_by_nanosecond);
   delete tf;
   return 0;
 }

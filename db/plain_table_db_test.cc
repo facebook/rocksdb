@@ -429,9 +429,11 @@ TEST(PlainTableDBTest, Iterator) {
   }
 }
 
+namespace {
 std::string MakeLongKey(size_t length, char c) {
   return std::string(length, c);
 }
+}  // namespace
 
 TEST(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();

@@ -50,6 +50,7 @@ Env* AutoRollLoggerTest::env = Env::Default();
 // no format. LogMessage() provides such a simple interface and
 // avoids the [format-security] warning which occurs when you
 // call Log(logger, log_message) directly.
+namespace {
 void LogMessage(Logger* logger, const char* message) {
   Log(logger, "%s", message);
 }
@@ -58,7 +59,9 @@ void LogMessage(const InfoLogLevel log_level, Logger* logger,
                 const char* message) {
   Log(log_level, logger, "%s", message);
 }
+}  // namespace
 
+namespace {
 void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
   struct stat s;
   if (stat(fname.c_str(), &s) != 0) {
@@ -66,6 +69,7 @@ void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
   }
   *file_ctime = static_cast<uint64_t>(s.st_ctime);
 }
+}  // namespace
 
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
@@ -279,26 +283,6 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
                          std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();
-}
-
-int OldLogFileCount(const string& dir) {
-  std::vector<std::string> files;
-  Env::Default()->GetChildren(dir, &files);
-  int log_file_count = 0;
-
-  for (std::vector<std::string>::iterator it = files.begin();
-       it != files.end(); ++it) {
-    uint64_t create_time;
-    FileType type;
-    if (!ParseFileName(*it, &create_time, &type)) {
-      continue;
-    }
-    if (type == kInfoLogFile && create_time > 0) {
-      ++log_file_count;
-    }
-  }
-
-  return log_file_count;
 }
 
 }  // namespace rocksdb

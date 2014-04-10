@@ -83,6 +83,7 @@ class DumbLogger : public Logger {
 };
 
 // Utilities test functions
+namespace {
 void MakeBuilder(const Options& options,
                  const InternalKeyComparator& internal_comparator,
                  std::unique_ptr<FakeWritableFile>* writable,
@@ -91,6 +92,7 @@ void MakeBuilder(const Options& options,
   builder->reset(options.table_factory->NewTableBuilder(
       options, internal_comparator, writable->get(), options.compression));
 }
+}  // namespace
 
 // Collects keys that starts with "A" in a table.
 class RegularKeysStartWithA: public TablePropertiesCollector {
@@ -126,6 +128,7 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
 
 extern uint64_t kBlockBasedTableMagicNumber;
 extern uint64_t kPlainTableMagicNumber;
+namespace {
 void TestCustomizedTablePropertiesCollector(
     uint64_t magic_number, bool encode_as_internal, const Options& options,
     const InternalKeyComparator& internal_comparator) {
@@ -178,6 +181,7 @@ void TestCustomizedTablePropertiesCollector(
   ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
   ASSERT_EQ(3u, starts_with_A);
 }
+}  // namespace
 
 TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
@@ -209,6 +213,7 @@ TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
                                          ikc);
 }
 
+namespace {
 void TestInternalKeyPropertiesCollector(
     uint64_t magic_number,
     bool sanitized,
@@ -280,6 +285,7 @@ void TestInternalKeyPropertiesCollector(
     ASSERT_EQ(1u, starts_with_A);
   }
 }
+}  // namespace
 
 TEST(TablePropertiesTest, InternalKeyPropertiesCollector) {
   TestInternalKeyPropertiesCollector(

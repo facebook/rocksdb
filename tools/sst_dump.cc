@@ -220,6 +220,7 @@ static void print_help() {
       " [--show_properties]\n");
 }
 
+namespace {
 string HexToString(const string& str) {
   string parsed;
   if (str[0] != '0' || str[1] != 'x') {
@@ -236,6 +237,7 @@ string HexToString(const string& str) {
   }
   return parsed;
 }
+}  // namespace
 
 int main(int argc, char** argv) {
   const char* dir_or_file = nullptr;

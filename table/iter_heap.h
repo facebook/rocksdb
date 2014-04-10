@@ -41,24 +41,4 @@ class MinIteratorComparator {
   const Comparator* comparator_;
 };
 
-typedef std::priority_queue<
-          IteratorWrapper*,
-          std::vector<IteratorWrapper*>,
-          MaxIteratorComparator> MaxIterHeap;
-
-typedef std::priority_queue<
-          IteratorWrapper*,
-          std::vector<IteratorWrapper*>,
-          MinIteratorComparator> MinIterHeap;
-
-// Return's a new MaxHeap of IteratorWrapper's using the provided Comparator.
-MaxIterHeap NewMaxIterHeap(const Comparator* comparator) {
-  return MaxIterHeap(MaxIteratorComparator(comparator));
-}
-
-// Return's a new MinHeap of IteratorWrapper's using the provided Comparator.
-MinIterHeap NewMinIterHeap(const Comparator* comparator) {
-  return MinIterHeap(MinIteratorComparator(comparator));
-}
-
 }  // namespace rocksdb

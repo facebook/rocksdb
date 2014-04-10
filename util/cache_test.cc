@@ -107,7 +107,9 @@ class CacheTest {
 };
 CacheTest* CacheTest::current_;
 
+namespace {
 void dumbDeleter(const Slice& key, void* value) { }
+}  // namespace
 
 TEST(CacheTest, UsageTest) {
   // cache is shared_ptr and will be automatically cleaned up.
@@ -382,9 +384,11 @@ class Value {
   ~Value() { std::cout << v_ << " is destructed\n"; }
 };
 
+namespace {
 void deleter(const Slice& key, void* value) {
   delete (Value *)value;
 }
+}  // namespace
 
 TEST(CacheTest, BadEviction) {
   int n = 10;

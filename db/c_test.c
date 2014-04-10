@@ -145,7 +145,7 @@ static char* FilterCreate(
   memcpy(result, "fake", 4);
   return result;
 }
-unsigned char FilterKeyMatch(
+static unsigned char FilterKeyMatch(
     void* arg,
     const char* key, size_t length,
     const char* filter, size_t filter_length) {

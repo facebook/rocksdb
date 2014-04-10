@@ -325,6 +325,7 @@ DEFINE_uint64(delete_obsolete_files_period_micros, 0, "Option to delete "
               "obsolete files periodically. 0 means that obsolete files are"
               " deleted after every compaction run.");
 
+namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
@@ -344,6 +345,8 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
 }
+}  // namespace
+
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
@@ -482,6 +485,8 @@ enum RepFactory {
   kVectorRep,
   kHashLinkedList
 };
+
+namespace {
 enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
@@ -497,6 +502,8 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
 }
+}  // namespace
+
 static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");

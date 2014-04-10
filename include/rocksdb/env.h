@@ -649,7 +649,8 @@ extern void Fatal(Logger* info_log, const char* format, ...);
 
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,
-                                const std::string& fname);
+                                const std::string& fname,
+                                bool should_sync = false);
 
 // A utility routine: read contents of named file into *data
 extern Status ReadFileToString(Env* env, const std::string& fname,

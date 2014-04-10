@@ -200,6 +200,17 @@ TEST(EnvPosixTest, TwoPools) {
   ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
 }
 
+#ifdef OS_LINUX
+// To make sure the Env::GetUniqueId() related tests work correctly, The files
+// should be stored in regular storage like "hard disk" or "flash device".
+// Otherwise we cannot get the correct id.
+//
+// The following function act as the replacement of test::TmpDir() that may be
+// customized by user to be on a storage that doesn't work with GetUniqueId().
+//
+// TODO(kailiu) This function still assumes /tmp/<test-dir> reside in regular
+// storage system.
+namespace {
 bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
 
@@ -211,16 +222,6 @@ bool IsSingleVarint(const std::string& s) {
   return slice.size() == 0;
 }
 
-#ifdef OS_LINUX
-// To make sure the Env::GetUniqueId() related tests work correctly, The files
-// should be stored in regular storage like "hard disk" or "flash device".
-// Otherwise we cannot get the correct id.
-//
-// The following function act as the replacement of test::TmpDir() that may be
-// customized by user to be on a storage that doesn't work with GetUniqueId().
-//
-// TODO(kailiu) This function still assumes /tmp/<test-dir> reside in regular
-// storage system.
 bool IsUniqueIDValid(const std::string& s) {
   return !s.empty() && !IsSingleVarint(s);
 }
@@ -237,6 +238,7 @@ std::string GetOnDiskTestDir() {
 
   return base;
 }
+}  // namespace
 
 // Only works in linux platforms
 TEST(EnvPosixTest, RandomAccessUniqueID) {

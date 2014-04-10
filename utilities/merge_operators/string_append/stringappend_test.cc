@@ -25,6 +25,7 @@ namespace rocksdb {
 // Path to the database on file system
 const std::string kDbName = "/tmp/mergetestdb";
 
+namespace {
 // OpenDb opens a (possibly new) rocksdb database with a StringAppendOperator
 std::shared_ptr<DB> OpenNormalDb(char delim_char) {
   DB* db;
@@ -44,6 +45,7 @@ std::shared_ptr<DB> OpenTtlDb(char delim_char) {
   ASSERT_OK(UtilityDB::OpenTtlDB(options, kDbName, &db, 123456));
   return std::shared_ptr<DB>(db);
 }
+}  // namespace
 
 /// StringLists represents a set of string-lists, each with a key-index.
 /// Supports Append(list, string) and Get(list)

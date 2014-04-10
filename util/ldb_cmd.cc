@@ -601,6 +601,8 @@ void ListColumnFamiliesCommand::DoCommand() {
 
 // ----------------------------------------------------------------------------
 
+namespace {
+
 string ReadableTime(int unixtime) {
   char time_buffer [80];
   time_t rawtime = unixtime;
@@ -633,6 +635,8 @@ void PrintBucketCounts(const vector<uint64_t>& bucket_counts, int ttl_start,
           ReadableTime(ttl_end).c_str(),
           (unsigned long)bucket_counts[num_buckets - 1]);
 }
+
+}  // namespace
 
 const string InternalDumpCommand::ARG_COUNT_ONLY = "count_only";
 const string InternalDumpCommand::ARG_COUNT_DELIM = "count_delim";

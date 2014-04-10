@@ -6,6 +6,7 @@
 #include "util/stack_trace.h"
 #include <assert.h>
 
+namespace {
 void f0() {
   char *p = nullptr;
   *p = 10;  /* SIGSEGV here!! */
@@ -22,6 +23,7 @@ void f2() {
 void f3() {
   f2();
 }
+}  // namespace
 
 int main() {
   rocksdb::InstallStackTraceHandler();

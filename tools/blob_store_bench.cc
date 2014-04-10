@@ -1,3 +1,8 @@
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+
 #include <cstdio>
 #include <vector>
 #include <atomic>
@@ -23,11 +28,13 @@ uint64_t timeout_sec;
 Env *env;
 BlobStore* bs;
 
-static std::string RandomString(Random* rnd, uint64_t len) {
+namespace {
+std::string RandomString(Random* rnd, uint64_t len) {
   std::string r;
   test::RandomString(rnd, len, &r);
   return r;
 }
+}  // namespace
 
 struct Result {
   uint32_t writes;
@@ -59,11 +66,13 @@ struct Result {
 
 };
 
+namespace {
 Result operator + (const Result &a, const Result &b) {
   return Result(a.writes + b.writes, a.reads + b.reads,
                 a.deletes + b.deletes, a.data_written + b.data_written,
                 a.data_read + b.data_read);
 }
+}  // namespace
 
 struct WorkerThread {
   uint64_t data_size_from, data_size_to;
@@ -131,6 +140,7 @@ static void WorkerThreadBody(void* arg) {
   t->stopped.store(true);
 }
 
+namespace {
 Result StartBenchmark(vector<WorkerThread*>& config) {
   for (auto w : config) {
     env->StartThread(WorkerThreadBody, w);
@@ -241,6 +251,7 @@ vector<WorkerThread*> SetupBenchmarkReadHeavy() {
 
   return config;
 }
+}  // namespace
 
 int main(int argc, const char** argv) {
   srand(33);
