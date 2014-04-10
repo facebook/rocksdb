@@ -60,6 +60,12 @@ struct BlockBasedTableOptions {
     // A space efficient index block that is optimized for
     // binary-search-based index.
     kBinarySearch,
+
+    // The hash index, if enabled, will do the hash lookup when
+    // `ReadOption.prefix_seek == true`. User should also specify
+    // `Options.prefix_extractor` to allow the index block to correctly
+    // extract the prefix of the given key and perform hash table lookup.
+    kHashSearch,
   };
 
   IndexType index_type = kBinarySearch;

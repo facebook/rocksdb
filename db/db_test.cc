@@ -266,6 +266,8 @@ class DBTest {
   // Sequence of option configurations to try
   enum OptionConfig {
     kDefault,
+    kBlockBasedTableWithPrefixHashIndex,
+    kBlockBasedTableWithWholeKeyHashIndex,
     kPlainTableFirstBytePrefix,
     kPlainTableAllBytesPrefix,
     kVectorRep,
@@ -302,7 +304,8 @@ class DBTest {
     kSkipDeletesFilterFirst = 1,
     kSkipUniversalCompaction = 2,
     kSkipMergePut = 4,
-    kSkipPlainTable = 8
+    kSkipPlainTable = 8,
+    kSkipHashIndex = 16
   };
 
   DBTest() : option_config_(kDefault),
@@ -343,6 +346,12 @@ class DBTest {
               || option_config_ == kPlainTableFirstBytePrefix)) {
         continue;
       }
+      if ((skip_mask & kSkipPlainTable) &&
+          (option_config_ == kBlockBasedTableWithPrefixHashIndex ||
+           option_config_ == kBlockBasedTableWithWholeKeyHashIndex)) {
+        continue;
+      }
+
       break;
     }
 
@@ -441,6 +450,20 @@ class DBTest {
       case kInfiniteMaxOpenFiles:
         options.max_open_files = -1;
         break;
+      case kBlockBasedTableWithPrefixHashIndex: {
+        BlockBasedTableOptions table_options;
+        table_options.index_type = BlockBasedTableOptions::kHashSearch;
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+        break;
+      }
+      case kBlockBasedTableWithWholeKeyHashIndex: {
+        BlockBasedTableOptions table_options;
+        table_options.index_type = BlockBasedTableOptions::kHashSearch;
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        options.prefix_extractor.reset(NewNoopTransform());
+        break;
+      }
       default:
         break;
     }
@@ -1251,7 +1274,7 @@ TEST(DBTest, KeyMayExist) {
 
     // KeyMayExist function only checks data in block caches, which is not used
     // by plain table format.
-  } while (ChangeOptions(kSkipPlainTable));
+  } while (ChangeOptions(kSkipPlainTable | kSkipHashIndex));
 }
 
 TEST(DBTest, NonBlockingIteration) {
@@ -5882,7 +5905,9 @@ TEST(DBTest, Randomized) {
       int minimum = 0;
       if (option_config_ == kHashSkipList ||
           option_config_ == kHashLinkList ||
-          option_config_ == kPlainTableFirstBytePrefix) {
+          option_config_ == kPlainTableFirstBytePrefix ||
+          option_config_ == kBlockBasedTableWithWholeKeyHashIndex ||
+          option_config_ == kBlockBasedTableWithPrefixHashIndex) {
         minimum = 1;
       }
       if (p < 45) {                               // Put
@@ -5922,8 +5947,15 @@ TEST(DBTest, Randomized) {
       }
 
       if ((step % 100) == 0) {
-        ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
-        ASSERT_TRUE(CompareIterators(step, &model, db_, model_snap, db_snap));
+        // For DB instances that use the hash index + block-based table, the
+        // iterator will be invalid right when seeking a non-existent key, right
+        // than return a key that is close to it.
+        if (option_config_ != kBlockBasedTableWithWholeKeyHashIndex &&
+            option_config_ != kBlockBasedTableWithPrefixHashIndex) {
+          ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
+          ASSERT_TRUE(CompareIterators(step, &model, db_, model_snap, db_snap));
+        }
+
         // Save a snapshot from each DB this time that we'll use next
         // time we compare things, to make sure the current state is
         // preserved with the snapshot

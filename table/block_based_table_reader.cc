@@ -25,6 +25,7 @@
 
 #include "table/block.h"
 #include "table/filter_block.h"
+#include "table/block_hash_index.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
@@ -45,7 +46,9 @@ namespace {
 // The longest the prefix of the cache key used to identify blocks can be.
 // We are using the fact that we know for Posix files the unique ID is three
 // varints.
-const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
+// For some reason, compiling for iOS complains that this variable is unused
+const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
+    kMaxVarint64Length * 3 + 1;
 
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
@@ -105,7 +108,7 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                  Statistics* statistics) {
   auto cache_handle = block_cache->Lookup(key);
   if (cache_handle != nullptr) {
-    BumpPerfCount(&perf_context.block_cache_hit_count);
+    PERF_COUNTER_ADD(block_cache_hit_count, 1);
     // overall cache hit
     RecordTick(statistics, BLOCK_CACHE_HIT);
     // block-type specific cache hit
@@ -148,26 +151,20 @@ class BinarySearchIndexReader : public IndexReader {
  public:
   // Read index from the file and create an intance for
   // `BinarySearchIndexReader`.
-  // The return value is a pair, where
-  //  * first element is the status indicating if the operation succeeded.
-  //  * second element is the index reader to be created. On failure, this
-  // element will be nullptr
-  static std::pair<Status, IndexReader*> Create(RandomAccessFile* file,
-                                                const BlockHandle& index_handle,
-                                                Env* env,
-                                                const Comparator* comparator) {
+  // On success, index_reader will be populated; otherwise it will remain
+  // unmodified.
+  static Status Create(RandomAccessFile* file, const BlockHandle& index_handle,
+                       Env* env, const Comparator* comparator,
+                       IndexReader** index_reader) {
     Block* index_block = nullptr;
-    auto s =
-        ReadBlockFromFile(file, ReadOptions(), index_handle, &index_block, env);
+    auto s = ReadBlockFromFile(file, ReadOptions(), index_handle,
+                               &index_block, env);
 
-    if (!s.ok()) {
-      // Logically, index_block shouldn't have been populated if any error
-      // occurred.
-      assert(index_block == nullptr);
-      return {s, nullptr};
+    if (s.ok()) {
+      *index_reader = new BinarySearchIndexReader(comparator, index_block);
     }
 
-    return {s, new BinarySearchIndexReader(comparator, index_block)};
+    return s;
   }
 
   virtual Iterator* NewIterator() override {
@@ -184,19 +181,51 @@ class BinarySearchIndexReader : public IndexReader {
   std::unique_ptr<Block> index_block_;
 };
 
-// TODO(kailiu) This class is only a stub for now. And the comment below is also
-// not completed.
 // Index that leverages an internal hash table to quicken the lookup for a given
 // key.
+// @param data_iter_gen, equavalent to BlockBasedTable::NewIterator(). But that
+// functions requires index to be initalized. To avoid this problem external
+// caller will pass a function that can create the iterator over the entries
+// without the table to be fully initialized.
 class HashIndexReader : public IndexReader {
  public:
-  static std::pair<Status, IndexReader*> Create(
-      RandomAccessFile* file, const BlockHandle& index_handle, Env* env,
-      const Comparator* comparator, BlockBasedTable* table,
-      const SliceTransform* prefix_extractor) {
-    return {Status::NotSupported("not implemented yet!"),
-            nullptr};  // not finished
+  static Status Create(RandomAccessFile* file, const BlockHandle& index_handle,
+                       Env* env, const Comparator* comparator,
+                       std::function<Iterator*(Iterator*)> data_iter_gen,
+                       const SliceTransform* prefix_extractor,
+                       IndexReader** index_reader) {
+    assert(prefix_extractor);
+    Block* index_block = nullptr;
+    auto s =
+        ReadBlockFromFile(file, ReadOptions(), index_handle, &index_block, env);
+
+    if (!s.ok()) {
+      return s;
+    }
+
+    *index_reader = new HashIndexReader(comparator, index_block);
+    std::unique_ptr<Iterator> index_iter(index_block->NewIterator(nullptr));
+    std::unique_ptr<Iterator> data_iter(
+        data_iter_gen(index_block->NewIterator(nullptr)));
+    auto hash_index = CreateBlockHashIndex(index_iter.get(), data_iter.get(),
+                                           index_block->NumRestarts(),
+                                           comparator, prefix_extractor);
+    index_block->SetBlockHashIndex(hash_index);
+    return s;
   }
+
+  virtual Iterator* NewIterator() override {
+    return index_block_->NewIterator(comparator_);
+  }
+
+  virtual size_t size() const override { return index_block_->size(); }
+
+ private:
+  HashIndexReader(const Comparator* comparator, Block* index_block)
+      : IndexReader(comparator), index_block_(index_block) {
+    assert(index_block_ != nullptr);
+  }
+  std::unique_ptr<Block> index_block_;
 };
 
 
@@ -227,6 +256,11 @@ struct BlockBasedTable::Rep {
 
   std::shared_ptr<const TableProperties> table_properties;
   BlockBasedTableOptions::IndexType index_type;
+  // TODO(kailiu) It is very ugly to use internal key in table, since table
+  // module should not be relying on db module. However to make things easier
+  // and compatible with existing code, we introduce a wrapper that allows
+  // block to extract prefix without knowing if a key is internal or not.
+  unique_ptr<SliceTransform> internal_prefix_transform;
 };
 
 BlockBasedTable::~BlockBasedTable() {
@@ -367,7 +401,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
     // and with a same life-time as this table object.
     IndexReader* index_reader = nullptr;
     // TODO: we never really verify check sum for index block
-    std::tie(s, index_reader) = new_table->CreateIndexReader();
+    s = new_table->CreateIndexReader(&index_reader);
 
     if (s.ok()) {
       rep->index_reader.reset(index_reader);
@@ -751,8 +785,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   return { filter, cache_handle };
 }
 
-Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options)
-    const {
+Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
   // index reader has already been pre-populated.
   if (rep_->index_reader) {
     return rep_->index_reader->NewIterator();
@@ -779,7 +812,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options)
   } else {
     // Create index reader and put it in the cache.
     Status s;
-    std::tie(s, index_reader) = CreateIndexReader();
+    s = CreateIndexReader(&index_reader);
 
     if (!s.ok()) {
       // make sure if something goes wrong, index_reader shall remain intact.
@@ -958,11 +991,14 @@ Status BlockBasedTable::Get(
   return s;
 }
 
+namespace {
 bool SaveDidIO(void* arg, const ParsedInternalKey& key, const Slice& value,
                bool didIO) {
   *reinterpret_cast<bool*>(arg) = didIO;
   return false;
 }
+}  // namespace
+
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
   // We use Get() as it has logic that checks whether we read the
@@ -979,7 +1015,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 //  3. options
 //  4. internal_comparator
 //  5. index_type
-std::pair<Status, IndexReader*> BlockBasedTable::CreateIndexReader() const {
+Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
   auto index_type = BlockBasedTableOptions::kBinarySearch;
@@ -990,19 +1026,37 @@ std::pair<Status, IndexReader*> BlockBasedTable::CreateIndexReader() const {
         DecodeFixed32(pos->second.c_str()));
   }
 
+  auto file = rep_->file.get();
+  const auto& index_handle = rep_->index_handle;
+  auto env = rep_->options.env;
+  auto comparator = &rep_->internal_comparator;
+
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
-      return BinarySearchIndexReader::Create(
-          rep_->file.get(), rep_->index_handle, rep_->options.env,
-          &rep_->internal_comparator);
+      return BinarySearchIndexReader::Create(file, index_handle, env,
+                                             comparator, index_reader);
+    }
+    case BlockBasedTableOptions::kHashSearch: {
+      // We need to wrap data with internal_prefix_transform to make sure it can
+      // handle prefix correctly.
+      rep_->internal_prefix_transform.reset(
+          new InternalKeySliceTransform(rep_->options.prefix_extractor.get()));
+      return HashIndexReader::Create(
+          file, index_handle, env, comparator,
+          [&](Iterator* index_iter) {
+            return NewTwoLevelIterator(
+                index_iter, &BlockBasedTable::DataBlockReader,
+                const_cast<BlockBasedTable*>(this), ReadOptions(),
+                rep_->soptions, rep_->internal_comparator);
+          },
+          rep_->internal_prefix_transform.get(), index_reader);
     }
     default: {
       std::string error_message =
           "Unrecognized index type: " + std::to_string(rep_->index_type);
       // equivalent to assert(false), but more informative.
       assert(!error_message.c_str());
-      return {Status::InvalidArgument(error_message.c_str()),
-              nullptr};  // cannot reach here
+      return Status::InvalidArgument(error_message.c_str());
     }
   }
 }

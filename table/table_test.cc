@@ -1055,6 +1055,116 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
+void AddInternalKey(TableConstructor* c, const std::string prefix,
+                    int suffix_len = 800) {
+  static Random rnd(1023);
+  InternalKey k(prefix + RandomString(&rnd, 800), 0, kTypeValue);
+  c->Add(k.Encode().ToString(), "v");
+}
+
+TEST(TableTest, HashIndexTest) {
+  TableConstructor c(BytewiseComparator());
+
+  // keys with prefix length 3, make sure the key/value is big enough to fill
+  // one block
+  AddInternalKey(&c, "0015");
+  AddInternalKey(&c, "0035");
+
+  AddInternalKey(&c, "0054");
+  AddInternalKey(&c, "0055");
+
+  AddInternalKey(&c, "0056");
+  AddInternalKey(&c, "0057");
+
+  AddInternalKey(&c, "0058");
+  AddInternalKey(&c, "0075");
+
+  AddInternalKey(&c, "0076");
+  AddInternalKey(&c, "0095");
+
+  std::vector<std::string> keys;
+  KVMap kvmap;
+  Options options;
+  BlockBasedTableOptions table_options;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.block_cache = NewLRUCache(1024);
+  options.block_size = 1700;
+
+  std::unique_ptr<InternalKeyComparator> comparator(
+      new InternalKeyComparator(BytewiseComparator()));
+  c.Finish(options, *comparator, &keys, &kvmap);
+  auto reader = c.table_reader();
+
+  auto props = c.table_reader()->GetTableProperties();
+  ASSERT_EQ(5u, props->num_data_blocks);
+
+  std::unique_ptr<Iterator> hash_iter(reader->NewIterator(ReadOptions()));
+
+  // -- Find keys do not exist, but have common prefix.
+  std::vector<std::string> prefixes = {"001", "003", "005", "007", "009"};
+  std::vector<std::string> lower_bound = {keys[0], keys[1], keys[2],
+                                          keys[7], keys[9], };
+
+  // find the lower bound of the prefix
+  for (size_t i = 0; i < prefixes.size(); ++i) {
+    hash_iter->Seek(InternalKey(prefixes[i], 0, kTypeValue).Encode());
+    ASSERT_OK(hash_iter->status());
+    ASSERT_TRUE(hash_iter->Valid());
+
+    // seek the first element in the block
+    ASSERT_EQ(lower_bound[i], hash_iter->key().ToString());
+    ASSERT_EQ("v", hash_iter->value().ToString());
+  }
+
+  // find the upper bound of prefixes
+  std::vector<std::string> upper_bound = {keys[1], keys[2], keys[7], keys[9], };
+
+  // find existing keys
+  for (const auto& item : kvmap) {
+    auto ukey = ExtractUserKey(item.first).ToString();
+    hash_iter->Seek(ukey);
+
+    // ASSERT_OK(regular_iter->status());
+    ASSERT_OK(hash_iter->status());
+
+    // ASSERT_TRUE(regular_iter->Valid());
+    ASSERT_TRUE(hash_iter->Valid());
+
+    ASSERT_EQ(item.first, hash_iter->key().ToString());
+    ASSERT_EQ(item.second, hash_iter->value().ToString());
+  }
+
+  for (size_t i = 0; i < prefixes.size(); ++i) {
+    // the key is greater than any existing keys.
+    auto key = prefixes[i] + "9";
+    hash_iter->Seek(InternalKey(key, 0, kTypeValue).Encode());
+
+    ASSERT_OK(hash_iter->status());
+    if (i == prefixes.size() - 1) {
+      // last key
+      ASSERT_TRUE(!hash_iter->Valid());
+    } else {
+      ASSERT_TRUE(hash_iter->Valid());
+      // seek the first element in the block
+      ASSERT_EQ(upper_bound[i], hash_iter->key().ToString());
+      ASSERT_EQ("v", hash_iter->value().ToString());
+    }
+  }
+
+  // find keys with prefix that don't match any of the existing prefixes.
+  std::vector<std::string> non_exist_prefixes = {"002", "004", "006", "008"};
+  for (const auto& prefix : non_exist_prefixes) {
+    hash_iter->Seek(InternalKey(prefix, 0, kTypeValue).Encode());
+    // regular_iter->Seek(prefix);
+
+    ASSERT_OK(hash_iter->status());
+    ASSERT_TRUE(!hash_iter->Valid());
+  }
+}
+
 // It's very hard to figure out the index block size of a block accurately.
 // To make sure we get the index size, we just make sure as key number
 // grows, the filter block size also grows.
