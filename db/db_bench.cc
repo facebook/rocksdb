@@ -47,6 +47,8 @@ DEFINE_string(benchmarks,
               "overwrite,"
               "readrandom,"
               "readrandom,"
+              "newiterator,"
+              "newiteratorwhilewriting,"
               "readseq,"
               "readreverse,"
               "compact,"
@@ -1172,6 +1174,9 @@ class Benchmark {
         method = &Benchmark::ReadRandom;
       } else if (name == Slice("newiterator")) {
         method = &Benchmark::IteratorCreation;
+      } else if (name == Slice("newiteratorwhilewriting")) {
+        num_threads++;  // Add extra thread for writing
+        method = &Benchmark::IteratorCreationWhileWriting;
       } else if (name == Slice("seekrandom")) {
         method = &Benchmark::SeekRandom;
       } else if (name == Slice("readrandomsmall")) {
@@ -1864,10 +1869,19 @@ class Benchmark {
   void IteratorCreation(ThreadState* thread) {
     Duration duration(FLAGS_duration, reads_);
     ReadOptions options(FLAGS_verify_checksum, true);
+    options.prefix_seek = (FLAGS_prefix_size > 0);
     while (!duration.Done(1)) {
       Iterator* iter = db_->NewIterator(options);
       delete iter;
       thread->stats.FinishedSingleOp(db_);
+    }
+  }
+
+  void IteratorCreationWhileWriting(ThreadState* thread) {
+    if (thread->tid > 0) {
+      IteratorCreation(thread);
+    } else {
+      BGWriter(thread);
     }
   }
 
@@ -1934,53 +1948,57 @@ class Benchmark {
     if (thread->tid > 0) {
       ReadRandom(thread);
     } else {
-      // Special thread that keeps writing until other threads are done.
-      RandomGenerator gen;
-      double last = FLAGS_env->NowMicros();
-      int writes_per_second_by_10 = 0;
-      int num_writes = 0;
+      BGWriter(thread);
+    }
+  }
 
-      // --writes_per_second rate limit is enforced per 100 milliseconds
-      // intervals to avoid a burst of writes at the start of each second.
+  void BGWriter(ThreadState* thread) {
+    // Special thread that keeps writing until other threads are done.
+    RandomGenerator gen;
+    double last = FLAGS_env->NowMicros();
+    int writes_per_second_by_10 = 0;
+    int num_writes = 0;
 
-      if (FLAGS_writes_per_second > 0)
-        writes_per_second_by_10 = FLAGS_writes_per_second / 10;
+    // --writes_per_second rate limit is enforced per 100 milliseconds
+    // intervals to avoid a burst of writes at the start of each second.
 
-      // Don't merge stats from this thread with the readers.
-      thread->stats.SetExcludeFromMerge();
+    if (FLAGS_writes_per_second > 0)
+      writes_per_second_by_10 = FLAGS_writes_per_second / 10;
 
-      Slice key = AllocateKey();
-      std::unique_ptr<const char[]> key_guard(key.data());
+    // Don't merge stats from this thread with the readers.
+    thread->stats.SetExcludeFromMerge();
 
-      while (true) {
-        {
-          MutexLock l(&thread->shared->mu);
-          if (thread->shared->num_done + 1 >= thread->shared->num_initialized) {
-            // Other threads have finished
-            break;
-          }
+    Slice key = AllocateKey();
+    std::unique_ptr<const char[]> key_guard(key.data());
+
+    while (true) {
+      {
+        MutexLock l(&thread->shared->mu);
+        if (thread->shared->num_done + 1 >= thread->shared->num_initialized) {
+          // Other threads have finished
+          break;
         }
+      }
 
-        GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
-        Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
-        if (!s.ok()) {
-          fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-          exit(1);
-        }
-        thread->stats.FinishedSingleOp(db_);
+      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      Status s = db_->Put(write_options_, key, gen.Generate(value_size_));
+      if (!s.ok()) {
+        fprintf(stderr, "put error: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+      thread->stats.FinishedSingleOp(db_);
 
-        ++num_writes;
-        if (writes_per_second_by_10 && num_writes >= writes_per_second_by_10) {
-          double now = FLAGS_env->NowMicros();
-          double usecs_since_last = now - last;
+      ++num_writes;
+      if (writes_per_second_by_10 && num_writes >= writes_per_second_by_10) {
+        double now = FLAGS_env->NowMicros();
+        double usecs_since_last = now - last;
 
-          num_writes = 0;
-          last = now;
+        num_writes = 0;
+        last = now;
 
-          if (usecs_since_last < 100000.0) {
-            FLAGS_env->SleepForMicroseconds(100000.0 - usecs_since_last);
-            last = FLAGS_env->NowMicros();
-          }
+        if (usecs_since_last < 100000.0) {
+          FLAGS_env->SleepForMicroseconds(100000.0 - usecs_since_last);
+          last = FLAGS_env->NowMicros();
         }
       }
     }
