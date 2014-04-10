@@ -131,7 +131,7 @@ class BlockBasedTable : public TableReader {
   //  2. index is not present in block cache.
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
-  Iterator* NewIndexIterator(const ReadOptions& read_options) const;
+  Iterator* NewIndexIterator(const ReadOptions& read_options);
 
   // Read block cache from block caches (if set): block_cache and
   // block_cache_compressed.
@@ -164,7 +164,7 @@ class BlockBasedTable : public TableReader {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
-  Status CreateIndexReader(IndexReader** index_reader) const;
+  Status CreateIndexReader(IndexReader** index_reader);
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(

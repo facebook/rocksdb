@@ -3,7 +3,10 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#include <stdio.h>
 #include <string>
+#include <vector>
+
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -11,9 +14,11 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table.h"
+#include "rocksdb/slice_transform.h"
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"
+#include "table/block_hash_index.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -24,6 +29,40 @@ static std::string RandomString(Random* rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
   return r;
+}
+std::string GenerateKey(int primary_key, int secondary_key, int padding_size,
+                        Random *rnd) {
+  char buf[50];
+  char *p = &buf[0];
+  snprintf(buf, sizeof(buf), "%6d%4d", primary_key, secondary_key);
+  std::string k(p);
+  if (padding_size) {
+    k += RandomString(rnd, padding_size);
+  }
+
+  return k;
+}
+
+// Generate random key value pairs.
+// The generated key will be sorted. You can tune the parameters to generated
+// different kinds of test key/value pairs for different scenario.
+void GenerateRandomKVs(std::vector<std::string> *keys,
+                       std::vector<std::string> *values, const int from,
+                       const int len, const int step = 1,
+                       const int padding_size = 0,
+                       const int keys_share_prefix = 1) {
+  Random rnd(302);
+
+  // generate different prefix
+  for (int i = from; i < from + len; i += step) {
+    // generating keys that shares the prefix
+    for (int j = 0; j < keys_share_prefix; ++j) {
+      keys->emplace_back(GenerateKey(i, j, padding_size, &rnd));
+
+      // 100 bytes values
+      values->emplace_back(RandomString(&rnd, 100));
+    }
+  }
 }
 
 class BlockTest {};
@@ -39,24 +78,11 @@ TEST(BlockTest, SimpleTest) {
   std::vector<std::string> values;
   BlockBuilder builder(options, ic.get());
   int num_records = 100000;
-  char buf[10];
-  char* p = &buf[0];
 
+  GenerateRandomKVs(&keys, &values, 0, num_records);
   // add a bunch of records to a block
   for (int i = 0; i < num_records; i++) {
-    // generate random kvs
-    sprintf(p, "%6d", i);
-    std::string k(p);
-    std::string v = RandomString(&rnd, 100); // 100 byte values
-
-    // write kvs to the block
-    Slice key(k);
-    Slice value(v);
-    builder.Add(key, value);
-
-    // remember kvs in a lookaside array
-    keys.push_back(k);
-    values.push_back(v);
+    builder.Add(keys[i], values[i]);
   }
 
   // read serialized contents of the block
@@ -99,6 +125,114 @@ TEST(BlockTest, SimpleTest) {
     ASSERT_EQ(v.ToString().compare(values[index]), 0);
   }
   delete iter;
+}
+
+// return the block contents
+BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
+                               const std::vector<std::string> &keys,
+                               const std::vector<std::string> &values,
+                               const int prefix_group_size = 1) {
+  builder->reset(
+      new BlockBuilder(1 /* restart interval */, BytewiseComparator()));
+
+  // Add only half of the keys
+  for (size_t i = 0; i < keys.size(); ++i) {
+    (*builder)->Add(keys[i], values[i]);
+  }
+  Slice rawblock = (*builder)->Finish();
+
+  BlockContents contents;
+  contents.data = rawblock;
+  contents.cachable = false;
+  contents.heap_allocated = false;
+
+  return contents;
+}
+
+void CheckBlockContents(BlockContents contents, const int max_key,
+                        const std::vector<std::string> &keys,
+                        const std::vector<std::string> &values) {
+  const size_t prefix_size = 6;
+  // create block reader
+  Block reader1(contents);
+  Block reader2(contents);
+
+  std::unique_ptr<const SliceTransform> prefix_extractor(
+      NewFixedPrefixTransform(prefix_size));
+
+  {
+    auto iter1 = reader1.NewIterator(nullptr);
+    auto iter2 = reader1.NewIterator(nullptr);
+    reader1.SetBlockHashIndex(CreateBlockHashIndex(iter1, iter2, keys.size(),
+                                                   BytewiseComparator(),
+                                                   prefix_extractor.get()));
+
+    delete iter1;
+    delete iter2;
+  }
+
+  std::unique_ptr<Iterator> hash_iter(
+      reader1.NewIterator(BytewiseComparator()));
+
+  std::unique_ptr<Iterator> regular_iter(
+      reader2.NewIterator(BytewiseComparator()));
+
+  // Seek existent keys
+  for (size_t i = 0; i < keys.size(); i++) {
+    hash_iter->Seek(keys[i]);
+    ASSERT_OK(hash_iter->status());
+    ASSERT_TRUE(hash_iter->Valid());
+
+    Slice v = hash_iter->value();
+    ASSERT_EQ(v.ToString().compare(values[i]), 0);
+  }
+
+  // Seek non-existent keys.
+  // For hash index, if no key with a given prefix is not found, iterator will
+  // simply be set as invalid; whereas the binary search based iterator will
+  // return the one that is closest.
+  for (int i = 1; i < max_key - 1; i += 2) {
+    auto key = GenerateKey(i, 0, 0, nullptr);
+    hash_iter->Seek(key);
+    ASSERT_TRUE(!hash_iter->Valid());
+
+    regular_iter->Seek(key);
+    ASSERT_TRUE(regular_iter->Valid());
+  }
+}
+
+// In this test case, no two key share same prefix.
+TEST(BlockTest, SimpleIndexHash) {
+  const int kMaxKey = 100000;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  GenerateRandomKVs(&keys, &values, 0 /* first key id */,
+                    kMaxKey /* last key id */, 2 /* step */,
+                    8 /* padding size (8 bytes randomly generated suffix) */);
+
+  std::unique_ptr<BlockBuilder> builder;
+  auto contents = GetBlockContents(&builder, keys, values);
+
+  CheckBlockContents(contents, kMaxKey, keys, values);
+}
+
+TEST(BlockTest, IndexHashWithSharedPrefix) {
+  const int kMaxKey = 100000;
+  // for each prefix, there will be 5 keys starts with it.
+  const int kPrefixGroup = 5;
+  std::vector<std::string> keys;
+  std::vector<std::string> values;
+  // Generate keys with same prefix.
+  GenerateRandomKVs(&keys, &values, 0,  // first key id
+                    kMaxKey,            // last key id
+                    2,                  // step
+                    10,                 // padding size,
+                    kPrefixGroup);
+
+  std::unique_ptr<BlockBuilder> builder;
+  auto contents = GetBlockContents(&builder, keys, values, kPrefixGroup);
+
+  CheckBlockContents(contents, kMaxKey, keys, values);
 }
 
 }  // namespace rocksdb

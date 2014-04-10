@@ -97,9 +97,9 @@ class IndexBuilder {
 //  2. Shorten the key length for index block. Other than honestly using the
 //     last key in the data block as the index key, we instead find a shortest
 //     substitute key that serves the same function.
-class BinarySearchIndexBuilder : public IndexBuilder {
+class ShortenedIndexBuilder : public IndexBuilder {
  public:
-  explicit BinarySearchIndexBuilder(const Comparator* comparator)
+  explicit ShortenedIndexBuilder(const Comparator* comparator)
       : IndexBuilder(comparator),
         index_block_builder_(1 /* block_restart_interval == 1 */, comparator) {}
 
@@ -128,11 +128,41 @@ class BinarySearchIndexBuilder : public IndexBuilder {
   BlockBuilder index_block_builder_;
 };
 
+// FullKeyIndexBuilder is also based on BlockBuilder. It works pretty much like
+// ShortenedIndexBuilder, but preserves the full key instead the substitude key.
+// with the reason being that hash index is based on "prefix".
+class FullKeyIndexBuilder : public IndexBuilder {
+ public:
+  explicit FullKeyIndexBuilder(const Comparator* comparator)
+      : IndexBuilder(comparator),
+        index_block_builder_(1 /* block_restart_interval == 1 */, comparator) {}
+
+  virtual void AddEntry(std::string* last_key_in_current_block,
+                        const Slice* first_key_in_next_block,
+                        const BlockHandle& block_handle) override {
+    std::string handle_encoding;
+    block_handle.EncodeTo(&handle_encoding);
+    index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
+  }
+
+  virtual Slice Finish() override { return index_block_builder_.Finish(); }
+
+  virtual size_t EstimatedSize() const {
+    return index_block_builder_.CurrentSizeEstimate();
+  }
+
+ private:
+  BlockBuilder index_block_builder_;
+};
+
 // Create a index builder based on its type.
 IndexBuilder* CreateIndexBuilder(IndexType type, const Comparator* comparator) {
   switch (type) {
     case BlockBasedTableOptions::kBinarySearch: {
-      return new BinarySearchIndexBuilder(comparator);
+      return new ShortenedIndexBuilder(comparator);
+    }
+    case BlockBasedTableOptions::kHashSearch: {
+      return new FullKeyIndexBuilder(comparator);
     }
     default: {
       assert(!"Do not recognize the index type ");
