@@ -62,8 +62,8 @@ struct CompressionOptions {
   int level;
   int strategy;
   CompressionOptions() : window_bits(-14), level(-1), strategy(0) {}
-  CompressionOptions(int wbits, int lev, int strategy)
-      : window_bits(wbits), level(lev), strategy(strategy) {}
+  CompressionOptions(int wbits, int _lev, int _strategy)
+      : window_bits(wbits), level(_lev), strategy(_strategy) {}
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
