@@ -1030,15 +1030,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
-  auto index_type = BlockBasedTableOptions::kBinarySearch;
-  if (rep_->table_properties) {
-    auto& props = rep_->table_properties->user_collected_properties;
-    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
-    if (pos != props.end()) {
-      index_type = static_cast<BlockBasedTableOptions::IndexType>(
-          DecodeFixed32(pos->second.c_str()));
-    }
-  }
+  auto index_type = rep_->index_type;
 
   auto file = rep_->file.get();
   const auto& index_handle = rep_->index_handle;
