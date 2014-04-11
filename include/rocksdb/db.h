@@ -35,9 +35,9 @@ struct ColumnFamilyDescriptor {
   ColumnFamilyOptions options;
   ColumnFamilyDescriptor()
       : name(kDefaultColumnFamilyName), options(ColumnFamilyOptions()) {}
-  ColumnFamilyDescriptor(const std::string& name,
-                         const ColumnFamilyOptions& options)
-      : name(name), options(options) {}
+  ColumnFamilyDescriptor(const std::string& _name,
+                         const ColumnFamilyOptions& _options)
+      : name(_name), options(_options) {}
 };
 
 // Update Makefile if you change these
