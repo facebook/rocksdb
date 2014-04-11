@@ -88,8 +88,7 @@ class IndexBuilder {
   const Comparator* comparator_;
 };
 
-// This index builder builds space-efficient index block for binary-search-based
-// index.
+// This index builder builds space-efficient index block.
 //
 // Optimizations:
 //  1. Made block's `block_restart_interval` to be 1, which will avoid linear
@@ -130,7 +129,6 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
 // FullKeyIndexBuilder is also based on BlockBuilder. It works pretty much like
 // ShortenedIndexBuilder, but preserves the full key instead the substitude key.
-// with the reason being that hash index is based on "prefix".
 class FullKeyIndexBuilder : public IndexBuilder {
  public:
   explicit FullKeyIndexBuilder(const Comparator* comparator)
@@ -162,7 +160,7 @@ IndexBuilder* CreateIndexBuilder(IndexType type, const Comparator* comparator) {
       return new ShortenedIndexBuilder(comparator);
     }
     case BlockBasedTableOptions::kHashSearch: {
-      return new FullKeyIndexBuilder(comparator);
+      return new ShortenedIndexBuilder(comparator);
     }
     default: {
       assert(!"Do not recognize the index type ");
