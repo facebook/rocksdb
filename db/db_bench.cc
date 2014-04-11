@@ -46,9 +46,10 @@ DEFINE_string(benchmarks,
               "fillrandom,"
               "overwrite,"
               "readrandom,"
-              "readrandom,"
               "newiterator,"
               "newiteratorwhilewriting,"
+              "seekrandom,"
+              "seekrandomwhilewriting,"
               "readseq,"
               "readreverse,"
               "compact,"
@@ -104,6 +105,7 @@ DEFINE_string(benchmarks,
               "operations. Must be used with merge_operator\n"
               "\tnewiterator   -- repeated iterator creation\n"
               "\tseekrandom    -- N random seeks\n"
+              "\tseekrandom    -- 1 writer, N threads doing random seeks\n"
               "\tcrc32c        -- repeated crc32c of 4K of data\n"
               "\tacquireload   -- load N*1000 times\n"
               "Meta operations:\n"
@@ -1179,6 +1181,9 @@ class Benchmark {
         method = &Benchmark::IteratorCreationWhileWriting;
       } else if (name == Slice("seekrandom")) {
         method = &Benchmark::SeekRandom;
+      } else if (name == Slice("seekrandomwhilewriting")) {
+        num_threads++;  // Add extra thread for writing
+        method = &Benchmark::SeekRandomWhileWriting;
       } else if (name == Slice("readrandomsmall")) {
         reads_ /= 1000;
         method = &Benchmark::ReadRandom;
@@ -1890,6 +1895,7 @@ class Benchmark {
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     options.tailing = FLAGS_use_tailing_iterator;
+    options.prefix_seek = (FLAGS_prefix_size > 0);
     auto* iter = db_->NewIterator(options);
     Slice key = AllocateKey();
     std::unique_ptr<const char[]> key_guard(key.data());
@@ -1910,6 +1916,14 @@ class Benchmark {
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
              found, read);
     thread->stats.AddMessage(msg);
+  }
+
+  void SeekRandomWhileWriting(ThreadState* thread) {
+    if (thread->tid > 0) {
+      SeekRandom(thread);
+    } else {
+      BGWriter(thread);
+    }
   }
 
   void DoDelete(ThreadState* thread, bool seq) {
