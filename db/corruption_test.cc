@@ -326,7 +326,8 @@ TEST(CorruptionTest, CompactionInputError) {
 TEST(CorruptionTest, CompactionInputErrorParanoid) {
   Options options;
   options.paranoid_checks = true;
-  options.write_buffer_size = 1048576;
+  options.write_buffer_size = 131072;
+  options.max_write_buffer_number = 2;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 
@@ -349,7 +350,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   Status s;
   std::string tmp1, tmp2;
   bool failed = false;
-  for (int i = 0; i < 10000 && s.ok(); i++) {
+  for (int i = 0; i < 10000; i++) {
     s = db_->Put(WriteOptions(), Key(i, &tmp1), Value(i, &tmp2));
     if (!s.ok()) {
       failed = true;

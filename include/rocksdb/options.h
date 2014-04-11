@@ -257,6 +257,8 @@ struct ColumnFamilyOptions {
 
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.
+  //
+  // Default: 4
   int level0_file_num_compaction_trigger;
 
   // Soft limit on number of level-0 files. We start slowing down writes at this
