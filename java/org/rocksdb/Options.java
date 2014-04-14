@@ -7,7 +7,7 @@ package org.rocksdb;
 
 /**
  * Options to control the behavior of a database.  It will be used
- * during the creation of a RocksDB (i.e., RocksDB::Open()).
+ * during the creation of a RocksDB (i.e., RocksDB.open()).
  *
  * Note that dispose() must be called before an Options instance
  * become out-of-scope to release the allocated memory in c++.
@@ -26,23 +26,25 @@ public class Options {
 
   /**
    * If this value is set to true, then the database will be created
-   * if it is missing during RocksDB::Open().
+   * if it is missing during RocksDB.open().
    * Default: false
    *
    * @param flag a flag indicating whether to create a database the
-   *     specified database in RocksDB::Open() operation is missing.
-   * @see RocksDB::Open()
+   *     specified database in RocksDB.open() operation is missing.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
    */
-  public void setCreateIfMissing(boolean flag) {
+  public Options setCreateIfMissing(boolean flag) {
     assert(isInitialized());
     setCreateIfMissing(nativeHandle_, flag);
+    return this;
   }
 
   /**
    * Return true if the create_if_missing flag is set to true.
    * If true, the database will be created if it is missing.
    *
-   * @return return true if the create_if_missing flag is set to true.
+   * @return true if the createIfMissing option is set to true.
    * @see setCreateIfMissing()
    */
   public boolean createIfMissing() {
@@ -63,12 +65,14 @@ public class Options {
    * the next time the database is opened.
    *
    * Default: 4MB
-   * @param size of write buffer.
-   * @see RocksDB::Open()
+   * @param writeBufferSize the size of write buffer.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
    */
-  public void setWriteBufferSize(int writeBufferSize) {
+  public Options setWriteBufferSize(int writeBufferSize) {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
+    return this;
   }
 
   /**
@@ -88,12 +92,14 @@ public class Options {
    * storage, new writes can continue to the other write buffer.
    * Default: 2
    *
-   * @param maximum number of write buffers.
-   * @see RocksDB::Open()
+   * @param maxWriteBufferNumber maximum number of write buffers.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
    */
-  public void setMaxWriteBufferNumber(int maxWriteBufferNumber) {
+  public Options setMaxWriteBufferNumber(int maxWriteBufferNumber) {
     assert(isInitialized());
     setMaxWriteBufferNumber(nativeHandle_, maxWriteBufferNumber);
+    return this;
   }
 
   /**
@@ -115,16 +121,18 @@ public class Options {
    *
    * Default: 4K
    *
-   * @param block size.
-   * @see RocksDB::Open()
+   * @param blockSize the size of each block in bytes.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
    */
-  public void setBlockSize(int blockSize) {
+  public Options setBlockSize(int blockSize) {
     assert(isInitialized());
     setBlockSize(nativeHandle_, blockSize);
+    return this;
   }
 
   /*
-   * Returns block size.
+   * Returns the size of a block in bytes.
    *
    * @return block size.
    * @see setBlockSize()
@@ -141,12 +149,15 @@ public class Options {
    * (which is true if max_open_files is large).
    * Default: true
    *
-   * @param disable seek compaction.
-   * @see RocksDB::Open()
+   * @param disableSeekCompaction a boolean value to specify whether
+   *     to disable seek compaction.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
    */
-  public void setDisableSeekCompaction(boolean disableSeekCompaction) {
+  public Options setDisableSeekCompaction(boolean disableSeekCompaction) {
     assert(isInitialized());
     setDisableSeekCompaction(nativeHandle_, disableSeekCompaction);
+    return this;
   }
 
   /*
@@ -165,12 +176,15 @@ public class Options {
    * the default LOW priority thread pool.
    * Default: 1
    *
-   * @param maximum number of concurrent background jobs.
-   * @see RocksDB::Open()
+   * @param maxBackgroundCompactions the maximum number of concurrent
+   *     background jobs.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
    */
-  public void setMaxBackgroundCompactions(int maxBackgroundCompactions) {
+  public Options setMaxBackgroundCompactions(int maxBackgroundCompactions) {
     assert(isInitialized());
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
+    return this;
   }
 
   /*

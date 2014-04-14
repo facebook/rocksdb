@@ -40,9 +40,14 @@ public class WriteOptions {
    * system call followed by "fdatasync()".
    *
    * Default: false
+   *
+   * @param flag a boolean flag to indicate whether a write
+   *     should be synchronized.
+   * @return the instance of the current WriteOptions.
    */
-  public void setSync(boolean flag) {
+  public WriteOptions setSync(boolean flag) {
     setSync(nativeHandle_, flag);
+    return this;
   }
 
   /**
@@ -68,9 +73,14 @@ public class WriteOptions {
   /**
    * If true, writes will not first go to the write ahead log,
    * and the write may got lost after a crash.
+   *
+   * @param flag a boolean flag to specify whether to disable
+   *     write-ahead-log on writes.
+   * @return the instance of the current WriteOptions.
    */
-  public void setDisableWAL(boolean flag) {
+  public WriteOptions setDisableWAL(boolean flag) {
     setDisableWAL(nativeHandle_, flag);
+    return this;
   }
 
   /**
@@ -92,5 +102,5 @@ public class WriteOptions {
   private native boolean disableWAL(long handle);
   private native void dispose0(long handle);
 
-  protected  long nativeHandle_;
+  protected long nativeHandle_;
 }

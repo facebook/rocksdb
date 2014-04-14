@@ -32,12 +32,12 @@ public class RocksDBSample {
       assert(db == null);
     }
 
-    options.setCreateIfMissing(true);
-    options.setWriteBufferSize(8*1024);
-    options.setMaxWriteBufferNumber(3);
-    options.setDisableSeekCompaction(true);
-    options.setBlockSize(64*1024);
-    options.setMaxBackgroundCompactions(10);
+    options.setCreateIfMissing(true)
+        .setWriteBufferSize(8 * 1024)
+        .setMaxWriteBufferNumber(3)
+        .setDisableSeekCompaction(true)
+        .setBlockSize(64 * 1024)
+        .setMaxBackgroundCompactions(10);
 
     assert(options.createIfMissing() == true);
     assert(options.writeBufferSize() == 8192);
