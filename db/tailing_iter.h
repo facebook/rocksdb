@@ -14,7 +14,7 @@ namespace rocksdb {
 
 class DBImpl;
 class Env;
-class SuperVersion;
+struct SuperVersion;
 class ColumnFamilyData;
 
 /**
