@@ -199,7 +199,16 @@ class ColumnFamilyData {
 
   SuperVersion* GetSuperVersion() { return super_version_; }
   // thread-safe
-  ThreadLocalPtr* GetThreadLocalSuperVersion() const { return local_sv_.get(); }
+  // Return a already referenced SuperVersion to be used safely.
+  SuperVersion* GetReferencedSuperVersion(port::Mutex* db_mutex);
+  // thread-safe
+  // Get SuperVersion stored in thread local storage. If it does not exist,
+  // get a reference from a current SuperVersion.
+  SuperVersion* GetThreadLocalSuperVersion(port::Mutex* db_mutex);
+  // Try to return SuperVersion back to thread local storage. Retrun true on
+  // success and false on failure. It fails when the thread local storage
+  // contains anything other than SuperVersion::kSVInUse flag.
+  bool ReturnThreadLocalSuperVersion(SuperVersion* sv);
   // thread-safe
   uint64_t GetSuperVersionNumber() const {
     return super_version_number_.load();

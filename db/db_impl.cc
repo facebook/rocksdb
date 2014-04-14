@@ -3179,8 +3179,7 @@ struct IterState {
 static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
 
-  bool need_cleanup = state->super_version->Unref();
-  if (need_cleanup) {
+  if (state->super_version->Unref()) {
     DBImpl::DeletionState deletion_state;
 
     state->mu->Lock();
@@ -3318,10 +3317,6 @@ void DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
       cfd->InstallSuperVersion(new_superversion, &mutex_);
   deletion_state.new_superversion = nullptr;
   deletion_state.superversions_to_free.push_back(old_superversion);
-  // Reset SuperVersions cached in thread local storage
-  if (options_.allow_thread_local) {
-    cfd->ResetThreadLocalSuperVersions();
-  }
 }
 
 Status DBImpl::GetImpl(const ReadOptions& options,
@@ -3342,47 +3337,9 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   // Acquire SuperVersion
   SuperVersion* sv = nullptr;
-  ThreadLocalPtr* thread_local_sv = nullptr;
+  // TODO(ljin): consider using GetReferencedSuperVersion() directly
   if (LIKELY(options_.allow_thread_local)) {
-    // The SuperVersion is cached in thread local storage to avoid acquiring
-    // mutex when SuperVersion does not change since the last use. When a new
-    // SuperVersion is installed, the compaction or flush thread cleans up
-    // cached SuperVersion in all existing thread local storage. To avoid
-    // acquiring mutex for this operation, we use atomic Swap() on the thread
-    // local pointer to guarantee exclusive access. If the thread local pointer
-    // is being used while a new SuperVersion is installed, the cached
-    // SuperVersion can become stale. In that case, the background thread would
-    // have swapped in kSVObsolete. We re-check the value at the end of
-    // Get, with an atomic compare and swap. The superversion will be released
-    // if detected to be stale.
-    thread_local_sv = cfd->GetThreadLocalSuperVersion();
-    void* ptr = thread_local_sv->Swap(SuperVersion::kSVInUse);
-    // Invariant:
-    // (1) Scrape (always) installs kSVObsolete in ThreadLocal storage
-    // (2) the Swap above (always) installs kSVInUse, ThreadLocal storage
-    // should only keep kSVInUse during a GetImpl.
-    assert(ptr != SuperVersion::kSVInUse);
-    sv = static_cast<SuperVersion*>(ptr);
-    if (sv == SuperVersion::kSVObsolete ||
-        sv->version_number != cfd->GetSuperVersionNumber()) {
-      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_ACQUIRES);
-      SuperVersion* sv_to_delete = nullptr;
-
-      if (sv && sv->Unref()) {
-        RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
-        mutex_.Lock();
-        // TODO underlying resources held by superversion (sst files) might
-        // not be released until the next background job.
-        sv->Cleanup();
-        sv_to_delete = sv;
-      } else {
-        mutex_.Lock();
-      }
-      sv = cfd->GetSuperVersion()->Ref();
-      mutex_.Unlock();
-
-      delete sv_to_delete;
-    }
+    sv = cfd->GetThreadLocalSuperVersion(&mutex_);
   } else {
     mutex_.Lock();
     sv = cfd->GetSuperVersion()->Ref();
@@ -3429,19 +3386,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   bool unref_sv = true;
   if (LIKELY(options_.allow_thread_local)) {
-    // Put the SuperVersion back
-    void* expected = SuperVersion::kSVInUse;
-    if (thread_local_sv->CompareAndSwap(static_cast<void*>(sv), expected)) {
-      // When we see kSVInUse in the ThreadLocal, we are sure ThreadLocal
-      // storage has not been altered and no Scrape has happend. The
-      // SuperVersion is still current.
-      unref_sv = false;
-    } else {
-      // ThreadLocal scrape happened in the process of this GetImpl call (after
-      // thread local Swap() at the beginning and before CompareAndSwap()).
-      // This means the SuperVersion it holds is obsolete.
-      assert(expected == SuperVersion::kSVObsolete);
-    }
+    unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
   }
 
   if (unref_sv) {
@@ -3678,22 +3623,18 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& options,
                               ColumnFamilyHandle* column_family) {
-  SequenceNumber latest_snapshot = 0;
-  SuperVersion* super_version = nullptr;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-  if (!options.tailing) {
-    mutex_.Lock();
-    super_version = cfd->GetSuperVersion()->Ref();
-    latest_snapshot = versions_->LastSequence();
-    mutex_.Unlock();
-  }
 
   Iterator* iter;
   if (options.tailing) {
     iter = new TailingIterator(this, options, cfd);
   } else {
-    iter = NewInternalIterator(options, cfd, super_version);
+    SequenceNumber latest_snapshot = versions_->LastSequence();
+    SuperVersion* sv = nullptr;
+    sv = cfd->GetReferencedSuperVersion(&mutex_);
+
+    iter = NewInternalIterator(options, cfd, sv);
 
     auto snapshot =
         options.snapshot != nullptr

@@ -298,6 +298,87 @@ Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
                                           begin, end, compaction_end);
 }
 
+SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
+    port::Mutex* db_mutex) {
+  SuperVersion* sv = nullptr;
+  if (LIKELY(column_family_set_->db_options_->allow_thread_local)) {
+    sv = GetThreadLocalSuperVersion(db_mutex);
+    sv->Ref();
+    if (!ReturnThreadLocalSuperVersion(sv)) {
+      sv->Unref();
+    }
+  } else {
+    db_mutex->Lock();
+    sv = super_version_->Ref();
+    db_mutex->Unlock();
+  }
+  return sv;
+}
+
+SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
+    port::Mutex* db_mutex) {
+  SuperVersion* sv = nullptr;
+  // The SuperVersion is cached in thread local storage to avoid acquiring
+  // mutex when SuperVersion does not change since the last use. When a new
+  // SuperVersion is installed, the compaction or flush thread cleans up
+  // cached SuperVersion in all existing thread local storage. To avoid
+  // acquiring mutex for this operation, we use atomic Swap() on the thread
+  // local pointer to guarantee exclusive access. If the thread local pointer
+  // is being used while a new SuperVersion is installed, the cached
+  // SuperVersion can become stale. In that case, the background thread would
+  // have swapped in kSVObsolete. We re-check the value at when returning
+  // SuperVersion back to thread local, with an atomic compare and swap.
+  // The superversion will need to be released if detected to be stale.
+  void* ptr = local_sv_->Swap(SuperVersion::kSVInUse);
+  // Invariant:
+  // (1) Scrape (always) installs kSVObsolete in ThreadLocal storage
+  // (2) the Swap above (always) installs kSVInUse, ThreadLocal storage
+  // should only keep kSVInUse before ReturnThreadLocalSuperVersion call
+  // (if no Scrape happens).
+  assert(ptr != SuperVersion::kSVInUse);
+  sv = static_cast<SuperVersion*>(ptr);
+  if (sv == SuperVersion::kSVObsolete ||
+      sv->version_number != super_version_number_.load()) {
+    RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_ACQUIRES);
+    SuperVersion* sv_to_delete = nullptr;
+
+    if (sv && sv->Unref()) {
+      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
+      db_mutex->Lock();
+      // NOTE: underlying resources held by superversion (sst files) might
+      // not be released until the next background job.
+      sv->Cleanup();
+      sv_to_delete = sv;
+    } else {
+      db_mutex->Lock();
+    }
+    sv = super_version_->Ref();
+    db_mutex->Unlock();
+
+    delete sv_to_delete;
+  }
+  assert(sv != nullptr);
+  return sv;
+}
+
+bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
+  assert(sv != nullptr);
+  // Put the SuperVersion back
+  void* expected = SuperVersion::kSVInUse;
+  if (local_sv_->CompareAndSwap(static_cast<void*>(sv), expected)) {
+    // When we see kSVInUse in the ThreadLocal, we are sure ThreadLocal
+    // storage has not been altered and no Scrape has happend. The
+    // SuperVersion is still current.
+    return true;
+  } else {
+    // ThreadLocal scrape happened in the process of this GetImpl call (after
+    // thread local Swap() at the beginning and before CompareAndSwap()).
+    // This means the SuperVersion it holds is obsolete.
+    assert(expected == SuperVersion::kSVObsolete);
+  }
+  return false;
+}
+
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
     SuperVersion* new_superversion, port::Mutex* db_mutex) {
   new_superversion->db_mutex = db_mutex;
@@ -306,6 +387,10 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   super_version_ = new_superversion;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
+  // Reset SuperVersions cached in thread local storage
+  if (column_family_set_->db_options_->allow_thread_local) {
+    ResetThreadLocalSuperVersions();
+  }
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
     return old_superversion;  // will let caller delete outside of mutex
