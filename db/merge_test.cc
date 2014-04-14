@@ -203,12 +203,16 @@ class Counters {
 
   uint64_t assert_get(const string& key) {
     uint64_t value = default_;
-    assert(get(key, &value));
+    int result = get(key, &value);
+    assert(result);
+    if (result == 0) exit(1); // Disable unused variable warning.
     return value;
   }
 
   void assert_add(const string& key, uint64_t value) {
-    assert(add(key, value));
+    int result = add(key, value);
+    assert(result);
+    if (result == 0) exit(1); // Disable unused variable warning. 
   }
 };
 
