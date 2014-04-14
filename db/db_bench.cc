@@ -1908,7 +1908,7 @@ class Benchmark {
     int64_t read = 0;
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
-    std::vector<Slice> keys(entries_per_batch_);
+    std::vector<Slice> keys;
     std::vector<std::string> values(entries_per_batch_);
     while (keys.size() < entries_per_batch_) {
       keys.push_back(AllocateKey());
