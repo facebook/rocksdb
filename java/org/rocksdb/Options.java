@@ -13,6 +13,7 @@ package org.rocksdb;
  * become out-of-scope to release the allocated memory in c++.
  */
 public class Options {
+  static final long DEFAULT_CACHE_SIZE = 8 << 20;
   /**
    * Construct options for opening a RocksDB.
    *
@@ -21,6 +22,7 @@ public class Options {
    */
   public Options() {
     nativeHandle_ = 0;
+    cacheSize_ = DEFAULT_CACHE_SIZE;
     newOptions();
   }
 
@@ -199,6 +201,24 @@ public class Options {
   }
 
   /**
+   * Set the amount of cache in bytes that will be used by RocksDB.
+   * If cacheSize is non-positive, then cache will not be used.
+   *
+   * DEFAULT: 8M
+   */
+  public Options setCacheSize(long cacheSize) {
+    cacheSize_ = cacheSize;
+    return this;
+  }
+
+  /**
+   * @return the amount of cache in bytes that will be used by RocksDB.
+   */
+  public long cacheSize() {
+    return cacheSize_;
+  }
+
+  /**
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
@@ -231,4 +251,5 @@ public class Options {
   private native int maxBackgroundCompactions(long handle);
 
   long nativeHandle_;
+  long cacheSize_;
 }

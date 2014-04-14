@@ -366,15 +366,25 @@ public class DbBenchmark {
     randSeed_ = (long) flags.get(Flag.seed);
     databaseDir_ = (String) flags.get(Flag.db);
     writesPerSeconds_ = (int) flags.get(Flag.writes_per_second);
+    cacheSize_ = (long) flags.get(Flag.cache_size);
     gen_ = new RandomGenerator(compressionRatio_);
     finishLock_ = new Object();
+  }
+
+  private void prepareOptions(Options options) {
+    options.setCacheSize(cacheSize_);
+    if (!useExisting_) {
+      options.setCreateIfMissing(true);
+    }
   }
 
   private void run() throws RocksDBException {
     if (!useExisting_) {
       destroyDb();
     }
-    open();
+    Options options = new Options();
+    prepareOptions(options);
+    open(options);
 
     printHeader();
 
@@ -426,7 +436,7 @@ public class DbBenchmark {
         }
       } else if (benchmark.equals("delete")) {
         destroyDb();
-        open();
+        open(options);
       } else {
         known = false;
         System.err.println("Unknown benchmark: " + benchmark);
@@ -467,6 +477,7 @@ public class DbBenchmark {
       }
       writeOpt.dispose();
     }
+    options.dispose();
     db_.close();
   }
 
@@ -495,8 +506,8 @@ public class DbBenchmark {
     }
   }
 
-  private void open() throws RocksDBException {
-    db_ = RocksDB.open(databaseDir_);
+  private void open(Options options) throws RocksDBException {
+    db_ = RocksDB.open(options, databaseDir_);
   }
 
   private void start() {
@@ -703,11 +714,11 @@ public class DbBenchmark {
       }
     },
 
-    cache_size(-1,
+    cache_size(-1L,
         "Number of bytes to use as a cache of uncompressed data.\n" +
         "\tNegative means use default settings.") {
       @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
+        return Long.parseLong(value);
       }
     },
 
@@ -794,6 +805,7 @@ public class DbBenchmark {
   final int threadNum_;
   final int writesPerSeconds_;
   final long randSeed_;
+  final long cacheSize_;
   final boolean useExisting_;
   final String databaseDir_;
   final double compressionRatio_;

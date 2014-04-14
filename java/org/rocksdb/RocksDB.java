@@ -33,7 +33,12 @@ public class RocksDB {
    */
   public static RocksDB open(String path) throws RocksDBException {
     RocksDB db = new RocksDB();
-    db.open0(path);
+
+    // This allows to use the rocksjni default Options instead of
+    // the c++ one.
+    Options options = new Options();
+    db.open(options.nativeHandle_, options.cacheSize_, path);
+    options.dispose();
     return db;
   }
 
@@ -44,7 +49,7 @@ public class RocksDB {
   public static RocksDB open(Options options, String path)
       throws RocksDBException {
     RocksDB db = new RocksDB();
-    db.open(options.nativeHandle_, path);
+    db.open(options.nativeHandle_, options.cacheSize_, path);
     return db;
   }
 
@@ -145,9 +150,8 @@ public class RocksDB {
   }
 
   // native methods
-  private native void open0(String path) throws RocksDBException;
   private native void open(
-      long optionsHandle, String path) throws RocksDBException;
+      long optionsHandle, long cacheSize, String path) throws RocksDBException;
   private native void put(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;

@@ -56,13 +56,11 @@ public class RocksDBSample {
       assert(db == null);
       assert(false);
     }
-
     // be sure to release the c++ pointer
-    options.dispose();
     db.close();
 
     try {
-      db = RocksDB.open(db_path);
+      db = RocksDB.open(options, db_path);
       db.put("hello".getBytes(), "world".getBytes());
       byte[] value = db.get("hello".getBytes());
       System.out.format("Get('hello') = %s\n",
@@ -127,5 +125,7 @@ public class RocksDBSample {
     if (db != null) {
       db.close();
     }
+    // be sure to dispose c++ pointer
+    options.dispose();
   }
 }

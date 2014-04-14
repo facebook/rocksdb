@@ -14,37 +14,10 @@
 #include "include/org_rocksdb_RocksDB.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
+#include "rocksdb/cache.h"
 
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Open
-
-void rocksdb_open_helper(
-  JNIEnv* env, jobject java_db, jstring jdb_path, const rocksdb::Options& opt) {
-  rocksdb::DB* db;
-
-  const char* db_path = env->GetStringUTFChars(jdb_path, 0);
-  rocksdb::Status s = rocksdb::DB::Open(opt, db_path, &db);
-  env->ReleaseStringUTFChars(jdb_path, db_path);
-
-  if (s.ok()) {
-    rocksdb::RocksDBJni::setHandle(env, java_db, db);
-    return;
-  }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
-}
-
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    open0
- * Signature: (Ljava/lang/String;)V
- */
-void Java_org_rocksdb_RocksDB_open0(
-    JNIEnv* env, jobject jdb, jstring jdb_path) {
-  rocksdb::Options options;
-  options.create_if_missing = true;
-
-  rocksdb_open_helper(env, jdb, jdb_path, options);
-}
 
 /*
  * Class:     org_rocksdb_RocksDB
@@ -52,9 +25,27 @@ void Java_org_rocksdb_RocksDB_open0(
  * Signature: (JLjava/lang/String;)V
  */
 void Java_org_rocksdb_RocksDB_open(
-    JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path) {
-  auto options = reinterpret_cast<rocksdb::Options*>(jopt_handle);
-  rocksdb_open_helper(env, jdb, jdb_path, *options);
+    JNIEnv* env, jobject jdb, jlong jopt_handle,
+    jlong jcache_size, jstring jdb_path) {
+  auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+  if (jcache_size > 0) {
+    opt->no_block_cache = false;
+    opt->block_cache = rocksdb::NewLRUCache(jcache_size);
+  } else {
+    opt->no_block_cache = true;
+    opt->block_cache = nullptr;
+  }
+
+  rocksdb::DB* db = nullptr;
+  const char* db_path = env->GetStringUTFChars(jdb_path, 0);
+  rocksdb::Status s = rocksdb::DB::Open(*opt, db_path, &db);
+  env->ReleaseStringUTFChars(jdb_path, db_path);
+
+  if (s.ok()) {
+    rocksdb::RocksDBJni::setHandle(env, jdb, db);
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
 //////////////////////////////////////////////////////////////////////////////
