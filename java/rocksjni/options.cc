@@ -61,10 +61,10 @@ jboolean Java_org_rocksdb_Options_createIfMissing(
 /*
  * Class:     org_rocksdb_Options
  * Method:    setWriteBufferSize
- * Signature: (JZ)I
+ * Signature: (JJ)I
  */
 void Java_org_rocksdb_Options_setWriteBufferSize(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint jwrite_buffer_size) {
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jwrite_buffer_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
           static_cast<size_t>(jwrite_buffer_size);
 }
@@ -73,9 +73,9 @@ void Java_org_rocksdb_Options_setWriteBufferSize(
 /*
  * Class:     org_rocksdb_Options
  * Method:    writeBufferSize
- * Signature: (J)I
+ * Signature: (J)J
  */
-jint Java_org_rocksdb_Options_writeBufferSize(
+jlong Java_org_rocksdb_Options_writeBufferSize(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size;
 }
@@ -105,10 +105,10 @@ jint Java_org_rocksdb_Options_maxWriteBufferNumber(
 /*
  * Class:     org_rocksdb_Options
  * Method:    setBlockSize
- * Signature: (JI)V
+ * Signature: (JJ)V
  */
 void Java_org_rocksdb_Options_setBlockSize(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint jblock_size) {
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jblock_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->block_size =
           static_cast<size_t>(jblock_size);
 }
@@ -116,9 +116,9 @@ void Java_org_rocksdb_Options_setBlockSize(
 /*
  * Class:     org_rocksdb_Options
  * Method:    blockSize
- * Signature: (J)I
+ * Signature: (J)J
  */
-jint Java_org_rocksdb_Options_blockSize(
+jlong Java_org_rocksdb_Options_blockSize(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size;
 }

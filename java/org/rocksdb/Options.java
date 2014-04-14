@@ -71,7 +71,7 @@ public class Options {
    * @return the instance of the current Options.
    * @see RocksDB.open()
    */
-  public Options setWriteBufferSize(int writeBufferSize) {
+  public Options setWriteBufferSize(long writeBufferSize) {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
@@ -83,7 +83,7 @@ public class Options {
    * @return size of write buffer.
    * @see setWriteBufferSize()
    */
-  public int writeBufferSize()  {
+  public long writeBufferSize()  {
     assert(isInitialized());
     return writeBufferSize(nativeHandle_);
   }
@@ -127,7 +127,7 @@ public class Options {
    * @return the instance of the current Options.
    * @see RocksDB.open()
    */
-  public Options setBlockSize(int blockSize) {
+  public Options setBlockSize(long blockSize) {
     assert(isInitialized());
     setBlockSize(nativeHandle_, blockSize);
     return this;
@@ -139,7 +139,7 @@ public class Options {
    * @return block size.
    * @see setBlockSize()
    */
-  public int blockSize() {
+  public long blockSize() {
     assert(isInitialized());
     return blockSize(nativeHandle_);
   }
@@ -236,13 +236,13 @@ public class Options {
   private native void dispose0();
   private native void setCreateIfMissing(long handle, boolean flag);
   private native boolean createIfMissing(long handle);
-  private native void setWriteBufferSize(long handle, int writeBufferSize);
-  private native int writeBufferSize(long handle);
+  private native void setWriteBufferSize(long handle, long writeBufferSize);
+  private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
   private native int maxWriteBufferNumber(long handle);
-  private native void setBlockSize(long handle, int blockSize);
-  private native int blockSize(long handle);
+  private native void setBlockSize(long handle, long blockSize);
+  private native long blockSize(long handle);
   private native void setDisableSeekCompaction(
       long handle, boolean disableSeekCompaction);
   private native boolean disableSeekCompaction(long handle);

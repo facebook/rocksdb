@@ -6,6 +6,7 @@
 import java.util.*;
 import java.lang.*;
 import org.rocksdb.*;
+import org.rocksdb.util.SizeUnit;
 import java.io.IOException;
 
 public class RocksDBSample {
@@ -33,17 +34,17 @@ public class RocksDBSample {
     }
 
     options.setCreateIfMissing(true)
-        .setWriteBufferSize(8 * 1024)
+        .setWriteBufferSize(8 * SizeUnit.KB)
         .setMaxWriteBufferNumber(3)
         .setDisableSeekCompaction(true)
-        .setBlockSize(64 * 1024)
+        .setBlockSize(64 * SizeUnit.KB)
         .setMaxBackgroundCompactions(10);
 
     assert(options.createIfMissing() == true);
-    assert(options.writeBufferSize() == 8192);
+    assert(options.writeBufferSize() == 8 * SizeUnit.KB);
     assert(options.maxWriteBufferNumber() == 3);
     assert(options.disableSeekCompaction() == true);
-    assert(options.blockSize() == 65536);
+    assert(options.blockSize() == 64 * SizeUnit.KB);
     assert(options.maxBackgroundCompactions() == 10);
 
     try {
