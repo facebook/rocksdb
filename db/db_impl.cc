@@ -3238,45 +3238,6 @@ Iterator* DBImpl::TEST_NewInternalIterator(ColumnFamilyHandle* column_family) {
   return NewInternalIterator(roptions, cfd, super_version);
 }
 
-std::pair<Iterator*, Iterator*> DBImpl::GetTailingIteratorPair(
-    const ReadOptions& options, ColumnFamilyData* cfd,
-    uint64_t* superversion_number) {
-
-  mutex_.Lock();
-  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
-  if (superversion_number != nullptr) {
-    *superversion_number = cfd->GetSuperVersionNumber();
-  }
-  mutex_.Unlock();
-
-  Iterator* mutable_iter = super_version->mem->NewIterator(options);
-  // create a DBIter that only uses memtable content; see NewIterator()
-  mutable_iter =
-      NewDBIterator(&dbname_, env_, *cfd->options(), cfd->user_comparator(),
-                    mutable_iter, kMaxSequenceNumber);
-
-  std::vector<Iterator*> list;
-  super_version->imm->AddIterators(options, &list);
-  super_version->current->AddIterators(options, storage_options_, &list);
-  Iterator* immutable_iter =
-      NewMergingIterator(&cfd->internal_comparator(), &list[0], list.size());
-
-  // create a DBIter that only uses memtable content; see NewIterator()
-  immutable_iter =
-      NewDBIterator(&dbname_, env_, *cfd->options(), cfd->user_comparator(),
-                    immutable_iter, kMaxSequenceNumber);
-
-  // register cleanups
-  mutable_iter->RegisterCleanup(CleanupIteratorState,
-    new IterState(this, &mutex_, super_version), nullptr);
-
-  // bump the ref one more time since it will be Unref'ed twice
-  immutable_iter->RegisterCleanup(CleanupIteratorState,
-    new IterState(this, &mutex_, super_version->Ref()), nullptr);
-
-  return std::make_pair(mutable_iter, immutable_iter);
-}
-
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
@@ -3628,7 +3589,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
 
   Iterator* iter;
   if (options.tailing) {
-    iter = new TailingIterator(this, options, cfd);
+    iter = new TailingIterator(env_, this, options, cfd);
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
     SuperVersion* sv = nullptr;
@@ -3640,7 +3601,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
         options.snapshot != nullptr
             ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
             : latest_snapshot;
-    iter = NewDBIterator(&dbname_, env_, *cfd->options(),
+    iter = NewDBIterator(env_, *cfd->options(),
                          cfd->user_comparator(), iter, snapshot);
   }
 
@@ -3682,7 +3643,7 @@ Status DBImpl::NewIterators(
   if (options.tailing) {
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      iterators->push_back(new TailingIterator(this, options, cfd));
+      iterators->push_back(new TailingIterator(env_, this, options, cfd));
     }
   } else {
     for (size_t i = 0; i < column_families.size(); ++i) {
@@ -3695,7 +3656,7 @@ Status DBImpl::NewIterators(
               : latest_snapshot;
 
       auto iter = NewInternalIterator(options, cfd, super_versions[i]);
-      iter = NewDBIterator(&dbname_, env_, *cfd->options(),
+      iter = NewDBIterator(env_, *cfd->options(),
                            cfd->user_comparator(), iter, snapshot);
       iterators->push_back(iter);
     }

@@ -409,14 +409,6 @@ class DBImpl : public DB {
   // hold the data set.
   Status ReFitLevel(ColumnFamilyData* cfd, int level, int target_level = -1);
 
-  // Returns a pair of iterators (mutable-only and immutable-only) used
-  // internally by TailingIterator and stores cfd->GetSuperVersionNumber() in
-  // *superversion_number. These iterators are always up-to-date, i.e. can
-  // be used to read new data.
-  std::pair<Iterator*, Iterator*> GetTailingIteratorPair(
-      const ReadOptions& options, ColumnFamilyData* cfd,
-      uint64_t* superversion_number);
-
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 

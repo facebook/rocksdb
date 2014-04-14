@@ -13,6 +13,8 @@
 namespace rocksdb {
 
 class DBImpl;
+class Env;
+class SuperVersion;
 class ColumnFamilyData;
 
 /**
@@ -25,9 +27,9 @@ class ColumnFamilyData;
  */
 class TailingIterator : public Iterator {
  public:
-  TailingIterator(DBImpl* db, const ReadOptions& options,
+  TailingIterator(Env* const env, DBImpl* db, const ReadOptions& read_options,
                   ColumnFamilyData* cfd);
-  virtual ~TailingIterator() {}
+  virtual ~TailingIterator();
 
   virtual bool Valid() const override;
   virtual void SeekToFirst() override;
@@ -40,10 +42,13 @@ class TailingIterator : public Iterator {
   virtual Status status() const override;
 
  private:
+  void Cleanup();
+
+  Env* const env_;
   DBImpl* const db_;
-  const ReadOptions options_;
+  const ReadOptions read_options_;
   ColumnFamilyData* const cfd_;
-  uint64_t version_number_;
+  SuperVersion* super_version_;
 
   // TailingIterator merges the contents of the two iterators below (one using
   // mutable memtable contents only, other over SSTs and immutable memtables).

@@ -57,10 +57,9 @@ class DBIter: public Iterator {
     kReverse
   };
 
-  DBIter(const std::string* dbname, Env* env, const Options& options,
+  DBIter(Env* env, const Options& options,
          const Comparator* cmp, Iterator* iter, SequenceNumber s)
-      : dbname_(dbname),
-        env_(env),
+      : env_(env),
         logger_(options.info_log.get()),
         user_comparator_(cmp),
         user_merge_operator_(options.merge_operator.get()),
@@ -117,7 +116,6 @@ class DBIter: public Iterator {
     }
   }
 
-  const std::string* const dbname_;
   Env* const env_;
   Logger* logger_;
   const Comparator* const user_comparator_;
@@ -467,13 +465,12 @@ void DBIter::SeekToLast() {
 }  // anonymous namespace
 
 Iterator* NewDBIterator(
-    const std::string* dbname,
     Env* env,
     const Options& options,
     const Comparator *user_key_comparator,
     Iterator* internal_iter,
     const SequenceNumber& sequence) {
-  return new DBIter(dbname, env, options, user_key_comparator,
+  return new DBIter(env, options, user_key_comparator,
                     internal_iter, sequence);
 }
 

@@ -168,6 +168,7 @@ class ColumnFamilyData {
 
   // thread-safe
   const Options* options() const { return &options_; }
+  const EnvOptions* soptions() const;
 
   InternalStats* internal_stats() { return internal_stats_.get(); }
 

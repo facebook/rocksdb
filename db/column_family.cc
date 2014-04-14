@@ -270,6 +270,10 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 }
 
+const EnvOptions* ColumnFamilyData::soptions() const {
+  return &(column_family_set_->storage_options_);
+}
+
 void ColumnFamilyData::SetCurrent(Version* current) {
   current_ = current;
   need_slowdown_for_num_level0_files_ =
