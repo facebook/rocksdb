@@ -892,6 +892,16 @@ void DBImpl::PurgeObsoleteWALFiles() {
   }
 }
 
+namespace {
+struct CompareLogByPointer {
+  bool operator()(const unique_ptr<LogFile>& a, const unique_ptr<LogFile>& b) {
+    LogFileImpl* a_impl = dynamic_cast<LogFileImpl*>(a.get());
+    LogFileImpl* b_impl = dynamic_cast<LogFileImpl*>(b.get());
+    return *a_impl < *b_impl;
+  }
+};
+}
+
 Status DBImpl::GetSortedWalsOfType(const std::string& path,
                                    VectorLogPtr& log_files,
                                    WalFileType log_type) {
@@ -1044,14 +1054,6 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
   }
   return status;
 }
-
-struct CompareLogByPointer {
-  bool operator()(const unique_ptr<LogFile>& a, const unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = dynamic_cast<LogFileImpl*>(a.get());
-    LogFileImpl* b_impl = dynamic_cast<LogFileImpl*>(b.get());
-    return *a_impl < *b_impl;
-  }
-};
 
 #endif  // ROCKSDB_LITE
 

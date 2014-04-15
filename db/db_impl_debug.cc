@@ -11,6 +11,8 @@
 
 #include "db/db_impl.h"
 
+namespace rocksdb {
+
 void DBImpl::TEST_PurgeObsoleteteWAL() { PurgeObsoleteWALFiles(); }
 
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
@@ -116,4 +118,5 @@ Status DBImpl::TEST_WaitForCompact() {
   }
   return bg_error_;
 }
+}  // namespace rocksdb
 #endif  // NDEBUG
