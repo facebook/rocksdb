@@ -421,6 +421,7 @@ class DBImpl : public DB {
   port::CondVar bg_cv_;          // Signalled when background work finishes
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
+  bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   std::deque<uint64_t> alive_log_files_;

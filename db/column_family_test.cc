@@ -29,12 +29,31 @@ std::string RandomString(Random* rnd, int len) {
 }
 }  // anonymous namespace
 
+// counts how many operations were performed
+class EnvCounter : public EnvWrapper {
+ public:
+  explicit EnvCounter(Env* base)
+      : EnvWrapper(base), num_new_writable_file_(0) {}
+  int GetNumberOfNewWritableFileCalls() {
+    return num_new_writable_file_;
+  }
+  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+                         const EnvOptions& soptions) {
+    ++num_new_writable_file_;
+    return EnvWrapper::NewWritableFile(f, r, soptions);
+  }
+
+ private:
+  int num_new_writable_file_;
+};
+
 class ColumnFamilyTest {
  public:
   ColumnFamilyTest() : rnd_(139) {
-    env_ = Env::Default();
+    env_ = new EnvCounter(Env::Default());
     dbname_ = test::TmpDir() + "/column_family_test";
     db_options_.create_if_missing = true;
+    db_options_.env = env_;
     DestroyDB(dbname_, Options(db_options_, column_family_options_));
   }
 
@@ -299,7 +318,7 @@ class ColumnFamilyTest {
   DBOptions db_options_;
   std::string dbname_;
   DB* db_ = nullptr;
-  Env* env_;
+  EnvCounter* env_;
   Random rnd_;
 };
 
@@ -893,6 +912,25 @@ TEST(ColumnFamilyTest, ReadOnlyDBTest) {
   // Can't open without specifying default column family
   s = OpenReadOnly({"one", "four"});
   ASSERT_TRUE(!s.ok());
+}
+
+TEST(ColumnFamilyTest, DontRollEmptyLogs) {
+  Open();
+  CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
+
+  for (int i = 0; i < handles_.size(); ++i) {
+    PutRandomData(i, 10, 100);
+  }
+  int num_writable_file_start = env_->GetNumberOfNewWritableFileCalls();
+  // this will trigger the flushes
+  ASSERT_OK(db_->Write(WriteOptions(), nullptr));
+
+  for (int i = 0; i < 4; ++i) {
+    dbfull()->TEST_WaitForFlushMemTable(handles_[i]);
+  }
+  int total_new_writable_files =
+      env_->GetNumberOfNewWritableFileCalls() - num_writable_file_start;
+  ASSERT_EQ(total_new_writable_files, handles_.size() + 1);
 }
 
 }  // namespace rocksdb

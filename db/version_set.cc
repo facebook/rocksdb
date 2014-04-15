@@ -1742,7 +1742,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         }
       }
       if (max_log_number_in_batch != 0) {
-        assert(column_family_data->GetLogNumber() < max_log_number_in_batch);
+        assert(column_family_data->GetLogNumber() <= max_log_number_in_batch);
         column_family_data->SetLogNumber(max_log_number_in_batch);
       }
       AppendVersion(column_family_data, v);

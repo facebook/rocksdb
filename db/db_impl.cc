@@ -349,6 +349,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       shutting_down_(nullptr),
       bg_cv_(&mutex_),
       logfile_number_(0),
+      log_empty_(true),
       default_cf_handle_(nullptr),
       tmp_batch_(),
       bg_schedule_needed_(false),
@@ -3785,6 +3786,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         RecordTick(options_.statistics.get(), WAL_FILE_SYNCED, 1);
         RecordTick(options_.statistics.get(), WAL_FILE_BYTES, log_entry.size());
         if (status.ok() && options.sync) {
+          log_empty_ = false;
           if (options_.use_fsync) {
             StopWatch(env_, options_.statistics.get(), WAL_FILE_SYNC_MICROS);
             status = log_->file()->Fsync();
@@ -4057,57 +4059,66 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       // Attempt to switch to a new memtable and trigger flush of old.
       // Do this without holding the dbmutex lock.
       assert(versions_->PrevLogNumber() == 0);
-      uint64_t new_log_number = versions_->NewFileNumber();
+      bool creating_new_log = !log_empty_;
+      uint64_t new_log_number =
+          creating_new_log ? versions_->NewFileNumber() : logfile_number_;
       SuperVersion* new_superversion = nullptr;
       mutex_.Unlock();
       {
         DelayLoggingAndReset();
-        s = env_->NewWritableFile(LogFileName(options_.wal_dir, new_log_number),
-                                  &lfile,
-                                  env_->OptimizeForLogWrite(storage_options_));
+        if (creating_new_log) {
+          s = env_->NewWritableFile(
+              LogFileName(options_.wal_dir, new_log_number), &lfile,
+              env_->OptimizeForLogWrite(storage_options_));
+          if (s.ok()) {
+            // Our final size should be less than write_buffer_size
+            // (compression, etc) but err on the side of caution.
+            lfile->SetPreallocationBlockSize(1.1 *
+                                             cfd->options()->write_buffer_size);
+            new_log = new log::Writer(std::move(lfile));
+          }
+        }
+
         if (s.ok()) {
-          // Our final size should be less than write_buffer_size
-          // (compression, etc) but err on the side of caution.
-          lfile->SetPreallocationBlockSize(1.1 *
-                                           cfd->options()->write_buffer_size);
-          new_log = new log::Writer(std::move(lfile));
           new_mem = new MemTable(cfd->internal_comparator(), *cfd->options());
           new_superversion = new SuperVersion();
         }
-        Log(options_.info_log,
-            "New memtable created with log file: #%lu\n",
-            (unsigned long)new_log_number);
       }
       mutex_.Lock();
       if (!s.ok()) {
+        // how do we fail if we're not creating new log?
+        assert(creating_new_log);
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
         assert(!new_mem);
         assert(!new_log);
         break;
       }
-      logfile_number_ = new_log_number;
-      assert(new_log != nullptr);
-      // TODO(icanadi) delete outside of mutex
-      delete log_.release();
-      log_.reset(new_log);
+      if (creating_new_log) {
+        logfile_number_ = new_log_number;
+        assert(new_log != nullptr);
+        // TODO(icanadi) delete outside of mutex
+        delete log_.release();
+        log_.reset(new_log);
+        log_empty_ = true;
+        alive_log_files_.push_back(logfile_number_);
+        for (auto cfd : *versions_->GetColumnFamilySet()) {
+          // all this is just optimization to delete logs that
+          // are no longer needed -- if CF is empty, that means it
+          // doesn't need that particular log to stay alive, so we just
+          // advance the log number. no need to persist this in the manifest
+          if (cfd->mem()->GetFirstSequenceNumber() == 0 &&
+              cfd->imm()->size() == 0) {
+            cfd->SetLogNumber(logfile_number_);
+          }
+        }
+      }
       cfd->mem()->SetNextLogNumber(logfile_number_);
       cfd->imm()->Add(cfd->mem());
       if (force) {
         cfd->imm()->FlushRequested();
       }
       new_mem->Ref();
-      alive_log_files_.push_back(logfile_number_);
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        // all this is just optimization to delete logs that
-        // are no longer needed -- if CF is empty, that means it
-        // doesn't need that particular log to stay alive, so we just
-        // advance the log number. no need to persist this in the manifest
-        if (cfd->mem()->GetFirstSequenceNumber() == 0 &&
-            cfd->imm()->size() == 0) {
-          cfd->SetLogNumber(logfile_number_);
-        }
-      }
       cfd->SetMemtable(new_mem);
       Log(options_.info_log,
           "[CF %" PRIu32 "] New memtable created with log file: #%lu\n",
