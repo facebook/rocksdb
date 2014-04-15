@@ -24,7 +24,7 @@
 #include "table/block_builder.h"
 #include "table/meta_blocks.h"
 #include "table/format.h"
-#include "tools/ldb_cmd.h"
+#include "util/ldb_cmd.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
