@@ -146,7 +146,7 @@ class DBImpl : public DB {
                              int output_level, const Slice* begin,
                              const Slice* end);
 
-#ifndef NDEBUG
+#ifndef ROCKSDB_LITE
   // Extra methods (for testing) that are not in the public DB interface
   // Implemented in db_impl_debug.cc
 

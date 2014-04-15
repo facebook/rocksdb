@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef NDEBUG
+#ifndef ROCKSDB_LITE
 
 #include "db/db_impl.h"
 
@@ -119,4 +119,4 @@ Status DBImpl::TEST_WaitForCompact() {
   return bg_error_;
 }
 }  // namespace rocksdb
-#endif  // NDEBUG
+#endif  // ROCKSDB_LITE
