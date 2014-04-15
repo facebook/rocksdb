@@ -957,7 +957,8 @@ Status DBImpl::RetainProbableWalFiles(VectorLogPtr& all_logs,
       end = mid - 1;
     }
   }
-  size_t start_index = std::max(0l, end);  // end could be -ve.
+  // end could be -ve.
+  size_t start_index = std::max(static_cast<int64_t>(0), end);
   // The last wal file is always included
   all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
   return Status::OK();
