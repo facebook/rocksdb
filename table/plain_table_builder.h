@@ -5,6 +5,7 @@
 // IndexedTable is a simple table format for UNIT TEST ONLY. It is not built
 // as production quality.
 
+#ifndef ROCKSDB_LITE
 #pragma once
 #include <stdint.h>
 #include "rocksdb/options.h"
@@ -80,3 +81,4 @@ private:
 
 }  // namespace rocksdb
 
+#endif  // ROCKSDB_LITE

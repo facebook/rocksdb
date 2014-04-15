@@ -381,6 +381,11 @@ class DB {
     return Flush(options, DefaultColumnFamily());
   }
 
+  // The sequence number of the most recent transaction.
+  virtual SequenceNumber GetLatestSequenceNumber() const = 0;
+
+#ifndef ROCKSDB_LITE
+
   // Prevent file deletions. Compactions will continue to occur,
   // but no obsolete files will be deleted. Calling this multiple
   // times have the same effect as calling it once.
@@ -422,9 +427,6 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
-  // The sequence number of the most recent transaction.
-  virtual SequenceNumber GetLatestSequenceNumber() const = 0;
-
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
   // at the first available seq_no after the requested seq_no
@@ -447,6 +449,8 @@ class DB {
   // and end key
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {}
 
+#endif  // ROCKSDB_LITE
+
   // Sets the globally unique ID created at database creation time by invoking
   // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
   // be set properly
@@ -455,11 +459,13 @@ class DB {
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
+#ifndef ROCKSDB_LITE
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props) = 0;
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
+#endif  // ROCKSDB_LITE
 
  private:
   // No copying allowed
@@ -471,11 +477,13 @@ class DB {
 // Be very careful using this method.
 Status DestroyDB(const std::string& name, const Options& options);
 
+#ifndef ROCKSDB_LITE
 // If a DB cannot be opened, you may attempt to call this method to
 // resurrect as much of the contents of the database as possible.
 // Some data may be lost, so be careful when calling this function
 // on a database that contains important information.
 Status RepairDB(const std::string& dbname, const Options& options);
+#endif
 
 }  // namespace rocksdb
 

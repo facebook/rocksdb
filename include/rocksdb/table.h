@@ -81,6 +81,7 @@ struct BlockBasedTablePropertyNames {
 extern TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
 
+#ifndef ROCKSDB_LITE
 // -- Plain Table with prefix-only seek
 // For this factory, you need to set Options.prefix_extrator properly to make it
 // work. Look-up will starts with prefix hash lookup for key prefix. Inside the
@@ -119,6 +120,8 @@ extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
 extern TableFactory* NewTotalOrderPlainTableFactory(
     uint32_t user_key_len = kPlainTableVariableLength,
     int bloom_bits_per_key = 0, size_t index_sparseness = 16);
+
+#endif  // ROCKSDB_LITE
 
 // A base class for table factories.
 class TableFactory {

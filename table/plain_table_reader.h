@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
 #pragma once
 #include <unordered_map>
 #include <memory>
@@ -255,3 +256,4 @@ class PlainTableReader: public TableReader {
   void operator=(const TableReader&) = delete;
 };
 }  // namespace rocksdb
+#endif  // ROCKSDB_LITE

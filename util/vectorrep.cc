@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#ifndef ROCKSDB_LITE
 #include "rocksdb/memtablerep.h"
 
 #include <unordered_set>
@@ -278,3 +279,4 @@ MemTableRep* VectorRepFactory::CreateMemTableRep(
   return new VectorRep(compare, arena, count_);
 }
 } // namespace rocksdb
+#endif  // ROCKSDB_LITE

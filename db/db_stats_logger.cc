@@ -20,7 +20,8 @@
 namespace rocksdb {
 
 void DBImpl::MaybeScheduleLogDBDeployStats() {
-
+// we did say maybe
+#ifndef ROCKSDB_LITE
   // There is a lock in the actual logger.
   if (!logger_ || options_.db_stats_log_interval < 0
       || host_name_.empty()) {
@@ -89,6 +90,6 @@ void DBImpl::LogDBDeployStats() {
   bg_logstats_scheduled_ = false;
   bg_cv_.SignalAll();
   mutex_.Unlock();
+#endif
 }
-
 }

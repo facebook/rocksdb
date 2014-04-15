@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
+
 #include "utilities/backupable_db.h"
 #include "db/filename.h"
 #include "util/coding.h"
@@ -1173,3 +1175,5 @@ Status RestoreBackupableDB::DeleteBackup(BackupID backup_id) {
 }
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

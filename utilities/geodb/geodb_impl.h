@@ -4,6 +4,8 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#ifndef ROCKSDB_LITE
+
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -185,3 +187,5 @@ class GeoDBImpl : public GeoDB {
 };
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

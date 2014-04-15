@@ -15,7 +15,12 @@ endif
 
 ifeq ($(MAKECMDGOALS),shared_lib)
 PLATFORM_SHARED_LDFLAGS=-fPIC
+OPT += -DNDEBUG
 endif
+ifeq ($(MAKECMDGOALS),static_lib)
+OPT += -DNDEBUG
+endif
+
 #-----------------------------------------------
 
 # detect what platform we're building on

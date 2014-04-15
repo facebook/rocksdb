@@ -2,7 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
+
+#ifndef ROCKSDB_LITE
 #pragma once
 #include <vector>
 
@@ -116,3 +117,4 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   Status OpenLogReader(const LogFile* file);
 };
 }  //  namespace rocksdb
+#endif  // ROCKSDB_LITE
