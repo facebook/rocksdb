@@ -3783,10 +3783,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         PERF_TIMER_START(write_wal_time);
         Slice log_entry = WriteBatchInternal::Contents(updates);
         status = log_->AddRecord(log_entry);
+        log_empty_ = false;
         RecordTick(options_.statistics.get(), WAL_FILE_SYNCED, 1);
         RecordTick(options_.statistics.get(), WAL_FILE_BYTES, log_entry.size());
         if (status.ok() && options.sync) {
-          log_empty_ = false;
           if (options_.use_fsync) {
             StopWatch(env_, options_.statistics.get(), WAL_FILE_SYNC_MICROS);
             status = log_->file()->Fsync();
