@@ -106,12 +106,16 @@ TESTS = \
         geodb_test
 
 TOOLS = \
-        sst_dump \
+	sst_dump \
 	db_sanity_test \
-        db_stress \
-        ldb \
+	db_stress \
+	ldb \
 	db_repl_stress \
 	blob_store_bench
+
+LDB_OBJECTS = \
+		tools/ldb_cmd.o \
+		tools/ldb_tool.o
 
 
 PROGRAMS = db_bench signal_test table_reader_bench $(TESTS) $(TOOLS)
@@ -410,8 +414,8 @@ auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(CXX) tools/sst_dump.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-ldb: tools/ldb.o $(LIBOBJECTS)
-	$(CXX) tools/ldb.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+ldb: tools/ldb.o $(LDB_OBJECTS) $(LIBOBJECTS)
+	$(CXX) tools/ldb.o $(LDB_OBJECTS) $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 # ---------------------------------------------------------------------------
 # Jni stuff

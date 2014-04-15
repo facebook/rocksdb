@@ -2,8 +2,8 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
-#ifndef STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
-#define STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
+#pragma once
+
 #include "rocksdb/options.h"
 
 namespace rocksdb {
@@ -14,5 +14,3 @@ class LDBTool {
 };
 
 } // namespace rocksdb
-
-#endif // STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
