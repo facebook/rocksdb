@@ -2095,7 +2095,24 @@ TEST(DBTest, IgnoreRecoveredLog) {
     ASSERT_EQ(one, Get("bar"));
     Close();
     Destroy(&options);
+    Reopen(&options);
+    Close();
 
+    // copy the logs from backup back to wal dir
+    env_->CreateDirIfMissing(options.wal_dir);
+    for (auto& log : logs) {
+      if (log != ".." && log != ".") {
+        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
+      }
+    }
+    // assert that we successfully recovered only from logs, even though we
+    // destroyed the DB
+    Reopen(&options);
+    ASSERT_EQ(two, Get("foo"));
+    ASSERT_EQ(one, Get("bar"));
+
+    // Recovery will fail if DB directory doesn't exist.
+    Destroy(&options);
     // copy the logs from backup back to wal dir
     env_->CreateDirIfMissing(options.wal_dir);
     for (auto& log : logs) {
@@ -2105,12 +2122,8 @@ TEST(DBTest, IgnoreRecoveredLog) {
         env_->DeleteFile(backup_logs + "/" + log);
       }
     }
-    // assert that we successfully recovered only from logs, even though we
-    // destroyed the DB
-    Reopen(&options);
-    ASSERT_EQ(two, Get("foo"));
-    ASSERT_EQ(one, Get("bar"));
-    Close();
+    Status s = TryReopen(&options);
+    ASSERT_TRUE(!s.ok());
   } while (ChangeOptions());
 }
 

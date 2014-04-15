@@ -1062,6 +1062,7 @@ Status DBImpl::Recover(
     bool error_if_log_file_exist) {
   mutex_.AssertHeld();
 
+  bool is_new_db = false;
   assert(db_lock_ == nullptr);
   if (!read_only) {
     // We call CreateDirIfMissing() as the directory may already exist (if we
@@ -1090,6 +1091,7 @@ Status DBImpl::Recover(
       if (options_.create_if_missing) {
         // TODO: add merge_operator name check
         s = NewDB();
+        is_new_db = true;
         if (!s.ok()) {
           return s;
         }
@@ -1140,10 +1142,15 @@ Status DBImpl::Recover(
     for (size_t i = 0; i < filenames.size(); i++) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(filenames[i], &number, &type)
-          && type == kLogFile
-          && ((number >= min_log) || (number == prev_log))) {
-        logs.push_back(number);
+      if (ParseFileName(filenames[i], &number, &type) && type == kLogFile) {
+        if (is_new_db) {
+          return Status::Corruption(
+              "While creating a new Db, wal_dir contains "
+              "existing log file: ",
+              filenames[i]);
+        } else if ((number >= min_log) || (number == prev_log)) {
+          logs.push_back(number);
+        }
       }
     }
 
