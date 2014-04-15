@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
-#include "tools/ldb_tool.h"
+#include "rocksdb/ldb_tool.h"
 
 int main(int argc, char** argv) {
   rocksdb::LDBTool tool;

@@ -17,7 +17,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
 #include "util/logging.h"
-#include "tools/ldb_cmd_execute_result.h"
+#include "util/ldb_cmd_execute_result.h"
 #include "util/string_util.h"
 #include "utilities/utility_db.h"
 #include "utilities/ttl/db_ttl.h"
