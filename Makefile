@@ -374,8 +374,8 @@ version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
 version_set_test: db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-reduce_levels_test: tools/reduce_levels_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) tools/reduce_levels_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+reduce_levels_test: tools/reduce_levels_test.o $(LIBOBJECTS) $(LDB_OBJECTS) $(TESTHARNESS)
+	$(CXX) tools/reduce_levels_test.o $(LIBOBJECTS) $(LDB_OBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 write_batch_test: db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -411,8 +411,8 @@ filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-sst_dump: tools/sst_dump.o $(LIBOBJECTS)
-	$(CXX) tools/sst_dump.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+sst_dump: tools/sst_dump.o $(LIBOBJECTS) $(LDB_OBJECTS)
+	$(CXX) tools/sst_dump.o $(LIBOBJECTS) $(LDB_OBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 ldb: tools/ldb.o $(LDB_OBJECTS) $(LIBOBJECTS)
 	$(CXX) tools/ldb.o $(LDB_OBJECTS) $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

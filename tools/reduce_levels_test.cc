@@ -9,7 +9,7 @@
 #include "util/logging.h"
 #include "util/testutil.h"
 #include "util/testharness.h"
-#include "util/ldb_cmd.h"
+#include "tools/ldb_cmd.h"
 
 namespace rocksdb {
 
