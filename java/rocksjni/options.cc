@@ -9,12 +9,14 @@
 #include <stdlib.h>
 #include <jni.h>
 #include <string>
+#include <memory>
 
 #include "include/org_rocksdb_Options.h"
 #include "include/org_rocksdb_WriteOptions.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/statistics.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -35,7 +37,7 @@ void Java_org_rocksdb_Options_dispose0(JNIEnv* env, jobject jobj) {
   rocksdb::Options* op = rocksdb::OptionsJni::getHandle(env, jobj);
   delete op;
 
-  rocksdb::OptionsJni::setHandle(env, jobj, op);
+  rocksdb::OptionsJni::setHandle(env, jobj, nullptr);
 }
 
 /*
@@ -91,6 +93,27 @@ void Java_org_rocksdb_Options_setMaxWriteBufferNumber(
           jmax_write_buffer_number;
 }
 
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    createStatistics
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_Options_createStatistics(
+    JNIEnv* env, jobject jobj, jlong jOptHandle) {
+  reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics =
+      rocksdb::CreateDBStatistics();
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    statisticsPtr
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_statisticsPtr(
+    JNIEnv* env, jobject jobj, jlong jOptHandle) {
+  auto st = reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics.get();
+  return reinterpret_cast<jlong>(st);
+}
 
 /*
  * Class:     org_rocksdb_Options
@@ -235,5 +258,3 @@ jboolean Java_org_rocksdb_WriteOptions_disableWAL(
     JNIEnv* env, jobject jwrite_options, jlong jhandle) {
   return reinterpret_cast<rocksdb::WriteOptions*>(jhandle)->disableWAL;
 }
-
-

@@ -12,6 +12,7 @@
 
 #include <jni.h>
 #include "rocksdb/db.h"
+#include "rocksdb/statistics.h"
 
 namespace rocksdb {
 

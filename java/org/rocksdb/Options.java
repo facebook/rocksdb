@@ -200,6 +200,35 @@ public class Options {
     return maxBackgroundCompactions(nativeHandle_);
   }
 
+  /*
+   * Creates statistics object which collects metrics about database operations.
+     Statistics objects should not be shared between DB instances as
+     it does not use any locks to prevent concurrent updates.
+   *
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
+   */
+  public Options createStatistics() {
+    assert(isInitialized());
+    createStatistics(nativeHandle_);
+    return this;
+  }
+
+  /*
+   * Pointer to statistics object. Should only be called after statistics has
+   * been created by createStatistics() call.
+   *
+   * @see createStatistics()
+   */
+  public long statisticsPtr() {
+    assert(isInitialized());
+
+    long statsPtr = statisticsPtr(nativeHandle_);
+    assert(statsPtr != 0);
+
+    return statsPtr;
+  }
+
   /**
    * Set the amount of cache in bytes that will be used by RocksDB.
    * If cacheSize is non-positive, then cache will not be used.
@@ -223,7 +252,7 @@ public class Options {
    * in the c++ side.
    */
   public synchronized void dispose() {
-    if (nativeHandle_ != 0) {
+    if (isInitialized()) {
       dispose0();
     }
   }
@@ -249,6 +278,8 @@ public class Options {
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
+  private native void createStatistics(long optHandle);
+  private native long statisticsPtr(long optHandle);
 
   long nativeHandle_;
   long cacheSize_;

@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-import java.lang.*;
 import java.util.*;
 
 /**
@@ -118,4 +117,3 @@ class WriteBatchInternal {
   static native long sequence(WriteBatch batch);
   static native void append(WriteBatch b1, WriteBatch b2);
 }
-

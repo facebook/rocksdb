@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-import java.lang.*;
 import java.util.*;
 import java.io.Closeable;
 import java.io.IOException;

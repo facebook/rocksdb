@@ -262,4 +262,3 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
 
   return jstate;
 }
-
