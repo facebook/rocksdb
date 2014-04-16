@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
 #pragma once
 #include <memory>
 #include <stdint.h>
@@ -83,3 +84,4 @@ class PlainTableFactory : public TableFactory {
 };
 
 }  // namespace rocksdb
+#endif  // ROCKSDB_LITE

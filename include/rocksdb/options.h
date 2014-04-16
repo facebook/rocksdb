@@ -850,6 +850,7 @@ struct ReadOptions {
   // added data) and is optimized for sequential reads. It will return records
   // that were inserted into the database after the creation of the iterator.
   // Default: false
+  // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
   ReadOptions()

@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#ifndef ROCKSDB_LITE
 #include "util/hash_skiplist_rep.h"
 
 #include "rocksdb/memtablerep.h"
@@ -339,3 +340,4 @@ MemTableRepFactory* NewHashSkipListRepFactory(
 }
 
 } // namespace rocksdb
+#endif  // ROCKSDB_LITE

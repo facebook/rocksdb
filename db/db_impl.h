@@ -115,6 +115,10 @@ class DBImpl : public DB {
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family);
+
+  virtual SequenceNumber GetLatestSequenceNumber() const;
+
+#ifndef ROCKSDB_LITE
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions(bool force);
   // All the returned filenames start with "/"
@@ -122,7 +126,7 @@ class DBImpl : public DB {
                               uint64_t* manifest_file_size,
                               bool flush_memtable = true);
   virtual Status GetSortedWalFiles(VectorLogPtr& files);
-  virtual SequenceNumber GetLatestSequenceNumber() const;
+
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions&
@@ -130,6 +134,7 @@ class DBImpl : public DB {
   virtual Status DeleteFile(std::string name);
 
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
+#endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes
   // match to our in-memory records
@@ -141,7 +146,9 @@ class DBImpl : public DB {
                              int output_level, const Slice* begin,
                              const Slice* end);
 
+#ifndef ROCKSDB_LITE
   // Extra methods (for testing) that are not in the public DB interface
+  // Implemented in db_impl_debug.cc
 
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
@@ -183,6 +190,8 @@ class DBImpl : public DB {
 
   void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
                              std::vector<std::vector<FileMetaData>>* metadata);
+
+#endif  // NDEBUG
 
   // needed for CleanupIteratorState
   struct DeletionState {
@@ -270,7 +279,9 @@ class DBImpl : public DB {
  private:
   friend class DB;
   friend class InternalStats;
+#ifndef ROCKSDB_LITE
   friend class TailingIterator;
+#endif
   friend struct SuperVersion;
   struct CompactionState;
   struct Writer;
@@ -326,8 +337,11 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
   void MaybeScheduleLogDBDeployStats();
+
+#ifndef ROCKSDB_LITE
   static void BGLogDBDeployStats(void* db);
   void LogDBDeployStats();
+#endif  // ROCKSDB_LITE
 
   void MaybeScheduleFlushOrCompaction();
   static void BGWorkCompaction(void* db);
@@ -375,6 +389,12 @@ class DBImpl : public DB {
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
+#ifdef ROCKSDB_LITE
+  void PurgeObsoleteWALFiles() {
+    // this function is used for archiving WAL files. we don't need this in
+    // ROCKSDB_LITE
+  }
+#else
   void PurgeObsoleteWALFiles();
 
   Status GetSortedWalsOfType(const std::string& path,
@@ -394,6 +414,7 @@ class DBImpl : public DB {
                          WriteBatch* const result);
 
   Status ReadFirstLine(const std::string& fname, WriteBatch* const batch);
+#endif  // ROCKSDB_LITE
 
   void PrintStatistics();
 
@@ -421,6 +442,7 @@ class DBImpl : public DB {
   port::CondVar bg_cv_;          // Signalled when background work finishes
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
+  bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   std::deque<uint64_t> alive_log_files_;
@@ -539,10 +561,12 @@ class DBImpl : public DB {
   void InstallSuperVersion(ColumnFamilyData* cfd,
                            DeletionState& deletion_state);
 
+#ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props)
       override;
+#endif  // ROCKSDB_LITE
 
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here

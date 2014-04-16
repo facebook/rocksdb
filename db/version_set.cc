@@ -1742,7 +1742,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         }
       }
       if (max_log_number_in_batch != 0) {
-        assert(column_family_data->GetLogNumber() < max_log_number_in_batch);
+        assert(column_family_data->GetLogNumber() <= max_log_number_in_batch);
         column_family_data->SetLogNumber(max_log_number_in_batch);
       }
       AppendVersion(column_family_data, v);
@@ -2170,6 +2170,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   return s;
 }
 
+#ifndef ROCKSDB_LITE
 Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
                                         const Options* options,
                                         const EnvOptions& storage_options,
@@ -2430,6 +2431,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
   return s;
 }
+#endif  // ROCKSDB_LITE
 
 void VersionSet::MarkFileNumberUsed(uint64_t number) {
   if (next_file_number_ <= number) {

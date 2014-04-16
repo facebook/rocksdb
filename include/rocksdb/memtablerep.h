@@ -177,6 +177,16 @@ class MemTableRepFactory {
   virtual const char* Name() const = 0;
 };
 
+// This uses a skip list to store keys. It is the default.
+class SkipListFactory : public MemTableRepFactory {
+ public:
+  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+                                         Arena*,
+                                         const SliceTransform*) override;
+  virtual const char* Name() const override { return "SkipListFactory"; }
+};
+
+#ifndef ROCKSDB_LITE
 // This creates MemTableReps that are backed by an std::vector. On iteration,
 // the vector is sorted. This is useful for workloads where iteration is very
 // rare and writes are generally not issued after reads begin.
@@ -198,17 +208,6 @@ class VectorRepFactory : public MemTableRepFactory {
   }
 };
 
-// This uses a skip list to store keys. It is the default.
-class SkipListFactory : public MemTableRepFactory {
- public:
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator&, Arena*,
-      const SliceTransform*) override;
-  virtual const char* Name() const override {
-    return "SkipListFactory";
-  }
-};
-
 // This class contains a fixed array of buckets, each
 // pointing to a skiplist (null if the bucket is empty).
 // bucket_count: number of fixed array buckets
@@ -226,5 +225,7 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 // bucket_count: number of fixed array buckets
 extern MemTableRepFactory* NewHashLinkListRepFactory(
     size_t bucket_count = 50000);
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

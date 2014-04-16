@@ -15,7 +15,12 @@ endif
 
 ifeq ($(MAKECMDGOALS),shared_lib)
 PLATFORM_SHARED_LDFLAGS=-fPIC
+OPT += -DNDEBUG
 endif
+ifeq ($(MAKECMDGOALS),static_lib)
+OPT += -DNDEBUG
+endif
+
 #-----------------------------------------------
 
 # detect what platform we're building on
@@ -113,8 +118,7 @@ TOOLS = \
 	db_repl_stress \
 	blob_store_bench
 
-
-PROGRAMS = db_bench signal_test table_reader_bench $(TESTS) $(TOOLS)
+PROGRAMS = db_bench signal_test table_reader_bench $(TOOLS)
 BENCHMARKS = db_bench_sqlite3 db_bench_tree_db table_reader_bench
 
 # The library name is configurable since we are maintaining libraries of both
@@ -160,18 +164,18 @@ endif  # PLATFORM_SHARED_EXT
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg
 
-all: $(LIBRARY) $(PROGRAMS)
+all: $(LIBRARY) $(PROGRAMS) $(TESTS)
 
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
 
-dbg: $(LIBRARY) $(PROGRAMS)
+dbg: $(LIBRARY) $(PROGRAMS) $(TESTS)
 
-# Will also generate shared libraries.
+# creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) all -j32
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(PROGRAMS) -j32
 
 coverage:
 	$(MAKE) clean
@@ -184,7 +188,7 @@ check: $(PROGRAMS) $(TESTS) $(TOOLS)
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 	python tools/ldb_test.py
 
-ldb_tests: all $(PROGRAMS) $(TOOLS)
+ldb_tests: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	python tools/ldb_test.py
 
 crash_test: blackbox_crash_test whitebox_crash_test
@@ -220,7 +224,7 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 	done
 
 clean:
-	-rm -f $(PROGRAMS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk
+	-rm -f $(PROGRAMS) $(TESTS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk
 	-rm -rf ios-x86/* ios-arm/*
 	-find . -name "*.[od]" -exec rm {} \;
 	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;

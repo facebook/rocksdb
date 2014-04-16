@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
 #include "table/plain_table_factory.h"
 
 #include <memory>
@@ -46,3 +47,4 @@ extern TableFactory* NewTotalOrderPlainTableFactory(uint32_t user_key_len,
 }
 
 }  // namespace rocksdb
+#endif  // ROCKSDB_LITE

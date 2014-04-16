@@ -1,3 +1,4 @@
+// Copyright 2013 Facebook
 /**
  * RedisListIterator:
  * An abstraction over the "list" concept (e.g.: for redis lists).
@@ -34,9 +35,9 @@
  *              - n bytes of data: the actual data.
  *
  * @author Deon Nicholas (dnicholas@fb.com)
- * Copyright 2013 Facebook
  */
 
+#ifndef ROCKSDB_LITE
 #pragma once
 
 #include <string>
@@ -306,3 +307,4 @@ class RedisListIterator {
 };
 
 } // namespace rocksdb
+#endif  // ROCKSDB_LITE

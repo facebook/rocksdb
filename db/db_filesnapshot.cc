@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef ROCKSDB_LITE
+
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <algorithm>
@@ -166,3 +168,5 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
 }
 
 }
+
+#endif  // ROCKSDB_LITE

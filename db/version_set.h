@@ -319,6 +319,7 @@ class VersionSet {
   static Status ListColumnFamilies(std::vector<std::string>* column_families,
                                    const std::string& dbname, Env* env);
 
+#ifndef ROCKSDB_LITE
   // Try to reduce the number of levels. This call is valid when
   // only one level from the new max level to the old
   // max level containing files.
@@ -332,6 +333,12 @@ class VersionSet {
                                      const Options* options,
                                      const EnvOptions& storage_options,
                                      int new_levels);
+
+  // printf contents (for debugging)
+  Status DumpManifest(Options& options, std::string& manifestFileName,
+                      bool verbose, bool hex = false);
+
+#endif  // ROCKSDB_LITE
 
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
@@ -392,10 +399,6 @@ class VersionSet {
   // Return the approximate offset in the database of the data for
   // "key" as of version "v".
   uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);
-
-  // printf contents (for debugging)
-  Status DumpManifest(Options& options, std::string& manifestFileName,
-                      bool verbose, bool hex = false);
 
   // Return the size of the current manifest file
   uint64_t ManifestFileSize() const { return manifest_file_size_; }

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
 #include "table/plain_table_reader.h"
 
 #include <string>
@@ -745,3 +746,4 @@ Status PlainTableIterator::status() const {
 }
 
 }  // namespace rocksdb
+#endif  // ROCKSDB_LITE
