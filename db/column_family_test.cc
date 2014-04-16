@@ -57,6 +57,10 @@ class ColumnFamilyTest {
     DestroyDB(dbname_, Options(db_options_, column_family_options_));
   }
 
+  ~ColumnFamilyTest() {
+    delete env_;
+  }
+
   void Close() {
     for (auto h : handles_) {
       delete h;
@@ -931,6 +935,7 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   int total_new_writable_files =
       env_->GetNumberOfNewWritableFileCalls() - num_writable_file_start;
   ASSERT_EQ(total_new_writable_files, handles_.size() + 1);
+  Close();
 }
 
 }  // namespace rocksdb
