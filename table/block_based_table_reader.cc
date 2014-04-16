@@ -108,7 +108,7 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
                                  Statistics* statistics) {
   auto cache_handle = block_cache->Lookup(key);
   if (cache_handle != nullptr) {
-    PERF_COUNTER_ADD(block_cache_hit_count, 1);
+    BumpPerfCount(&perf_context.block_cache_hit_count);
     // overall cache hit
     RecordTick(statistics, BLOCK_CACHE_HIT);
     // block-type specific cache hit
