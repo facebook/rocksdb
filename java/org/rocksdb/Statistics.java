@@ -17,9 +17,9 @@ public class Statistics {
     statsHandle_ = statsHandle;
   }
   
-  public long getTickerCount(StatisticsType statisticsType) {
+  public long getTickerCount(TickerType tickerType) {
     assert(isInitialized());
-    return getTickerCount0(statisticsType.getValue(), statsHandle_);
+    return getTickerCount0(tickerType.getValue(), statsHandle_);
   }
   
   private boolean isInitialized() {

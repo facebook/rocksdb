@@ -124,7 +124,7 @@ public class RocksDBSample {
       writeOpts.dispose();
 
       try {
-        for(StatisticsType statsType : StatisticsType.values()) {
+        for(TickerType statsType : TickerType.values()) {
           stats.getTickerCount(statsType);
         }
         System.out.println("getTickerCount() passed.");
