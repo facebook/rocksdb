@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <memory>
 #include <utility>
+#include <string>
 
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -197,5 +198,9 @@ class BlockBasedTable : public TableReader {
   explicit BlockBasedTable(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
 };
+
+// Backward compatible properties block name. Limited in block based
+// table.
+extern const std::string kPropertiesBlockOldName;
 
 }  // namespace rocksdb
