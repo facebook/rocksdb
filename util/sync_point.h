@@ -11,11 +11,11 @@
 #include <unordered_map>
 #include <vector>
 
-namespace rocksdb {
-
 #ifdef NDEBUG
 #define TEST_SYNC_POINT(x)
 #else
+
+namespace rocksdb {
 
 // This class provides facility to reproduce race conditions deterministically
 // in unit tests.
