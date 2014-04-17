@@ -478,6 +478,12 @@ bool BySmallestKey(FileMetaData* a, FileMetaData* b,
 
 Version::Version(VersionSet* vset, uint64_t version_number)
     : vset_(vset),
+      internal_comparator_(&(vset->icmp_)),
+      user_comparator_(internal_comparator_->user_comparator()),
+      table_cache_(vset->table_cache_),
+      merge_operator_(vset->options_->merge_operator.get()),
+      info_log_(vset->options_->info_log.get()),
+      db_statistics_(vset->options_->statistics.get()),
       next_(this),
       prev_(this),
       refs_(0),
@@ -497,27 +503,22 @@ void Version::Get(const ReadOptions& options,
                   Status* status,
                   MergeContext* merge_context,
                   GetStats* stats,
-                  const Options& db_options,
                   bool* value_found) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
-  const Comparator* ucmp = vset_->icmp_.user_comparator();
-
-  auto merge_operator = db_options.merge_operator.get();
-  auto logger = db_options.info_log.get();
 
   assert(status->ok() || status->IsMergeInProgress());
   Saver saver;
   saver.state = status->ok()? kNotFound : kMerge;
-  saver.ucmp = ucmp;
+  saver.ucmp = user_comparator_;
   saver.user_key = user_key;
   saver.value_found = value_found;
   saver.value = value;
-  saver.merge_operator = merge_operator;
+  saver.merge_operator = merge_operator_;
   saver.merge_context = merge_context;
-  saver.logger = logger;
+  saver.logger = info_log_;
   saver.didIO = false;
-  saver.statistics = db_options.statistics.get();
+  saver.statistics = db_statistics_;
 
   stats->seek_file = nullptr;
   stats->seek_file_level = -1;
@@ -548,7 +549,7 @@ void Version::Get(const ReadOptions& options,
       // On Level-n (n>=1), files are sorted.
       // Binary search to find earliest index whose largest key >= ikey.
       // We will also stop when the file no longer overlaps ikey
-      start_index = FindFile(vset_->icmp_, files_[level], ikey);
+      start_index = FindFile(*internal_comparator_, files_[level], ikey);
     }
 
     // Traverse each relevant file to find the desired key
@@ -557,8 +558,10 @@ void Version::Get(const ReadOptions& options,
 #endif
     for (uint32_t i = start_index; i < num_files; ++i) {
       FileMetaData* f = files[i];
-      if (ucmp->Compare(user_key, f->smallest.user_key()) < 0 ||
-          ucmp->Compare(user_key, f->largest.user_key()) > 0) {
+      // Skip key range filtering for levle 0 if there are few level 0 files.
+      if ((level > 0 || num_files > 2) &&
+          (user_comparator_->Compare(user_key, f->smallest.user_key()) < 0 ||
+           user_comparator_->Compare(user_key, f->largest.user_key()) > 0)) {
         // Only process overlapping files.
         if (level > 0) {
           // If on Level-n (n>=1) then the files are sorted.
@@ -574,7 +577,8 @@ void Version::Get(const ReadOptions& options,
       // Sanity check to make sure that the files are correctly sorted
       if (prev_file) {
         if (level != 0) {
-          int comp_sign = vset_->icmp_.Compare(prev_file->largest, f->smallest);
+          int comp_sign =
+              internal_comparator_->Compare(prev_file->largest, f->smallest);
           assert(comp_sign < 0);
         } else {
           // level == 0, the current file cannot be newer than the previous one.
@@ -588,9 +592,8 @@ void Version::Get(const ReadOptions& options,
       prev_file = f;
 #endif
       bool tableIO = false;
-      *status =
-          vset_->table_cache_->Get(options, vset_->icmp_, *f, ikey, &saver,
-                                   SaveValue, &tableIO, MarkKeyMayExist);
+      *status = table_cache_->Get(options, *internal_comparator_, *f, ikey,
+                                  &saver, SaveValue, &tableIO, MarkKeyMayExist);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;
@@ -635,12 +638,12 @@ void Version::Get(const ReadOptions& options,
   if (kMerge == saver.state) {
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    if (merge_operator->FullMerge(user_key, nullptr,
-                                  saver.merge_context->GetOperands(),
-                                  value, logger)) {
+    if (merge_operator_->FullMerge(user_key, nullptr,
+                                   saver.merge_context->GetOperands(), value,
+                                   info_log_)) {
       *status = Status::OK();
     } else {
-      RecordTick(db_options.statistics.get(), NUMBER_MERGE_FAILURES);
+      RecordTick(db_statistics_, NUMBER_MERGE_FAILURES);
       *status = Status::Corruption("could not perform end-of-key merge for ",
                                    user_key);
     }
@@ -1447,6 +1450,12 @@ class VersionSet::Builder {
                                        file_meta->number, file_meta->file_size,
                                        &file_meta->table_reader_handle,
                                        &table_io, false);
+        if (file_meta->table_reader_handle != nullptr) {
+          // Load table_reader
+          file_meta->table_reader =
+              vset_->table_cache_->GetTableReaderFromHandle(
+                  file_meta->table_reader_handle);
+        }
       }
     }
   }

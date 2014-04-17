@@ -83,8 +83,7 @@ class Version {
     int seek_file_level;
   };
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
-           Status* status, MergeContext* merge_context,
-           GetStats* stats, const Options& db_option,
+           Status* status, MergeContext* merge_context, GetStats* stats,
            bool* value_found = nullptr);
 
   // Adds "stats" into the current state.  Returns true if a new
@@ -224,6 +223,12 @@ class Version {
   void UpdateFilesBySize();
 
   VersionSet* vset_;            // VersionSet to which this Version belongs
+  const InternalKeyComparator* internal_comparator_;
+  const Comparator* user_comparator_;
+  TableCache* table_cache_;
+  const MergeOperator* merge_operator_;
+  Logger* info_log_;
+  Statistics* db_statistics_;
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
