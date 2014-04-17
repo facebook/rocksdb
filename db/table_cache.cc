@@ -106,19 +106,20 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
-  Cache::Handle* handle = file_meta.table_reader_handle;
+  TableReader* table_reader = file_meta.table_reader;
+  Cache::Handle* handle = nullptr;
   Status s;
-  if (!handle) {
+  if (table_reader == nullptr) {
     s = FindTable(toptions, icomparator, file_meta.number, file_meta.file_size,
                   &handle, nullptr, options.read_tier == kBlockCacheTier);
+    table_reader = GetTableReaderFromHandle(handle);
   }
   if (!s.ok()) {
     return NewErrorIterator(s);
   }
 
-  TableReader* table_reader = GetTableReaderFromHandle(handle);
   Iterator* result = table_reader->NewIterator(options);
-  if (!file_meta.table_reader_handle) {
+  if (handle != nullptr) {
     result->RegisterCleanup(&UnrefEntry, cache_, handle);
   }
   if (table_reader_ptr != nullptr) {
@@ -138,17 +139,18 @@ Status TableCache::Get(const ReadOptions& options,
                        bool (*saver)(void*, const ParsedInternalKey&,
                                      const Slice&, bool),
                        bool* table_io, void (*mark_key_may_exist)(void*)) {
-  Cache::Handle* handle = file_meta.table_reader_handle;
+  TableReader* t = file_meta.table_reader;
   Status s;
-  if (!handle) {
+  Cache::Handle* handle = nullptr;
+  if (!t) {
     s = FindTable(storage_options_, internal_comparator, file_meta.number,
                   file_meta.file_size, &handle, table_io,
                   options.read_tier == kBlockCacheTier);
+    t = GetTableReaderFromHandle(handle);
   }
   if (s.ok()) {
-    TableReader* t = GetTableReaderFromHandle(handle);
     s = t->Get(options, k, arg, saver, mark_key_may_exist);
-    if (!file_meta.table_reader_handle) {
+    if (handle != nullptr) {
       ReleaseHandle(handle);
     }
   } else if (options.read_tier && s.IsIncomplete()) {
@@ -164,15 +166,16 @@ Status TableCache::GetTableProperties(
     const FileMetaData& file_meta,
     std::shared_ptr<const TableProperties>* properties, bool no_io) {
   Status s;
-  auto table_handle = file_meta.table_reader_handle;
+  auto table_reader = file_meta.table_reader;
   // table already been pre-loaded?
-  if (table_handle) {
-    auto table = GetTableReaderFromHandle(table_handle);
-    *properties = table->GetTableProperties();
+  if (table_reader) {
+    *properties = table_reader->GetTableProperties();
+
     return s;
   }
 
   bool table_io;
+  Cache::Handle* table_handle = nullptr;
   s = FindTable(toptions, internal_comparator, file_meta.number,
                 file_meta.file_size, &table_handle, &table_io, no_io);
   if (!s.ok()) {
@@ -190,20 +193,21 @@ bool TableCache::PrefixMayMatch(const ReadOptions& options,
                                 const FileMetaData& file_meta,
                                 const Slice& internal_prefix, bool* table_io) {
   bool may_match = true;
-  auto table_handle = file_meta.table_reader_handle;
-  if (table_handle == nullptr) {
+  auto table_reader = file_meta.table_reader;
+  Cache::Handle* table_handle = nullptr;
+  if (table_reader == nullptr) {
     // Need to get table handle from file number
     Status s = FindTable(storage_options_, icomparator, file_meta.number,
                          file_meta.file_size, &table_handle, table_io);
     if (!s.ok()) {
       return may_match;
     }
+    table_reader = GetTableReaderFromHandle(table_handle);
   }
 
-  auto table = GetTableReaderFromHandle(table_handle);
-  may_match = table->PrefixMayMatch(internal_prefix);
+  may_match = table_reader->PrefixMayMatch(internal_prefix);
 
-  if (file_meta.table_reader_handle == nullptr) {
+  if (table_handle != nullptr) {
     // Need to release handle if it is generated from here.
     ReleaseHandle(table_handle);
   }

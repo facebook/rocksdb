@@ -3219,7 +3219,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     PERF_TIMER_START(get_from_output_files_time);
 
     sv->current->Get(options, lkey, value, &s, &merge_context, &stats,
-                     *cfd->options(), value_found);
+                     value_found);
     have_stat_update = true;
     PERF_TIMER_STOP(get_from_output_files_time);
     RecordTick(options_.statistics.get(), MEMTABLE_MISS);
@@ -3334,7 +3334,7 @@ std::vector<Status> DBImpl::MultiGet(
       // Done
     } else {
       super_version->current->Get(options, lkey, value, &s, &merge_context,
-                                  &mgd->stats, *cfd->options());
+                                  &mgd->stats);
       mgd->have_stat_update = true;
     }
 
