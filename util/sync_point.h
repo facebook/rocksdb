@@ -13,6 +13,10 @@
 
 namespace rocksdb {
 
+#ifdef NDEBUG
+#define TEST_SYNC_POINT(x)
+#else
+
 // This class provides facility to reproduce race conditions deterministically
 // in unit tests.
 // Developer could specify sync points in the codebase via TEST_SYNC_POINT.
@@ -72,8 +76,5 @@ class SyncPoint {
 // utilized to re-produce race conditions between threads.
 // See TransactionLogIteratorRace in db_test.cc for an example use case.
 // TEST_SYNC_POINT is no op in release build.
-#ifdef NDEBUG
-#define TEST_SYNC_POINT(x)
-#else
 #define TEST_SYNC_POINT(x) rocksdb::SyncPoint::GetInstance()->Process(x)
-#endif
+#endif  // NDEBUG

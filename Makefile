@@ -17,7 +17,9 @@ ifeq ($(MAKECMDGOALS),shared_lib)
 PLATFORM_SHARED_LDFLAGS=-fPIC
 OPT += -DNDEBUG
 endif
+
 ifeq ($(MAKECMDGOALS),static_lib)
+PLATFORM_SHARED_LDFLAGS=-fPIC
 OPT += -DNDEBUG
 endif
 
