@@ -91,5 +91,7 @@ const std::string TablePropertiesNames::kFixedKeyLen =
     "rocksdb.fixed.key.length";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
+// Old property block name for backward compatibility
+extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
 
 }  // namespace rocksdb
