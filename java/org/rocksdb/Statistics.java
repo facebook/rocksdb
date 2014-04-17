@@ -10,28 +10,28 @@ package org.rocksdb;
  * is managed by Options class.
  */
 public class Statistics {
-  
+
   private final long statsHandle_;
-  
+
   public Statistics(long statsHandle) {
     statsHandle_ = statsHandle;
   }
-  
+
   public long getTickerCount(TickerType tickerType) {
     assert(isInitialized());
     return getTickerCount0(tickerType.getValue(), statsHandle_);
   }
-  
+
   public HistogramData geHistogramData(HistogramType histogramType) {
     assert(isInitialized());
     HistogramData hist = geHistogramData0(histogramType.getValue(), statsHandle_);
     return hist;
   }
-  
+
   private boolean isInitialized() {
     return (statsHandle_ != 0);
   }
-  
+
   private native long getTickerCount0(int tickerType, long handle);
   private native HistogramData geHistogramData0(int histogramType, long handle);
 }

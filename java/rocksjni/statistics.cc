@@ -24,7 +24,7 @@ jlong Java_org_rocksdb_Statistics_getTickerCount0(
     JNIEnv* env, jobject jobj, int tickerType, jlong handle) {
   auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
-  
+
   return st->getTickerCount(static_cast<rocksdb::Tickers>(tickerType));
 }
 
@@ -32,11 +32,11 @@ jobject Java_org_rocksdb_Statistics_geHistogramData0(
   JNIEnv* env, jobject jobj, int histogramType, jlong handle) {
   auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
-  
+
   rocksdb::HistogramData data;
   st->histogramData(static_cast<rocksdb::Histograms>(histogramType),
     &data);
-  
+
   // Don't reuse class pointer
   jclass jclazz = env->FindClass("org/rocksdb/HistogramData");
   jmethodID mid = rocksdb::HistogramDataJni::getConstructorMethodId(

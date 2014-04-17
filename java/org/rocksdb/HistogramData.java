@@ -11,8 +11,8 @@ public class HistogramData {
   private final double percentile99_;
   private final double average_;
   private final double standardDeviation_;
-  
-  public HistogramData(double median, double percentile95, 
+
+  public HistogramData(double median, double percentile95,
       double percentile99, double average, double standardDeviation) {
     median_ = median;
     percentile95_ = percentile95;
@@ -20,23 +20,23 @@ public class HistogramData {
     average_ = average;
     standardDeviation_ = standardDeviation;
   }
-  
+
   public double getMedian() {
     return median_;
   }
-  
+
   public double getPercentile95() {
     return percentile95_;
   }
-  
+
   public double getPercentile99() {
     return percentile99_;
   }
-  
+
   public double getAverage() {
     return average_;
   }
-  
+
   public double getStandardDeviation() {
     return standardDeviation_;
   }

@@ -132,7 +132,7 @@ public class RocksDBSample {
         System.out.println("Failed in call to getTickerCount()");
         assert(false); //Should never reach here.
       }
-      
+
       try {
         for (HistogramType histogramType : HistogramType.values()) {
           HistogramData data = stats.geHistogramData(histogramType);

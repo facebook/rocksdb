@@ -110,13 +110,13 @@ public enum TickerType {
   NUMBER_SUPERVERSION_ACQUIRES(48),
   NUMBER_SUPERVERSION_RELEASES(49),
   NUMBER_SUPERVERSION_CLEANUPS(50);
-  
+
   private final int value_;
-    
+
   private TickerType(int value) {
     value_ = value;
   }
-  
+
   public int getValue() {
     return value_;
   }

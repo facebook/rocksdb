@@ -26,14 +26,14 @@ public enum HistogramType {
   HARD_RATE_LIMIT_DELAY_COUNT(15),
   SOFT_RATE_LIMIT_DELAY_COUNT(16),
   NUM_FILES_IN_SINGLE_COMPACTION(17);
-  
+
   private final int value_;
-    
+
   private HistogramType(int value) {
     value_ = value;
   }
-  
+
   public int getValue() {
     return value_;
-  }       
+  }
 }
