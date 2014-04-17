@@ -88,7 +88,6 @@ std::string LockFileName(const std::string& dbname) {
 }
 
 std::string TempFileName(const std::string& dbname, uint64_t number) {
-  assert(number >= 0);
   return MakeFileName(dbname, number, "dbtmp");
 }
 

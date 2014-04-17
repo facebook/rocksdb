@@ -63,8 +63,13 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
   ColumnFamilyOptions result = src;
   result.comparator = icmp;
   result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
+#ifdef OS_MACOSX
+  // TODO(icanadi) make write_buffer_size uint64_t instead of size_t
+  ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, ((size_t)1) << 30);
+#else
   ClipToRange(&result.write_buffer_size,
               ((size_t)64) << 10, ((size_t)64) << 30);
+#endif
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {
