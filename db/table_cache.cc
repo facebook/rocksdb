@@ -112,10 +112,10 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   if (table_reader == nullptr) {
     s = FindTable(toptions, icomparator, file_meta.number, file_meta.file_size,
                   &handle, nullptr, options.read_tier == kBlockCacheTier);
+    if (!s.ok()) {
+      return NewErrorIterator(s);
+    }
     table_reader = GetTableReaderFromHandle(handle);
-  }
-  if (!s.ok()) {
-    return NewErrorIterator(s);
   }
 
   Iterator* result = table_reader->NewIterator(options);
@@ -146,7 +146,9 @@ Status TableCache::Get(const ReadOptions& options,
     s = FindTable(storage_options_, internal_comparator, file_meta.number,
                   file_meta.file_size, &handle, table_io,
                   options.read_tier == kBlockCacheTier);
-    t = GetTableReaderFromHandle(handle);
+    if (s.ok()) {
+      t = GetTableReaderFromHandle(handle);
+    }
   }
   if (s.ok()) {
     s = t->Get(options, k, arg, saver, mark_key_may_exist);

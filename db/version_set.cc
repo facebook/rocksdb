@@ -151,7 +151,7 @@ namespace {
 struct EncodedFileMetaData {
   uint64_t number;   // file number
   uint64_t file_size;   // file size
-  Cache::Handle* table_reader_handle;   // cached table reader's handler
+  TableReader* table_reader;   // cached table reader
 };
 }  // namespace
 
@@ -199,7 +199,7 @@ class Version::LevelFileNumIterator : public Iterator {
     auto* file_meta = (*flist_)[index_];
     current_value_.number = file_meta->number;
     current_value_.file_size = file_meta->file_size;
-    current_value_.table_reader_handle = file_meta->table_reader_handle;
+    current_value_.table_reader = file_meta->table_reader;
     return Slice(reinterpret_cast<const char*>(&current_value_),
                  sizeof(EncodedFileMetaData));
   }
@@ -231,7 +231,7 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
     const EncodedFileMetaData* encoded_meta =
         reinterpret_cast<const EncodedFileMetaData*>(file_value.data());
     FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
-    meta.table_reader_handle = encoded_meta->table_reader_handle;
+    meta.table_reader = encoded_meta->table_reader;
     return cache->NewIterator(
         options.prefix ? options_copy : options, soptions, icomparator, meta,
         nullptr /* don't need reference to table*/, for_compaction);
@@ -257,7 +257,7 @@ bool Version::PrefixMayMatch(const ReadOptions& options,
         reinterpret_cast<const EncodedFileMetaData*>(
             level_iter->value().data());
     FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
-    meta.table_reader_handle = encoded_meta->table_reader_handle;
+    meta.table_reader = encoded_meta->table_reader;
     may_match = cfd_->table_cache()->PrefixMayMatch(
         options, cfd_->internal_comparator(), meta, internal_prefix, nullptr);
   }
