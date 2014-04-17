@@ -28,6 +28,11 @@ jlong Java_org_rocksdb_Statistics_getTickerCount0(
   return st->getTickerCount(static_cast<rocksdb::Tickers>(tickerType));
 }
 
+/*
+ * Class:     org_rocksdb_Statistics
+ * Method:    geHistogramData0
+ * Signature: (IJ)Lorg/rocksdb/HistogramData;
+ */
 jobject Java_org_rocksdb_Statistics_geHistogramData0(
   JNIEnv* env, jobject jobj, int histogramType, jlong handle) {
   auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
