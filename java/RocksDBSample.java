@@ -40,7 +40,7 @@ public class RocksDBSample {
         .setDisableSeekCompaction(true)
         .setBlockSize(64 * SizeUnit.KB)
         .setMaxBackgroundCompactions(10);
-    Statistics stats = new Statistics(options.statisticsPtr());
+    Statistics stats = options.statisticsPtr();
 
     assert(options.createIfMissing() == true);
     assert(options.writeBufferSize() == 8 * SizeUnit.KB);
@@ -124,16 +124,24 @@ public class RocksDBSample {
       writeOpts.dispose();
 
       try {
-        for(TickerType statsType : TickerType.values()) {
+        for (TickerType statsType : TickerType.values()) {
           stats.getTickerCount(statsType);
         }
         System.out.println("getTickerCount() passed.");
-      }
-      catch(Exception e) {
+      } catch (Exception e) {
         System.out.println("Failed in call to getTickerCount()");
         assert(false); //Should never reach here.
       }
-
+      
+      try {
+        for (HistogramType histogramType : HistogramType.values()) {
+          HistogramData data = stats.geHistogramData(histogramType);
+        }
+        System.out.println("geHistogramData() passed.");
+      } catch (Exception e) {
+        System.out.println("Failed in call to geHistogramData()");
+        assert(false); //Should never reach here.
+      }
     } catch (RocksDBException e) {
       System.err.println(e);
     }

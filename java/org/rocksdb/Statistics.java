@@ -11,7 +11,7 @@ package org.rocksdb;
  */
 public class Statistics {
   
-  private long statsHandle_;
+  private final long statsHandle_;
   
   public Statistics(long statsHandle) {
     statsHandle_ = statsHandle;
@@ -22,9 +22,16 @@ public class Statistics {
     return getTickerCount0(tickerType.getValue(), statsHandle_);
   }
   
+  public HistogramData geHistogramData(HistogramType histogramType) {
+    assert(isInitialized());
+    HistogramData hist = geHistogramData0(histogramType.getValue(), statsHandle_);
+    return hist;
+  }
+  
   private boolean isInitialized() {
     return (statsHandle_ != 0);
   }
   
-  private native long getTickerCount0(int ticker, long handle);
+  private native long getTickerCount0(int tickerType, long handle);
+  private native HistogramData geHistogramData0(int histogramType, long handle);
 }

@@ -170,5 +170,15 @@ class WriteBatchJni {
         reinterpret_cast<jlong>(wb));
   }
 };
+
+class HistogramDataJni {
+ public:
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "<init>", "(DDDDD)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

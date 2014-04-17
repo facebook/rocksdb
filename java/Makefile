@@ -16,7 +16,7 @@ sample: java
 	javac -cp $(ROCKSDB_JAR) RocksDBSample.java
 	@rm -rf /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni_not_found
-	java -ea -Djava.library.path=.:../ -cp ".:./*" RocksDBSample /tmp/rocksdbjni
+	java -ea -Djava.library.path=.:../ -cp ".:./*" -Xcheck:jni RocksDBSample /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni_not_found
 

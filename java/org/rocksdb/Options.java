@@ -220,13 +220,16 @@ public class Options {
    *
    * @see createStatistics()
    */
-  public long statisticsPtr() {
+  public Statistics statisticsPtr() {
     assert(isInitialized());
 
     long statsPtr = statisticsPtr(nativeHandle_);
-    assert(statsPtr != 0);
+    if(statsPtr == 0) {
+      createStatistics();
+      statsPtr = statisticsPtr(nativeHandle_);
+    }
 
-    return statsPtr;
+    return new Statistics(statsPtr);
   }
 
   /**
