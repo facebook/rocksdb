@@ -365,8 +365,20 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
   s = ReadMetaBlock(rep, &meta, &meta_iter);
 
   // Read the properties
+  bool found_properties_block = true;
   meta_iter->Seek(kPropertiesBlock);
-  if (meta_iter->Valid() && meta_iter->key() == kPropertiesBlock) {
+  if (meta_iter->status().ok() &&
+      (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlock)) {
+    meta_iter->Seek(kPropertiesBlockOldName);
+    if (meta_iter->status().ok() &&
+        (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlockOldName)) {
+      found_properties_block = false;
+      Log(WARN_LEVEL, rep->options.info_log,
+          "Cannot find Properties block from file.");
+    }
+  }
+
+  if (found_properties_block) {
     s = meta_iter->status();
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
@@ -1019,11 +1031,13 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
   auto index_type = BlockBasedTableOptions::kBinarySearch;
-  auto& props = rep_->table_properties->user_collected_properties;
-  auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
-  if (pos != props.end()) {
-    index_type = static_cast<BlockBasedTableOptions::IndexType>(
-        DecodeFixed32(pos->second.c_str()));
+  if (rep_->table_properties) {
+    auto& props = rep_->table_properties->user_collected_properties;
+    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+    if (pos != props.end()) {
+      index_type = static_cast<BlockBasedTableOptions::IndexType>(
+          DecodeFixed32(pos->second.c_str()));
+    }
   }
 
   auto file = rep_->file.get();
@@ -1082,7 +1096,10 @@ uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) {
     // key is past the last key in the file. If table_properties is not
     // available, approximate the offset by returning the offset of the
     // metaindex block (which is right near the end of the file).
-    result = rep_->table_properties->data_size;
+    result = 0;
+    if (rep_->table_properties) {
+      result = rep_->table_properties->data_size;
+    }
     // table_properties is not present in the table.
     if (result == 0) {
       result = rep_->metaindex_handle.offset();

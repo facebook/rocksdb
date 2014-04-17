@@ -244,6 +244,8 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
       metaindex_block.NewIterator(BytewiseComparator()));
 
   // -- Read property block
+  // This function is not used by BlockBasedTable, so we don't have to
+  // worry about old properties block name.
   meta_iter->Seek(kPropertiesBlock);
   TableProperties table_properties;
   if (meta_iter->Valid() &&
