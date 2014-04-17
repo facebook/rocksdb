@@ -215,10 +215,10 @@ public class Options {
   }
 
   /*
-   * Pointer to statistics object. Should only be called after statistics has
-   * been created by createStatistics() call. Calls createStatistics() if
+   * Returns statistics object. Calls createStatistics() if
    * C++ returns NULL pointer for statistics.
    *
+   * @return the instance of the statistics object.
    * @see createStatistics()
    */
   public Statistics statisticsPtr() {
