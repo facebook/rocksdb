@@ -508,7 +508,7 @@ public class Options {
     return maxBackgroundCompactions(nativeHandle_);
   }
 
-  /*
+  /** 
    * Creates statistics object which collects metrics about database operations.
      Statistics objects should not be shared between DB instances as
      it does not use any locks to prevent concurrent updates.
@@ -522,7 +522,7 @@ public class Options {
     return this;
   }
 
-  /*
+  /**
    * Returns statistics object. Calls createStatistics() if
    * C++ returns NULL pointer for statistics.
    *

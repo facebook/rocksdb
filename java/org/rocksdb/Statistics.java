@@ -24,7 +24,8 @@ public class Statistics {
 
   public HistogramData geHistogramData(HistogramType histogramType) {
     assert(isInitialized());
-    HistogramData hist = geHistogramData0(histogramType.getValue(), statsHandle_);
+    HistogramData hist = geHistogramData0(
+        histogramType.getValue(), statsHandle_);
     return hist;
   }
 
