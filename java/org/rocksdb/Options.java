@@ -507,7 +507,6 @@ public class Options {
     assert(isInitialized());
     return maxBackgroundCompactions(nativeHandle_);
   }
-  private native int maxBackgroundCompactions(long handle);
 
   /*
    * Creates statistics object which collects metrics about database operations.
@@ -561,8 +560,6 @@ public class Options {
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
     return this;
   }
-  private native void setMaxBackgroundCompactions(
-      long handle, int maxBackgroundCompactions);
 
   /**
    * Returns the maximum number of concurrent background flush jobs.
@@ -1164,14 +1161,11 @@ public class Options {
   private native void setDisableSeekCompaction(
       long handle, boolean disableSeekCompaction);
   private native boolean disableSeekCompaction(long handle);
-<<<<<<< HEAD
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
   private native void createStatistics(long optHandle);
   private native long statisticsPtr(long optHandle);
-=======
->>>>>>> 1a8abe72768b2b5cea800aa390c28e5ace6a552e
 
   long nativeHandle_;
   long cacheSize_;

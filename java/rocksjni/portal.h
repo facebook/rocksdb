@@ -172,7 +172,6 @@ class WriteBatchJni {
   }
 };
 
-<<<<<<< HEAD
 class HistogramDataJni {
  public:
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass jclazz) {
@@ -180,7 +179,8 @@ class HistogramDataJni {
         jclazz, "<init>", "(DDDDD)V");
     assert(mid != nullptr);
     return mid;
-=======
+  }
+};
 class BackupableDBOptionsJni {
  public:
   // Get the java class id of org.rocksdb.BackupableDBOptions.
@@ -211,7 +211,6 @@ class BackupableDBOptionsJni {
     env->SetLongField(
         jobj, getHandleFieldID(env),
         reinterpret_cast<jlong>(op));
->>>>>>> 1a8abe72768b2b5cea800aa390c28e5ace6a552e
   }
 };
 }  // namespace rocksdb
