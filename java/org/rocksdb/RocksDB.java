@@ -145,33 +145,33 @@ public class RocksDB {
   /**
    * Private constructor.
    */
-  private RocksDB() {
+  protected RocksDB() {
     nativeHandle_ = 0;
   }
 
   // native methods
-  private native void open(
+  protected native void open(
       long optionsHandle, long cacheSize, String path) throws RocksDBException;
-  private native void put(
+  protected native void put(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
-  private native void put(
+  protected native void put(
       long handle, long writeOptHandle,
       byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
-  private native void write(
+  protected native void write(
       long writeOptHandle, long batchHandle) throws RocksDBException;
-  private native int get(
+  protected native int get(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
-  private native byte[] get(
+  protected native byte[] get(
       long handle, byte[] key, int keyLen) throws RocksDBException;
-  private native void remove(
+  protected native void remove(
       long handle, byte[] key, int keyLen) throws RocksDBException;
-  private native void remove(
+  protected native void remove(
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
-  private native void close0();
+  protected native void close0();
 
-  private long nativeHandle_;
+  protected long nativeHandle_;
 }

@@ -228,6 +228,10 @@ public class Options {
     }
   }
 
+  @Override protected void finalize() {
+    dispose();
+  }
+
   private boolean isInitialized() {
     return (nativeHandle_ != 0);
   }
