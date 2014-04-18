@@ -507,7 +507,39 @@ public class Options {
     assert(isInitialized());
     return maxBackgroundCompactions(nativeHandle_);
   }
-  private native int maxBackgroundCompactions(long handle);
+
+  /** 
+   * Creates statistics object which collects metrics about database operations.
+     Statistics objects should not be shared between DB instances as
+     it does not use any locks to prevent concurrent updates.
+   *
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
+   */
+  public Options createStatistics() {
+    assert(isInitialized());
+    createStatistics(nativeHandle_);
+    return this;
+  }
+
+  /**
+   * Returns statistics object. Calls createStatistics() if
+   * C++ returns NULL pointer for statistics.
+   *
+   * @return the instance of the statistics object.
+   * @see createStatistics()
+   */
+  public Statistics statisticsPtr() {
+    assert(isInitialized());
+
+    long statsPtr = statisticsPtr(nativeHandle_);
+    if(statsPtr == 0) {
+      createStatistics();
+      statsPtr = statisticsPtr(nativeHandle_);
+    }
+
+    return new Statistics(statsPtr);
+  }
 
   /**
    * Specifies the maximum number of concurrent background compaction jobs,
@@ -528,8 +560,6 @@ public class Options {
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
     return this;
   }
-  private native void setMaxBackgroundCompactions(
-      long handle, int maxBackgroundCompactions);
 
   /**
    * Returns the maximum number of concurrent background flush jobs.
@@ -1104,7 +1134,7 @@ public class Options {
    * in the c++ side.
    */
   public synchronized void dispose() {
-    if (nativeHandle_ != 0) {
+    if (isInitialized()) {
       dispose0();
     }
   }
@@ -1131,6 +1161,11 @@ public class Options {
   private native void setDisableSeekCompaction(
       long handle, boolean disableSeekCompaction);
   private native boolean disableSeekCompaction(long handle);
+  private native void setMaxBackgroundCompactions(
+      long handle, int maxBackgroundCompactions);
+  private native int maxBackgroundCompactions(long handle);
+  private native void createStatistics(long optHandle);
+  private native long statisticsPtr(long optHandle);
 
   long nativeHandle_;
   long cacheSize_;

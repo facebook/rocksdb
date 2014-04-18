@@ -34,11 +34,13 @@ public class RocksDBSample {
     }
 
     options.setCreateIfMissing(true)
+        .createStatistics()
         .setWriteBufferSize(8 * SizeUnit.KB)
         .setMaxWriteBufferNumber(3)
         .setDisableSeekCompaction(true)
         .setBlockSize(64 * SizeUnit.KB)
         .setMaxBackgroundCompactions(10);
+    Statistics stats = options.statisticsPtr();
 
     assert(options.createIfMissing() == true);
     assert(options.writeBufferSize() == 8 * SizeUnit.KB);
@@ -120,13 +122,33 @@ public class RocksDBSample {
       assert(new String(testValue).equals(
           new String(enoughArray, 0, len)));
       writeOpts.dispose();
+
+      try {
+        for (TickerType statsType : TickerType.values()) {
+          stats.getTickerCount(statsType);
+        }
+        System.out.println("getTickerCount() passed.");
+      } catch (Exception e) {
+        System.out.println("Failed in call to getTickerCount()");
+        assert(false); //Should never reach here.
+      }
+
+      try {
+        for (HistogramType histogramType : HistogramType.values()) {
+          HistogramData data = stats.geHistogramData(histogramType);
+        }
+        System.out.println("geHistogramData() passed.");
+      } catch (Exception e) {
+        System.out.println("Failed in call to geHistogramData()");
+        assert(false); //Should never reach here.
+      }
     } catch (RocksDBException e) {
       System.err.println(e);
     }
     if (db != null) {
       db.close();
     }
-    // be sure to dispose c++ pointer
+    // be sure to dispose c++ pointers
     options.dispose();
   }
 }

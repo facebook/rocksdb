@@ -172,6 +172,15 @@ class WriteBatchJni {
   }
 };
 
+class HistogramDataJni {
+ public:
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "<init>", "(DDDDD)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
 class BackupableDBOptionsJni {
  public:
   // Get the java class id of org.rocksdb.BackupableDBOptions.
