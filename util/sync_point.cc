@@ -5,6 +5,7 @@
 
 #include "util/sync_point.h"
 
+#ifndef NDEBUG
 namespace rocksdb {
 
 SyncPoint* SyncPoint::GetInstance() {
@@ -60,3 +61,4 @@ void SyncPoint::Process(const std::string& point) {
 }
 
 }  // namespace rocksdb
+#endif  // NDEBUG

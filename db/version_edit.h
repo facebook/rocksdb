@@ -32,6 +32,8 @@ struct FileMetaData {
 
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
+  // Table reader in table_reader_handle
+  TableReader* table_reader;
 
   FileMetaData(uint64_t number, uint64_t file_size)
       : refs(0),
@@ -39,7 +41,8 @@ struct FileMetaData {
         number(number),
         file_size(file_size),
         being_compacted(false),
-        table_reader_handle(nullptr) {}
+        table_reader_handle(nullptr),
+        table_reader(nullptr) {}
   FileMetaData() : FileMetaData(0, 0) {}
 };
 

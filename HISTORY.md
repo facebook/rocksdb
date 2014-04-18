@@ -24,7 +24,7 @@
 * Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
 * Added a command "checkconsistency" in ldb tool, which checks
   if file system state matches DB state (file existence and file sizes)
-* Separate options related to block based table to a new struct BlockBasedTableOptions
+* Separate options related to block based table to a new struct BlockBasedTableOptions.
 * WriteBatch has a new function Count() to return total size in the batch, and Data() now returns a reference instead of a copy
 * Add more counters to perf context.
 * Supports several more DB properties: compaction-pending, background-errors and cur-size-active-mem-table.

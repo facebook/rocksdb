@@ -17,7 +17,9 @@ ifeq ($(MAKECMDGOALS),shared_lib)
 PLATFORM_SHARED_LDFLAGS=-fPIC
 OPT += -DNDEBUG
 endif
+
 ifeq ($(MAKECMDGOALS),static_lib)
+PLATFORM_SHARED_LDFLAGS=-fPIC
 OPT += -DNDEBUG
 endif
 
@@ -420,7 +422,11 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 # ---------------------------------------------------------------------------
 # Jni stuff
 # ---------------------------------------------------------------------------
+<<<<<<< HEAD
 JNI_NATIVE_SOURCES = ./java/rocksjni/rocksjni.cc ./java/rocksjni/options.cc ./java/rocksjni/write_batch.cc ./java/rocksjni/statistics.cc
+=======
+JNI_NATIVE_SOURCES = ./java/rocksjni/*.cc
+>>>>>>> 1a8abe72768b2b5cea800aa390c28e5ace6a552e
 
 JAVA_INCLUDE = -I/usr/lib/jvm/java-openjdk/include/ -I/usr/lib/jvm/java-openjdk/include/linux
 ROCKSDBJNILIB = ./java/librocksdbjni.so
