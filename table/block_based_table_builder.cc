@@ -159,9 +159,6 @@ IndexBuilder* CreateIndexBuilder(IndexType type, const Comparator* comparator) {
     case BlockBasedTableOptions::kBinarySearch: {
       return new ShortenedIndexBuilder(comparator);
     }
-    case BlockBasedTableOptions::kHashSearch: {
-      return new ShortenedIndexBuilder(comparator);
-    }
     default: {
       assert(!"Do not recognize the index type ");
       return nullptr;
@@ -324,13 +321,16 @@ struct BlockBasedTableBuilder::Rep {
   }
 };
 
+// TODO(sdong): Currently only write out binary search index. In
+// BlockBasedTableReader, Hash index will be built using binary search index.
 BlockBasedTableBuilder::BlockBasedTableBuilder(
     const Options& options, const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator, WritableFile* file,
     CompressionType compression_type)
     : rep_(new Rep(options, internal_comparator, file,
                    table_options.flush_block_policy_factory.get(),
-                   compression_type, table_options.index_type)) {
+                   compression_type,
+                   BlockBasedTableOptions::IndexType::kBinarySearch)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }

@@ -1030,14 +1030,29 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
-  auto index_type = rep_->index_type;
+  auto index_type_on_file = BlockBasedTableOptions::kBinarySearch;
+  if (rep_->table_properties) {
+    auto& props = rep_->table_properties->user_collected_properties;
+    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+    if (pos != props.end()) {
+      index_type_on_file = static_cast<BlockBasedTableOptions::IndexType>(
+          DecodeFixed32(pos->second.c_str()));
+    }
+  }
+
+  // TODO(sdong): Currently binary index is the only index type we support in
+  // files. Hash index is built on top of binary index too.
+  if (index_type_on_file != BlockBasedTableOptions::kBinarySearch) {
+    return Status::NotSupported("File Contains not supported index type: ",
+                                std::to_string(index_type_on_file));
+  }
 
   auto file = rep_->file.get();
   const auto& index_handle = rep_->index_handle;
   auto env = rep_->options.env;
   auto comparator = &rep_->internal_comparator;
 
-  switch (index_type) {
+  switch (rep_->index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(file, index_handle, env,
                                              comparator, index_reader);
