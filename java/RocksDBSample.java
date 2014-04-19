@@ -143,12 +143,39 @@ public class RocksDBSample {
       }
       
       Iterator iterator = db.iterator();
+      
+      boolean seekToFirstPassed = false;
+      for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+        iterator.status();
+        assert(iterator.key() != null);
+        assert(iterator.value() != null);
+        seekToFirstPassed = true;
+      }
+      if(seekToFirstPassed) {
+        System.out.println("iterator seekToFirst tests passed.");
+      }
+      
+      boolean seekToLastPassed = false;
+      for (iterator.seekToLast(); iterator.isValid(); iterator.prev()) {
+        iterator.status();
+        assert(iterator.key() != null);
+        assert(iterator.value() != null);
+        seekToLastPassed = true;
+      }
+      
+      if(seekToLastPassed) {
+        System.out.println("iterator seekToLastPassed tests passed.");
+      }
+      
       iterator.seekToFirst();
-      assert(iterator.isValid());
-      iterator.next();
-      iterator.seekToLast();
-      iterator.prev();
-      iterator.close();      
+      iterator.seek(iterator.key());
+      assert(iterator.key() != null);
+      assert(iterator.value() != null);
+      
+      System.out.println("iterator seek test passed.");
+      
+      iterator.close();
+      System.out.println("iterator tests passed.");
     } catch (RocksDBException e) {
       System.err.println(e);
     }
