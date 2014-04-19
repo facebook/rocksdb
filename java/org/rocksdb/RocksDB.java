@@ -136,7 +136,15 @@ public class RocksDB {
     remove(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
 
-  public Iterator iterator() {
+  /**
+   * Return a heap-allocated iterator over the contents of the database.
+   * The result of newIterator() is initially invalid (caller must
+   * call one of the Seek methods on the iterator before using it).
+   * 
+   * Caller should close the iterator when it is no longer needed.
+   * The returned iterator should be closed before this db is closed.
+   */
+  public Iterator newIterator() {
     return new Iterator(iterator0(nativeHandle_));
   }
 

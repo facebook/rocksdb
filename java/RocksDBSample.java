@@ -142,7 +142,7 @@ public class RocksDBSample {
         assert(false); //Should never reach here.
       }
 
-      Iterator iterator = db.iterator();
+      Iterator iterator = db.newIterator();
 
       boolean seekToFirstPassed = false;
       for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
