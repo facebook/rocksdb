@@ -11,56 +11,50 @@
 #include "table/block_based_table_factory.h"
 
 #include <memory>
+#include <string>
 #include <stdint.h>
+
+#include "rocksdb/flush_block_policy.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
 #include "port/port.h"
 
 namespace rocksdb {
 
-Status BlockBasedTableFactory::GetTableReader(
+BlockBasedTableFactory::BlockBasedTableFactory(
+    const BlockBasedTableOptions& table_options)
+    : table_options_(table_options) {
+  if (table_options_.flush_block_policy_factory == nullptr) {
+    table_options_.flush_block_policy_factory.reset(
+        new FlushBlockBySizePolicyFactory());
+  }
+}
+
+Status BlockBasedTableFactory::NewTableReader(
     const Options& options, const EnvOptions& soptions,
-    unique_ptr<RandomAccessFile> && file, uint64_t file_size,
+    const InternalKeyComparator& internal_comparator,
+    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
-  return BlockBasedTable::Open(options, soptions, std::move(file), file_size,
+  return BlockBasedTable::Open(options, soptions, table_options_,
+                               internal_comparator, std::move(file), file_size,
                                table_reader);
 }
 
-TableBuilder* BlockBasedTableFactory::GetTableBuilder(
-    const Options& options, WritableFile* file,
-    CompressionType compression_type) const {
-  auto flush_block_policy_factory = 
-    table_options_.flush_block_policy_factory.get();
-
-  // if flush block policy factory is not set, we'll create the default one
-  // from the options.
-  //
-  // NOTE: we cannot pre-cache the "default block policy factory" because
-  // `FlushBlockBySizePolicyFactory` takes `options.block_size` and
-  // `options.block_size_deviation` as parameters, which may be different
-  // every time.
-  if (flush_block_policy_factory == nullptr) {
-    flush_block_policy_factory =
-        new FlushBlockBySizePolicyFactory(options.block_size,
-                                          options.block_size_deviation);
-  }
-
-  auto table_builder =  new BlockBasedTableBuilder(
-      options,
-      file,
-      flush_block_policy_factory,
-      compression_type);
-
-  // Delete flush_block_policy_factory only when it's just created from the
-  // options.
-  // We can safely delete flush_block_policy_factory since it will only be used
-  // during the construction of `BlockBasedTableBuilder`.
-  if (flush_block_policy_factory != 
-      table_options_.flush_block_policy_factory.get()) {
-    delete flush_block_policy_factory;
-  }
+TableBuilder* BlockBasedTableFactory::NewTableBuilder(
+    const Options& options, const InternalKeyComparator& internal_comparator,
+    WritableFile* file, CompressionType compression_type) const {
+  auto table_builder = new BlockBasedTableBuilder(
+      options, table_options_, internal_comparator, file, compression_type);
 
   return table_builder;
 }
+
+TableFactory* NewBlockBasedTableFactory(
+    const BlockBasedTableOptions& table_options) {
+  return new BlockBasedTableFactory(table_options);
+}
+
+const std::string BlockBasedTablePropertyNames::kIndexType =
+    "rocksdb.block.based.table.index.type";
 
 }  // namespace rocksdb

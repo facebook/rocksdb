@@ -7,6 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef ROCKSDB_LITE
+
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <algorithm>
 #include <string>
 #include <stdint.h>
@@ -17,25 +21,40 @@
 #include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
 Status DBImpl::DisableFileDeletions() {
   MutexLock l(&mutex_);
-  disable_delete_obsolete_files_ = true;
-  Log(options_.info_log, "File Deletions Disabled");
+  ++disable_delete_obsolete_files_;
+  if (disable_delete_obsolete_files_ == 1) {
+    // if not, it has already been disabled, so don't log anything
+    Log(options_.info_log, "File Deletions Disabled");
+  }
   return Status::OK();
 }
 
-Status DBImpl::EnableFileDeletions() {
+Status DBImpl::EnableFileDeletions(bool force) {
   DeletionState deletion_state;
+  bool should_purge_files = false;
   {
     MutexLock l(&mutex_);
-    disable_delete_obsolete_files_ = false;
-    Log(options_.info_log, "File Deletions Enabled");
-    FindObsoleteFiles(deletion_state, true);
+    if (force) {
+      // if force, we need to enable file deletions right away
+      disable_delete_obsolete_files_ = 0;
+    } else if (disable_delete_obsolete_files_ > 0) {
+      --disable_delete_obsolete_files_;
+    }
+    if (disable_delete_obsolete_files_ == 0)  {
+      Log(options_.info_log, "File Deletions Enabled");
+      should_purge_files = true;
+      FindObsoleteFiles(deletion_state, true);
+    }
   }
-  PurgeObsoleteFiles(deletion_state);
+  if (should_purge_files)  {
+    PurgeObsoleteFiles(deletion_state);
+  }
   LogFlush(options_.info_log);
   return Status::OK();
 }
@@ -46,21 +65,36 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
   *manifest_file_size = 0;
 
+  mutex_.Lock();
+
   if (flush_memtable) {
     // flush all dirty data to disk.
-    Status status =  Flush(FlushOptions());
+    Status status;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      cfd->Ref();
+      mutex_.Unlock();
+      status = FlushMemTable(cfd, FlushOptions());
+      mutex_.Lock();
+      cfd->Unref();
+      if (!status.ok()) {
+        break;
+      }
+    }
+    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
+
     if (!status.ok()) {
+      mutex_.Unlock();
       Log(options_.info_log, "Cannot Flush data %s\n",
           status.ToString().c_str());
       return status;
     }
   }
 
-  MutexLock l(&mutex_);
-
   // Make a set of all of the live *.sst files
   std::set<uint64_t> live;
-  versions_->AddLiveFilesCurrentVersion(&live);
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    cfd->current()->AddLiveFiles(&live);
+  }
 
   ret.clear();
   ret.reserve(live.size() + 2); //*.sst + CURRENT + MANIFEST
@@ -77,24 +111,62 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   // find length of manifest file while holding the mutex lock
   *manifest_file_size = versions_->ManifestFileSize();
 
+  mutex_.Unlock();
   return Status::OK();
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
-  // First get sorted files in archive dir, then append sorted files from main
-  // dir to maintain sorted order
-
-  // list wal files in archive dir.
+  // First get sorted files in db dir, then get sorted files from archived
+  // dir, to avoid a race condition where a log file is moved to archived
+  // dir in between.
   Status s;
+  // list wal files in main db dir.
+  VectorLogPtr logs;
+  s = GetSortedWalsOfType(options_.wal_dir, logs, kAliveLogFile);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Reproduce the race condition where a log file is moved
+  // to archived dir, between these two sync points, used in
+  // (DBTest,TransactionLogIteratorRace)
+  TEST_SYNC_POINT("DBImpl::GetSortedWalFiles:1");
+  TEST_SYNC_POINT("DBImpl::GetSortedWalFiles:2");
+
+  files.clear();
+  // list wal files in archive dir.
   std::string archivedir = ArchivalDirectory(options_.wal_dir);
   if (env_->FileExists(archivedir)) {
-    s = AppendSortedWalsOfType(archivedir, files, kArchivedLogFile);
+    s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile);
     if (!s.ok()) {
       return s;
     }
   }
-  // list wal files in main db dir.
-  return AppendSortedWalsOfType(options_.wal_dir, files, kAliveLogFile);
+
+  uint64_t latest_archived_log_number = 0;
+  if (!files.empty()) {
+    latest_archived_log_number = files.back()->LogNumber();
+    Log(options_.info_log, "Latest Archived log: %" PRIu64,
+        latest_archived_log_number);
+  }
+
+  files.reserve(files.size() + logs.size());
+  for (auto& log : logs) {
+    if (log->LogNumber() > latest_archived_log_number) {
+      files.push_back(std::move(log));
+    } else {
+      // When the race condition happens, we could see the
+      // same log in both db dir and archived dir. Simply
+      // ignore the one in db dir. Note that, if we read
+      // archived dir first, we would have missed the log file.
+      Log(options_.info_log, "%s already moved to archive",
+          log->PathName().c_str());
+    }
+  }
+
+  return s;
 }
 
 }
+
+#endif  // ROCKSDB_LITE

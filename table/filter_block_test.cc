@@ -55,7 +55,7 @@ class FilterBlockTest {
 };
 
 TEST(FilterBlockTest, EmptyBuilder) {
-  FilterBlockBuilder builder(options_);
+  FilterBlockBuilder builder(options_, options_.comparator);
   Slice block = builder.Finish();
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block));
   FilterBlockReader reader(options_, block);
@@ -64,7 +64,7 @@ TEST(FilterBlockTest, EmptyBuilder) {
 }
 
 TEST(FilterBlockTest, SingleChunk) {
-  FilterBlockBuilder builder(options_);
+  FilterBlockBuilder builder(options_, options_.comparator);
   builder.StartBlock(100);
   builder.AddKey("foo");
   builder.AddKey("bar");
@@ -85,7 +85,7 @@ TEST(FilterBlockTest, SingleChunk) {
 }
 
 TEST(FilterBlockTest, MultiChunk) {
-  FilterBlockBuilder builder(options_);
+  FilterBlockBuilder builder(options_, options_.comparator);
 
   // First filter
   builder.StartBlock(0);

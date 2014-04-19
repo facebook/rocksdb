@@ -11,16 +11,20 @@
 
 #include "table/block.h"
 
-#include <vector>
 #include <algorithm>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "rocksdb/comparator.h"
+#include "table/block_hash_index.h"
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
 
 namespace rocksdb {
 
-inline uint32_t Block::NumRestarts() const {
+uint32_t Block::NumRestarts() const {
   assert(size_ >= 2*sizeof(uint32_t));
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
@@ -92,6 +96,7 @@ class Block::Iter : public Iterator {
   std::string key_;
   Slice value_;
   Status status_;
+  BlockHashIndex* hash_index_;
 
   inline int Compare(const Slice& a, const Slice& b) const {
     return comparator_->Compare(a, b);
@@ -118,16 +123,15 @@ class Block::Iter : public Iterator {
   }
 
  public:
-  Iter(const Comparator* comparator,
-       const char* data,
-       uint32_t restarts,
-       uint32_t num_restarts)
+  Iter(const Comparator* comparator, const char* data, uint32_t restarts,
+       uint32_t num_restarts, BlockHashIndex* hash_index)
       : comparator_(comparator),
         data_(data),
         restarts_(restarts),
         num_restarts_(num_restarts),
         current_(restarts_),
-        restart_index_(num_restarts_) {
+        restart_index_(num_restarts_),
+        hash_index_(hash_index) {
     assert(num_restarts_ > 0);
   }
 
@@ -169,45 +173,22 @@ class Block::Iter : public Iterator {
   }
 
   virtual void Seek(const Slice& target) {
-    // Binary search in restart array to find the first restart point
-    // with a key >= target
-    uint32_t left = 0;
-    uint32_t right = num_restarts_ - 1;
-    while (left < right) {
-      uint32_t mid = (left + right + 1) / 2;
-      uint32_t region_offset = GetRestartPoint(mid);
-      uint32_t shared, non_shared, value_length;
-      const char* key_ptr = DecodeEntry(data_ + region_offset,
-                                        data_ + restarts_,
-                                        &shared, &non_shared, &value_length);
-      if (key_ptr == nullptr || (shared != 0)) {
-        CorruptionError();
-        return;
-      }
-      Slice mid_key(key_ptr, non_shared);
-      if (Compare(mid_key, target) < 0) {
-        // Key at "mid" is smaller than "target".  Therefore all
-        // blocks before "mid" are uninteresting.
-        left = mid;
-      } else {
-        // Key at "mid" is >= "target".  Therefore all blocks at or
-        // after "mid" are uninteresting.
-        right = mid - 1;
-      }
-    }
+    uint32_t index = 0;
+    bool ok = hash_index_ ? HashSeek(target, &index)
+                          : BinarySeek(target, 0, num_restarts_ - 1, &index);
 
+    if (!ok) {
+      return;
+    }
+    SeekToRestartPoint(index);
     // Linear search (within restart block) for first key >= target
-    SeekToRestartPoint(left);
+
     while (true) {
-      if (!ParseNextKey()) {
-        return;
-      }
-      if (Compare(key_, target) >= 0) {
+      if (!ParseNextKey() || Compare(key_, target) >= 0) {
         return;
       }
     }
   }
-
   virtual void SeekToFirst() {
     SeekToRestartPoint(0);
     ParseNextKey();
@@ -257,6 +238,53 @@ class Block::Iter : public Iterator {
       return true;
     }
   }
+  // Binary search in restart array to find the first restart point
+  // with a key >= target
+  bool BinarySeek(const Slice& target, uint32_t left, uint32_t right,
+                  uint32_t* index) {
+    assert(left <= right);
+
+    while (left < right) {
+      uint32_t mid = (left + right + 1) / 2;
+      uint32_t region_offset = GetRestartPoint(mid);
+      uint32_t shared, non_shared, value_length;
+      const char* key_ptr =
+          DecodeEntry(data_ + region_offset, data_ + restarts_, &shared,
+                      &non_shared, &value_length);
+      if (key_ptr == nullptr || (shared != 0)) {
+        CorruptionError();
+        return false;
+      }
+      Slice mid_key(key_ptr, non_shared);
+      if (Compare(mid_key, target) < 0) {
+        // Key at "mid" is smaller than "target". Therefore all
+        // blocks before "mid" are uninteresting.
+        left = mid;
+      } else {
+        // Key at "mid" is >= "target". Therefore all blocks at or
+        // after "mid" are uninteresting.
+        right = mid - 1;
+      }
+    }
+
+    *index = left;
+    return true;
+  }
+
+  bool HashSeek(const Slice& target, uint32_t* index) {
+    assert(hash_index_);
+    auto restart_index = hash_index_->GetRestartIndex(target);
+    if (restart_index == nullptr) {
+      current_ = restarts_;
+      return 0;
+    }
+
+    // the elements in restart_array[index : index + num_blocks]
+    // are all with same prefix. We'll do binary search in that small range.
+    auto left = restart_index->first_index;
+    auto right = restart_index->first_index + restart_index->num_blocks - 1;
+    return BinarySeek(target, left, right, index);
+  }
 };
 
 Iterator* Block::NewIterator(const Comparator* cmp) {
@@ -267,8 +295,13 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
   if (num_restarts == 0) {
     return NewEmptyIterator();
   } else {
-    return new Iter(cmp, data_, restart_offset_, num_restarts);
+    return new Iter(cmp, data_, restart_offset_, num_restarts,
+                    hash_index_.get());
   }
+}
+
+void Block::SetBlockHashIndex(BlockHashIndex* hash_index) {
+  hash_index_.reset(hash_index);
 }
 
 }  // namespace rocksdb

@@ -1,3 +1,4 @@
+// Copyright 2013 Facebook
 /**
  * A (persistent) Redis API built using the rocksdb backend.
  * Implements Redis Lists as described on: http://redis.io/commands#list
@@ -18,9 +19,9 @@
  *        wouldn't have to read and re-write the entire list.
  *
  * @author Deon Nicholas (dnicholas@fb.com)
- * Copyright 2013 Facebook
  */
 
+#ifndef ROCKSDB_LITE
 #include "redis_lists.h"
 
 #include <iostream>
@@ -547,5 +548,5 @@ int RedisLists::Insert(const std::string& key, const std::string& pivot,
   return it.Length();
 }
 
-
-}
+}  // namespace rocksdb
+#endif  // ROCKSDB_LITE

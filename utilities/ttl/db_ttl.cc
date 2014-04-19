@@ -1,6 +1,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#ifndef ROCKSDB_LITE
 
 #include "utilities/ttl/db_ttl.h"
 #include "db/filename.h"
@@ -10,40 +11,27 @@
 
 namespace rocksdb {
 
-// Open the db inside DBWithTTL because options needs pointer to its ttl
-DBWithTTL::DBWithTTL(const int32_t ttl,
-                     const Options& options,
-                     const std::string& dbname,
-                     Status& st,
-                     bool read_only)
-    : StackableDB(nullptr) {
-  Options options_to_open = options;
-
-  if (options.compaction_filter) {
-    ttl_comp_filter_.reset(
-        new TtlCompactionFilter(ttl, options.compaction_filter));
-    options_to_open.compaction_filter = ttl_comp_filter_.get();
+void DBWithTTL::SanitizeOptions(int32_t ttl, Options* options) {
+  if (options->compaction_filter) {
+    options->compaction_filter =
+        new TtlCompactionFilter(ttl, options->compaction_filter);
   } else {
-    options_to_open.compaction_filter_factory =
-      std::shared_ptr<CompactionFilterFactory>(
-          new TtlCompactionFilterFactory(
-            ttl, options.compaction_filter_factory));
+    options->compaction_filter_factory =
+        std::shared_ptr<CompactionFilterFactory>(new TtlCompactionFilterFactory(
+            ttl, options->compaction_filter_factory));
   }
 
-  if (options.merge_operator) {
-    options_to_open.merge_operator.reset(
-      new TtlMergeOperator(options.merge_operator));
-  }
-
-  if (read_only) {
-    st = DB::OpenForReadOnly(options_to_open, dbname, &db_);
-  } else {
-    st = DB::Open(options_to_open, dbname, &db_);
+  if (options->merge_operator) {
+    options->merge_operator.reset(
+        new TtlMergeOperator(options->merge_operator));
   }
 }
 
+// Open the db inside DBWithTTL because options needs pointer to its ttl
+DBWithTTL::DBWithTTL(DB* db) : StackableDB(db) {}
+
 DBWithTTL::~DBWithTTL() {
-  delete db_;
+  delete GetOptions().compaction_filter;
 }
 
 Status UtilityDB::OpenTtlDB(
@@ -53,9 +41,19 @@ Status UtilityDB::OpenTtlDB(
     int32_t ttl,
     bool read_only) {
   Status st;
-  *dbptr = new DBWithTTL(ttl, options, dbname, st, read_only);
-  if (!st.ok()) {
-    delete *dbptr;
+  Options options_to_open = options;
+  DBWithTTL::SanitizeOptions(ttl, &options_to_open);
+  DB* db;
+
+  if (read_only) {
+    st = DB::OpenForReadOnly(options_to_open, dbname, &db);
+  } else {
+    st = DB::Open(options_to_open, dbname, &db);
+  }
+  if (st.ok()) {
+    *dbptr = new DBWithTTL(db);
+  } else {
+    delete db;
   }
   return st;
 }
@@ -122,17 +120,16 @@ Status DBWithTTL::StripTS(std::string* str) {
   return st;
 }
 
-Status DBWithTTL::Put(
-    const WriteOptions& opt,
-    const Slice& key,
-    const Slice& val) {
+Status DBWithTTL::Put(const WriteOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      const Slice& val) {
   WriteBatch batch;
   batch.Put(key, val);
-  return Write(opt, &batch);
+  return Write(options, &batch);
 }
 
 Status DBWithTTL::Get(const ReadOptions& options,
-                      const Slice& key,
+                      ColumnFamilyHandle* column_family, const Slice& key,
                       std::string* value) {
   Status st = db_->Get(options, key, value);
   if (!st.ok()) {
@@ -145,18 +142,18 @@ Status DBWithTTL::Get(const ReadOptions& options,
   return StripTS(value);
 }
 
-std::vector<Status> DBWithTTL::MultiGet(const ReadOptions& options,
-                                        const std::vector<Slice>& keys,
-                                        std::vector<std::string>* values) {
+std::vector<Status> DBWithTTL::MultiGet(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values) {
   return std::vector<Status>(keys.size(),
                              Status::NotSupported("MultiGet not\
                                supported with TTL"));
 }
 
 bool DBWithTTL::KeyMayExist(const ReadOptions& options,
-                            const Slice& key,
-                            std::string* value,
-                            bool* value_found) {
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value, bool* value_found) {
   bool ret = db_->KeyMayExist(options, key, value, value_found);
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
     if (!SanityCheckTimestamp(*value).ok() || !StripTS(value).ok()) {
@@ -166,16 +163,12 @@ bool DBWithTTL::KeyMayExist(const ReadOptions& options,
   return ret;
 }
 
-Status DBWithTTL::Delete(const WriteOptions& wopts, const Slice& key) {
-  return db_->Delete(wopts, key);
-}
-
-Status DBWithTTL::Merge(const WriteOptions& opt,
-                        const Slice& key,
+Status DBWithTTL::Merge(const WriteOptions& options,
+                        ColumnFamilyHandle* column_family, const Slice& key,
                         const Slice& value) {
   WriteBatch batch;
   batch.Merge(key, value);
-  return Write(opt, &batch);
+  return Write(options, &batch);
 }
 
 Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
@@ -217,88 +210,10 @@ Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
   }
 }
 
-Iterator* DBWithTTL::NewIterator(const ReadOptions& opts) {
-  return new TtlIterator(db_->NewIterator(opts));
-}
-
-const Snapshot* DBWithTTL::GetSnapshot() {
-  return db_->GetSnapshot();
-}
-
-void DBWithTTL::ReleaseSnapshot(const Snapshot* snapshot) {
-  db_->ReleaseSnapshot(snapshot);
-}
-
-bool DBWithTTL::GetProperty(const Slice& property, std::string* value) {
-  return db_->GetProperty(property, value);
-}
-
-void DBWithTTL::GetApproximateSizes(const Range* r, int n, uint64_t* sizes) {
-  db_->GetApproximateSizes(r, n, sizes);
-}
-
-void DBWithTTL::CompactRange(const Slice* begin, const Slice* end,
-                             bool reduce_level, int target_level) {
-  db_->CompactRange(begin, end, reduce_level, target_level);
-}
-
-int DBWithTTL::NumberLevels() {
-  return db_->NumberLevels();
-}
-
-int DBWithTTL::MaxMemCompactionLevel() {
-  return db_->MaxMemCompactionLevel();
-}
-
-int DBWithTTL::Level0StopWriteTrigger() {
-  return db_->Level0StopWriteTrigger();
-}
-
-Env* DBWithTTL::GetEnv() const {
-  return db_->GetEnv();
-}
-
-const Options& DBWithTTL::GetOptions() const {
-  return db_->GetOptions();
-}
-
-Status DBWithTTL::Flush(const FlushOptions& fopts) {
-  return db_->Flush(fopts);
-}
-
-Status DBWithTTL::DisableFileDeletions() {
-  return db_->DisableFileDeletions();
-}
-
-Status DBWithTTL::EnableFileDeletions() {
-  return db_->EnableFileDeletions();
-}
-
-Status DBWithTTL::GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                               bool flush_memtable) {
-  return db_->GetLiveFiles(vec, mfs, flush_memtable);
-}
-
-SequenceNumber DBWithTTL::GetLatestSequenceNumber() const {
-  return db_->GetLatestSequenceNumber();
-}
-
-Status DBWithTTL::GetSortedWalFiles(VectorLogPtr& files) {
-  return db_->GetSortedWalFiles(files);
-}
-
-Status DBWithTTL::DeleteFile(std::string name) {
-  return db_->DeleteFile(name);
-}
-
-Status DBWithTTL::GetUpdatesSince(
-    SequenceNumber seq_number,
-    unique_ptr<TransactionLogIterator>* iter) {
-  return db_->GetUpdatesSince(seq_number, iter);
-}
-
-void DBWithTTL::TEST_Destroy_DBWithTtl() {
-  ((DBImpl*) db_)->TEST_Destroy_DBImpl();
+Iterator* DBWithTTL::NewIterator(const ReadOptions& opts,
+                                 ColumnFamilyHandle* column_family) {
+  return new TtlIterator(db_->NewIterator(opts, column_family));
 }
 
 }  // namespace rocksdb
+#endif  // ROCKSDB_LITE

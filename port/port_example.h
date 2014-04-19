@@ -127,13 +127,6 @@ extern bool Snappy_GetUncompressedLength(const char* input, size_t length,
 extern bool Snappy_Uncompress(const char* input_data, size_t input_length,
                               char* output);
 
-// ------------------ Miscellaneous -------------------
-
-// If heap profiling is not supported, returns false.
-// Else repeatedly calls (*func)(arg, data, n) and then returns true.
-// The concatenation of all "data[0,n-1]" fragments is the heap profile.
-extern bool GetHeapProfile(void (*func)(void*, const char*, int), void* arg);
-
 }  // namespace port
 }  // namespace rocksdb
 

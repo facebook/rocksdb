@@ -11,6 +11,7 @@
 
 #include <cstdlib>
 #include <stdio.h>
+#include <assert.h>
 #include <string.h>
 #include "util/logging.h"
 
@@ -45,9 +46,25 @@ Mutex::Mutex(bool adaptive) {
 
 Mutex::~Mutex() { PthreadCall("destroy mutex", pthread_mutex_destroy(&mu_)); }
 
-void Mutex::Lock() { PthreadCall("lock", pthread_mutex_lock(&mu_)); }
+void Mutex::Lock() {
+  PthreadCall("lock", pthread_mutex_lock(&mu_));
+#ifndef NDEBUG
+  locked_ = true;
+#endif
+}
 
-void Mutex::Unlock() { PthreadCall("unlock", pthread_mutex_unlock(&mu_)); }
+void Mutex::Unlock() {
+#ifndef NDEBUG
+  locked_ = false;
+#endif
+  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+}
+
+void Mutex::AssertHeld() {
+#ifndef NDEBUG
+  assert(locked_);
+#endif
+}
 
 CondVar::CondVar(Mutex* mu)
     : mu_(mu) {
@@ -57,7 +74,13 @@ CondVar::CondVar(Mutex* mu)
 CondVar::~CondVar() { PthreadCall("destroy cv", pthread_cond_destroy(&cv_)); }
 
 void CondVar::Wait() {
+#ifndef NDEBUG
+  mu_->locked_ = false;
+#endif
   PthreadCall("wait", pthread_cond_wait(&cv_, &mu_->mu_));
+#ifndef NDEBUG
+  mu_->locked_ = true;
+#endif
 }
 
 void CondVar::Signal() {

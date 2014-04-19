@@ -12,6 +12,11 @@ build_config.mk
 *_test
 *_bench
 *_stress
+*.out
+*.class
+*.jar
+*.*jnilib*
+*.d-e
 
 ldb
 manifest_dump
@@ -19,5 +24,8 @@ sst_dump
 util/build_version.cc
 build_tools/VALGRIND_LOGS/
 coverage/COVERAGE_REPORT
-util/build_version.cc.tmp
 .gdbhistory
+.phutil_module_cache
+tags
+java/*.log
+java/include/org_rocksdb_*.h

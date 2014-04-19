@@ -17,20 +17,21 @@ namespace rocksdb {
 class AutoRollLogger : public Logger {
  public:
   AutoRollLogger(Env* env, const std::string& dbname,
-                 const std::string& db_log_dir,
-                 size_t log_max_size,
-                 size_t log_file_time_to_roll):
-     dbname_(dbname),
-     db_log_dir_(db_log_dir),
-     env_(env),
-     status_(Status::OK()),
-     kMaxLogFileSize(log_max_size),
-     kLogFileTimeToRoll(log_file_time_to_roll),
-     cached_now(static_cast<uint64_t>(env_->NowMicros() * 1e-6)),
-     ctime_(cached_now),
-     cached_now_access_count(0),
-     call_NowMicros_every_N_records_(100),
-     mutex_() {
+                 const std::string& db_log_dir, size_t log_max_size,
+                 size_t log_file_time_to_roll,
+                 const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
+      : Logger(log_level),
+        dbname_(dbname),
+        db_log_dir_(db_log_dir),
+        env_(env),
+        status_(Status::OK()),
+        kMaxLogFileSize(log_max_size),
+        kLogFileTimeToRoll(log_file_time_to_roll),
+        cached_now(static_cast<uint64_t>(env_->NowMicros() * 1e-6)),
+        ctime_(cached_now),
+        cached_now_access_count(0),
+        call_NowMicros_every_N_records_(100),
+        mutex_() {
     env->GetAbsolutePath(dbname, &db_absolute_path_);
     log_fname_ = InfoLogFileName(dbname_, db_absolute_path_, db_log_dir_);
     RollLogFile();
@@ -84,7 +85,7 @@ Status CreateLoggerFromOptions(
     const std::string& dbname,
     const std::string& db_log_dir,
     Env* env,
-    const Options& options,
+    const DBOptions& options,
     std::shared_ptr<Logger>* logger);
 
 }  // namespace rocksdb

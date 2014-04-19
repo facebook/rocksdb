@@ -10,16 +10,16 @@
 namespace rocksdb {
 namespace {
 class SkipListRep : public MemTableRep {
-  SkipList<const char*, MemTableRep::KeyComparator&> skip_list_;
+  SkipList<const char*, const MemTableRep::KeyComparator&> skip_list_;
 public:
-  explicit SkipListRep(MemTableRep::KeyComparator& compare, Arena* arena)
-    : skip_list_(compare, arena) {
-}
+  explicit SkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena)
+    : MemTableRep(arena), skip_list_(compare, arena) {
+  }
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual void Insert(const char* key) override {
-    skip_list_.Insert(key);
+  virtual void Insert(KeyHandle handle) override {
+    skip_list_.Insert(static_cast<char*>(handle));
   }
 
   // Returns true iff an entry that compares equal to key is in the list.
@@ -32,16 +32,27 @@ public:
     return 0;
   }
 
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg,
+                                         const char* entry)) override {
+    SkipListRep::Iterator iter(&skip_list_);
+    Slice dummy_slice;
+    for (iter.Seek(dummy_slice, k.memtable_key().data());
+         iter.Valid() && callback_func(callback_args, iter.key());
+         iter.Next()) {
+    }
+  }
+
   virtual ~SkipListRep() override { }
 
   // Iteration over the contents of a skip list
   class Iterator : public MemTableRep::Iterator {
-    SkipList<const char*, MemTableRep::KeyComparator&>::Iterator iter_;
+    SkipList<const char*, const MemTableRep::KeyComparator&>::Iterator iter_;
    public:
     // Initialize an iterator over the specified list.
     // The returned iterator is not valid.
     explicit Iterator(
-      const SkipList<const char*, MemTableRep::KeyComparator&>* list
+      const SkipList<const char*, const MemTableRep::KeyComparator&>* list
     ) : iter_(list) { }
 
     virtual ~Iterator() override { }
@@ -70,8 +81,13 @@ public:
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) override {
-      iter_.Seek(target);
+    virtual void Seek(const Slice& user_key, const char* memtable_key)
+        override {
+      if (memtable_key != nullptr) {
+        iter_.Seek(memtable_key);
+      } else {
+        iter_.Seek(EncodeKey(&tmp_, user_key));
+      }
     }
 
     // Position at the first entry in list.
@@ -85,20 +101,23 @@ public:
     virtual void SeekToLast() override {
       iter_.SeekToLast();
     }
+   protected:
+    std::string tmp_;       // For passing to EncodeKey
   };
 
   // Unhide default implementations of GetIterator
   using MemTableRep::GetIterator;
 
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() override {
-    return std::make_shared<SkipListRep::Iterator>(&skip_list_);
+  virtual MemTableRep::Iterator* GetIterator() override {
+    return new SkipListRep::Iterator(&skip_list_);
   }
 };
 }
 
-std::shared_ptr<MemTableRep> SkipListFactory::CreateMemTableRep (
-  MemTableRep::KeyComparator& compare, Arena* arena) {
-    return std::shared_ptr<MemTableRep>(new SkipListRep(compare, arena));
+MemTableRep* SkipListFactory::CreateMemTableRep(
+    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const SliceTransform*) {
+  return new SkipListRep(compare, arena);
 }
 
 } // namespace rocksdb

@@ -11,6 +11,8 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <string>
+#include "rocksdb/cache.h"
 #include "db/dbformat.h"
 
 namespace rocksdb {
@@ -28,16 +30,25 @@ struct FileMetaData {
   SequenceNumber smallest_seqno;// The smallest seqno in this file
   SequenceNumber largest_seqno; // The largest seqno in this file
 
-  FileMetaData() : refs(0), allowed_seeks(1 << 30), file_size(0),
-                   being_compacted(false) { }
+  // Needs to be disposed when refs becomes 0.
+  Cache::Handle* table_reader_handle;
+  // Table reader in table_reader_handle
+  TableReader* table_reader;
+
+  FileMetaData(uint64_t number, uint64_t file_size)
+      : refs(0),
+        allowed_seeks(1 << 30),
+        number(number),
+        file_size(file_size),
+        being_compacted(false),
+        table_reader_handle(nullptr),
+        table_reader(nullptr) {}
+  FileMetaData() : FileMetaData(0, 0) {}
 };
 
 class VersionEdit {
  public:
-  explicit VersionEdit(int number_levels) :
-      number_levels_(number_levels) {
-    Clear();
-  }
+  VersionEdit() { Clear(); }
   ~VersionEdit() { }
 
   void Clear();
@@ -62,8 +73,9 @@ class VersionEdit {
     has_last_sequence_ = true;
     last_sequence_ = seq;
   }
-  void SetCompactPointer(int level, const InternalKey& key) {
-    compact_pointers_.push_back(std::make_pair(level, key));
+  void SetMaxColumnFamily(uint32_t max_column_family) {
+    has_max_column_family_ = true;
+    max_column_family_ = max_column_family;
   }
 
   // Add the specified file at the specified number.
@@ -75,6 +87,7 @@ class VersionEdit {
                const InternalKey& largest,
                const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno) {
+    assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
     f.number = file;
     f.file_size = file_size;
@@ -82,18 +95,42 @@ class VersionEdit {
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
-    assert(smallest_seqno <= largest_seqno);
     new_files_.push_back(std::make_pair(level, f));
   }
 
   // Delete the specified "file" from the specified "level".
   void DeleteFile(int level, uint64_t file) {
-    deleted_files_.insert(std::make_pair(level, file));
+    deleted_files_.insert({level, file});
   }
 
   // Number of edits
   int NumEntries() {
     return new_files_.size() + deleted_files_.size();
+  }
+
+  bool IsColumnFamilyManipulation() {
+    return is_column_family_add_ || is_column_family_drop_;
+  }
+
+  void SetColumnFamily(uint32_t column_family_id) {
+    column_family_ = column_family_id;
+  }
+
+  // set column family ID by calling SetColumnFamily()
+  void AddColumnFamily(const std::string& name) {
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
+    assert(NumEntries() == 0);
+    is_column_family_add_ = true;
+    column_family_name_ = name;
+  }
+
+  // set column family ID by calling SetColumnFamily()
+  void DropColumnFamily() {
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
+    assert(NumEntries() == 0);
+    is_column_family_drop_ = true;
   }
 
   void EncodeTo(std::string* dst) const;
@@ -104,25 +141,36 @@ class VersionEdit {
  private:
   friend class VersionSet;
 
-  typedef std::set< std::pair<int, uint64_t> > DeletedFileSet;
+  typedef std::set< std::pair<int, uint64_t>> DeletedFileSet;
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 
-  int number_levels_;
+  int max_level_;
   std::string comparator_;
   uint64_t log_number_;
   uint64_t prev_log_number_;
   uint64_t next_file_number_;
+  uint32_t max_column_family_;
   SequenceNumber last_sequence_;
   bool has_comparator_;
   bool has_log_number_;
   bool has_prev_log_number_;
   bool has_next_file_number_;
   bool has_last_sequence_;
+  bool has_max_column_family_;
 
-  std::vector< std::pair<int, InternalKey> > compact_pointers_;
   DeletedFileSet deleted_files_;
-  std::vector< std::pair<int, FileMetaData> > new_files_;
+  std::vector<std::pair<int, FileMetaData>> new_files_;
+
+  // Each version edit record should have column_family_id set
+  // If it's not set, it is default (0)
+  uint32_t column_family_;
+  // a version edit can be either column_family add or
+  // column_family drop. If it's column family add,
+  // it also includes column family name.
+  bool is_column_family_drop_;
+  bool is_column_family_add_;
+  std::string column_family_name_;
 };
 
 }  // namespace rocksdb

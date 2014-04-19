@@ -41,7 +41,7 @@ TEST(Coding, Fixed64) {
   const char* p = s.data();
   for (int power = 0; power <= 63; power++) {
     uint64_t v = static_cast<uint64_t>(1) << power;
-    uint64_t actual;
+    uint64_t actual = 0;
     actual = DecodeFixed64(p);
     ASSERT_EQ(v-1, actual);
     p += sizeof(uint64_t);
@@ -90,7 +90,7 @@ TEST(Coding, Varint32) {
   const char* limit = p + s.size();
   for (uint32_t i = 0; i < (32 * 32); i++) {
     uint32_t expected = (i / 32) << (i % 32);
-    uint32_t actual;
+    uint32_t actual = 0;
     const char* start = p;
     p = GetVarint32Ptr(p, limit, &actual);
     ASSERT_TRUE(p != nullptr);
@@ -125,7 +125,7 @@ TEST(Coding, Varint64) {
   const char* limit = p + s.size();
   for (unsigned int i = 0; i < values.size(); i++) {
     ASSERT_TRUE(p < limit);
-    uint64_t actual;
+    uint64_t actual = 0;
     const char* start = p;
     p = GetVarint64Ptr(p, limit, &actual);
     ASSERT_TRUE(p != nullptr);

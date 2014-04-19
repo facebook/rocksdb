@@ -25,7 +25,7 @@ namespace rocksdb {
 class Status {
  public:
   // Create a success status.
-  Status() : state_(nullptr) { }
+  Status() : code_(kOk), state_(nullptr) { }
   ~Status() { delete[] state_; }
 
   // Copy the specified status.
@@ -38,6 +38,10 @@ class Status {
   // Return error status of an appropriate type.
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kNotFound, msg, msg2);
+  }
+  // Fast path for not found without malloc;
+  static Status NotFound() {
+    return Status(kNotFound);
   }
   static Status Corruption(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kCorruption, msg, msg2);
@@ -57,9 +61,13 @@ class Status {
   static Status Incomplete(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIncomplete, msg, msg2);
   }
+  static Status ShutdownInProgress(const Slice& msg,
+                                   const Slice& msg2 = Slice()) {
+    return Status(kShutdownInProgress, msg, msg2);
+  }
 
   // Returns true iff the status indicates success.
-  bool ok() const { return (state_ == nullptr); }
+  bool ok() const { return code() == kOk; }
 
   // Returns true iff the status indicates a NotFound error.
   bool IsNotFound() const { return code() == kNotFound; }
@@ -82,18 +90,14 @@ class Status {
   // Returns true iff the status indicates Incomplete
   bool IsIncomplete() const { return code() == kIncomplete; }
 
+  // Returns true iff the status indicates Incomplete
+  bool IsShutdownInProgress() const { return code() == kShutdownInProgress; }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
 
  private:
-  // OK status has a nullptr state_.  Otherwise, state_ is a new[] array
-  // of the following form:
-  //    state_[0..3] == length of message
-  //    state_[4]    == code
-  //    state_[5..]  == message
-  const char* state_;
-
   enum Code {
     kOk = 0,
     kNotFound = 1,
@@ -102,23 +106,34 @@ class Status {
     kInvalidArgument = 4,
     kIOError = 5,
     kMergeInProgress = 6,
-    kIncomplete = 7
+    kIncomplete = 7,
+    kShutdownInProgress = 8
   };
 
-  Code code() const {
-    return (state_ == nullptr) ? kOk : static_cast<Code>(state_[4]);
-  }
+  // A nullptr state_ (which is always the case for OK) means the message
+  // is empty.
+  // of the following form:
+  //    state_[0..3] == length of message
+  //    state_[4..]  == message
+  Code code_;
+  const char* state_;
 
+  Code code() const {
+    return code_;
+  }
+  explicit Status(Code code) : code_(code), state_(nullptr) { }
   Status(Code code, const Slice& msg, const Slice& msg2);
   static const char* CopyState(const char* s);
 };
 
 inline Status::Status(const Status& s) {
+  code_ = s.code_;
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
 inline void Status::operator=(const Status& s) {
   // The following condition catches both aliasing (when this == &s),
   // and the common case where both s and *this are ok.
+  code_ = s.code_;
   if (state_ != s.state_) {
     delete[] state_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);

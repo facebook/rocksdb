@@ -8,27 +8,35 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <memory>
+
 #include <stdint.h>
-#include "rocksdb/cache.h"
-#include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
+#include <memory>
+#include <utility>
+#include <string>
+
 #include "rocksdb/statistics.h"
-#include "rocksdb/table_properties.h"
+#include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "table/table_reader.h"
 #include "util/coding.h"
 
 namespace rocksdb {
 
 class Block;
 class BlockHandle;
+class Cache;
+class FilterBlockReader;
 class Footer;
-struct Options;
+class InternalKeyComparator;
+class Iterator;
 class RandomAccessFile;
-struct ReadOptions;
 class TableCache;
 class TableReader;
-class FilterBlockReader;
+class WritableFile;
+struct BlockBasedTableOptions;
+struct EnvOptions;
+struct Options;
+struct ReadOptions;
 
 using std::unique_ptr;
 
@@ -38,7 +46,6 @@ using std::unique_ptr;
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
-  static const std::string kPropertiesBlock;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -50,10 +57,10 @@ class BlockBasedTable : public TableReader {
   // to nullptr and returns a non-ok status.
   //
   // *file must remain live while this Table is in use.
-  static Status Open(const Options& options,
-                     const EnvOptions& soptions,
-                     unique_ptr<RandomAccessFile>&& file,
-                     uint64_t file_size,
+  static Status Open(const Options& db_options, const EnvOptions& env_options,
+                     const BlockBasedTableOptions& table_options,
+                     const InternalKeyComparator& internal_key_comparator,
+                     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
   bool PrefixMayMatch(const Slice& internal_prefix) override;
@@ -63,14 +70,13 @@ class BlockBasedTable : public TableReader {
   // call one of the Seek methods on the iterator before using it).
   Iterator* NewIterator(const ReadOptions&) override;
 
-  Status Get(
-        const ReadOptions& readOptions,
-        const Slice& key,
-        void* handle_context,
-        bool (*result_handler)(void* handle_context, const Slice& k,
-                               const Slice& v, bool didIO),
-        void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
-    override;
+  Status Get(const ReadOptions& readOptions, const Slice& key,
+             void* handle_context,
+             bool (*result_handler)(void* handle_context,
+                                    const ParsedInternalKey& k, const Slice& v,
+                                    bool didIO),
+             void (*mark_key_may_exist_handler)(void* handle_context) =
+                 nullptr) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -82,15 +88,20 @@ class BlockBasedTable : public TableReader {
 
   // Returns true if the block for the specified key is in cache.
   // REQUIRES: key is in this table.
-  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key) override;
+  bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
   // Set up the table for Compaction. Might change some parameters with
   // posix_fadvise
   void SetupForCompaction() override;
 
-  TableProperties& GetTableProperties() override;
+  std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
   ~BlockBasedTable();
+
+  bool TEST_filter_block_preloaded() const;
+  bool TEST_index_reader_preloaded() const;
+  // Implementation of IndexReader will be exposed to internal cc file only.
+  class IndexReader;
 
  private:
   template <class TValue>
@@ -100,39 +111,51 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   bool compaction_optimized_;
 
-  static Iterator* BlockReader(void*, const ReadOptions&,
-                               const EnvOptions& soptions, const Slice&,
-                               bool for_compaction);
+  static Iterator* DataBlockReader(void*, const ReadOptions&,
+                                   const EnvOptions& soptions,
+                                   const InternalKeyComparator& icomparator,
+                                   const Slice&, bool for_compaction);
 
-  static Iterator* BlockReader(void*, const ReadOptions&, const Slice&,
-                               bool* didIO, bool for_compaction = false);
+  static Iterator* DataBlockReader(void*, const ReadOptions&, const Slice&,
+                                   bool* didIO, bool for_compaction = false);
 
-  // if `no_io == true`, we will not try to read filter from sst file
-  // if it is not cached yet.
+  // For the following two functions:
+  // if `no_io == true`, we will not try to read filter/index from sst file
+  // were they not present in cache yet.
   CachableEntry<FilterBlockReader> GetFilter(bool no_io = false) const;
 
-  Iterator* IndexBlockReader(const ReadOptions& options) const;
+  // Get the iterator from the index reader.
+  //
+  // Note: ErrorIterator with Status::Incomplete shall be returned if all the
+  // following conditions are met:
+  //  1. We enabled table_options.cache_index_and_filter_blocks.
+  //  2. index is not present in block cache.
+  //  3. We disallowed any io to be performed, that is, read_options ==
+  //     kBlockCacheTier
+  Iterator* NewIndexIterator(const ReadOptions& read_options);
 
-  // Read the block, either from sst file or from cache. This method will try
-  // to read from cache only when block_cache is set or ReadOption doesn't
-  // explicitly prohibit storage IO.
+  // Read block cache from block caches (if set): block_cache and
+  // block_cache_compressed.
+  // On success, Status::OK with be returned and @block will be populated with
+  // pointer to the block as well as its block handle.
+  static Status GetDataBlockFromCache(
+      const Slice& block_cache_key, const Slice& compressed_block_cache_key,
+      Cache* block_cache, Cache* block_cache_compressed, Statistics* statistics,
+      const ReadOptions& read_options,
+      BlockBasedTable::CachableEntry<Block>* block);
+  // Put a raw block (maybe compressed) to the corresponding block caches.
+  // This method will perform decompression against raw_block if needed and then
+  // populate the block caches.
+  // On success, Status::OK will be returned; also @block will be populated with
+  // uncompressed block and its cache handle.
   //
-  // If the block is read from cache, the statistics for cache miss/hit of the
-  // the given type of block will be updated. User can specify
-  // `block_cache_miss_ticker` and `block_cache_hit_ticker` for the statistics
-  // update.
-  //
-  // On success, the `result` parameter will be populated, which contains a
-  // pointer to the block and its cache handle, which will be nullptr if it's
-  // not read from the cache.
-  static Status GetBlock(const BlockBasedTable* table,
-                         const BlockHandle& handle,
-                         const ReadOptions& options,
-                         bool for_compaction,
-                         Tickers block_cache_miss_ticker,
-                         Tickers block_cache_hit_ticker,
-                         bool* didIO,
-                         CachableEntry<Block>* result);
+  // REQUIRES: raw_block is heap-allocated. PutDataBlockToCache() will be
+  // responsible for releasing its memory if error occurs.
+  static Status PutDataBlockToCache(
+      const Slice& block_cache_key, const Slice& compressed_block_cache_key,
+      Cache* block_cache, Cache* block_cache_compressed,
+      const ReadOptions& read_options, Statistics* statistics,
+      CachableEntry<Block>* block, Block* raw_block);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -142,7 +165,7 @@ class BlockBasedTable : public TableReader {
 
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
-  static Status ReadProperties(const Slice& handle_value, Rep* rep);
+  Status CreateIndexReader(IndexReader** index_reader);
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(
@@ -156,20 +179,15 @@ class BlockBasedTable : public TableReader {
       Rep* rep,
       size_t* filter_size = nullptr);
 
-  // Read the table properties from properties block.
-  static Status ReadProperties(
-      const Slice& handle_value, Rep* rep, TableProperties* properties);
-
   static void SetupCacheKeyPrefix(Rep* rep);
 
-  explicit BlockBasedTable(Rep* rep) :
-      compaction_optimized_(false) {
-    rep_ = rep;
-  }
+  explicit BlockBasedTable(Rep* rep)
+      : rep_(rep), compaction_optimized_(false) {}
+
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(shared_ptr<Cache> cc,
+  static void GenerateCachePrefix(Cache* cc,
     RandomAccessFile* file, char* buffer, size_t* size);
-  static void GenerateCachePrefix(shared_ptr<Cache> cc,
+  static void GenerateCachePrefix(Cache* cc,
     WritableFile* file, char* buffer, size_t* size);
 
   // The longest prefix of the cache key used to identify blocks.
@@ -181,15 +199,8 @@ class BlockBasedTable : public TableReader {
   void operator=(const TableReader&) = delete;
 };
 
-struct BlockBasedTablePropertiesNames {
-  static const std::string kDataSize;
-  static const std::string kIndexSize;
-  static const std::string kFilterSize;
-  static const std::string kRawKeySize;
-  static const std::string kRawValueSize;
-  static const std::string kNumDataBlocks;
-  static const std::string kNumEntries;
-  static const std::string kFilterPolicy;
-};
+// Backward compatible properties block name. Limited in block based
+// table.
+extern const std::string kPropertiesBlockOldName;
 
 }  // namespace rocksdb

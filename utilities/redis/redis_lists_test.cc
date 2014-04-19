@@ -1,3 +1,7 @@
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
 /**
  * A test harness for the Redis API built on rocksdb.
  *
@@ -9,7 +13,6 @@
  * TODO:  Add LARGE random test cases to verify efficiency and scalability
  *
  * @author Deon Nicholas (dnicholas@fb.com)
- * Copyright 2013 Facebook
  */
 
 
@@ -41,6 +44,7 @@ Options RedisListsTest::options = Options();
 // operator== and operator<< are defined below for vectors (lists)
 // Needed for ASSERT_EQ
 
+namespace {
 void AssertListEq(const std::vector<std::string>& result,
                   const std::vector<std::string>& expected_result) {
   ASSERT_EQ(result.size(), expected_result.size());
@@ -48,6 +52,7 @@ void AssertListEq(const std::vector<std::string>& result,
     ASSERT_EQ(result[i], expected_result[i]);
   }
 }
+}  // namespace
 
 // PushRight, Length, Index, Range
 TEST(RedisListsTest, SimpleTest) {
@@ -738,6 +743,7 @@ TEST(RedisListsTest, PersistenceMultiKeyTest) {
 /// THE manual REDIS TEST begins here
 /// THIS WILL ONLY OCCUR IF YOU RUN: ./redis_test -m
 
+namespace {
 void MakeUpper(std::string* const s) {
   int len = s->length();
   for(int i=0; i<len; ++i) {
@@ -842,6 +848,7 @@ int manual_redis_test(bool destructive){
     }
   }
 }
+}  // namespace
 
 } // namespace rocksdb
 
@@ -851,6 +858,7 @@ int manual_redis_test(bool destructive){
 //        "./redis_test -m -d" for destructive manual test (erase db before use)
 
 
+namespace {
 // Check for "want" argument in the argument list
 bool found_arg(int argc, char* argv[], const char* want){
   for(int i=1; i<argc; ++i){
@@ -860,6 +868,7 @@ bool found_arg(int argc, char* argv[], const char* want){
   }
   return false;
 }
+}  // namespace
 
 // Will run unit tests.
 // However, if -m is specified, it will do user manual/interactive testing

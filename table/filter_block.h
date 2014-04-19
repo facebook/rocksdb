@@ -35,7 +35,8 @@ class FilterPolicy;
 //      (StartBlock AddKey*)* Finish
 class FilterBlockBuilder {
  public:
-  explicit FilterBlockBuilder(const Options& opt);
+  explicit FilterBlockBuilder(const Options& opt,
+                              const Comparator* internal_comparator);
 
   void StartBlock(uint64_t block_offset);
   void AddKey(const Slice& key);
@@ -45,6 +46,9 @@ class FilterBlockBuilder {
   bool SamePrefix(const Slice &key1, const Slice &key2) const;
   void GenerateFilter();
 
+  // important: all of these might point to invalid addresses
+  // at the time of destruction of this filter block. destructor
+  // should NOT dereference them.
   const FilterPolicy* policy_;
   const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;

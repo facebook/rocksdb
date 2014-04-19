@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#ifndef ROCKSDB_LITE
 #include "rocksdb/memtablerep.h"
 
 #include <unordered_set>
@@ -11,7 +12,8 @@
 #include <algorithm>
 #include <type_traits>
 
-#include "rocksdb/arena.h"
+#include "util/arena.h"
+#include "db/memtable.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
 #include "util/stl_wrappers.h"
@@ -29,7 +31,7 @@ class VectorRep : public MemTableRep {
   // single buffer and pass that in as the parameter to Insert)
   // REQUIRES: nothing that compares equal to key is currently in the
   // collection.
-  virtual void Insert(const char* key) override;
+  virtual void Insert(KeyHandle handle) override;
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const override;
@@ -38,6 +40,10 @@ class VectorRep : public MemTableRep {
 
   virtual size_t ApproximateMemoryUsage() override;
 
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg,
+                                         const char* entry)) override;
+
   virtual ~VectorRep() override { }
 
   class Iterator : public MemTableRep::Iterator {
@@ -45,6 +51,7 @@ class VectorRep : public MemTableRep {
     std::shared_ptr<std::vector<const char*>> bucket_;
     typename std::vector<const char*>::const_iterator mutable cit_;
     const KeyComparator& compare_;
+    std::string tmp_;       // For passing to EncodeKey
     bool mutable sorted_;
     void DoSort() const;
    public:
@@ -73,7 +80,7 @@ class VectorRep : public MemTableRep {
     virtual void Prev() override;
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const char* target) override;
+    virtual void Seek(const Slice& user_key, const char* memtable_key) override;
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -88,7 +95,7 @@ class VectorRep : public MemTableRep {
   using MemTableRep::GetIterator;
 
   // Return an iterator over the keys in this representation.
-  virtual std::shared_ptr<MemTableRep::Iterator> GetIterator() override;
+  virtual MemTableRep::Iterator* GetIterator() override;
 
  private:
   friend class Iterator;
@@ -100,7 +107,8 @@ class VectorRep : public MemTableRep {
   const KeyComparator& compare_;
 };
 
-void VectorRep::Insert(const char* key) {
+void VectorRep::Insert(KeyHandle handle) {
+  auto* key = static_cast<char*>(handle);
   assert(!Contains(key));
   WriteLock l(&rwlock_);
   assert(!immutable_);
@@ -128,7 +136,8 @@ size_t VectorRep::ApproximateMemoryUsage() {
 }
 
 VectorRep::VectorRep(const KeyComparator& compare, Arena* arena, size_t count)
-  : bucket_(new Bucket()),
+  : MemTableRep(arena),
+    bucket_(new Bucket()),
     immutable_(false),
     sorted_(false),
     compare_(compare) { bucket_.get()->reserve(count); }
@@ -200,12 +209,15 @@ void VectorRep::Iterator::Prev() {
 }
 
 // Advance to the first entry with a key >= target
-void VectorRep::Iterator::Seek(const char* target) {
+void VectorRep::Iterator::Seek(const Slice& user_key,
+                               const char* memtable_key) {
   DoSort();
   // Do binary search to find first value not less than the target
+  const char* encoded_key =
+      (memtable_key != nullptr) ? memtable_key : EncodeKey(&tmp_, user_key);
   cit_ = std::equal_range(bucket_->begin(),
                           bucket_->end(),
-                          target,
+                          encoded_key,
                           [this] (const char* a, const char* b) {
                             return compare_(a, b) < 0;
                           }).first;
@@ -228,22 +240,43 @@ void VectorRep::Iterator::SeekToLast() {
   }
 }
 
-std::shared_ptr<MemTableRep::Iterator> VectorRep::GetIterator() {
+void VectorRep::Get(const LookupKey& k, void* callback_args,
+                    bool (*callback_func)(void* arg, const char* entry)) {
+  rwlock_.ReadLock();
+  VectorRep* vector_rep;
+  std::shared_ptr<Bucket> bucket;
+  if (immutable_) {
+    vector_rep = this;
+  } else {
+    vector_rep = nullptr;
+    bucket.reset(new Bucket(*bucket_));  // make a copy
+  }
+  VectorRep::Iterator iter(vector_rep, immutable_ ? bucket_ : bucket, compare_);
+  rwlock_.Unlock();
+
+  for (iter.Seek(k.user_key(), k.memtable_key().data());
+       iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {
+  }
+}
+
+MemTableRep::Iterator* VectorRep::GetIterator() {
   ReadLock l(&rwlock_);
   // Do not sort here. The sorting would be done the first time
   // a Seek is performed on the iterator.
   if (immutable_) {
-    return std::make_shared<Iterator>(this, bucket_, compare_);
+    return new Iterator(this, bucket_, compare_);
   } else {
     std::shared_ptr<Bucket> tmp;
     tmp.reset(new Bucket(*bucket_)); // make a copy
-    return std::make_shared<Iterator>(nullptr, tmp, compare_);
+    return new Iterator(nullptr, tmp, compare_);
   }
 }
 } // anon namespace
 
-std::shared_ptr<MemTableRep> VectorRepFactory::CreateMemTableRep(
-  MemTableRep::KeyComparator& compare, Arena* arena) {
-  return std::make_shared<VectorRep>(compare, arena, count_);
+MemTableRep* VectorRepFactory::CreateMemTableRep(
+    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const SliceTransform*) {
+  return new VectorRep(compare, arena, count_);
 }
 } // namespace rocksdb
+#endif  // ROCKSDB_LITE

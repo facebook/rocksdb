@@ -20,18 +20,17 @@ namespace rocksdb {
 namespace {
 
 typedef Iterator* (*BlockFunction)(void*, const ReadOptions&,
-                                   const EnvOptions& soptions, const Slice&,
-                                   bool for_compaction);
+                                   const EnvOptions& soptions,
+                                   const InternalKeyComparator& icomparator,
+                                   const Slice&, bool for_compaction);
 
 class TwoLevelIterator: public Iterator {
  public:
-  TwoLevelIterator(
-    Iterator* index_iter,
-    BlockFunction block_function,
-    void* arg,
-    const ReadOptions& options,
-    const EnvOptions& soptions,
-    bool for_compaction);
+  TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,
+                   void* arg, const ReadOptions& options,
+                   const EnvOptions& soptions,
+                   const InternalKeyComparator& internal_comparator,
+                   bool for_compaction);
 
   virtual ~TwoLevelIterator();
 
@@ -76,6 +75,7 @@ class TwoLevelIterator: public Iterator {
   void* arg_;
   const ReadOptions options_;
   const EnvOptions& soptions_;
+  const InternalKeyComparator& internal_comparator_;
   Status status_;
   IteratorWrapper index_iter_;
   IteratorWrapper data_iter_; // May be nullptr
@@ -86,20 +86,17 @@ class TwoLevelIterator: public Iterator {
 };
 
 TwoLevelIterator::TwoLevelIterator(
-    Iterator* index_iter,
-    BlockFunction block_function,
-    void* arg,
-    const ReadOptions& options,
-    const EnvOptions& soptions,
-    bool for_compaction)
+    Iterator* index_iter, BlockFunction block_function, void* arg,
+    const ReadOptions& options, const EnvOptions& soptions,
+    const InternalKeyComparator& internal_comparator, bool for_compaction)
     : block_function_(block_function),
       arg_(arg),
       options_(options),
       soptions_(soptions),
+      internal_comparator_(internal_comparator),
       index_iter_(index_iter),
       data_iter_(nullptr),
-      for_compaction_(for_compaction) {
-}
+      for_compaction_(for_compaction) {}
 
 TwoLevelIterator::~TwoLevelIterator() {
 }
@@ -181,8 +178,9 @@ void TwoLevelIterator::InitDataBlock() {
       // data_iter_ is already constructed with this iterator, so
       // no need to change anything
     } else {
-      Iterator* iter = (*block_function_)(arg_, options_, soptions_, handle,
-                                          for_compaction_);
+      Iterator* iter =
+          (*block_function_)(arg_, options_, soptions_, internal_comparator_,
+                             handle, for_compaction_);
       data_block_handle_.assign(handle.data(), handle.size());
       SetDataIterator(iter);
     }
@@ -191,15 +189,14 @@ void TwoLevelIterator::InitDataBlock() {
 
 }  // namespace
 
-Iterator* NewTwoLevelIterator(
-    Iterator* index_iter,
-    BlockFunction block_function,
-    void* arg,
-    const ReadOptions& options,
-    const EnvOptions& soptions,
-    bool for_compaction) {
-  return new TwoLevelIterator(index_iter, block_function, arg,
-                              options, soptions, for_compaction);
+Iterator* NewTwoLevelIterator(Iterator* index_iter,
+                              BlockFunction block_function, void* arg,
+                              const ReadOptions& options,
+                              const EnvOptions& soptions,
+                              const InternalKeyComparator& internal_comparator,
+                              bool for_compaction) {
+  return new TwoLevelIterator(index_iter, block_function, arg, options,
+                              soptions, internal_comparator, for_compaction);
 }
 
 }  // namespace rocksdb

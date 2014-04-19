@@ -11,6 +11,31 @@
 
 namespace rocksdb {
 
+// The default implementation of PartialMergeMulti, which invokes
+// PartialMerge multiple times internally and merges two operands at
+// a time.
+bool MergeOperator::PartialMergeMulti(const Slice& key,
+                                      const std::deque<Slice>& operand_list,
+                                      std::string* new_value,
+                                      Logger* logger) const {
+  assert(operand_list.size() >= 2);
+  // Simply loop through the operands
+  std::string temp_value;
+  Slice temp_slice(operand_list[0]);
+
+  for (size_t i = 1; i < operand_list.size(); ++i) {
+    auto& operand = operand_list[i];
+    if (!PartialMerge(key, temp_slice, operand, &temp_value, logger)) {
+      return false;
+    }
+    swap(temp_value, *new_value);
+    temp_slice = Slice(*new_value);
+  }
+
+  // The result will be in *new_value. All merges succeeded.
+  return true;
+}
+
 // Given a "real" merge from the library, call the user's
 // associative merge function one-by-one on each of the operands.
 // NOTE: It is assumed that the client's merge-operator will handle any errors.
@@ -46,7 +71,6 @@ bool AssociativeMergeOperator::PartialMerge(
     const Slice& right_operand,
     std::string* new_value,
     Logger* logger) const {
-
   return Merge(key, &left_operand, right_operand, new_value, logger);
 }
 

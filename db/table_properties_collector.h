@@ -24,15 +24,13 @@ class InternalKeyPropertiesCollector : public TablePropertiesCollector {
  public:
   virtual Status Add(const Slice& key, const Slice& value) override;
 
-  virtual Status Finish(
-      TableProperties::UserCollectedProperties* properties) override;
+  virtual Status Finish(UserCollectedProperties* properties) override;
 
   virtual const char* Name() const override {
     return "InternalKeyPropertiesCollector";
   }
 
-  TableProperties::UserCollectedProperties
-    GetReadableProperties() const override;
+  UserCollectedProperties GetReadableProperties() const override;
 
  private:
   uint64_t deleted_keys_ = 0;
@@ -61,13 +59,11 @@ class UserKeyTablePropertiesCollector : public TablePropertiesCollector {
 
   virtual Status Add(const Slice& key, const Slice& value) override;
 
-  virtual Status Finish(
-      TableProperties::UserCollectedProperties* properties) override;
+  virtual Status Finish(UserCollectedProperties* properties) override;
 
   virtual const char* Name() const override { return collector_->Name(); }
 
-  TableProperties::UserCollectedProperties
-    GetReadableProperties() const override;
+  UserCollectedProperties GetReadableProperties() const override;
 
  protected:
   std::shared_ptr<TablePropertiesCollector> collector_;

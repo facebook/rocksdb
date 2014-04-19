@@ -17,7 +17,6 @@ namespace log {
 enum RecordType {
   // Zero is reserved for preallocated files
   kZeroType = 0,
-
   kFullType = 1,
 
   // For fragments

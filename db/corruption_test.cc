@@ -95,7 +95,12 @@ class CorruptionTest {
     int bad_values = 0;
     int correct = 0;
     std::string value_space;
-    Iterator* iter = db_->NewIterator(ReadOptions());
+    // Do not verify checksums. If we verify checksums then the
+    // db itself will raise errors because data is corrupted.
+    // Instead, we want the reads to be successful and this test
+    // will detect whether the appropriate corruptions have
+    // occured.
+    Iterator* iter = db_->NewIterator(ReadOptions(false, true));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       uint64_t key;
       Slice in(iter->key());
@@ -321,7 +326,8 @@ TEST(CorruptionTest, CompactionInputError) {
 TEST(CorruptionTest, CompactionInputErrorParanoid) {
   Options options;
   options.paranoid_checks = true;
-  options.write_buffer_size = 1048576;
+  options.write_buffer_size = 131072;
+  options.max_write_buffer_number = 2;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 
@@ -344,7 +350,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   Status s;
   std::string tmp1, tmp2;
   bool failed = false;
-  for (int i = 0; i < 10000 && s.ok(); i++) {
+  for (int i = 0; i < 10000; i++) {
     s = db_->Put(WriteOptions(), Key(i, &tmp1), Value(i, &tmp2));
     if (!s.ok()) {
       failed = true;
@@ -369,6 +375,39 @@ TEST(CorruptionTest, UnrelatedKeys) {
   dbi->TEST_FlushMemTable();
   ASSERT_OK(db_->Get(ReadOptions(), Key(1000, &tmp1), &v));
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
+}
+
+TEST(CorruptionTest, FileSystemStateCorrupted) {
+  for (int iter = 0; iter < 2; ++iter) {
+    Options options;
+    options.paranoid_checks = true;
+    options.create_if_missing = true;
+    Reopen(&options);
+    Build(10);
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+    std::vector<LiveFileMetaData> metadata;
+    dbi->GetLiveFilesMetaData(&metadata);
+    ASSERT_GT(metadata.size(), size_t(0));
+    std::string filename = dbname_ + metadata[0].name;
+
+    delete db_;
+    db_ = nullptr;
+
+    if (iter == 0) {  // corrupt file size
+      unique_ptr<WritableFile> file;
+      env_.NewWritableFile(filename, &file, EnvOptions());
+      file->Append(Slice("corrupted sst"));
+      file.reset();
+    } else {  // delete the file
+      env_.DeleteFile(filename);
+    }
+
+    Status x = TryReopen(&options);
+    ASSERT_TRUE(x.IsCorruption());
+    DestroyDB(dbname_, options_);
+    Reopen(&options);
+  }
 }
 
 }  // namespace rocksdb

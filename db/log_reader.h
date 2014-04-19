@@ -69,9 +69,10 @@ class Reader {
 
   // when we know more data has been written to the file. we can use this
   // function to force the reader to look again in the file.
-  void UnmarkEOF() {
-    eof_ = false;
-  }
+  // Also aligns the file position indicator to the start of the next block
+  // by reading the rest of the data from the EOF position to the end of the
+  // block that was partially read.
+  void UnmarkEOF();
 
   SequentialFile* file() { return file_.get(); }
 
@@ -82,6 +83,11 @@ class Reader {
   char* const backing_store_;
   Slice buffer_;
   bool eof_;   // Last Read() indicated EOF by returning < kBlockSize
+  bool read_error_;   // Error occurred while reading from file
+
+  // Offset of the file position indicator within the last block when an
+  // EOF was detected.
+  size_t eof_offset_;
 
   // Offset of the last record returned by ReadRecord.
   uint64_t last_record_offset_;

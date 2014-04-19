@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
 #pragma once
+#include <deque>
+#include <string>
+
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/compaction_filter.h"
@@ -14,83 +18,45 @@ namespace rocksdb {
 
 class DBWithTTL : public StackableDB {
  public:
-  DBWithTTL(const int32_t ttl,
-            const Options& options,
-            const std::string& dbname,
-            Status& st,
-            bool read_only);
+  static void SanitizeOptions(int32_t ttl, Options* options);
+
+  explicit DBWithTTL(DB* db);
 
   virtual ~DBWithTTL();
 
-  virtual Status Put(const WriteOptions& o,
-                     const Slice& key,
-                     const Slice& val);
+  using StackableDB::Put;
+  virtual Status Put(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& val) override;
 
+  using StackableDB::Get;
   virtual Status Get(const ReadOptions& options,
-                     const Slice& key,
-                     std::string* value);
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     std::string* value) override;
 
-  virtual std::vector<Status> MultiGet(const ReadOptions& options,
-                                       const std::vector<Slice>& keys,
-                                       std::vector<std::string>* values);
+  using StackableDB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
 
+  using StackableDB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
-                           const Slice& key,
+                           ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value,
                            bool* value_found = nullptr) override;
 
-  virtual Status Delete(const WriteOptions& wopts, const Slice& key);
-
+  using StackableDB::Merge;
   virtual Status Merge(const WriteOptions& options,
-                       const Slice& key,
-                       const Slice& value);
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value) override;
 
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates);
-
-  virtual Iterator* NewIterator(const ReadOptions& opts);
-
-  virtual const Snapshot* GetSnapshot();
-
-  virtual void ReleaseSnapshot(const Snapshot* snapshot);
-
-  virtual bool GetProperty(const Slice& property, std::string* value);
-
-  virtual void GetApproximateSizes(const Range* r, int n, uint64_t* sizes);
-
-  virtual void CompactRange(const Slice* begin, const Slice* end,
-                            bool reduce_level = false, int target_level = -1);
-
-  virtual int NumberLevels();
-
-  virtual int MaxMemCompactionLevel();
-
-  virtual int Level0StopWriteTrigger();
-
-  virtual Env* GetEnv() const;
-
-  virtual const Options& GetOptions() const;
-
-  virtual Status Flush(const FlushOptions& fopts);
-
-  virtual Status DisableFileDeletions();
-
-  virtual Status EnableFileDeletions();
-
-  virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
-                              bool flush_memtable = true);
-
-  virtual Status GetSortedWalFiles(VectorLogPtr& files);
-
-  virtual Status DeleteFile(std::string name);
-
-  virtual SequenceNumber GetLatestSequenceNumber() const;
-
-  virtual Status GetUpdatesSince(SequenceNumber seq_number,
-                                 unique_ptr<TransactionLogIterator>* iter);
-
-  // Simulate a db crash, no elegant closing of database.
-  void TEST_Destroy_DBWithTtl();
+  using StackableDB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& opts,
+                                ColumnFamilyHandle* column_family) override;
 
   virtual DB* GetBaseDB() {
     return db_;
@@ -111,10 +77,6 @@ class DBWithTTL : public StackableDB {
   static const int32_t kMinTimestamp = 1368146402; // 05/09/2013:5:40PM GMT-8
 
   static const int32_t kMaxTimestamp = 2147483647; // 01/18/2038:7:14PM GMT-8
-
- private:
-  DB* db_;
-  unique_ptr<CompactionFilter> ttl_comp_filter_;
 };
 
 class TtlIterator : public Iterator {
@@ -319,24 +281,27 @@ class TtlMergeOperator : public MergeOperator {
     }
   }
 
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const override {
+  virtual bool PartialMergeMulti(const Slice& key,
+                                 const std::deque<Slice>& operand_list,
+                                 std::string* new_value, Logger* logger) const
+      override {
     const uint32_t ts_len = DBWithTTL::kTSLength;
+    std::deque<Slice> operands_without_ts;
 
-    if (left_operand.size() < ts_len || right_operand.size() < ts_len) {
-      Log(logger, "Error: Could not remove timestamp from value.");
-      return false;
+    for (const auto& operand : operand_list) {
+      if (operand.size() < ts_len) {
+        Log(logger, "Error: Could not remove timestamp from value.");
+        return false;
+      }
+
+      operands_without_ts.push_back(
+          Slice(operand.data(), operand.size() - ts_len));
     }
 
     // Apply the user partial-merge operator (store result in *new_value)
     assert(new_value);
-    Slice left_without_ts(left_operand.data(), left_operand.size() - ts_len);
-    Slice right_without_ts(right_operand.data(), right_operand.size() - ts_len);
-    if (!user_merge_op_->PartialMerge(key, left_without_ts, right_without_ts,
-                                      new_value, logger)) {
+    if (!user_merge_op_->PartialMergeMulti(key, operands_without_ts, new_value,
+                                           logger)) {
       return false;
     }
 
@@ -364,3 +329,4 @@ class TtlMergeOperator : public MergeOperator {
 };
 
 }
+#endif  // ROCKSDB_LITE

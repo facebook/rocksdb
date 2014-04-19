@@ -13,6 +13,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/types.h"
 #include "util/coding.h"
@@ -25,12 +26,19 @@ class InternalKey;
 // Value types encoded as the last component of internal keys.
 // DO NOT CHANGE THESE ENUM VALUES: they are embedded in the on-disk
 // data structures.
-enum ValueType {
+// The highest bit of the value type needs to be reserved to SST tables
+// for them to do more flexible encoding.
+enum ValueType : unsigned char {
   kTypeDeletion = 0x0,
   kTypeValue = 0x1,
   kTypeMerge = 0x2,
-  kTypeLogData = 0x3
+  kTypeLogData = 0x3,
+  kTypeColumnFamilyDeletion = 0x4,
+  kTypeColumnFamilyValue = 0x5,
+  kTypeColumnFamilyMerge = 0x6,
+  kMaxValue = 0x7F
 };
+
 // kValueTypeForSeek defines the ValueType that should be passed when
 // constructing a ParsedInternalKey object for seeking to a particular
 // sequence number (since we sort sequence numbers in decreasing order
@@ -59,6 +67,8 @@ struct ParsedInternalKey {
 inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
   return key.user_key.size() + 8;
 }
+
+extern uint64_t PackSequenceAndType(uint64_t seq, ValueType t);
 
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
@@ -96,6 +106,7 @@ class InternalKeyComparator : public Comparator {
     name_("rocksdb.InternalKeyComparator:" +
           std::string(user_comparator_->Name())) {
   }
+  virtual ~InternalKeyComparator() {}
 
   virtual const char* Name() const;
   virtual int Compare(const Slice& a, const Slice& b) const;
@@ -107,6 +118,7 @@ class InternalKeyComparator : public Comparator {
   const Comparator* user_comparator() const { return user_comparator_; }
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
+  int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
 };
 
 // Filter policy wrapper that converts from internal keys to user keys
@@ -163,6 +175,7 @@ inline bool ParseInternalKey(const Slice& internal_key,
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
+  assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - 8);
   return (c <= static_cast<unsigned char>(kValueTypeForSeek));
 }
@@ -225,5 +238,101 @@ class LookupKey {
 inline LookupKey::~LookupKey() {
   if (start_ != space_) delete[] start_;
 }
+
+class IterKey {
+ public:
+  IterKey() : key_(space_), buf_size_(sizeof(space_)), key_size_(0) {}
+
+  ~IterKey() { ResetBuffer(); }
+
+  Slice GetKey() const { return Slice(key_, key_size_); }
+
+  void Clear() { key_size_ = 0; }
+
+  void SetUserKey(const Slice& user_key) {
+    size_t size = user_key.size();
+    EnlargeBufferIfNeeded(size);
+    memcpy(key_, user_key.data(), size);
+    key_size_ = size;
+  }
+
+  void SetInternalKey(const Slice& user_key, SequenceNumber s,
+                      ValueType value_type = kValueTypeForSeek) {
+    size_t usize = user_key.size();
+    EnlargeBufferIfNeeded(usize + sizeof(uint64_t));
+    memcpy(key_, user_key.data(), usize);
+    EncodeFixed64(key_ + usize, PackSequenceAndType(s, value_type));
+    key_size_ = usize + sizeof(uint64_t);
+  }
+
+  void SetInternalKey(const ParsedInternalKey& parsed_key) {
+    SetInternalKey(parsed_key.user_key, parsed_key.sequence, parsed_key.type);
+  }
+
+ private:
+  char* key_;
+  size_t buf_size_;
+  size_t key_size_;
+  char space_[32];  // Avoid allocation for short keys
+
+  void ResetBuffer() {
+    if (key_ != nullptr && key_ != space_) {
+      delete[] key_;
+    }
+    key_ = space_;
+    buf_size_ = sizeof(buf_size_);
+    key_size_ = 0;
+  }
+
+  // Enlarge the buffer size if needed based on key_size.
+  // By default, static allocated buffer is used. Once there is a key
+  // larger than the static allocated buffer, another buffer is dynamically
+  // allocated, until a larger key buffer is requested. In that case, we
+  // reallocate buffer and delete the old one.
+  void EnlargeBufferIfNeeded(size_t key_size) {
+    // If size is smaller than buffer size, continue using current buffer,
+    // or the static allocated one, as default
+    if (key_size > buf_size_) {
+      // Need to enlarge the buffer.
+      ResetBuffer();
+      key_ = new char[key_size];
+      buf_size_ = key_size;
+    }
+  }
+
+  // No copying allowed
+  IterKey(const IterKey&) = delete;
+  void operator=(const IterKey&) = delete;
+};
+
+class InternalKeySliceTransform : public SliceTransform {
+ public:
+  explicit InternalKeySliceTransform(const SliceTransform* transform)
+      : transform_(transform) {}
+
+  virtual const char* Name() const { return transform_->Name(); }
+
+  virtual Slice Transform(const Slice& src) const {
+    auto user_key = ExtractUserKey(src);
+    return transform_->Transform(user_key);
+  }
+
+  virtual bool InDomain(const Slice& src) const {
+    auto user_key = ExtractUserKey(src);
+    return transform_->InDomain(user_key);
+  }
+
+  virtual bool InRange(const Slice& dst) const {
+    auto user_key = ExtractUserKey(dst);
+    return transform_->InRange(user_key);
+  }
+
+  const SliceTransform* user_prefix_extractor() const { return transform_; }
+
+ private:
+  // Like comparator, InternalKeySliceTransform will not take care of the
+  // deletion of transform_
+  const SliceTransform* const transform_;
+};
 
 }  // namespace rocksdb

@@ -1,3 +1,8 @@
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+
 #include <memory>
 #include "rocksdb/slice.h"
 #include "rocksdb/merge_operator.h"
@@ -35,6 +40,15 @@ class PutOperator : public MergeOperator {
                             std::string* new_value,
                             Logger* logger) const override {
     new_value->assign(right_operand.data(), right_operand.size());
+    return true;
+  }
+
+  using MergeOperator::PartialMergeMulti;
+  virtual bool PartialMergeMulti(const Slice& key,
+                                 const std::deque<Slice>& operand_list,
+                                 std::string* new_value, Logger* logger) const
+      override {
+    new_value->assign(operand_list.back().data(), operand_list.back().size());
     return true;
   }
 

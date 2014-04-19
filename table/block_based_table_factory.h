@@ -21,49 +21,28 @@ struct Options;
 struct EnvOptions;
 
 using std::unique_ptr;
-class Status;
-class RandomAccessFile;
-class WritableFile;
-class Table;
-class TableBuilder;
-class BlockBasedTable;
 class BlockBasedTableBuilder;
 
-class BlockBasedTableFactory: public TableFactory {
-public:
-  struct TableOptions {
-    // @flush_block_policy_factory creates the instances of flush block policy.
-    // which provides a configurable way to determine when to flush a block in
-    // the block based tables.  If not set, table builder will use the default
-    // block flush policy, which cut blocks by block size (please refer to
-    // `FlushBlockBySizePolicy`).
-    std::shared_ptr<FlushBlockPolicyFactory> flush_block_policy_factory;
-  };
+class BlockBasedTableFactory : public TableFactory {
+ public:
+  explicit BlockBasedTableFactory(
+      const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
 
-  BlockBasedTableFactory() : BlockBasedTableFactory(TableOptions()) { }
-  BlockBasedTableFactory(const TableOptions& table_options): 
-      table_options_(table_options) { 
-  }
+  ~BlockBasedTableFactory() {}
 
-  ~BlockBasedTableFactory() {
-  }
+  const char* Name() const override { return "BlockBasedTable"; }
 
-  const char* Name() const override {
-    return "BlockBasedTable";
-  }
-
-  Status GetTableReader(const Options& options, const EnvOptions& soptions,
-                        unique_ptr<RandomAccessFile> && file,
-                        uint64_t file_size,
+  Status NewTableReader(const Options& options, const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_comparator,
+                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const override;
 
-  TableBuilder* GetTableBuilder(const Options& options, WritableFile* file,
-                                CompressionType compression_type) const
-                                    override;
+  TableBuilder* NewTableBuilder(
+      const Options& options, const InternalKeyComparator& internal_comparator,
+      WritableFile* file, CompressionType compression_type) const override;
 
  private:
-  TableOptions table_options_;
+  BlockBasedTableOptions table_options_;
 };
-
 
 }  // namespace rocksdb

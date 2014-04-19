@@ -1,9 +1,9 @@
 {
-  "project_id" : "leveldb",
+  "project_id" : "rocksdb",
   "conduit_uri" : "https://reviews.facebook.net/",
-  "copyright_holder" : "",
+  "copyright_holder" : "Facebook",
   "load" : [
-    "linters/src/"
+    "linters"
   ],
   "lint.engine" : "FacebookFbcodeLintEngine",
   "lint.engine.single.linter" : "FbcodeCppLinter"

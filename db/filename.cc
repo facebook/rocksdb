@@ -44,10 +44,6 @@ static int FlattenPath(const std::string& path, char* dest, int len) {
   return write_idx;
 }
 
-// A utility routine: write "data" to the named file and Sync() it.
-extern Status WriteStringToFileSync(Env* env, const Slice& data,
-                                    const std::string& fname);
-
 static std::string MakeFileName(const std::string& name, uint64_t number,
                                 const char* suffix) {
   char buf[100];
@@ -92,7 +88,6 @@ std::string LockFileName(const std::string& dbname) {
 }
 
 std::string TempFileName(const std::string& dbname, uint64_t number) {
-  assert(number >= 0);
   return MakeFileName(dbname, number, "dbtmp");
 }
 
@@ -238,7 +233,7 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   assert(contents.starts_with(dbname + "/"));
   contents.remove_prefix(dbname.size() + 1);
   std::string tmp = TempFileName(dbname, descriptor_number);
-  Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp);
+  Status s = WriteStringToFile(env, contents.ToString() + "\n", tmp, true);
   if (s.ok()) {
     s = env->RenameFile(tmp, CurrentFileName(dbname));
   }
@@ -253,7 +248,7 @@ Status SetIdentityFile(Env* env, const std::string& dbname) {
   assert(!id.empty());
   // Reserve the filename dbname/000000.dbtmp for the temporary identity file
   std::string tmp = TempFileName(dbname, 0);
-  Status s = WriteStringToFileSync(env, id, tmp);
+  Status s = WriteStringToFile(env, id, tmp, true);
   if (s.ok()) {
     s = env->RenameFile(tmp, IdentityFileName(dbname));
   }

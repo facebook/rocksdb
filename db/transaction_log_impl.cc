@@ -2,30 +2,30 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
+
+#ifndef ROCKSDB_LITE
 #include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
 
 namespace rocksdb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
-                           const std::string& dir,
-                           const Options* options,
-                           const EnvOptions& soptions,
-                           const SequenceNumber seq,
-                           std::unique_ptr<VectorLogPtr> files,
-                           DBImpl const * const dbimpl) :
-    dir_(dir),
-    options_(options),
-    soptions_(soptions),
-    startingSequenceNumber_(seq),
-    files_(std::move(files)),
-    started_(false),
-    isValid_(false),
-    currentFileIndex_(0),
-    currentBatchSeq_(0),
-    currentLastSeq_(0),
-    dbimpl_(dbimpl) {
+    const std::string& dir, const DBOptions* options,
+    const TransactionLogIterator::ReadOptions& read_options,
+    const EnvOptions& soptions, const SequenceNumber seq,
+    std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl)
+    : dir_(dir),
+      options_(options),
+      read_options_(read_options),
+      soptions_(soptions),
+      startingSequenceNumber_(seq),
+      files_(std::move(files)),
+      started_(false),
+      isValid_(false),
+      currentFileIndex_(0),
+      currentBatchSeq_(0),
+      currentLastSeq_(0),
+      dbimpl_(dbimpl) {
   assert(files_ != nullptr);
   assert(dbimpl_ != nullptr);
 
@@ -49,9 +49,6 @@ Status TransactionLogIteratorImpl::OpenLogFile(
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, logFile->LogNumber());
       status = env->NewSequentialFile(fname, file, soptions_);
-      if (!status.ok()) {
-        return Status::IOError("Requested file not present in the dir");
-      }
     }
     return status;
   }
@@ -190,7 +187,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       if (currentLastSeq_ == dbimpl_->GetLatestSequenceNumber()) {
         currentStatus_ = Status::OK();
       } else {
-        currentStatus_ = Status::IOError("NO MORE DATA LEFT");
+        currentStatus_ = Status::Corruption("NO MORE DATA LEFT");
       }
       return;
     }
@@ -256,9 +253,9 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
     return status;
   }
   assert(file);
-  currentLogReader_.reset(
-    new log::Reader(std::move(file), &reporter_, true, 0)
-  );
+  currentLogReader_.reset(new log::Reader(std::move(file), &reporter_,
+                                          read_options_.verify_checksums_, 0));
   return Status::OK();
 }
 }  //  namespace rocksdb
+#endif  // ROCKSDB_LITE

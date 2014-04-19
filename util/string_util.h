@@ -3,9 +3,13 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#include <sstream>
+#include <string>
+#include <vector>
+
 #pragma once
 namespace rocksdb {
 
 extern std::vector<std::string> stringSplit(std::string arg, char delim);
 
-}
+}  // namespace rocksdb
