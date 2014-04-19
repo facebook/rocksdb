@@ -245,6 +245,14 @@ class IteratorJni {
         jobj, getHandleFieldID(env),
         reinterpret_cast<jlong>(op));
   }
+
+  // Cast long to rocksdb::Iterator pointer.
+  static rocksdb::Iterator* getIterator(jlong handle) {
+    auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
+    assert(it != nullptr);
+
+    return it;
+  }
 };
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

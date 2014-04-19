@@ -135,7 +135,7 @@ public class RocksDB {
       throws RocksDBException {
     remove(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
-  
+
   public Iterator iterator() {
     return new Iterator(iterator0(nativeHandle_));
   }
