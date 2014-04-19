@@ -224,7 +224,7 @@ class IteratorJni {
   }
 
   // Get the field id of the member variable of org.rocksdb.Iterator
-  // that stores the pointer to rocksdb::Iterator
+  // that stores the pointer to rocksdb::Iterator.
   static jfieldID getHandleFieldID(JNIEnv* env) {
     static jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
@@ -232,7 +232,7 @@ class IteratorJni {
     return fid;
   }
 
-  // Get the pointer to rocksdb::Iterator
+  // Get the pointer to rocksdb::Iterator.
   static rocksdb::Iterator* getHandle(JNIEnv* env, jobject jobj) {
     return reinterpret_cast<rocksdb::Iterator*>(
         env->GetLongField(jobj, getHandleFieldID(env)));

@@ -80,9 +80,9 @@ jbyteArray Java_org_rocksdb_Iterator_key0(
   rocksdb::Slice key_slice = it->key();
 
   jbyteArray jkey = env->NewByteArray(key_slice.size());
-    env->SetByteArrayRegion(
-        jkey, 0, key_slice.size(),
-        reinterpret_cast<const jbyte*>(key_slice.data()));
+  env->SetByteArrayRegion(
+      jkey, 0, key_slice.size(),
+      reinterpret_cast<const jbyte*>(key_slice.data()));
   return jkey;
 }
 
@@ -97,9 +97,9 @@ jbyteArray Java_org_rocksdb_Iterator_value0(
   rocksdb::Slice value_slice = it->value();
 
   jbyteArray jvalue = env->NewByteArray(value_slice.size());
-    env->SetByteArrayRegion(
-        jvalue, 0, value_slice.size(),
-        reinterpret_cast<const jbyte*>(value_slice.data()));
+  env->SetByteArrayRegion(
+      jvalue, 0, value_slice.size(),
+      reinterpret_cast<const jbyte*>(value_slice.data()));
   return jvalue;
 }
 
