@@ -3,8 +3,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-import java.util.*;
-import java.lang.*;
+import java.util.Arrays;
 import org.rocksdb.*;
 import org.rocksdb.util.SizeUnit;
 import java.io.IOException;
@@ -142,6 +141,11 @@ public class RocksDBSample {
         System.out.println("Failed in call to geHistogramData()");
         assert(false); //Should never reach here.
       }
+      
+      Iterator iterator = db.iterator();
+      iterator.seekToFirst();
+      assert(iterator.isValid());
+      iterator.close();      
     } catch (RocksDBException e) {
       System.err.println(e);
     }

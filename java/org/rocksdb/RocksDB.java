@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.*;
 import java.io.Closeable;
 import java.io.IOException;
 
@@ -136,6 +135,10 @@ public class RocksDB {
       throws RocksDBException {
     remove(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
+  
+  public Iterator iterator() {
+    return new Iterator(iterator0(nativeHandle_));
+  }
 
   @Override protected void finalize() {
     close();
@@ -170,6 +173,7 @@ public class RocksDB {
   protected native void remove(
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
+  protected native long iterator0(long optHandle);
   protected native void close0();
 
   protected long nativeHandle_;

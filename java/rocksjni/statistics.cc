@@ -13,7 +13,6 @@
 #include "include/org_rocksdb_Statistics.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/statistics.h"
-#include <iostream>
 
 /*
  * Class:     org_rocksdb_Statistics

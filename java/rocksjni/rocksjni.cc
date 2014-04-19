@@ -296,3 +296,10 @@ void Java_org_rocksdb_RocksDB_close0(
 
   rocksdb::RocksDBJni::setHandle(env, java_db, nullptr);
 }
+
+jlong Java_org_rocksdb_RocksDB_iterator0(
+    JNIEnv* env, jobject jdb, jlong db_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  rocksdb::Iterator* iterator = db->NewIterator(rocksdb::ReadOptions());
+  return reinterpret_cast<jlong>(iterator);
+}
