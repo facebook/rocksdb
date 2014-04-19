@@ -30,6 +30,30 @@ void Java_org_rocksdb_Iterator_seekToFirst0(
   st->SeekToFirst();
 }
 
+void Java_org_rocksdb_Iterator_seekToLast0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  auto st = reinterpret_cast<rocksdb::Iterator*>(handle);
+  assert(st != nullptr);
+  
+  st->SeekToLast();
+}
+
+void Java_org_rocksdb_Iterator_next0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  auto st = reinterpret_cast<rocksdb::Iterator*>(handle);
+  assert(st != nullptr);
+  
+  st->Next();
+}
+
+void Java_org_rocksdb_Iterator_prev0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  auto st = reinterpret_cast<rocksdb::Iterator*>(handle);
+  assert(st != nullptr);
+  
+  st->Prev();
+}
+
 void Java_org_rocksdb_Iterator_close0(
     JNIEnv* env, jobject jobj, jlong handle) {
   auto st = reinterpret_cast<rocksdb::Iterator*>(handle);

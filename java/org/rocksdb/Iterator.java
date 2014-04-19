@@ -22,6 +22,21 @@ public class Iterator {
     seekToFirst0(nativeHandle_);
   }
   
+  public void seekToLast() {
+    assert(isInitialized());
+    seekToLast0(nativeHandle_);
+  }
+  
+  public void next() {
+    assert(isInitialized());
+    next0(nativeHandle_);
+  }
+  
+  public void prev() {
+    assert(isInitialized());
+    prev0(nativeHandle_);
+  }
+  
   public synchronized void close() {
     if(nativeHandle_ != 0) {
       close0(nativeHandle_);
@@ -39,4 +54,7 @@ public class Iterator {
   private native boolean isValid0(long handle);
   private native void close0(long handle);
   private native void seekToFirst0(long handle);
+  private native void seekToLast0(long handle);
+  private native void next0(long handle);
+  private native void prev0(long handle);
 }

@@ -145,6 +145,9 @@ public class RocksDBSample {
       Iterator iterator = db.iterator();
       iterator.seekToFirst();
       assert(iterator.isValid());
+      iterator.next();
+      iterator.seekToLast();
+      iterator.prev();
       iterator.close();      
     } catch (RocksDBException e) {
       System.err.println(e);
