@@ -210,7 +210,7 @@ asan_check:
 
 asan_crash_test:
 	$(MAKE) clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test -j32
+	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 valgrind_check: all $(PROGRAMS) $(TESTS)
