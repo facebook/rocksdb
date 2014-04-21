@@ -17,6 +17,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/memtablerep.h"
+#include "rocksdb/table.h"
+#include "rocksdb/slice_transform.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -480,6 +483,27 @@ jlong Java_org_rocksdb_Options_maxManifestFileSize(
 }
 
 /*
+ * Method:    memTableFactoryName
+ * Signature: (J)Ljava/lang/String
+ */
+jstring Java_org_rocksdb_Options_memTableFactoryName(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  rocksdb::MemTableRepFactory* tf = opt->memtable_factory.get();
+
+  // Should never be nullptr.
+  // Default memtable factory is SkipListFactory
+  assert(tf);
+
+  // temporarly fix for the historical typo
+  if (strcmp(tf->Name(), "HashLinkListRepFactory") == 0) {
+    return env->NewStringUTF("HashLinkedListRepFactory");
+  }
+
+  return env->NewStringUTF(tf->Name());
+}
+
+/*
  * Class:     org_rocksdb_Options
  * Method:    setMaxManifestFileSize
  * Signature: (JJ)V
@@ -488,6 +512,16 @@ void Java_org_rocksdb_Options_setMaxManifestFileSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong max_manifest_file_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->max_manifest_file_size =
       static_cast<int64_t>(max_manifest_file_size);
+}
+
+/*
+ * Method:    setMemTableFactory
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setMemTableFactory(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jfactory_handle) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->memtable_factory.reset(
+      reinterpret_cast<rocksdb::MemTableRepFactory*>(jfactory_handle));
 }
 
 /*
@@ -531,6 +565,16 @@ void Java_org_rocksdb_Options_setTableCacheRemoveScanCountLimit(
     JNIEnv* env, jobject jobj, jlong jhandle, jint limit) {
   reinterpret_cast<rocksdb::Options*>(
       jhandle)->table_cache_remove_scan_count_limit = static_cast<int>(limit);
+}
+
+/*
+ * Method:    useFixedLengthPrefixExtractor
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_useFixedLengthPrefixExtractor(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jprefix_length) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->prefix_extractor.reset(
+      rocksdb::NewFixedPrefixTransform(static_cast<size_t>(jprefix_length)));
 }
 
 /*
@@ -595,6 +639,16 @@ void Java_org_rocksdb_Options_setAllowOsBuffer(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow_os_buffer) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->allow_os_buffer =
       static_cast<bool>(allow_os_buffer);
+}
+
+/*
+ * Method:    setTableFactory
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setTableFactory(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jfactory_handle) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->table_factory.reset(
+      reinterpret_cast<rocksdb::TableFactory*>(jfactory_handle));
 }
 
 /*
@@ -785,6 +839,22 @@ void Java_org_rocksdb_Options_setAllowThreadLocal(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow_thread_local) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->allow_thread_local =
       static_cast<bool>(allow_thread_local);
+}
+
+/*
+ * Method:    tableFactoryName
+ * Signature: (J)Ljava/lang/String
+ */
+jstring Java_org_rocksdb_Options_tableFactoryName(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  rocksdb::TableFactory* tf = opt->table_factory.get();
+
+  // Should never be nullptr.
+  // Default memtable factory is SkipListFactory
+  assert(tf);
+
+  return env->NewStringUTF(tf->Name());
 }
 
 //////////////////////////////////////////////////////////////////////////////

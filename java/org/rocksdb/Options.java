@@ -1130,6 +1130,64 @@ public class Options {
       long handle, boolean allowThreadLocal);
 
   /**
+   * Set the config for mem-table.
+   *
+   * @param config the mem-table config.
+   * @return the instance of the current Options.
+   */
+  public Options setMemTableConfig(MemTableConfig config) {
+    setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
+    return this;
+  }
+
+  /**
+   * Returns the name of the current mem table representation.
+   * Memtable format can be set using setTableFormatConfig.
+   *
+   * @return the name of the currently-used memtable factory.
+   * @see setTableFormatConfig()
+   */
+  public String memTableFactoryName() {
+    assert(isInitialized());
+    return memTableFactoryName(nativeHandle_);
+  }
+
+  /**
+   * Set the config for table format.
+   *
+   * @param config the table format config.
+   * @return the reference of the current Options.
+   */
+  public Options setTableFormatConfig(TableFormatConfig config) {
+    setTableFactory(nativeHandle_, config.newTableFactoryHandle());
+    return this;
+  }
+
+  /**
+   * @return the name of the currently used table factory.
+   */
+  public String tableFactoryName() {
+    assert(isInitialized());
+    return tableFactoryName(nativeHandle_);
+  }
+
+  /**
+   * This prefix-extractor uses the first n bytes of a key as its prefix.
+   *
+   * In some hash-based memtable representation such as HashLinkedList
+   * and HashSkipList, prefixes are used to partition the keys into
+   * several buckets.  Prefix extractor is used to specify how to
+   * extract the prefix given a key.
+   *
+   * @param n use the first n bytes of a key as its prefix.
+   */
+  public Options useFixedLengthPrefixExtractor(int n) {
+    assert(isInitialized());
+    useFixedLengthPrefixExtractor(nativeHandle_, n);
+    return this;
+  }
+
+  /**
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
@@ -1146,6 +1204,10 @@ public class Options {
   private boolean isInitialized() {
     return (nativeHandle_ != 0);
   }
+
+  static final int DEFAULT_PLAIN_TABLE_BLOOM_BITS_PER_KEY = 10;
+  static final double DEFAULT_PLAIN_TABLE_HASH_TABLE_RATIO = 0.75;
+  static final int DEFAULT_PLAIN_TABLE_INDEX_SPARSENESS = 16;
 
   private native void newOptions();
   private native void dispose0();
@@ -1166,6 +1228,15 @@ public class Options {
   private native int maxBackgroundCompactions(long handle);
   private native void createStatistics(long optHandle);
   private native long statisticsPtr(long optHandle);
+
+  private native void setMemTableFactory(long handle, long factoryHandle);
+  private native String memTableFactoryName(long handle);
+
+  private native void setTableFactory(long handle, long factoryHandle);
+  private native String tableFactoryName(long handle);
+
+  private native void useFixedLengthPrefixExtractor(
+      long handle, int prefixLength);
 
   long nativeHandle_;
   long cacheSize_;

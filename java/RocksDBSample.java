@@ -48,6 +48,29 @@ public class RocksDBSample {
     assert(options.blockSize() == 64 * SizeUnit.KB);
     assert(options.maxBackgroundCompactions() == 10);
 
+    assert(options.memTableFactoryName().equals("SkipListFactory"));
+    options.setMemTableConfig(
+        new HashSkipListMemTableConfig()
+            .setHeight(4)
+            .setBranchingFactor(4)
+            .setBucketCount(2000000));
+    assert(options.memTableFactoryName().equals("HashSkipListRepFactory"));
+
+    options.setMemTableConfig(
+        new HashLinkedListMemTableConfig()
+            .setBucketCount(100000));
+    assert(options.memTableFactoryName().equals("HashLinkedListRepFactory"));
+
+    options.setMemTableConfig(
+        new VectorMemTableConfig().setReservedSize(10000));
+    assert(options.memTableFactoryName().equals("VectorRepFactory"));
+
+    options.setMemTableConfig(new SkipListMemTableConfig());
+    assert(options.memTableFactoryName().equals("SkipListFactory"));
+
+    options.setTableFormatConfig(new PlainTableConfig());
+    assert(options.tableFactoryName().equals("PlainTable"));
+
     try {
       db = RocksDB.open(options, db_path_not_found);
       db.put("hello".getBytes(), "world".getBytes());

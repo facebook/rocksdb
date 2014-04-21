@@ -39,6 +39,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.rocksdb.*;
+import org.rocksdb.util.SizeUnit;
 
 class Stats {
   int id_;
@@ -187,11 +188,11 @@ public class DbBenchmark {
     protected Stats stats_;
 
     protected void getFixedKey(byte[] key, long sn) {
-      DbBenchmark.formatNumber(key, sn);
+      generateKeyFromLong(key, sn);
     }
 
     protected void getRandomKey(byte[] key, long range) {
-      DbBenchmark.formatNumber(key, Math.abs(rand_.nextLong() % range));
+      generateKeyFromLong(key, Math.abs(rand_.nextLong() % range));
     }
   }
 
@@ -353,21 +354,27 @@ public class DbBenchmark {
 
   public DbBenchmark(Map<Flag, Object> flags) throws Exception {
     benchmarks_ = (List<String>) flags.get(Flag.benchmarks);
-    num_ = (int) flags.get(Flag.num);
-    threadNum_ = (int) flags.get(Flag.threads);
-    reads_ = (int) (flags.get(Flag.reads) == null ?
+    num_ = (Integer) flags.get(Flag.num);
+    threadNum_ = (Integer) flags.get(Flag.threads);
+    reads_ = (Integer) (flags.get(Flag.reads) == null ?
         flags.get(Flag.num) : flags.get(Flag.reads));
-    keySize_ = (int) flags.get(Flag.key_size);
-    valueSize_ = (int) flags.get(Flag.value_size);
-    writeBufferSize_ = (int) flags.get(Flag.write_buffer_size) > 0 ?
-        (int) flags.get(Flag.write_buffer_size) : 0;
-    compressionRatio_ = (double) flags.get(Flag.compression_ratio);
-    useExisting_ = (boolean) flags.get(Flag.use_existing_db);
-    randSeed_ = (long) flags.get(Flag.seed);
+    keySize_ = (Integer) flags.get(Flag.key_size);
+    valueSize_ = (Integer) flags.get(Flag.value_size);
+    writeBufferSize_ = (Integer) flags.get(Flag.write_buffer_size) > 0 ?
+        (Integer) flags.get(Flag.write_buffer_size) : 0;
+    compressionRatio_ = (Double) flags.get(Flag.compression_ratio);
+    useExisting_ = (Boolean) flags.get(Flag.use_existing_db);
+    randSeed_ = (Long) flags.get(Flag.seed);
     databaseDir_ = (String) flags.get(Flag.db);
-    writesPerSeconds_ = (int) flags.get(Flag.writes_per_second);
-    cacheSize_ = (long) flags.get(Flag.cache_size);
+    writesPerSeconds_ = (Integer) flags.get(Flag.writes_per_second);
+    cacheSize_ = (Long) flags.get(Flag.cache_size);
     gen_ = new RandomGenerator(compressionRatio_);
+    memtable_ = (String) flags.get(Flag.memtablerep);
+    maxWriteBufferNumber_ = (Integer) flags.get(Flag.max_write_buffer_number);
+    prefixSize_ = (Integer) flags.get(Flag.prefix_size);
+    keysPerPrefix_ = (Integer) flags.get(Flag.keys_per_prefix);
+    hashBucketCount_ = (Long) flags.get(Flag.hash_bucket_count);
+    usePlainTable_ = (Boolean) flags.get(Flag.use_plain_table);
     finishLock_ = new Object();
   }
 
@@ -375,6 +382,31 @@ public class DbBenchmark {
     options.setCacheSize(cacheSize_);
     if (!useExisting_) {
       options.setCreateIfMissing(true);
+    }
+    if (memtable_.equals("skip_list")) {
+      options.setMemTableConfig(new SkipListMemTableConfig());
+    } else if (memtable_.equals("vector")) {
+      options.setMemTableConfig(new VectorMemTableConfig());
+    } else if (memtable_.equals("hash_linkedlist")) {
+      options.setMemTableConfig(
+          new HashLinkedListMemTableConfig()
+              .setBucketCount(hashBucketCount_));
+      options.useFixedLengthPrefixExtractor(prefixSize_);
+    } else if (memtable_.equals("hash_skiplist") ||
+               memtable_.equals("prefix_hash")) {
+      options.setMemTableConfig(
+          new HashSkipListMemTableConfig()
+              .setBucketCount(hashBucketCount_));
+      options.useFixedLengthPrefixExtractor(prefixSize_);
+    } else {
+      System.err.format(
+          "unable to detect the specified memtable, " +
+          "use the default memtable factory %s%n",
+          options.memTableFactoryName());
+    }
+    if (usePlainTable_) {
+      options.setSstFormatConfig(
+          new PlainTableConfig().setKeySize(keySize_));
     }
   }
 
@@ -386,7 +418,7 @@ public class DbBenchmark {
     prepareOptions(options);
     open(options);
 
-    printHeader();
+    printHeader(options);
 
     for (String benchmark : benchmarks_) {
       List<Callable<Stats>> tasks = new ArrayList<Callable<Stats>>();
@@ -481,7 +513,7 @@ public class DbBenchmark {
     db_.close();
   }
 
-  private void printHeader() {
+  private void printHeader(Options options) {
     int kKeySize = 16;
     System.out.printf("Keys:     %d bytes each\n", kKeySize);
     System.out.printf("Values:   %d bytes each (%d bytes after compression)\n",
@@ -493,6 +525,8 @@ public class DbBenchmark {
     System.out.printf("FileSize:   %.1f MB (estimated)\n",
         (((kKeySize + valueSize_ * compressionRatio_) * num_)
             / 1048576.0));
+    System.out.format("Memtable Factory: %s%n", options.memTableFactoryName());
+    System.out.format("Prefix:   %d bytes%n", prefixSize_);
     printWarnings();
     System.out.printf("------------------------------------------------\n");
   }
@@ -544,10 +578,25 @@ public class DbBenchmark {
         taskFinishedCount, concurrentThreads);
   }
 
-  public static void formatNumber(byte[] slice, long n) {
+  public void generateKeyFromLong(byte[] slice, long n) {
     assert(n >= 0);
+    int startPos = 0;
 
-    for (int i = slice.length - 1; i >= 0; --i) {
+    if (keysPerPrefix_ > 0) {
+      long numPrefix = (num_ + keysPerPrefix_ - 1) / keysPerPrefix_;
+      long prefix = n % numPrefix;
+      int bytesToFill = Math.min(prefixSize_, 8);
+      for (int i = 0; i < bytesToFill; ++i) {
+        slice[i] = (byte) (prefix % 256);
+        prefix /= 256;
+      }
+      for (int i = 8; i < bytesToFill; ++i) {
+        slice[i] = '0';
+      }
+      startPos = bytesToFill;
+    }
+
+    for (int i = slice.length - 1; i >= startPos; --i) {
       slice[i] = (byte) ('0' + (n % 10));
       n /= 10;
     }
@@ -654,7 +703,7 @@ public class DbBenchmark {
 
     use_existing_db(false,
         "If true, do not destroy the existing database.  If you set this\n" +
-        "\tflag and also specify a benchmark that wants a fresh database," +
+        "\tflag and also specify a benchmark that wants a fresh database,\n" +
         "\tthat benchmark will fail.") {
       @Override public Object parseValue(String value) {
         return Boolean.parseBoolean(value);
@@ -705,12 +754,62 @@ public class DbBenchmark {
       }
     },
 
-    writes_per_second(10000,
-        "The write-rate of the background writer used in the\n" +
-        "`readwhilewriting` benchmark.  Non-positive number indicates\n" +
-        "using an unbounded write-rate in `readwhilewriting` benchmark.") {
+    max_write_buffer_number(2,
+             "The number of in-memory memtables. Each memtable is of size\n" +
+             "\twrite_buffer_size.") {
       @Override public Object parseValue(String value) {
         return Integer.parseInt(value);
+      }
+    },
+
+    prefix_size(0, "Controls the prefix size for HashSkipList, HashLinkedList,\n" +
+                   "\tand plain table.") {
+      @Override public Object parseValue(String value) {
+        return Integer.parseInt(value);
+      }
+    },
+
+    keys_per_prefix(0, "Controls the average number of keys generated\n" +
+             "\tper prefix, 0 means no special handling of the prefix,\n" +
+             "\ti.e. use the prefix comes with the generated random number.") {
+      @Override public Object parseValue(String value) {
+        return Integer.parseInt(value);
+      }
+    },
+
+    memtablerep("skip_list",
+        "The memtable format.  Available options are\n" +
+        "\tskip_list,\n" +
+        "\tvector,\n" +
+        "\thash_linkedlist,\n" +
+        "\thash_skiplist (prefix_hash.)") {
+      @Override public Object parseValue(String value) {
+        return value;
+      }
+    },
+
+    hash_bucket_count(SizeUnit.MB,
+        "The number of hash buckets used in the hash-bucket-based\n" +
+        "\tmemtables.  Memtables that currently support this argument are\n" +
+        "\thash_linkedlist and hash_skiplist.") {
+      @Override public Object parseValue(String value) {
+        return Long.parseLong(value);
+      }
+    },
+
+    writes_per_second(10000,
+        "The write-rate of the background writer used in the\n" +
+        "\t`readwhilewriting` benchmark.  Non-positive number indicates\n" +
+        "\tusing an unbounded write-rate in `readwhilewriting` benchmark.") {
+      @Override public Object parseValue(String value) {
+        return Integer.parseInt(value);
+      }
+    },
+
+    use_plain_table(false,
+        "Use plain-table sst format.") {
+      @Override public Object parseValue(String value) {
+        return Boolean.parseBoolean(value);
       }
     },
 
@@ -801,7 +900,6 @@ public class DbBenchmark {
   final int reads_;
   final int keySize_;
   final int valueSize_;
-  final int writeBufferSize_;
   final int threadNum_;
   final int writesPerSeconds_;
   final long randSeed_;
@@ -811,6 +909,18 @@ public class DbBenchmark {
   final double compressionRatio_;
   RandomGenerator gen_;
   long startTime_;
+
+  // memtable related
+  final int writeBufferSize_;
+  final int maxWriteBufferNumber_;
+  final int prefixSize_;
+  final int keysPerPrefix_;
+  final String memtable_;
+  final long hashBucketCount_;
+
+  // sst format related
+  boolean usePlainTable_;
+
   Object finishLock_;
   boolean isFinished_;
 }
