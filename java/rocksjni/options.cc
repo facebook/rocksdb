@@ -13,6 +13,7 @@
 
 #include "include/org_rocksdb_Options.h"
 #include "include/org_rocksdb_WriteOptions.h"
+#include "include/org_rocksdb_ReadOptions.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -922,4 +923,115 @@ void Java_org_rocksdb_WriteOptions_setDisableWAL(
 jboolean Java_org_rocksdb_WriteOptions_disableWAL(
     JNIEnv* env, jobject jwrite_options, jlong jhandle) {
   return reinterpret_cast<rocksdb::WriteOptions*>(jhandle)->disableWAL;
+}
+
+/////////////////////////////////////////////////////////////////////
+// rocksdb::ReadOptions
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    newReadOptions
+ * Signature: ()V
+ */
+void Java_org_rocksdb_ReadOptions_newReadOptions(
+    JNIEnv* env, jobject jobj) {
+  auto read_opt = new rocksdb::ReadOptions();
+  rocksdb::ReadOptionsJni::setHandle(env, jobj, read_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    dispose
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_ReadOptions_dispose(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  delete reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  rocksdb::ReadOptionsJni::setHandle(env, jobj, nullptr);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    verifyChecksums
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_verifyChecksums(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(
+      jhandle)->verify_checksums;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setVerifyChecksums
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setVerifyChecksums(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jverify_checksums) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->verify_checksums =
+      static_cast<bool>(jverify_checksums);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    fillCache
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_fillCache(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->fill_cache;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setFillCache
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setFillCache(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jfill_cache) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->fill_cache =
+      static_cast<bool>(jfill_cache);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    prefixSeek
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_prefixSeek(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->prefix_seek;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setPrefixSeek
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setPrefixSeek(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jprefix_seek) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->prefix_seek =
+      static_cast<bool>(jprefix_seek);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    tailing
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_tailing(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->tailing;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setTailing
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setTailing(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jtailing) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->tailing =
+      static_cast<bool>(jtailing);
 }

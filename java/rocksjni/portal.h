@@ -142,6 +142,41 @@ class WriteOptionsJni {
   }
 };
 
+
+class ReadOptionsJni {
+ public:
+  // Get the java class id of org.rocksdb.ReadOptions.
+  static jclass getJClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("org/rocksdb/ReadOptions");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.ReadOptions
+  // that stores the pointer to rocksdb::ReadOptions
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::ReadOptions
+  static rocksdb::ReadOptions* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::ReadOptions*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::ReadOptions pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jobj,
+                        rocksdb::ReadOptions* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
+
 class WriteBatchJni {
  public:
   static jclass getJClass(JNIEnv* env) {

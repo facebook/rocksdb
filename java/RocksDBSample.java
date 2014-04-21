@@ -84,6 +84,9 @@ public class RocksDBSample {
     // be sure to release the c++ pointer
     db.close();
 
+    ReadOptions readOptions = new ReadOptions();
+    readOptions.setFillCache(false);
+
     try {
       db = RocksDB.open(options, db_path);
       db.put("hello".getBytes(), "world".getBytes());
@@ -110,12 +113,18 @@ public class RocksDBSample {
       assert(value != null);
       value = db.get("world".getBytes());
       assert(value == null);
+      value = db.get(readOptions, "world".getBytes());
+      assert(value == null);
 
       byte[] testKey = "asdf".getBytes();
       byte[] testValue =
           "asdfghjkl;'?><MNBVCXZQWERTYUIOP{+_)(*&^%$#@".getBytes();
       db.put(testKey, testValue);
       byte[] testResult = db.get(testKey);
+      assert(testResult != null);
+      assert(Arrays.equals(testValue, testResult));
+      assert(new String(testValue).equals(new String(testResult)));
+      testResult = db.get(readOptions, testKey);
       assert(testResult != null);
       assert(Arrays.equals(testValue, testResult));
       assert(new String(testValue).equals(new String(testResult)));
@@ -128,6 +137,13 @@ public class RocksDBSample {
       len = db.get("asdfjkl;".getBytes(), enoughArray);
       assert(len == RocksDB.NOT_FOUND);
       len = db.get(testKey, enoughArray);
+      assert(len == testValue.length);
+
+      len = db.get(readOptions, testKey, insufficientArray);
+      assert(len > insufficientArray.length);
+      len = db.get(readOptions, "asdfjkl;".getBytes(), enoughArray);
+      assert(len == RocksDB.NOT_FOUND);
+      len = db.get(readOptions, testKey, enoughArray);
       assert(len == testValue.length);
 
       db.remove(testKey);
@@ -207,5 +223,6 @@ public class RocksDBSample {
     }
     // be sure to dispose c++ pointers
     options.dispose();
+    readOptions.dispose();
   }
 }

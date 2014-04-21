@@ -75,7 +75,8 @@ public class RocksDB {
    */
   public void put(WriteOptions writeOpts, byte[] key, byte[] value)
       throws RocksDBException {
-    put(nativeHandle_, writeOpts.nativeHandle_, key, key.length, value, value.length);
+    put(nativeHandle_, writeOpts.nativeHandle_,
+        key, key.length, value, value.length);
   }
 
   /**
@@ -103,6 +104,24 @@ public class RocksDB {
   }
 
   /**
+   * Get the value associated with the specified key.
+   *
+   * @param key the key to retrieve the value.
+   * @param value the out-value to receive the retrieved value.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   */
+  public int get(ReadOptions opt, byte[] key, byte[] value)
+      throws RocksDBException {
+    return get(nativeHandle_, opt.nativeHandle_,
+               key, key.length, value, value.length);
+  }
+
+  /**
    * The simplified version of get which returns a new byte array storing
    * the value associated with the specified input key if any.  null will be
    * returned if the specified key is not found.
@@ -115,6 +134,21 @@ public class RocksDB {
    */
   public byte[] get(byte[] key) throws RocksDBException {
     return get(nativeHandle_, key, key.length);
+  }
+
+  /**
+   * The simplified version of get which returns a new byte array storing
+   * the value associated with the specified input key if any.  null will be
+   * returned if the specified key is not found.
+   *
+   * @param key the key retrieve the value.
+   * @return a byte array storing the value associated with the input key if
+   *     any.  null if it does not find the specified key.
+   *
+   * @see RocksDBException
+   */
+  public byte[] get(ReadOptions opt, byte[] key) throws RocksDBException {
+    return get(nativeHandle_, opt.nativeHandle_, key, key.length);
   }
 
   /**
@@ -176,8 +210,14 @@ public class RocksDB {
   protected native int get(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
+  protected native int get(
+      long handle, long readOptHandle, byte[] key, int keyLen,
+      byte[] value, int valueLen) throws RocksDBException;
   protected native byte[] get(
       long handle, byte[] key, int keyLen) throws RocksDBException;
+  protected native byte[] get(
+      long handle, long readOptHandle,
+      byte[] key, int keyLen) throws RocksDBException;
   protected native void remove(
       long handle, byte[] key, int keyLen) throws RocksDBException;
   protected native void remove(

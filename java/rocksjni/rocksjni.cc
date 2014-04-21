@@ -137,16 +137,9 @@ void Java_org_rocksdb_RocksDB_write(
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Get
 
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    get
- * Signature: (J[BI)[B
- */
-jbyteArray Java_org_rocksdb_RocksDB_get__J_3BI(
-    JNIEnv* env, jobject jdb, jlong jdb_handle,
+jbyteArray rocksdb_get_helper(
+    JNIEnv* env, rocksdb::DB* db, const rocksdb::ReadOptions& read_opt,
     jbyteArray jkey, jint jkey_len) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
-
   jboolean isCopy;
   jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
   rocksdb::Slice key_slice(
@@ -154,8 +147,7 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BI(
 
   std::string value;
   rocksdb::Status s = db->Get(
-      rocksdb::ReadOptions(),
-      key_slice, &value);
+      read_opt, key_slice, &value);
 
   // trigger java unref on key.
   // by passing JNI_ABORT, it will simply release the reference without
@@ -181,15 +173,37 @@ jbyteArray Java_org_rocksdb_RocksDB_get__J_3BI(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    get
- * Signature: (J[BI[BI)I
+ * Signature: (J[BI)[B
  */
-jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
+jbyteArray Java_org_rocksdb_RocksDB_get__J_3BI(
     JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jbyteArray jkey, jint jkey_len) {
+  return rocksdb_get_helper(env,
+      reinterpret_cast<rocksdb::DB*>(jdb_handle),
+      rocksdb::ReadOptions(),
+      jkey, jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    get
+ * Signature: (JJ[BI)[B
+ */
+jbyteArray Java_org_rocksdb_RocksDB_get__JJ_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jropt_handle,
+    jbyteArray jkey, jint jkey_len) {
+  return rocksdb_get_helper(env,
+      reinterpret_cast<rocksdb::DB*>(jdb_handle),
+      *reinterpret_cast<rocksdb::ReadOptions*>(jropt_handle),
+      jkey, jkey_len);
+}
+
+jint rocksdb_get_helper(
+    JNIEnv* env, rocksdb::DB* db, const rocksdb::ReadOptions& read_options,
     jbyteArray jkey, jint jkey_len,
     jbyteArray jvalue, jint jvalue_len) {
   static const int kNotFound = -1;
   static const int kStatusError = -2;
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
 
   jbyte* key = env->GetByteArrayElements(jkey, 0);
   rocksdb::Slice key_slice(
@@ -199,7 +213,7 @@ jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
   // a DB::Get() function which takes preallocated jbyte* as input.
   std::string cvalue;
   rocksdb::Status s = db->Get(
-      rocksdb::ReadOptions(), key_slice, &cvalue);
+      read_options, key_slice, &cvalue);
 
   // trigger java unref on key.
   // by passing JNI_ABORT, it will simply release the reference without
@@ -228,6 +242,36 @@ jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
       jvalue, 0, length,
       reinterpret_cast<const jbyte*>(cvalue.c_str()));
   return cvalue_len;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    get
+ * Signature: (J[BI[BI)I
+ */
+jint Java_org_rocksdb_RocksDB_get__J_3BI_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+  return rocksdb_get_helper(env,
+      reinterpret_cast<rocksdb::DB*>(jdb_handle),
+      rocksdb::ReadOptions(),
+      jkey, jkey_len, jvalue, jvalue_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    get
+ * Signature: (JJ[BI[BI)I
+ */
+jint Java_org_rocksdb_RocksDB_get__JJ_3BI_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jropt_handle,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+  return rocksdb_get_helper(env,
+      reinterpret_cast<rocksdb::DB*>(jdb_handle),
+      *reinterpret_cast<rocksdb::ReadOptions*>(jropt_handle),
+      jkey, jkey_len, jvalue, jvalue_len);
 }
 
 //////////////////////////////////////////////////////////////////////////////
