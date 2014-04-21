@@ -306,7 +306,8 @@ TEST(EnvPosixTest, AllocateTest) {
   // we only require that number of allocated blocks is at least what we expect.
   // It looks like some FS give us more blocks that we asked for. That's fine.
   // It might be worth investigating further.
-  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
+  auto st_blocks = f_stat.st_blocks;
+  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), st_blocks);
 
   // close the file, should deallocate the blocks
   wfile.reset();
@@ -314,8 +315,7 @@ TEST(EnvPosixTest, AllocateTest) {
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that preallocated blocks were deallocated on file close
-  size_t data_blocks_pages = ((data.size() + kPageSize - 1) / kPageSize);
-  ASSERT_EQ((unsigned int)(data_blocks_pages * kPageSize / kBlockSize), f_stat.st_blocks);
+  ASSERT_GT(st_blocks, f_stat.st_blocks);
 }
 #endif
 
