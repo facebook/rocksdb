@@ -16,7 +16,7 @@
 namespace rocksdb {
 
 class Comparator;
-class FileMetaData;
+struct FileMetaData;
 
 // The file tree structure in Version is prebuilt and the range of each file
 // is known. On Version::Get(), it uses binary search to find a potential file

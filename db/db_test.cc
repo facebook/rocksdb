@@ -5441,6 +5441,7 @@ TEST(DBTest, TransactionLogIterator) {
   } while (ChangeCompactOptions());
 }
 
+#ifndef NDEBUG // sync point is not included with DNDEBUG build
 TEST(DBTest, TransactionLogIteratorRace) {
   // Setup sync point dependency to reproduce the race condition of
   // a log file moved to archived dir, in the middle of GetSortedWalFiles
@@ -5485,6 +5486,7 @@ TEST(DBTest, TransactionLogIteratorRace) {
     }
   } while (ChangeCompactOptions());
 }
+#endif
 
 TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
   do {
