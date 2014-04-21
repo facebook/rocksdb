@@ -302,7 +302,11 @@ TEST(EnvPosixTest, AllocateTest) {
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that blocks are preallocated
-  ASSERT_EQ((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
+  // Note here that we don't check the exact number of blocks preallocated --
+  // we only require that number of allocated blocks is at least what we expect.
+  // It looks like some FS give us more blocks that we asked for. That's fine.
+  // It might be worth investigating further.
+  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
 
   // close the file, should deallocate the blocks
   wfile.reset();
