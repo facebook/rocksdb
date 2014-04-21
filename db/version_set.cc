@@ -71,11 +71,11 @@ Version::~Version() {
   delete[] files_;
 }
 
-int FindFile(const InternalKeyComparator& icmp,
-             const std::vector<FileMetaData*>& files,
-             const Slice& key) {
-  uint32_t left = 0;
-  uint32_t right = files.size();
+int FindFileInRange(const InternalKeyComparator& icmp,
+    const std::vector<FileMetaData*>& files,
+    const Slice& key,
+    uint32_t left,
+    uint32_t right) {
   while (left < right) {
     uint32_t mid = (left + right) / 2;
     const FileMetaData* f = files[mid];
@@ -90,6 +90,12 @@ int FindFile(const InternalKeyComparator& icmp,
     }
   }
   return right;
+}
+
+int FindFile(const InternalKeyComparator& icmp,
+             const std::vector<FileMetaData*>& files,
+             const Slice& key) {
+  return FindFileInRange(icmp, files, key, 0, files.size());
 }
 
 static bool AfterFile(const Comparator* ucmp,
@@ -507,7 +513,10 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       file_to_compact_level_(-1),
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
-      version_number_(version_number) {}
+      version_number_(version_number),
+      file_indexer_(num_levels_, cfd == nullptr ?  nullptr
+          : cfd->internal_comparator().user_comparator()) {
+}
 
 void Version::Get(const ReadOptions& options,
                   const LookupKey& k,
@@ -538,12 +547,27 @@ void Version::Get(const ReadOptions& options,
   int last_file_read_level = -1;
 
   // We can search level-by-level since entries never hop across
-  // levels.  Therefore we are guaranteed that if we find data
+  // levels. Therefore we are guaranteed that if we find data
   // in an smaller level, later levels are irrelevant (unless we
   // are MergeInProgress).
-  for (int level = 0; level < num_levels_; level++) {
-    size_t num_files = files_[level].size();
-    if (num_files == 0) continue;
+
+  int32_t search_left_bound = 0;
+  int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
+  for (int level = 0; level < num_levels_; ++level) {
+    int num_files = files_[level].size();
+    if (num_files == 0) {
+      // When current level is empty, the search bound generated from upper
+      // level must be [0, -1] or [0, FileIndexer::kLevelMaxIndex] if it is
+      // also empty.
+      assert(search_left_bound == 0);
+      assert(search_right_bound == -1 ||
+             search_right_bound == FileIndexer::kLevelMaxIndex);
+      // Since current level is empty, it will need to search all files in the
+      // next level
+      search_left_bound = 0;
+      search_right_bound = FileIndexer::kLevelMaxIndex;
+      continue;
+    }
 
     // Get the list of files to search in this level
     FileMetaData* const* files = &files_[level][0];
@@ -553,38 +577,65 @@ void Version::Get(const ReadOptions& options,
     // newest to oldest. In the context of merge-operator,
     // this can occur at any level. Otherwise, it only occurs
     // at Level-0 (since Put/Deletes are always compacted into a single entry).
-    uint32_t start_index;
+    int32_t start_index;
     if (level == 0) {
       // On Level-0, we read through all files to check for overlap.
       start_index = 0;
     } else {
-      // On Level-n (n>=1), files are sorted.
-      // Binary search to find earliest index whose largest key >= ikey.
-      // We will also stop when the file no longer overlaps ikey
-      start_index = FindFile(*internal_comparator_, files_[level], ikey);
+      // On Level-n (n>=1), files are sorted. Binary search to find the earliest
+      // file whose largest key >= ikey. Search left bound and right bound are
+      // used to narrow the range.
+      if (search_left_bound == search_right_bound) {
+        start_index = search_left_bound;
+      } else if (search_left_bound < search_right_bound) {
+        if (search_right_bound == FileIndexer::kLevelMaxIndex) {
+          search_right_bound = num_files - 1;
+        }
+        start_index = FindFileInRange(cfd_->internal_comparator(),
+            files_[level], ikey, search_left_bound, search_right_bound);
+      } else {
+        // search_left_bound > search_right_bound, key does not exist in this
+        // level. Since no comparision is done in this level, it will need to
+        // search all files in the next level.
+        search_left_bound = 0;
+        search_right_bound = FileIndexer::kLevelMaxIndex;
+        continue;
+      }
     }
-
     // Traverse each relevant file to find the desired key
 #ifndef NDEBUG
     FileMetaData* prev_file = nullptr;
 #endif
-    for (uint32_t i = start_index; i < num_files; ++i) {
+
+    for (int32_t i = start_index; i < num_files;) {
       FileMetaData* f = files[i];
-      // Skip key range filtering for levle 0 if there are few level 0 files.
-      if ((level > 0 || num_files > 2) &&
-          (user_comparator_->Compare(user_key, f->smallest.user_key()) < 0 ||
-           user_comparator_->Compare(user_key, f->largest.user_key()) > 0)) {
-        // Only process overlapping files.
-        if (level > 0) {
-          // If on Level-n (n>=1) then the files are sorted.
-          // So we can stop looking when we are past the ikey.
+      // Check if key is within a file's range. If search left bound and right
+      // bound point to the same find, we are sure key falls in range.
+      assert(level == 0 || i == start_index ||
+             user_comparator_->Compare(user_key, f->smallest.user_key()) <= 0);
+
+      int cmp_smallest = user_comparator_->Compare(user_key, f->smallest.user_key());
+      int cmp_largest = -1;
+      if (cmp_smallest >= 0) {
+        cmp_largest = user_comparator_->Compare(user_key, f->largest.user_key());
+      }
+
+      // Setup file search bound for the next level based on the comparison
+      // results
+      if (level > 0) {
+        file_indexer_.GetNextLevelIndex(level, i, cmp_smallest, cmp_largest,
+            &search_left_bound, &search_right_bound);
+      }
+      // Key falls out of current file's range
+      if (cmp_smallest < 0 || cmp_largest > 0) {
+        if (level == 0) {
+          ++i;
+          continue;
+        } else {
           break;
         }
-        // TODO: do we want to check file ranges for level0 files at all?
-        // For new SST format where Get() is fast, we might want to consider
-        // to avoid those two comparisons, if it can filter out too few files.
-        continue;
       }
+
 #ifndef NDEBUG
       // Sanity check to make sure that the files are correctly sorted
       if (prev_file) {
@@ -642,6 +693,11 @@ void Version::Get(const ReadOptions& options,
           return;
         case kMerge:
           break;
+      }
+      if (level > 0 && cmp_largest < 0) {
+        break;
+      } else {
+        ++i;
       }
     }
   }
@@ -1454,6 +1510,8 @@ class VersionSet::Builder {
     }
 
     CheckConsistency(v);
+
+    v->file_indexer_.UpdateIndex(v->files_);
   }
 
   void LoadTableHandlers() {

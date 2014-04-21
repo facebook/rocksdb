@@ -33,6 +33,7 @@
 #include "db/compaction_picker.h"
 #include "db/column_family.h"
 #include "db/log_reader.h"
+#include "db/file_indexer.h"
 
 namespace rocksdb {
 
@@ -281,6 +282,7 @@ class Version {
   uint64_t version_number_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
+  FileIndexer file_indexer_;
 
   ~Version();
 

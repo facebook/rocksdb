@@ -59,6 +59,7 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   }
   return true;
 }
+
 DEFINE_uint64(seed, 2341234, "Seed for PRNG");
 static const bool FLAGS_seed_dummy __attribute__((unused)) =
     google::RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
@@ -376,6 +377,17 @@ static std::string Key(long val) {
   }
   return big_endian_key;
 }
+
+static std::string StringToHex(const std::string& str) {
+  std::string result = "0x";
+  char buf[10];
+  for (size_t i = 0; i < str.length(); i++) {
+    snprintf(buf, 10, "%02X", (unsigned char)str[i]);
+    result += buf;
+  }
+  return result;
+}
+
 
 class StressTest;
 namespace {
@@ -953,8 +965,8 @@ class StressTest {
     for (int i = 1; i < 10; i++) {
       if (values[i] != values[0]) {
         fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
-                key.ToString().c_str(), values[0].c_str(),
-                values[i].c_str());
+                key.ToString(true).c_str(), StringToHex(values[0]).c_str(),
+                StringToHex(values[i]).c_str());
       // we continue after error rather than exiting so that we can
       // find more errors if any
       }
@@ -1013,9 +1025,9 @@ class StressTest {
       // make sure all values are equivalent
       for (int i = 0; i < 10; i++) {
         if (values[i] != values[0]) {
-          fprintf(stderr, "error : inconsistent values for prefix %s: %s, %s\n",
-                  prefixes[i].c_str(), values[0].c_str(),
-                  values[i].c_str());
+          fprintf(stderr, "error : %d, inconsistent values for prefix %s: %s, %s\n",
+                  i, prefixes[i].c_str(), StringToHex(values[0]).c_str(),
+                  StringToHex(values[i]).c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any
         }
