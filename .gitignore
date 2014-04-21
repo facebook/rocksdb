@@ -10,7 +10,7 @@ build_config.mk
 *.so
 *.so.*
 *_test
-*_bench
+*_benchmark
 *_stress
 *.out
 *.class
