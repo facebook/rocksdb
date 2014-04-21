@@ -213,5 +213,38 @@ class BackupableDBOptionsJni {
         reinterpret_cast<jlong>(op));
   }
 };
+
+class IteratorJni {
+ public:
+  // Get the java class id of org.rocksdb.Iteartor.
+  static jclass getJClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("org/rocksdb/Iterator");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.Iterator
+  // that stores the pointer to rocksdb::Iterator.
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::Iterator.
+  static rocksdb::Iterator* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::Iterator*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::Iterator pointer to the java side.
+  static void setHandle(
+      JNIEnv* env, jobject jobj, rocksdb::Iterator* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

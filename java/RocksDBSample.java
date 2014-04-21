@@ -3,8 +3,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-import java.util.*;
-import java.lang.*;
+import java.util.Arrays;
 import org.rocksdb.*;
 import org.rocksdb.util.SizeUnit;
 import java.io.IOException;
@@ -142,6 +141,41 @@ public class RocksDBSample {
         System.out.println("Failed in call to geHistogramData()");
         assert(false); //Should never reach here.
       }
+
+      Iterator iterator = db.newIterator();
+
+      boolean seekToFirstPassed = false;
+      for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+        iterator.status();
+        assert(iterator.key() != null);
+        assert(iterator.value() != null);
+        seekToFirstPassed = true;
+      }
+      if(seekToFirstPassed) {
+        System.out.println("iterator seekToFirst tests passed.");
+      }
+
+      boolean seekToLastPassed = false;
+      for (iterator.seekToLast(); iterator.isValid(); iterator.prev()) {
+        iterator.status();
+        assert(iterator.key() != null);
+        assert(iterator.value() != null);
+        seekToLastPassed = true;
+      }
+
+      if(seekToLastPassed) {
+        System.out.println("iterator seekToLastPassed tests passed.");
+      }
+
+      iterator.seekToFirst();
+      iterator.seek(iterator.key());
+      assert(iterator.key() != null);
+      assert(iterator.value() != null);
+
+      System.out.println("iterator seek test passed.");
+
+      iterator.close();
+      System.out.println("iterator tests passed.");
     } catch (RocksDBException e) {
       System.err.println(e);
     }

@@ -5,7 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.*;
 import java.io.Closeable;
 import java.io.IOException;
 
@@ -137,6 +136,20 @@ public class RocksDB {
     remove(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
 
+  /**
+   * Return a heap-allocated iterator over the contents of the database.
+   * The result of newIterator() is initially invalid (caller must
+   * call one of the Seek methods on the iterator before using it).
+   *
+   * Caller should close the iterator when it is no longer needed.
+   * The returned iterator should be closed before this db is closed.
+   *
+   * @return instance of iterator object.
+   */
+  public Iterator newIterator() {
+    return new Iterator(iterator0(nativeHandle_));
+  }
+
   @Override protected void finalize() {
     close();
   }
@@ -170,6 +183,7 @@ public class RocksDB {
   protected native void remove(
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
+  protected native long iterator0(long optHandle);
   protected native void close0();
 
   protected long nativeHandle_;
