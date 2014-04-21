@@ -63,6 +63,7 @@ MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
 
 TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL)
+BENCHHARNESS = ./util/benchharness.o
 VALGRIND_ERROR = 2
 VALGRIND_DIR = build_tools/VALGRIND_LOGS
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
@@ -76,7 +77,7 @@ TESTS = \
 	table_properties_collector_test \
 	arena_test \
 	auto_roll_logger_test \
-	benchmarkharness_test \
+	benchharness_test \
 	block_test \
 	bloom_test \
 	dynamic_bloom_test \
@@ -120,10 +121,9 @@ TOOLS = \
         db_stress \
         ldb \
 	db_repl_stress \
-	blob_store_benchmark
+	blob_store_bench
 
-PROGRAMS = db_benchmark signal_test table_reader_benchmark $(TOOLS)
-BENCHMARKS = db_bench_sqlite3 db_bench_tree_db table_reader_benchmark
+PROGRAMS = db_bench signal_test table_reader_bench $(TOOLS)
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
@@ -228,7 +228,7 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 	done
 
 clean:
-	-rm -f $(PROGRAMS) $(TESTS) $(BENCHMARKS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk
+	-rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk
 	-rm -rf ios-x86/* ios-arm/*
 	-find . -name "*.[od]" -exec rm {} \;
 	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
@@ -246,8 +246,8 @@ $(LIBRARY): $(LIBOBJECTS)
 	rm -f $@
 	$(AR) -rs $@ $(LIBOBJECTS)
 
-db_benchmark: db/db_benchmark.o $(LIBOBJECTS) $(TESTUTIL)
-	$(CXX) db/db_benchmark.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
+db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(CXX) db/db_bench.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 block_hash_index_test: table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	 $(CXX) table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -261,14 +261,8 @@ db_sanity_test: tools/db_sanity_test.o $(LIBOBJECTS) $(TESTUTIL)
 db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
-blob_store_benchmark: tools/blob_store_benchmark.o $(LIBOBJECTS) $(TESTUTIL)
-	$(CXX) tools/blob_store_benchmark.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
-
-db_bench_sqlite3: doc/bench/db_bench_sqlite3.o $(LIBOBJECTS) $(TESTUTIL)
-	$(CXX) doc/bench/db_bench_sqlite3.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) -lsqlite3 $(COVERAGEFLAGS)
-
-db_bench_tree_db: doc/bench/db_bench_tree_db.o $(LIBOBJECTS) $(TESTUTIL)
-	$(CXX) doc/bench/db_bench_tree_db.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) -lkyotocabinet $(COVERAGEFLAGS)
+blob_store_bench: tools/blob_store_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(CXX) tools/blob_store_bench.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 signal_test: util/signal_test.o $(LIBOBJECTS)
 	$(CXX) util/signal_test.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -309,8 +303,8 @@ stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $
 redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-benchmarkharness_test: util/benchmarkharness_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) util/benchmarkharness_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS) $(COVERAGEFLAGS)
+benchharness_test: util/benchharness_test.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS)
+	$(CXX) util/benchharness_test.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -327,8 +321,8 @@ crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_test: db/db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-log_write_benchmark: util/log_write_benchmark.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) util/log_write_benchmark.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
+log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
 
 plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -336,8 +330,8 @@ plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 simple_table_db_test: db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-table_reader_benchmark: table/table_reader_benchmark.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) table/table_reader_benchmark.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
+table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)

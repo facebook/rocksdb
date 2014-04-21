@@ -292,7 +292,6 @@ TEST(EnvPosixTest, AllocateTest) {
   // allocate 100 MB
   size_t kPreallocateSize = 100 * 1024 * 1024;
   size_t kBlockSize = 512;
-  size_t kPageSize = 4096;
   std::string data = "test";
   wfile->SetPreallocationBlockSize(kPreallocateSize);
   ASSERT_OK(wfile->Append(Slice(data)));

@@ -166,9 +166,9 @@ DIRS="util db table utilities"
 
 set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
-PRUNE_BENCHMARK="-name *_benchmark*.cc -prune"
-PORTABLE_FILES=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCHMARK -o -name '*.cc' -print | sort | tr "\n" " "`
-PORTABLE_CPP=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCHMARK -o -name '*.cpp' -print | sort | tr "\n" " "`
+PRUNE_BENCH="-name *bench*.cc -prune"
+PORTABLE_FILES=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
+PORTABLE_CPP=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
 set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port

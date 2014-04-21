@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
-#include "util/benchmarkharness.h"
+#include "util/benchharness.h"
 #include <vector>
 
 namespace rocksdb {

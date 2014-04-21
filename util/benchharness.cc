@@ -7,7 +7,7 @@
 // Facebook C++ library available at https://github.com/facebook/folly
 // The code has removed any dependence on other folly and boost libraries
 
-#include "util/benchmarkharness.h"
+#include "util/benchharness.h"
 
 #include <algorithm>
 #include <cmath>
