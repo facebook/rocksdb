@@ -17,12 +17,10 @@ package org.rocksdb;
  * A good value for bitsPerKey is 10, which yields a filter
  * with ~ 1% false positive rate.
  */
-public class Filter {
-  private long nativeHandle_;
-
-  public Filter(int bitsPerKey) {
-    newFilter(bitsPerKey);
-  }
+public abstract class Filter {
+  protected long nativeHandle_ = 0;
+    
+  protected abstract void createNewFilter();
 
   /**
    * Deletes underlying C++ filter pointer.
@@ -37,10 +35,9 @@ public class Filter {
     dispose();
   }
 
-  private boolean isInitialized() {
+  protected boolean isInitialized() {
     return (nativeHandle_ != 0);
   }
 
-  private native void newFilter(int bitsPerKey);
   private native void dispose0(long handle);
 }

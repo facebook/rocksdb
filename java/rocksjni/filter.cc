@@ -12,15 +12,16 @@
 #include <string>
 
 #include "include/org_rocksdb_Filter.h"
+#include "include/org_rocksdb_BloomFilter.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/filter_policy.h"
 
 /*
- * Class:     org_rocksdb_Filter
- * Method:    newFilter
+ * Class:     org_rocksdb_BloomFilter
+ * Method:    createNewFilter0
  * Signature: (I)V
  */
-void Java_org_rocksdb_Filter_newFilter(
+void Java_org_rocksdb_BloomFilter_createNewFilter0(
     JNIEnv* env, jobject jobj, jint bits_per_key) {
   const rocksdb::FilterPolicy* fp = rocksdb::NewBloomFilterPolicy(bits_per_key);
   rocksdb::FilterJni::setHandle(env, jobj, fp);

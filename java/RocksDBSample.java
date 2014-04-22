@@ -32,7 +32,7 @@ public class RocksDBSample {
       assert(db == null);
     }
 
-    Filter filter = new Filter(10);
+    Filter filter = new BloomFilter(10);
     options.setCreateIfMissing(true)
         .createStatistics()
         .setWriteBufferSize(8 * SizeUnit.KB)
