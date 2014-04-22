@@ -22,6 +22,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
 
 #include "table/block.h"
 #include "table/filter_block.h"
@@ -366,17 +367,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
 
   // Read the properties
   bool found_properties_block = true;
-  meta_iter->Seek(kPropertiesBlock);
-  if (meta_iter->status().ok() &&
-      (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlock)) {
-    meta_iter->Seek(kPropertiesBlockOldName);
-    if (meta_iter->status().ok() &&
-        (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlockOldName)) {
-      found_properties_block = false;
-      Log(WARN_LEVEL, rep->options.info_log,
-          "Cannot find Properties block from file.");
-    }
-  }
+  s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
 
   if (found_properties_block) {
     s = meta_iter->status();
@@ -394,6 +385,9 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
     } else {
       rep->table_properties.reset(table_properties);
     }
+  } else {
+    Log(WARN_LEVEL, rep->options.info_log,
+        "Cannot find Properties block from file.");
   }
 
   // Will use block cache for index/filter blocks access?

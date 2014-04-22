@@ -244,17 +244,19 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
       metaindex_block.NewIterator(BytewiseComparator()));
 
   // -- Read property block
-  // This function is not used by BlockBasedTable, so we don't have to
-  // worry about old properties block name.
-  meta_iter->Seek(kPropertiesBlock);
+  bool found_properties_block = true;
+  s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
+  if (!s.ok()) {
+    return s;
+  }
+
   TableProperties table_properties;
-  if (meta_iter->Valid() &&
-      meta_iter->key() == kPropertiesBlock &&
-      meta_iter->status().ok()) {
+  if (found_properties_block == true) {
     s = ReadProperties(meta_iter->value(), file, env, info_log, properties);
   } else {
-    s = Status::Corruption(
-        "Unable to read the property block from the plain table");
+    s = Status::Corruption("Unable to read the property block.");
+    Log(WARN_LEVEL, info_log,
+        "Cannot find Properties block from file.");
   }
 
   return s;

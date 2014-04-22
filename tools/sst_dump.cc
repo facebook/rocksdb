@@ -118,10 +118,10 @@ Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
   Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,
                                           options_.env, options_.info_log.get(),
                                           &table_properties);
-  std::unique_ptr<TableProperties> props_guard(table_properties);
   if (!s.ok()) {
     return s;
   }
+  std::unique_ptr<TableProperties> props_guard(table_properties);
 
   if (table_magic_number == kBlockBasedTableMagicNumber) {
     options_.table_factory = std::make_shared<BlockBasedTableFactory>();

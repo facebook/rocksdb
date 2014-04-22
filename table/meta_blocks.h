@@ -129,4 +129,10 @@ Status ReadTableMagicNumber(RandomAccessFile* file, uint64_t file_size,
                             const Options& options,
                             const EnvOptions& env_options,
                             uint64_t* table_magic_number);
+
+// Seek to the properties block.
+// If it successfully seeks to the properties block, "is_found" will be
+// set to true.
+extern Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found);
+
 }  // namespace rocksdb

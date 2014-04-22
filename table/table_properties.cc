@@ -4,6 +4,8 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "rocksdb/table_properties.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/env.h"
 
 namespace rocksdb {
 
@@ -93,5 +95,21 @@ const std::string TablePropertiesNames::kFixedKeyLen =
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility
 extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
+
+// Seek to the properties block.
+// Return true if it successfully seeks to the properties block.
+Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found) {
+  *is_found = true;
+  meta_iter->Seek(kPropertiesBlock);
+  if (meta_iter->status().ok() &&
+      (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlock)) {
+    meta_iter->Seek(kPropertiesBlockOldName);
+    if (meta_iter->status().ok() &&
+        (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlockOldName)) {
+      *is_found = false;
+    }
+  }
+  return meta_iter->status();
+}
 
 }  // namespace rocksdb
