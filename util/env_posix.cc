@@ -761,6 +761,10 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status Sync() {
+    Status s = Flush();
+    if (!s.ok()) {
+      return s;
+    }
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (pending_sync_ && fdatasync(fd_) < 0) {
       return IOError(filename_, errno);
@@ -771,6 +775,10 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status Fsync() {
+    Status s = Flush();
+    if (!s.ok()) {
+      return s;
+    }
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (pending_fsync_ && fsync(fd_) < 0) {
       return IOError(filename_, errno);
