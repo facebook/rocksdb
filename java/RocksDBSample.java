@@ -38,7 +38,8 @@ public class RocksDBSample {
         .setMaxWriteBufferNumber(3)
         .setDisableSeekCompaction(true)
         .setBlockSize(64 * SizeUnit.KB)
-        .setMaxBackgroundCompactions(10);
+        .setMaxBackgroundCompactions(10)
+        .createBloomFilter(10);
     Statistics stats = options.statisticsPtr();
 
     assert(options.createIfMissing() == true);

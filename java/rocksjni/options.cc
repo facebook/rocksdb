@@ -21,6 +21,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/filter_policy.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -117,6 +118,23 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
     JNIEnv* env, jobject jobj, jlong jOptHandle) {
   auto st = reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics.get();
   return reinterpret_cast<jlong>(st);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    createBloomFilter0
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_createBloomFilter0(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jbits_per_key) {
+  rocksdb::Options* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  
+  // Delete previously allocated pointer
+  if(opt->filter_policy) {
+    delete opt->filter_policy;
+  }
+  
+  opt->filter_policy = rocksdb::NewBloomFilterPolicy(jbits_per_key);
 }
 
 /*
