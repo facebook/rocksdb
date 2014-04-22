@@ -122,19 +122,13 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    createBloomFilter0
- * Signature: (JI)V
+ * Method:    setFilter0
+ * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_createBloomFilter0(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint jbits_per_key) {
-  rocksdb::Options* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
-
-  // Delete previously allocated pointer
-  if(opt->filter_policy) {
-    delete opt->filter_policy;
-  }
-
-  opt->filter_policy = rocksdb::NewBloomFilterPolicy(jbits_per_key);
+void Java_org_rocksdb_Options_setFilter0(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jfp_handle) {
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->filter_policy =
+      reinterpret_cast<rocksdb::FilterPolicy*>(jfp_handle);
 }
 
 /*

@@ -32,6 +32,7 @@ public class RocksDBSample {
       assert(db == null);
     }
 
+    Filter filter = new Filter(10);
     options.setCreateIfMissing(true)
         .createStatistics()
         .setWriteBufferSize(8 * SizeUnit.KB)
@@ -39,7 +40,7 @@ public class RocksDBSample {
         .setDisableSeekCompaction(true)
         .setBlockSize(64 * SizeUnit.KB)
         .setMaxBackgroundCompactions(10)
-        .createBloomFilter(10);
+        .setFilter(filter);
     Statistics stats = options.statisticsPtr();
 
     assert(options.createIfMissing() == true);
@@ -225,5 +226,6 @@ public class RocksDBSample {
     // be sure to dispose c++ pointers
     options.dispose();
     readOptions.dispose();
+    filter.dispose();
   }
 }
