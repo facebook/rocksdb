@@ -5,13 +5,14 @@
 
 #include "utilities/ttl/db_ttl.h"
 #include "db/filename.h"
+#include "db/write_batch_internal.h"
 #include "util/coding.h"
 #include "include/rocksdb/env.h"
 #include "include/rocksdb/iterator.h"
 
 namespace rocksdb {
 
-void DBWithTTL::SanitizeOptions(int32_t ttl, Options* options) {
+void DBWithTTL::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options) {
   if (options->compaction_filter) {
     options->compaction_filter =
         new TtlCompactionFilter(ttl, options->compaction_filter);
@@ -40,20 +41,53 @@ Status UtilityDB::OpenTtlDB(
     StackableDB** dbptr,
     int32_t ttl,
     bool read_only) {
-  Status st;
-  Options options_to_open = options;
-  DBWithTTL::SanitizeOptions(ttl, &options_to_open);
+
+  DBOptions db_options(options);
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  std::vector<ColumnFamilyHandle*> handles;
+  Status s = UtilityDB::OpenTtlDB(db_options, dbname, column_families, &handles,
+                                  dbptr, {ttl}, read_only);
+  if (s.ok()) {
+    assert(handles.size() == 1);
+    // i can delete the handle since DBImpl is always holding a reference to
+    // default column family
+    delete handles[0];
+  }
+  return s;
+}
+
+Status UtilityDB::OpenTtlDB(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, StackableDB** dbptr,
+    std::vector<int32_t> ttls, bool read_only) {
+
+  if (ttls.size() != column_families.size()) {
+    return Status::InvalidArgument(
+        "ttls size has to be the same as number of column families");
+  }
+
+  std::vector<ColumnFamilyDescriptor> column_families_sanitized =
+      column_families;
+  for (size_t i = 0; i < column_families_sanitized.size(); ++i) {
+    DBWithTTL::SanitizeOptions(ttls[i], &column_families_sanitized[i].options);
+  }
   DB* db;
 
+  Status st;
   if (read_only) {
-    st = DB::OpenForReadOnly(options_to_open, dbname, &db);
+    st = DB::OpenForReadOnly(db_options, dbname, column_families_sanitized,
+                             handles, &db);
   } else {
-    st = DB::Open(options_to_open, dbname, &db);
+    st = DB::Open(db_options, dbname, column_families_sanitized, handles, &db);
   }
   if (st.ok()) {
     *dbptr = new DBWithTTL(db);
   } else {
-    delete db;
+    *dbptr = nullptr;
   }
   return st;
 }
@@ -124,14 +158,14 @@ Status DBWithTTL::Put(const WriteOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       const Slice& val) {
   WriteBatch batch;
-  batch.Put(key, val);
+  batch.Put(column_family, key, val);
   return Write(options, &batch);
 }
 
 Status DBWithTTL::Get(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       std::string* value) {
-  Status st = db_->Get(options, key, value);
+  Status st = db_->Get(options, column_family, key, value);
   if (!st.ok()) {
     return st;
   }
@@ -154,7 +188,7 @@ std::vector<Status> DBWithTTL::MultiGet(
 bool DBWithTTL::KeyMayExist(const ReadOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             std::string* value, bool* value_found) {
-  bool ret = db_->KeyMayExist(options, key, value, value_found);
+  bool ret = db_->KeyMayExist(options, column_family, key, value, value_found);
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
     if (!SanityCheckTimestamp(*value).ok() || !StripTS(value).ok()) {
       return false;
@@ -167,7 +201,7 @@ Status DBWithTTL::Merge(const WriteOptions& options,
                         ColumnFamilyHandle* column_family, const Slice& key,
                         const Slice& value) {
   WriteBatch batch;
-  batch.Merge(key, value);
+  batch.Merge(column_family, key, value);
   return Write(options, &batch);
 }
 
@@ -176,26 +210,33 @@ Status DBWithTTL::Write(const WriteOptions& opts, WriteBatch* updates) {
    public:
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
-    virtual void Put(const Slice& key, const Slice& value) {
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
       std::string value_with_ts;
       Status st = AppendTS(value, value_with_ts);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
-        updates_ttl.Put(key, value_with_ts);
+        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                value_with_ts);
       }
+      return Status::OK();
     }
-    virtual void Merge(const Slice& key, const Slice& value) {
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) {
       std::string value_with_ts;
       Status st = AppendTS(value, value_with_ts);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
-        updates_ttl.Merge(key, value_with_ts);
+        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                  value_with_ts);
       }
+      return Status::OK();
     }
-    virtual void Delete(const Slice& key) {
-      updates_ttl.Delete(key);
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
+      return Status::OK();
     }
     virtual void LogData(const Slice& blob) {
       updates_ttl.PutLogData(blob);

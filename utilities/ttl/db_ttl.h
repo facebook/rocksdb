@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #pragma once
+
+#ifndef ROCKSDB_LITE
 #include <deque>
 #include <string>
+#include <vector>
 
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -18,7 +20,7 @@ namespace rocksdb {
 
 class DBWithTTL : public StackableDB {
  public:
-  static void SanitizeOptions(int32_t ttl, Options* options);
+  static void SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options);
 
   explicit DBWithTTL(DB* db);
 
