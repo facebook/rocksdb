@@ -128,12 +128,12 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
 void Java_org_rocksdb_Options_createBloomFilter0(
     JNIEnv* env, jobject jobj, jlong jhandle, jint jbits_per_key) {
   rocksdb::Options* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
-  
+
   // Delete previously allocated pointer
   if(opt->filter_policy) {
     delete opt->filter_policy;
   }
-  
+
   opt->filter_policy = rocksdb::NewBloomFilterPolicy(jbits_per_key);
 }
 

@@ -143,19 +143,19 @@ public class Options {
     assert(isInitialized());
     return blockSize(nativeHandle_);
   }
-  
+
   /**
    * Filters are stored in rocksdb and are consulted automatically
    * by rocksdb to decide whether or not to read some
    * information from disk. In many cases, a filter can cut down the
    * number of disk seeks form a handful to a single disk seek per
    * DB::Get() call.
-   * 
-   * This function a new filter policy that uses a bloom filter 
-   * with approximately the specified number of bits per key.  
-   * A good value for bitsPerKey is 10, which yields a filter 
+   *
+   * This function a new filter policy that uses a bloom filter
+   * with approximately the specified number of bits per key.
+   * A good value for bitsPerKey is 10, which yields a filter
    * with ~ 1% false positive rate.
-   * 
+   *
    * @param Bits per key for bloom filter.
    * @return the instance of the current Options.
    * @see RocksDB.open()
@@ -1259,7 +1259,7 @@ public class Options {
 
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
-  
+
   private native void createBloomFilter0(long handle, int bitsPerKey);
 
   long nativeHandle_;
