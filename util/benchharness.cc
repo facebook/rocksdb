@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <iostream>
 #include <limits>
 #include <string>
 #include <utility>
@@ -192,21 +191,7 @@ static double RunBenchmarkGetNSPerIteration(const BenchmarkFun& fun,
   // They key here is accuracy; too low numbers means the accuracy was
   // coarse. We up the ante until we get to at least minNanoseconds
   // timings.
-  static uint64_t resolutionInNs = 0;
-  if (!resolutionInNs) {
-    timespec ts;
-    ASSERT_EQ(0, clock_getres(detail::DEFAULT_CLOCK_ID, &ts));
-    ASSERT_EQ(0, ts.tv_sec);  // "Clock sucks.";
-    ASSERT_LT(0, ts.tv_nsec);  // "Clock too fast for its own good.";
-    ASSERT_EQ(1, ts.tv_nsec);  // "Clock too coarse, upgrade your kernel.";
-    resolutionInNs = ts.tv_nsec;
-  }
-  // We choose a minimum minimum (sic) of 100,000 nanoseconds, but if
-  // the clock resolution is worse than that, it will be larger. In
-  // essence we're aiming at making the quantization noise 0.01%.
-  static const auto minNanoseconds =
-    max(FLAGS_bm_min_usec * 1000UL,
-        min<uint64_t>(resolutionInNs * 100000, 1000000000ULL));
+  static const auto minNanoseconds = FLAGS_bm_min_usec * 1000UL;
 
   // We do measurements in several epochs and take the minimum, to
   // account for jitter.
@@ -214,8 +199,8 @@ static double RunBenchmarkGetNSPerIteration(const BenchmarkFun& fun,
   // We establish a total time budget as we don't want a measurement
   // to take too long. This will curtail the number of actual epochs.
   const uint64_t timeBudgetInNs = FLAGS_bm_max_secs * 1000000000;
-  timespec global;
-  ASSERT_EQ(0, clock_gettime(CLOCK_REALTIME, &global));
+  auto env = Env::Default();
+  uint64_t global = env->NowNanos();
 
   double epochResults[epochs] = { 0 };
   size_t actualEpochs = 0;
@@ -233,9 +218,8 @@ static double RunBenchmarkGetNSPerIteration(const BenchmarkFun& fun,
       // Done with the current epoch, we got a meaningful timing.
       break;
     }
-    timespec now;
-    ASSERT_EQ(0, clock_gettime(CLOCK_REALTIME, &now));
-    if (detail::TimespecDiff(now, global) >= timeBudgetInNs) {
+    uint64_t now = env->NowNanos();
+    if ((now - global) >= timeBudgetInNs) {
       // No more time budget available.
       ++actualEpochs;
       break;

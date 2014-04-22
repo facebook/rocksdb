@@ -8,7 +8,6 @@
 #include <vector>
 
 namespace rocksdb {
-namespace benchmark {
 
 BENCHMARK(insertFrontVector) {
   std::vector<int> v;
@@ -60,7 +59,6 @@ BENCHMARK_RELATIVE_N(insertFrontEndSuspend_n, n) {
   }
 }
 
-}  // namespace benchmark
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

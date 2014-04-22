@@ -12,11 +12,11 @@
 #include <gflags/gflags.h>
 
 #include <cassert>
-#include <ctime>
 #include <functional>
 #include <limits>
 
 #include "util/testharness.h"
+#include "rocksdb/env.h"
 
 namespace rocksdb {
 namespace benchmark {
@@ -29,58 +29,12 @@ void RunBenchmarks();
 namespace detail {
 
 /**
- * This is the clock ID used for measuring time. On older kernels, the
- * resolution of this clock will be very coarse, which will cause the
- * benchmarks to fail.
- */
-enum Clock { DEFAULT_CLOCK_ID = CLOCK_REALTIME };
-
-/**
  * Adds a benchmark wrapped in a std::function. Only used
  * internally. Pass by value is intentional.
  */
 void AddBenchmarkImpl(const char* file,
                       const char* name,
                       std::function<uint64_t(unsigned int)>);
-
-/**
- * Takes the difference between two timespec values. end is assumed to
- * occur after start.
- */
-inline uint64_t TimespecDiff(timespec end, timespec start) {
-  if (end.tv_sec == start.tv_sec) {
-    assert(end.tv_nsec >= start.tv_nsec);
-    return end.tv_nsec - start.tv_nsec;
-  }
-  assert(end.tv_sec > start.tv_sec &&
-         end.tv_sec - start.tv_sec <
-         std::numeric_limits<uint64_t>::max() / 1000000000UL);
-  return (end.tv_sec - start.tv_sec) * 1000000000UL
-    + end.tv_nsec - start.tv_nsec;
-}
-
-/**
- * Takes the difference between two sets of timespec values. The first
- * two come from a high-resolution clock whereas the other two come
- * from a low-resolution clock. The crux of the matter is that
- * high-res values may be bogus as documented in
- * http://linux.die.net/man/3/clock_gettime. The trouble is when the
- * running process migrates from one CPU to another, which is more
- * likely for long-running processes. Therefore we watch for high
- * differences between the two timings.
- *
- * This function is subject to further improvements.
- */
-inline uint64_t TimespecDiff(timespec end, timespec start,
-                             timespec endCoarse, timespec startCoarse) {
-  auto fine = TimespecDiff(end, start);
-  auto coarse = TimespecDiff(endCoarse, startCoarse);
-  if (coarse - fine >= 1000000) {
-    // The fine time is in all likelihood bogus
-    return coarse;
-  }
-  return fine;
-}
 
 }  // namespace detail
 
@@ -89,42 +43,37 @@ inline uint64_t TimespecDiff(timespec end, timespec start,
  * Supporting type for BENCHMARK_SUSPEND defined below.
  */
 struct BenchmarkSuspender {
-  BenchmarkSuspender() {
-    ASSERT_EQ(0, clock_gettime(detail::DEFAULT_CLOCK_ID, &start_));
-  }
+  BenchmarkSuspender() { start_ = Env::Default()->NowNanos(); }
 
-  BenchmarkSuspender(const BenchmarkSuspender &) = delete;
+  BenchmarkSuspender(const BenchmarkSuspender&) = delete;
   BenchmarkSuspender(BenchmarkSuspender && rhs) {
     start_ = rhs.start_;
-    rhs.start_.tv_nsec = rhs.start_.tv_sec = 0;
+    rhs.start_ = 0;
   }
 
   BenchmarkSuspender& operator=(const BenchmarkSuspender &) = delete;
   BenchmarkSuspender& operator=(BenchmarkSuspender && rhs) {
-    if (start_.tv_nsec > 0 || start_.tv_sec > 0) {
+    if (start_ > 0) {
       tally();
     }
     start_ = rhs.start_;
-    rhs.start_.tv_nsec = rhs.start_.tv_sec = 0;
+    rhs.start_ = 0;
     return *this;
   }
 
   ~BenchmarkSuspender() {
-    if (start_.tv_nsec > 0 || start_.tv_sec > 0) {
+    if (start_ > 0) {
       tally();
     }
   }
 
   void Dismiss() {
-    assert(start_.tv_nsec > 0 || start_.tv_sec > 0);
+    assert(start_ > 0);
     tally();
-    start_.tv_nsec = start_.tv_sec = 0;
+    start_ = 0;
   }
 
-  void Rehire() {
-    assert(start_.tv_nsec == 0 || start_.tv_sec == 0);
-    ASSERT_EQ(0, clock_gettime(detail::DEFAULT_CLOCK_ID, &start_));
-  }
+  void Rehire() { start_ = Env::Default()->NowNanos(); }
 
   /**
    * This helps the macro definition. To get around the dangers of
@@ -132,9 +81,7 @@ struct BenchmarkSuspender {
    * arithmetic).
    */
   /* implicit */
-  operator int BenchmarkSuspender::*() const {
-    return nullptr;
-  }
+  operator int BenchmarkSuspender::*() const { return nullptr; }
 
   /**
    * Accumulates nanoseconds spent outside benchmark.
@@ -144,13 +91,12 @@ struct BenchmarkSuspender {
 
  private:
   void tally() {
-    timespec end;
-    ASSERT_EQ(0, clock_gettime(detail::DEFAULT_CLOCK_ID, &end));
-    nsSpent += detail::TimespecDiff(end, start_);
+    uint64_t end = Env::Default()->NowNanos();
+    nsSpent += start_ - end;
     start_ = end;
   }
 
-  timespec start_;
+  uint64_t start_;
 };
 
 /**
@@ -165,18 +111,15 @@ void
 AddBenchmark_n(const char* file, const char* name, Lambda&& lambda) {
   auto execute = [=](unsigned int times) -> uint64_t {
     BenchmarkSuspender::nsSpent = 0;
-    timespec start, end;
+    uint64_t start, end;
+    auto env = Env::Default();
 
     // CORE MEASUREMENT STARTS
-    auto const r1 = clock_gettime(detail::DEFAULT_CLOCK_ID, &start);
+    start = env->NowNanos();
     lambda(times);
-    auto const r2 = clock_gettime(detail::DEFAULT_CLOCK_ID, &end);
+    end = env->NowNanos();
     // CORE MEASUREMENT ENDS
-
-    ASSERT_EQ(0, r1);
-    ASSERT_EQ(0, r2);
-
-    return detail::TimespecDiff(end, start) - BenchmarkSuspender::nsSpent;
+    return (end - start) - BenchmarkSuspender::nsSpent;
   };
 
   detail::AddBenchmarkImpl(file, name,
