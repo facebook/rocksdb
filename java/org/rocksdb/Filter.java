@@ -14,7 +14,7 @@ package org.rocksdb;
  */
 public abstract class Filter {
   protected long nativeHandle_ = 0;
-    
+
   protected abstract void createNewFilter();
 
   /**
