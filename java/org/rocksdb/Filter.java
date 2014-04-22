@@ -11,11 +11,6 @@ package org.rocksdb;
  * information from disk. In many cases, a filter can cut down the
  * number of disk seeks form a handful to a single disk seek per
  * DB::Get() call.
- *
- * This class creates a new filter policy that uses a bloom filter
- * with approximately the specified number of bits per key.
- * A good value for bitsPerKey is 10, which yields a filter
- * with ~ 1% false positive rate.
  */
 public abstract class Filter {
   protected long nativeHandle_ = 0;
