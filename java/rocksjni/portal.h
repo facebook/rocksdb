@@ -285,7 +285,7 @@ class IteratorJni {
 
 class FilterJni {
  public:
-  // Get the java class id of org.rocksdb.Filter.
+  // Get the java class id of org.rocksdb.FilterPolicy.
   static jclass getJClass(JNIEnv* env) {
     static jclass jclazz = env->FindClass("org/rocksdb/Filter");
     assert(jclazz != nullptr);
@@ -293,7 +293,7 @@ class FilterJni {
   }
 
   // Get the field id of the member variable of org.rocksdb.Filter
-  // that stores the pointer to rocksdb::Iterator.
+  // that stores the pointer to rocksdb::FilterPolicy.
   static jfieldID getHandleFieldID(JNIEnv* env) {
     static jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
@@ -301,13 +301,13 @@ class FilterJni {
     return fid;
   }
 
-  // Get the pointer to rocksdb::Filter.
+  // Get the pointer to rocksdb::FilterPolicy.
   static rocksdb::FilterPolicy* getHandle(JNIEnv* env, jobject jobj) {
     return reinterpret_cast<rocksdb::FilterPolicy*>(
         env->GetLongField(jobj, getHandleFieldID(env)));
   }
 
-  // Pass the rocksdb::Filter pointer to the java side.
+  // Pass the rocksdb::FilterPolicy pointer to the java side.
   static void setHandle(
       JNIEnv* env, jobject jobj, const rocksdb::FilterPolicy* op) {
     env->SetLongField(

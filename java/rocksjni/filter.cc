@@ -3,7 +3,8 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 //
-// This file implements the "bridge" between Java and C++ for rocksdb::Filter.
+// This file implements the "bridge" between Java and C++ for
+// rocksdb::FilterPolicy.
 
 #include <stdio.h>
 #include <stdlib.h>
