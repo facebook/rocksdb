@@ -126,9 +126,9 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_Options_setFilter0(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jfp_handle) {
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jobject jfp) {
   reinterpret_cast<rocksdb::Options*>(jopt_handle)->filter_policy =
-      reinterpret_cast<rocksdb::FilterPolicy*>(jfp_handle);
+      rocksdb::FilterJni::getHandle(env, jfp);
 }
 
 /*

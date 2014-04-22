@@ -152,7 +152,7 @@ public class Options {
    */
   public Options setFilter(Filter filter) {
     assert(isInitialized());
-    setFilter0(nativeHandle_, filter.getNativeHandle());
+    setFilter0(nativeHandle_, filter);
     return this;
   }
 
@@ -1250,7 +1250,7 @@ public class Options {
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
 
-  private native void setFilter0(long optHandle, long fpHandle);
+  private native void setFilter0(long optHandle, Filter fp);
 
   long nativeHandle_;
   long cacheSize_;

@@ -12,22 +12,18 @@ package org.rocksdb;
  * number of disk seeks form a handful to a single disk seek per
  * DB::Get() call.
  *
- * This function a new filter policy that uses a bloom filter
+ * This class creates a new filter policy that uses a bloom filter
  * with approximately the specified number of bits per key.
  * A good value for bitsPerKey is 10, which yields a filter
- * with ~ 1% false positive rate. 
+ * with ~ 1% false positive rate.
  */
 public class Filter {
   private long nativeHandle_;
-    
+
   public Filter(int bitsPerKey) {
     newFilter(bitsPerKey);
   }
-  
-  public long getNativeHandle() {
-    return nativeHandle_;
-  }
-  
+
   /**
    * Deletes underlying C++ filter pointer.
    */
@@ -44,7 +40,7 @@ public class Filter {
   private boolean isInitialized() {
     return (nativeHandle_ != 0);
   }
-  
+
   private native void newFilter(int bitsPerKey);
   private native void dispose0(long handle);
 }
