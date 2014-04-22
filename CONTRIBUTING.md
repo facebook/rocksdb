@@ -8,7 +8,7 @@ open source project, you're good to go. If you are submitting a pull
 request for the first time, just let us know that you have completed
 the CLA and we can cross-check with your GitHub username.
 
-Complete your CLA here: <https://developers.facebook.com/opensource/cla>
+Complete your CLA here: <https://code.facebook.com/cla>
 
 If you don't have a Facebook account, we can send you a PDF that you can
 sign offline. Send us an e-mail or create a new github issue to
