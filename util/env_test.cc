@@ -290,7 +290,6 @@ TEST(EnvPosixTest, AllocateTest) {
   // allocate 100 MB
   size_t kPreallocateSize = 100 * 1024 * 1024;
   size_t kBlockSize = 512;
-  size_t kPageSize = 4096;
   std::string data = "test";
   wfile->SetPreallocationBlockSize(kPreallocateSize);
   ASSERT_OK(wfile->Append(Slice(data)));
@@ -299,8 +298,9 @@ TEST(EnvPosixTest, AllocateTest) {
   struct stat f_stat;
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
+  auto st_blocks = f_stat.st_blocks;
   // verify that blocks are preallocated
-  ASSERT_EQ((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
+  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), st_blocks);
 
   // close the file, should deallocate the blocks
   wfile.reset();
@@ -308,8 +308,7 @@ TEST(EnvPosixTest, AllocateTest) {
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that preallocated blocks were deallocated on file close
-  size_t data_blocks_pages = ((data.size() + kPageSize - 1) / kPageSize);
-  ASSERT_EQ((unsigned int)(data_blocks_pages * kPageSize / kBlockSize), f_stat.st_blocks);
+  ASSERT_LT(f_stat.st_blocks, st_blocks);
 }
 #endif
 
