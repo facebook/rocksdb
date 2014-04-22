@@ -65,9 +65,7 @@ class WriteBatch {
 
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   void Delete(ColumnFamilyHandle* column_family, const Slice& key);
-  void Delete(const Slice& key) {
-    Delete(nullptr, key);
-  }
+  void Delete(const Slice& key) { Delete(nullptr, key); }
 
   // Append a blob of arbitrary size to the records in this batch. The blob will
   // be stored in the transaction log but not in any other file. In particular,

@@ -43,13 +43,14 @@ class TtlTest {
 
   // Open database with TTL support when TTL not provided with db_ttl_ pointer
   void OpenTtl() {
-    assert(db_ttl_ == nullptr); //  db should be closed before opening again
+    ASSERT_TRUE(db_ttl_ ==
+                nullptr);  //  db should be closed before opening again
     ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_));
   }
 
   // Open database with TTL support when TTL provided with db_ttl_ pointer
   void OpenTtl(int32_t ttl) {
-    assert(db_ttl_ == nullptr);
+    ASSERT_TRUE(db_ttl_ == nullptr);
     ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_, ttl));
   }
 
@@ -63,7 +64,7 @@ class TtlTest {
 
   // Open database with TTL support in read_only mode
   void OpenReadOnlyTtl(int32_t ttl) {
-    assert(db_ttl_ == nullptr);
+    ASSERT_TRUE(db_ttl_ == nullptr);
     ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_, ttl, true));
   }
 
@@ -97,7 +98,7 @@ class TtlTest {
 
   // Makes a write-batch with key-vals from kvmap_ and 'Write''s it
   void MakePutWriteBatch(const BatchOperation* batch_ops, int num_ops) {
-    assert(num_ops <= (int)kvmap_.size());
+    ASSERT_LE(num_ops, (int)kvmap_.size());
     static WriteOptions wopts;
     static FlushOptions flush_opts;
     WriteBatch batch;
@@ -111,7 +112,7 @@ class TtlTest {
           batch.Delete(kv_it_->first);
           break;
         default:
-          assert(false);
+          ASSERT_TRUE(false);
       }
     }
     db_ttl_->Write(wopts, &batch);
@@ -119,26 +120,38 @@ class TtlTest {
   }
 
   // Puts num_entries starting from start_pos_map from kvmap_ into the database
-  void PutValues(int start_pos_map, int num_entries, bool flush = true) {
-    assert(db_ttl_);
+  void PutValues(int start_pos_map, int num_entries, bool flush = true,
+                 ColumnFamilyHandle* cf = nullptr) {
+    ASSERT_TRUE(db_ttl_);
     ASSERT_LE(start_pos_map + num_entries, (int)kvmap_.size());
     static WriteOptions wopts;
     static FlushOptions flush_opts;
     kv_it_ = kvmap_.begin();
     advance(kv_it_, start_pos_map);
     for (int i = 0; kv_it_ != kvmap_.end() && i < num_entries; i++, kv_it_++) {
-      ASSERT_OK(db_ttl_->Put(wopts, kv_it_->first, kv_it_->second));
+      ASSERT_OK(cf == nullptr
+                    ? db_ttl_->Put(wopts, kv_it_->first, kv_it_->second)
+                    : db_ttl_->Put(wopts, cf, kv_it_->first, kv_it_->second));
     }
     // Put a mock kv at the end because CompactionFilter doesn't delete last key
-    ASSERT_OK(db_ttl_->Put(wopts, "keymock", "valuemock"));
+    ASSERT_OK(cf == nullptr ? db_ttl_->Put(wopts, "keymock", "valuemock")
+                            : db_ttl_->Put(wopts, cf, "keymock", "valuemock"));
     if (flush) {
-      db_ttl_->Flush(flush_opts);
+      if (cf == nullptr) {
+        db_ttl_->Flush(flush_opts);
+      } else {
+        db_ttl_->Flush(flush_opts, cf);
+      }
     }
   }
 
   // Runs a manual compaction
-  void ManualCompact() {
-    db_ttl_->CompactRange(nullptr, nullptr);
+  void ManualCompact(ColumnFamilyHandle* cf = nullptr) {
+    if (cf == nullptr) {
+      db_ttl_->CompactRange(nullptr, nullptr);
+    } else {
+      db_ttl_->CompactRange(cf, nullptr, nullptr);
+    }
   }
 
   // checks the whole kvmap_ to return correct values using KeyMayExist
@@ -151,12 +164,12 @@ class TtlTest {
       if (ret == false || value_found == false) {
         fprintf(stderr, "KeyMayExist could not find key=%s in the database but"
                         " should have\n", kv.first.c_str());
-        assert(false);
+        ASSERT_TRUE(false);
       } else if (val.compare(kv.second) != 0) {
         fprintf(stderr, " value for key=%s present in database is %s but"
                         " should be %s\n", kv.first.c_str(), val.c_str(),
                         kv.second.c_str());
-        assert(false);
+        ASSERT_TRUE(false);
       }
     }
   }
@@ -167,16 +180,18 @@ class TtlTest {
   // Also checks that value that we got is the same as inserted; and =kNewValue
   //   if test_compaction_change is true
   void SleepCompactCheck(int slp_tim, int st_pos, int span, bool check = true,
-                         bool test_compaction_change = false) {
-    assert(db_ttl_);
+                         bool test_compaction_change = false,
+                         ColumnFamilyHandle* cf = nullptr) {
+    ASSERT_TRUE(db_ttl_);
     sleep(slp_tim);
-    ManualCompact();
+    ManualCompact(cf);
     static ReadOptions ropts;
     kv_it_ = kvmap_.begin();
     advance(kv_it_, st_pos);
     std::string v;
     for (int i = 0; kv_it_ != kvmap_.end() && i < span; i++, kv_it_++) {
-      Status s = db_ttl_->Get(ropts, kv_it_->first, &v);
+      Status s = (cf == nullptr) ? db_ttl_->Get(ropts, kv_it_->first, &v)
+                                 : db_ttl_->Get(ropts, cf, kv_it_->first, &v);
       if (s.ok() != check) {
         fprintf(stderr, "key=%s ", kv_it_->first.c_str());
         if (!s.ok()) {
@@ -184,18 +199,18 @@ class TtlTest {
         } else {
           fprintf(stderr, "is present in db but was expected to be absent\n");
         }
-        assert(false);
+        ASSERT_TRUE(false);
       } else if (s.ok()) {
           if (test_compaction_change && v.compare(kNewValue_) != 0) {
             fprintf(stderr, " value for key=%s present in database is %s but "
                             " should be %s\n", kv_it_->first.c_str(), v.c_str(),
                             kNewValue_.c_str());
-            assert(false);
+            ASSERT_TRUE(false);
           } else if (!test_compaction_change && v.compare(kv_it_->second) !=0) {
             fprintf(stderr, " value for key=%s present in database is %s but "
                             " should be %s\n", kv_it_->first.c_str(), v.c_str(),
                             kv_it_->second.c_str());
-            assert(false);
+            ASSERT_TRUE(false);
           }
       }
     }
@@ -203,7 +218,7 @@ class TtlTest {
 
   // Similar as SleepCompactCheck but uses TtlIterator to read from db
   void SleepCompactCheckIter(int slp, int st_pos, int span, bool check=true) {
-    assert(db_ttl_);
+    ASSERT_TRUE(db_ttl_);
     sleep(slp);
     ManualCompact();
     static ReadOptions ropts;
@@ -301,10 +316,10 @@ class TtlTest {
 
   // Choose carefully so that Put, Gets & Compaction complete in 1 second buffer
   const int64_t kSampleSize_ = 100;
-
- private:
   std::string dbname_;
   StackableDB* db_ttl_;
+
+ private:
   Options options_;
   KVMap kvmap_;
   KVMap::iterator kv_it_;
@@ -494,6 +509,54 @@ TEST(TtlTest, KeyMayExist) {
   SimpleKeyMayExistCheck();
 
   CloseTtl();
+}
+
+TEST(TtlTest, ColumnFamiliesTest) {
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+
+  DB::Open(options, dbname_, &db);
+  ColumnFamilyHandle* handle;
+  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(options),
+                                   "ttl_column_family", &handle));
+
+  delete handle;
+  delete db;
+
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(ColumnFamilyDescriptor(
+      kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
+  column_families.push_back(ColumnFamilyDescriptor(
+      "ttl_column_family", ColumnFamilyOptions(options)));
+
+  std::vector<ColumnFamilyHandle*> handles;
+
+  ASSERT_OK(UtilityDB::OpenTtlDB(DBOptions(options), dbname_, column_families,
+                                 &handles, &db_ttl_, {2, 4}, false));
+  ASSERT_EQ(handles.size(), 2U);
+
+  MakeKVMap(kSampleSize_);
+  PutValues(0, kSampleSize_, false, handles[0]);
+  PutValues(0, kSampleSize_, false, handles[1]);
+
+  // everything should be there after 1 second
+  SleepCompactCheck(1, 0, kSampleSize_, true, false, handles[0]);
+  SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[1]);
+
+  // only column family 1 should be alive after 3 seconds
+  SleepCompactCheck(2, 0, kSampleSize_, false, false, handles[0]);
+  SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[1]);
+
+  // nothing should be there after 5 seconds
+  SleepCompactCheck(2, 0, kSampleSize_, false, false, handles[0]);
+  SleepCompactCheck(0, 0, kSampleSize_, false, false, handles[1]);
+
+  for (auto h : handles) {
+    delete h;
+  }
+  delete db_ttl_;
+  db_ttl_ = nullptr;
 }
 
 } //  namespace rocksdb

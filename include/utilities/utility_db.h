@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #pragma once
-#include "stackable_db.h"
+#ifndef ROCKSDB_LITE
+#include <vector>
+#include <string>
+
+#include "utilities/stackable_db.h"
+#include "rocksdb/db.h"
 
 namespace rocksdb {
 
@@ -46,6 +50,13 @@ class UtilityDB {
                             StackableDB** dbptr,
                             int32_t ttl = 0,
                             bool read_only = false);
+
+    // OpenTtlDB with column family support
+    static Status OpenTtlDB(
+        const DBOptions& db_options, const std::string& name,
+        const std::vector<ColumnFamilyDescriptor>& column_families,
+        std::vector<ColumnFamilyHandle*>* handles, StackableDB** dbptr,
+        std::vector<int32_t> ttls, bool read_only = false);
 };
 
 } //  namespace rocksdb
