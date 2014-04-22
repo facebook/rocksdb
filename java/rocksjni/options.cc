@@ -21,6 +21,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/filter_policy.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -117,6 +118,17 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
     JNIEnv* env, jobject jobj, jlong jOptHandle) {
   auto st = reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics.get();
   return reinterpret_cast<jlong>(st);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setFilter0
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setFilter0(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jobject jfp) {
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->filter_policy =
+      rocksdb::FilterJni::getHandle(env, jfp);
 }
 
 /*

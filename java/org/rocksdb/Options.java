@@ -144,6 +144,18 @@ public class Options {
     return blockSize(nativeHandle_);
   }
 
+  /**
+   * Use the specified filter policy to reduce disk reads.
+   * @param Filter policy java instance.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
+   */
+  public Options setFilter(Filter filter) {
+    assert(isInitialized());
+    setFilter0(nativeHandle_, filter);
+    return this;
+  }
+
   /*
    * Disable compaction triggered by seek.
    * With bloomfilter and fast storage, a miss on one level
@@ -1237,6 +1249,8 @@ public class Options {
 
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
+
+  private native void setFilter0(long optHandle, Filter fp);
 
   long nativeHandle_;
   long cacheSize_;

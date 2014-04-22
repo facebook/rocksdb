@@ -162,4 +162,3 @@ public class ReadOptions {
     return nativeHandle_ != 0;
   }
 }
-
