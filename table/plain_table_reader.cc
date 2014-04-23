@@ -104,8 +104,8 @@ PlainTableReader::PlainTableReader(
       kHashTableRatio(hash_table_ratio),
       kBloomBitsPerKey(bloom_bits_per_key),
       kIndexIntervalForSamePrefixKeys(index_sparseness),
-      table_properties_(table_properties),
-      data_end_offset_(table_properties_->data_size),
+      table_properties_(nullptr),
+      data_end_offset_(table_properties->data_size),
       user_key_len_(table_properties->fixed_key_len) {
   assert(kHashTableRatio >= 0.0);
 }
@@ -137,7 +137,7 @@ Status PlainTableReader::Open(
       bloom_bits_per_key, hash_table_ratio, index_sparseness, props));
 
   // -- Populate Index
-  s = new_reader->PopulateIndex();
+  s = new_reader->PopulateIndex(props);
   if (!s.ok()) {
     return s;
   }
@@ -364,7 +364,10 @@ void PlainTableReader::FillIndexes(
       index_size_, kSubIndexSize);
 }
 
-Status PlainTableReader::PopulateIndex() {
+Status PlainTableReader::PopulateIndex(TableProperties* props) {
+  assert(props != nullptr);
+  table_properties_.reset(props);
+
   // options.prefix_extractor is requried for a hash-based look-up.
   if (options_.prefix_extractor.get() == nullptr && kHashTableRatio != 0) {
     return Status::NotSupported(
@@ -408,6 +411,14 @@ Status PlainTableReader::PopulateIndex() {
       &record_list, &hash_to_offsets, &entries_per_bucket);
   // From the temp data structure, populate indexes.
   FillIndexes(sub_index_size_needed, hash_to_offsets, entries_per_bucket);
+
+  // Fill two table properties.
+  // TODO(sdong): after we have the feature of storing index in file, this
+  // properties need to be populated to index_size instead.
+  props->user_collected_properties["plain_table_hash_table_size"] =
+      std::to_string(index_size_ * 4U);
+  props->user_collected_properties["plain_table_sub_index_size"] =
+      std::to_string(sub_index_size_needed);
 
   return Status::OK();
 }

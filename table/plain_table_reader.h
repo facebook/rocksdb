@@ -87,6 +87,9 @@ class PlainTableReader: public TableReader {
   // PopulateIndex() builds index of keys. It must be called before any query
   // to the table.
   //
+  // props: the table properties object that need to be stored. Ownership of
+  //        the object will be passed.
+  //
   // index_ contains buckets size of index_size_, each is a
   // 32-bit integer. The lower 31 bits contain an offset value (explained below)
   // and the first bit of the integer indicates type of the offset.
@@ -122,7 +125,7 @@ class PlainTableReader: public TableReader {
   //    ....
   //   record N file offset:  fixedint32
   // <end>
-  Status PopulateIndex();
+  Status PopulateIndex(TableProperties* props);
 
  private:
   struct IndexRecord;

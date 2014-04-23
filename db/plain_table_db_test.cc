@@ -190,7 +190,7 @@ class TestPlainTableReader : public PlainTableReader {
                          file_size, bloom_bits_per_key, hash_table_ratio,
                          index_sparseness, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
-    Status s = PopulateIndex();
+    Status s = PopulateIndex(const_cast<TableProperties*>(table_properties));
     ASSERT_TRUE(s.ok());
   }
 
@@ -265,6 +265,19 @@ TEST(PlainTableDBTest, Flush) {
       ASSERT_OK(Put("0000000000000bar", "v2"));
       ASSERT_OK(Put("1000000000000foo", "v3"));
       dbfull()->TEST_FlushMemTable();
+
+      TablePropertiesCollection ptc;
+      reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+      ASSERT_EQ(1, ptc.size());
+      auto row = ptc.begin();
+      auto tp = row->second;
+      ASSERT_EQ(
+          total_order ? "4" : "12",
+          (tp->user_collected_properties).at("plain_table_hash_table_size"));
+      ASSERT_EQ(
+          total_order ? "9" : "0",
+          (tp->user_collected_properties).at("plain_table_sub_index_size"));
+
       ASSERT_EQ("v3", Get("1000000000000foo"));
       ASSERT_EQ("v2", Get("0000000000000bar"));
     }
