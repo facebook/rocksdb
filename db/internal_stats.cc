@@ -38,6 +38,10 @@ DBPropertyType GetPropertyType(const Slice& property) {
     return kBackgroundErrors;
   } else if (in == "cur-size-active-mem-table") {
     return kCurSizeActiveMemTable;
+  } else if (in == "num-entries-active-mem-table") {
+    return kNumEntriesInMutableMemtable;
+  } else if (in == "num-entries-imm-mem-tables") {
+    return kNumEntriesInImmutableMemtable;
   }
   return kUnknown;
 }
@@ -47,7 +51,7 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
                                 DBImpl* db) {
   VersionSet* version_set = db->versions_.get();
   Version* current = version_set->current();
-  const MemTableList& imm = db->imm_;
+  MemTableList& imm = db->imm_;
   Slice in = property;
 
   switch (property_type) {
@@ -352,6 +356,14 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
     case kCurSizeActiveMemTable:
       // Current size of the active memtable
       *value = std::to_string(db->mem_->ApproximateMemoryUsage());
+      return true;
+    case kNumEntriesInMutableMemtable:
+      // Current size of the active memtable
+      *value = std::to_string(db->mem_->GetNumEntries());
+      return true;
+    case kNumEntriesInImmutableMemtable:
+      // Current size of the active memtable
+      *value = std::to_string(imm.current()->GetTotalNumEntries());
       return true;
     default:
       return false;
