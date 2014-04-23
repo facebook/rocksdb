@@ -415,7 +415,7 @@ class DBTest {
         options.db_log_dir = test::TmpDir();
         break;
       case kWalDir:
-        options.wal_dir = "/tmp/wal";
+        options.wal_dir = test::TmpDir() + "/wal_dir";
         break;
       case kManifestFileSize:
         options.max_manifest_file_size = 50; // 50 bytes

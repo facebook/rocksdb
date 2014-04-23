@@ -10,13 +10,12 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
 #include "util/autovector.h"
-#include "port/port_posix.h"
-#include "util/thread_local.h"
 
 namespace rocksdb {
 
@@ -153,7 +152,7 @@ class ThreadLocalPtr {
 
     // protect inst, next_instance_id_, free_instance_ids_, head_,
     // ThreadData.entries
-    static port::Mutex mutex_;
+    static std::mutex mutex_;
 #if !defined(OS_MACOSX)
     // Thread local storage
     static __thread ThreadData* tls_;
