@@ -162,7 +162,6 @@ class MemTableIterator: public Iterator {
   MemTableIterator(const MemTable& mem, const ReadOptions& options)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
-        iter_(),
         valid_(false) {
     if (options.prefix) {
       iter_.reset(mem.table_->GetPrefixIterator(*options.prefix));
@@ -217,7 +216,7 @@ class MemTableIterator: public Iterator {
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;
-  std::shared_ptr<MemTableRep::Iterator> iter_;
+  std::unique_ptr<MemTableRep::Iterator> iter_;
   bool valid_;
 
   // No copying allowed
@@ -477,7 +476,7 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
-  std::shared_ptr<MemTableRep::Iterator> iter(
+  std::unique_ptr<MemTableRep::Iterator> iter(
     table_->GetIterator(lkey.user_key()));
   iter->Seek(lkey.internal_key(), memkey.data());
 
