@@ -14,20 +14,14 @@
 
 namespace rocksdb {
 
-std::unique_ptr<ThreadLocalPtr::StaticMeta> ThreadLocalPtr::StaticMeta::inst_;
 port::Mutex ThreadLocalPtr::StaticMeta::mutex_;
 #if !defined(OS_MACOSX)
 __thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 #endif
 
-ThreadLocalPtr::StaticMeta* ThreadLocalPtr::StaticMeta::Instance() {
-  if (UNLIKELY(inst_ == nullptr)) {
-    MutexLock l(&mutex_);
-    if (inst_ == nullptr) {
-      inst_.reset(new StaticMeta());
-    }
-  }
-  return inst_.get();
+ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
+  static ThreadLocalPtr::StaticMeta inst;
+  return &inst;
 }
 
 void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
@@ -216,34 +210,34 @@ void ThreadLocalPtr::StaticMeta::ReclaimId(uint32_t id) {
 }
 
 ThreadLocalPtr::ThreadLocalPtr(UnrefHandler handler)
-    : id_(StaticMeta::Instance()->GetId()) {
+    : id_(Instance()->GetId()) {
   if (handler != nullptr) {
-    StaticMeta::Instance()->SetHandler(id_, handler);
+    Instance()->SetHandler(id_, handler);
   }
 }
 
 ThreadLocalPtr::~ThreadLocalPtr() {
-  StaticMeta::Instance()->ReclaimId(id_);
+  Instance()->ReclaimId(id_);
 }
 
 void* ThreadLocalPtr::Get() const {
-  return StaticMeta::Instance()->Get(id_);
+  return Instance()->Get(id_);
 }
 
 void ThreadLocalPtr::Reset(void* ptr) {
-  StaticMeta::Instance()->Reset(id_, ptr);
+  Instance()->Reset(id_, ptr);
 }
 
 void* ThreadLocalPtr::Swap(void* ptr) {
-  return StaticMeta::Instance()->Swap(id_, ptr);
+  return Instance()->Swap(id_, ptr);
 }
 
 bool ThreadLocalPtr::CompareAndSwap(void* ptr, void*& expected) {
-  return StaticMeta::Instance()->CompareAndSwap(id_, ptr, expected);
+  return Instance()->CompareAndSwap(id_, ptr, expected);
 }
 
 void ThreadLocalPtr::Scrape(autovector<void*>* ptrs, void* const replacement) {
-  StaticMeta::Instance()->Scrape(id_, ptrs, replacement);
+  Instance()->Scrape(id_, ptrs, replacement);
 }
 
 }  // namespace rocksdb

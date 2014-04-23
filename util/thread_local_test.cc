@@ -49,7 +49,7 @@ struct Params {
 
 class IDChecker : public ThreadLocalPtr {
  public:
-  static uint32_t PeekId() { return StaticMeta::Instance()->PeekId(); }
+  static uint32_t PeekId() { return Instance()->PeekId(); }
 };
 
 }  // anonymous namespace
