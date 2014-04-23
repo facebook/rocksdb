@@ -8,23 +8,21 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/thread_local.h"
-
-#include <mutex>
-
 #include "util/mutexlock.h"
 #include "port/likely.h"
+
 
 namespace rocksdb {
 
 std::unique_ptr<ThreadLocalPtr::StaticMeta> ThreadLocalPtr::StaticMeta::inst_;
-std::mutex ThreadLocalPtr::StaticMeta::mutex_;
+port::Mutex ThreadLocalPtr::StaticMeta::mutex_;
 #if !defined(OS_MACOSX)
 __thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 #endif
 
 ThreadLocalPtr::StaticMeta* ThreadLocalPtr::StaticMeta::Instance() {
   if (UNLIKELY(inst_ == nullptr)) {
-    std::lock_guard<std::mutex> l(mutex_);
+    MutexLock l(&mutex_);
     if (inst_ == nullptr) {
       inst_.reset(new StaticMeta());
     }
@@ -39,7 +37,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   auto* inst = Instance();
   pthread_setspecific(inst->pthread_key_, nullptr);
 
-  std::lock_guard<std::mutex> l(mutex_);
+  MutexLock l(&mutex_);
   inst->RemoveThreadData(tls);
   // Unref stored pointers of current thread from all instances
   uint32_t id = 0;
@@ -66,6 +64,7 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
 }
 
 void ThreadLocalPtr::StaticMeta::AddThreadData(ThreadLocalPtr::ThreadData* d) {
+  mutex_.AssertHeld();
   d->next = &head_;
   d->prev = head_.prev;
   head_.prev->next = d;
@@ -74,6 +73,7 @@ void ThreadLocalPtr::StaticMeta::AddThreadData(ThreadLocalPtr::ThreadData* d) {
 
 void ThreadLocalPtr::StaticMeta::RemoveThreadData(
     ThreadLocalPtr::ThreadData* d) {
+  mutex_.AssertHeld();
   d->next->prev = d->prev;
   d->prev->next = d->next;
   d->next = d->prev = d;
@@ -93,14 +93,14 @@ ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
     {
       // Register it in the global chain, needs to be done before thread exit
       // handler registration
-      std::lock_guard<std::mutex> l(mutex_);
+      MutexLock l(&mutex_);
       inst->AddThreadData(tls_);
     }
     // Even it is not OS_MACOSX, need to register value for pthread_key_ so that
     // its exit handler will be triggered.
     if (pthread_setspecific(inst->pthread_key_, tls_) != 0) {
       {
-        std::lock_guard<std::mutex> l(mutex_);
+        MutexLock l(&mutex_);
         inst->RemoveThreadData(tls_);
       }
       delete tls_;
@@ -122,7 +122,7 @@ void ThreadLocalPtr::StaticMeta::Reset(uint32_t id, void* ptr) {
   auto* tls = GetThreadLocal();
   if (UNLIKELY(id >= tls->entries.size())) {
     // Need mutex to protect entries access within ReclaimId
-    std::lock_guard<std::mutex> l(mutex_);
+    MutexLock l(&mutex_);
     tls->entries.resize(id + 1);
   }
   tls->entries[id].ptr.store(ptr, std::memory_order_relaxed);
@@ -132,7 +132,7 @@ void* ThreadLocalPtr::StaticMeta::Swap(uint32_t id, void* ptr) {
   auto* tls = GetThreadLocal();
   if (UNLIKELY(id >= tls->entries.size())) {
     // Need mutex to protect entries access within ReclaimId
-    std::lock_guard<std::mutex> l(mutex_);
+    MutexLock l(&mutex_);
     tls->entries.resize(id + 1);
   }
   return tls->entries[id].ptr.exchange(ptr, std::memory_order_relaxed);
@@ -143,7 +143,7 @@ bool ThreadLocalPtr::StaticMeta::CompareAndSwap(uint32_t id, void* ptr,
   auto* tls = GetThreadLocal();
   if (UNLIKELY(id >= tls->entries.size())) {
     // Need mutex to protect entries access within ReclaimId
-    std::lock_guard<std::mutex> l(mutex_);
+    MutexLock l(&mutex_);
     tls->entries.resize(id + 1);
   }
   return tls->entries[id].ptr.compare_exchange_strong(expected, ptr,
@@ -152,7 +152,7 @@ bool ThreadLocalPtr::StaticMeta::CompareAndSwap(uint32_t id, void* ptr,
 
 void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
     void* const replacement) {
-  std::lock_guard<std::mutex> l(mutex_);
+  MutexLock l(&mutex_);
   for (ThreadData* t = head_.next; t != &head_; t = t->next) {
     if (id < t->entries.size()) {
       void* ptr =
@@ -165,11 +165,12 @@ void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
 }
 
 void ThreadLocalPtr::StaticMeta::SetHandler(uint32_t id, UnrefHandler handler) {
-  std::lock_guard<std::mutex> l(mutex_);
+  MutexLock l(&mutex_);
   handler_map_[id] = handler;
 }
 
 UnrefHandler ThreadLocalPtr::StaticMeta::GetHandler(uint32_t id) {
+  mutex_.AssertHeld();
   auto iter = handler_map_.find(id);
   if (iter == handler_map_.end()) {
     return nullptr;
@@ -178,7 +179,7 @@ UnrefHandler ThreadLocalPtr::StaticMeta::GetHandler(uint32_t id) {
 }
 
 uint32_t ThreadLocalPtr::StaticMeta::GetId() {
-  std::lock_guard<std::mutex> l(mutex_);
+  MutexLock l(&mutex_);
   if (free_instance_ids_.empty()) {
     return next_instance_id_++;
   }
@@ -189,7 +190,7 @@ uint32_t ThreadLocalPtr::StaticMeta::GetId() {
 }
 
 uint32_t ThreadLocalPtr::StaticMeta::PeekId() const {
-  std::lock_guard<std::mutex> l(mutex_);
+  MutexLock l(&mutex_);
   if (!free_instance_ids_.empty()) {
     return free_instance_ids_.back();
   }
@@ -199,7 +200,7 @@ uint32_t ThreadLocalPtr::StaticMeta::PeekId() const {
 void ThreadLocalPtr::StaticMeta::ReclaimId(uint32_t id) {
   // This id is not used, go through all thread local data and release
   // corresponding value
-  std::lock_guard<std::mutex> l(mutex_);
+  MutexLock l(&mutex_);
   auto unref = GetHandler(id);
   for (ThreadData* t = head_.next; t != &head_; t = t->next) {
     if (id < t->entries.size()) {

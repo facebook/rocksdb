@@ -9,13 +9,11 @@
 
 #include "port/port_posix.h"
 
-#include <memory>
 #include <cstdlib>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
 #include "util/logging.h"
-#include "util/thread_local.h"
 
 namespace rocksdb {
 namespace port {
@@ -28,9 +26,6 @@ static void PthreadCall(const char* label, int result) {
 }
 
 Mutex::Mutex(bool adaptive) {
-#ifndef NDEBUG
-  locked_.reset(new ThreadLocalPtr());
-#endif
 #ifdef OS_LINUX
   if (!adaptive) {
     PthreadCall("init mutex", pthread_mutex_init(&mu_, NULL));
@@ -54,26 +49,20 @@ Mutex::~Mutex() { PthreadCall("destroy mutex", pthread_mutex_destroy(&mu_)); }
 void Mutex::Lock() {
   PthreadCall("lock", pthread_mutex_lock(&mu_));
 #ifndef NDEBUG
-  locked_->Reset(this);
+  locked_ = true;
 #endif
 }
 
 void Mutex::Unlock() {
 #ifndef NDEBUG
-  locked_->Reset(nullptr);
+  locked_ = false;
 #endif
   PthreadCall("unlock", pthread_mutex_unlock(&mu_));
 }
 
 void Mutex::AssertHeld() {
 #ifndef NDEBUG
-  assert(locked_->Get() == this);
-#endif
-}
-
-void Mutex::AssertNotHeld() {
-#ifndef NDEBUG
-  assert(locked_->Get() == nullptr);
+  assert(locked_);
 #endif
 }
 
@@ -86,11 +75,11 @@ CondVar::~CondVar() { PthreadCall("destroy cv", pthread_cond_destroy(&cv_)); }
 
 void CondVar::Wait() {
 #ifndef NDEBUG
-  mu_->locked_->Reset(nullptr);
+  mu_->locked_ = false;
 #endif
   PthreadCall("wait", pthread_cond_wait(&cv_, &mu_->mu_));
 #ifndef NDEBUG
-  mu_->locked_->Reset(mu_);
+  mu_->locked_ = true;
 #endif
 }
 

@@ -9,7 +9,8 @@
 //
 // See port_example.h for documentation for the following types/functions.
 
-#pragma once
+#ifndef STORAGE_LEVELDB_PORT_PORT_POSIX_H_
+#define STORAGE_LEVELDB_PORT_PORT_POSIX_H_
 
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
@@ -50,7 +51,6 @@
 #include <lz4hc.h>
 #endif
 
-#include <memory>
 #include <stdint.h>
 #include <string>
 #include <string.h>
@@ -83,9 +83,6 @@
 #endif
 
 namespace rocksdb {
-
-class ThreadLocalPtr;
-
 namespace port {
 
 static const bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
@@ -93,10 +90,6 @@ static const bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 
 class CondVar;
 
-// DO NOT declare this Mutex as static ever. Inside it depends on ThreadLocalPtr
-// and its Lock() and Unlock() function depend on ThreadLocalPtr::StaticMeta,
-// which is also declared static. We can't really control static
-// deinitialization order.
 class Mutex {
  public:
   /* implicit */ Mutex(bool adaptive = false);
@@ -104,15 +97,15 @@ class Mutex {
 
   void Lock();
   void Unlock();
-
+  // this will assert if the mutex is not locked
+  // it does NOT verify that mutex is held by a calling thread
   void AssertHeld();
-  void AssertNotHeld();
 
  private:
   friend class CondVar;
   pthread_mutex_t mu_;
 #ifndef NDEBUG
-  std::unique_ptr<ThreadLocalPtr> locked_;
+  bool locked_;
 #endif
 
   // No copying
@@ -487,3 +480,5 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
 
 } // namespace port
 } // namespace rocksdb
+
+#endif  // STORAGE_LEVELDB_PORT_PORT_POSIX_H_
