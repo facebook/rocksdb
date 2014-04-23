@@ -29,8 +29,7 @@
 
 namespace rocksdb {
 
-MemTable::MemTable(const InternalKeyComparator& cmp,
-                   const Options& options)
+MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     : comparator_(cmp),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(options.arena_block_size)),
@@ -38,6 +37,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       arena_(options.arena_block_size),
       table_(options.memtable_factory->CreateMemTableRep(
           comparator_, &arena_, options.prefix_extractor.get())),
+      num_entries_(0),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
@@ -259,6 +259,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   table_->Insert(handle);
+  num_entries_++;
 
   if (prefix_bloom_) {
     assert(prefix_extractor_);

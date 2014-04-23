@@ -132,6 +132,9 @@ class MemTable {
   // key in the memtable.
   size_t CountSuccessiveMergeEntries(const LookupKey& key);
 
+  // Get total number of entries in the mem table.
+  uint64_t GetNumEntries() const { return num_entries_; }
+
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
@@ -173,6 +176,8 @@ class MemTable {
   const size_t kWriteBufferSize;
   Arena arena_;
   unique_ptr<MemTableRep> table_;
+
+  uint64_t num_entries_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush

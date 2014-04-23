@@ -78,6 +78,14 @@ void MemTableListVersion::AddIterators(const ReadOptions& options,
   }
 }
 
+uint64_t MemTableListVersion::GetTotalNumEntries() const {
+  uint64_t total_num = 0;
+  for (auto& m : memlist_) {
+    total_num += m->GetNumEntries();
+  }
+  return total_num;
+}
+
 // caller is responsible for referencing m
 void MemTableListVersion::Add(MemTable* m) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable

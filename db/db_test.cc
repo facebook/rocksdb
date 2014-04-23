@@ -1009,12 +1009,28 @@ TEST(DBTest, Empty) {
     options.write_buffer_size = 100000;  // Small write buffer
     CreateAndReopenWithCF({"pikachu"}, &options);
 
+    std::string num;
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+    ASSERT_EQ("0", num);
+
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+    ASSERT_EQ("1", num);
 
     env_->delay_sstable_sync_.Release_Store(env_);  // Block sync calls
     Put(1, "k1", std::string(100000, 'x'));         // Fill memtable
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+    ASSERT_EQ("2", num);
+
     Put(1, "k2", std::string(100000, 'y'));         // Trigger compaction
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+    ASSERT_EQ("1", num);
+
     ASSERT_EQ("v1", Get(1, "foo"));
     env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
   } while (ChangeOptions());
@@ -2225,6 +2241,9 @@ TEST(DBTest, NumImmutableMemTable) {
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
                                       "rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+    ASSERT_EQ(num, "1");
     perf_context.Reset();
     Get(1, "k1");
     ASSERT_EQ(1, (int) perf_context.get_from_memtable_count);
@@ -2233,6 +2252,13 @@ TEST(DBTest, NumImmutableMemTable) {
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
                                       "rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "1");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+    ASSERT_EQ(num, "1");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-imm-mem-tables", &num));
+    ASSERT_EQ(num, "1");
+
     perf_context.Reset();
     Get(1, "k1");
     ASSERT_EQ(2, (int) perf_context.get_from_memtable_count);
@@ -2245,6 +2271,12 @@ TEST(DBTest, NumImmutableMemTable) {
         handles_[1], "rocksdb.cur-size-active-mem-table", &num));
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
                                       "rocksdb.num-immutable-mem-table", &num));
+    ASSERT_EQ(num, "2");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+    ASSERT_EQ(num, "1");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-imm-mem-tables", &num));
     ASSERT_EQ(num, "2");
     perf_context.Reset();
     Get(1, "k2");
