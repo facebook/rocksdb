@@ -28,11 +28,11 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/perf_context.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/stack_trace.h"
 #include "util/string_util.h"
 #include "util/statistics.h"
 #include "util/testutil.h"
@@ -2528,7 +2528,7 @@ class Benchmark {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  rocksdb::InstallStackTraceHandler();
+  rocksdb::port::InstallStackTraceHandler();
   google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                           " [OPTIONS]...");
   google::ParseCommandLineFlags(&argc, &argv, true);

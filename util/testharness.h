@@ -12,10 +12,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sstream>
+#include "port/stack_trace.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "util/random.h"
-#include "util/stack_trace.h"
 
 namespace rocksdb {
 namespace test {
@@ -59,7 +59,7 @@ class Tester {
   ~Tester() {
     if (!ok_) {
       fprintf(stderr, "%s:%d:%s\n", fname_, line_, ss_.str().c_str());
-      PrintStack(2);
+      port::PrintStack(2);
       exit(1);
     }
   }
