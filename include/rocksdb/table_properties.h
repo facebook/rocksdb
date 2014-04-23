@@ -23,7 +23,7 @@ namespace rocksdb {
 //      ++pos) {
 //   ...
 // }
-typedef std::map<std::string, std::string> UserCollectedProperties;
+typedef std::map<const std::string, std::string> UserCollectedProperties;
 
 // TableProperties contains a bunch of read-only properties of its associated
 // table.
