@@ -1120,7 +1120,7 @@ public class DbBenchmark {
     block_size(defaultOptions_.blockSize(),
         "Number of bytes in a block.") {
       @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
+        return Long.parseLong(value);
       }
     },
     compressed_cache_size(-1,
