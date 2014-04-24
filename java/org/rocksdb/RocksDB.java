@@ -36,7 +36,7 @@ public class RocksDB {
     // the c++ one.
     Options options = new Options();
     db.open(options.nativeHandle_, options.cacheSize_, path);
-    db.transferCppRawPointersOwnership(options);
+    db.transferCppRawPointersOwnershipFrom(options);
     options.dispose();
     return db;
   }
