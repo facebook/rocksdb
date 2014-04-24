@@ -36,6 +36,7 @@ public class RocksDB {
     // the c++ one.
     Options options = new Options();
     db.open(options.nativeHandle_, options.cacheSize_, path);
+    db.transferCppRawPointersOwnership(options);
     options.dispose();
     return db;
   }
@@ -46,8 +47,12 @@ public class RocksDB {
    */
   public static RocksDB open(Options options, String path)
       throws RocksDBException {
+    // when non-default Options is used, keeping an Options reference
+    // in RocksDB can prevent Java to GC during the life-time of
+    // the currently-created RocksDB.
     RocksDB db = new RocksDB();
     db.open(options.nativeHandle_, options.cacheSize_, path);
+    db.transferCppRawPointersOwnershipFrom(options);
     return db;
   }
 
@@ -195,6 +200,17 @@ public class RocksDB {
     nativeHandle_ = 0;
   }
 
+  /**
+   * Transfer the ownership of all c++ raw-pointers from Options
+   * to RocksDB to ensure the life-time of those raw-pointers
+   * will be at least as long as the life-time of any RocksDB
+   * that uses these raw-pointers.
+   */
+  protected void transferCppRawPointersOwnershipFrom(Options opt) {
+    filter_ = opt.filter_;
+    opt.filter_ = null;
+  }
+
   // native methods
   protected native void open(
       long optionsHandle, long cacheSize, String path) throws RocksDBException;
@@ -227,4 +243,5 @@ public class RocksDB {
   protected native void close0();
 
   protected long nativeHandle_;
+  protected Filter filter_;
 }

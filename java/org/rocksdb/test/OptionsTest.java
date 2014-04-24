@@ -123,9 +123,9 @@ public class OptionsTest {
       assert(opt.tableCacheRemoveScanCountLimit() == intValue);
     }
 
-    { // WALTtlSeconds test
+    { // WalTtlSeconds test
       long longValue = rand.nextLong();
-      opt.setWALTtlSeconds(longValue);
+      opt.setWalTtlSeconds(longValue);
       assert(opt.walTtlSeconds() == longValue);
     }
 

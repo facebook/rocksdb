@@ -122,13 +122,13 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setFilter0
+ * Method:    setFilterHandle
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_setFilter0(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jobject jfp) {
+void Java_org_rocksdb_Options_setFilterHandle(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jfilter_handle) {
   reinterpret_cast<rocksdb::Options*>(jopt_handle)->filter_policy =
-      rocksdb::FilterJni::getHandle(env, jfp);
+      reinterpret_cast<rocksdb::FilterPolicy*>(jfilter_handle);
 }
 
 /*
@@ -602,13 +602,34 @@ jlong Java_org_rocksdb_Options_walTtlSeconds(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setWALTtlSeconds
+ * Method:    setWalTtlSeconds
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_setWALTtlSeconds(
+void Java_org_rocksdb_Options_setWalTtlSeconds(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong WAL_ttl_seconds) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->WAL_ttl_seconds =
       static_cast<int64_t>(WAL_ttl_seconds);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    walTtlSeconds
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_walSizeLimitMB(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->WAL_size_limit_MB;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWalSizeLimitMB
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setWalSizeLimitMB(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong WAL_size_limit_MB) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->WAL_size_limit_MB =
+      static_cast<int64_t>(WAL_size_limit_MB);
 }
 
 /*

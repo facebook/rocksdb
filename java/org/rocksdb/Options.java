@@ -146,15 +146,21 @@ public class Options {
 
   /**
    * Use the specified filter policy to reduce disk reads.
+   *
+   * Note that the caller should not dispose the input filter as
+   * Options.dispose() will dispose this filter.
+   *
    * @param Filter policy java instance.
    * @return the instance of the current Options.
    * @see RocksDB.open()
    */
   public Options setFilter(Filter filter) {
     assert(isInitialized());
-    setFilter0(nativeHandle_, filter);
+    setFilterHandle(nativeHandle_, filter.nativeHandle_);
+    filter_ = filter;
     return this;
   }
+  private native void setFilterHandle(long optHandle, long filterHandle);
 
   /*
    * Disable compaction triggered by seek.
@@ -786,7 +792,8 @@ public class Options {
       long handle, int limit);
 
   /**
-   * The following two fields affect how archived logs will be deleted.
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
    * 1. If both set to 0, logs will be deleted asap and will not get into
    *    the archive.
    * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
@@ -800,6 +807,7 @@ public class Options {
    *    checks will be performed with ttl being first.
    *
    * @return the wal-ttl seconds
+   * @see walSizeLimitMB()
    */
   public long walTtlSeconds() {
     assert(isInitialized());
@@ -808,7 +816,8 @@ public class Options {
   private native long walTtlSeconds(long handle);
 
   /**
-   * The following two fields affect how archived logs will be deleted.
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
    * 1. If both set to 0, logs will be deleted asap and will not get into
    *    the archive.
    * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
@@ -823,13 +832,64 @@ public class Options {
    *
    * @param walTtlSeconds the ttl seconds
    * @return the reference to the current option.
+   * @see setWalSizeLimitMB()
    */
-  public Options setWALTtlSeconds(long walTtlSeconds) {
+  public Options setWalTtlSeconds(long walTtlSeconds) {
     assert(isInitialized());
-    setWALTtlSeconds(nativeHandle_, walTtlSeconds);
+    setWalTtlSeconds(nativeHandle_, walTtlSeconds);
     return this;
   }
-  private native void setWALTtlSeconds(long handle, long walTtlSeconds);
+  private native void setWalTtlSeconds(long handle, long walTtlSeconds);
+
+  /**
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
+   * 1. If both set to 0, logs will be deleted asap and will not get into
+   *    the archive.
+   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   *    WAL files will be checked every 10 min and if total size is greater
+   *    then WAL_size_limit_MB, they will be deleted starting with the
+   *    earliest until size_limit is met. All empty files will be deleted.
+   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   *    are older than WAL_ttl_seconds will be deleted.
+   * 4. If both are not 0, WAL files will be checked every 10 min and both
+   *    checks will be performed with ttl being first.
+   *
+   * @return size limit in mega-bytes.
+   * @see walSizeLimitMB()
+   */
+  public long walSizeLimitMB() {
+    assert(isInitialized());
+    return walSizeLimitMB(nativeHandle_);
+  }
+  private native long walSizeLimitMB(long handle);
+
+  /**
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
+   * 1. If both set to 0, logs will be deleted asap and will not get into
+   *    the archive.
+   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   *    WAL files will be checked every 10 min and if total size is greater
+   *    then WAL_size_limit_MB, they will be deleted starting with the
+   *    earliest until size_limit is met. All empty files will be deleted.
+   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   *    are older than WAL_ttl_seconds will be deleted.
+   * 4. If both are not 0, WAL files will be checked every 10 min and both
+   *    checks will be performed with ttl being first.
+   *
+   * @param sizeLimitMB size limit in mega-bytes.
+   * @return the reference to the current option.
+   * @see setWalSizeLimitMB()
+   */
+  public Options setWalSizeLimitMB(long sizeLimitMB) {
+    assert(isInitialized());
+    setWalSizeLimitMB(nativeHandle_, sizeLimitMB);
+    return this;
+  }
+  private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
 
   /**
    * Number of bytes to preallocate (via fallocate) the manifest
@@ -2298,8 +2358,7 @@ public class Options {
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
 
-  private native void setFilter0(long optHandle, Filter fp);
-
   long nativeHandle_;
   long cacheSize_;
+  Filter filter_;
 }
