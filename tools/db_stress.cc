@@ -547,19 +547,20 @@ class SharedState {
  public:
   static const uint32_t SENTINEL;
 
-  explicit SharedState(StressTest* stress_test) :
-      cv_(&mu_),
-      seed_(FLAGS_seed),
-      max_key_(FLAGS_max_key),
-      log2_keys_per_lock_(FLAGS_log2_keys_per_lock),
-      num_threads_(FLAGS_threads),
-      num_initialized_(0),
-      num_populated_(0),
-      vote_reopen_(0),
-      num_done_(0),
-      start_(false),
-      start_verify_(false),
-      stress_test_(stress_test) {
+  explicit SharedState(StressTest* stress_test)
+      : cv_(&mu_),
+        seed_(FLAGS_seed),
+        max_key_(FLAGS_max_key),
+        log2_keys_per_lock_(FLAGS_log2_keys_per_lock),
+        num_threads_(FLAGS_threads),
+        num_initialized_(0),
+        num_populated_(0),
+        vote_reopen_(0),
+        num_done_(0),
+        start_(false),
+        start_verify_(false),
+        stress_test_(stress_test),
+        verification_failure_(false) {
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
       return;
