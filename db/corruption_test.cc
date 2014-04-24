@@ -360,6 +360,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   options.max_mem_compaction_level = 0;
   Reopen(&options);
 
+  dbi = reinterpret_cast<DBImpl*>(db_);
   Build(10);
   dbi->TEST_FlushMemTable();
   dbi->TEST_WaitForCompact();
