@@ -277,7 +277,7 @@ class IterKey {
       delete[] key_;
     }
     key_ = space_;
-    buf_size_ = sizeof(buf_size_);
+    buf_size_ = sizeof(space_);
     key_size_ = 0;
   }
 
