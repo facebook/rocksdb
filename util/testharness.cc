@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/testharness.h"
+#include "port/stack_trace.h"
 
 #include <string>
 #include <stdlib.h>
@@ -39,6 +40,8 @@ bool RegisterTest(const char* base, const char* name, void (*func)()) {
 }
 
 int RunAllTests() {
+  port::InstallStackTraceHandler();
+
   const char* matcher = getenv("ROCKSDB_TESTS");
 
   int num = 0;

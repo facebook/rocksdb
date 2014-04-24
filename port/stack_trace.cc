@@ -23,6 +23,7 @@ void PrintStack(int first_frames_to_skip) {}
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <cxxabi.h>
 
 namespace {
 
@@ -69,9 +70,17 @@ void PrintStackTraceLine(const char* symbol, void* frame) {
 #elif OS_MACOSX
 
 void PrintStackTraceLine(const char* symbol, void* frame) {
-  // TODO(icanadi) demangle
   if (symbol) {
-    fprintf(stderr, "%s ", symbol);
+    char filename[64], function[512], plus[2], line[10];
+    sscanf(symbol, "%*s %64s %*s %512s %2s %10s", filename, function, plus,
+           line);
+    int status;
+    char* demangled = abi::__cxa_demangle(function, 0, 0, &status);
+    fprintf(stderr, "%s   %s %s %s", filename,
+            (status == 0) ? demangled : function, plus, line);
+    if (demangled) {
+      free(demangled);
+    }
   }
   fprintf(stderr, " %p", frame);
   fprintf(stderr, "\n");
@@ -111,8 +120,6 @@ void InstallStackTraceHandler() {
   signal(SIGSEGV, StackTraceHandler);
   signal(SIGBUS, StackTraceHandler);
   signal(SIGABRT, StackTraceHandler);
-
-  printf("Installed stack trace handler for SIGILL SIGSEGV SIGBUS SIGABRT\n");
 }
 
 #endif
