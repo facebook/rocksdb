@@ -325,7 +325,9 @@ class DBImpl : public DB {
 
   // TODO(icanadi) free superversion_to_free and old_log outside of mutex
   Status MakeRoomForWrite(ColumnFamilyData* cfd,
-                          bool force /* flush even if there is room? */);
+                          bool force /* flush even if there is room? */,
+                          autovector<SuperVersion*>* superversions_to_free,
+                          autovector<log::Writer*>* logs_to_free);
 
   void BuildBatchGroup(Writer** last_writer,
                        autovector<WriteBatch*>* write_batch_group);
