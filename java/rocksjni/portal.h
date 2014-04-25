@@ -315,5 +315,69 @@ class FilterJni {
         reinterpret_cast<jlong>(op));
   }
 };
+
+class ListJni {
+ public:
+  // Get the java class id of java.util.List.
+  static jclass getListClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("java/util/List");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+  
+  // Get the java class id of java.util.ArrayList.
+  static jclass getArrayListClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("java/util/ArrayList");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the java class id of java.util.Iterator.
+  static jclass getIteratorClass(JNIEnv* env) {
+    static jclass jclazz = env->FindClass("java/util/Iterator");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+  
+  // Get the java method id of java.util.List.iterator().
+  static jmethodID getIteratorMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getListClass(env), "iterator", "()Ljava/util/Iterator;");
+    assert(mid != nullptr);
+    return mid;
+  }
+  
+  // Get the java method id of java.util.Iterator.hasNext().
+  static jmethodID getHasNextMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getIteratorClass(env), "hasNext", "()Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+  
+  // Get the java method id of java.util.Iterator.next().
+  static jmethodID getNextMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getIteratorClass(env), "next", "()Ljava/lang/Object;");
+    assert(mid != nullptr);
+    return mid;
+  }
+  
+  // Get the java method id of arrayList constructor.
+  static jmethodID getArrayListConstructorMethodId(JNIEnv* env, jclass jclazz) {
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "<init>", "(I)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+  
+  // Get the java method id of java.util.List.add().
+  static jmethodID getListAddMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getListClass(env), "add", "(Ljava/lang/Object;)Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

@@ -4,6 +4,8 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.ArrayList;
 import org.rocksdb.*;
 import org.rocksdb.util.SizeUnit;
 import java.io.IOException;
