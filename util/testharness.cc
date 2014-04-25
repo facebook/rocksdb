@@ -8,12 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/testharness.h"
-#include "port/stack_trace.h"
-
 #include <string>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include "port/stack_trace.h"
 
 namespace rocksdb {
 namespace test {

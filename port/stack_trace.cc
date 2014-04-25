@@ -70,19 +70,23 @@ void PrintStackTraceLine(const char* symbol, void* frame) {
 #elif OS_MACOSX
 
 void PrintStackTraceLine(const char* symbol, void* frame) {
-  if (symbol) {
-    char filename[64], function[512], plus[2], line[10];
-    sscanf(symbol, "%*s %64s %*s %512s %2s %10s", filename, function, plus,
-           line);
-    int status;
-    char* demangled = abi::__cxa_demangle(function, 0, 0, &status);
-    fprintf(stderr, "%s   %s %s %s", filename,
-            (status == 0) ? demangled : function, plus, line);
-    if (demangled) {
-      free(demangled);
+  static int pid = getpid();
+  // out source to atos, for the address translation
+  const int kLineMax = 256;
+  char cmd[kLineMax];
+  snprintf(cmd, kLineMax, "xcrun atos %p -p %d  2>&1", frame, pid);
+  auto f = popen(cmd, "r");
+  if (f) {
+    char line[kLineMax];
+    while (fgets(line, sizeof(line), f)) {
+      line[strlen(line) - 1] = 0;  // remove newline
+      fprintf(stderr, "%s\t", line);
     }
+    pclose(f);
+  } else if (symbol) {
+    fprintf(stderr, "%s ", symbol);
   }
-  fprintf(stderr, " %p", frame);
+
   fprintf(stderr, "\n");
 }
 
