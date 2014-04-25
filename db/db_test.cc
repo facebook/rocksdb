@@ -438,7 +438,7 @@ class DBTest {
         break;
       case kHashLinkList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-        options.memtable_factory.reset(NewHashLinkListRepFactory(4));
+        options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0));
         break;
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;

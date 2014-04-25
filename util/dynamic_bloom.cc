@@ -19,18 +19,19 @@ static uint32_t BloomHash(const Slice& key) {
 }
 }
 
-DynamicBloom::DynamicBloom(uint32_t total_bits,
-                           uint32_t cl_per_block,
+DynamicBloom::DynamicBloom(uint32_t total_bits, uint32_t cl_per_block,
                            uint32_t num_probes,
-                           uint32_t (*hash_func)(const Slice& key))
-  : kBlocked(cl_per_block > 0),
-    kBitsPerBlock(std::min(cl_per_block, num_probes) * CACHE_LINE_SIZE * 8),
-    kTotalBits((kBlocked ? (total_bits + kBitsPerBlock - 1) / kBitsPerBlock
-                              * kBitsPerBlock :
-                           total_bits + 7) / 8 * 8),
-    kNumBlocks(kBlocked ? kTotalBits / kBitsPerBlock : 1),
-    kNumProbes(num_probes),
-    hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {
+                           uint32_t (*hash_func)(const Slice& key),
+                           size_t huge_page_tlb_size)
+    : kBlocked(cl_per_block > 0),
+      kBitsPerBlock(std::min(cl_per_block, num_probes) * CACHE_LINE_SIZE * 8),
+      kTotalBits((kBlocked ? (total_bits + kBitsPerBlock - 1) / kBitsPerBlock *
+                                 kBitsPerBlock
+                           : total_bits + 7) /
+                 8 * 8),
+      kNumBlocks(kBlocked ? kTotalBits / kBitsPerBlock : 1),
+      kNumProbes(num_probes),
+      hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {
   assert(kBlocked ? kTotalBits > 0 : kTotalBits >= kBitsPerBlock);
   assert(kNumProbes > 0);
 
@@ -38,7 +39,9 @@ DynamicBloom::DynamicBloom(uint32_t total_bits,
   if (kBlocked) {
     sz += CACHE_LINE_SIZE - 1;
   }
-  raw_ = new unsigned char[sz]();
+  raw_ = reinterpret_cast<unsigned char*>(
+      arena_.AllocateAligned(sz, huge_page_tlb_size));
+  memset(raw_, 0, sz);
   if (kBlocked && (reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE)) {
     data_ = raw_ + CACHE_LINE_SIZE -
       reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE;

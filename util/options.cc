@@ -317,6 +317,10 @@ Options::Dump(Logger* log) const
         memtable_prefix_bloom_bits);
     Log(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
+    Log(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %zu",
+        memtable_prefix_bloom_huge_page_tlb_size);
+    Log(log, "                          Options.bloom_locality: %d",
+        bloom_locality);
     Log(log, "                   Options.max_successive_merges: %zd",
         max_successive_merges);
 }   // Options::Dump
