@@ -767,16 +767,11 @@ void Version::ComputeCompactionScore(
       // If we are slowing down writes, then we better compact that first
       if (numfiles >= cfd_->options()->level0_stop_writes_trigger) {
         score = 1000000;
-        // Log(options_->info_log, "XXX score l0 = 1000000000 max");
       } else if (numfiles >= cfd_->options()->level0_slowdown_writes_trigger) {
         score = 10000;
-        // Log(options_->info_log, "XXX score l0 = 1000000 medium");
       } else {
         score = static_cast<double>(numfiles) /
                 cfd_->options()->level0_file_num_compaction_trigger;
-        if (score >= 1) {
-          // Log(options_->info_log, "XXX score l0 = %d least", (int)score);
-        }
       }
     } else {
       // Compute the ratio of current size to size limit.
@@ -784,9 +779,6 @@ void Version::ComputeCompactionScore(
           TotalFileSize(files_[level]) - size_being_compacted[level];
       score = static_cast<double>(level_bytes) /
               cfd_->compaction_picker()->MaxBytesForLevel(level);
-      if (score > 1) {
-        // Log(options_->info_log, "XXX score l%d = %d ", level, (int)score);
-      }
       if (max_score < score) {
         max_score = score;
         max_score_level = level;
@@ -1823,8 +1815,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = edit->prev_log_number_;
   } else {
-    Log(options_->info_log, "Error in committing version %lu",
-        (unsigned long)v->GetVersionNumber());
+    Log(options_->info_log, "Error in committing version %lu to [%s]",
+        (unsigned long)v->GetVersionNumber(),
+        column_family_data->GetName().c_str());
     delete v;
     if (new_descriptor_log) {
       descriptor_log_.reset();
@@ -1916,7 +1909,7 @@ Status VersionSet::Recover(
     return Status::Corruption("CURRENT file corrupted");
   }
 
-  Log(options_->info_log, "Recovering from manifest file:%s\n",
+  Log(options_->info_log, "Recovering from manifest file: %s\n",
       manifest_filename.c_str());
 
   manifest_filename = dbname_ + "/" + manifest_filename;
@@ -2162,8 +2155,8 @@ Status VersionSet::Recover(
 
     for (auto cfd : *column_family_set_) {
       Log(options_->info_log,
-          "Column family \"%s\", log number is %" PRIu64 "\n",
-          cfd->GetName().c_str(), cfd->GetLogNumber());
+          "Column family [%s] (ID %u), log number is %" PRIu64 "\n",
+          cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
     }
   }
 
@@ -2708,7 +2701,9 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
 #ifndef NDEBUG
   Version* version = c->column_family_data()->current();
   if (c->input_version() != version) {
-    Log(options_->info_log, "VerifyCompactionFileConsistency version mismatch");
+    Log(options_->info_log,
+        "[%s] VerifyCompactionFileConsistency version mismatch",
+        c->column_family_data()->GetName().c_str());
   }
 
   // verify files in level

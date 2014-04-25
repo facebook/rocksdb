@@ -1343,8 +1343,8 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mem->GetFirstSequenceNumber();
-  Log(options_.info_log, "Level-0 table #%lu: started",
-      (unsigned long) meta.number);
+  Log(options_.info_log, "[%s] Level-0 table #%lu: started",
+      cfd->GetName().c_str(), (unsigned long)meta.number);
 
   Status s;
   {
@@ -1357,10 +1357,9 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
     mutex_.Lock();
   }
 
-  Log(options_.info_log, "Level-0 table #%lu: %lu bytes %s",
-      (unsigned long) meta.number,
-      (unsigned long) meta.file_size,
-      s.ToString().c_str());
+  Log(options_.info_log, "[%s] Level-0 table #%lu: %lu bytes %s",
+      cfd->GetName().c_str(), (unsigned long)meta.number,
+      (unsigned long)meta.file_size, s.ToString().c_str());
   delete iter;
 
   pending_outputs_.erase(meta.number);
@@ -1404,15 +1403,14 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     log_buffer->FlushBufferToLog();
     std::vector<Iterator*> memtables;
     for (MemTable* m : mems) {
-      Log(options_.info_log,
-          "[CF %u] Flushing memtable with next log file: %lu\n", cfd->GetID(),
-          (unsigned long)m->GetNextLogNumber());
+      Log(options_.info_log, "[%s] Flushing memtable with next log file: %lu\n",
+          cfd->GetName().c_str(), (unsigned long)m->GetNextLogNumber());
       memtables.push_back(m->NewIterator());
     }
     Iterator* iter = NewMergingIterator(&cfd->internal_comparator(),
                                         &memtables[0], memtables.size());
-    Log(options_.info_log, "Level-0 flush table #%lu: started",
-        (unsigned long)meta.number);
+    Log(options_.info_log, "[%s] Level-0 flush table #%lu: started",
+        cfd->GetName().c_str(), (unsigned long)meta.number);
 
     s = BuildTable(dbname_, env_, *cfd->options(), storage_options_,
                    cfd->table_cache(), iter, &meta, cfd->internal_comparator(),
@@ -1420,10 +1418,13 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
                    GetCompressionFlush(*cfd->options()));
     LogFlush(options_.info_log);
     delete iter;
-    Log(options_.info_log, "Level-0 flush table #%lu: %lu bytes %s",
-        (unsigned long) meta.number,
-        (unsigned long) meta.file_size,
-        s.ToString().c_str());
+    Log(options_.info_log, "[%s] Level-0 flush table #%lu: %lu bytes %s",
+        cfd->GetName().c_str(), (unsigned long)meta.number,
+        (unsigned long)meta.file_size, s.ToString().c_str());
+
+    Version::LevelSummaryStorage tmp;
+    Log(options_.info_log, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
+        cfd->current()->LevelSummary(&tmp));
     if (!options_.disableDataSync) {
       db_directory_->Fsync();
     }
@@ -1483,7 +1484,8 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
   autovector<MemTable*> mems;
   cfd->imm()->PickMemtablesToFlush(&mems);
   if (mems.empty()) {
-    LogToBuffer(log_buffer, "Nothing in memstore to flush");
+    LogToBuffer(log_buffer, "[%s] Nothing in memtable to flush",
+                cfd->GetName().c_str());
     return Status::OK();
   }
 
@@ -1644,7 +1646,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
   Status status;
   if (to_level < level) {
-    Log(options_.info_log, "Before refitting:\n%s",
+    Log(options_.info_log, "[%s] Before refitting:\n%s", cfd->GetName().c_str(),
         cfd->current()->DebugString().data());
 
     VersionEdit edit;
@@ -1654,18 +1656,19 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
       edit.AddFile(to_level, f->number, f->file_size, f->smallest, f->largest,
                    f->smallest_seqno, f->largest_seqno);
     }
-    Log(options_.info_log, "Apply version edit:\n%s",
-        edit.DebugString().data());
+    Log(options_.info_log, "[%s] Apply version edit:\n%s",
+        cfd->GetName().c_str(), edit.DebugString().data());
 
     status = versions_->LogAndApply(cfd, &edit, &mutex_, db_directory_.get());
     superversion_to_free = cfd->InstallSuperVersion(new_superversion, &mutex_);
     new_superversion = nullptr;
 
-    Log(options_.info_log, "LogAndApply: %s\n", status.ToString().data());
+    Log(options_.info_log, "[%s] LogAndApply: %s\n", cfd->GetName().c_str(),
+        status.ToString().data());
 
     if (status.ok()) {
-      Log(options_.info_log, "After refitting:\n%s",
-          cfd->current()->DebugString().data());
+      Log(options_.info_log, "[%s] After refitting:\n%s",
+          cfd->GetName().c_str(), cfd->current()->DebugString().data());
     }
   }
 
@@ -1752,12 +1755,14 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   ++bg_manual_only_;
   while (bg_compaction_scheduled_ > 0) {
     Log(options_.info_log,
-        "Manual compaction waiting for all other scheduled background "
-        "compactions to finish");
+        "[%s] Manual compaction waiting for all other scheduled background "
+        "compactions to finish",
+        cfd->GetName().c_str());
     bg_cv_.Wait();
   }
 
-  Log(options_.info_log, "Manual compaction starting");
+  Log(options_.info_log, "[%s] Manual compaction starting",
+      cfd->GetName().c_str());
 
   while (!manual.done && !shutting_down_.Acquire_Load() && bg_error_.ok()) {
     assert(bg_manual_only_ > 0);
@@ -1874,8 +1879,9 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
       LogToBuffer(
           log_buffer,
           "BackgroundCallFlush doing FlushMemTableToOutputFile with column "
-          "family %u, flush slots available %d",
-          cfd->GetID(), options_.max_background_flushes - bg_flush_scheduled_);
+          "family [%s], flush slots available %d",
+          cfd->GetName().c_str(),
+          options_.max_background_flushes - bg_flush_scheduled_);
       flush_status = FlushMemTableToOutputFile(cfd, madeProgress,
                                                deletion_state, log_buffer);
     }
@@ -1963,8 +1969,6 @@ void DBImpl::BackgroundCallCompaction() {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_.info_log.get());
   {
     MutexLock l(&mutex_);
-    // Log(options_.info_log, "XXX BG Thread %llx process new work item",
-    //     pthread_self());
     assert(bg_compaction_scheduled_);
     Status s;
     if (!shutting_down_.Acquire_Load()) {
@@ -2086,16 +2090,15 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     if (!c) {
       m->done = true;
     }
-    LogToBuffer(
-        log_buffer,
-        "Manual compaction from level-%d to level-%d from %s .. %s; will stop "
-        "at %s\n",
-        m->input_level, m->output_level,
-        (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-        (m->end ? m->end->DebugString().c_str() : "(end)"),
-        ((m->done || manual_end == nullptr)
-             ? "(end)"
-             : manual_end->DebugString().c_str()));
+    LogToBuffer(log_buffer,
+                "[%s] Manual compaction from level-%d to level-%d from %s .. "
+                "%s; will stop at %s\n",
+                m->cfd->GetName().c_str(), m->input_level, m->output_level,
+                (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+                (m->end ? m->end->DebugString().c_str() : "(end)"),
+                ((m->done || manual_end == nullptr)
+                     ? "(end)"
+                     : manual_end->DebugString().c_str()));
   } else {
     // no need to refcount in iteration since it's always under a mutex
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -2128,10 +2131,12 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     InstallSuperVersion(c->column_family_data(), deletion_state);
 
     Version::LevelSummaryStorage tmp;
-    LogToBuffer(log_buffer, "Moved #%lld to level-%d %lld bytes %s: %s\n",
-        static_cast<unsigned long long>(f->number), c->level() + 1,
-        static_cast<unsigned long long>(f->file_size),
-        status.ToString().c_str(), c->input_version()->LevelSummary(&tmp));
+    LogToBuffer(log_buffer, "[%s] Moved #%lld to level-%d %lld bytes %s: %s\n",
+                c->column_family_data()->GetName().c_str(),
+                static_cast<unsigned long long>(f->number), c->level() + 1,
+                static_cast<unsigned long long>(f->file_size),
+                status.ToString().c_str(),
+                c->input_version()->LevelSummary(&tmp));
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   } else {
@@ -2235,7 +2240,6 @@ void DBImpl::ReleaseCompactionUnusedFileNumbers(CompactionState* compact) {
   mutex_.AssertHeld();
   for (const auto file_number : compact->allocated_file_numbers) {
     pending_outputs_.erase(file_number);
-    // Log(options_.info_log, "XXX releasing unused file num %d", file_number);
   }
 }
 
@@ -2334,11 +2338,9 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
     s = iter->status();
     delete iter;
     if (s.ok()) {
-      Log(options_.info_log,
-          "Generated table #%lu: %lu keys, %lu bytes",
-          (unsigned long) output_number,
-          (unsigned long) current_entries,
-          (unsigned long) current_bytes);
+      Log(options_.info_log, "[%s] Generated table #%lu: %lu keys, %lu bytes",
+          cfd->GetName().c_str(), (unsigned long)output_number,
+          (unsigned long)current_entries, (unsigned long)current_bytes);
     }
   }
   return s;
@@ -2354,15 +2356,16 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact,
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact.
   if (!versions_->VerifyCompactionFileConsistency(compact->compaction)) {
-    Log(options_.info_log,  "Compaction %d@%d + %d@%d files aborted",
-      compact->compaction->num_input_files(0),
-      compact->compaction->level(),
-      compact->compaction->num_input_files(1),
-      compact->compaction->output_level());
+    Log(options_.info_log, "[%s] Compaction %d@%d + %d@%d files aborted",
+        compact->compaction->column_family_data()->GetName().c_str(),
+        compact->compaction->num_input_files(0), compact->compaction->level(),
+        compact->compaction->num_input_files(1),
+        compact->compaction->output_level());
     return Status::Corruption("Compaction input files inconsistent");
   }
 
-  LogToBuffer(log_buffer, "Compacted %d@%d + %d@%d files => %lld bytes",
+  LogToBuffer(log_buffer, "[%s] Compacted %d@%d + %d@%d files => %lld bytes",
+              compact->compaction->column_family_data()->GetName().c_str(),
               compact->compaction->num_input_files(0),
               compact->compaction->level(),
               compact->compaction->num_input_files(1),
@@ -2620,16 +2623,6 @@ Status DBImpl::ProcessKeyValueCompaction(
       last_sequence_for_key = ikey.sequence;
       visible_in_snapshot = visible;
     }
-#if 0
-    Log(options_.info_log,
-        "  Compact: %s, seq %d, type: %d %d, drop: %d, is_base: %d, "
-        "%d smallest_snapshot: %d level: %d bottommost %d",
-        ikey.user_key.ToString().c_str(),
-        (int)ikey.sequence, ikey.type, kTypeValue, drop,
-        compact->compaction->IsBaseLevelForKey(ikey.user_key),
-        (int)last_sequence_for_key, (int)earliest_snapshot,
-        compact->compaction->level(), bottommost_level);
-#endif
 
     if (!drop) {
       // We may write a single key (e.g.: for Put/Delete or successful merge).
@@ -2801,14 +2794,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   ColumnFamilyData* cfd = compact->compaction->column_family_data();
   LogToBuffer(
       log_buffer,
-      "[CF %u] Compacting %d@%d + %d@%d files, score %.2f slots available %d",
-      cfd->GetID(), compact->compaction->num_input_files(0),
+      "[%s] Compacting %d@%d + %d@%d files, score %.2f slots available %d",
+      cfd->GetName().c_str(), compact->compaction->num_input_files(0),
       compact->compaction->level(), compact->compaction->num_input_files(1),
       compact->compaction->output_level(), compact->compaction->score(),
       options_.max_background_compactions - bg_compaction_scheduled_);
   char scratch[2345];
   compact->compaction->Summary(scratch, sizeof(scratch));
-  LogToBuffer(log_buffer, "Compaction start summary: %s\n", scratch);
+  LogToBuffer(log_buffer, "[%s] Compaction start summary: %s\n",
+              cfd->GetName().c_str(), scratch);
 
   assert(cfd->current()->NumLevelFiles(compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
@@ -2886,8 +2880,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       }
       if (!ParseInternalKey(key, &ikey)) {
         // log error
-        Log(options_.info_log, "Failed to parse key: %s",
-            key.ToString().c_str());
+        Log(options_.info_log, "[%s] Failed to parse key: %s",
+            cfd->GetName().c_str(), key.ToString().c_str());
         continue;
       } else {
         // If the prefix remains the same, keep buffering
@@ -3068,10 +3062,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   Version::LevelSummaryStorage tmp;
   LogToBuffer(
       log_buffer,
-      "compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
+      "[%s] compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s\n",
-      cfd->current()->LevelSummary(&tmp),
+      cfd->GetName().c_str(), cfd->current()->LevelSummary(&tmp),
       (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
           (double)stats.micros,
       compact->compaction->output_level(), stats.files_in_leveln,
@@ -3409,10 +3403,10 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
     assert(cfd != nullptr);
     delete cfd->InstallSuperVersion(new SuperVersion(), &mutex_);
     *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
-    Log(options_.info_log, "Created column family \"%s\" (ID %u)",
+    Log(options_.info_log, "Created column family [%s] (ID %u)",
         column_family_name.c_str(), (unsigned)cfd->GetID());
   } else {
-    Log(options_.info_log, "Creating column family \"%s\" FAILED -- %s",
+    Log(options_.info_log, "Creating column family [%s] FAILED -- %s",
         column_family_name.c_str(), s.ToString().c_str());
   }
   return s;
@@ -3878,7 +3872,8 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       // We have filled up the current memtable, but the previous
       // ones are still being flushed, so we wait.
       DelayLoggingAndReset();
-      Log(options_.info_log, "wait for memtable flush...\n");
+      Log(options_.info_log, "[%s] wait for memtable flush...\n",
+          cfd->GetName().c_str());
       MaybeScheduleFlushOrCompaction();
       uint64_t stall;
       {
@@ -3895,7 +3890,8 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
                cfd->options()->level0_stop_writes_trigger) {
       // There are too many level-0 files.
       DelayLoggingAndReset();
-      Log(options_.info_log, "wait for fewer level0 files...\n");
+      Log(options_.info_log, "[%s] wait for fewer level0 files...\n",
+          cfd->GetName().c_str());
       uint64_t stall;
       {
         StopWatch sw(env_, options_.statistics.get(),
@@ -4019,9 +4015,8 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd, bool force) {
       }
       new_mem->Ref();
       cfd->SetMemtable(new_mem);
-      Log(options_.info_log,
-          "[CF %" PRIu32 "] New memtable created with log file: #%lu\n",
-          cfd->GetID(), (unsigned long)logfile_number_);
+      Log(options_.info_log, "[%s] New memtable created with log file: #%lu\n",
+          cfd->GetName().c_str(), (unsigned long)logfile_number_);
       force = false;  // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
       // TODO(icanadi) delete outside of mutex
