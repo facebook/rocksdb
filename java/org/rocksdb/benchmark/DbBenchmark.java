@@ -497,7 +497,7 @@ public class DbBenchmark {
     options.setCacheSize(
         (Long)flags_.get(Flag.cache_size));
     options.setBlockSize(
-        (Integer)flags_.get(Flag.block_size));
+        (Long)flags_.get(Flag.block_size));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
     options.setCreateIfMissing(
@@ -1275,7 +1275,7 @@ public class DbBenchmark {
         return Boolean.parseBoolean(value);
       }
     },
-    delete_obsolete_files_period_micros(0,"Option to delete\n" +
+    delete_obsolete_files_period_micros(0L,"Option to delete\n" +
         "\tobsolete files periodically. 0 means that obsolete files are\n" +
         "\tdeleted after every compaction run.") {
       @Override public Object parseValue(String value) {
