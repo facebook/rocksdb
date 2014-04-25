@@ -33,7 +33,6 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/prefix_filter_iterator.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/tailing_iter.h"
@@ -1339,7 +1338,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   FileMetaData meta;
   meta.number = versions_->NewFileNumber();
   pending_outputs_.insert(meta.number);
-  Iterator* iter = mem->NewIterator();
+  Iterator* iter = mem->NewIterator(ReadOptions(), true);
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mem->GetFirstSequenceNumber();
@@ -1405,7 +1404,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     for (MemTable* m : mems) {
       Log(options_.info_log, "[%s] Flushing memtable with next log file: %lu\n",
           cfd->GetName().c_str(), (unsigned long)m->GetNextLogNumber());
-      memtables.push_back(m->NewIterator());
+      memtables.push_back(m->NewIterator(ReadOptions(), true));
     }
     Iterator* iter = NewMergingIterator(&cfd->internal_comparator(),
                                         &memtables[0], memtables.size());
@@ -3494,12 +3493,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
                          cfd->user_comparator(), iter, snapshot);
   }
 
-  if (options.prefix) {
-    // use extra wrapper to exclude any keys from the results which
-    // don't begin with the prefix
-    iter = new PrefixFilterIterator(iter, *options.prefix,
-                                    cfd->options()->prefix_extractor.get());
-  }
   return iter;
 }
 
@@ -3507,12 +3500,6 @@ Status DBImpl::NewIterators(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
-
-  if (options.prefix) {
-    return Status::NotSupported(
-        "NewIterators doesn't support ReadOptions::prefix");
-  }
-
   iterators->clear();
   iterators->reserve(column_families.size());
   SequenceNumber latest_snapshot = 0;

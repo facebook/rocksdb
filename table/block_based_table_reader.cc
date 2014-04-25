@@ -919,15 +919,6 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
 }
 
 Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
-  if (options.prefix) {
-    InternalKey internal_prefix(*options.prefix, 0, kTypeValue);
-    if (!PrefixMayMatch(internal_prefix.Encode())) {
-      // nothing in this file can match the prefix, so we should not
-      // bother doing I/O to this file when iterating.
-      return NewEmptyIterator();
-    }
-  }
-
   return NewTwoLevelIterator(NewIndexIterator(options),
                              &BlockBasedTable::DataBlockReader,
                              const_cast<BlockBasedTable*>(this), options,

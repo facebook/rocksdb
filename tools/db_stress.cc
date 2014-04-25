@@ -1008,7 +1008,6 @@ class StressTest {
       prefixes[i].resize(FLAGS_prefix_size);
       prefix_slices[i] = Slice(prefixes[i]);
       readoptionscopy[i] = readoptions;
-      readoptionscopy[i].prefix_seek = true;
       readoptionscopy[i].snapshot = snapshot;
       iters[i] = db_->NewIterator(readoptionscopy[i], column_family);
       iters[i]->Seek(prefix_slices[i]);
@@ -1074,7 +1073,6 @@ class StressTest {
     const Snapshot* snapshot = db_->GetSnapshot();
     ReadOptions readoptionscopy = readoptions;
     readoptionscopy.snapshot = snapshot;
-    readoptionscopy.prefix_seek = FLAGS_prefix_size > 0;
     unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, column_family));
 
     iter->Seek(key);
@@ -1198,7 +1196,6 @@ class StressTest {
         // prefix
         if (!FLAGS_test_batches_snapshots) {
           Slice prefix = Slice(key.data(), FLAGS_prefix_size);
-          read_opts.prefix_seek = true;
           Iterator* iter = db_->NewIterator(read_opts, column_family);
           int64_t count = 0;
           for (iter->Seek(prefix);
@@ -1277,7 +1274,6 @@ class StressTest {
       }
       if (!thread->rand.OneIn(2)) {
         // Use iterator to verify this range
-        options.prefix_seek = FLAGS_prefix_size > 0;
         unique_ptr<Iterator> iter(
             db_->NewIterator(options, column_families_[cf]));
         iter->Seek(Key(start));

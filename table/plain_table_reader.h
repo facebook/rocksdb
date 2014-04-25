@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #pragma once
+
+#ifndef ROCKSDB_LITE
 #include <unordered_map>
 #include <memory>
 #include <vector>
@@ -52,8 +53,6 @@ class PlainTableReader: public TableReader {
                      unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness);
-
-  bool PrefixMayMatch(const Slice& internal_prefix);
 
   Iterator* NewIterator(const ReadOptions&);
 

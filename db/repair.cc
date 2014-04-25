@@ -231,7 +231,8 @@ class Repairer {
     // since ExtractMetaData() will also generate edits.
     FileMetaData meta;
     meta.number = next_file_number_++;
-    Iterator* iter = mem->NewIterator();
+    ReadOptions ro;
+    Iterator* iter = mem->NewIterator(ro, true /* enforce_total_order */);
     status = BuildTable(dbname_, env_, options_, storage_options_, table_cache_,
                         iter, &meta, icmp_, 0, 0, kNoCompression);
     delete iter;

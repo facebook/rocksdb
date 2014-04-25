@@ -60,8 +60,8 @@ void TailingIterator::Seek(const Slice& target) {
   // need to do a seek if 'target' belongs to that interval (i.e. immutable_ is
   // already at the correct position)!
   //
-  // If options.prefix_seek is used and immutable_ is not valid, seek if target
-  // has a different prefix than prev_key.
+  // If prefix seek is used and immutable_ is not valid, seek if target has a
+  // different prefix than prev_key.
   //
   // prev_key_ is updated by Next(). SeekImmutable() sets prev_key_ to
   // 'target' -- in this case, prev_key_ is included in the interval, so
@@ -70,7 +70,7 @@ void TailingIterator::Seek(const Slice& target) {
   const Comparator* cmp = cfd_->user_comparator();
   if (!is_prev_set_ || cmp->Compare(prev_key_, target) >= !is_prev_inclusive_ ||
       (immutable_->Valid() && cmp->Compare(target, immutable_->key()) > 0) ||
-      (read_options_.prefix_seek && !IsSamePrefix(target))) {
+      (cfd_->options()->prefix_extractor != nullptr && !IsSamePrefix(target))) {
     SeekImmutable(target);
   }
 

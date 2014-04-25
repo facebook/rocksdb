@@ -1230,21 +1230,10 @@ void rocksdb_readoptions_set_fill_cache(
   opt->rep.fill_cache = v;
 }
 
-void rocksdb_readoptions_set_prefix_seek(
-    rocksdb_readoptions_t* opt, unsigned char v) {
-  opt->rep.prefix_seek = v;
-}
-
 void rocksdb_readoptions_set_snapshot(
     rocksdb_readoptions_t* opt,
     const rocksdb_snapshot_t* snap) {
   opt->rep.snapshot = (snap ? snap->rep : nullptr);
-}
-
-void rocksdb_readoptions_set_prefix(
-    rocksdb_readoptions_t* opt, const char* key, size_t keylen) {
-  Slice prefix = Slice(key, keylen);
-  opt->rep.prefix = &prefix;
 }
 
 void rocksdb_readoptions_set_read_tier(

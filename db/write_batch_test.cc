@@ -31,7 +31,7 @@ static std::string PrintContents(WriteBatch* b) {
   ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
   Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
-  Iterator* iter = mem->NewIterator();
+  Iterator* iter = mem->NewIterator(ReadOptions());
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
     memset((void *)&ikey, 0, sizeof(ikey));
@@ -283,7 +283,7 @@ TEST(WriteBatchTest, PutGatherSlices) {
 namespace {
 class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
  public:
-  ColumnFamilyHandleImplDummy(int id)
+  explicit ColumnFamilyHandleImplDummy(int id)
       : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
   uint32_t GetID() const override { return id_; }
 

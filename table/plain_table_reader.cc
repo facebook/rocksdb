@@ -149,12 +149,8 @@ Status PlainTableReader::Open(
 void PlainTableReader::SetupForCompaction() {
 }
 
-bool PlainTableReader::PrefixMayMatch(const Slice& internal_prefix) {
-  return true;
-}
-
 Iterator* PlainTableReader::NewIterator(const ReadOptions& options) {
-  return new PlainTableIterator(this, options.prefix_seek);
+  return new PlainTableIterator(this, options_.prefix_extractor != nullptr);
 }
 
 struct PlainTableReader::IndexRecord {

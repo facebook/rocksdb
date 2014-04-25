@@ -1944,7 +1944,6 @@ class Benchmark {
   void IteratorCreation(ThreadState* thread) {
     Duration duration(FLAGS_duration, reads_);
     ReadOptions options(FLAGS_verify_checksum, true);
-    options.prefix_seek = (FLAGS_prefix_size > 0);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       Iterator* iter = db->NewIterator(options);
@@ -1966,7 +1965,6 @@ class Benchmark {
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     options.tailing = FLAGS_use_tailing_iterator;
-    options.prefix_seek = (FLAGS_prefix_size > 0);
 
     Iterator* single_iter = nullptr;
     std::vector<Iterator*> multi_iters;

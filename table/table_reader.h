@@ -29,7 +29,9 @@ class TableReader {
   // contains the key a key starting with iternal_prefix. The specific
   // table implementation can use bloom filter and/or other heuristic
   // to filter out this table as a whole.
-  virtual bool PrefixMayMatch(const Slice& internal_prefix) = 0;
+  virtual bool PrefixMayMatch(const Slice& internal_prefix) {
+    return true;
+  }
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must

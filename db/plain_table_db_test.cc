@@ -47,7 +47,6 @@ class PlainTableDBTest {
 
  public:
   PlainTableDBTest() : env_(Env::Default()) {
-    ro_.prefix_seek = true;
     dbname_ = test::TmpDir() + "/plain_table_db_test";
     ASSERT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
@@ -58,8 +57,6 @@ class PlainTableDBTest {
     delete db_;
     ASSERT_OK(DestroyDB(dbname_, Options()));
   }
-
-  ReadOptions ro_;
 
   // Return the current option configuration.
   Options CurrentOptions() {
@@ -123,7 +120,7 @@ class PlainTableDBTest {
   }
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr) {
-    ReadOptions options = ro_;
+    ReadOptions options;
     options.snapshot = snapshot;
     std::string result;
     Status s = db_->Get(options, k, &result);
@@ -369,7 +366,7 @@ TEST(PlainTableDBTest, Iterator) {
       dbfull()->TEST_FlushMemTable();
       ASSERT_EQ("v1", Get("1000000000foo001"));
       ASSERT_EQ("v__3", Get("1000000000foo003"));
-      Iterator* iter = dbfull()->NewIterator(ro_);
+      Iterator* iter = dbfull()->NewIterator(ReadOptions());
       iter->Seek("1000000000foo000");
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ("1000000000foo001", iter->key().ToString());
@@ -471,7 +468,7 @@ TEST(PlainTableDBTest, IteratorLargeKeys) {
 
   dbfull()->TEST_FlushMemTable();
 
-  Iterator* iter = dbfull()->NewIterator(ro_);
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
   iter->Seek(key_list[0]);
 
   for (size_t i = 0; i < 7; i++) {
@@ -535,7 +532,7 @@ TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
   dbfull()->TEST_FlushMemTable();
   ASSERT_EQ("v1", Get("1000000000foo001"));
   ASSERT_EQ("v__3", Get("1000000000foo003"));
-  Iterator* iter = dbfull()->NewIterator(ro_);
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
   iter->Seek("1000000000foo009");
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("1000000000foo008", iter->key().ToString());
@@ -766,7 +763,7 @@ TEST(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   ASSERT_EQ("NOT_FOUND", Get("8000000000000bar"));
   ASSERT_EQ("NOT_FOUND", Get("1000000000000bar"));
 
-  Iterator* iter = dbfull()->NewIterator(ro_);
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
 
   iter->Seek("5000000000000bar");
   ASSERT_TRUE(iter->Valid());

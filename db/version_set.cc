@@ -226,20 +226,11 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
     return NewErrorIterator(
         Status::Corruption("FileReader invoked with unexpected value"));
   } else {
-    ReadOptions options_copy;
-    if (options.prefix) {
-      // suppress prefix filtering since we have already checked the
-      // filters once at this point
-      options_copy = options;
-      options_copy.prefix = nullptr;
-    }
-
     const EncodedFileMetaData* encoded_meta =
         reinterpret_cast<const EncodedFileMetaData*>(file_value.data());
     FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
     meta.table_reader = encoded_meta->table_reader;
-    return cache->NewIterator(
-        options.prefix ? options_copy : options, soptions, icomparator, meta,
+    return cache->NewIterator(options, soptions, icomparator, meta,
         nullptr /* don't need reference to table*/, for_compaction);
   }
 }
@@ -328,15 +319,6 @@ Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
                                             int level) const {
   Iterator* level_iter =
       new LevelFileNumIterator(cfd_->internal_comparator(), &files_[level]);
-  if (options.prefix) {
-    InternalKey internal_prefix(*options.prefix, 0, kTypeValue);
-    if (!PrefixMayMatch(options, soptions,
-                        internal_prefix.Encode(), level_iter)) {
-      delete level_iter;
-      // nothing in this level can match the prefix
-      return NewEmptyIterator();
-    }
-  }
   return NewTwoLevelIterator(level_iter, &GetFileIterator, cfd_->table_cache(),
                              options, soptions, cfd_->internal_comparator());
 }

@@ -159,13 +159,12 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator: public Iterator {
  public:
-  MemTableIterator(const MemTable& mem, const ReadOptions& options)
+  MemTableIterator(const MemTable& mem, const ReadOptions& options,
+                   bool enforce_total_order)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         valid_(false) {
-    if (options.prefix) {
-      iter_.reset(mem.table_->GetPrefixIterator(*options.prefix));
-    } else if (options.prefix_seek) {
+    if (prefix_extractor_ != nullptr && !enforce_total_order) {
       bloom_ = mem.prefix_bloom_.get();
       iter_.reset(mem.table_->GetDynamicPrefixIterator());
     } else {
@@ -224,8 +223,9 @@ class MemTableIterator: public Iterator {
   void operator=(const MemTableIterator&);
 };
 
-Iterator* MemTable::NewIterator(const ReadOptions& options) {
-  return new MemTableIterator(*this, options);
+Iterator* MemTable::NewIterator(const ReadOptions& options,
+    bool enforce_total_order) {
+  return new MemTableIterator(*this, options, enforce_total_order);
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {

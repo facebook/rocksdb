@@ -461,8 +461,6 @@ int main(int argc, char** argv) {
     rocksdb_put(db, woptions, "bar3", 4, "bar", 3, &err);
     CheckNoError(err);
 
-    rocksdb_readoptions_set_prefix_seek(roptions, 1);
-
     rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
     CheckCondition(!rocksdb_iter_valid(iter));
 

@@ -306,7 +306,8 @@ class DBTest {
     kSkipUniversalCompaction = 2,
     kSkipMergePut = 4,
     kSkipPlainTable = 8,
-    kSkipHashIndex = 16
+    kSkipHashIndex = 16,
+    kSkipNoSeekToLast = 32
   };
 
   DBTest() : option_config_(kDefault),
@@ -339,6 +340,11 @@ class DBTest {
         continue;
       }
       if ((skip_mask & kSkipMergePut) && option_config_ == kMergePut) {
+        continue;
+      }
+      if ((skip_mask & kSkipNoSeekToLast) &&
+          (option_config_ == kHashLinkList ||
+           option_config_ == kHashSkipList)) {;
         continue;
       }
       if ((skip_mask & kSkipPlainTable)
@@ -862,10 +868,11 @@ class DBTest {
 
   void VerifyIterLast(std::string expected_key, int cf = 0) {
     Iterator* iter;
+    ReadOptions ro;
     if (cf == 0) {
-      iter = db_->NewIterator(ReadOptions());
+      iter = db_->NewIterator(ro);
     } else {
-      iter = db_->NewIterator(ReadOptions(), handles_[cf]);
+      iter = db_->NewIterator(ro, handles_[cf]);
     }
     iter->SeekToLast();
     ASSERT_EQ(IterStatus(iter), expected_key);
@@ -1463,7 +1470,7 @@ TEST(DBTest, NonBlockingIteration) {
 
     // This test verifies block cache behaviors, which is not used by plain
     // table format.
-  } while (ChangeOptions(kSkipPlainTable));
+  } while (ChangeOptions(kSkipPlainTable | kSkipNoSeekToLast));
 }
 
 // A delete is skipped for key if KeyMayExist(key) returns False
@@ -1907,19 +1914,23 @@ TEST(DBTest, IterSmallAndLargeMix) {
 TEST(DBTest, IterMultiWithDelete) {
   do {
     CreateAndReopenWithCF({"pikachu"});
-    ASSERT_OK(Put(1, "a", "va"));
-    ASSERT_OK(Put(1, "b", "vb"));
-    ASSERT_OK(Put(1, "c", "vc"));
-    ASSERT_OK(Delete(1, "b"));
-    ASSERT_EQ("NOT_FOUND", Get(1, "b"));
+    ASSERT_OK(Put(1, "ka", "va"));
+    ASSERT_OK(Put(1, "kb", "vb"));
+    ASSERT_OK(Put(1, "kc", "vc"));
+    ASSERT_OK(Delete(1, "kb"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "kb"));
 
     Iterator* iter = db_->NewIterator(ReadOptions(), handles_[1]);
-    iter->Seek("c");
-    ASSERT_EQ(IterStatus(iter), "c->vc");
+    iter->Seek("kc");
+    ASSERT_EQ(IterStatus(iter), "kc->vc");
     if (!CurrentOptions().merge_operator) {
       // TODO: merge operator does not support backward iteration yet
-      iter->Prev();
-      ASSERT_EQ(IterStatus(iter), "a->va");
+      if (kPlainTableAllBytesPrefix != option_config_&&
+          kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
+          kHashLinkList != option_config_) {
+        iter->Prev();
+        ASSERT_EQ(IterStatus(iter), "ka->va");
+      }
     }
     delete iter;
   } while (ChangeOptions());
@@ -1952,7 +1963,7 @@ TEST(DBTest, IterPrevMaxSkip) {
 
     ASSERT_OK(Delete(1, "key1"));
     VerifyIterLast("(invalid)", 1);
-  } while (ChangeOptions(kSkipMergePut));
+  } while (ChangeOptions(kSkipMergePut | kSkipNoSeekToLast));
 }
 
 TEST(DBTest, IterWithSnapshot) {
@@ -1977,15 +1988,19 @@ TEST(DBTest, IterWithSnapshot) {
     ASSERT_EQ(IterStatus(iter), "key5->val5");
     if (!CurrentOptions().merge_operator) {
       // TODO: merge operator does not support backward iteration yet
-      iter->Prev();
-      ASSERT_EQ(IterStatus(iter), "key4->val4");
-      iter->Prev();
-      ASSERT_EQ(IterStatus(iter), "key3->val3");
+      if (kPlainTableAllBytesPrefix != option_config_&&
+        kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
+        kHashLinkList != option_config_) {
+        iter->Prev();
+        ASSERT_EQ(IterStatus(iter), "key4->val4");
+        iter->Prev();
+        ASSERT_EQ(IterStatus(iter), "key3->val3");
 
-      iter->Next();
-      ASSERT_EQ(IterStatus(iter), "key4->val4");
-      iter->Next();
-      ASSERT_EQ(IterStatus(iter), "key5->val5");
+        iter->Next();
+        ASSERT_EQ(IterStatus(iter), "key4->val4");
+        iter->Next();
+        ASSERT_EQ(IterStatus(iter), "key5->val5");
+      }
       iter->Next();
       ASSERT_TRUE(!iter->Valid());
     }
@@ -5944,7 +5959,7 @@ TEST(DBTest, GroupCommitTest) {
     ASSERT_TRUE(!itr->Valid());
     delete itr;
 
-  } while (ChangeOptions());
+  } while (ChangeOptions(kSkipNoSeekToLast));
 }
 
 namespace {
@@ -6313,7 +6328,7 @@ TEST(DBTest, Randomized) {
     }
     if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
     if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
-  } while (ChangeOptions(kSkipDeletesFilterFirst));
+  } while (ChangeOptions(kSkipDeletesFilterFirst | kSkipNoSeekToLast));
 }
 
 TEST(DBTest, MultiGetSimple) {
@@ -6429,7 +6444,6 @@ void PrefixScanInit(DBTest *dbtest) {
 }  // namespace
 
 TEST(DBTest, PrefixScan) {
-  ReadOptions ro = ReadOptions();
   int count;
   Slice prefix;
   Slice key;
@@ -6450,45 +6464,9 @@ TEST(DBTest, PrefixScan) {
   options.max_background_compactions = 2;
   options.create_if_missing = true;
   options.disable_seek_compaction = true;
-  // Tricky: options.prefix_extractor will be released by
-  // NewHashSkipListRepFactory after use.
   options.memtable_factory.reset(NewHashSkipListRepFactory());
 
-  // prefix specified, with blooms: 2 RAND I/Os
-  // SeekToFirst
-  DestroyAndReopen(&options);
-  PrefixScanInit(this);
-  count = 0;
-  env_->random_read_counter_.Reset();
-  ro.prefix = &prefix;
-  iter = db_->NewIterator(ro);
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    assert(iter->key().starts_with(prefix));
-    count++;
-  }
-  ASSERT_OK(iter->status());
-  delete iter;
-  ASSERT_EQ(count, 2);
-  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
-
-  // prefix specified, with blooms: 2 RAND I/Os
-  // Seek
-  DestroyAndReopen(&options);
-  PrefixScanInit(this);
-  count = 0;
-  env_->random_read_counter_.Reset();
-  ro.prefix = &prefix;
-  iter = db_->NewIterator(ro);
-  for (iter->Seek(key); iter->Valid(); iter->Next()) {
-    assert(iter->key().starts_with(prefix));
-    count++;
-  }
-  ASSERT_OK(iter->status());
-  delete iter;
-  ASSERT_EQ(count, 2);
-  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
-
-  // no prefix specified: 11 RAND I/Os
+  // 11 RAND I/Os
   DestroyAndReopen(&options);
   PrefixScanInit(this);
   count = 0;
@@ -6652,7 +6630,6 @@ TEST(DBTest, TailingIteratorDeletes) {
 TEST(DBTest, TailingIteratorPrefixSeek) {
   ReadOptions read_options;
   read_options.tailing = true;
-  read_options.prefix_seek = true;
 
   Options options = CurrentOptions();
   options.env = env_;

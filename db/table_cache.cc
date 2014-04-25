@@ -191,16 +191,16 @@ Status TableCache::GetTableProperties(
 }
 
 bool TableCache::PrefixMayMatch(const ReadOptions& options,
-                                const InternalKeyComparator& icomparator,
-                                const FileMetaData& file_meta,
-                                const Slice& internal_prefix, bool* table_io) {
+    const InternalKeyComparator& icomparator,
+    const FileMetaData& file_meta,
+    const Slice& internal_prefix, bool* table_io) {
   bool may_match = true;
   auto table_reader = file_meta.table_reader;
   Cache::Handle* table_handle = nullptr;
   if (table_reader == nullptr) {
     // Need to get table handle from file number
     Status s = FindTable(storage_options_, icomparator, file_meta.number,
-                         file_meta.file_size, &table_handle, table_io);
+        file_meta.file_size, &table_handle, table_io);
     if (!s.ok()) {
       return may_match;
     }

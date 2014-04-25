@@ -148,13 +148,6 @@ class MemTableRep {
   // GetIterator().
   virtual Iterator* GetIterator(const Slice& user_key) { return GetIterator(); }
 
-  // Return an iterator over at least the keys with the specified prefix. The
-  // iterator may also allow access to other keys, but doesn't have to. Default:
-  // GetIterator().
-  virtual Iterator* GetPrefixIterator(const Slice& prefix) {
-    return GetIterator();
-  }
-
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
   virtual Iterator* GetDynamicPrefixIterator() { return GetIterator(); }
