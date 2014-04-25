@@ -10,11 +10,24 @@
 #pragma once
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
+#include "table/iterator_wrapper.h"
 
 namespace rocksdb {
 
 struct ReadOptions;
 class InternalKeyComparator;
+
+struct TwoLevelIteratorState {
+  explicit TwoLevelIteratorState(bool prefix_enabled)
+    : prefix_enabled(prefix_enabled) {}
+
+  virtual ~TwoLevelIteratorState() {}
+  virtual Iterator* NewSecondaryIterator(const Slice& handle) = 0;
+  virtual bool PrefixMayMatch(const Slice& internal_key) = 0;
+
+  bool prefix_enabled;
+};
+
 
 // Return a new two level iterator.  A two-level iterator contains an
 // index iterator whose values point to a sequence of blocks where
@@ -25,14 +38,7 @@ class InternalKeyComparator;
 //
 // Uses a supplied function to convert an index_iter value into
 // an iterator over the contents of the corresponding block.
-extern Iterator* NewTwoLevelIterator(
-    Iterator* index_iter,
-    Iterator* (*block_function)(
-        void* arg, const ReadOptions& options, const EnvOptions& soptions,
-        const InternalKeyComparator& internal_comparator,
-        const Slice& index_value, bool for_compaction),
-    void* arg, const ReadOptions& options, const EnvOptions& soptions,
-    const InternalKeyComparator& internal_comparator,
-    bool for_compaction = false);
+extern Iterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
+      Iterator* first_level_iter);
 
 }  // namespace rocksdb

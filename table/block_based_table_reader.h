@@ -63,7 +63,7 @@ class BlockBasedTable : public TableReader {
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
-  bool PrefixMayMatch(const Slice& internal_prefix) override;
+  bool PrefixMayMatch(const Slice& internal_key) override;
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
@@ -111,13 +111,9 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   bool compaction_optimized_;
 
-  static Iterator* DataBlockReader(void*, const ReadOptions&,
-                                   const EnvOptions& soptions,
-                                   const InternalKeyComparator& icomparator,
-                                   const Slice&, bool for_compaction);
-
-  static Iterator* DataBlockReader(void*, const ReadOptions&, const Slice&,
-                                   bool* didIO, bool for_compaction = false);
+  struct BlockEntryIteratorState;
+  static Iterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
+      bool* didIO, const Slice& index_value);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file

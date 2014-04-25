@@ -6481,7 +6481,7 @@ TEST(DBTest, PrefixScan) {
   ASSERT_OK(iter->status());
   delete iter;
   ASSERT_EQ(count, 2);
-  ASSERT_EQ(env_->random_read_counter_.Read(), 11);
+  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
   Close();
   delete options.filter_policy;
 }

@@ -642,94 +642,6 @@ FilterBlockReader* BlockBasedTable::ReadFilter (
        rep->options, block.data, block.heap_allocated);
 }
 
-// Convert an index iterator value (i.e., an encoded BlockHandle)
-// into an iterator over the contents of the corresponding block.
-Iterator* BlockBasedTable::DataBlockReader(void* arg,
-                                           const ReadOptions& options,
-                                           const Slice& index_value,
-                                           bool* didIO, bool for_compaction) {
-  const bool no_io = (options.read_tier == kBlockCacheTier);
-  BlockBasedTable* table = reinterpret_cast<BlockBasedTable*>(arg);
-  Cache* block_cache = table->rep_->options.block_cache.get();
-  Cache* block_cache_compressed = table->rep_->options.
-                                    block_cache_compressed.get();
-  CachableEntry<Block> block;
-
-  BlockHandle handle;
-  Slice input = index_value;
-  // We intentionally allow extra stuff in index_value so that we
-  // can add more features in the future.
-  Status s = handle.DecodeFrom(&input);
-
-  if (!s.ok()) {
-    return NewErrorIterator(s);
-  }
-
-  // If either block cache is enabled, we'll try to read from it.
-  if (block_cache != nullptr || block_cache_compressed != nullptr) {
-    Statistics* statistics = table->rep_->options.statistics.get();
-    char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-    char compressed_cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-    Slice key, /* key to the block cache */
-        ckey /* key to the compressed block cache */;
-
-    // create key for block cache
-    if (block_cache != nullptr) {
-      key = GetCacheKey(table->rep_->cache_key_prefix,
-                        table->rep_->cache_key_prefix_size, handle, cache_key);
-    }
-
-    if (block_cache_compressed != nullptr) {
-      ckey = GetCacheKey(table->rep_->compressed_cache_key_prefix,
-                         table->rep_->compressed_cache_key_prefix_size, handle,
-                         compressed_cache_key);
-    }
-
-    s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
-                              statistics, options, &block);
-
-    if (block.value == nullptr && !no_io && options.fill_cache) {
-      Histograms histogram = for_compaction ?
-        READ_BLOCK_COMPACTION_MICROS : READ_BLOCK_GET_MICROS;
-      Block* raw_block = nullptr;
-      {
-        StopWatch sw(table->rep_->options.env, statistics, histogram);
-        s = ReadBlockFromFile(table->rep_->file.get(), options, handle,
-                              &raw_block, table->rep_->options.env, didIO,
-                              block_cache_compressed == nullptr);
-      }
-
-      if (s.ok()) {
-        s = PutDataBlockToCache(key, ckey, block_cache, block_cache_compressed,
-                                options, statistics, &block, raw_block);
-      }
-    }
-  }
-
-  // Didn't get any data from block caches.
-  if (block.value == nullptr) {
-    if (no_io) {
-      // Could not read from block_cache and can't do IO
-      return NewErrorIterator(Status::Incomplete("no blocking io"));
-    }
-    s = ReadBlockFromFile(table->rep_->file.get(), options, handle,
-                          &block.value, table->rep_->options.env, didIO);
-  }
-
-  Iterator* iter;
-  if (block.value != nullptr) {
-    iter = block.value->NewIterator(&table->rep_->internal_comparator);
-    if (block.cache_handle != nullptr) {
-      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
-                            block.cache_handle);
-    } else {
-      iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);
-    }
-  } else {
-    iter = NewErrorIterator(s);
-  }
-  return iter;
-}
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     bool no_io) const {
@@ -838,12 +750,114 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
   return iter;
 }
 
-Iterator* BlockBasedTable::DataBlockReader(
-    void* arg, const ReadOptions& options, const EnvOptions& soptions,
-    const InternalKeyComparator& icomparator, const Slice& index_value,
-    bool for_compaction) {
-  return DataBlockReader(arg, options, index_value, nullptr, for_compaction);
+// Convert an index iterator value (i.e., an encoded BlockHandle)
+// into an iterator over the contents of the corresponding block.
+Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
+    const ReadOptions& ro, bool* didIO, const Slice& index_value) {
+  const bool no_io = (ro.read_tier == kBlockCacheTier);
+  Cache* block_cache = rep->options.block_cache.get();
+  Cache* block_cache_compressed = rep->options.
+                                    block_cache_compressed.get();
+  CachableEntry<Block> block;
+
+  BlockHandle handle;
+  Slice input = index_value;
+  // We intentionally allow extra stuff in index_value so that we
+  // can add more features in the future.
+  Status s = handle.DecodeFrom(&input);
+
+  if (!s.ok()) {
+    return NewErrorIterator(s);
+  }
+
+  // If either block cache is enabled, we'll try to read from it.
+  if (block_cache != nullptr || block_cache_compressed != nullptr) {
+    Statistics* statistics = rep->options.statistics.get();
+    char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+    char compressed_cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+    Slice key, /* key to the block cache */
+        ckey /* key to the compressed block cache */;
+
+    // create key for block cache
+    if (block_cache != nullptr) {
+      key = GetCacheKey(rep->cache_key_prefix,
+                        rep->cache_key_prefix_size, handle, cache_key);
+    }
+
+    if (block_cache_compressed != nullptr) {
+      ckey = GetCacheKey(rep->compressed_cache_key_prefix,
+                         rep->compressed_cache_key_prefix_size, handle,
+                         compressed_cache_key);
+    }
+
+    s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
+                      statistics, ro, &block);
+
+    if (block.value == nullptr && !no_io && ro.fill_cache) {
+      Histograms histogram = READ_BLOCK_GET_MICROS;
+      Block* raw_block = nullptr;
+      {
+        StopWatch sw(rep->options.env, statistics, histogram);
+        s = ReadBlockFromFile(rep->file.get(), ro, handle,
+                              &raw_block, rep->options.env, didIO,
+                              block_cache_compressed == nullptr);
+      }
+
+      if (s.ok()) {
+        s = PutDataBlockToCache(key, ckey, block_cache, block_cache_compressed,
+                                ro, statistics, &block, raw_block);
+      }
+    }
+  }
+
+  // Didn't get any data from block caches.
+  if (block.value == nullptr) {
+    if (no_io) {
+      // Could not read from block_cache and can't do IO
+      return NewErrorIterator(Status::Incomplete("no blocking io"));
+    }
+    s = ReadBlockFromFile(rep->file.get(), ro, handle,
+                          &block.value, rep->options.env, didIO);
+  }
+
+  Iterator* iter;
+  if (block.value != nullptr) {
+    iter = block.value->NewIterator(&rep->internal_comparator);
+    if (block.cache_handle != nullptr) {
+      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                            block.cache_handle);
+    } else {
+      iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);
+    }
+  } else {
+    iter = NewErrorIterator(s);
+  }
+  return iter;
 }
+
+class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
+ public:
+  BlockEntryIteratorState(BlockBasedTable* table,
+      const ReadOptions& read_options, bool* did_io)
+    : TwoLevelIteratorState(table->rep_->options.prefix_extractor != nullptr),
+      table_(table), read_options_(read_options), did_io_(did_io) {}
+
+  Iterator* NewSecondaryIterator(const Slice& index_value) override {
+    return NewDataBlockIterator(table_->rep_, read_options_, did_io_,
+                                index_value);
+  }
+
+  bool PrefixMayMatch(const Slice& internal_key) override {
+    return table_->PrefixMayMatch(internal_key);
+  }
+
+ private:
+  // Don't own table_
+  BlockBasedTable* table_;
+  const ReadOptions read_options_;
+  // Don't own did_io_
+  bool* did_io_;
+};
 
 // This will be broken if the user specifies an unusual implementation
 // of Options.comparator, or if the user specifies an unusual
@@ -857,7 +871,13 @@ Iterator* BlockBasedTable::DataBlockReader(
 // Otherwise, this method guarantees no I/O will be incurred.
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
-bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
+bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
+  assert(rep_->options.prefix_extractor != nullptr);
+  auto prefix = rep_->options.prefix_extractor->Transform(
+      ExtractUserKey(internal_key));
+  InternalKey internal_key_prefix(prefix, 0, kTypeValue);
+  auto internal_prefix = internal_key_prefix.Encode();
+
   bool may_match = true;
   Status s;
 
@@ -918,11 +938,10 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_prefix) {
   return may_match;
 }
 
-Iterator* BlockBasedTable::NewIterator(const ReadOptions& options) {
-  return NewTwoLevelIterator(NewIndexIterator(options),
-                             &BlockBasedTable::DataBlockReader,
-                             const_cast<BlockBasedTable*>(this), options,
-                             rep_->soptions, rep_->internal_comparator);
+Iterator* BlockBasedTable::NewIterator(const ReadOptions& read_options) {
+  return NewTwoLevelIterator(new BlockEntryIteratorState(this, read_options,
+                                                         nullptr),
+                             NewIndexIterator(read_options));
 }
 
 Status BlockBasedTable::Get(
@@ -953,7 +972,7 @@ Status BlockBasedTable::Get(
     } else {
       bool didIO = false;
       unique_ptr<Iterator> block_iter(
-          DataBlockReader(this, read_options, iiter->value(), &didIO));
+          NewDataBlockIterator(rep_, read_options, &didIO, iiter->value()));
 
       if (read_options.read_tier && block_iter->status().IsIncomplete()) {
         // couldn't get block from block_cache
@@ -1050,10 +1069,8 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader) {
       return HashIndexReader::Create(
           file, index_handle, env, comparator,
           [&](Iterator* index_iter) {
-            return NewTwoLevelIterator(
-                index_iter, &BlockBasedTable::DataBlockReader,
-                const_cast<BlockBasedTable*>(this), ReadOptions(),
-                rep_->soptions, rep_->internal_comparator);
+            return NewTwoLevelIterator(new BlockEntryIteratorState(this,
+                ReadOptions(), nullptr), index_iter);
           },
           rep_->internal_prefix_transform.get(), index_reader);
     }

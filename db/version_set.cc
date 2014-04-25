@@ -217,49 +217,43 @@ class Version::LevelFileNumIterator : public Iterator {
   mutable EncodedFileMetaData current_value_;
 };
 
-static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
-                                 const EnvOptions& soptions,
-                                 const InternalKeyComparator& icomparator,
-                                 const Slice& file_value, bool for_compaction) {
-  TableCache* cache = reinterpret_cast<TableCache*>(arg);
-  if (file_value.size() != sizeof(EncodedFileMetaData)) {
-    return NewErrorIterator(
-        Status::Corruption("FileReader invoked with unexpected value"));
-  } else {
-    const EncodedFileMetaData* encoded_meta =
-        reinterpret_cast<const EncodedFileMetaData*>(file_value.data());
-    FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
-    meta.table_reader = encoded_meta->table_reader;
-    return cache->NewIterator(options, soptions, icomparator, meta,
-        nullptr /* don't need reference to table*/, for_compaction);
-  }
-}
+class Version::LevelFileIteratorState : public TwoLevelIteratorState {
+ public:
+  LevelFileIteratorState(TableCache* table_cache,
+    const ReadOptions& read_options, const EnvOptions& env_options,
+    const InternalKeyComparator& icomparator, bool for_compaction,
+    bool prefix_enabled)
+    : TwoLevelIteratorState(prefix_enabled),
+      table_cache_(table_cache), read_options_(read_options),
+      env_options_(env_options), icomparator_(icomparator),
+      for_compaction_(for_compaction) {}
 
-bool Version::PrefixMayMatch(const ReadOptions& options,
-                             const EnvOptions& soptions,
-                             const Slice& internal_prefix,
-                             Iterator* level_iter) const {
-  bool may_match = true;
-  level_iter->Seek(internal_prefix);
-  if (!level_iter->Valid()) {
-    // we're past end of level
-    may_match = false;
-  } else if (ExtractUserKey(level_iter->key()).starts_with(
-                                             ExtractUserKey(internal_prefix))) {
-    // TODO(tylerharter): do we need this case?  Or are we guaranteed
-    // key() will always be the biggest value for this SST?
-    may_match = true;
-  } else {
-    const EncodedFileMetaData* encoded_meta =
-        reinterpret_cast<const EncodedFileMetaData*>(
-            level_iter->value().data());
-    FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
-    meta.table_reader = encoded_meta->table_reader;
-    may_match = cfd_->table_cache()->PrefixMayMatch(
-        options, cfd_->internal_comparator(), meta, internal_prefix, nullptr);
+  Iterator* NewSecondaryIterator(const Slice& meta_handle) override {
+    if (meta_handle.size() != sizeof(EncodedFileMetaData)) {
+      return NewErrorIterator(
+          Status::Corruption("FileReader invoked with unexpected value"));
+    } else {
+      const EncodedFileMetaData* encoded_meta =
+          reinterpret_cast<const EncodedFileMetaData*>(meta_handle.data());
+      FileMetaData meta(encoded_meta->number, encoded_meta->file_size);
+      meta.table_reader = encoded_meta->table_reader;
+      return table_cache_->NewIterator(read_options_, env_options_,
+          icomparator_, meta, nullptr /* don't need reference to table*/,
+          for_compaction_);
+    }
   }
-  return may_match;
-}
+
+  bool PrefixMayMatch(const Slice& internal_key) override {
+    return true;
+  }
+
+ private:
+  TableCache* table_cache_;
+  const ReadOptions read_options_;
+  const EnvOptions& env_options_;
+  const InternalKeyComparator& icomparator_;
+  bool for_compaction_;
+};
 
 Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   auto table_cache = cfd_->table_cache();
@@ -314,15 +308,6 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   return Status::OK();
 }
 
-Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
-                                            const EnvOptions& soptions,
-                                            int level) const {
-  Iterator* level_iter =
-      new LevelFileNumIterator(cfd_->internal_comparator(), &files_[level]);
-  return NewTwoLevelIterator(level_iter, &GetFileIterator, cfd_->table_cache(),
-                             options, soptions, cfd_->internal_comparator());
-}
-
 void Version::AddIterators(const ReadOptions& options,
                            const EnvOptions& soptions,
                            std::vector<Iterator*>* iters) {
@@ -337,7 +322,11 @@ void Version::AddIterators(const ReadOptions& options,
   // lazily.
   for (int level = 1; level < num_levels_; level++) {
     if (!files_[level].empty()) {
-      iters->push_back(NewConcatenatingIterator(options, soptions, level));
+      iters->push_back(NewTwoLevelIterator(new LevelFileIteratorState(
+          cfd_->table_cache(), options, soptions,
+          cfd_->internal_comparator(), false /* for_compaction */,
+          cfd_->options()->prefix_extractor != nullptr),
+        new LevelFileNumIterator(cfd_->internal_comparator(), &files_[level])));
     }
   }
 }
@@ -2638,10 +2627,11 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
 }
 
 Iterator* VersionSet::MakeInputIterator(Compaction* c) {
-  ReadOptions options;
-  options.verify_checksums =
-      c->column_family_data()->options()->verify_checksums_in_compaction;
-  options.fill_cache = false;
+  auto cfd = c->column_family_data();
+  ReadOptions read_options;
+  read_options.verify_checksums =
+    cfd->options()->verify_checksums_in_compaction;
+  read_options.fill_cache = false;
 
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
@@ -2653,20 +2643,19 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     if (!c->inputs(which)->empty()) {
       if (c->level() + which == 0) {
         for (const auto& file : *c->inputs(which)) {
-          list[num++] = c->column_family_data()->table_cache()->NewIterator(
-              options, storage_options_compactions_,
-              c->column_family_data()->internal_comparator(), *file, nullptr,
+          list[num++] = cfd->table_cache()->NewIterator(
+              read_options, storage_options_compactions_,
+              cfd->internal_comparator(), *file, nullptr,
               true /* for compaction */);
         }
       } else {
         // Create concatenating iterator for the files from this level
-        list[num++] = NewTwoLevelIterator(
-            new Version::LevelFileNumIterator(
-                c->column_family_data()->internal_comparator(),
-                c->inputs(which)),
-            &GetFileIterator, c->column_family_data()->table_cache(), options,
-            storage_options_, c->column_family_data()->internal_comparator(),
-            true /* for compaction */);
+        list[num++] = NewTwoLevelIterator(new Version::LevelFileIteratorState(
+              cfd->table_cache(), read_options, storage_options_,
+              cfd->internal_comparator(), true /* for_compaction */,
+              false /* prefix enabled */),
+            new Version::LevelFileNumIterator(cfd->internal_comparator(),
+                                              c->inputs(which)));
       }
     }
   }
