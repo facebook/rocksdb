@@ -178,6 +178,12 @@ class TestEnv : public EnvWrapper {
     return EnvWrapper::NewWritableFile(f, r, options);
   }
 
+  virtual Status DeleteFile(const std::string& fname) override {
+    ASSERT_GT(limit_delete_files_, 0);
+    limit_delete_files_--;
+    return EnvWrapper::DeleteFile(fname);
+  }
+
   void AssertWrittenFiles(std::vector<std::string>& should_have_written) {
     sort(should_have_written.begin(), should_have_written.end());
     sort(written_files_.begin(), written_files_.end());
@@ -192,6 +198,8 @@ class TestEnv : public EnvWrapper {
     limit_written_files_ = limit;
   }
 
+  void SetLimitDeleteFiles(uint64_t limit) { limit_delete_files_ = limit; }
+
   void SetDummySequentialFile(bool dummy_sequential_file) {
     dummy_sequential_file_ = dummy_sequential_file;
   }
@@ -200,7 +208,8 @@ class TestEnv : public EnvWrapper {
   bool dummy_sequential_file_ = false;
   std::vector<std::string> written_files_;
   uint64_t limit_written_files_ = 1000000;
-}; // TestEnv
+  uint64_t limit_delete_files_ = 1000000;
+};  // TestEnv
 
 class FileManager : public EnvWrapper {
  public:
@@ -864,7 +873,38 @@ TEST(BackupableDBTest, RateLimiting) {
   }
 }
 
-} // anon namespace
+TEST(BackupableDBTest, ReadOnlyBackupEngine) {
+  DestroyDB(dbname_, Options());
+  OpenBackupableDB(true);
+  FillDB(db_.get(), 0, 100);
+  ASSERT_OK(db_->CreateNewBackup(true));
+  FillDB(db_.get(), 100, 200);
+  ASSERT_OK(db_->CreateNewBackup(true));
+  CloseBackupableDB();
+  DestroyDB(dbname_, Options());
+
+  backupable_options_->destroy_old_data = false;
+  test_backup_env_->ClearWrittenFiles();
+  test_backup_env_->SetLimitDeleteFiles(0);
+  auto read_only_backup_engine =
+      BackupEngineReadOnly::NewReadOnlyBackupEngine(env_, *backupable_options_);
+  std::vector<BackupInfo> backup_info;
+  read_only_backup_engine->GetBackupInfo(&backup_info);
+  ASSERT_EQ(backup_info.size(), 2U);
+
+  RestoreOptions restore_options(false);
+  ASSERT_OK(read_only_backup_engine->RestoreDBFromLatestBackup(
+      dbname_, dbname_, restore_options));
+  delete read_only_backup_engine;
+  std::vector<std::string> should_have_written;
+  test_backup_env_->AssertWrittenFiles(should_have_written);
+
+  DB* db = OpenDB();
+  AssertExists(db, 0, 200);
+  delete db;
+}
+
+}  // anon namespace
 
 } //  namespace rocksdb
 
