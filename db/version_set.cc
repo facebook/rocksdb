@@ -31,6 +31,7 @@
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
 #include "table/format.h"
+#include "table/plain_table_factory.h"
 #include "table/meta_blocks.h"
 #include "util/coding.h"
 #include "util/logging.h"
@@ -308,13 +309,13 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   return Status::OK();
 }
 
-void Version::AddIterators(const ReadOptions& options,
+void Version::AddIterators(const ReadOptions& read_options,
                            const EnvOptions& soptions,
                            std::vector<Iterator*>* iters) {
   // Merge all level zero files together since they may overlap
   for (const FileMetaData* file : files_[0]) {
     iters->push_back(cfd_->table_cache()->NewIterator(
-        options, soptions, cfd_->internal_comparator(), *file));
+        read_options, soptions, cfd_->internal_comparator(), *file));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -323,7 +324,7 @@ void Version::AddIterators(const ReadOptions& options,
   for (int level = 1; level < num_levels_; level++) {
     if (!files_[level].empty()) {
       iters->push_back(NewTwoLevelIterator(new LevelFileIteratorState(
-          cfd_->table_cache(), options, soptions,
+          cfd_->table_cache(), read_options, soptions,
           cfd_->internal_comparator(), false /* for_compaction */,
           cfd_->options()->prefix_extractor != nullptr),
         new LevelFileNumIterator(cfd_->internal_comparator(), &files_[level])));

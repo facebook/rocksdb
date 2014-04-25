@@ -18,14 +18,15 @@ struct ReadOptions;
 class InternalKeyComparator;
 
 struct TwoLevelIteratorState {
-  explicit TwoLevelIteratorState(bool prefix_enabled)
-    : prefix_enabled(prefix_enabled) {}
+  explicit TwoLevelIteratorState(bool check_prefix_may_match)
+    : check_prefix_may_match(check_prefix_may_match) {}
 
   virtual ~TwoLevelIteratorState() {}
   virtual Iterator* NewSecondaryIterator(const Slice& handle) = 0;
   virtual bool PrefixMayMatch(const Slice& internal_key) = 0;
 
-  bool prefix_enabled;
+  // If call PrefixMayMatch()
+  bool check_prefix_may_match;
 };
 
 

@@ -63,7 +63,7 @@ class BlockBasedTable : public TableReader {
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
-  bool PrefixMayMatch(const Slice& internal_key) override;
+  bool PrefixMayMatch(const Slice& internal_key);
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
