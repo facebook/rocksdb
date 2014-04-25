@@ -30,6 +30,7 @@ DEFINE_int64(min_write_buffer_number_to_merge, 1, "");
 DEFINE_int32(skiplist_height, 4, "");
 DEFINE_int32(memtable_prefix_bloom_bits, 10000000, "");
 DEFINE_int32(memtable_prefix_bloom_probes, 10, "");
+DEFINE_int32(memtable_prefix_bloom_huge_page_tlb_size, 2 * 1024 * 1024, "");
 DEFINE_int32(value_size, 40, "");
 
 // Path to the database on file system
@@ -148,6 +149,8 @@ class PrefixTest {
 
     options.memtable_prefix_bloom_bits = FLAGS_memtable_prefix_bloom_bits;
     options.memtable_prefix_bloom_probes = FLAGS_memtable_prefix_bloom_probes;
+    options.memtable_prefix_bloom_huge_page_tlb_size =
+        FLAGS_memtable_prefix_bloom_huge_page_tlb_size;
 
     Status s = DB::Open(options, kDbName,  &db);
     ASSERT_OK(s);
@@ -172,6 +175,10 @@ class PrefixTest {
           options.memtable_factory.reset(
               NewHashLinkListRepFactory(bucket_count));
           return true;
+        case kHashLinkListHugePageTlb:
+          options.memtable_factory.reset(
+              NewHashLinkListRepFactory(bucket_count, 2 * 1024 * 1024));
+          return true;
         default:
           return false;
       }
@@ -190,6 +197,7 @@ class PrefixTest {
     kBegin,
     kHashSkipList,
     kHashLinkList,
+    kHashLinkListHugePageTlb,
     kEnd
   };
   int option_config_;

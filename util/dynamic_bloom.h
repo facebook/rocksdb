@@ -8,6 +8,8 @@
 #include <atomic>
 #include <memory>
 
+#include <util/arena.h>
+
 namespace rocksdb {
 
 class Slice;
@@ -19,13 +21,17 @@ class DynamicBloom {
   // cl_per_block: block size in cache lines. When this is non-zero, a
   //               query/set is done within a block to improve cache locality.
   // hash_func:  customized hash function
+  // huge_page_tlb_size:  if >0, try to allocate bloom bytes from huge page TLB
+  //                      withi this page size. Need to reserve huge pages for
+  //                      it to be allocated, like:
+  //                         sysctl -w vm.nr_hugepages=20
+  //                     See linux doc Documentation/vm/hugetlbpage.txt
   explicit DynamicBloom(uint32_t total_bits, uint32_t cl_per_block = 0,
-      uint32_t num_probes = 6,
-      uint32_t (*hash_func)(const Slice& key) = nullptr);
+                        uint32_t num_probes = 6,
+                        uint32_t (*hash_func)(const Slice& key) = nullptr,
+                        size_t huge_page_tlb_size = 0);
 
-  ~DynamicBloom() {
-    delete[] raw_;
-  }
+  ~DynamicBloom() {}
 
   // Assuming single threaded access to this function.
   void Add(const Slice& key);
@@ -49,6 +55,8 @@ class DynamicBloom {
   uint32_t (*hash_func_)(const Slice& key);
   unsigned char* data_;
   unsigned char* raw_;
+
+  Arena arena_;
 };
 
 inline void DynamicBloom::Add(const Slice& key) { AddHash(hash_func_(key)); }

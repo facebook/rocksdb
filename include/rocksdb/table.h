@@ -96,12 +96,19 @@ extern TableFactory* NewBlockBasedTableFactory(
 //                    in the hash table
 // @index_sparseness: inside each prefix, need to build one index record for how
 //                    many keys for binary search inside each hash bucket.
+// @huge_page_tlb_size: if <=0, allocate hash indexes and blooms from malloc.
+//                      Otherwise from huge page TLB. The user needs to reserve
+//                      huge pages for it to be allocated, like:
+//                          sysctl -w vm.nr_hugepages=20
+//                      See linux doc Documentation/vm/hugetlbpage.txt
+
 const uint32_t kPlainTableVariableLength = 0;
 extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
                                               kPlainTableVariableLength,
                                           int bloom_bits_per_prefix = 10,
                                           double hash_table_ratio = 0.75,
-                                          size_t index_sparseness = 16);
+                                          size_t index_sparseness = 16,
+                                          size_t huge_page_tlb_size = 0);
 
 // -- Plain Table
 // This factory of plain table ignores Options.prefix_extractor and assumes no
@@ -115,9 +122,15 @@ extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
 //                  disable it by passing a zero.
 // @index_sparseness: need to build one index record for how many keys for
 //                    binary search.
+// @huge_page_tlb_size: if <=0, allocate hash indexes and blooms from malloc.
+//                      Otherwise from huge page TLB. The user needs to reserve
+//                      huge pages for it to be allocated, like:
+//                          sysctl -w vm.nr_hugepages=20
+//                      See linux doc Documentation/vm/hugetlbpage.txt
 extern TableFactory* NewTotalOrderPlainTableFactory(
     uint32_t user_key_len = kPlainTableVariableLength,
-    int bloom_bits_per_key = 0, size_t index_sparseness = 16);
+    int bloom_bits_per_key = 0, size_t index_sparseness = 16,
+    size_t huge_page_tlb_size = 0);
 
 #endif  // ROCKSDB_LITE
 

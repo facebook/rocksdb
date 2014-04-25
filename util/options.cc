@@ -32,8 +32,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       compaction_filter(nullptr),
       compaction_filter_factory(std::shared_ptr<CompactionFilterFactory>(
           new DefaultCompactionFilterFactory())),
-      compaction_filter_factory_v2(
-          new DefaultCompactionFilterFactoryV2()),
+      compaction_filter_factory_v2(new DefaultCompactionFilterFactoryV2()),
       write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
@@ -79,6 +78,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       inplace_callback(nullptr),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(6),
+      memtable_prefix_bloom_huge_page_tlb_size(0),
       bloom_locality(0),
       max_successive_merges(0),
       min_partial_merge_operands(2) {
@@ -144,6 +144,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       inplace_callback(options.inplace_callback),
       memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
       memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
+      memtable_prefix_bloom_huge_page_tlb_size(
+          options.memtable_prefix_bloom_huge_page_tlb_size),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands) {
@@ -423,6 +425,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         memtable_prefix_bloom_bits);
     Log(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
+    Log(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %zu",
+        memtable_prefix_bloom_huge_page_tlb_size);
     Log(log, "                          Options.bloom_locality: %d",
         bloom_locality);
     Log(log, "                   Options.max_successive_merges: %zd",
