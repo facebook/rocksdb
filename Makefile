@@ -434,7 +434,7 @@ ROCKSDBJNILIB = ./java/librocksdbjni.jnilib
 JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 
-rocksdbjava:
+rocksdbjava: clean
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32
 	cd java;$(MAKE) java;
 	rm -f $(ROCKSDBJNILIB)
