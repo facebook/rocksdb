@@ -154,58 +154,58 @@ public class RocksDB {
   public byte[] get(ReadOptions opt, byte[] key) throws RocksDBException {
     return get(nativeHandle_, opt.nativeHandle_, key, key.length);
   }
-  
+
   /**
    * Returns a map of keys for which values were found in DB.
-   * 
+   *
    * @param keys List of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map 
+   * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
-   * 
-   * @see RocksDBException 
+   *
+   * @see RocksDBException
    */
   public Map<byte[], byte[]> multiGet(List<byte[]> keys)
       throws RocksDBException {
     List<byte[]> values = multiGet(
         nativeHandle_, keys, keys.size());
-    
-    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();    
+
+    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
     for(int i = 0; i < values.size(); i++) {
       if(values.get(i) == null) {
         continue;
       }
-      
+
       keyValueMap.put(keys.get(i), values.get(i));
     }
-    
+
     return keyValueMap;
   }
-  
-  
+
+
   /**
    * Returns a map of keys for which values were found in DB.
-   * 
+   *
    * @param List of keys for which values need to be retrieved.
    * @param opt Read options.
-   * @return Map where key of map is the key passed by user and value for map 
+   * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
-   * 
-   * @see RocksDBException 
+   *
+   * @see RocksDBException
    */
   public Map<byte[], byte[]> multiGet(ReadOptions opt, List<byte[]> keys)
       throws RocksDBException {
     List<byte[]> values = multiGet(
         nativeHandle_, opt.nativeHandle_, keys, keys.size());
-    
-    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();    
+
+    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
     for(int i = 0; i < values.size(); i++) {
       if(values.get(i) == null) {
         continue;
       }
-      
+
       keyValueMap.put(keys.get(i), values.get(i));
     }
-    
+
     return keyValueMap;
   }
 

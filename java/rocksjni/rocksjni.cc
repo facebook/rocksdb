@@ -249,37 +249,37 @@ jobject multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
     const rocksdb::ReadOptions& rOpt, jobject jkey_list, jint jkeys_count) {
   std::vector<rocksdb::Slice> keys;
   std::vector<jbyte*> keys_to_free;
-  
+
   // get iterator
   jobject iteratorObj = env->CallObjectMethod(
       jkey_list, rocksdb::ListJni::getIteratorMethod(env));
-  
+
   // iterate over keys and convert java byte array to slice
   while(env->CallBooleanMethod(
       iteratorObj, rocksdb::ListJni::getHasNextMethod(env)) == JNI_TRUE) {
     jbyteArray jkey = (jbyteArray) env->CallObjectMethod(
        iteratorObj, rocksdb::ListJni::getNextMethod(env));
     jint key_length = env->GetArrayLength(jkey);
-    
+
     jbyte* key = new jbyte[key_length];
     env->GetByteArrayRegion(jkey, 0, key_length, key);
     // store allocated jbyte to free it after multiGet call
-    keys_to_free.push_back(key); 
-    
+    keys_to_free.push_back(key);
+
     rocksdb::Slice key_slice(
       reinterpret_cast<char*>(key), key_length);
     keys.push_back(key_slice);
   }
-  
+
   std::vector<std::string> values;
   std::vector<rocksdb::Status> s = db->MultiGet(rOpt, keys, &values);
-  
+
   // Don't reuse class pointer
-  jclass jclazz = env->FindClass("java/util/ArrayList");  
+  jclass jclazz = env->FindClass("java/util/ArrayList");
   jmethodID mid = rocksdb::ListJni::getArrayListConstructorMethodId(
-      env, jclazz);  
+      env, jclazz);
   jobject jvalue_list = env->NewObject(jclazz, mid, jkeys_count);
-  
+
   // insert in java list
   for(std::vector<rocksdb::Status>::size_type i = 0; i != s.size(); i++) {
     if(s[i].ok()) {
@@ -295,13 +295,13 @@ jobject multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
           jvalue_list, rocksdb::ListJni::getListAddMethodId(env), nullptr);
     }
   }
-  
+
   // free up allocated byte arrays
   for(std::vector<jbyte*>::size_type i = 0; i != keys_to_free.size(); i++) {
     delete[] keys_to_free[i];
   }
   keys_to_free.clear();
-  
+
   return jvalue_list;
 }
 

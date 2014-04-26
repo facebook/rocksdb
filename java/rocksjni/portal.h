@@ -324,7 +324,7 @@ class ListJni {
     assert(jclazz != nullptr);
     return jclazz;
   }
-  
+
   // Get the java class id of java.util.ArrayList.
   static jclass getArrayListClass(JNIEnv* env) {
     static jclass jclazz = env->FindClass("java/util/ArrayList");
@@ -338,7 +338,7 @@ class ListJni {
     assert(jclazz != nullptr);
     return jclazz;
   }
-  
+
   // Get the java method id of java.util.List.iterator().
   static jmethodID getIteratorMethod(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
@@ -346,7 +346,7 @@ class ListJni {
     assert(mid != nullptr);
     return mid;
   }
-  
+
   // Get the java method id of java.util.Iterator.hasNext().
   static jmethodID getHasNextMethod(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
@@ -354,7 +354,7 @@ class ListJni {
     assert(mid != nullptr);
     return mid;
   }
-  
+
   // Get the java method id of java.util.Iterator.next().
   static jmethodID getNextMethod(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
@@ -362,7 +362,7 @@ class ListJni {
     assert(mid != nullptr);
     return mid;
   }
-  
+
   // Get the java method id of arrayList constructor.
   static jmethodID getArrayListConstructorMethodId(JNIEnv* env, jclass jclazz) {
     static jmethodID mid = env->GetMethodID(
@@ -370,7 +370,7 @@ class ListJni {
     assert(mid != nullptr);
     return mid;
   }
-  
+
   // Get the java method id of java.util.List.add().
   static jmethodID getListAddMethodId(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
