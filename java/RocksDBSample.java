@@ -5,6 +5,7 @@
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.ArrayList;
 import org.rocksdb.*;
 import org.rocksdb.util.SizeUnit;
@@ -219,6 +220,25 @@ public class RocksDBSample {
 
       iterator.close();
       System.out.println("iterator tests passed.");
+
+      iterator = db.newIterator();
+      List<byte[]> keys = new ArrayList<byte[]>();
+      for (iterator.seekToLast(); iterator.isValid(); iterator.prev()) {
+        keys.add(iterator.key());
+      }
+      iterator.close();
+
+      Map<byte[], byte[]> values = db.multiGet(keys);
+      assert(values.size() == keys.size());
+      for(byte[] value1 : values.values()) {
+        assert(value1 != null);
+      }
+
+      values = db.multiGet(new ReadOptions(), keys);
+      assert(values.size() == keys.size());
+      for(byte[] value1 : values.values()) {
+        assert(value1 != null);
+      }
     } catch (RocksDBException e) {
       System.err.println(e);
     }

@@ -310,7 +310,7 @@ jobject multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
  * Method:    multiGet
  * Signature: (JLjava/util/List;I)Ljava/util/List;
  */
-jobject Java_org_rocksdb_RocksDB_multiGet(
+jobject Java_org_rocksdb_RocksDB_multiGet__JLjava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jdb_handle,
     jobject jkey_list, jint jkeys_count) {
   return multi_get_helper(env, jdb, reinterpret_cast<rocksdb::DB*>(jdb_handle),
@@ -322,7 +322,7 @@ jobject Java_org_rocksdb_RocksDB_multiGet(
  * Method:    multiGet
  * Signature: (JJLjava/util/List;I)Ljava/util/List;
  */
-jobject Java_org_rocksdb_RocksDB_multiGet(
+jobject Java_org_rocksdb_RocksDB_multiGet__JJLjava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jdb_handle,
     jlong jropt_handle, jobject jkey_list, jint jkeys_count) {
   return multi_get_helper(env, jdb, reinterpret_cast<rocksdb::DB*>(jdb_handle),
