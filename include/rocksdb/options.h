@@ -817,7 +817,10 @@ struct ReadOptions {
 
   // If this option is set and memtable implementation allows, Seek
   // might only return keys with the same prefix as the seek-key
-  bool prefix_seek;
+  //
+  // ! DEPRECATED: prefix_seek is on by default when prefix_extractor
+  // is configured
+  // bool prefix_seek;
 
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
@@ -837,7 +840,9 @@ struct ReadOptions {
   // prefix, and SeekToLast() is not supported.  prefix filter with this
   // option will sometimes reduce the number of read IOPs.
   // Default: nullptr
-  const Slice* prefix;
+  //
+  // ! DEPRECATED
+  // const Slice* prefix;
 
   // Specify if this read request should process data that ALREADY
   // resides on a particular cache. If the required data is not
@@ -856,17 +861,13 @@ struct ReadOptions {
   ReadOptions()
       : verify_checksums(true),
         fill_cache(true),
-        prefix_seek(false),
         snapshot(nullptr),
-        prefix(nullptr),
         read_tier(kReadAllTier),
         tailing(false) {}
   ReadOptions(bool cksum, bool cache)
       : verify_checksums(cksum),
         fill_cache(cache),
-        prefix_seek(false),
         snapshot(nullptr),
-        prefix(nullptr),
         read_tier(kReadAllTier),
         tailing(false) {}
 };

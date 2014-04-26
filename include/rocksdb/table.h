@@ -62,9 +62,7 @@ struct BlockBasedTableOptions {
     kBinarySearch,
 
     // The hash index, if enabled, will do the hash lookup when
-    // `ReadOption.prefix_seek == true`. User should also specify
-    // `Options.prefix_extractor` to allow the index block to correctly
-    // extract the prefix of the given key and perform hash table lookup.
+    // `Options.prefix_extractor` is provided.
     kHashSearch,
   };
 

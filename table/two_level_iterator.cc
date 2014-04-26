@@ -13,26 +13,17 @@
 #include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/format.h"
-#include "table/iterator_wrapper.h"
 
 namespace rocksdb {
 
 namespace {
 
-typedef Iterator* (*BlockFunction)(void*, const ReadOptions&,
-                                   const EnvOptions& soptions,
-                                   const InternalKeyComparator& icomparator,
-                                   const Slice&, bool for_compaction);
-
 class TwoLevelIterator: public Iterator {
  public:
-  TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,
-                   void* arg, const ReadOptions& options,
-                   const EnvOptions& soptions,
-                   const InternalKeyComparator& internal_comparator,
-                   bool for_compaction);
+  explicit TwoLevelIterator(TwoLevelIteratorState* state,
+      Iterator* first_level_iter);
 
-  virtual ~TwoLevelIterator();
+  virtual ~TwoLevelIterator() {}
 
   virtual void Seek(const Slice& target);
   virtual void SeekToFirst();
@@ -41,22 +32,23 @@ class TwoLevelIterator: public Iterator {
   virtual void Prev();
 
   virtual bool Valid() const {
-    return data_iter_.Valid();
+    return second_level_iter_.Valid();
   }
   virtual Slice key() const {
     assert(Valid());
-    return data_iter_.key();
+    return second_level_iter_.key();
   }
   virtual Slice value() const {
     assert(Valid());
-    return data_iter_.value();
+    return second_level_iter_.value();
   }
   virtual Status status() const {
     // It'd be nice if status() returned a const Status& instead of a Status
-    if (!index_iter_.status().ok()) {
-      return index_iter_.status();
-    } else if (data_iter_.iter() != nullptr && !data_iter_.status().ok()) {
-      return data_iter_.status();
+    if (!first_level_iter_.status().ok()) {
+      return first_level_iter_.status();
+    } else if (second_level_iter_.iter() != nullptr &&
+               !second_level_iter_.status().ok()) {
+      return second_level_iter_.status();
     } else {
       return status_;
     }
@@ -68,135 +60,131 @@ class TwoLevelIterator: public Iterator {
   }
   void SkipEmptyDataBlocksForward();
   void SkipEmptyDataBlocksBackward();
-  void SetDataIterator(Iterator* data_iter);
+  void SetSecondLevelIterator(Iterator* iter);
   void InitDataBlock();
 
-  BlockFunction block_function_;
-  void* arg_;
-  const ReadOptions options_;
-  const EnvOptions& soptions_;
-  const InternalKeyComparator& internal_comparator_;
+  std::unique_ptr<TwoLevelIteratorState> state_;
+  IteratorWrapper first_level_iter_;
+  IteratorWrapper second_level_iter_;  // May be nullptr
   Status status_;
-  IteratorWrapper index_iter_;
-  IteratorWrapper data_iter_; // May be nullptr
-  // If data_iter_ is non-nullptr, then "data_block_handle_" holds the
-  // "index_value" passed to block_function_ to create the data_iter_.
+  // If second_level_iter is non-nullptr, then "data_block_handle_" holds the
+  // "index_value" passed to block_function_ to create the second_level_iter.
   std::string data_block_handle_;
-  bool for_compaction_;
 };
 
-TwoLevelIterator::TwoLevelIterator(
-    Iterator* index_iter, BlockFunction block_function, void* arg,
-    const ReadOptions& options, const EnvOptions& soptions,
-    const InternalKeyComparator& internal_comparator, bool for_compaction)
-    : block_function_(block_function),
-      arg_(arg),
-      options_(options),
-      soptions_(soptions),
-      internal_comparator_(internal_comparator),
-      index_iter_(index_iter),
-      data_iter_(nullptr),
-      for_compaction_(for_compaction) {}
-
-TwoLevelIterator::~TwoLevelIterator() {
-}
+TwoLevelIterator::TwoLevelIterator(TwoLevelIteratorState* state,
+    Iterator* first_level_iter)
+  : state_(state), first_level_iter_(first_level_iter) {}
 
 void TwoLevelIterator::Seek(const Slice& target) {
-  index_iter_.Seek(target);
+  if (state_->check_prefix_may_match &&
+      !state_->PrefixMayMatch(target)) {
+    SetSecondLevelIterator(nullptr);
+    return;
+  }
+  first_level_iter_.Seek(target);
+
   InitDataBlock();
-  if (data_iter_.iter() != nullptr) data_iter_.Seek(target);
+  if (second_level_iter_.iter() != nullptr) {
+    second_level_iter_.Seek(target);
+  }
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekToFirst() {
-  index_iter_.SeekToFirst();
+  first_level_iter_.SeekToFirst();
   InitDataBlock();
-  if (data_iter_.iter() != nullptr) data_iter_.SeekToFirst();
+  if (second_level_iter_.iter() != nullptr) {
+    second_level_iter_.SeekToFirst();
+  }
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekToLast() {
-  index_iter_.SeekToLast();
+  first_level_iter_.SeekToLast();
   InitDataBlock();
-  if (data_iter_.iter() != nullptr) data_iter_.SeekToLast();
+  if (second_level_iter_.iter() != nullptr) {
+    second_level_iter_.SeekToLast();
+  }
   SkipEmptyDataBlocksBackward();
 }
 
 void TwoLevelIterator::Next() {
   assert(Valid());
-  data_iter_.Next();
+  second_level_iter_.Next();
   SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::Prev() {
   assert(Valid());
-  data_iter_.Prev();
+  second_level_iter_.Prev();
   SkipEmptyDataBlocksBackward();
 }
 
 
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
-  while (data_iter_.iter() == nullptr || (!data_iter_.Valid() &&
-        !data_iter_.status().IsIncomplete())) {
+  while (second_level_iter_.iter() == nullptr ||
+         (!second_level_iter_.Valid() &&
+         !second_level_iter_.status().IsIncomplete())) {
     // Move to next block
-    if (!index_iter_.Valid()) {
-      SetDataIterator(nullptr);
+    if (!first_level_iter_.Valid()) {
+      SetSecondLevelIterator(nullptr);
       return;
     }
-    index_iter_.Next();
+    first_level_iter_.Next();
     InitDataBlock();
-    if (data_iter_.iter() != nullptr) data_iter_.SeekToFirst();
+    if (second_level_iter_.iter() != nullptr) {
+      second_level_iter_.SeekToFirst();
+    }
   }
 }
 
 void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
-  while (data_iter_.iter() == nullptr || (!data_iter_.Valid() &&
-        !data_iter_.status().IsIncomplete())) {
+  while (second_level_iter_.iter() == nullptr ||
+         (!second_level_iter_.Valid() &&
+         !second_level_iter_.status().IsIncomplete())) {
     // Move to next block
-    if (!index_iter_.Valid()) {
-      SetDataIterator(nullptr);
+    if (!first_level_iter_.Valid()) {
+      SetSecondLevelIterator(nullptr);
       return;
     }
-    index_iter_.Prev();
+    first_level_iter_.Prev();
     InitDataBlock();
-    if (data_iter_.iter() != nullptr) data_iter_.SeekToLast();
+    if (second_level_iter_.iter() != nullptr) {
+      second_level_iter_.SeekToLast();
+    }
   }
 }
 
-void TwoLevelIterator::SetDataIterator(Iterator* data_iter) {
-  if (data_iter_.iter() != nullptr) SaveError(data_iter_.status());
-  data_iter_.Set(data_iter);
+void TwoLevelIterator::SetSecondLevelIterator(Iterator* iter) {
+  if (second_level_iter_.iter() != nullptr) {
+    SaveError(second_level_iter_.status());
+  }
+  second_level_iter_.Set(iter);
 }
 
 void TwoLevelIterator::InitDataBlock() {
-  if (!index_iter_.Valid()) {
-    SetDataIterator(nullptr);
+  if (!first_level_iter_.Valid()) {
+    SetSecondLevelIterator(nullptr);
   } else {
-    Slice handle = index_iter_.value();
-    if (data_iter_.iter() != nullptr
+    Slice handle = first_level_iter_.value();
+    if (second_level_iter_.iter() != nullptr
         && handle.compare(data_block_handle_) == 0) {
-      // data_iter_ is already constructed with this iterator, so
+      // second_level_iter is already constructed with this iterator, so
       // no need to change anything
     } else {
-      Iterator* iter =
-          (*block_function_)(arg_, options_, soptions_, internal_comparator_,
-                             handle, for_compaction_);
+      Iterator* iter = state_->NewSecondaryIterator(handle);
       data_block_handle_.assign(handle.data(), handle.size());
-      SetDataIterator(iter);
+      SetSecondLevelIterator(iter);
     }
   }
 }
 
 }  // namespace
 
-Iterator* NewTwoLevelIterator(Iterator* index_iter,
-                              BlockFunction block_function, void* arg,
-                              const ReadOptions& options,
-                              const EnvOptions& soptions,
-                              const InternalKeyComparator& internal_comparator,
-                              bool for_compaction) {
-  return new TwoLevelIterator(index_iter, block_function, arg, options,
-                              soptions, internal_comparator, for_compaction);
+Iterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
+      Iterator* first_level_iter) {
+  return new TwoLevelIterator(state, first_level_iter);
 }
 
 }  // namespace rocksdb

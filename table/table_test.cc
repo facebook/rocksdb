@@ -307,11 +307,9 @@ class KeyConvertingIterator: public Iterator {
 class TableConstructor: public Constructor {
  public:
   explicit TableConstructor(const Comparator* cmp,
-                            bool convert_to_internal_key = false,
-                            bool prefix_seek = false)
+                            bool convert_to_internal_key = false)
       : Constructor(cmp),
-        convert_to_internal_key_(convert_to_internal_key),
-        prefix_seek_(prefix_seek) {}
+        convert_to_internal_key_(convert_to_internal_key) {}
   ~TableConstructor() { Reset(); }
 
   virtual Status FinishImpl(const Options& options,
@@ -352,9 +350,6 @@ class TableConstructor: public Constructor {
 
   virtual Iterator* NewIterator() const {
     ReadOptions ro;
-    if (prefix_seek_) {
-      ro.prefix_seek = true;
-    }
     Iterator* iter = table_reader_->NewIterator(ro);
     if (convert_to_internal_key_) {
       return new KeyConvertingIterator(iter);
@@ -388,7 +383,6 @@ class TableConstructor: public Constructor {
     source_.reset();
   }
   bool convert_to_internal_key_;
-  bool prefix_seek_;
 
   uint64_t uniq_id_;
   unique_ptr<StringSink> sink_;
@@ -434,7 +428,7 @@ class MemTableConstructor: public Constructor {
     return Status::OK();
   }
   virtual Iterator* NewIterator() const {
-    return new KeyConvertingIterator(memtable_->NewIterator());
+    return new KeyConvertingIterator(memtable_->NewIterator(ReadOptions()));
   }
 
  private:
@@ -699,7 +693,7 @@ class Harness {
         options_.prefix_extractor.reset(new FixedOrLessPrefixTransform(2));
         options_.allow_mmap_reads = true;
         options_.table_factory.reset(NewPlainTableFactory());
-        constructor_ = new TableConstructor(options_.comparator, true, true);
+        constructor_ = new TableConstructor(options_.comparator, true);
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -709,7 +703,7 @@ class Harness {
         options_.prefix_extractor.reset(NewNoopTransform());
         options_.allow_mmap_reads = true;
         options_.table_factory.reset(NewPlainTableFactory());
-        constructor_ = new TableConstructor(options_.comparator, true, true);
+        constructor_ = new TableConstructor(options_.comparator, true);
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -719,7 +713,7 @@ class Harness {
         options_.prefix_extractor = nullptr;
         options_.allow_mmap_reads = true;
         options_.table_factory.reset(NewTotalOrderPlainTableFactory());
-        constructor_ = new TableConstructor(options_.comparator, true, false);
+        constructor_ = new TableConstructor(options_.comparator, true);
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
@@ -1667,7 +1661,7 @@ TEST(MemTableTest, Simple) {
   ColumnFamilyMemTablesDefault cf_mems_default(memtable, &options);
   ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, &cf_mems_default).ok());
 
-  Iterator* iter = memtable->NewIterator();
+  Iterator* iter = memtable->NewIterator(ReadOptions());
   iter->SeekToFirst();
   while (iter->Valid()) {
     fprintf(stderr, "key: '%s' -> '%s'\n",

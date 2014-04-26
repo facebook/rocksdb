@@ -123,9 +123,9 @@ public class OptionsTest {
       assert(opt.tableCacheRemoveScanCountLimit() == intValue);
     }
 
-    { // WALTtlSeconds test
+    { // WalTtlSeconds test
       long longValue = rand.nextLong();
-      opt.setWALTtlSeconds(longValue);
+      opt.setWalTtlSeconds(longValue);
       assert(opt.walTtlSeconds() == longValue);
     }
 
@@ -193,6 +193,228 @@ public class OptionsTest {
       boolean boolValue = rand.nextBoolean();
       opt.setAllowThreadLocal(boolValue);
       assert(opt.allowThreadLocal() == boolValue);
+    }
+
+    { // WriteBufferSize test
+      long longValue = rand.nextLong();
+      opt.setWriteBufferSize(longValue);
+      assert(opt.writeBufferSize() == longValue);
+    }
+
+    { // MaxWriteBufferNumber test
+      int intValue = rand.nextInt();
+      opt.setMaxWriteBufferNumber(intValue);
+      assert(opt.maxWriteBufferNumber() == intValue);
+    }
+
+    { // MinWriteBufferNumberToMerge test
+      int intValue = rand.nextInt();
+      opt.setMinWriteBufferNumberToMerge(intValue);
+      assert(opt.minWriteBufferNumberToMerge() == intValue);
+    }
+
+    { // BlockSize test
+      long longValue = rand.nextLong();
+      opt.setBlockSize(longValue);
+      assert(opt.blockSize() == longValue);
+    }
+
+    { // BlockRestartInterval test
+      int intValue = rand.nextInt();
+      opt.setBlockRestartInterval(intValue);
+      assert(opt.blockRestartInterval() == intValue);
+    }
+
+    { // WholeKeyFiltering test
+      boolean boolValue = rand.nextBoolean();
+      opt.setWholeKeyFiltering(boolValue);
+      assert(opt.wholeKeyFiltering() == boolValue);
+    }
+
+    { // NumLevels test
+      int intValue = rand.nextInt();
+      opt.setNumLevels(intValue);
+      assert(opt.numLevels() == intValue);
+    }
+
+    { // LevelFileNumCompactionTrigger test
+      int intValue = rand.nextInt();
+      opt.setLevelZeroFileNumCompactionTrigger(intValue);
+      assert(opt.levelZeroFileNumCompactionTrigger() == intValue);
+    }
+
+    { // LevelSlowdownWritesTrigger test
+      int intValue = rand.nextInt();
+      opt.setLevelZeroSlowdownWritesTrigger(intValue);
+      assert(opt.levelZeroSlowdownWritesTrigger() == intValue);
+    }
+
+    { // LevelStopWritesTrigger test
+      int intValue = rand.nextInt();
+      opt.setLevelZeroStopWritesTrigger(intValue);
+      assert(opt.levelZeroStopWritesTrigger() == intValue);
+    }
+
+    { // MaxMemCompactionLevel test
+      int intValue = rand.nextInt();
+      opt.setMaxMemCompactionLevel(intValue);
+      assert(opt.maxMemCompactionLevel() == intValue);
+    }
+
+    { // TargetFileSizeBase test
+      int intValue = rand.nextInt();
+      opt.setTargetFileSizeBase(intValue);
+      assert(opt.targetFileSizeBase() == intValue);
+    }
+
+    { // TargetFileSizeMultiplier test
+      int intValue = rand.nextInt();
+      opt.setTargetFileSizeMultiplier(intValue);
+      assert(opt.targetFileSizeMultiplier() == intValue);
+    }
+
+    { // MaxBytesForLevelBase test
+      long longValue = rand.nextLong();
+      opt.setMaxBytesForLevelBase(longValue);
+      assert(opt.maxBytesForLevelBase() == longValue);
+    }
+
+    { // MaxBytesForLevelMultiplier test
+      int intValue = rand.nextInt();
+      opt.setMaxBytesForLevelMultiplier(intValue);
+      assert(opt.maxBytesForLevelMultiplier() == intValue);
+    }
+
+    { // ExpandedCompactionFactor test
+      int intValue = rand.nextInt();
+      opt.setExpandedCompactionFactor(intValue);
+      assert(opt.expandedCompactionFactor() == intValue);
+    }
+
+    { // SourceCompactionFactor test
+      int intValue = rand.nextInt();
+      opt.setSourceCompactionFactor(intValue);
+      assert(opt.sourceCompactionFactor() == intValue);
+    }
+
+    { // MaxGrandparentOverlapFactor test
+      int intValue = rand.nextInt();
+      opt.setMaxGrandparentOverlapFactor(intValue);
+      assert(opt.maxGrandparentOverlapFactor() == intValue);
+    }
+
+    { // DisableSeekCompaction test
+      boolean boolValue = rand.nextBoolean();
+      opt.setDisableSeekCompaction(boolValue);
+      assert(opt.disableSeekCompaction() == boolValue);
+    }
+
+    { // SoftRateLimit test
+      double doubleValue = rand.nextDouble();
+      opt.setSoftRateLimit(doubleValue);
+      assert(opt.softRateLimit() == doubleValue);
+    }
+
+    { // HardRateLimit test
+      double doubleValue = rand.nextDouble();
+      opt.setHardRateLimit(doubleValue);
+      assert(opt.hardRateLimit() == doubleValue);
+    }
+
+    { // RateLimitDelayMaxMilliseconds test
+      int intValue = rand.nextInt();
+      opt.setRateLimitDelayMaxMilliseconds(intValue);
+      assert(opt.rateLimitDelayMaxMilliseconds() == intValue);
+    }
+
+    { // NoBlockCache test
+      boolean boolValue = rand.nextBoolean();
+      opt.setNoBlockCache(boolValue);
+      assert(opt.noBlockCache() == boolValue);
+    }
+
+    { // ArenaBlockSize test
+      long longValue = rand.nextLong();
+      opt.setArenaBlockSize(longValue);
+      assert(opt.arenaBlockSize() == longValue);
+    }
+
+    { // DisableAutoCompactions test
+      boolean boolValue = rand.nextBoolean();
+      opt.setDisableAutoCompactions(boolValue);
+      assert(opt.disableAutoCompactions() == boolValue);
+    }
+
+    { // PurgeRedundantKvsWhileFlush test
+      boolean boolValue = rand.nextBoolean();
+      opt.setPurgeRedundantKvsWhileFlush(boolValue);
+      assert(opt.purgeRedundantKvsWhileFlush() == boolValue);
+    }
+
+    { // BlockSizeDeviation test
+      int intValue = rand.nextInt();
+      opt.setBlockSizeDeviation(intValue);
+      assert(opt.blockSizeDeviation() == intValue);
+    }
+
+    { // VerifyChecksumsInCompaction test
+      boolean boolValue = rand.nextBoolean();
+      opt.setVerifyChecksumsInCompaction(boolValue);
+      assert(opt.verifyChecksumsInCompaction() == boolValue);
+    }
+
+    { // FilterDeletes test
+      boolean boolValue = rand.nextBoolean();
+      opt.setFilterDeletes(boolValue);
+      assert(opt.filterDeletes() == boolValue);
+    }
+
+    { // MaxSequentialSkipInIterations test
+      long longValue = rand.nextLong();
+      opt.setMaxSequentialSkipInIterations(longValue);
+      assert(opt.maxSequentialSkipInIterations() == longValue);
+    }
+
+    { // InplaceUpdateSupport test
+      boolean boolValue = rand.nextBoolean();
+      opt.setInplaceUpdateSupport(boolValue);
+      assert(opt.inplaceUpdateSupport() == boolValue);
+    }
+
+    { // InplaceUpdateNumLocks test
+      long longValue = rand.nextLong();
+      opt.setInplaceUpdateNumLocks(longValue);
+      assert(opt.inplaceUpdateNumLocks() == longValue);
+    }
+
+    { // MemtablePrefixBloomBits test
+      int intValue = rand.nextInt();
+      opt.setMemtablePrefixBloomBits(intValue);
+      assert(opt.memtablePrefixBloomBits() == intValue);
+    }
+
+    { // MemtablePrefixBloomProbes test
+      int intValue = rand.nextInt();
+      opt.setMemtablePrefixBloomProbes(intValue);
+      assert(opt.memtablePrefixBloomProbes() == intValue);
+    }
+
+    { // BloomLocality test
+      int intValue = rand.nextInt();
+      opt.setBloomLocality(intValue);
+      assert(opt.bloomLocality() == intValue);
+    }
+
+    { // MaxSuccessiveMerges test
+      long longValue = rand.nextLong();
+      opt.setMaxSuccessiveMerges(longValue);
+      assert(opt.maxSuccessiveMerges() == longValue);
+    }
+
+    { // MinPartialMergeOperands test
+      int intValue = rand.nextInt();
+      opt.setMinPartialMergeOperands(intValue);
+      assert(opt.minPartialMergeOperands() == intValue);
     }
 
     opt.dispose();

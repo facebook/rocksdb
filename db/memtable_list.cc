@@ -78,6 +78,14 @@ void MemTableListVersion::AddIterators(const ReadOptions& options,
   }
 }
 
+uint64_t MemTableListVersion::GetTotalNumEntries() const {
+  uint64_t total_num = 0;
+  for (auto& m : memlist_) {
+    total_num += m->GetNumEntries();
+  }
+  return total_num;
+}
+
 // caller is responsible for referencing m
 void MemTableListVersion::Add(MemTable* m) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
@@ -176,8 +184,8 @@ Status MemTableList::InstallMemtableFlushResults(
       break;
     }
 
-    LogToBuffer(log_buffer, "Level-0 commit table #%lu started",
-                (unsigned long)m->file_number_);
+    LogToBuffer(log_buffer, "[%s] Level-0 commit table #%lu started",
+                cfd->GetName().c_str(), (unsigned long)m->file_number_);
 
     // this can release and reacquire the mutex.
     s = vset->LogAndApply(cfd, &m->edit_, mu, db_directory);
@@ -191,8 +199,10 @@ Status MemTableList::InstallMemtableFlushResults(
     uint64_t mem_id = 1;  // how many memtables has been flushed.
     do {
       if (s.ok()) { // commit new state
-        LogToBuffer(log_buffer, "Level-0 commit table #%lu: memtable #%lu done",
-                    (unsigned long)m->file_number_, (unsigned long)mem_id);
+        LogToBuffer(log_buffer,
+                    "[%s] Level-0 commit table #%lu: memtable #%lu done",
+                    cfd->GetName().c_str(), (unsigned long)m->file_number_,
+                    (unsigned long)mem_id);
         current_->Remove(m);
         assert(m->file_number_ > 0);
 

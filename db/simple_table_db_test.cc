@@ -83,8 +83,6 @@ public:
                      unique_ptr<RandomAccessFile> && file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
-  bool PrefixMayMatch(const Slice& internal_prefix) override;
-
   Iterator* NewIterator(const ReadOptions&) override;
 
   Status Get(const ReadOptions&, const Slice& key, void* arg,
@@ -218,10 +216,6 @@ void SimpleTableReader::SetupForCompaction() {
 std::shared_ptr<const TableProperties> SimpleTableReader::GetTableProperties()
     const {
   return rep_->table_properties;
-}
-
-bool SimpleTableReader::PrefixMayMatch(const Slice& internal_prefix) {
-  return true;
 }
 
 Iterator* SimpleTableReader::NewIterator(const ReadOptions& options) {

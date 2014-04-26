@@ -49,6 +49,8 @@ class MemTableListVersion {
   void AddIterators(const ReadOptions& options,
                     std::vector<Iterator*>* iterator_list);
 
+  uint64_t GetTotalNumEntries() const;
+
  private:
   // REQUIRE: m is mutable memtable
   void Add(MemTable* m);

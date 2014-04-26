@@ -219,11 +219,10 @@ class Version {
   friend class UniversalCompactionPicker;
 
   class LevelFileNumIterator;
-  Iterator* NewConcatenatingIterator(const ReadOptions&,
-                                     const EnvOptions& soptions,
-                                     int level) const;
-  bool PrefixMayMatch(const ReadOptions& options, const EnvOptions& soptions,
-                      const Slice& internal_prefix, Iterator* level_iter) const;
+  struct LevelFileIteratorState;
+
+  bool PrefixMayMatch(const ReadOptions& options, Iterator* level_iter,
+                      const Slice& internal_prefix) const;
 
   // Sort all files for this version based on their file size and
   // record results in files_by_size_. The largest files are listed first.

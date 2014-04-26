@@ -9,6 +9,7 @@
 * Column family support
 
 ### Public API changes
+* Deprecated ReadOptions.prefix and ReadOptions.prefix_seek. Seek() defaults to prefix-based seek when Options.prefix_extractor is supplied. More detail is documented in https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
 
 ## 2.8.0 (04/04/2014)
 

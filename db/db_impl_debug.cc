@@ -33,7 +33,6 @@ Iterator* DBImpl::TEST_NewInternalIterator(ColumnFamilyHandle* column_family) {
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   mutex_.Unlock();
   ReadOptions roptions;
-  roptions.prefix_seek = true;
   return NewInternalIterator(roptions, cfd, super_version);
 }
 

@@ -28,11 +28,11 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/perf_context.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/stack_trace.h"
 #include "util/string_util.h"
 #include "util/statistics.h"
 #include "util/testutil.h"
@@ -1944,7 +1944,6 @@ class Benchmark {
   void IteratorCreation(ThreadState* thread) {
     Duration duration(FLAGS_duration, reads_);
     ReadOptions options(FLAGS_verify_checksum, true);
-    options.prefix_seek = (FLAGS_prefix_size > 0);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       Iterator* iter = db->NewIterator(options);
@@ -1966,7 +1965,6 @@ class Benchmark {
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     options.tailing = FLAGS_use_tailing_iterator;
-    options.prefix_seek = (FLAGS_prefix_size > 0);
 
     Iterator* single_iter = nullptr;
     std::vector<Iterator*> multi_iters;
@@ -2528,7 +2526,7 @@ class Benchmark {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  rocksdb::InstallStackTraceHandler();
+  rocksdb::port::InstallStackTraceHandler();
   google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                           " [OPTIONS]...");
   google::ParseCommandLineFlags(&argc, &argv, true);

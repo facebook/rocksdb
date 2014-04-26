@@ -56,13 +56,6 @@ class TableCache {
                                    const Slice&, bool),
              bool* table_io, void (*mark_key_may_exist)(void*) = nullptr);
 
-  // Determine whether the table may contain the specified prefix.  If
-  // the table index or blooms are not in memory, this may cause an I/O
-  bool PrefixMayMatch(const ReadOptions& options,
-                      const InternalKeyComparator& internal_comparator,
-                      const FileMetaData& file_meta,
-                      const Slice& internal_prefix, bool* table_io);
-
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 

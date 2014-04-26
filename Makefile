@@ -195,7 +195,7 @@ check: $(PROGRAMS) $(TESTS) $(TOOLS)
 ldb_tests: all $(PROGRAMS) $(TESTS) $(TOOLS)
 	python tools/ldb_test.py
 
-crash_test: blackbox_crash_test whitebox_crash_test
+crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
 	python -u tools/db_crashtest.py

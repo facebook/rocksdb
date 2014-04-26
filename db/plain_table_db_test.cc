@@ -47,7 +47,6 @@ class PlainTableDBTest {
 
  public:
   PlainTableDBTest() : env_(Env::Default()) {
-    ro_.prefix_seek = true;
     dbname_ = test::TmpDir() + "/plain_table_db_test";
     ASSERT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
@@ -58,8 +57,6 @@ class PlainTableDBTest {
     delete db_;
     ASSERT_OK(DestroyDB(dbname_, Options()));
   }
-
-  ReadOptions ro_;
 
   // Return the current option configuration.
   Options CurrentOptions() {
@@ -123,7 +120,7 @@ class PlainTableDBTest {
   }
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr) {
-    ReadOptions options = ro_;
+    ReadOptions options;
     options.snapshot = snapshot;
     std::string result;
     Status s = db_->Get(options, k, &result);
@@ -190,7 +187,7 @@ class TestPlainTableReader : public PlainTableReader {
                          file_size, bloom_bits_per_key, hash_table_ratio,
                          index_sparseness, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
-    Status s = PopulateIndex();
+    Status s = PopulateIndex(const_cast<TableProperties*>(table_properties));
     ASSERT_TRUE(s.ok());
   }
 
@@ -265,6 +262,19 @@ TEST(PlainTableDBTest, Flush) {
       ASSERT_OK(Put("0000000000000bar", "v2"));
       ASSERT_OK(Put("1000000000000foo", "v3"));
       dbfull()->TEST_FlushMemTable();
+
+      TablePropertiesCollection ptc;
+      reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+      ASSERT_EQ(1, ptc.size());
+      auto row = ptc.begin();
+      auto tp = row->second;
+      ASSERT_EQ(
+          total_order ? "4" : "12",
+          (tp->user_collected_properties).at("plain_table_hash_table_size"));
+      ASSERT_EQ(
+          total_order ? "9" : "0",
+          (tp->user_collected_properties).at("plain_table_sub_index_size"));
+
       ASSERT_EQ("v3", Get("1000000000000foo"));
       ASSERT_EQ("v2", Get("0000000000000bar"));
     }
@@ -356,7 +366,7 @@ TEST(PlainTableDBTest, Iterator) {
       dbfull()->TEST_FlushMemTable();
       ASSERT_EQ("v1", Get("1000000000foo001"));
       ASSERT_EQ("v__3", Get("1000000000foo003"));
-      Iterator* iter = dbfull()->NewIterator(ro_);
+      Iterator* iter = dbfull()->NewIterator(ReadOptions());
       iter->Seek("1000000000foo000");
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ("1000000000foo001", iter->key().ToString());
@@ -458,7 +468,7 @@ TEST(PlainTableDBTest, IteratorLargeKeys) {
 
   dbfull()->TEST_FlushMemTable();
 
-  Iterator* iter = dbfull()->NewIterator(ro_);
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
   iter->Seek(key_list[0]);
 
   for (size_t i = 0; i < 7; i++) {
@@ -522,7 +532,7 @@ TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
   dbfull()->TEST_FlushMemTable();
   ASSERT_EQ("v1", Get("1000000000foo001"));
   ASSERT_EQ("v__3", Get("1000000000foo003"));
-  Iterator* iter = dbfull()->NewIterator(ro_);
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
   iter->Seek("1000000000foo009");
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("1000000000foo008", iter->key().ToString());
@@ -753,7 +763,7 @@ TEST(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   ASSERT_EQ("NOT_FOUND", Get("8000000000000bar"));
   ASSERT_EQ("NOT_FOUND", Get("1000000000000bar"));
 
-  Iterator* iter = dbfull()->NewIterator(ro_);
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
 
   iter->Seek("5000000000000bar");
   ASSERT_TRUE(iter->Valid());

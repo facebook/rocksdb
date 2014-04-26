@@ -40,7 +40,7 @@ class CorruptionTest {
   CorruptionTest() {
     tiny_cache_ = NewLRUCache(100);
     options_.env = &env_;
-    dbname_ = test::TmpDir() + "/db_test";
+    dbname_ = test::TmpDir() + "/corruption_test";
     DestroyDB(dbname_, options_);
 
     db_ = nullptr;
@@ -127,24 +127,7 @@ class CorruptionTest {
     ASSERT_GE(max_expected, correct);
   }
 
-  void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
-    // Pick file to corrupt
-    std::vector<std::string> filenames;
-    ASSERT_OK(env_.GetChildren(dbname_, &filenames));
-    uint64_t number;
-    FileType type;
-    std::string fname;
-    int picked_number = -1;
-    for (unsigned int i = 0; i < filenames.size(); i++) {
-      if (ParseFileName(filenames[i], &number, &type) &&
-          type == filetype &&
-          int(number) > picked_number) {  // Pick latest file
-        fname = dbname_ + "/" + filenames[i];
-        picked_number = number;
-      }
-    }
-    ASSERT_TRUE(!fname.empty()) << filetype;
-
+  void CorruptFile(const std::string fname, int offset, int bytes_to_corrupt) {
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       const char* msg = strerror(errno);
@@ -176,6 +159,42 @@ class CorruptionTest {
     s = WriteStringToFile(Env::Default(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
   }
+
+  void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
+    // Pick file to corrupt
+    std::vector<std::string> filenames;
+    ASSERT_OK(env_.GetChildren(dbname_, &filenames));
+    uint64_t number;
+    FileType type;
+    std::string fname;
+    int picked_number = -1;
+    for (unsigned int i = 0; i < filenames.size(); i++) {
+      if (ParseFileName(filenames[i], &number, &type) &&
+          type == filetype &&
+          static_cast<int>(number) > picked_number) {  // Pick latest file
+        fname = dbname_ + "/" + filenames[i];
+        picked_number = number;
+      }
+    }
+    ASSERT_TRUE(!fname.empty()) << filetype;
+
+    CorruptFile(fname, offset, bytes_to_corrupt);
+  }
+
+  // corrupts exactly one file at level `level`. if no file found at level,
+  // asserts
+  void CorruptTableFileAtLevel(int level, int offset, int bytes_to_corrupt) {
+    std::vector<LiveFileMetaData> metadata;
+    db_->GetLiveFilesMetaData(&metadata);
+    for (const auto& m : metadata) {
+      if (m.level == level) {
+        CorruptFile(dbname_ + "/" + m.name, offset, bytes_to_corrupt);
+        return;
+      }
+    }
+    ASSERT_TRUE(false) << "no file found at level";
+  }
+
 
   int Property(const std::string& name) {
     std::string property;
@@ -331,19 +350,23 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 
-  // Fill levels >= 1 so memtable compaction outputs to level 1
+  // Fill levels >= 1 so memtable flush outputs to level 0
   for (int level = 1; level < dbi->NumberLevels(); level++) {
     dbi->Put(WriteOptions(), "", "begin");
     dbi->Put(WriteOptions(), "~", "end");
     dbi->TEST_FlushMemTable();
   }
 
+  options.max_mem_compaction_level = 0;
+  Reopen(&options);
+
+  dbi = reinterpret_cast<DBImpl*>(db_);
   Build(10);
   dbi->TEST_FlushMemTable();
   dbi->TEST_WaitForCompact();
   ASSERT_EQ(1, Property("rocksdb.num-files-at-level0"));
 
-  Corrupt(kTableFile, 100, 1);
+  CorruptTableFileAtLevel(0, 100, 1);
   Check(9, 9);
 
   // Write must eventually fail because of corrupted table

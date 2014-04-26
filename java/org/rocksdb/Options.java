@@ -146,15 +146,21 @@ public class Options {
 
   /**
    * Use the specified filter policy to reduce disk reads.
+   *
+   * Note that the caller should not dispose the input filter as
+   * Options.dispose() will dispose this filter.
+   *
    * @param Filter policy java instance.
    * @return the instance of the current Options.
    * @see RocksDB.open()
    */
   public Options setFilter(Filter filter) {
     assert(isInitialized());
-    setFilter0(nativeHandle_, filter);
+    setFilterHandle(nativeHandle_, filter.nativeHandle_);
+    filter_ = filter;
     return this;
   }
+  private native void setFilterHandle(long optHandle, long filterHandle);
 
   /*
    * Disable compaction triggered by seek.
@@ -786,7 +792,8 @@ public class Options {
       long handle, int limit);
 
   /**
-   * The following two fields affect how archived logs will be deleted.
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
    * 1. If both set to 0, logs will be deleted asap and will not get into
    *    the archive.
    * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
@@ -800,6 +807,7 @@ public class Options {
    *    checks will be performed with ttl being first.
    *
    * @return the wal-ttl seconds
+   * @see walSizeLimitMB()
    */
   public long walTtlSeconds() {
     assert(isInitialized());
@@ -808,7 +816,8 @@ public class Options {
   private native long walTtlSeconds(long handle);
 
   /**
-   * The following two fields affect how archived logs will be deleted.
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
    * 1. If both set to 0, logs will be deleted asap and will not get into
    *    the archive.
    * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
@@ -823,13 +832,64 @@ public class Options {
    *
    * @param walTtlSeconds the ttl seconds
    * @return the reference to the current option.
+   * @see setWalSizeLimitMB()
    */
-  public Options setWALTtlSeconds(long walTtlSeconds) {
+  public Options setWalTtlSeconds(long walTtlSeconds) {
     assert(isInitialized());
-    setWALTtlSeconds(nativeHandle_, walTtlSeconds);
+    setWalTtlSeconds(nativeHandle_, walTtlSeconds);
     return this;
   }
-  private native void setWALTtlSeconds(long handle, long walTtlSeconds);
+  private native void setWalTtlSeconds(long handle, long walTtlSeconds);
+
+  /**
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
+   * 1. If both set to 0, logs will be deleted asap and will not get into
+   *    the archive.
+   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   *    WAL files will be checked every 10 min and if total size is greater
+   *    then WAL_size_limit_MB, they will be deleted starting with the
+   *    earliest until size_limit is met. All empty files will be deleted.
+   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   *    are older than WAL_ttl_seconds will be deleted.
+   * 4. If both are not 0, WAL files will be checked every 10 min and both
+   *    checks will be performed with ttl being first.
+   *
+   * @return size limit in mega-bytes.
+   * @see walSizeLimitMB()
+   */
+  public long walSizeLimitMB() {
+    assert(isInitialized());
+    return walSizeLimitMB(nativeHandle_);
+  }
+  private native long walSizeLimitMB(long handle);
+
+  /**
+   * WalTtlSeconds() and walSizeLimitMB() affect how archived logs
+   * will be deleted.
+   * 1. If both set to 0, logs will be deleted asap and will not get into
+   *    the archive.
+   * 2. If WAL_ttl_seconds is 0 and WAL_size_limit_MB is not 0,
+   *    WAL files will be checked every 10 min and if total size is greater
+   *    then WAL_size_limit_MB, they will be deleted starting with the
+   *    earliest until size_limit is met. All empty files will be deleted.
+   * 3. If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
+   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   *    are older than WAL_ttl_seconds will be deleted.
+   * 4. If both are not 0, WAL files will be checked every 10 min and both
+   *    checks will be performed with ttl being first.
+   *
+   * @param sizeLimitMB size limit in mega-bytes.
+   * @return the reference to the current option.
+   * @see setWalSizeLimitMB()
+   */
+  public Options setWalSizeLimitMB(long sizeLimitMB) {
+    assert(isInitialized());
+    setWalSizeLimitMB(nativeHandle_, sizeLimitMB);
+    return this;
+  }
+  private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
 
   /**
    * Number of bytes to preallocate (via fallocate) the manifest
@@ -1199,6 +1259,1054 @@ public class Options {
     return this;
   }
 
+///////////////////////////////////////////////////////////////////////
+  /**
+   * Number of keys between restart points for delta encoding of keys.
+   * This parameter can be changed dynamically.  Most clients should
+   * leave this parameter alone.
+   * Default: 16
+   *
+   * @return the number of keys between restart points.
+   */
+  public int blockRestartInterval() {
+    return blockRestartInterval(nativeHandle_);
+  }
+  private native int blockRestartInterval(long handle);
+
+  /**
+   * Number of keys between restart points for delta encoding of keys.
+   * This parameter can be changed dynamically.  Most clients should
+   * leave this parameter alone.
+   * Default: 16
+   *
+   * @param blockRestartInterval the number of keys between restart points.
+   * @return the reference to the current option.
+   */
+  public Options setBlockRestartInterval(int blockRestartInterval) {
+    setBlockRestartInterval(nativeHandle_, blockRestartInterval);
+    return this;
+  }
+  private native void setBlockRestartInterval(
+      long handle, int blockRestartInterval);
+
+  /**
+   * If true, place whole keys in the filter (not just prefixes).
+   * This must generally be true for gets to be efficient.
+   * Default: true
+   *
+   * @return if true, then whole-key-filtering is on.
+   */
+  public boolean wholeKeyFiltering() {
+    return wholeKeyFiltering(nativeHandle_);
+  }
+  private native boolean wholeKeyFiltering(long handle);
+
+  /**
+   * If true, place whole keys in the filter (not just prefixes).
+   * This must generally be true for gets to be efficient.
+   * Default: true
+   *
+   * @param wholeKeyFiltering if true, then whole-key-filtering is on.
+   * @return the reference to the current option.
+   */
+  public Options setWholeKeyFiltering(boolean wholeKeyFiltering) {
+    setWholeKeyFiltering(nativeHandle_, wholeKeyFiltering);
+    return this;
+  }
+  private native void setWholeKeyFiltering(
+      long handle, boolean wholeKeyFiltering);
+
+  /**
+   * If level-styled compaction is used, then this number determines
+   * the total number of levels.
+   *
+   * @return the number of levels.
+   */
+  public int numLevels() {
+    return numLevels(nativeHandle_);
+  }
+  private native int numLevels(long handle);
+
+  /**
+   * Set the number of levels for this database
+   * If level-styled compaction is used, then this number determines
+   * the total number of levels.
+   *
+   * @param numLevels the number of levels.
+   * @return the reference to the current option.
+   */
+  public Options setNumLevels(int numLevels) {
+    setNumLevels(nativeHandle_, numLevels);
+    return this;
+  }
+  private native void setNumLevels(
+      long handle, int numLevels);
+
+  /**
+   * The number of files in leve 0 to trigger compaction from level-0 to
+   * level-1.  A value < 0 means that level-0 compaction will not be
+   * triggered by number of files at all.
+   * Default: 4
+   *
+   * @return the number of files in level 0 to trigger compaction.
+   */
+  public int levelZeroFileNumCompactionTrigger() {
+    return levelZeroFileNumCompactionTrigger(nativeHandle_);
+  }
+  private native int levelZeroFileNumCompactionTrigger(long handle);
+
+  /**
+   * Number of files to trigger level-0 compaction. A value <0 means that
+   * level-0 compaction will not be triggered by number of files at all.
+   * Default: 4
+   *
+   * @param numFiles the number of files in level-0 to trigger compaction.
+   * @return the reference to the current option.
+   */
+  public Options setLevelZeroFileNumCompactionTrigger(
+      int numFiles) {
+    setLevelZeroFileNumCompactionTrigger(
+        nativeHandle_, numFiles);
+    return this;
+  }
+  private native void setLevelZeroFileNumCompactionTrigger(
+      long handle, int numFiles);
+
+  /**
+   * Soft limit on the number of level-0 files. We start slowing down writes
+   * at this point. A value < 0 means that no writing slow down will be
+   * triggered by number of files in level-0.
+   *
+   * @return the soft limit on the number of level-0 files.
+   */
+  public int levelZeroSlowdownWritesTrigger() {
+    return levelZeroSlowdownWritesTrigger(nativeHandle_);
+  }
+  private native int levelZeroSlowdownWritesTrigger(long handle);
+
+  /**
+   * Soft limit on number of level-0 files. We start slowing down writes at this
+   * point. A value <0 means that no writing slow down will be triggered by
+   * number of files in level-0.
+   *
+   * @param numFiles soft limit on number of level-0 files.
+   * @return the reference to the current option.
+   */
+  public Options setLevelZeroSlowdownWritesTrigger(
+      int numFiles) {
+    setLevelZeroSlowdownWritesTrigger(nativeHandle_, numFiles);
+    return this;
+  }
+  private native void setLevelZeroSlowdownWritesTrigger(
+      long handle, int numFiles);
+
+  /**
+   * Maximum number of level-0 files.  We stop writes at this point.
+   *
+   * @return the hard limit of the number of level-0 file.
+   */
+  public int levelZeroStopWritesTrigger() {
+    return levelZeroStopWritesTrigger(nativeHandle_);
+  }
+  private native int levelZeroStopWritesTrigger(long handle);
+
+  /**
+   * Maximum number of level-0 files.  We stop writes at this point.
+   *
+   * @param numFiles the hard limit of the number of level-0 files.
+   * @return the reference to the current option.
+   */
+  public Options setLevelZeroStopWritesTrigger(int numFiles) {
+    setLevelZeroStopWritesTrigger(nativeHandle_, numFiles);
+    return this;
+  }
+  private native void setLevelZeroStopWritesTrigger(
+      long handle, int numFiles);
+
+  /**
+   * The highest level to which a new compacted memtable is pushed if it
+   * does not create overlap.  We try to push to level 2 to avoid the
+   * relatively expensive level 0=>1 compactions and to avoid some
+   * expensive manifest file operations.  We do not push all the way to
+   * the largest level since that can generate a lot of wasted disk
+   * space if the same key space is being repeatedly overwritten.
+   *
+   * @return the highest level where a new compacted memtable will be pushed.
+   */
+  public int maxMemCompactionLevel() {
+    return maxMemCompactionLevel(nativeHandle_);
+  }
+  private native int maxMemCompactionLevel(long handle);
+
+  /**
+   * The highest level to which a new compacted memtable is pushed if it
+   * does not create overlap.  We try to push to level 2 to avoid the
+   * relatively expensive level 0=>1 compactions and to avoid some
+   * expensive manifest file operations.  We do not push all the way to
+   * the largest level since that can generate a lot of wasted disk
+   * space if the same key space is being repeatedly overwritten.
+   *
+   * @param maxMemCompactionLevel the highest level to which a new compacted
+   *     mem-table will be pushed.
+   * @return the reference to the current option.
+   */
+  public Options setMaxMemCompactionLevel(int maxMemCompactionLevel) {
+    setMaxMemCompactionLevel(nativeHandle_, maxMemCompactionLevel);
+    return this;
+  }
+  private native void setMaxMemCompactionLevel(
+      long handle, int maxMemCompactionLevel);
+
+  /**
+   * The target file size for compaction.
+   * This targetFileSizeBase determines a level-1 file size.
+   * Target file size for level L can be calculated by
+   * targetFileSizeBase * (targetFileSizeMultiplier ^ (L-1))
+   * For example, if targetFileSizeBase is 2MB and
+   * target_file_size_multiplier is 10, then each file on level-1 will
+   * be 2MB, and each file on level 2 will be 20MB,
+   * and each file on level-3 will be 200MB.
+   * by default targetFileSizeBase is 2MB.
+   *
+   * @return the target size of a level-0 file.
+   *
+   * @see targetFileSizeMultiplier()
+   */
+  public int targetFileSizeBase() {
+    return targetFileSizeBase(nativeHandle_);
+  }
+  private native int targetFileSizeBase(long handle);
+
+  /**
+   * The target file size for compaction.
+   * This targetFileSizeBase determines a level-1 file size.
+   * Target file size for level L can be calculated by
+   * targetFileSizeBase * (targetFileSizeMultiplier ^ (L-1))
+   * For example, if targetFileSizeBase is 2MB and
+   * target_file_size_multiplier is 10, then each file on level-1 will
+   * be 2MB, and each file on level 2 will be 20MB,
+   * and each file on level-3 will be 200MB.
+   * by default targetFileSizeBase is 2MB.
+   *
+   * @param targetFileSizeBase the target size of a level-0 file.
+   * @return the reference to the current option.
+   *
+   * @see setTargetFileSizeMultiplier()
+   */
+  public Options setTargetFileSizeBase(int targetFileSizeBase) {
+    setTargetFileSizeBase(nativeHandle_, targetFileSizeBase);
+    return this;
+  }
+  private native void setTargetFileSizeBase(
+      long handle, int targetFileSizeBase);
+
+  /**
+   * targetFileSizeMultiplier defines the size ratio between a
+   * level-(L+1) file and level-L file.
+   * By default targetFileSizeMultiplier is 1, meaning
+   * files in different levels have the same target.
+   *
+   * @return the size ratio between a level-(L+1) file and level-L file.
+   */
+  public int targetFileSizeMultiplier() {
+    return targetFileSizeMultiplier(nativeHandle_);
+  }
+  private native int targetFileSizeMultiplier(long handle);
+
+  /**
+   * targetFileSizeMultiplier defines the size ratio between a
+   * level-L file and level-(L+1) file.
+   * By default target_file_size_multiplier is 1, meaning
+   * files in different levels have the same target.
+   *
+   * @param multiplier the size ratio between a level-(L+1) file
+   *     and level-L file.
+   * @return the reference to the current option.
+   */
+  public Options setTargetFileSizeMultiplier(int multiplier) {
+    setTargetFileSizeMultiplier(nativeHandle_, multiplier);
+    return this;
+  }
+  private native void setTargetFileSizeMultiplier(
+      long handle, int multiplier);
+
+  /**
+   * The upper-bound of the total size of level-1 files in bytes.
+   * Maximum number of bytes for level L can be calculated as
+   * (maxBytesForLevelBase) * (maxBytesForLevelMultiplier ^ (L-1))
+   * For example, if maxBytesForLevelBase is 20MB, and if
+   * max_bytes_for_level_multiplier is 10, total data size for level-1
+   * will be 20MB, total file size for level-2 will be 200MB,
+   * and total file size for level-3 will be 2GB.
+   * by default 'maxBytesForLevelBase' is 10MB.
+   *
+   * @return the upper-bound of the total size of leve-1 files in bytes.
+   * @see maxBytesForLevelMultiplier()
+   */
+  public long maxBytesForLevelBase() {
+    return maxBytesForLevelBase(nativeHandle_);
+  }
+  private native long maxBytesForLevelBase(long handle);
+
+  /**
+   * The upper-bound of the total size of level-1 files in bytes.
+   * Maximum number of bytes for level L can be calculated as
+   * (maxBytesForLevelBase) * (maxBytesForLevelMultiplier ^ (L-1))
+   * For example, if maxBytesForLevelBase is 20MB, and if
+   * max_bytes_for_level_multiplier is 10, total data size for level-1
+   * will be 20MB, total file size for level-2 will be 200MB,
+   * and total file size for level-3 will be 2GB.
+   * by default 'maxBytesForLevelBase' is 10MB.
+   *
+   * @return maxBytesForLevelBase the upper-bound of the total size of
+   *     leve-1 files in bytes.
+   * @return the reference to the current option.
+   * @see setMaxBytesForLevelMultiplier()
+   */
+  public Options setMaxBytesForLevelBase(long maxBytesForLevelBase) {
+    setMaxBytesForLevelBase(nativeHandle_, maxBytesForLevelBase);
+    return this;
+  }
+  private native void setMaxBytesForLevelBase(
+      long handle, long maxBytesForLevelBase);
+
+  /**
+   * The ratio between the total size of level-(L+1) files and the total
+   * size of level-L files for all L.
+   * DEFAULT: 10
+   *
+   * @return the ratio between the total size of level-(L+1) files and
+   *     the total size of level-L files for all L.
+   * @see maxBytesForLevelBase()
+   */
+  public int maxBytesForLevelMultiplier() {
+    return maxBytesForLevelMultiplier(nativeHandle_);
+  }
+  private native int maxBytesForLevelMultiplier(long handle);
+
+  /**
+   * The ratio between the total size of level-(L+1) files and the total
+   * size of level-L files for all L.
+   * DEFAULT: 10
+   *
+   * @param multiplier the ratio between the total size of level-(L+1)
+   *     files and the total size of level-L files for all L.
+   * @return the reference to the current option.
+   * @see setMaxBytesForLevelBase()
+   */
+  public Options setMaxBytesForLevelMultiplier(int multiplier) {
+    setMaxBytesForLevelMultiplier(nativeHandle_, multiplier);
+    return this;
+  }
+  private native void setMaxBytesForLevelMultiplier(
+      long handle, int multiplier);
+
+  /**
+   * Maximum number of bytes in all compacted files.  We avoid expanding
+   * the lower level file set of a compaction if it would make the
+   * total compaction cover more than
+   * (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
+   *
+   * @return the maximum number of bytes in all compacted files.
+   * @see sourceCompactionFactor()
+   */
+  public int expandedCompactionFactor() {
+    return expandedCompactionFactor(nativeHandle_);
+  }
+  private native int expandedCompactionFactor(long handle);
+
+  /**
+   * Maximum number of bytes in all compacted files.  We avoid expanding
+   * the lower level file set of a compaction if it would make the
+   * total compaction cover more than
+   * (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
+   *
+   * @param expandedCompactionFactor the maximum number of bytes in all
+   *     compacted files.
+   * @return the reference to the current option.
+   * @see setSourceCompactionFactor()
+   */
+  public Options setExpandedCompactionFactor(int expandedCompactionFactor) {
+    setExpandedCompactionFactor(nativeHandle_, expandedCompactionFactor);
+    return this;
+  }
+  private native void setExpandedCompactionFactor(
+      long handle, int expandedCompactionFactor);
+
+  /**
+   * Maximum number of bytes in all source files to be compacted in a
+   * single compaction run. We avoid picking too many files in the
+   * source level so that we do not exceed the total source bytes
+   * for compaction to exceed
+   * (source_compaction_factor * targetFileSizeLevel()) many bytes.
+   * Default:1, i.e. pick maxfilesize amount of data as the source of
+   * a compaction.
+   *
+   * @return the maximum number of bytes in all source files to be compactedo.
+   * @see expendedCompactionFactor()
+   */
+  public int sourceCompactionFactor() {
+    return sourceCompactionFactor(nativeHandle_);
+  }
+  private native int sourceCompactionFactor(long handle);
+
+  /**
+   * Maximum number of bytes in all source files to be compacted in a
+   * single compaction run. We avoid picking too many files in the
+   * source level so that we do not exceed the total source bytes
+   * for compaction to exceed
+   * (source_compaction_factor * targetFileSizeLevel()) many bytes.
+   * Default:1, i.e. pick maxfilesize amount of data as the source of
+   * a compaction.
+   *
+   * @param sourceCompactionFactor the maximum number of bytes in all
+   *     source files to be compacted in a single compaction run.
+   * @return the reference to the current option.
+   * @see setExpendedCompactionFactor()
+   */
+  public Options setSourceCompactionFactor(int sourceCompactionFactor) {
+    setSourceCompactionFactor(nativeHandle_, sourceCompactionFactor);
+    return this;
+  }
+  private native void setSourceCompactionFactor(
+      long handle, int sourceCompactionFactor);
+
+  /**
+   * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
+   * stop building a single file in a level->level+1 compaction.
+   *
+   * @return maximum bytes of overlaps in "grandparent" level.
+   */
+  public int maxGrandparentOverlapFactor() {
+    return maxGrandparentOverlapFactor(nativeHandle_);
+  }
+  private native int maxGrandparentOverlapFactor(long handle);
+
+  /**
+   * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
+   * stop building a single file in a level->level+1 compaction.
+   *
+   * @param maxGrandparentOverlapFactor maximum bytes of overlaps in
+   *     "grandparent" level.
+   * @return the reference to the current option.
+   */
+  public Options setMaxGrandparentOverlapFactor(
+      int maxGrandparentOverlapFactor) {
+    setMaxGrandparentOverlapFactor(nativeHandle_, maxGrandparentOverlapFactor);
+    return this;
+  }
+  private native void setMaxGrandparentOverlapFactor(
+      long handle, int maxGrandparentOverlapFactor);
+
+  /**
+   * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
+   * soft_rate_limit. This is ignored when == 0.0.
+   * CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
+   * hold, RocksDB will set soft_rate_limit = hard_rate_limit
+   * Default: 0 (disabled)
+   *
+   * @return soft-rate-limit for put delay.
+   */
+  public double softRateLimit() {
+    return softRateLimit(nativeHandle_);
+  }
+  private native double softRateLimit(long handle);
+
+  /**
+   * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
+   * soft_rate_limit. This is ignored when == 0.0.
+   * CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
+   * hold, RocksDB will set soft_rate_limit = hard_rate_limit
+   * Default: 0 (disabled)
+   *
+   * @param softRateLimit the soft-rate-limit of a compaction score
+   *     for put delay.
+   * @return the reference to the current option.
+   */
+  public Options setSoftRateLimit(double softRateLimit) {
+    setSoftRateLimit(nativeHandle_, softRateLimit);
+    return this;
+  }
+  private native void setSoftRateLimit(
+      long handle, double softRateLimit);
+
+  /**
+   * Puts are delayed 1ms at a time when any level has a compaction score that
+   * exceeds hard_rate_limit. This is ignored when <= 1.0.
+   * Default: 0 (disabled)
+   *
+   * @return the hard-rate-limit of a compaction score for put delay.
+   */
+  public double hardRateLimit() {
+    return hardRateLimit(nativeHandle_);
+  }
+  private native double hardRateLimit(long handle);
+
+  /**
+   * Puts are delayed 1ms at a time when any level has a compaction score that
+   * exceeds hard_rate_limit. This is ignored when <= 1.0.
+   * Default: 0 (disabled)
+   *
+   * @param hardRateLimit the hard-rate-limit of a compaction score for put
+   *     delay.
+   * @return the reference to the current option.
+   */
+  public Options setHardRateLimit(double hardRateLimit) {
+    setHardRateLimit(nativeHandle_, hardRateLimit);
+    return this;
+  }
+  private native void setHardRateLimit(
+      long handle, double hardRateLimit);
+
+  /**
+   * The maximum time interval a put will be stalled when hard_rate_limit
+   * is enforced.  If 0, then there is no limit.
+   * Default: 1000
+   *
+   * @return the maximum time interval a put will be stalled when
+   *     hard_rate_limit is enforced.
+   */
+  public int rateLimitDelayMaxMilliseconds() {
+    return rateLimitDelayMaxMilliseconds(nativeHandle_);
+  }
+  private native int rateLimitDelayMaxMilliseconds(long handle);
+
+  /**
+   * The maximum time interval a put will be stalled when hard_rate_limit
+   * is enforced. If 0, then there is no limit.
+   * Default: 1000
+   *
+   * @param rateLimitDelayMaxMilliseconds the maximum time interval a put
+   *     will be stalled.
+   * @return the reference to the current option.
+   */
+  public Options setRateLimitDelayMaxMilliseconds(
+      int rateLimitDelayMaxMilliseconds) {
+    setRateLimitDelayMaxMilliseconds(
+        nativeHandle_, rateLimitDelayMaxMilliseconds);
+    return this;
+  }
+  private native void setRateLimitDelayMaxMilliseconds(
+      long handle, int rateLimitDelayMaxMilliseconds);
+
+  /**
+   * Disable block cache. If this is set to true,
+   * then no block cache should be used, and the block_cache should
+   * point to a nullptr object.
+   * Default: false
+   *
+   * @return true if block cache is disabled.
+   */
+  public boolean noBlockCache() {
+    return noBlockCache(nativeHandle_);
+  }
+  private native boolean noBlockCache(long handle);
+
+  /**
+   * Disable block cache. If this is set to true,
+   * then no block cache should be used, and the block_cache should
+   * point to a nullptr object.
+   * Default: false
+   *
+   * @param noBlockCache true if block-cache is disabled.
+   * @return the reference to the current option.
+   */
+  public Options setNoBlockCache(boolean noBlockCache) {
+    setNoBlockCache(nativeHandle_, noBlockCache);
+    return this;
+  }
+  private native void setNoBlockCache(
+      long handle, boolean noBlockCache);
+
+  /**
+   * The size of one block in arena memory allocation.
+   * If <= 0, a proper value is automatically calculated (usually 1/10 of
+   * writer_buffer_size).
+   *
+   * There are two additonal restriction of the The specified size:
+   * (1) size should be in the range of [4096, 2 << 30] and
+   * (2) be the multiple of the CPU word (which helps with the memory
+   * alignment).
+   *
+   * We'll automatically check and adjust the size number to make sure it
+   * conforms to the restrictions.
+   * Default: 0
+   *
+   * @return the size of an arena block
+   */
+  public long arenaBlockSize() {
+    return arenaBlockSize(nativeHandle_);
+  }
+  private native long arenaBlockSize(long handle);
+
+  /**
+   * The size of one block in arena memory allocation.
+   * If <= 0, a proper value is automatically calculated (usually 1/10 of
+   * writer_buffer_size).
+   *
+   * There are two additonal restriction of the The specified size:
+   * (1) size should be in the range of [4096, 2 << 30] and
+   * (2) be the multiple of the CPU word (which helps with the memory
+   * alignment).
+   *
+   * We'll automatically check and adjust the size number to make sure it
+   * conforms to the restrictions.
+   * Default: 0
+   *
+   * @param arenaBlockSize the size of an arena block
+   * @return the reference to the current option.
+   */
+  public Options setArenaBlockSize(long arenaBlockSize) {
+    setArenaBlockSize(nativeHandle_, arenaBlockSize);
+    return this;
+  }
+  private native void setArenaBlockSize(
+      long handle, long arenaBlockSize);
+
+  /**
+   * Disable automatic compactions. Manual compactions can still
+   * be issued on this column family
+   *
+   * @return true if auto-compactions are disabled.
+   */
+  public boolean disableAutoCompactions() {
+    return disableAutoCompactions(nativeHandle_);
+  }
+  private native boolean disableAutoCompactions(long handle);
+
+  /**
+   * Disable automatic compactions. Manual compactions can still
+   * be issued on this column family
+   *
+   * @param disableAutoCompactions true if auto-compactions are disabled.
+   * @return the reference to the current option.
+   */
+  public Options setDisableAutoCompactions(boolean disableAutoCompactions) {
+    setDisableAutoCompactions(nativeHandle_, disableAutoCompactions);
+    return this;
+  }
+  private native void setDisableAutoCompactions(
+      long handle, boolean disableAutoCompactions);
+
+  /**
+   * Purge duplicate/deleted keys when a memtable is flushed to storage.
+   * Default: true
+   *
+   * @return true if purging keys is disabled.
+   */
+  public boolean purgeRedundantKvsWhileFlush() {
+    return purgeRedundantKvsWhileFlush(nativeHandle_);
+  }
+  private native boolean purgeRedundantKvsWhileFlush(long handle);
+
+  /**
+   * Purge duplicate/deleted keys when a memtable is flushed to storage.
+   * Default: true
+   *
+   * @param purgeRedundantKvsWhileFlush true if purging keys is disabled.
+   * @return the reference to the current option.
+   */
+  public Options setPurgeRedundantKvsWhileFlush(
+      boolean purgeRedundantKvsWhileFlush) {
+    setPurgeRedundantKvsWhileFlush(
+        nativeHandle_, purgeRedundantKvsWhileFlush);
+    return this;
+  }
+  private native void setPurgeRedundantKvsWhileFlush(
+      long handle, boolean purgeRedundantKvsWhileFlush);
+
+  /**
+   * This is used to close a block before it reaches the configured
+   * 'block_size'. If the percentage of free space in the current block is less
+   * than this specified number and adding a new record to the block will
+   * exceed the configured block size, then this block will be closed and the
+   * new record will be written to the next block.
+   * Default is 10.
+   *
+   * @return the target block size
+   */
+  public int blockSizeDeviation() {
+    return blockSizeDeviation(nativeHandle_);
+  }
+  private native int blockSizeDeviation(long handle);
+
+  /**
+   * This is used to close a block before it reaches the configured
+   * 'block_size'. If the percentage of free space in the current block is less
+   * than this specified number and adding a new record to the block will
+   * exceed the configured block size, then this block will be closed and the
+   * new record will be written to the next block.
+   * Default is 10.
+   *
+   * @param blockSizeDeviation the target block size
+   * @return the reference to the current option.
+   */
+  public Options setBlockSizeDeviation(int blockSizeDeviation) {
+    setBlockSizeDeviation(nativeHandle_, blockSizeDeviation);
+    return this;
+  }
+  private native void setBlockSizeDeviation(
+      long handle, int blockSizeDeviation);
+
+  /**
+   * If true, compaction will verify checksum on every read that happens
+   * as part of compaction
+   * Default: true
+   *
+   * @return true if compaction verifies checksum on every read.
+   */
+  public boolean verifyChecksumsInCompaction() {
+    return verifyChecksumsInCompaction(nativeHandle_);
+  }
+  private native boolean verifyChecksumsInCompaction(long handle);
+
+  /**
+   * If true, compaction will verify checksum on every read that happens
+   * as part of compaction
+   * Default: true
+   *
+   * @param verifyChecksumsInCompaction true if compaction verifies
+   *     checksum on every read.
+   * @return the reference to the current option.
+   */
+  public Options setVerifyChecksumsInCompaction(
+      boolean verifyChecksumsInCompaction) {
+    setVerifyChecksumsInCompaction(
+        nativeHandle_, verifyChecksumsInCompaction);
+    return this;
+  }
+  private native void setVerifyChecksumsInCompaction(
+      long handle, boolean verifyChecksumsInCompaction);
+
+  /**
+   * Use KeyMayExist API to filter deletes when this is true.
+   * If KeyMayExist returns false, i.e. the key definitely does not exist, then
+   * the delete is a noop. KeyMayExist only incurs in-memory look up.
+   * This optimization avoids writing the delete to storage when appropriate.
+   * Default: false
+   *
+   * @return true if filter-deletes behavior is on.
+   */
+  public boolean filterDeletes() {
+    return filterDeletes(nativeHandle_);
+  }
+  private native boolean filterDeletes(long handle);
+
+  /**
+   * Use KeyMayExist API to filter deletes when this is true.
+   * If KeyMayExist returns false, i.e. the key definitely does not exist, then
+   * the delete is a noop. KeyMayExist only incurs in-memory look up.
+   * This optimization avoids writing the delete to storage when appropriate.
+   * Default: false
+   *
+   * @param filterDeletes true if filter-deletes behavior is on.
+   * @return the reference to the current option.
+   */
+  public Options setFilterDeletes(boolean filterDeletes) {
+    setFilterDeletes(nativeHandle_, filterDeletes);
+    return this;
+  }
+  private native void setFilterDeletes(
+      long handle, boolean filterDeletes);
+
+  /**
+   * An iteration->Next() sequentially skips over keys with the same
+   * user-key unless this option is set. This number specifies the number
+   * of keys (with the same userkey) that will be sequentially
+   * skipped before a reseek is issued.
+   * Default: 8
+   *
+   * @return the number of keys could be skipped in a iteration.
+   */
+  public long maxSequentialSkipInIterations() {
+    return maxSequentialSkipInIterations(nativeHandle_);
+  }
+  private native long maxSequentialSkipInIterations(long handle);
+
+  /**
+   * An iteration->Next() sequentially skips over keys with the same
+   * user-key unless this option is set. This number specifies the number
+   * of keys (with the same userkey) that will be sequentially
+   * skipped before a reseek is issued.
+   * Default: 8
+   *
+   * @param maxSequentialSkipInIterations the number of keys could
+   *     be skipped in a iteration.
+   * @return the reference to the current option.
+   */
+  public Options setMaxSequentialSkipInIterations(long maxSequentialSkipInIterations) {
+    setMaxSequentialSkipInIterations(nativeHandle_, maxSequentialSkipInIterations);
+    return this;
+  }
+  private native void setMaxSequentialSkipInIterations(
+      long handle, long maxSequentialSkipInIterations);
+
+  /**
+   * Allows thread-safe inplace updates.
+   * If inplace_callback function is not set,
+   *   Put(key, new_value) will update inplace the existing_value iff
+   *   * key exists in current memtable
+   *   * new sizeof(new_value) <= sizeof(existing_value)
+   *   * existing_value for that key is a put i.e. kTypeValue
+   * If inplace_callback function is set, check doc for inplace_callback.
+   * Default: false.
+   *
+   * @return true if thread-safe inplace updates are allowed.
+   */
+  public boolean inplaceUpdateSupport() {
+    return inplaceUpdateSupport(nativeHandle_);
+  }
+  private native boolean inplaceUpdateSupport(long handle);
+
+  /**
+   * Allows thread-safe inplace updates.
+   * If inplace_callback function is not set,
+   *   Put(key, new_value) will update inplace the existing_value iff
+   *   * key exists in current memtable
+   *   * new sizeof(new_value) <= sizeof(existing_value)
+   *   * existing_value for that key is a put i.e. kTypeValue
+   * If inplace_callback function is set, check doc for inplace_callback.
+   * Default: false.
+   *
+   * @param inplaceUpdateSupport true if thread-safe inplace updates
+   *     are allowed.
+   * @return the reference to the current option.
+   */
+  public Options setInplaceUpdateSupport(boolean inplaceUpdateSupport) {
+    setInplaceUpdateSupport(nativeHandle_, inplaceUpdateSupport);
+    return this;
+  }
+  private native void setInplaceUpdateSupport(
+      long handle, boolean inplaceUpdateSupport);
+
+  /**
+   * Number of locks used for inplace update
+   * Default: 10000, if inplace_update_support = true, else 0.
+   *
+   * @return the number of locks used for inplace update.
+   */
+  public long inplaceUpdateNumLocks() {
+    return inplaceUpdateNumLocks(nativeHandle_);
+  }
+  private native long inplaceUpdateNumLocks(long handle);
+
+  /**
+   * Number of locks used for inplace update
+   * Default: 10000, if inplace_update_support = true, else 0.
+   *
+   * @param inplaceUpdateNumLocks the number of locks used for
+   *     inplace updates.
+   * @return the reference to the current option.
+   */
+  public Options setInplaceUpdateNumLocks(long inplaceUpdateNumLocks) {
+    setInplaceUpdateNumLocks(nativeHandle_, inplaceUpdateNumLocks);
+    return this;
+  }
+  private native void setInplaceUpdateNumLocks(
+      long handle, long inplaceUpdateNumLocks);
+
+  /**
+   * Returns the number of bits used in the prefix bloom filter.
+   *
+   * This value will be used only when a prefix-extractor is specified.
+   *
+   * @return the number of bloom-bits.
+   * @see useFixedLengthPrefixExtractor()
+   */
+  public int memtablePrefixBloomBits() {
+    return memtablePrefixBloomBits(nativeHandle_);
+  }
+  private native int memtablePrefixBloomBits(long handle);
+
+  /**
+   * Sets the number of bits used in the prefix bloom filter.
+   *
+   * This value will be used only when a prefix-extractor is specified.
+   *
+   * @param memtablePrefixBloomBits the number of bits used in the
+   *     prefix bloom filter.
+   * @return the reference to the current option.
+   */
+  public Options setMemtablePrefixBloomBits(int memtablePrefixBloomBits) {
+    setMemtablePrefixBloomBits(nativeHandle_, memtablePrefixBloomBits);
+    return this;
+  }
+  private native void setMemtablePrefixBloomBits(
+      long handle, int memtablePrefixBloomBits);
+
+  /**
+   * The number of hash probes per key used in the mem-table.
+   *
+   * @return the number of hash probes per key.
+   */
+  public int memtablePrefixBloomProbes() {
+    return memtablePrefixBloomProbes(nativeHandle_);
+  }
+  private native int memtablePrefixBloomProbes(long handle);
+
+  /**
+   * The number of hash probes per key used in the mem-table.
+   *
+   * @param memtablePrefixBloomProbes the number of hash probes per key.
+   * @return the reference to the current option.
+   */
+  public Options setMemtablePrefixBloomProbes(int memtablePrefixBloomProbes) {
+    setMemtablePrefixBloomProbes(nativeHandle_, memtablePrefixBloomProbes);
+    return this;
+  }
+  private native void setMemtablePrefixBloomProbes(
+      long handle, int memtablePrefixBloomProbes);
+
+  /**
+   * Control locality of bloom filter probes to improve cache miss rate.
+   * This option only applies to memtable prefix bloom and plaintable
+   * prefix bloom. It essentially limits the max number of cache lines each
+   * bloom filter check can touch.
+   * This optimization is turned off when set to 0. The number should never
+   * be greater than number of probes. This option can boost performance
+   * for in-memory workload but should use with care since it can cause
+   * higher false positive rate.
+   * Default: 0
+   *
+   * @return the level of locality of bloom-filter probes.
+   * @see setMemTablePrefixBloomProbes
+   */
+  public int bloomLocality() {
+    return bloomLocality(nativeHandle_);
+  }
+  private native int bloomLocality(long handle);
+
+  /**
+   * Control locality of bloom filter probes to improve cache miss rate.
+   * This option only applies to memtable prefix bloom and plaintable
+   * prefix bloom. It essentially limits the max number of cache lines each
+   * bloom filter check can touch.
+   * This optimization is turned off when set to 0. The number should never
+   * be greater than number of probes. This option can boost performance
+   * for in-memory workload but should use with care since it can cause
+   * higher false positive rate.
+   * Default: 0
+   *
+   * @param bloomLocality the level of locality of bloom-filter probes.
+   * @return the reference to the current option.
+   */
+  public Options setBloomLocality(int bloomLocality) {
+    setBloomLocality(nativeHandle_, bloomLocality);
+    return this;
+  }
+  private native void setBloomLocality(
+      long handle, int bloomLocality);
+
+  /**
+   * Maximum number of successive merge operations on a key in the memtable.
+   *
+   * When a merge operation is added to the memtable and the maximum number of
+   * successive merges is reached, the value of the key will be calculated and
+   * inserted into the memtable instead of the merge operation. This will
+   * ensure that there are never more than max_successive_merges merge
+   * operations in the memtable.
+   *
+   * Default: 0 (disabled)
+   *
+   * @return the maximum number of successive merges.
+   */
+  public long maxSuccessiveMerges() {
+    return maxSuccessiveMerges(nativeHandle_);
+  }
+  private native long maxSuccessiveMerges(long handle);
+
+  /**
+   * Maximum number of successive merge operations on a key in the memtable.
+   *
+   * When a merge operation is added to the memtable and the maximum number of
+   * successive merges is reached, the value of the key will be calculated and
+   * inserted into the memtable instead of the merge operation. This will
+   * ensure that there are never more than max_successive_merges merge
+   * operations in the memtable.
+   *
+   * Default: 0 (disabled)
+   *
+   * @param maxSuccessiveMerges the maximum number of successive merges.
+   * @return the reference to the current option.
+   */
+  public Options setMaxSuccessiveMerges(long maxSuccessiveMerges) {
+    setMaxSuccessiveMerges(nativeHandle_, maxSuccessiveMerges);
+    return this;
+  }
+  private native void setMaxSuccessiveMerges(
+      long handle, long maxSuccessiveMerges);
+
+  /**
+   * The minimum number of write buffers that will be merged together
+   * before writing to storage.  If set to 1, then
+   * all write buffers are fushed to L0 as individual files and this increases
+   * read amplification because a get request has to check in all of these
+   * files. Also, an in-memory merge may result in writing lesser
+   * data to storage if there are duplicate records in each of these
+   * individual write buffers.  Default: 1
+   *
+   * @return the minimum number of write buffers that will be merged together.
+   */
+  public int minWriteBufferNumberToMerge() {
+    return minWriteBufferNumberToMerge(nativeHandle_);
+  }
+  private native int minWriteBufferNumberToMerge(long handle);
+
+  /**
+   * The minimum number of write buffers that will be merged together
+   * before writing to storage.  If set to 1, then
+   * all write buffers are fushed to L0 as individual files and this increases
+   * read amplification because a get request has to check in all of these
+   * files. Also, an in-memory merge may result in writing lesser
+   * data to storage if there are duplicate records in each of these
+   * individual write buffers.  Default: 1
+   *
+   * @param minWriteBufferNumberToMerge the minimum number of write buffers
+   *     that will be merged together.
+   * @return the reference to the current option.
+   */
+  public Options setMinWriteBufferNumberToMerge(int minWriteBufferNumberToMerge) {
+    setMinWriteBufferNumberToMerge(nativeHandle_, minWriteBufferNumberToMerge);
+    return this;
+  }
+  private native void setMinWriteBufferNumberToMerge(
+      long handle, int minWriteBufferNumberToMerge);
+
+  /**
+   * The number of partial merge operands to accumulate before partial
+   * merge will be performed. Partial merge will not be called
+   * if the list of values to merge is less than min_partial_merge_operands.
+   *
+   * If min_partial_merge_operands < 2, then it will be treated as 2.
+   *
+   * Default: 2
+   *
+   * @return
+   */
+  public int minPartialMergeOperands() {
+    return minPartialMergeOperands(nativeHandle_);
+  }
+  private native int minPartialMergeOperands(long handle);
+
+  /**
+   * The number of partial merge operands to accumulate before partial
+   * merge will be performed. Partial merge will not be called
+   * if the list of values to merge is less than min_partial_merge_operands.
+   *
+   * If min_partial_merge_operands < 2, then it will be treated as 2.
+   *
+   * Default: 2
+   *
+   * @param minPartialMergeOperands
+   * @return the reference to the current option.
+   */
+  public Options setMinPartialMergeOperands(int minPartialMergeOperands) {
+    setMinPartialMergeOperands(nativeHandle_, minPartialMergeOperands);
+    return this;
+  }
+  private native void setMinPartialMergeOperands(
+      long handle, int minPartialMergeOperands);
+
   /**
    * Release the memory allocated for the current instance
    * in the c++ side.
@@ -1250,8 +2358,7 @@ public class Options {
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
 
-  private native void setFilter0(long optHandle, Filter fp);
-
   long nativeHandle_;
   long cacheSize_;
+  Filter filter_;
 }

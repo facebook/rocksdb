@@ -75,14 +75,10 @@ class MemTable {
   // iterator are internal keys encoded by AppendInternalKey in the
   // db/dbformat.{h,cc} module.
   //
-  // If options.prefix is supplied, it is passed to the underlying MemTableRep
-  // as a hint that the iterator only need to support access to keys with that
-  // specific prefix.
-  // If options.prefix is not supplied and options.prefix_seek is set, the
-  // iterator is not bound to a specific prefix. However, the semantics of
-  // Seek is changed - the result might only include keys with the same prefix
-  // as the seek-key.
-  Iterator* NewIterator(const ReadOptions& options = ReadOptions());
+  // By default, it returns an iterator for prefix seek if prefix_extractor
+  // is configured in Options.
+  Iterator* NewIterator(const ReadOptions& options,
+                        bool enforce_total_order = false);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
@@ -132,6 +128,9 @@ class MemTable {
   // key in the memtable.
   size_t CountSuccessiveMergeEntries(const LookupKey& key);
 
+  // Get total number of entries in the mem table.
+  uint64_t GetNumEntries() const { return num_entries_; }
+
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
@@ -173,6 +172,8 @@ class MemTable {
   const size_t kWriteBufferSize;
   Arena arena_;
   unique_ptr<MemTableRep> table_;
+
+  uint64_t num_entries_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush

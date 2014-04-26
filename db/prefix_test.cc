@@ -17,7 +17,6 @@
 #include "util/stop_watch.h"
 #include "util/testharness.h"
 
-DEFINE_bool(use_prefix_hash_memtable, true, "");
 DEFINE_bool(trigger_deadlock, false,
             "issue delete in range scan to trigger PrefixHashMap deadlock");
 DEFINE_uint64(bucket_count, 100000, "number of buckets");
@@ -208,7 +207,6 @@ TEST(PrefixTest, TestResult) {
       auto db = OpenDb();
       WriteOptions write_options;
       ReadOptions read_options;
-      read_options.prefix_seek = true;
 
       // 1. Insert one row.
       Slice v16("v16");
@@ -371,43 +369,6 @@ TEST(PrefixTest, TestResult) {
   }
 }
 
-TEST(PrefixTest, FullIterator) {
-  while (NextOptions(1000000)) {
-    DestroyDB(kDbName, Options());
-    auto db = OpenDb();
-    WriteOptions write_options;
-
-    std::vector<uint64_t> prefixes;
-    for (uint64_t i = 0; i < 100; ++i) {
-      prefixes.push_back(i);
-    }
-    std::random_shuffle(prefixes.begin(), prefixes.end());
-
-    for (auto prefix : prefixes) {
-      for (uint64_t i = 0; i < 200; ++i) {
-        TestKey test_key(prefix, i);
-        Slice key = TestKeyToSlice(test_key);
-        ASSERT_OK(db->Put(write_options, key, Slice("0")));
-      }
-    }
-
-    auto func = [](void* db_void) {
-      auto db = reinterpret_cast<DB*>(db_void);
-      std::unique_ptr<Iterator> iter(db->NewIterator(ReadOptions()));
-      iter->SeekToFirst();
-      for (int i = 0; i < 3; ++i) {
-        iter->Next();
-      }
-    };
-
-    auto env = Env::Default();
-    for (int i = 0; i < 16; ++i) {
-      env->StartThread(func, reinterpret_cast<void*>(db.get()));
-    }
-    env->WaitForJoin();
-  }
-}
-
 TEST(PrefixTest, DynamicPrefixIterator) {
   while (NextOptions(FLAGS_bucket_count)) {
     std::cout << "*** Mem table: " << options.memtable_factory->Name()
@@ -452,9 +413,6 @@ TEST(PrefixTest, DynamicPrefixIterator) {
     HistogramImpl hist_seek_time;
     HistogramImpl hist_seek_comparison;
 
-    if (FLAGS_use_prefix_hash_memtable) {
-      read_options.prefix_seek = true;
-    }
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
 
     for (auto prefix : prefixes) {
@@ -464,14 +422,15 @@ TEST(PrefixTest, DynamicPrefixIterator) {
 
       perf_context.Reset();
       StopWatchNano timer(Env::Default(), true);
+      auto key_prefix = options.prefix_extractor->Transform(key);
       uint64_t total_keys = 0;
-      for (iter->Seek(key); iter->Valid(); iter->Next()) {
+      for (iter->Seek(key);
+           iter->Valid() && iter->key().starts_with(key_prefix);
+           iter->Next()) {
         if (FLAGS_trigger_deadlock) {
           std::cout << "Behold the deadlock!\n";
           db->Delete(write_options, iter->key());
         }
-        auto test_key = SliceToTestKey(iter->key());
-        if (test_key->prefix != prefix) break;
         total_keys++;
       }
       hist_seek_time.Add(timer.ElapsedNanos());
@@ -493,116 +452,6 @@ TEST(PrefixTest, DynamicPrefixIterator) {
          prefix++) {
       TestKey test_key(prefix, 0);
       Slice key = TestKeyToSlice(test_key);
-
-      perf_context.Reset();
-      StopWatchNano timer(Env::Default(), true);
-      iter->Seek(key);
-      hist_no_seek_time.Add(timer.ElapsedNanos());
-      hist_no_seek_comparison.Add(perf_context.user_key_comparison_count);
-      ASSERT_TRUE(!iter->Valid());
-    }
-
-    std::cout << "non-existing Seek key comparison: \n"
-              << hist_no_seek_comparison.ToString()
-              << "non-existing Seek time: \n"
-              << hist_no_seek_time.ToString();
-  }
-}
-
-TEST(PrefixTest, PrefixHash) {
-  while (NextOptions(FLAGS_bucket_count)) {
-    std::cout << "*** Mem table: " << options.memtable_factory->Name()
-        << std::endl;
-    DestroyDB(kDbName, Options());
-    auto db = OpenDb();
-    WriteOptions write_options;
-    ReadOptions read_options;
-
-    std::vector<uint64_t> prefixes;
-    for (uint64_t i = 0; i < FLAGS_total_prefixes; ++i) {
-      prefixes.push_back(i);
-    }
-
-    if (FLAGS_random_prefix) {
-      std::random_shuffle(prefixes.begin(), prefixes.end());
-    }
-
-    // insert x random prefix, each with y continuous element.
-    HistogramImpl hist_put_time;
-    HistogramImpl hist_put_comparison;
-
-    for (auto prefix : prefixes) {
-       for (uint64_t sorted = 0; sorted < FLAGS_items_per_prefix; sorted++) {
-        TestKey test_key(prefix, sorted);
-
-        Slice key = TestKeyToSlice(test_key);
-        std::string value = "v" + std::to_string(sorted);
-
-        perf_context.Reset();
-        StopWatchNano timer(Env::Default(), true);
-        ASSERT_OK(db->Put(write_options, key, value));
-        hist_put_time.Add(timer.ElapsedNanos());
-        hist_put_comparison.Add(perf_context.user_key_comparison_count);
-      }
-    }
-
-    std::cout << "Put key comparison: \n" << hist_put_comparison.ToString()
-              << "Put time: \n" << hist_put_time.ToString();
-
-
-    // test seek existing keys
-    HistogramImpl hist_seek_time;
-    HistogramImpl hist_seek_comparison;
-
-    for (auto prefix : prefixes) {
-      TestKey test_key(prefix, 0);
-      Slice key = TestKeyToSlice(test_key);
-      std::string value = "v" + std::to_string(0);
-
-      Slice key_prefix;
-      if (FLAGS_use_prefix_hash_memtable) {
-        key_prefix = options.prefix_extractor->Transform(key);
-        read_options.prefix = &key_prefix;
-      }
-      std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
-
-      perf_context.Reset();
-      StopWatchNano timer(Env::Default(), true);
-      uint64_t total_keys = 0;
-      for (iter->Seek(key); iter->Valid(); iter->Next()) {
-        if (FLAGS_trigger_deadlock) {
-          std::cout << "Behold the deadlock!\n";
-          db->Delete(write_options, iter->key());
-        }
-        auto test_key = SliceToTestKey(iter->key());
-        if (test_key->prefix != prefix) break;
-        total_keys++;
-      }
-      hist_seek_time.Add(timer.ElapsedNanos());
-      hist_seek_comparison.Add(perf_context.user_key_comparison_count);
-      ASSERT_EQ(total_keys, FLAGS_items_per_prefix);
-    }
-
-    std::cout << "Seek key comparison: \n"
-              << hist_seek_comparison.ToString()
-              << "Seek time: \n"
-              << hist_seek_time.ToString();
-
-    // test non-existing keys
-    HistogramImpl hist_no_seek_time;
-    HistogramImpl hist_no_seek_comparison;
-
-    for (auto prefix = FLAGS_total_prefixes;
-         prefix < FLAGS_total_prefixes + 100;
-         prefix++) {
-      TestKey test_key(prefix, 0);
-      Slice key = TestKeyToSlice(test_key);
-
-      if (FLAGS_use_prefix_hash_memtable) {
-        Slice key_prefix = options.prefix_extractor->Transform(key);
-        read_options.prefix = &key_prefix;
-      }
-      std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
 
       perf_context.Reset();
       StopWatchNano timer(Env::Default(), true);

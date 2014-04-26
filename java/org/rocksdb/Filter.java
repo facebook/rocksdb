@@ -20,7 +20,7 @@ public abstract class Filter {
   /**
    * Deletes underlying C++ filter pointer.
    */
-  public synchronized void dispose() {
+  protected synchronized void dispose() {
     if(nativeHandle_ != 0) {
       dispose0(nativeHandle_);
     }

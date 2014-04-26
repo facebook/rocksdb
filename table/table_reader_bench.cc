@@ -68,8 +68,6 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                           bool through_db, bool measured_by_nanosecond) {
   rocksdb::InternalKeyComparator ikc(opts.comparator);
 
-  Slice prefix = Slice();
-
   std::string file_name = test::TmpDir()
       + "/rocksdb_table_reader_benchmark";
   std::string dbname = test::TmpDir() + "/rocksdb_table_reader_bench_db";
@@ -156,10 +154,6 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           }
           std::string start_key = MakeKey(r1, r2, through_db);
           std::string end_key = MakeKey(r1, r2 + r2_len, through_db);
-          if (prefix_len < 16) {
-            prefix = Slice(start_key.data(), prefix_len);
-            read_options.prefix = &prefix;
-          }
           uint64_t total_time = 0;
           uint64_t start_time = Now(env, measured_by_nanosecond);
           port::MemoryBarrier();
@@ -254,7 +248,6 @@ int main(int argc, char** argv) {
   options.compression = rocksdb::CompressionType::kNoCompression;
 
   if (FLAGS_plain_table) {
-    ro.prefix_seek = true;
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
     tf = new rocksdb::PlainTableFactory(16, (FLAGS_prefix_len == 16) ? 0 : 8,

@@ -89,7 +89,7 @@ class ThreadLocalPtr {
 
   class StaticMeta {
    public:
-    static StaticMeta* Instance();
+    StaticMeta();
 
     // Return the next available Id
     uint32_t GetId();
@@ -117,8 +117,6 @@ class ThreadLocalPtr {
     void SetHandler(uint32_t id, UnrefHandler handler);
 
    private:
-    StaticMeta();
-
     // Get UnrefHandler for id with acquiring mutex
     // REQUIRES: mutex locked
     UnrefHandler GetHandler(uint32_t id);
@@ -135,9 +133,6 @@ class ThreadLocalPtr {
     void RemoveThreadData(ThreadData* d);
 
     static ThreadData* GetThreadLocal();
-
-    // Singleton instance
-    static std::unique_ptr<StaticMeta> inst_;
 
     uint32_t next_instance_id_;
     // Used to recycle Ids in case ThreadLocalPtr is instantiated and destroyed
@@ -162,6 +157,8 @@ class ThreadLocalPtr {
     // Otherwise, used to retrieve thread data.
     pthread_key_t pthread_key_;
   };
+
+  static StaticMeta* Instance();
 
   const uint32_t id_;
 };

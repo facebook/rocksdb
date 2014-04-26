@@ -25,12 +25,6 @@ class TableReader {
  public:
   virtual ~TableReader() {}
 
-  // Determine whether there is a chance that the current table file
-  // contains the key a key starting with iternal_prefix. The specific
-  // table implementation can use bloom filter and/or other heuristic
-  // to filter out this table as a whole.
-  virtual bool PrefixMayMatch(const Slice& internal_prefix) = 0;
-
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).

@@ -117,6 +117,29 @@ struct BackupInfo {
       : backup_id(_backup_id), timestamp(_timestamp), size(_size) {}
 };
 
+class BackupEngineReadOnly {
+ public:
+  virtual ~BackupEngineReadOnly() {}
+
+  static BackupEngineReadOnly* NewReadOnlyBackupEngine(
+      Env* db_env, const BackupableDBOptions& options);
+
+  // You can GetBackupInfo safely, even with other BackupEngine performing
+  // backups on the same directory
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+
+  // Restoring DB from backup is NOT safe when there is another BackupEngine
+  // running that might call DeleteBackup() or PurgeOldBackups(). It is caller's
+  // responsibility to synchronize the operation, i.e. don't delete the backup
+  // when you're restoring from it
+  virtual Status RestoreDBFromBackup(
+      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
+      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+  virtual Status RestoreDBFromLatestBackup(
+      const std::string& db_dir, const std::string& wal_dir,
+      const RestoreOptions& restore_options = RestoreOptions()) = 0;
+};
+
 // Please see the documentation in BackupableDB and RestoreBackupableDB
 class BackupEngine {
  public:

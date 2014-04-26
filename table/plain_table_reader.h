@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #pragma once
+
+#ifndef ROCKSDB_LITE
 #include <unordered_map>
 #include <memory>
 #include <vector>
@@ -53,8 +54,6 @@ class PlainTableReader: public TableReader {
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness);
 
-  bool PrefixMayMatch(const Slice& internal_prefix);
-
   Iterator* NewIterator(const ReadOptions&);
 
   Status Get(const ReadOptions&, const Slice& key, void* arg,
@@ -86,6 +85,9 @@ class PlainTableReader: public TableReader {
 
   // PopulateIndex() builds index of keys. It must be called before any query
   // to the table.
+  //
+  // props: the table properties object that need to be stored. Ownership of
+  //        the object will be passed.
   //
   // index_ contains buckets size of index_size_, each is a
   // 32-bit integer. The lower 31 bits contain an offset value (explained below)
@@ -122,7 +124,7 @@ class PlainTableReader: public TableReader {
   //    ....
   //   record N file offset:  fixedint32
   // <end>
-  Status PopulateIndex();
+  Status PopulateIndex(TableProperties* props);
 
  private:
   struct IndexRecord;

@@ -248,6 +248,5 @@ public class RocksDBSample {
     // be sure to dispose c++ pointers
     options.dispose();
     readOptions.dispose();
-    filter.dispose();
   }
 }

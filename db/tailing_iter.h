@@ -2,8 +2,9 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-#ifndef ROCKSDB_LITE
 #pragma once
+
+#ifndef ROCKSDB_LITE
 
 #include <string>
 
@@ -79,7 +80,7 @@ class TailingIterator : public Iterator {
   bool IsCurrentVersion() const;
 
   // check if SeekImmutable() is needed due to target having a different prefix
-  // than prev_key_ (used when options.prefix_seek is set)
+  // than prev_key_ (used when in prefix seek mode)
   bool IsSamePrefix(const Slice& target) const;
 
   // creates mutable_ and immutable_ iterators and updates version_number_
