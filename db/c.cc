@@ -330,6 +330,20 @@ rocksdb_t* rocksdb_open(
   return result;
 }
 
+rocksdb_t* rocksdb_open_for_read_only(
+    const rocksdb_options_t* options,
+    const char* name,
+    unsigned char error_if_log_file_exist,
+    char** errptr) {
+  DB* db;
+  if (SaveError(errptr, DB::OpenForReadOnly(options->rep, std::string(name), &db, error_if_log_file_exist))) {
+    return nullptr;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
 void rocksdb_close(rocksdb_t* db) {
   delete db->rep;
   delete db;
