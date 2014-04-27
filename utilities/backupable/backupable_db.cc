@@ -1134,9 +1134,9 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
 // -------- BackupEngineReadOnlyImpl ---------
 class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
  public:
-  BackupEngineReadOnlyImpl(Env* db_env, const BackupableDBOptions& options) {
-    backup_engine_ = new BackupEngineImpl(db_env, options, true);
-  }
+  BackupEngineReadOnlyImpl(Env* db_env, const BackupableDBOptions& options)
+      : backup_engine_(new BackupEngineImpl(db_env, options, true)) {}
+
   virtual ~BackupEngineReadOnlyImpl() {}
 
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) {
@@ -1158,7 +1158,7 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
   }
 
  private:
-  BackupEngineImpl* backup_engine_;
+  std::unique_ptr<BackupEngineImpl> backup_engine_;
 };
 
 BackupEngineReadOnly* BackupEngineReadOnly::NewReadOnlyBackupEngine(

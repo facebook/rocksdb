@@ -111,7 +111,7 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   bool compaction_optimized_;
 
-  struct BlockEntryIteratorState;
+  class BlockEntryIteratorState;
   static Iterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
       bool* didIO, const Slice& index_value);
 

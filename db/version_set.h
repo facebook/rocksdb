@@ -219,7 +219,7 @@ class Version {
   friend class UniversalCompactionPicker;
 
   class LevelFileNumIterator;
-  struct LevelFileIteratorState;
+  class LevelFileIteratorState;
 
   bool PrefixMayMatch(const ReadOptions& options, Iterator* level_iter,
                       const Slice& internal_prefix) const;
