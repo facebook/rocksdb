@@ -21,11 +21,12 @@ namespace rocksdb {
 static const size_t kFilterBaseLg = 11;
 static const size_t kFilterBase = 1 << kFilterBaseLg;
 
-FilterBlockBuilder::FilterBlockBuilder(const Options& opt)
-                 : policy_(opt.filter_policy),
-                   prefix_extractor_(opt.prefix_extractor),
-                   whole_key_filtering_(opt.whole_key_filtering),
-                   comparator_(opt.comparator){}
+FilterBlockBuilder::FilterBlockBuilder(const Options& opt,
+                                       const Comparator* internal_comparator)
+    : policy_(opt.filter_policy),
+      prefix_extractor_(opt.prefix_extractor.get()),
+      whole_key_filtering_(opt.whole_key_filtering),
+      comparator_(internal_comparator) {}
 
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
@@ -52,17 +53,20 @@ bool FilterBlockBuilder::SamePrefix(const Slice &key1,
 void FilterBlockBuilder::AddKey(const Slice& key) {
   // get slice for most recently added entry
   Slice prev;
-  if (start_.size() > 0) {
-    size_t prev_start = start_[start_.size() - 1];
-    const char* base = entries_.data() + prev_start;
-    size_t length = entries_.size() - prev_start;
-    prev = Slice(base, length);
-  }
+  size_t added_to_start = 0;
 
   // add key to filter if needed
   if (whole_key_filtering_) {
     start_.push_back(entries_.size());
+    ++added_to_start;
     entries_.append(key.data(), key.size());
+  }
+
+  if (start_.size() > added_to_start) {
+    size_t prev_start = start_[start_.size() - 1 - added_to_start];
+    const char* base = entries_.data() + prev_start;
+    size_t length = entries_.size() - prev_start;
+    prev = Slice(base, length);
   }
 
   // add prefix to filter if needed
@@ -78,7 +82,6 @@ void FilterBlockBuilder::AddKey(const Slice& key) {
       Slice prefix = prefix_extractor_->Transform(user_key);
       InternalKey internal_prefix_tmp(prefix, 0, kTypeValue);
       Slice internal_prefix = internal_prefix_tmp.Encode();
-      assert(comparator_->Compare(internal_prefix, key) <= 0);
       start_.push_back(entries_.size());
       entries_.append(internal_prefix.data(), internal_prefix.size());
     }
@@ -130,7 +133,7 @@ void FilterBlockBuilder::GenerateFilter() {
 FilterBlockReader::FilterBlockReader(
     const Options& opt, const Slice& contents, bool delete_contents_after_use)
     : policy_(opt.filter_policy),
-      prefix_extractor_(opt.prefix_extractor),
+      prefix_extractor_(opt.prefix_extractor.get()),
       whole_key_filtering_(opt.whole_key_filtering),
       data_(nullptr),
       offset_(nullptr),
@@ -170,7 +173,7 @@ bool FilterBlockReader::MayMatch(uint64_t block_offset, const Slice& entry) {
   if (index < num_) {
     uint32_t start = DecodeFixed32(offset_ + index*4);
     uint32_t limit = DecodeFixed32(offset_ + index*4 + 4);
-    if (start <= limit && limit <= (offset_ - data_)) {
+    if (start <= limit && limit <= (uint32_t)(offset_ - data_)) {
       Slice filter = Slice(data_ + start, limit - start);
       return policy_->KeyMayMatch(entry, filter);
     } else if (start == limit) {

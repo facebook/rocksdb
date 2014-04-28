@@ -11,6 +11,7 @@
 
 #include "db/version_set.h"
 #include "util/coding.h"
+#include "rocksdb/slice.h"
 
 namespace rocksdb {
 
@@ -28,22 +29,34 @@ enum Tag {
   kPrevLogNumber        = 9,
 
   // these are new formats divergent from open source leveldb
-  kNewFile2             = 100  // store smallest & largest seqno
+  kNewFile2             = 100,  // store smallest & largest seqno
+
+  kColumnFamily         = 200,  // specify column family for version edit
+  kColumnFamilyAdd      = 201,
+  kColumnFamilyDrop     = 202,
+  kMaxColumnFamily      = 203,
 };
 
 void VersionEdit::Clear() {
   comparator_.clear();
+  max_level_ = 0;
   log_number_ = 0;
   prev_log_number_ = 0;
   last_sequence_ = 0;
   next_file_number_ = 0;
+  max_column_family_ = 0;
   has_comparator_ = false;
   has_log_number_ = false;
   has_prev_log_number_ = false;
   has_next_file_number_ = false;
   has_last_sequence_ = false;
+  has_max_column_family_ = false;
   deleted_files_.clear();
   new_files_.clear();
+  column_family_ = 0;
+  is_column_family_add_ = 0;
+  is_column_family_drop_ = 0;
+  column_family_name_.clear();
 }
 
 void VersionEdit::EncodeTo(std::string* dst) const {
@@ -67,19 +80,15 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint32(dst, kLastSequence);
     PutVarint64(dst, last_sequence_);
   }
-
-  for (size_t i = 0; i < compact_pointers_.size(); i++) {
-    PutVarint32(dst, kCompactPointer);
-    PutVarint32(dst, compact_pointers_[i].first);  // level
-    PutLengthPrefixedSlice(dst, compact_pointers_[i].second.Encode());
+  if (has_max_column_family_) {
+    PutVarint32(dst, kMaxColumnFamily);
+    PutVarint32(dst, max_column_family_);
   }
 
-  for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
-       iter != deleted_files_.end();
-       ++iter) {
+  for (const auto& deleted : deleted_files_) {
     PutVarint32(dst, kDeletedFile);
-    PutVarint32(dst, iter->first);   // level
-    PutVarint64(dst, iter->second);  // file number
+    PutVarint32(dst, deleted.first /* level */);
+    PutVarint64(dst, deleted.second /* file number */);
   }
 
   for (size_t i = 0; i < new_files_.size(); i++) {
@@ -92,6 +101,21 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     PutLengthPrefixedSlice(dst, f.largest.Encode());
     PutVarint64(dst, f.smallest_seqno);
     PutVarint64(dst, f.largest_seqno);
+  }
+
+  // 0 is default and does not need to be explicitly written
+  if (column_family_ != 0) {
+    PutVarint32(dst, kColumnFamily);
+    PutVarint32(dst, column_family_);
+  }
+
+  if (is_column_family_add_) {
+    PutVarint32(dst, kColumnFamilyAdd);
+    PutLengthPrefixedSlice(dst, Slice(column_family_name_));
+  }
+
+  if (is_column_family_drop_) {
+    PutVarint32(dst, kColumnFamilyDrop);
   }
 }
 
@@ -107,14 +131,13 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
 
 bool VersionEdit::GetLevel(Slice* input, int* level, const char** msg) {
   uint32_t v;
-  if (GetVarint32(input, &v) &&
-      (int)v < number_levels_) {
+  if (GetVarint32(input, &v)) {
     *level = v;
+    if (max_level_ < *level) {
+      max_level_ = *level;
+    }
     return true;
   } else {
-    if ((int)v >= number_levels_) {
-      *msg = "db already has more levels than options.num_levels";
-    }
     return false;
   }
 }
@@ -175,10 +198,20 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kMaxColumnFamily:
+        if (GetVarint32(&input, &max_column_family_)) {
+          has_max_column_family_ = true;
+        } else {
+          msg = "max column family";
+        }
+        break;
+
       case kCompactPointer:
         if (GetLevel(&input, &level, &msg) &&
             GetInternalKey(&input, &key)) {
-          compact_pointers_.push_back(std::make_pair(level, key));
+          // we don't use compact pointers anymore,
+          // but we should not fail if they are still
+          // in manifest
         } else {
           if (!msg) {
             msg = "compaction pointer";
@@ -227,6 +260,29 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kColumnFamily:
+        if (!GetVarint32(&input, &column_family_)) {
+          if (!msg) {
+            msg = "set column family id";
+          }
+        }
+        break;
+
+      case kColumnFamilyAdd:
+        if (GetLengthPrefixedSlice(&input, &str)) {
+          is_column_family_add_ = true;
+          column_family_name_ = str.ToString();
+        } else {
+          if (!msg) {
+            msg = "column family add";
+          }
+        }
+        break;
+
+      case kColumnFamilyDrop:
+        is_column_family_drop_ = true;
+        break;
+
       default:
         msg = "unknown tag";
         break;
@@ -267,12 +323,6 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  LastSeq: ");
     AppendNumberTo(&r, last_sequence_);
   }
-  for (size_t i = 0; i < compact_pointers_.size(); i++) {
-    r.append("\n  CompactPointer: ");
-    AppendNumberTo(&r, compact_pointers_[i].first);
-    r.append(" ");
-    r.append(compact_pointers_[i].second.DebugString(hex_key));
-  }
   for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
        iter != deleted_files_.end();
        ++iter) {
@@ -293,6 +343,19 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(f.smallest.DebugString(hex_key));
     r.append(" .. ");
     r.append(f.largest.DebugString(hex_key));
+  }
+  r.append("\n  ColumnFamily: ");
+  AppendNumberTo(&r, column_family_);
+  if (is_column_family_add_) {
+    r.append("\n  ColumnFamilyAdd: ");
+    r.append(column_family_name_);
+  }
+  if (is_column_family_drop_) {
+    r.append("\n  ColumnFamilyDrop");
+  }
+  if (has_max_column_family_) {
+    r.append("\n  MaxColumnFamily: ");
+    AppendNumberTo(&r, max_column_family_);
   }
   r.append("\n}\n");
   return r;

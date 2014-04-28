@@ -21,7 +21,7 @@ class Comparator;
 class BlockBuilder {
  public:
   BlockBuilder(int block_builder, const Comparator* comparator);
-  explicit BlockBuilder(const Options& options);
+  explicit BlockBuilder(const Options& options, const Comparator* comparator);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();

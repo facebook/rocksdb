@@ -1,12 +1,12 @@
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
+// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
 
 #ifndef STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
 #define STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
 
 #include <atomic>
-#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -17,10 +17,8 @@ namespace rocksdb {
 
 /**
  * Keep adding ticker's here.
- * Any ticker should have a value less than TICKER_ENUM_MAX.
- * Add a new ticker by assigning it the current value of TICKER_ENUM_MAX
- * Add a string representation in TickersNameMap below.
- * And incrementing TICKER_ENUM_MAX.
+ *  1. Any ticker should be added before TICKER_ENUM_MAX.
+ *  2. Add a readable string in TickersNameMap below for the newly added ticker.
  */
 enum Tickers {
   // total block cache misses
@@ -50,13 +48,18 @@ enum Tickers {
   // # of times bloom filter has avoided file reads.
   BLOOM_FILTER_USEFUL,
 
+  // # of memtable hits.
+  MEMTABLE_HIT,
+  // # of memtable misses.
+  MEMTABLE_MISS,
+
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
    * There are 3 reasons currently.
    */
-  COMPACTION_KEY_DROP_NEWER_ENTRY, // key was written with a newer value.
-  COMPACTION_KEY_DROP_OBSOLETE, // The key is obsolete.
-  COMPACTION_KEY_DROP_USER, // user compaction function has dropped the key.
+  COMPACTION_KEY_DROP_NEWER_ENTRY,  // key was written with a newer value.
+  COMPACTION_KEY_DROP_OBSOLETE,     // The key is obsolete.
+  COMPACTION_KEY_DROP_USER,  // user compaction function has dropped the key.
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,
@@ -77,8 +80,7 @@ enum Tickers {
   // write throttle because of too many files in L0
   STALL_L0_NUM_FILES_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
-
-  NO_ITERATORS, // number of iterators currently open
+  NO_ITERATORS,  // number of iterators currently open
 
   // Number of MultiGet calls, keys read, and bytes read
   NUMBER_MULTIGET_CALLS,
@@ -104,54 +106,83 @@ enum Tickers {
   // Record the number of calls to GetUpadtesSince. Useful to keep track of
   // transaction log iterator refreshes
   GET_UPDATES_SINCE_CALLS,
+  BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
+  BLOCK_CACHE_COMPRESSED_HIT,   // hit in the compressed block cache
+  WAL_FILE_SYNCED,              // Number of times WAL sync is done
+  WAL_FILE_BYTES,               // Number of bytes written to WAL
 
-  BLOCK_CACHE_COMPRESSED_MISS, // miss in the compressed block cache
-  BLOCK_CACHE_COMPRESSED_HIT,  // hit in the compressed block cache
+  // Writes can be processed by requesting thread or by the thread at the
+  // head of the writers queue.
+  WRITE_DONE_BY_SELF,
+  WRITE_DONE_BY_OTHER,
+  WRITE_WITH_WAL,       // Number of Write calls that request WAL
+  COMPACT_READ_BYTES,   // Bytes read during compaction
+  COMPACT_WRITE_BYTES,  // Bytes written during compaction
 
+  // Number of table's properties loaded directly from file, without creating
+  // table reader object.
+  NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
+  NUMBER_SUPERVERSION_ACQUIRES,
+  NUMBER_SUPERVERSION_RELEASES,
+  NUMBER_SUPERVERSION_CLEANUPS,
   TICKER_ENUM_MAX
 };
 
 // The order of items listed in  Tickers should be the same as
 // the order listed in TickersNameMap
 const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
-  { BLOCK_CACHE_MISS, "rocksdb.block.cache.miss" },
-  { BLOCK_CACHE_HIT, "rocksdb.block.cache.hit" },
-  { BLOCK_CACHE_ADD, "rocksdb.block.cache.add" },
-  { BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss" },
-  { BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit" },
-  { BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss" },
-  { BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit" },
-  { BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss" },
-  { BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit" },
-  { BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful" },
-  { COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new" },
-  { COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete" },
-  { COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user" },
-  { NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written" },
-  { NUMBER_KEYS_READ, "rocksdb.number.keys.read" },
-  { NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated" },
-  { BYTES_WRITTEN, "rocksdb.bytes.written" },
-  { BYTES_READ, "rocksdb.bytes.read" },
-  { NO_FILE_CLOSES, "rocksdb.no.file.closes" },
-  { NO_FILE_OPENS, "rocksdb.no.file.opens" },
-  { NO_FILE_ERRORS, "rocksdb.no.file.errors" },
-  { STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros" },
-  { STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros" },
-  { STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros" },
-  { RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis" },
-  { NO_ITERATORS, "rocksdb.num.iterators" },
-  { NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get" },
-  { NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read" },
-  { NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read" },
-  { NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered" },
-  { NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures" },
-  { SEQUENCE_NUMBER, "rocksdb.sequence.number" },
-  { BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked" },
-  { BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful" },
-  { NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration" },
-  { GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls" },
-  { BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss" },
-  { BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit" }
+    {BLOCK_CACHE_MISS, "rocksdb.block.cache.miss"},
+    {BLOCK_CACHE_HIT, "rocksdb.block.cache.hit"},
+    {BLOCK_CACHE_ADD, "rocksdb.block.cache.add"},
+    {BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss"},
+    {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
+    {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
+    {BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit"},
+    {BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss"},
+    {BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit"},
+    {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
+    {MEMTABLE_HIT, "rocksdb.memtable.hit"},
+    {MEMTABLE_MISS, "rocksdb.memtable.miss"},
+    {COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"},
+    {COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"},
+    {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
+    {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
+    {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
+    {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
+    {BYTES_WRITTEN, "rocksdb.bytes.written"},
+    {BYTES_READ, "rocksdb.bytes.read"},
+    {NO_FILE_CLOSES, "rocksdb.no.file.closes"},
+    {NO_FILE_OPENS, "rocksdb.no.file.opens"},
+    {NO_FILE_ERRORS, "rocksdb.no.file.errors"},
+    {STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"},
+    {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
+    {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
+    {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
+    {NO_ITERATORS, "rocksdb.num.iterators"},
+    {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
+    {NUMBER_MULTIGET_KEYS_READ, "rocksdb.number.multiget.keys.read"},
+    {NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read"},
+    {NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered"},
+    {NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures"},
+    {SEQUENCE_NUMBER, "rocksdb.sequence.number"},
+    {BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked"},
+    {BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful"},
+    {NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration"},
+    {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
+    {BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss"},
+    {BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit"},
+    {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
+    {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
+    {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
+    {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
+    {WRITE_WITH_WAL, "rocksdb.write.wal"},
+    {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
+    {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
+    {NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,
+     "rocksdb.number.direct.load.table.properties"},
+    {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
+    {NUMBER_SUPERVERSION_RELEASES, "rocksdb.number.superversion_releases"},
+    {NUMBER_SUPERVERSION_CLEANUPS, "rocksdb.number.superversion_cleanups"},
 };
 
 /**
@@ -214,87 +245,23 @@ struct HistogramData {
   double standard_deviation;
 };
 
-
-class Histogram {
- public:
-  // clear's the histogram
-  virtual void Clear() = 0;
-  virtual ~Histogram();
-  // Add a value to be recorded in the histogram.
-  virtual void Add(uint64_t value) = 0;
-
-  virtual std::string ToString() const = 0;
-
-  // Get statistics
-  virtual double Median() const = 0;
-  virtual double Percentile(double p) const = 0;
-  virtual double Average() const = 0;
-  virtual double StandardDeviation() const = 0;
-  virtual void Data(HistogramData * const data) const = 0;
-
-};
-
-/**
- * A dumb ticker which keeps incrementing through its life time.
- * Thread safe. Locking managed by implementation of this interface.
- */
-class Ticker {
- public:
-  Ticker() : count_(0) { }
-
-  inline void setTickerCount(uint64_t count) {
-    count_ = count;
-  }
-
-  inline void recordTick(int count = 1) {
-    count_ += count;
-  }
-
-  inline uint64_t getCount() {
-    return count_;
-  }
-
- private:
-  std::atomic_uint_fast64_t count_;
-};
-
 // Analyze the performance of a db
 class Statistics {
  public:
+  virtual ~Statistics() {}
 
   virtual long getTickerCount(Tickers tickerType) = 0;
   virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;
   virtual void setTickerCount(Tickers tickerType, uint64_t count) = 0;
   virtual void measureTime(Histograms histogramType, uint64_t time) = 0;
 
-  virtual void histogramData(Histograms type, HistogramData * const data) = 0;
+  virtual void histogramData(Histograms type, HistogramData* const data) = 0;
   // String representation of the statistic object.
   std::string ToString();
 };
 
 // Create a concrete DBStatistics object
 std::shared_ptr<Statistics> CreateDBStatistics();
-
-// Ease of Use functions
-inline void RecordTick(std::shared_ptr<Statistics> statistics,
-                       Tickers ticker,
-                       uint64_t count = 1) {
-  assert(HistogramsNameMap.size() == HISTOGRAM_ENUM_MAX);
-  assert(TickersNameMap.size() == TICKER_ENUM_MAX);
-  if (statistics) {
-    statistics->recordTick(ticker, count);
-  }
-}
-
-inline void SetTickerCount(std::shared_ptr<Statistics> statistics,
-                           Tickers ticker,
-                           uint64_t count) {
-  assert(HistogramsNameMap.size() == HISTOGRAM_ENUM_MAX);
-  assert(TickersNameMap.size() == TICKER_ENUM_MAX);
-  if (statistics) {
-    statistics->setTickerCount(ticker, count);
-  }
-}
 
 }  // namespace rocksdb
 

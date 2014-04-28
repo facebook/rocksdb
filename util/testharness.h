@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sstream>
+#include "port/stack_trace.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "util/random.h"
@@ -58,6 +59,7 @@ class Tester {
   ~Tester() {
     if (!ok_) {
       fprintf(stderr, "%s:%d:%s\n", fname_, line_, ss_.str().c_str());
+      port::PrintStack(2);
       exit(1);
     }
   }

@@ -8,6 +8,7 @@ import getopt
 import logging
 import tempfile
 import subprocess
+import shutil
 
 # This python script runs db_stress multiple times. Some runs with
 # kill_random_test that causes rocksdb to crash at various points in code.
@@ -78,13 +79,14 @@ def main(argv):
             # nomral run
             additional_opts = "--ops_per_thread=" + str(ops_per_thread)
 
+        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
         cmd = re.sub('\s+', ' ', """
             ./db_stress
             --test_batches_snapshots=%s
             --threads=%s
             --write_buffer_size=%s
             --destroy_db_initially=0
-            --reopen=0
+            --reopen=20
             --readpercent=45
             --prefixpercent=5
             --writepercent=35
@@ -98,22 +100,23 @@ def main(argv):
             --cache_size=1048576
             --open_files=500000
             --verify_checksum=1
-            --sync=%s
+            --sync=0
+            --progress_reports=0
             --disable_wal=0
-            --disable_data_sync=%s
+            --disable_data_sync=1
             --target_file_size_base=2097152
             --target_file_size_multiplier=2
             --max_write_buffer_number=3
             --max_background_compactions=20
             --max_bytes_for_level_base=10485760
             --filter_deletes=%s
+            --memtablerep=prefix_hash
+            --prefix_size=7
             %s
             """ % (random.randint(0, 1),
                    threads,
                    write_buf_size,
-                   tempfile.mkdtemp(),
-                   random.randint(0, 1),
-                   random.randint(0, 1),
+                   dbname,
                    random.randint(0, 1),
                    random.randint(0, 1),
                    random.randint(0, 1),
@@ -154,6 +157,8 @@ def main(argv):
         if (stdoutdata.find('fail') >= 0):
             print "TEST FAILED. Output has 'fail'!!!\n"
             sys.exit(2)
+        # we need to clean up after ourselves -- only do this on test success
+        shutil.rmtree(dbname, True)
 
         check_mode = (check_mode + 1) % total_check_mode
 

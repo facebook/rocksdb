@@ -6,21 +6,18 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "util/string_util.h"
 
 namespace rocksdb {
 
-using namespace std;
-using std::string;
-using std::vector;
-using std::stringstream;
-
-vector<string> stringSplit(string arg, char delim) {
-  vector<string> splits;
-  stringstream ss(arg);
-  string item;
-  while(getline(ss, item, delim)) {
+std::vector<std::string> stringSplit(std::string arg, char delim) {
+  std::vector<std::string> splits;
+  std::stringstream ss(arg);
+  std::string item;
+  while (std::getline(ss, item, delim)) {
     splits.push_back(item);
   }
   return splits;
 }
-}
+
+}  // namespace rocksdb

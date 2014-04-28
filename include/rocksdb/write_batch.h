@@ -1,3 +1,7 @@
+// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -27,27 +31,41 @@
 namespace rocksdb {
 
 class Slice;
+class ColumnFamilyHandle;
 struct SliceParts;
 
 class WriteBatch {
  public:
-  WriteBatch();
+  explicit WriteBatch(size_t reserved_bytes = 0);
   ~WriteBatch();
 
   // Store the mapping "key->value" in the database.
-  void Put(const Slice& key, const Slice& value);
+  void Put(ColumnFamilyHandle* column_family, const Slice& key,
+           const Slice& value);
+  void Put(const Slice& key, const Slice& value) {
+    Put(nullptr, key, value);
+  }
 
   // Variant of Put() that gathers output like writev(2).  The key and value
   // that will be written to the database are concatentations of arrays of
   // slices.
-  void Put(const SliceParts& key, const SliceParts& value);
+  void Put(ColumnFamilyHandle* column_family, const SliceParts& key,
+           const SliceParts& value);
+  void Put(const SliceParts& key, const SliceParts& value) {
+    Put(nullptr, key, value);
+  }
 
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
-  void Merge(const Slice& key, const Slice& value);
+  void Merge(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& value);
+  void Merge(const Slice& key, const Slice& value) {
+    Merge(nullptr, key, value);
+  }
 
   // If the database contains a mapping for "key", erase it.  Else do nothing.
-  void Delete(const Slice& key);
+  void Delete(ColumnFamilyHandle* column_family, const Slice& key);
+  void Delete(const Slice& key) { Delete(nullptr, key); }
 
   // Append a blob of arbitrary size to the records in this batch. The blob will
   // be stored in the transaction log but not in any other file. In particular,
@@ -68,14 +86,46 @@ class WriteBatch {
   class Handler {
    public:
     virtual ~Handler();
-    virtual void Put(const Slice& key, const Slice& value) = 0;
+    // default implementation will just call Put without column family for
+    // backwards compatibility. If the column family is not default,
+    // the function is noop
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) {
+      if (column_family_id == 0) {
+        // Put() historically doesn't return status. We didn't want to be
+        // backwards incompatible so we didn't change the return status
+        // (this is a public API). We do an ordinary get and return Status::OK()
+        Put(key, value);
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "non-default column family and PutCF not implemented");
+    }
+    virtual void Put(const Slice& key, const Slice& value);
     // Merge and LogData are not pure virtual. Otherwise, we would break
     // existing clients of Handler on a source code level. The default
     // implementation of Merge simply throws a runtime exception.
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) {
+      if (column_family_id == 0) {
+        Merge(key, value);
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "non-default column family and MergeCF not implemented");
+    }
     virtual void Merge(const Slice& key, const Slice& value);
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
-    virtual void Delete(const Slice& key) = 0;
+    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+      if (column_family_id == 0) {
+        Delete(key);
+        return Status::OK();
+      }
+      return Status::InvalidArgument(
+          "non-default column family and DeleteCF not implemented");
+    }
+    virtual void Delete(const Slice& key);
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.
@@ -84,7 +134,10 @@ class WriteBatch {
   Status Iterate(Handler* handler) const;
 
   // Retrieve the serialized version of this batch.
-  std::string Data() { return rep_; }
+  const std::string& Data() const { return rep_; }
+
+  // Retrieve data size of the batch.
+  size_t GetDataSize() const { return rep_.size(); }
 
   // Returns the number of updates in the batch
   int Count() const;

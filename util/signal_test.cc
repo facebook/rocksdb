@@ -3,9 +3,10 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-#include "util/stack_trace.h"
+#include "port/stack_trace.h"
 #include <assert.h>
 
+namespace {
 void f0() {
   char *p = nullptr;
   *p = 10;  /* SIGSEGV here!! */
@@ -22,9 +23,10 @@ void f2() {
 void f3() {
   f2();
 }
+}  // namespace
 
 int main() {
-  rocksdb::InstallStackTraceHandler();
+  rocksdb::port::InstallStackTraceHandler();
 
   f3();
 

@@ -1,6 +1,9 @@
-// Copyright 2008-present Facebook. All Rights Reserved.
-#ifndef STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
-#define STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
+// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
+#ifndef ROCKSDB_LITE
+#pragma once
 #include "rocksdb/options.h"
 
 namespace rocksdb {
@@ -12,4 +15,4 @@ class LDBTool {
 
 } // namespace rocksdb
 
-#endif // STORAGE_ROCKSDB_INCLUDE_LDB_TOOL_H
+#endif  // ROCKSDB_LITE

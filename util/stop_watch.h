@@ -5,19 +5,20 @@
 //
 #pragma once
 #include "rocksdb/env.h"
-#include "rocksdb/statistics.h"
+#include "util/statistics.h"
 
 namespace rocksdb {
 // Auto-scoped.
 // Records the statistic into the corresponding histogram.
 class StopWatch {
  public:
-  StopWatch(
+  explicit StopWatch(
     Env * const env,
-    std::shared_ptr<Statistics> statistics = nullptr,
-    const Histograms histogram_name = DB_GET) :
+    Statistics* statistics = nullptr,
+    const Histograms histogram_name = DB_GET,
+    bool auto_start = true) :
       env_(env),
-      start_time_(env->NowMicros()),
+      start_time_((!auto_start && !statistics) ? 0 : env->NowMicros()),
       statistics_(statistics),
       histogram_name_(histogram_name) {}
 
@@ -27,16 +28,12 @@ class StopWatch {
     return env_->NowMicros() - start_time_;
   }
 
-  ~StopWatch() {
-    if (statistics_) {
-      statistics_->measureTime(histogram_name_, ElapsedMicros());
-    }
-  }
+  ~StopWatch() { MeasureTime(statistics_, histogram_name_, ElapsedMicros()); }
 
  private:
   Env* const env_;
   const uint64_t start_time_;
-  std::shared_ptr<Statistics> statistics_;
+  Statistics* statistics_;
   const Histograms histogram_name_;
 
 };
@@ -44,7 +41,7 @@ class StopWatch {
 // a nano second precision stopwatch
 class StopWatchNano {
  public:
-  StopWatchNano(Env* const env, bool auto_start = false)
+  explicit StopWatchNano(Env* const env, bool auto_start = false)
       : env_(env), start_(0) {
     if (auto_start) {
       Start();

@@ -26,11 +26,13 @@
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "db/db_statistics.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/cache.h"
 #include "utilities/utility_db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "port/port.h"
 #include "util/coding.h"
@@ -57,15 +59,18 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   }
   return true;
 }
-DEFINE_uint64(seed, 2341234, "Seed for PRNG");
-static const bool FLAGS_seed_dummy =
-  google::RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
-DEFINE_int64(max_key, 1 * KB * KB * KB,
+DEFINE_uint64(seed, 2341234, "Seed for PRNG");
+static const bool FLAGS_seed_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
+
+DEFINE_int64(max_key, 1 * KB* KB,
              "Max number of key/values to place in database");
 
+DEFINE_int32(column_families, 10, "Number of column families");
+
 DEFINE_bool(test_batches_snapshots, false,
-            "If set, the test uses MultiGet(), MultiPut() and MultiDelete()"
+            "If set, the test uses MultiGet(), Multiut() and MultiDelete()"
             " which read/write/delete multiple keys in a batch. In this mode,"
             " we do not verify db content by comparing the content with the "
             "pre-allocated array. Instead, we do partial verification inside"
@@ -93,7 +98,10 @@ DEFINE_bool(histogram, false, "Print histogram of operation timings");
 DEFINE_bool(destroy_db_initially, true,
             "Destroys the database dir before start if this is true");
 
-DEFINE_bool (verbose, false, "Verbose");
+DEFINE_bool(verbose, false, "Verbose");
+
+DEFINE_bool(progress_reports, true,
+            "If true, db_stress will report number of finished operations");
 
 DEFINE_int32(write_buffer_size, rocksdb::Options().write_buffer_size,
              "Number of bytes to buffer in memtable before compacting");
@@ -144,6 +152,10 @@ DEFINE_int32(max_background_compactions,
              "The maximum number of concurrent background compactions "
              "that can occur in parallel.");
 
+DEFINE_int32(max_background_flushes, rocksdb::Options().max_background_flushes,
+             "The maximum number of concurrent background flushes "
+             "that can occur in parallel.");
+
 DEFINE_int32(universal_size_ratio, 0, "The ratio of file sizes that trigger"
              " compaction in universal style");
 
@@ -155,6 +167,11 @@ DEFINE_int32(universal_max_merge_width, 0, "The max number of files to compact"
 
 DEFINE_int32(universal_max_size_amplification_percent, 0,
              "The max size amplification for universal style compaction");
+
+DEFINE_int32(clear_column_family_one_in, 1000000,
+             "With a chance of 1/N, delete a column family and then recreate "
+             "it again. If N == 0, never drop/create column families. "
+             "When test_batches_snapshots is true, this flag has no effect");
 
 DEFINE_int64(cache_size, 2 * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
@@ -168,8 +185,8 @@ static bool ValidateInt32Positive(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(reopen, 10, "Number of times database reopens");
-static const bool FLAGS_reopen_dummy =
-  google::RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
+static const bool FLAGS_reopen_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
 DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
              "Negative means use default settings.");
@@ -196,9 +213,9 @@ DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 DEFINE_int32(kill_random_test, 0,
              "If non-zero, kill at various points in source code with "
              "probability 1/this");
-static const bool FLAGS_kill_random_test_dummy =
-  google::RegisterFlagValidator(&FLAGS_kill_random_test,
-                                &ValidateInt32Positive);
+static const bool FLAGS_kill_random_test_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_kill_random_test,
+                                  &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
@@ -224,42 +241,38 @@ static bool ValidateInt32Percent(const char* flagname, int32_t value) {
 }
 DEFINE_int32(readpercent, 10,
              "Ratio of reads to total workload (expressed as a percentage)");
-static const bool FLAGS_readpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_readpercent, &ValidateInt32Percent);
+static const bool FLAGS_readpercent_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_readpercent, &ValidateInt32Percent);
 
 DEFINE_int32(prefixpercent, 20,
              "Ratio of prefix iterators to total workload (expressed as a"
              " percentage)");
-static const bool FLAGS_prefixpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
+static const bool FLAGS_prefixpercent_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
 
 DEFINE_int32(writepercent, 45,
              " Ratio of deletes to total workload (expressed as a percentage)");
-static const bool FLAGS_writepercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
+static const bool FLAGS_writepercent_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
 
 DEFINE_int32(delpercent, 15,
              "Ratio of deletes to total workload (expressed as a percentage)");
-static const bool FLAGS_delpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
+static const bool FLAGS_delpercent_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
 
 DEFINE_int32(iterpercent, 10, "Ratio of iterations to total workload"
              " (expressed as a percentage)");
-static const bool FLAGS_iterpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
+static const bool FLAGS_iterpercent_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
-static const bool FLAGS_num_iterations_dummy =
-  google::RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
+static const bool FLAGS_num_iterations_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
 DEFINE_bool(disable_seek_compaction, false,
             "Option to disable compation triggered by read.");
 
-DEFINE_uint64(delete_obsolete_files_period_micros, 0,
-              "Option to delete obsolete files periodically"
-              "0 means that obsolete files are "
-              " deleted after every compaction run.");
-
+namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
@@ -271,10 +284,16 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kZlibCompression;
   else if (!strcasecmp(ctype, "bzip2"))
     return rocksdb::kBZip2Compression;
+  else if (!strcasecmp(ctype, "lz4"))
+    return rocksdb::kLZ4Compression;
+  else if (!strcasecmp(ctype, "lz4hc"))
+    return rocksdb::kLZ4HCCompression;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
 }
+}  // namespace
+
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
@@ -284,58 +303,59 @@ DEFINE_string(hdfs, "", "Name of hdfs environment");
 // posix or hdfs environment
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
-DEFINE_uint64(ops_per_thread, 600000, "Number of operations per thread.");
-static const bool FLAGS_ops_per_thread_dummy =
-  google::RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);
+DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
+static const bool FLAGS_ops_per_thread_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);
 
 DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
-static const bool FLAGS_log2_keys_per_lock_dummy =
-  google::RegisterFlagValidator(&FLAGS_log2_keys_per_lock,
-                                &ValidateUint32Range);
+static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_log2_keys_per_lock,
+                                  &ValidateUint32Range);
 
 DEFINE_int32(purge_redundant_percent, 50,
              "Percentage of times we want to purge redundant keys in memory "
              "before flushing");
-static const bool FLAGS_purge_redundant_percent_dummy =
-  google::RegisterFlagValidator(&FLAGS_purge_redundant_percent,
-                                &ValidateInt32Percent);
+static const bool FLAGS_purge_redundant_percent_dummy __attribute__((unused)) =
+    google::RegisterFlagValidator(&FLAGS_purge_redundant_percent,
+                                  &ValidateInt32Percent);
 
 DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
             " the delete if key not present");
 
 enum RepFactory {
   kSkipList,
-  kPrefixHash,
-  kUnsorted,
+  kHashSkipList,
   kVectorRep
 };
+
+namespace {
 enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
   if (!strcasecmp(ctype, "skip_list"))
     return kSkipList;
   else if (!strcasecmp(ctype, "prefix_hash"))
-    return kPrefixHash;
-  else if (!strcasecmp(ctype, "unsorted"))
-    return kUnsorted;
+    return kHashSkipList;
   else if (!strcasecmp(ctype, "vector"))
     return kVectorRep;
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
 }
+}  // namespace
+
 static enum RepFactory FLAGS_rep_factory;
-DEFINE_string(memtablerep, "skip_list", "");
+DEFINE_string(memtablerep, "prefix_hash", "");
 
 static bool ValidatePrefixSize(const char* flagname, int32_t value) {
-  if (value < 0 || value>=2000000000) {
-    fprintf(stderr, "Invalid value for --%s: %d. 0<= PrefixSize <=2000000000\n",
+  if (value < 0 || value > 8) {
+    fprintf(stderr, "Invalid value for --%s: %d. 0 <= PrefixSize <= 8\n",
             flagname, value);
     return false;
   }
   return true;
 }
-DEFINE_int32(prefix_size, 0, "Control the prefix size for PrefixHashRep");
+DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
 static const bool FLAGS_prefix_size_dummy =
   google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
@@ -357,6 +377,17 @@ static std::string Key(long val) {
   }
   return big_endian_key;
 }
+
+static std::string StringToHex(const std::string& str) {
+  std::string result = "0x";
+  char buf[10];
+  for (size_t i = 0; i < str.length(); i++) {
+    snprintf(buf, 10, "%02X", (unsigned char)str[i]);
+    result += buf;
+  }
+  return result;
+}
+
 
 class StressTest;
 namespace {
@@ -435,16 +466,18 @@ class Stats {
       last_op_finish_ = now;
     }
 
-    done_++;
-    if (done_ >= next_report_) {
-      if      (next_report_ < 1000)   next_report_ += 100;
-      else if (next_report_ < 5000)   next_report_ += 500;
-      else if (next_report_ < 10000)  next_report_ += 1000;
-      else if (next_report_ < 50000)  next_report_ += 5000;
-      else if (next_report_ < 100000) next_report_ += 10000;
-      else if (next_report_ < 500000) next_report_ += 50000;
-      else                            next_report_ += 100000;
-      fprintf(stdout, "... finished %ld ops%30s\r", done_, "");
+      done_++;
+    if (FLAGS_progress_reports) {
+      if (done_ >= next_report_) {
+        if      (next_report_ < 1000)   next_report_ += 100;
+        else if (next_report_ < 5000)   next_report_ += 500;
+        else if (next_report_ < 10000)  next_report_ += 1000;
+        else if (next_report_ < 50000)  next_report_ += 5000;
+        else if (next_report_ < 100000) next_report_ += 10000;
+        else if (next_report_ < 500000) next_report_ += 50000;
+        else                            next_report_ += 100000;
+        fprintf(stdout, "... finished %ld ops%30s\r", done_, "");
+      }
     }
   }
 
@@ -512,44 +545,44 @@ class Stats {
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
-  static const uint32_t SENTINEL = 0xffffffff;
+  static const uint32_t SENTINEL;
 
-  explicit SharedState(StressTest* stress_test) :
-      cv_(&mu_),
-      seed_(FLAGS_seed),
-      max_key_(FLAGS_max_key),
-      log2_keys_per_lock_(FLAGS_log2_keys_per_lock),
-      num_threads_(FLAGS_threads),
-      num_initialized_(0),
-      num_populated_(0),
-      vote_reopen_(0),
-      num_done_(0),
-      start_(false),
-      start_verify_(false),
-      stress_test_(stress_test) {
+  explicit SharedState(StressTest* stress_test)
+      : cv_(&mu_),
+        seed_(FLAGS_seed),
+        max_key_(FLAGS_max_key),
+        log2_keys_per_lock_(FLAGS_log2_keys_per_lock),
+        num_threads_(FLAGS_threads),
+        num_initialized_(0),
+        num_populated_(0),
+        vote_reopen_(0),
+        num_done_(0),
+        start_(false),
+        start_verify_(false),
+        stress_test_(stress_test),
+        verification_failure_(false) {
     if (FLAGS_test_batches_snapshots) {
-      key_locks_ = nullptr;
-      values_ = nullptr;
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
       return;
     }
-    values_ = new uint32_t[max_key_];
-    for (long i = 0; i < max_key_; i++) {
-      values_[i] = SENTINEL;
+    values_.resize(FLAGS_column_families);
+
+    for (int i = 0; i < FLAGS_column_families; ++i) {
+      values_[i] = std::vector<uint32_t>(max_key_, SENTINEL);
     }
 
     long num_locks = (max_key_ >> log2_keys_per_lock_);
     if (max_key_ & ((1 << log2_keys_per_lock_) - 1)) {
-      num_locks ++;
+      num_locks++;
     }
-    fprintf(stdout, "Creating %ld locks\n", num_locks);
-    key_locks_ = new port::Mutex[num_locks];
+    fprintf(stdout, "Creating %ld locks\n", num_locks * FLAGS_column_families);
+    key_locks_.resize(FLAGS_column_families);
+    for (int i = 0; i < FLAGS_column_families; ++i) {
+      key_locks_[i] = std::vector<port::Mutex>(num_locks);
+    }
   }
 
-  ~SharedState() {
-    delete[] values_;
-    delete[] key_locks_;
-  }
+  ~SharedState() {}
 
   port::Mutex* GetMutex() {
     return &mu_;
@@ -619,25 +652,39 @@ class SharedState {
     return start_verify_;
   }
 
-  port::Mutex* GetMutexForKey(long key) {
-    return &key_locks_[key >> log2_keys_per_lock_];
+  void SetVerificationFailure() { verification_failure_.store(true); }
+
+  bool HasVerificationFailedYet() { return verification_failure_.load(); }
+
+  port::Mutex* GetMutexForKey(int cf, long key) {
+    return &key_locks_[cf][key >> log2_keys_per_lock_];
   }
 
-  void Put(long key, uint32_t value_base) {
-    values_[key] = value_base;
+  void LockColumnFamily(int cf) {
+    for (auto& mutex : key_locks_[cf]) {
+      mutex.Lock();
+    }
   }
 
-  uint32_t Get(long key) const {
-    return values_[key];
+  void UnlockColumnFamily(int cf) {
+    for (auto& mutex : key_locks_[cf]) {
+      mutex.Unlock();
+    }
   }
 
-  void Delete(long key) const {
-    values_[key] = SENTINEL;
+  void ClearColumnFamily(int cf) {
+    std::fill(values_[cf].begin(), values_[cf].end(), SENTINEL);
   }
 
-  uint32_t GetSeed() const {
-    return seed_;
+  void Put(int cf, long key, uint32_t value_base) {
+    values_[cf][key] = value_base;
   }
+
+  uint32_t Get(int cf, long key) const { return values_[cf][key]; }
+
+  void Delete(int cf, long key) { values_[cf][key] = SENTINEL; }
+
+  uint32_t GetSeed() const { return seed_; }
 
  private:
   port::Mutex mu_;
@@ -653,11 +700,13 @@ class SharedState {
   bool start_;
   bool start_verify_;
   StressTest* stress_test_;
+  std::atomic<bool> verification_failure_;
 
-  uint32_t *values_;
-  port::Mutex *key_locks_;
-
+  std::vector<std::vector<uint32_t>> values_;
+  std::vector<std::vector<port::Mutex>> key_locks_;
 };
+
+const uint32_t SharedState::SENTINEL = 0xffffffff;
 
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
@@ -679,16 +728,14 @@ class StressTest {
  public:
   StressTest()
       : cache_(NewLRUCache(FLAGS_cache_size)),
-        compressed_cache_(FLAGS_compressed_cache_size >= 0 ?
-                          NewLRUCache(FLAGS_compressed_cache_size) :
-                          nullptr),
+        compressed_cache_(FLAGS_compressed_cache_size >= 0
+                              ? NewLRUCache(FLAGS_compressed_cache_size)
+                              : nullptr),
         filter_policy_(FLAGS_bloom_bits >= 0
-                       ? NewBloomFilterPolicy(FLAGS_bloom_bits)
-                       : nullptr),
-        prefix_extractor_(NewFixedPrefixTransform(
-                          FLAGS_test_batches_snapshots ?
-                          sizeof(long) : sizeof(long)-1)),
+                           ? NewBloomFilterPolicy(FLAGS_bloom_bits)
+                           : nullptr),
         db_(nullptr),
+        new_column_family_name_(0),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
       std::vector<std::string> files;
@@ -703,12 +750,15 @@ class StressTest {
   }
 
   ~StressTest() {
+    for (auto cf : column_families_) {
+      delete cf;
+    }
+    column_families_.clear();
     delete db_;
     delete filter_policy_;
-    delete prefix_extractor_;
   }
 
-  void Run() {
+  bool Run() {
     PrintEnv();
     Open();
     SharedState shared(this);
@@ -770,6 +820,12 @@ class StressTest {
               FLAGS_env->TimeToString((uint64_t) now/1000000).c_str());
     }
     PrintStatistics();
+
+    if (shared.HasVerificationFailedYet()) {
+      printf("Verification failed :(\n");
+      return false;
+    }
+    return true;
   }
 
  private:
@@ -818,9 +874,9 @@ class StressTest {
   // Given a key K and value V, this puts ("0"+K, "0"+V), ("1"+K, "1"+V), ...
   // ("9"+K, "9"+V) in DB atomically i.e in a single batch.
   // Also refer MultiGet.
-  Status MultiPut(ThreadState* thread,
-                  const WriteOptions& writeoptions,
-                  const Slice& key, const Slice& value, size_t sz) {
+  Status MultiPut(ThreadState* thread, const WriteOptions& writeoptions,
+                  ColumnFamilyHandle* column_family, const Slice& key,
+                  const Slice& value, size_t sz) {
     std::string keys[10] = {"9", "8", "7", "6", "5",
                             "4", "3", "2", "1", "0"};
     std::string values[10] = {"9", "8", "7", "6", "5",
@@ -833,9 +889,9 @@ class StressTest {
       values[i] += value.ToString();
       value_slices[i] = values[i];
       if (FLAGS_use_merge) {
-        batch.Merge(keys[i], value_slices[i]);
+        batch.Merge(column_family, keys[i], value_slices[i]);
       } else {
-        batch.Put(keys[i], value_slices[i]);
+        batch.Put(column_family, keys[i], value_slices[i]);
       }
     }
 
@@ -853,9 +909,8 @@ class StressTest {
 
   // Given a key K, this deletes ("0"+K), ("1"+K),... ("9"+K)
   // in DB atomically i.e in a single batch. Also refer MultiGet.
-  Status MultiDelete(ThreadState* thread,
-                     const WriteOptions& writeoptions,
-                     const Slice& key) {
+  Status MultiDelete(ThreadState* thread, const WriteOptions& writeoptions,
+                     ColumnFamilyHandle* column_family, const Slice& key) {
     std::string keys[10] = {"9", "7", "5", "3", "1",
                             "8", "6", "4", "2", "0"};
 
@@ -863,7 +918,7 @@ class StressTest {
     Status s;
     for (int i = 0; i < 10; i++) {
       keys[i] += key.ToString();
-      batch.Delete(keys[i]);
+      batch.Delete(column_family, keys[i]);
     }
 
     s = db_->Write(writeoptions, &batch);
@@ -881,9 +936,9 @@ class StressTest {
   // in the same snapshot, and verifies that all the values are of the form
   // "0"+V, "1"+V,..."9"+V.
   // ASSUMES that MultiPut was used to put (K, V) into the DB.
-  Status MultiGet(ThreadState* thread,
-                  const ReadOptions& readoptions,
-                  const Slice& key, std::string* value) {
+  Status MultiGet(ThreadState* thread, const ReadOptions& readoptions,
+                  ColumnFamilyHandle* column_family, const Slice& key,
+                  std::string* value) {
     std::string keys[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
     Slice key_slices[10];
     std::string values[10];
@@ -893,7 +948,7 @@ class StressTest {
     for (int i = 0; i < 10; i++) {
       keys[i] += key.ToString();
       key_slices[i] = keys[i];
-      s = db_->Get(readoptionscopy, key_slices[i], value);
+      s = db_->Get(readoptionscopy, column_family, key_slices[i], value);
       if (!s.ok() && !s.IsNotFound()) {
         fprintf(stderr, "get error: %s\n", s.ToString().c_str());
         values[i] = "";
@@ -922,8 +977,8 @@ class StressTest {
     for (int i = 1; i < 10; i++) {
       if (values[i] != values[0]) {
         fprintf(stderr, "error : inconsistent values for key %s: %s, %s\n",
-                key.ToString().c_str(), values[0].c_str(),
-                values[i].c_str());
+                key.ToString(true).c_str(), StringToHex(values[0]).c_str(),
+                StringToHex(values[i]).c_str());
       // we continue after error rather than exiting so that we can
       // find more errors if any
       }
@@ -932,15 +987,15 @@ class StressTest {
     return s;
   }
 
-  // Given a prefix P, this does prefix scans for "0"+P, "1"+P,..."9"+P
-  // in the same snapshot.  Each of these 10 scans returns a series of
-  // values; each series should be the same length, and it is verified
-  // for each index i that all the i'th values are of the form "0"+V,
-  // "1"+V,..."9"+V.
+  // Given a key, this does prefix scans for "0"+P, "1"+P,..."9"+P
+  // in the same snapshot where P is the first FLAGS_prefix_size - 1 bytes
+  // of the key. Each of these 10 scans returns a series of values;
+  // each series should be the same length, and it is verified for each
+  // index i that all the i'th values are of the form "0"+V, "1"+V,..."9"+V.
   // ASSUMES that MultiPut was used to put (K, V)
-  Status MultiPrefixScan(ThreadState* thread,
-                         const ReadOptions& readoptions,
-                         const Slice& prefix) {
+  Status MultiPrefixScan(ThreadState* thread, const ReadOptions& readoptions,
+                         ColumnFamilyHandle* column_family,
+                         const Slice& key) {
     std::string prefixes[10] = {"0", "1", "2", "3", "4",
                                 "5", "6", "7", "8", "9"};
     Slice prefix_slices[10];
@@ -949,23 +1004,24 @@ class StressTest {
     Iterator* iters[10];
     Status s = Status::OK();
     for (int i = 0; i < 10; i++) {
-      prefixes[i] += prefix.ToString();
-      prefix_slices[i] = prefixes[i];
+      prefixes[i] += key.ToString();
+      prefixes[i].resize(FLAGS_prefix_size);
+      prefix_slices[i] = Slice(prefixes[i]);
       readoptionscopy[i] = readoptions;
-      readoptionscopy[i].prefix = &prefix_slices[i];
       readoptionscopy[i].snapshot = snapshot;
-      iters[i] = db_->NewIterator(readoptionscopy[i]);
-      iters[i]->SeekToFirst();
+      iters[i] = db_->NewIterator(readoptionscopy[i], column_family);
+      iters[i]->Seek(prefix_slices[i]);
     }
 
     int count = 0;
-    while (iters[0]->Valid()) {
+    while (iters[0]->Valid() && iters[0]->key().starts_with(prefix_slices[0])) {
       count++;
       std::string values[10];
       // get list of all values for this iteration
       for (int i = 0; i < 10; i++) {
         // no iterator should finish before the first one
-        assert(iters[i]->Valid());
+        assert(iters[i]->Valid() &&
+               iters[i]->key().starts_with(prefix_slices[i]));
         values[i] = iters[i]->value().ToString();
 
         char expected_first = (prefixes[i])[0];
@@ -980,9 +1036,9 @@ class StressTest {
       // make sure all values are equivalent
       for (int i = 0; i < 10; i++) {
         if (values[i] != values[0]) {
-          fprintf(stderr, "error : inconsistent values for prefix %s: %s, %s\n",
-                  prefix.ToString().c_str(), values[0].c_str(),
-                  values[i].c_str());
+          fprintf(stderr, "error : %d, inconsistent values for prefix %s: %s, %s\n",
+                  i, prefixes[i].c_str(), StringToHex(values[0]).c_str(),
+                  StringToHex(values[i]).c_str());
           // we continue after error rather than exiting so that we can
           // find more errors if any
         }
@@ -993,7 +1049,8 @@ class StressTest {
     // cleanup iterators and snapshot
     for (int i = 0; i < 10; i++) {
       // if the first iterator finished, they should have all finished
-      assert(!iters[i]->Valid());
+      assert(!iters[i]->Valid() ||
+             !iters[i]->key().starts_with(prefix_slices[i]));
       assert(iters[i]->status().ok());
       delete iters[i];
     }
@@ -1010,14 +1067,13 @@ class StressTest {
 
   // Given a key K, this creates an iterator which scans to K and then
   // does a random sequence of Next/Prev operations.
-  Status MultiIterate(ThreadState* thread,
-                      const ReadOptions& readoptions,
-                      const Slice& key) {
+  Status MultiIterate(ThreadState* thread, const ReadOptions& readoptions,
+                      ColumnFamilyHandle* column_family, const Slice& key) {
     Status s;
     const Snapshot* snapshot = db_->GetSnapshot();
     ReadOptions readoptionscopy = readoptions;
     readoptionscopy.snapshot = snapshot;
-    unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy));
+    unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, column_family));
 
     iter->Seek(key);
     for (uint64_t i = 0; i < FLAGS_num_iterations && iter->Valid(); i++) {
@@ -1055,7 +1111,10 @@ class StressTest {
 
     thread->stats.Start();
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
-      if(i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
+      if (thread->shared->HasVerificationFailedYet()) {
+        break;
+      }
+      if (i != 0 && (i % (FLAGS_ops_per_thread / (FLAGS_reopen + 1))) == 0) {
         {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
@@ -1072,15 +1131,50 @@ class StressTest {
         }
       }
 
+      if (!FLAGS_test_batches_snapshots &&
+          FLAGS_clear_column_family_one_in != 0) {
+        if (thread->rand.OneIn(FLAGS_clear_column_family_one_in)) {
+          // drop column family and then create it again (can't drop default)
+          int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;
+          std::string new_name =
+              std::to_string(new_column_family_name_.fetch_add(1));
+          {
+            MutexLock l(thread->shared->GetMutex());
+            fprintf(
+                stdout,
+                "[CF %d] Dropping and recreating column family. new name: %s\n",
+                cf, new_name.c_str());
+          }
+          thread->shared->LockColumnFamily(cf);
+          Status s __attribute__((unused));
+          s = db_->DropColumnFamily(column_families_[cf]);
+          delete column_families_[cf];
+          assert(s.ok());
+          s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
+                                      &column_families_[cf]);
+          column_family_names_[cf] = new_name;
+          thread->shared->ClearColumnFamily(cf);
+          assert(s.ok());
+          thread->shared->UnlockColumnFamily(cf);
+        }
+      }
+
       long rand_key = thread->rand.Next() % max_key;
+      int rand_column_family = thread->rand.Next() % FLAGS_column_families;
       std::string keystr = Key(rand_key);
       Slice key = keystr;
       int prob_op = thread->rand.Uniform(100);
+      std::unique_ptr<MutexLock> l;
+      if (!FLAGS_test_batches_snapshots) {
+        l.reset(new MutexLock(
+            thread->shared->GetMutexForKey(rand_column_family, rand_key)));
+      }
+      auto column_family = column_families_[rand_column_family];
 
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
         if (!FLAGS_test_batches_snapshots) {
-          Status s = db_->Get(read_opts, key, &from_db);
+          Status s = db_->Get(read_opts, column_family, key, &from_db);
           if (s.ok()) {
             // found case
             thread->stats.AddGets(1, 1);
@@ -1092,23 +1186,24 @@ class StressTest {
             thread->stats.AddErrors(1);
           }
         } else {
-          MultiGet(thread, read_opts, key, &from_db);
+          MultiGet(thread, read_opts, column_family, key, &from_db);
         }
       } else if ((int)FLAGS_readpercent <= prob_op && prob_op < prefixBound) {
         // OPERATION prefix scan
-        // keys are longs (e.g., 8 bytes), so we let prefixes be
-        // everything except the last byte.  So there will be 2^8=256
-        // keys per prefix.
-        Slice prefix = Slice(key.data(), key.size() - 1);
+        // keys are 8 bytes long, prefix size is FLAGS_prefix_size. There are
+        // (8 - FLAGS_prefix_size) bytes besides the prefix. So there will
+        // be 2 ^ ((8 - FLAGS_prefix_size) * 8) possible keys with the same
+        // prefix
         if (!FLAGS_test_batches_snapshots) {
-          read_opts.prefix = &prefix;
-          Iterator* iter = db_->NewIterator(read_opts);
-          int count = 0;
-          for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-            assert(iter->key().starts_with(prefix));
-            count++;
+          Slice prefix = Slice(key.data(), FLAGS_prefix_size);
+          Iterator* iter = db_->NewIterator(read_opts, column_family);
+          int64_t count = 0;
+          for (iter->Seek(prefix);
+               iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+            ++count;
           }
-          assert(count <= 256);
+          assert(count <=
+                 (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
           if (iter->status().ok()) {
             thread->stats.AddPrefixes(1, count);
           } else {
@@ -1116,7 +1211,7 @@ class StressTest {
           }
           delete iter;
         } else {
-          MultiPrefixScan(thread, read_opts, prefix);
+          MultiPrefixScan(thread, read_opts, column_family, key);
         }
       } else if (prefixBound <= prob_op && prob_op < writeBound) {
         // OPERATION write
@@ -1124,42 +1219,38 @@ class StressTest {
         size_t sz = GenerateValue(value_base, value, sizeof(value));
         Slice v(value, sz);
         if (!FLAGS_test_batches_snapshots) {
-          MutexLock l(thread->shared->GetMutexForKey(rand_key));
           if (FLAGS_verify_before_write) {
-            std::string keystr = Key(rand_key);
-            Slice k = keystr;
-            Status s = db_->Get(read_opts, k, &from_db);
-            VerifyValue(rand_key,
-                        read_opts,
-                        *(thread->shared),
-                        from_db,
-                        s,
-                        true);
+            std::string keystr2 = Key(rand_key);
+            Slice k = keystr2;
+            Status s = db_->Get(read_opts, column_family, k, &from_db);
+            if (VerifyValue(rand_column_family, rand_key, read_opts,
+                            thread->shared, from_db, s, true) == false) {
+              break;
+            }
           }
-          thread->shared->Put(rand_key, value_base);
+          thread->shared->Put(rand_column_family, rand_key, value_base);
           if (FLAGS_use_merge) {
-            db_->Merge(write_opts, key, v);
+            db_->Merge(write_opts, column_family, key, v);
           } else {
-            db_->Put(write_opts, key, v);
+            db_->Put(write_opts, column_family, key, v);
           }
           thread->stats.AddBytesForWrites(1, sz);
         } else {
-          MultiPut(thread, write_opts, key, v, sz);
+          MultiPut(thread, write_opts, column_family, key, v, sz);
         }
-        PrintKeyValue(rand_key, value, sz);
+        PrintKeyValue(rand_column_family, rand_key, value, sz);
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
         if (!FLAGS_test_batches_snapshots) {
-          MutexLock l(thread->shared->GetMutexForKey(rand_key));
-          thread->shared->Delete(rand_key);
-          db_->Delete(write_opts, key);
+          thread->shared->Delete(rand_column_family, rand_key);
+          db_->Delete(write_opts, column_family, key);
           thread->stats.AddDeletes(1);
         } else {
-          MultiDelete(thread, write_opts, key);
+          MultiDelete(thread, write_opts, column_family, key);
         }
       } else {
         // OPERATION iterate
-        MultiIterate(thread, read_opts, key);
+        MultiIterate(thread, read_opts, column_family, key);
       }
       thread->stats.FinishedSingleOp();
     }
@@ -1169,99 +1260,126 @@ class StressTest {
 
   void VerifyDb(ThreadState* thread) const {
     ReadOptions options(FLAGS_verify_checksum, true);
-    const SharedState& shared = *(thread->shared);
-    static const long max_key = shared.GetMaxKey();
-    static const long keys_per_thread = max_key / shared.GetNumThreads();
+    auto shared = thread->shared;
+    static const long max_key = shared->GetMaxKey();
+    static const long keys_per_thread = max_key / shared->GetNumThreads();
     long start = keys_per_thread * thread->tid;
     long end = start + keys_per_thread;
-    if (thread->tid == shared.GetNumThreads() - 1) {
+    if (thread->tid == shared->GetNumThreads() - 1) {
       end = max_key;
     }
-    if (!thread->rand.OneIn(2)) {
-      // Use iterator to verify this range
-      unique_ptr<Iterator> iter(db_->NewIterator(options));
-      iter->Seek(Key(start));
-      for (long i = start; i < end; i++) {
-        std::string from_db;
-        std::string keystr = Key(i);
-        Slice k = keystr;
-        Status s = iter->status();
-        if (iter->Valid()) {
-          if (iter->key().compare(k) > 0) {
-            s = Status::NotFound(Slice());
-          } else if (iter->key().compare(k) == 0) {
-            from_db = iter->value().ToString();
-            iter->Next();
-          } else if (iter->key().compare(k) < 0) {
-            VerificationAbort("An out of range key was found", i);
+    for (size_t cf = 0; cf < column_families_.size(); ++cf) {
+      if (thread->shared->HasVerificationFailedYet()) {
+        break;
+      }
+      if (!thread->rand.OneIn(2)) {
+        // Use iterator to verify this range
+        unique_ptr<Iterator> iter(
+            db_->NewIterator(options, column_families_[cf]));
+        iter->Seek(Key(start));
+        for (long i = start; i < end; i++) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
           }
-        } else {
-          // The iterator found no value for the key in question, so do not
-          // move to the next item in the iterator
-          s = Status::NotFound(Slice());
+          // TODO(ljin): update "long" to uint64_t
+          // Reseek when the prefix changes
+          if (i % (static_cast<int64_t>(1) << 8 * (8 - FLAGS_prefix_size)) ==
+              0) {
+            iter->Seek(Key(i));
+          }
+          std::string from_db;
+          std::string keystr = Key(i);
+          Slice k = keystr;
+          Status s = iter->status();
+          if (iter->Valid()) {
+            if (iter->key().compare(k) > 0) {
+              s = Status::NotFound(Slice());
+            } else if (iter->key().compare(k) == 0) {
+              from_db = iter->value().ToString();
+              iter->Next();
+            } else if (iter->key().compare(k) < 0) {
+              VerificationAbort(shared, "An out of range key was found", cf, i);
+            }
+          } else {
+            // The iterator found no value for the key in question, so do not
+            // move to the next item in the iterator
+            s = Status::NotFound(Slice());
+          }
+          VerifyValue(cf, i, options, shared, from_db, s, true);
+          if (from_db.length()) {
+            PrintKeyValue(cf, i, from_db.data(), from_db.length());
+          }
         }
-        VerifyValue(i, options, shared, from_db, s, true);
-        if (from_db.length()) {
-          PrintKeyValue(i, from_db.data(), from_db.length());
-        }
-      }
-    }
-    else {
-      // Use Get to verify this range
-      for (long i = start; i < end; i++) {
-        std::string from_db;
-        std::string keystr = Key(i);
-        Slice k = keystr;
-        Status s = db_->Get(options, k, &from_db);
-        VerifyValue(i, options, shared, from_db, s, true);
-        if (from_db.length()) {
-          PrintKeyValue(i, from_db.data(), from_db.length());
+      } else {
+        // Use Get to verify this range
+        for (long i = start; i < end; i++) {
+          if (thread->shared->HasVerificationFailedYet()) {
+            break;
+          }
+          std::string from_db;
+          std::string keystr = Key(i);
+          Slice k = keystr;
+          Status s = db_->Get(options, column_families_[cf], k, &from_db);
+          VerifyValue(cf, i, options, shared, from_db, s, true);
+          if (from_db.length()) {
+            PrintKeyValue(cf, i, from_db.data(), from_db.length());
+          }
         }
       }
     }
   }
 
-  void VerificationAbort(std::string msg, long key) const {
-    fprintf(stderr, "Verification failed for key %ld: %s\n",
-            key, msg.c_str());
-    exit(1);
+  void VerificationAbort(SharedState* shared, std::string msg, int cf,
+                         long key) const {
+    printf("Verification failed for column family %d key %ld: %s\n", cf, key,
+           msg.c_str());
+    shared->SetVerificationFailure();
   }
 
-  void VerifyValue(long key,
-                   const ReadOptions &opts,
-                   const SharedState &shared,
-                   const std::string &value_from_db,
-                   Status s,
-                   bool strict=false) const {
+  bool VerifyValue(int cf, long key, const ReadOptions& opts,
+                   SharedState* shared, const std::string& value_from_db,
+                   Status s, bool strict = false) const {
+    if (shared->HasVerificationFailedYet()) {
+      return false;
+    }
     // compare value_from_db with the value in the shared state
     char value[100];
-    uint32_t value_base = shared.Get(key);
+    uint32_t value_base = shared->Get(cf, key);
     if (value_base == SharedState::SENTINEL && !strict) {
-      return;
+      return true;
     }
 
     if (s.ok()) {
       if (value_base == SharedState::SENTINEL) {
-        VerificationAbort("Unexpected value found", key);
+        VerificationAbort(shared, "Unexpected value found", cf, key);
+        return false;
       }
       size_t sz = GenerateValue(value_base, value, sizeof(value));
       if (value_from_db.length() != sz) {
-        VerificationAbort("Length of value read is not equal", key);
+        VerificationAbort(shared, "Length of value read is not equal", cf, key);
+        return false;
       }
       if (memcmp(value_from_db.data(), value, sz) != 0) {
-        VerificationAbort("Contents of value read don't match", key);
+        VerificationAbort(shared, "Contents of value read don't match", cf,
+                          key);
+        return false;
       }
     } else {
       if (value_base != SharedState::SENTINEL) {
-        VerificationAbort("Value not found", key);
+        VerificationAbort(shared, "Value not found: " + s.ToString(), cf, key);
+        return false;
       }
     }
+    return true;
   }
 
-  static void PrintKeyValue(uint32_t key, const char *value, size_t sz) {
-    if (!FLAGS_verbose) return;
-    fprintf(stdout, "%u ==> (%u) ", key, (unsigned int)sz);
-    for (size_t i=0; i<sz; i++) {
+  static void PrintKeyValue(int cf, uint32_t key, const char* value,
+                            size_t sz) {
+    if (!FLAGS_verbose) {
+      return;
+    }
+    fprintf(stdout, "[CF %d] %u ==> (%u) ", cf, key, (unsigned int)sz);
+    for (size_t i = 0; i < sz; i++) {
       fprintf(stdout, "%X", value[i]);
     }
     fprintf(stdout, "\n");
@@ -1279,8 +1397,13 @@ class StressTest {
   }
 
   void PrintEnv() const {
-    fprintf(stdout, "LevelDB version     : %d.%d\n",
-            kMajorVersion, kMinorVersion);
+    fprintf(stdout, "RocksDB version     : %d.%d\n", kMajorVersion,
+            kMinorVersion);
+    fprintf(stdout, "Column families     : %d\n", FLAGS_column_families);
+    if (!FLAGS_test_batches_snapshots) {
+      fprintf(stdout, "Clear CFs one in    : %d\n",
+              FLAGS_clear_column_family_one_in);
+    }
     fprintf(stdout, "Number of threads   : %d\n", FLAGS_threads);
     fprintf(stdout,
             "Ops per thread      : %lu\n",
@@ -1328,7 +1451,12 @@ class StressTest {
       case rocksdb::kBZip2Compression:
         compression = "bzip2";
         break;
-    }
+      case rocksdb::kLZ4Compression:
+        compression = "lz4";
+      case rocksdb::kLZ4HCCompression:
+        compression = "lz4hc";
+        break;
+      }
 
     fprintf(stdout, "Compression         : %s\n", compression);
 
@@ -1337,11 +1465,8 @@ class StressTest {
       case kSkipList:
         memtablerep = "skip_list";
         break;
-      case kPrefixHash:
+      case kHashSkipList:
         memtablerep = "prefix_hash";
-        break;
-      case kUnsorted:
-        memtablerep = "unsorted";
         break;
       case kVectorRep:
         memtablerep = "vector";
@@ -1355,104 +1480,149 @@ class StressTest {
 
   void Open() {
     assert(db_ == nullptr);
-    Options options;
-    options.block_cache = cache_;
-    options.block_cache_compressed = compressed_cache_;
-    options.write_buffer_size = FLAGS_write_buffer_size;
-    options.max_write_buffer_number = FLAGS_max_write_buffer_number;
-    options.min_write_buffer_number_to_merge =
-      FLAGS_min_write_buffer_number_to_merge;
-    options.max_background_compactions = FLAGS_max_background_compactions;
-    options.compaction_style =
-      static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
-    options.block_size = FLAGS_block_size;
-    options.filter_policy = filter_policy_;
-    options.prefix_extractor = prefix_extractor_;
-    options.max_open_files = FLAGS_open_files;
-    options.statistics = dbstats;
-    options.env = FLAGS_env;
-    options.disableDataSync = FLAGS_disable_data_sync;
-    options.use_fsync = FLAGS_use_fsync;
-    options.allow_mmap_reads = FLAGS_mmap_read;
+    options_.block_cache = cache_;
+    options_.block_cache_compressed = compressed_cache_;
+    options_.write_buffer_size = FLAGS_write_buffer_size;
+    options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
+    options_.min_write_buffer_number_to_merge =
+        FLAGS_min_write_buffer_number_to_merge;
+    options_.max_background_compactions = FLAGS_max_background_compactions;
+    options_.max_background_flushes = FLAGS_max_background_flushes;
+    options_.compaction_style =
+        static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
+    options_.block_size = FLAGS_block_size;
+    options_.filter_policy = filter_policy_;
+    options_.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
+    options_.max_open_files = FLAGS_open_files;
+    options_.statistics = dbstats;
+    options_.env = FLAGS_env;
+    options_.disableDataSync = FLAGS_disable_data_sync;
+    options_.use_fsync = FLAGS_use_fsync;
+    options_.allow_mmap_reads = FLAGS_mmap_read;
     rocksdb_kill_odds = FLAGS_kill_random_test;
-    options.target_file_size_base = FLAGS_target_file_size_base;
-    options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
-    options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
-    options.max_bytes_for_level_multiplier =
+    options_.target_file_size_base = FLAGS_target_file_size_base;
+    options_.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
+    options_.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
+    options_.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
-    options.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
-    options.level0_slowdown_writes_trigger =
-      FLAGS_level0_slowdown_writes_trigger;
-    options.level0_file_num_compaction_trigger =
-      FLAGS_level0_file_num_compaction_trigger;
-    options.compression = FLAGS_compression_type_e;
-    options.create_if_missing = true;
-    options.disable_seek_compaction = FLAGS_disable_seek_compaction;
-    options.delete_obsolete_files_period_micros =
-      FLAGS_delete_obsolete_files_period_micros;
-    options.max_manifest_file_size = 1024;
-    options.filter_deletes = FLAGS_filter_deletes;
-    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kPrefixHash)) {
+    options_.level0_stop_writes_trigger = FLAGS_level0_stop_writes_trigger;
+    options_.level0_slowdown_writes_trigger =
+        FLAGS_level0_slowdown_writes_trigger;
+    options_.level0_file_num_compaction_trigger =
+        FLAGS_level0_file_num_compaction_trigger;
+    options_.compression = FLAGS_compression_type_e;
+    options_.create_if_missing = true;
+    options_.disable_seek_compaction = FLAGS_disable_seek_compaction;
+    options_.max_manifest_file_size = 10 * 1024;
+    options_.filter_deletes = FLAGS_filter_deletes;
+    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
       exit(1);
     }
     switch (FLAGS_rep_factory) {
-      case kPrefixHash:
-        options.memtable_factory.reset(
-          new PrefixHashRepFactory(NewFixedPrefixTransform(FLAGS_prefix_size))
-        );
-        break;
-      case kUnsorted:
-        options.memtable_factory.reset(
-          new UnsortedRepFactory()
-        );
+      case kHashSkipList:
+        options_.memtable_factory.reset(NewHashSkipListRepFactory());
         break;
       case kSkipList:
         // no need to do anything
         break;
       case kVectorRep:
-        options.memtable_factory.reset(
-          new VectorRepFactory()
-        );
+        options_.memtable_factory.reset(new VectorRepFactory());
         break;
     }
     static Random purge_percent(1000); // no benefit from non-determinism here
     if (static_cast<int32_t>(purge_percent.Uniform(100)) <
         FLAGS_purge_redundant_percent - 1) {
-      options.purge_redundant_kvs_while_flush = false;
+      options_.purge_redundant_kvs_while_flush = false;
     }
 
     if (FLAGS_use_merge) {
-      options.merge_operator = MergeOperators::CreatePutOperator();
+      options_.merge_operator = MergeOperators::CreatePutOperator();
     }
 
     // set universal style compaction configurations, if applicable
     if (FLAGS_universal_size_ratio != 0) {
-      options.compaction_options_universal.size_ratio =
-        FLAGS_universal_size_ratio;
+      options_.compaction_options_universal.size_ratio =
+          FLAGS_universal_size_ratio;
     }
     if (FLAGS_universal_min_merge_width != 0) {
-      options.compaction_options_universal.min_merge_width =
-        FLAGS_universal_min_merge_width;
+      options_.compaction_options_universal.min_merge_width =
+          FLAGS_universal_min_merge_width;
     }
     if (FLAGS_universal_max_merge_width != 0) {
-      options.compaction_options_universal.max_merge_width =
-        FLAGS_universal_max_merge_width;
+      options_.compaction_options_universal.max_merge_width =
+          FLAGS_universal_max_merge_width;
     }
     if (FLAGS_universal_max_size_amplification_percent != 0) {
-      options.compaction_options_universal.max_size_amplification_percent =
-        FLAGS_universal_max_size_amplification_percent;
+      options_.compaction_options_universal.max_size_amplification_percent =
+          FLAGS_universal_max_size_amplification_percent;
     }
 
     fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
     Status s;
     if (FLAGS_ttl == -1) {
-      s = DB::Open(options, FLAGS_db, &db_);
+      std::vector<std::string> existing_column_families;
+      s = DB::ListColumnFamilies(DBOptions(options_), FLAGS_db,
+                                 &existing_column_families);  // ignore errors
+      if (!s.ok()) {
+        // DB doesn't exist
+        assert(existing_column_families.empty());
+        assert(column_family_names_.empty());
+        column_family_names_.push_back(kDefaultColumnFamilyName);
+      } else if (column_family_names_.empty()) {
+        // this is the first call to the function Open()
+        column_family_names_ = existing_column_families;
+      } else {
+        // this is a reopen. just assert that existing column_family_names are
+        // equivalent to what we remember
+        auto sorted_cfn = column_family_names_;
+        sort(sorted_cfn.begin(), sorted_cfn.end());
+        sort(existing_column_families.begin(), existing_column_families.end());
+        if (sorted_cfn != existing_column_families) {
+          fprintf(stderr,
+                  "Expected column families differ from the existing:\n");
+          printf("Expected: {");
+          for (auto cf : sorted_cfn) {
+            printf("%s ", cf.c_str());
+          }
+          printf("}\n");
+          printf("Existing: {");
+          for (auto cf : existing_column_families) {
+            printf("%s ", cf.c_str());
+          }
+          printf("}\n");
+        }
+        assert(sorted_cfn == existing_column_families);
+      }
+      std::vector<ColumnFamilyDescriptor> cf_descriptors;
+      for (auto name : column_family_names_) {
+        if (name != kDefaultColumnFamilyName) {
+          new_column_family_name_ =
+              std::max(new_column_family_name_.load(), std::stoi(name) + 1);
+        }
+        cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
+      }
+      s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
+                   &column_families_, &db_);
+      if (s.ok()) {
+        while (s.ok() &&
+               column_families_.size() < (size_t)FLAGS_column_families) {
+          ColumnFamilyHandle* cf = nullptr;
+          std::string name = std::to_string(new_column_family_name_.load());
+          new_column_family_name_++;
+          s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), name, &cf);
+          column_families_.push_back(cf);
+          column_family_names_.push_back(name);
+        }
+      }
+      assert(!s.ok() || column_families_.size() ==
+                            static_cast<size_t>(FLAGS_column_families));
     } else {
-      s = UtilityDB::OpenTtlDB(options, FLAGS_db, &sdb_, FLAGS_ttl);
-      db_ = sdb_;
+      StackableDB* sdb;
+      s = UtilityDB::OpenTtlDB(options_, FLAGS_db, &sdb, FLAGS_ttl);
+      db_ = sdb;
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1461,13 +1631,11 @@ class StressTest {
   }
 
   void Reopen() {
-    // do not close the db. Just delete the lock file. This
-    // simulates a crash-recovery kind of situation.
-    if (FLAGS_ttl != -1) {
-      ((DBWithTTL*) db_)->TEST_Destroy_DBWithTtl();
-    } else {
-      ((DBImpl*) db_)->TEST_Destroy_DBImpl();
+    for (auto cf : column_families_) {
+      delete cf;
     }
+    column_families_.clear();
+    delete db_;
     db_ = nullptr;
 
     num_times_reopened_++;
@@ -1488,15 +1656,15 @@ class StressTest {
   shared_ptr<Cache> cache_;
   shared_ptr<Cache> compressed_cache_;
   const FilterPolicy* filter_policy_;
-  const SliceTransform* prefix_extractor_;
   DB* db_;
-  StackableDB* sdb_;
+  Options options_;
+  std::vector<ColumnFamilyHandle*> column_families_;
+  std::vector<std::string> column_family_names_;
+  std::atomic<int> new_column_family_name_;
   int num_times_reopened_;
 };
 
 }  // namespace rocksdb
-
-
 
 int main(int argc, char** argv) {
   google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
@@ -1517,6 +1685,18 @@ int main(int argc, char** argv) {
   // max number of concurrent compactions.
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
 
+  if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size <= 0) {
+    fprintf(stderr,
+            "Error: prefixpercent is non-zero while prefix_size is "
+            "not positive!\n");
+    exit(1);
+  }
+  if (FLAGS_test_batches_snapshots && FLAGS_prefix_size <= 0) {
+    fprintf(stderr,
+            "Error: please specify prefix_size for "
+            "test_batches_snapshots test!\n");
+    exit(1);
+  }
   if ((FLAGS_readpercent + FLAGS_prefixpercent +
        FLAGS_writepercent + FLAGS_delpercent + FLAGS_iterpercent) != 100) {
       fprintf(stderr,
@@ -1545,6 +1725,9 @@ int main(int argc, char** argv) {
   }
 
   rocksdb::StressTest stress;
-  stress.Run();
-  return 0;
+  if (stress.Run()) {
+    return 0;
+  } else {
+    return 1;
+  }
 }

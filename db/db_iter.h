@@ -18,7 +18,6 @@ namespace rocksdb {
 // "*internal_iter") that were live at the specified "sequence" number
 // into appropriate user keys.
 extern Iterator* NewDBIterator(
-    const std::string* dbname,
     Env* env,
     const Options& options,
     const Comparator *user_key_comparator,

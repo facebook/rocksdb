@@ -29,6 +29,8 @@
 //   Store per-table metadata (smallest, largest, largest-seq#, ...)
 //   in the table's meta section to speed up ScanTable.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/builder.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
@@ -55,14 +57,20 @@ class Repairer {
         icmp_(options.comparator),
         ipolicy_(options.filter_policy),
         options_(SanitizeOptions(dbname, &icmp_, &ipolicy_, options)),
+        raw_table_cache_(
+            // TableCache can be small since we expect each table to be opened
+            // once.
+            NewLRUCache(10, options_.table_cache_numshardbits,
+                        options_.table_cache_remove_scan_count_limit)),
         next_file_number_(1) {
-    // TableCache can be small since we expect each table to be opened once.
-    table_cache_ = new TableCache(dbname_, &options_, storage_options_, 10);
-    edit_ = new VersionEdit(options.num_levels);
+    table_cache_ = new TableCache(dbname_, &options_, storage_options_,
+                                  raw_table_cache_.get());
+    edit_ = new VersionEdit();
   }
 
   ~Repairer() {
     delete table_cache_;
+    raw_table_cache_.reset();
     delete edit_;
   }
 
@@ -102,6 +110,7 @@ class Repairer {
   InternalKeyComparator const icmp_;
   InternalFilterPolicy const ipolicy_;
   Options const options_;
+  std::shared_ptr<Cache> raw_table_cache_;
   TableCache* table_cache_;
   VersionEdit* edit_;
 
@@ -119,7 +128,7 @@ class Repairer {
       return status;
     }
     if (filenames.empty()) {
-      return Status::IOError(dbname_, "repair found no files");
+      return Status::Corruption(dbname_, "repair found no files");
     }
 
     uint64_t number;
@@ -196,8 +205,8 @@ class Repairer {
     std::string scratch;
     Slice record;
     WriteBatch batch;
-    MemTable* mem = new MemTable(icmp_, options_.memtable_factory,
-      options_.num_levels);
+    MemTable* mem = new MemTable(icmp_, options_);
+    auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem, &options_);
     mem->Ref();
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
@@ -207,7 +216,7 @@ class Repairer {
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
-      status = WriteBatchInternal::InsertInto(&batch, mem, &options_);
+      status = WriteBatchInternal::InsertInto(&batch, cf_mems_default);
       if (status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {
@@ -222,12 +231,13 @@ class Repairer {
     // since ExtractMetaData() will also generate edits.
     FileMetaData meta;
     meta.number = next_file_number_++;
-    Iterator* iter = mem->NewIterator();
-    status = BuildTable(dbname_, env_, options_, storage_options_,
-                        table_cache_, iter, &meta,
-                        icmp_.user_comparator(), 0, 0, true);
+    ReadOptions ro;
+    Iterator* iter = mem->NewIterator(ro, true /* enforce_total_order */);
+    status = BuildTable(dbname_, env_, options_, storage_options_, table_cache_,
+                        iter, &meta, icmp_, 0, 0, kNoCompression);
     delete iter;
-    mem->Unref();
+    delete mem->Unref();
+    delete cf_mems_default;
     mem = nullptr;
     if (status.ok()) {
       if (meta.file_size > 0) {
@@ -243,7 +253,6 @@ class Repairer {
   }
 
   void ExtractMetaData() {
-    std::vector<TableInfo> kept;
     for (size_t i = 0; i < table_numbers_.size(); i++) {
       TableInfo t;
       t.meta.number = table_numbers_[i];
@@ -265,8 +274,9 @@ class Repairer {
     int counter = 0;
     Status status = env_->GetFileSize(fname, &t->meta.file_size);
     if (status.ok()) {
+      FileMetaData dummy_meta(t->meta.number, t->meta.file_size);
       Iterator* iter = table_cache_->NewIterator(
-          ReadOptions(), storage_options_, t->meta.number, t->meta.file_size);
+          ReadOptions(), storage_options_, icmp_, dummy_meta);
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;
@@ -308,7 +318,8 @@ class Repairer {
   Status WriteDescriptor() {
     std::string tmp = TempFileName(dbname_, 1);
     unique_ptr<WritableFile> file;
-    Status status = env_->NewWritableFile(tmp, &file, storage_options_);
+    Status status = env_->NewWritableFile(
+        tmp, &file, env_->OptimizeForManifestWrite(storage_options_));
     if (!status.ok()) {
       return status;
     }
@@ -388,3 +399,5 @@ Status RepairDB(const std::string& dbname, const Options& options) {
 }
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

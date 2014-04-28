@@ -28,24 +28,5 @@ namespace stl_wrappers {
     }
   };
 
-  struct Hash {
-    inline size_t operator()(const char* buf) const {
-      Slice internal_key = GetLengthPrefixedSlice(buf);
-      Slice value =
-        GetLengthPrefixedSlice(internal_key.data() + internal_key.size());
-      unsigned int hval = MurmurHash(internal_key.data(), internal_key.size(),
-        0);
-      hval = MurmurHash(value.data(), value.size(), hval);
-      return hval;
-    }
-  };
-
-  struct KeyEqual : private Base {
-    explicit KeyEqual(const MemTableRep::KeyComparator& compare)
-      : Base(compare) { }
-    inline bool operator()(const char* a, const char* b) const {
-      return this->compare_(a, b) == 0;
-    }
-  };
 }
 }

@@ -1,3 +1,7 @@
+// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -101,8 +105,8 @@ class Slice {
 // A set of Slices that are virtually concatenated together.  'parts' points
 // to an array of Slices.  The number of elements in the array is 'num_parts'.
 struct SliceParts {
-  SliceParts(const Slice* parts, int num_parts) :
-      parts(parts), num_parts(num_parts) { }
+  SliceParts(const Slice* _parts, int _num_parts) :
+      parts(_parts), num_parts(_num_parts) { }
 
   const Slice* parts;
   int num_parts;

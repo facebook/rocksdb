@@ -8,9 +8,10 @@ import getopt
 import logging
 import tempfile
 import subprocess
+import shutil
 
 # This script runs and kills db_stress multiple times. It checks consistency
-# in case of unsafe crashes in Rocksdb.
+# in case of unsafe crashes in RocksDB.
 
 def main(argv):
     try:
@@ -59,6 +60,8 @@ def main(argv):
           + str(ops_per_thread) + "\nwrite_buffer_size="
           + str(write_buf_size) + "\n")
 
+    dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
+
     while time.time() < exit_time:
         run_had_errors = False
         killtime = time.time() + interval
@@ -70,7 +73,7 @@ def main(argv):
             --threads=%s
             --write_buffer_size=%s
             --destroy_db_initially=0
-            --reopen=0
+            --reopen=20
             --readpercent=45
             --prefixpercent=5
             --writepercent=35
@@ -84,21 +87,22 @@ def main(argv):
             --cache_size=1048576
             --open_files=500000
             --verify_checksum=1
-            --sync=%s
+            --sync=0
+            --progress_reports=0
             --disable_wal=0
-            --disable_data_sync=%s
+            --disable_data_sync=1
             --target_file_size_base=2097152
             --target_file_size_multiplier=2
             --max_write_buffer_number=3
             --max_background_compactions=20
             --max_bytes_for_level_base=10485760
             --filter_deletes=%s
+            --memtablerep=prefix_hash
+            --prefix_size=7
             """ % (ops_per_thread,
                    threads,
                    write_buf_size,
-                   tempfile.mkdtemp(),
-                   random.randint(0, 1),
-                   random.randint(0, 1),
+                   dbname,
                    random.randint(0, 1),
                    random.randint(0, 1),
                    random.randint(0, 1)))
@@ -108,16 +112,23 @@ def main(argv):
         print("Running db_stress with pid=%d: %s\n\n"
               % (child.pid, cmd))
 
+        stop_early = False
         while time.time() < killtime:
-            time.sleep(10)
+            if child.poll() is not None:
+                print("WARNING: db_stress ended before kill: exitcode=%d\n"
+                      % child.returncode)
+                stop_early = True
+                break
+            time.sleep(1)
 
-        if child.poll() is not None:
-            print("WARNING: db_stress ended before kill: exitcode=%d\n"
-                  % child.returncode)
-        else:
-            child.kill()
-            print("KILLED %d\n" % child.pid)
-            time.sleep(1)  # time to stabilize after a kill
+        if not stop_early:
+            if child.poll() is not None:
+                print("WARNING: db_stress ended before kill: exitcode=%d\n"
+                      % child.returncode)
+            else:
+                child.kill()
+                print("KILLED %d\n" % child.pid)
+                time.sleep(1)  # time to stabilize after a kill
 
         while True:
             line = child.stderr.readline().strip()
@@ -131,6 +142,9 @@ def main(argv):
             sys.exit(2)
 
         time.sleep(1)  # time to stabilize before the next run
+
+    # we need to clean up after ourselves -- only do this on test success
+    shutil.rmtree(dbname, True)
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

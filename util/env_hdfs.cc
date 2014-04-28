@@ -236,8 +236,9 @@ class HdfsLogger : public Logger {
   uint64_t (*gettid_)();  // Return the thread id for the current thread
 
  public:
-  HdfsLogger(HdfsWritableFile* f, uint64_t (*gettid)())
-    : file_(f), gettid_(gettid) {
+  HdfsLogger(HdfsWritableFile* f, uint64_t (*gettid)(),
+             const InfoLogLevel log_level = InfoLogLevel::ERROR)
+      : Logger(log_level), file_(f), gettid_(gettid) {
     Log(mylog, "[hdfs] HdfsLogger opened %s\n",
             file_->getName().c_str());
   }
@@ -364,6 +365,11 @@ Status HdfsEnv::NewRandomRWFile(const std::string& fname,
                                 unique_ptr<RandomRWFile>* result,
                                 const EnvOptions& options) {
   return Status::NotSupported("NewRandomRWFile not supported on HdfsEnv");
+}
+
+virtual Status NewDirectory(const std::string& name,
+                            unique_ptr<Directory>* result) {
+  return Status::NotSupported("NewDirectory not yet supported on HdfsEnv");
 }
 
 bool HdfsEnv::FileExists(const std::string& fname) {

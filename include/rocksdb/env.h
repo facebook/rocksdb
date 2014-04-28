@@ -1,3 +1,7 @@
+// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -29,7 +33,8 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 class RandomRWFile;
-struct Options;
+class Directory;
+struct DBOptions;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -42,7 +47,7 @@ struct EnvOptions {
   EnvOptions();
 
   // construct from Options
-  explicit EnvOptions(const Options& options);
+  explicit EnvOptions(const DBOptions& options);
 
   // If true, then allow caching of data in environment buffers
   bool use_os_buffer = true;
@@ -54,13 +59,21 @@ struct EnvOptions {
   bool use_mmap_writes = true;
 
   // If true, set the FD_CLOEXEC on open fd.
-  bool set_fd_cloexec= true;
+  bool set_fd_cloexec = true;
 
   // Allows OS to incrementally sync files to disk while they are being
   // written, in the background. Issue one request for every bytes_per_sync
   // written. 0 turns it off.
   // Default: 0
   uint64_t bytes_per_sync = 0;
+
+  // If true, we will preallocate the file with FALLOC_FL_KEEP_SIZE flag, which
+  // means that file size won't change as part of preallocation.
+  // If false, preallocation will also change the file size. This option will
+  // improve the performance in workloads where you sync the data on every
+  // write. By default, we set it to true for MANIFEST writes and false for
+  // WAL writes
+  bool fallocate_with_keep_size = true;
 };
 
 class Env {
@@ -117,6 +130,16 @@ class Env {
   virtual Status NewRandomRWFile(const std::string& fname,
                                  unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) = 0;
+
+  // Create an object that represents a directory. Will fail if directory
+  // doesn't exist. If the directory exists, it will open the directory
+  // and create a new Directory object.
+  //
+  // On success, stores a pointer to the new Directory in
+  // *result and returns OK. On failure stores nullptr in *result and
+  // returns non-OK.
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) = 0;
 
   // Returns true iff the named file exists.
   virtual bool FileExists(const std::string& fname) = 0;
@@ -190,6 +213,14 @@ class Env {
   // When "function(arg)" returns, the thread will be destroyed.
   virtual void StartThread(void (*function)(void* arg), void* arg) = 0;
 
+  // Wait for all threads started by StartThread to terminate.
+  virtual void WaitForJoin() {}
+
+  // Get thread pool queue length for specific thrad pool.
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
+    return 0;
+  }
+
   // *path is set to a temporary directory that can be used for testing. It may
   // or many not have just been created. The directory may or may not differ
   // between runs of the same process, but subsequent calls will return the
@@ -234,6 +265,16 @@ class Env {
 
   // Generates a unique id that can be used to identify a db
   virtual std::string GenerateUniqueId();
+
+  // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
+  // the EnvOptions in the parameters, but is optimized for writing log files.
+  // Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const;
+  // OptimizeForManifestWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for writing manifest
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
+      const;
 
  private:
   // No copying allowed
@@ -484,25 +525,75 @@ class RandomRWFile {
   void operator=(const RandomRWFile&);
 };
 
+// Directory object represents collection of files and implements
+// filesystem operations that can be executed on directories.
+class Directory {
+ public:
+  virtual ~Directory() {}
+  // Fsync directory
+  virtual Status Fsync() = 0;
+};
+
+enum InfoLogLevel : unsigned char {
+  DEBUG_LEVEL = 0,
+  INFO_LEVEL,
+  WARN_LEVEL,
+  ERROR_LEVEL,
+  FATAL_LEVEL,
+  NUM_INFO_LOG_LEVELS,
+};
+
 // An interface for writing log messages.
 class Logger {
  public:
   enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
-  Logger() { }
+  explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
+      : log_level_(log_level) {}
   virtual ~Logger();
 
   // Write an entry to the log file with the specified format.
   virtual void Logv(const char* format, va_list ap) = 0;
+
+  // Write an entry to the log file with the specified log level
+  // and format.  Any log with level under the internal log level
+  // of *this (see @SetInfoLogLevel and @GetInfoLogLevel) will not be
+  // printed.
+  void Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
+    static const char* kInfoLogLevelNames[5] = {"DEBUG", "INFO", "WARN",
+                                                "ERROR", "FATAL"};
+    if (log_level < log_level_) {
+      return;
+    }
+
+    if (log_level == InfoLogLevel::INFO_LEVEL) {
+      // Doesn't print log level if it is INFO level.
+      // This is to avoid unexpected performance regression after we add
+      // the feature of log level. All the logs before we add the feature
+      // are INFO level. We don't want to add extra costs to those existing
+      // logging.
+      Logv(format, ap);
+    } else {
+      char new_format[500];
+      snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
+               kInfoLogLevelNames[log_level], format);
+      Logv(new_format, ap);
+    }
+  }
   virtual size_t GetLogFileSize() const {
     return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;
   }
   // Flush to the OS buffers
   virtual void Flush() {}
+  virtual InfoLogLevel GetInfoLogLevel() const { return log_level_; }
+  virtual void SetInfoLogLevel(const InfoLogLevel log_level) {
+    log_level_ = log_level;
+  }
 
  private:
   // No copying allowed
   Logger(const Logger&);
   void operator=(const Logger&);
+  InfoLogLevel log_level_;
 };
 
 
@@ -517,10 +608,20 @@ class FileLock {
   void operator=(const FileLock&);
 };
 
-
 extern void LogFlush(const shared_ptr<Logger>& info_log);
 
+extern void Log(const InfoLogLevel log_level,
+                const shared_ptr<Logger>& info_log, const char* format, ...);
+
+// a set of log functions with different log levels.
+extern void Debug(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Info(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Warn(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Error(const shared_ptr<Logger>& info_log, const char* format, ...);
+extern void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...);
+
 // Log the specified data to *info_log if info_log is non-nullptr.
+// The default info log level is InfoLogLevel::ERROR.
 extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
@@ -529,15 +630,27 @@ extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 
 extern void LogFlush(Logger *info_log);
 
+extern void Log(const InfoLogLevel log_level, Logger* info_log,
+                const char* format, ...);
+
+// The default info log level is InfoLogLevel::ERROR.
 extern void Log(Logger* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
 #   endif
     ;
 
+// a set of log functions with different log levels.
+extern void Debug(Logger* info_log, const char* format, ...);
+extern void Info(Logger* info_log, const char* format, ...);
+extern void Warn(Logger* info_log, const char* format, ...);
+extern void Error(Logger* info_log, const char* format, ...);
+extern void Fatal(Logger* info_log, const char* format, ...);
+
 // A utility routine: write "data" to the named file.
 extern Status WriteStringToFile(Env* env, const Slice& data,
-                                const std::string& fname);
+                                const std::string& fname,
+                                bool should_sync = false);
 
 // A utility routine: read contents of named file into *data
 extern Status ReadFileToString(Env* env, const std::string& fname,
@@ -574,6 +687,10 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) {
     return target_->NewRandomRWFile(f, r, options);
   }
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) {
+    return target_->NewDirectory(name, result);
+  }
   bool FileExists(const std::string& f) { return target_->FileExists(f); }
   Status GetChildren(const std::string& dir, std::vector<std::string>* r) {
     return target_->GetChildren(dir, r);
@@ -605,6 +722,10 @@ class EnvWrapper : public Env {
   }
   void StartThread(void (*f)(void*), void* a) {
     return target_->StartThread(f, a);
+  }
+  void WaitForJoin() { return target_->WaitForJoin(); }
+  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
+    return target_->GetThreadPoolQueueLen(pri);
   }
   virtual Status GetTestDirectory(std::string* path) {
     return target_->GetTestDirectory(path);
@@ -639,6 +760,12 @@ class EnvWrapper : public Env {
  private:
   Env* target_;
 };
+
+// Returns a new environment that stores its data in memory and delegates
+// all non-file-storage tasks to base_env. The caller must delete the result
+// when it is no longer needed.
+// *base_env must remain live while the result is in use.
+Env* NewMemEnv(Env* base_env);
 
 }  // namespace rocksdb
 

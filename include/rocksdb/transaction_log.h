@@ -1,4 +1,8 @@
-// Copyright 2008-present Facebook. All Rights Reserved.
+// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
+
 #ifndef STORAGE_ROCKSDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
 #define STORAGE_ROCKSDB_INCLUDE_TRANSACTION_LOG_ITERATOR_H_
 
@@ -52,7 +56,7 @@ class LogFile {
 };
 
 struct BatchResult {
-  SequenceNumber sequence = SequenceNumber();
+  SequenceNumber sequence = 0;
   std::unique_ptr<WriteBatch> writeBatchPtr;
 };
 
@@ -81,6 +85,19 @@ class TransactionLogIterator {
   // earliest transaction contained in the batch.
   // ONLY use if Valid() is true and status() is OK.
   virtual BatchResult GetBatch() = 0;
+
+  // The read options for TransactionLogIterator.
+  struct ReadOptions {
+    // If true, all data read from underlying storage will be
+    // verified against corresponding checksums.
+    // Default: true
+    bool verify_checksums_;
+
+    ReadOptions() : verify_checksums_(true) {}
+
+    explicit ReadOptions(bool verify_checksums)
+        : verify_checksums_(verify_checksums) {}
+  };
 };
 } //  namespace rocksdb
 

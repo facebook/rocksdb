@@ -3,12 +3,49 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#include "util/statistics.h"
 #include "rocksdb/statistics.h"
+#include <algorithm>
 #include <cstdio>
 
 namespace rocksdb {
 
+std::shared_ptr<Statistics> CreateDBStatistics() {
+  return std::make_shared<StatisticsImpl>();
+}
+
+StatisticsImpl::StatisticsImpl() {}
+
+StatisticsImpl::~StatisticsImpl() {}
+
+long StatisticsImpl::getTickerCount(Tickers tickerType) {
+  assert(tickerType < TICKER_ENUM_MAX);
+  return tickers_[tickerType].value;
+}
+
+void StatisticsImpl::setTickerCount(Tickers tickerType, uint64_t count) {
+  assert(tickerType < TICKER_ENUM_MAX);
+  tickers_[tickerType].value = count;
+}
+
+void StatisticsImpl::recordTick(Tickers tickerType, uint64_t count) {
+  assert(tickerType < TICKER_ENUM_MAX);
+  tickers_[tickerType].value += count;
+}
+
+void StatisticsImpl::measureTime(Histograms histogramType, uint64_t value) {
+  assert(histogramType < HISTOGRAM_ENUM_MAX);
+  histograms_[histogramType].Add(value);
+}
+
+void StatisticsImpl::histogramData(Histograms histogramType,
+                                   HistogramData* const data) {
+  assert(histogramType < HISTOGRAM_ENUM_MAX);
+  histograms_[histogramType].Data(data);
+}
+
 namespace {
+
 // a buffer size used for temp string buffers
 const int kBufferSize = 200;
 
@@ -32,11 +69,8 @@ std::string HistogramToString (
   return std::string(buffer);
 };
 
-std::string TickerToString (
-    Statistics* dbstats,
-    const Tickers& ticker,
-    const std::string& name) {
-
+std::string TickerToString(Statistics* dbstats, const Tickers& ticker,
+                           const std::string& name) {
   char buffer[kBufferSize];
   snprintf(buffer, kBufferSize, "%s COUNT : %ld\n",
             name.c_str(), dbstats->getTickerCount(ticker));

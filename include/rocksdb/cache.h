@@ -1,3 +1,7 @@
+// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -98,7 +102,19 @@ class Cache {
   virtual uint64_t NewId() = 0;
 
   // returns the maximum configured capacity of the cache
-  virtual size_t GetCapacity() = 0;
+  virtual size_t GetCapacity() const = 0;
+
+  // returns the memory size for the entries residing in the cache.
+  virtual size_t GetUsage() const = 0;
+
+  // Call this on shutdown if you want to speed it up. Cache will disown
+  // any underlying data and will not free it on delete. This call will leak
+  // memory - call this only if you're shutting down the process.
+  // Any attempts of using cache after this call will fail terribly.
+  // Always delete the DB object before calling this method!
+  virtual void DisownData() {
+    // default implementation is noop
+  };
 
  private:
   void LRU_Remove(Handle* e);

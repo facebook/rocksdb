@@ -2,7 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
+
+#ifndef ROCKSDB_LITE
 #pragma once
 #include <vector>
 
@@ -66,12 +67,11 @@ class LogFileImpl : public LogFile {
 
 class TransactionLogIteratorImpl : public TransactionLogIterator {
  public:
-  TransactionLogIteratorImpl(const std::string& dir,
-                             const Options* options,
-                             const EnvOptions& soptions,
-                             const SequenceNumber seqNum,
-                             std::unique_ptr<VectorLogPtr> files,
-                             DBImpl const * const dbimpl);
+  TransactionLogIteratorImpl(
+      const std::string& dir, const DBOptions* options,
+      const TransactionLogIterator::ReadOptions& read_options,
+      const EnvOptions& soptions, const SequenceNumber seqNum,
+      std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl);
 
   virtual bool Valid();
 
@@ -83,7 +83,8 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
 
  private:
   const std::string& dir_;
-  const Options* options_;
+  const DBOptions* options_;
+  const TransactionLogIterator::ReadOptions read_options_;
   const EnvOptions& soptions_;
   SequenceNumber startingSequenceNumber_;
   std::unique_ptr<VectorLogPtr> files_;
@@ -116,3 +117,4 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   Status OpenLogReader(const LogFile* file);
 };
 }  //  namespace rocksdb
+#endif  // ROCKSDB_LITE

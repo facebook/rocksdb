@@ -5,6 +5,7 @@
  * Copyright 2013 Facebook
  */
 
+#ifndef ROCKSDB_LITE
 #pragma once
 #include <exception>
 
@@ -18,3 +19,4 @@ class RedisListException: public std::exception {
 };
 
 } // namespace rocksdb
+#endif

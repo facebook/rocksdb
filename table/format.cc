@@ -9,6 +9,9 @@
 
 #include "table/format.h"
 
+#include <string>
+#include <inttypes.h>
+
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "table/block.h"
@@ -34,6 +37,7 @@ Status BlockHandle::DecodeFrom(Slice* input) {
     return Status::Corruption("bad block handle");
   }
 }
+const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 
 void Footer::EncodeTo(std::string* dst) const {
 #ifndef NDEBUG
@@ -42,8 +46,8 @@ void Footer::EncodeTo(std::string* dst) const {
   metaindex_handle_.EncodeTo(dst);
   index_handle_.EncodeTo(dst);
   dst->resize(2 * BlockHandle::kMaxEncodedLength);  // Padding
-  PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber & 0xffffffffu));
-  PutFixed32(dst, static_cast<uint32_t>(kTableMagicNumber >> 32));
+  PutFixed32(dst, static_cast<uint32_t>(table_magic_number() & 0xffffffffu));
+  PutFixed32(dst, static_cast<uint32_t>(table_magic_number() >> 32));
   assert(dst->size() == original_size + kEncodedLength);
 }
 
@@ -51,13 +55,22 @@ Status Footer::DecodeFrom(Slice* input) {
   assert(input != nullptr);
   assert(input->size() >= kEncodedLength);
 
-  const char* magic_ptr = input->data() + kEncodedLength - 8;
+  const char* magic_ptr =
+      input->data() + kEncodedLength - kMagicNumberLengthByte;
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
   const uint64_t magic = ((static_cast<uint64_t>(magic_hi) << 32) |
                           (static_cast<uint64_t>(magic_lo)));
-  if (magic != kTableMagicNumber) {
-    return Status::InvalidArgument("not an sstable (bad magic number)");
+  if (HasInitializedTableMagicNumber()) {
+    if (magic != table_magic_number()) {
+      char buffer[80];
+      snprintf(buffer, sizeof(buffer) - 1,
+               "not an sstable (bad magic number --- %lx)",
+               (long)magic);
+      return Status::InvalidArgument(buffer);
+    }
+  } else {
+    set_table_magic_number(magic);
   }
 
   Status result = metaindex_handle_.DecodeFrom(input);
@@ -70,6 +83,30 @@ Status Footer::DecodeFrom(Slice* input) {
     *input = Slice(end, input->data() + input->size() - end);
   }
   return result;
+}
+
+Status ReadFooterFromFile(RandomAccessFile* file,
+                          uint64_t file_size,
+                          Footer* footer) {
+  if (file_size < Footer::kEncodedLength) {
+    return Status::InvalidArgument("file is too short to be an sstable");
+  }
+
+  char footer_space[Footer::kEncodedLength];
+  Slice footer_input;
+  Status s = file->Read(file_size - Footer::kEncodedLength,
+                        Footer::kEncodedLength,
+                        &footer_input,
+                        footer_space);
+  if (!s.ok()) return s;
+
+  // Check that we actually read the whole footer from the file. It may be
+  // that size isn't correct.
+  if (footer_input.size() != Footer::kEncodedLength) {
+    return Status::InvalidArgument("file is too short to be an sstable");
+  }
+
+  return footer->DecodeFrom(&footer_input);
 }
 
 Status ReadBlockContents(RandomAccessFile* file,
@@ -88,12 +125,11 @@ Status ReadBlockContents(RandomAccessFile* file,
   char* buf = new char[n + kBlockTrailerSize];
   Slice contents;
 
-  StopWatchNano timer(env);
-  StartPerfTimer(&timer);
+  PERF_TIMER_AUTO(block_read_time);
   Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
-  BumpPerfCount(&perf_context.block_read_count);
-  BumpPerfCount(&perf_context.block_read_byte, n + kBlockTrailerSize);
-  BumpPerfTime(&perf_context.block_read_time, &timer);
+  PERF_TIMER_MEASURE(block_read_time);
+  PERF_COUNTER_ADD(block_read_count, 1);
+  PERF_COUNTER_ADD(block_read_byte, n + kBlockTrailerSize);
 
   if (!s.ok()) {
     delete[] buf;
@@ -114,7 +150,7 @@ Status ReadBlockContents(RandomAccessFile* file,
       s = Status::Corruption("block checksum mismatch");
       return s;
     }
-    BumpPerfTime(&perf_context.block_checksum_time, &timer);
+    PERF_TIMER_MEASURE(block_checksum_time);
   }
 
   // If the caller has requested that the block not be uncompressed
@@ -138,7 +174,7 @@ Status ReadBlockContents(RandomAccessFile* file,
     s = UncompressBlockContents(data, n, result);
     delete[] buf;
   }
-  BumpPerfTime(&perf_context.block_decompress_time, &timer);
+  PERF_TIMER_STOP(block_decompress_time);
   return s;
 }
 
@@ -193,10 +229,32 @@ Status UncompressBlockContents(const char* data, size_t n,
       result->heap_allocated = true;
       result->cachable = true;
       break;
+    case kLZ4Compression:
+      ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
+      static char lz4_corrupt_msg[] =
+          "LZ4 not supported or corrupted LZ4 compressed block contents";
+      if (!ubuf) {
+        return Status::Corruption(lz4_corrupt_msg);
+      }
+      result->data = Slice(ubuf, decompress_size);
+      result->heap_allocated = true;
+      result->cachable = true;
+      break;
+    case kLZ4HCCompression:
+      ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
+      static char lz4hc_corrupt_msg[] =
+          "LZ4HC not supported or corrupted LZ4HC compressed block contents";
+      if (!ubuf) {
+        return Status::Corruption(lz4hc_corrupt_msg);
+      }
+      result->data = Slice(ubuf, decompress_size);
+      result->heap_allocated = true;
+      result->cachable = true;
+      break;
     default:
       return Status::Corruption("bad block type");
   }
-  result->compression_type = kNoCompression; // not compressed any more
+  result->compression_type = kNoCompression;  // not compressed any more
   return Status::OK();
 }
 

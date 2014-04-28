@@ -28,6 +28,8 @@ Reader::Reader(unique_ptr<SequentialFile>&& file, Reporter* reporter,
       backing_store_(new char[kBlockSize]),
       buffer_(),
       eof_(false),
+      read_error_(false),
+      eof_offset_(0),
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       initial_offset_(initial_offset) {
@@ -138,7 +140,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
       case kEof:
         if (in_fragmented_record) {
-          ReportCorruption(scratch->size(), "partial record without end(3)");
+          // This can be caused by the writer dying immediately after
+          //  writing a physical record but before completing the next; don't
+          //  treat it as a corruption, just ignore the entire logical record.
           scratch->clear();
         }
         return false;
@@ -170,6 +174,69 @@ uint64_t Reader::LastRecordOffset() {
   return last_record_offset_;
 }
 
+void Reader::UnmarkEOF() {
+  if (read_error_) {
+    return;
+  }
+
+  eof_ = false;
+
+  if (eof_offset_ == 0) {
+    return;
+  }
+
+  // If the EOF was in the middle of a block (a partial block was read) we have
+  // to read the rest of the block as ReadPhysicalRecord can only read full
+  // blocks and expects the file position indicator to be aligned to the start
+  // of a block.
+  //
+  //      consumed_bytes + buffer_size() + remaining == kBlockSize
+
+  size_t consumed_bytes = eof_offset_ - buffer_.size();
+  size_t remaining = kBlockSize - eof_offset_;
+
+  // backing_store_ is used to concatenate what is left in buffer_ and
+  // the remainder of the block. If buffer_ already uses backing_store_,
+  // we just append the new data.
+  if (buffer_.data() != backing_store_ + consumed_bytes) {
+    // Buffer_ does not use backing_store_ for storage.
+    // Copy what is left in buffer_ to backing_store.
+    memmove(backing_store_ + consumed_bytes, buffer_.data(), buffer_.size());
+  }
+
+  Slice read_buffer;
+  Status status = file_->Read(remaining, &read_buffer,
+    backing_store_ + eof_offset_);
+
+  size_t added = read_buffer.size();
+  end_of_buffer_offset_ += added;
+
+  if (!status.ok()) {
+    if (added > 0) {
+      ReportDrop(added, status);
+    }
+
+    read_error_ = true;
+    return;
+  }
+
+  if (read_buffer.data() != backing_store_ + eof_offset_) {
+    // Read did not write to backing_store_
+    memmove(backing_store_ + eof_offset_, read_buffer.data(),
+      read_buffer.size());
+  }
+
+  buffer_ = Slice(backing_store_ + consumed_bytes,
+    eof_offset_ + added - consumed_bytes);
+
+  if (added < remaining) {
+    eof_ = true;
+    eof_offset_ += added;
+  } else {
+    eof_offset_ = 0;
+  }
+}
+
 void Reader::ReportCorruption(size_t bytes, const char* reason) {
   ReportDrop(bytes, Status::Corruption(reason));
 }
@@ -184,7 +251,7 @@ void Reader::ReportDrop(size_t bytes, const Status& reason) {
 unsigned int Reader::ReadPhysicalRecord(Slice* result) {
   while (true) {
     if (buffer_.size() < (size_t)kHeaderSize) {
-      if (!eof_) {
+      if (!eof_ && !read_error_) {
         // Last read was a full read, so this is a trailer to skip
         buffer_.clear();
         Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
@@ -192,19 +259,19 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
         if (!status.ok()) {
           buffer_.clear();
           ReportDrop(kBlockSize, status);
-          eof_ = true;
+          read_error_ = true;
           return kEof;
         } else if (buffer_.size() < (size_t)kBlockSize) {
           eof_ = true;
+          eof_offset_ = buffer_.size();
         }
         continue;
-      } else if (buffer_.size() == 0) {
-        // End of file
-        return kEof;
       } else {
-        size_t drop_size = buffer_.size();
+        // Note that if buffer_ is non-empty, we have a truncated header at the
+        //  end of the file, which can be caused by the writer crashing in the
+        //  middle of writing the header. Instead of considering this an error,
+        //  just report EOF.
         buffer_.clear();
-        ReportCorruption(drop_size, "truncated record at end of file");
         return kEof;
       }
     }
@@ -218,14 +285,22 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
     if (kHeaderSize + length > buffer_.size()) {
       size_t drop_size = buffer_.size();
       buffer_.clear();
-      ReportCorruption(drop_size, "bad record length");
-      return kBadRecord;
+      if (!eof_) {
+        ReportCorruption(drop_size, "bad record length");
+        return kBadRecord;
+      }
+      // If the end of the file has been reached without reading |length| bytes
+      // of payload, assume the writer died in the middle of writing the record.
+      // Don't report a corruption.
+      return kEof;
     }
 
     if (type == kZeroType && length == 0) {
       // Skip zero length record without reporting any drops since
       // such records are produced by the mmap based writing code in
       // env_posix.cc that preallocates file regions.
+      // NOTE: this should never happen in DB written by new RocksDB versions,
+      // since we turn off mmap writes to manifest and log files
       buffer_.clear();
       return kBadRecord;
     }

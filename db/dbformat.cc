@@ -6,16 +6,16 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include "db/dbformat.h"
 
 #include <stdio.h>
-#include "db/dbformat.h"
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
-static uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
+uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
   assert(t <= kValueTypeForSeek);
   return (seq << 8) | t;
@@ -59,13 +59,35 @@ int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   //    decreasing sequence number
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  BumpPerfCount(&perf_context.user_key_comparison_count);
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
   if (r == 0) {
     const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
     const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
     if (anum > bnum) {
       r = -1;
     } else if (anum < bnum) {
+      r = +1;
+    }
+  }
+  return r;
+}
+
+int InternalKeyComparator::Compare(const ParsedInternalKey& a,
+                                   const ParsedInternalKey& b) const {
+  // Order by:
+  //    increasing user key (according to user-supplied comparator)
+  //    decreasing sequence number
+  //    decreasing type (though sequence# should be enough to disambiguate)
+  int r = user_comparator_->Compare(a.user_key, b.user_key);
+  PERF_COUNTER_ADD(user_key_comparison_count, 1);
+  if (r == 0) {
+    if (a.sequence > b.sequence) {
+      r = -1;
+    } else if (a.sequence < b.sequence) {
+      r = +1;
+    } else if (a.type > b.type) {
+      r = -1;
+    } else if (a.type < b.type) {
       r = +1;
     }
   }

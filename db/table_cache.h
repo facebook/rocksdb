@@ -12,20 +12,25 @@
 #pragma once
 #include <string>
 #include <stdint.h>
+
 #include "db/dbformat.h"
-#include "rocksdb/env.h"
-#include "rocksdb/cache.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "table/table_reader.h"
 
 namespace rocksdb {
 
 class Env;
+struct FileMetaData;
 
+// TODO(sdong): try to come up with a better API to pass the file information
+//              other than simply passing FileMetaData.
 class TableCache {
  public:
   TableCache(const std::string& dbname, const Options* options,
-             const EnvOptions& storage_options, int entries);
+             const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -35,10 +40,9 @@ class TableCache {
   // the returned iterator.  The returned "*tableptr" object is owned by
   // the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
-  Iterator* NewIterator(const ReadOptions& options,
-                        const EnvOptions& toptions,
-                        uint64_t file_number,
-                        uint64_t file_size,
+  Iterator* NewIterator(const ReadOptions& options, const EnvOptions& toptions,
+                        const InternalKeyComparator& internal_comparator,
+                        const FileMetaData& file_meta,
                         TableReader** table_reader_ptr = nullptr,
                         bool for_compaction = false);
 
@@ -46,33 +50,45 @@ class TableCache {
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
   // it returns false.
   Status Get(const ReadOptions& options,
-             uint64_t file_number,
-             uint64_t file_size,
-             const Slice& k,
-             void* arg,
-             bool (*handle_result)(void*, const Slice&, const Slice&, bool),
-             bool* table_io,
-             void (*mark_key_may_exist)(void*) = nullptr);
-
-  // Determine whether the table may contain the specified prefix.  If
-  // the table index of blooms are not in memory, this may cause an I/O
-  bool PrefixMayMatch(const ReadOptions& options, uint64_t file_number,
-                      uint64_t file_size, const Slice& internal_prefix,
-                      bool* table_io);
+             const InternalKeyComparator& internal_comparator,
+             const FileMetaData& file_meta, const Slice& k, void* arg,
+             bool (*handle_result)(void*, const ParsedInternalKey&,
+                                   const Slice&, bool),
+             bool* table_io, void (*mark_key_may_exist)(void*) = nullptr);
 
   // Evict any entry for the specified file number
-  void Evict(uint64_t file_number);
+  static void Evict(Cache* cache, uint64_t file_number);
+
+  // Find table reader
+  Status FindTable(const EnvOptions& toptions,
+                   const InternalKeyComparator& internal_comparator,
+                   uint64_t file_number, uint64_t file_size, Cache::Handle**,
+                   bool* table_io = nullptr, const bool no_io = false);
+
+  // Get TableReader from a cache handle.
+  TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
+
+  // Get the table properties of a given table.
+  // @no_io: indicates if we should load table to the cache if it is not present
+  //         in table cache yet.
+  // @returns: `properties` will be reset on success. Please note that we will
+  //            return Status::Incomplete() if table is not present in cache and
+  //            we set `no_io` to be true.
+  Status GetTableProperties(const EnvOptions& toptions,
+                            const InternalKeyComparator& internal_comparator,
+                            const FileMetaData& file_meta,
+                            std::shared_ptr<const TableProperties>* properties,
+                            bool no_io = false);
+
+  // Release the handle from a cache
+  void ReleaseHandle(Cache::Handle* handle);
 
  private:
   Env* const env_;
   const std::string dbname_;
   const Options* options_;
   const EnvOptions& storage_options_;
-  std::shared_ptr<Cache> cache_;
-
-  Status FindTable(const EnvOptions& toptions, uint64_t file_number,
-                   uint64_t file_size, Cache::Handle**, bool* table_io=nullptr,
-                   const bool no_io = false);
+  Cache* const cache_;
 };
 
 }  // namespace rocksdb
