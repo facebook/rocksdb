@@ -27,12 +27,6 @@ public class ReadOptionsTest {
       assert(opt.fillCache() == boolValue);
     }
 
-    { // PrefixSeek test
-      boolean boolValue = rand.nextBoolean();
-      opt.setPrefixSeek(boolValue);
-      assert(opt.prefixSeek() == boolValue);
-    }
-
     { // Tailing test
       boolean boolValue = rand.nextBoolean();
       opt.setTailing(boolValue);

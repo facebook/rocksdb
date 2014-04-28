@@ -212,7 +212,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   rocksdb::Status s =
       rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
-  rocksdb::Iterator* iter = mem->NewIterator();
+  rocksdb::Iterator* iter = mem->NewIterator(rocksdb::ReadOptions());
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
     memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
