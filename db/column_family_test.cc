@@ -347,7 +347,7 @@ TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
     CreateColumnFamilies({"three2"});
     // ID 3 that was used for dropped column family "three" should not be reused
     auto cfh3 = reinterpret_cast<ColumnFamilyHandleImpl*>(handles_[3]);
-    ASSERT_EQ(4, cfh3->GetID());
+    ASSERT_EQ(4U, cfh3->GetID());
     Close();
     Destroy();
   }

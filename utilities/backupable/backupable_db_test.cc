@@ -179,7 +179,7 @@ class TestEnv : public EnvWrapper {
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
-    ASSERT_GT(limit_delete_files_, 0);
+    ASSERT_GT(limit_delete_files_, 0U);
     limit_delete_files_--;
     return EnvWrapper::DeleteFile(fname);
   }
