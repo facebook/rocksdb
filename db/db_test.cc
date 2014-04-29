@@ -125,6 +125,9 @@ class SpecialEnv : public EnvWrapper {
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
 
+  bool count_sequential_reads_;
+  anon::AtomicCounter sequential_read_counter_;
+
   anon::AtomicCounter sleep_counter_;
 
   explicit SpecialEnv(Env* base) : EnvWrapper(base) {
@@ -132,6 +135,7 @@ class SpecialEnv : public EnvWrapper {
     no_space_.Release_Store(nullptr);
     non_writable_.Release_Store(nullptr);
     count_random_reads_ = false;
+    count_sequential_reads_ = false;
     manifest_sync_error_.Release_Store(nullptr);
     manifest_write_error_.Release_Store(nullptr);
     log_write_error_.Release_Store(nullptr);
@@ -248,6 +252,31 @@ class SpecialEnv : public EnvWrapper {
     Status s = target()->NewRandomAccessFile(f, r, soptions);
     if (s.ok() && count_random_reads_) {
       r->reset(new CountingFile(std::move(*r), &random_read_counter_));
+    }
+    return s;
+  }
+
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& soptions) {
+    class CountingFile : public SequentialFile {
+     private:
+      unique_ptr<SequentialFile> target_;
+      anon::AtomicCounter* counter_;
+
+     public:
+      CountingFile(unique_ptr<SequentialFile>&& target,
+                   anon::AtomicCounter* counter)
+          : target_(std::move(target)), counter_(counter) {}
+      virtual Status Read(size_t n, Slice* result, char* scratch) {
+        counter_->Increment();
+        return target_->Read(n, result, scratch);
+      }
+      virtual Status Skip(uint64_t n) { return target_->Skip(n); }
+    };
+
+    Status s = target()->NewSequentialFile(f, r, soptions);
+    if (s.ok() && count_sequential_reads_) {
+      r->reset(new CountingFile(std::move(*r), &sequential_read_counter_));
     }
     return s;
   }
@@ -5692,6 +5721,44 @@ TEST(DBTest, TransactionLogIteratorBlobs) {
       "LogData(blob2)"
       "Delete(0, key2)",
       handler.seen);
+}
+
+TEST(DBTest, ReadFirstRecordCache) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+
+  std::string path = dbname_ + "/000001.log";
+  unique_ptr<WritableFile> file;
+  ASSERT_OK(env_->NewWritableFile(path, &file, EnvOptions()));
+
+  SequenceNumber s;
+  ASSERT_OK(dbfull()->TEST_ReadFirstLine(path, &s));
+  ASSERT_EQ(s, 0);
+
+  ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
+  ASSERT_EQ(s, 0);
+
+  log::Writer writer(std::move(file));
+  WriteBatch batch;
+  batch.Put("foo", "bar");
+  WriteBatchInternal::SetSequence(&batch, 10);
+  writer.AddRecord(WriteBatchInternal::Contents(&batch));
+
+  env_->count_sequential_reads_ = true;
+  // sequential_read_counter_ sanity test
+  ASSERT_EQ(env_->sequential_read_counter_.Read(), 0);
+
+  ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
+  ASSERT_EQ(s, 10);
+  // did a read
+  ASSERT_EQ(env_->sequential_read_counter_.Read(), 1);
+
+  ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
+  ASSERT_EQ(s, 10);
+  // no new reads since the value is cached
+  ASSERT_EQ(env_->sequential_read_counter_.Read(), 1);
 }
 
 TEST(DBTest, ReadCompaction) {

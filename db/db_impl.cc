@@ -831,6 +831,9 @@ void DBImpl::PurgeObsoleteWALFiles() {
             Log(options_.info_log, "Can't delete file: %s: %s",
                 file_path.c_str(), s.ToString().c_str());
             continue;
+          } else {
+            MutexLock l(&read_first_record_cache_mutex_);
+            read_first_record_cache_.erase(number);
           }
           continue;
         }
@@ -853,6 +856,9 @@ void DBImpl::PurgeObsoleteWALFiles() {
               Log(options_.info_log, "Can't delete file: %s: %s",
                   file_path.c_str(), s.ToString().c_str());
               continue;
+            } else {
+              MutexLock l(&read_first_record_cache_mutex_);
+              read_first_record_cache_.erase(number);
             }
           }
         }
@@ -887,6 +893,9 @@ void DBImpl::PurgeObsoleteWALFiles() {
       Log(options_.info_log, "Can't delete file: %s: %s",
           file_path.c_str(), s.ToString().c_str());
       continue;
+    } else {
+      MutexLock l(&read_first_record_cache_mutex_);
+      read_first_record_cache_.erase(archived_logs[i]->LogNumber());
     }
   }
 }
@@ -914,13 +923,14 @@ Status DBImpl::GetSortedWalsOfType(const std::string& path,
     uint64_t number;
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kLogFile) {
-      WriteBatch batch;
-      Status s = ReadFirstRecord(log_type, number, &batch);
+      SequenceNumber sequence;
+      Status s = ReadFirstRecord(log_type, number, &sequence);
       if (!s.ok()) {
-        if (CheckWalFileExistsAndEmpty(log_type, number)) {
-          continue;
-        }
         return s;
+      }
+      if (sequence == 0) {
+        // empty file
+        continue;
       }
 
       uint64_t size_bytes;
@@ -930,8 +940,7 @@ Status DBImpl::GetSortedWalsOfType(const std::string& path,
       }
 
       log_files.push_back(std::move(unique_ptr<LogFile>(
-          new LogFileImpl(number, log_type,
-                          WriteBatchInternal::Sequence(&batch), size_bytes))));
+          new LogFileImpl(number, log_type, sequence, size_bytes))));
     }
   }
   CompareLogByPointer compare_log_files;
@@ -963,43 +972,46 @@ Status DBImpl::RetainProbableWalFiles(VectorLogPtr& all_logs,
   return Status::OK();
 }
 
-bool DBImpl::CheckWalFileExistsAndEmpty(const WalFileType type,
-                                        const uint64_t number) {
-  const std::string fname = (type == kAliveLogFile)
-                                ? LogFileName(options_.wal_dir, number)
-                                : ArchivedLogFileName(options_.wal_dir, number);
-  uint64_t file_size;
-  Status s = env_->GetFileSize(fname, &file_size);
-  return (s.ok() && (file_size == 0));
-}
-
 Status DBImpl::ReadFirstRecord(const WalFileType type, const uint64_t number,
-                               WriteBatch* const result) {
+                               SequenceNumber* sequence) {
+  if (type != kAliveLogFile && type != kArchivedLogFile) {
+    return Status::NotSupported("File Type Not Known " + std::to_string(type));
+  }
+  {
+    MutexLock l(&read_first_record_cache_mutex_);
+    auto itr = read_first_record_cache_.find(number);
+    if (itr != read_first_record_cache_.end()) {
+      *sequence = itr->second;
+      return Status::OK();
+    }
+  }
+  Status s;
   if (type == kAliveLogFile) {
     std::string fname = LogFileName(options_.wal_dir, number);
-    Status status = ReadFirstLine(fname, result);
-    if (status.ok() || env_->FileExists(fname)) {
-      // return OK or any error that is not caused non-existing file
-      return status;
-    }
-
-    //  check if the file got moved to archive.
-    std::string archived_file = ArchivedLogFileName(options_.wal_dir, number);
-    Status s = ReadFirstLine(archived_file, result);
-    if (s.ok() || env_->FileExists(archived_file)) {
+    s = ReadFirstLine(fname, sequence);
+    if (env_->FileExists(fname) && !s.ok()) {
+      // return any error that is not caused by non-existing file
       return s;
     }
-    return Status::NotFound("Log File has been deleted: " + archived_file);
-  } else if (type == kArchivedLogFile) {
-    std::string fname = ArchivedLogFileName(options_.wal_dir, number);
-    Status status = ReadFirstLine(fname, result);
-    return status;
   }
-  return Status::NotSupported("File Type Not Known: " + std::to_string(type));
+
+  if (type == kArchivedLogFile || !s.ok()) {
+    //  check if the file got moved to archive.
+    std::string archived_file = ArchivedLogFileName(options_.wal_dir, number);
+    s = ReadFirstLine(archived_file, sequence);
+  }
+
+  if (s.ok() && *sequence != 0) {
+    MutexLock l(&read_first_record_cache_mutex_);
+    read_first_record_cache_.insert({number, *sequence});
+  }
+  return s;
 }
 
+// the function returns status.ok() and sequence == 0 if the file exists, but is
+// empty
 Status DBImpl::ReadFirstLine(const std::string& fname,
-                             WriteBatch* const batch) {
+                             SequenceNumber* sequence) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -1043,15 +1055,16 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
                           Status::Corruption("log record too small"));
       // TODO read record's till the first no corrupt entry?
     } else {
-      WriteBatchInternal::SetContents(batch, record);
+      WriteBatch batch;
+      WriteBatchInternal::SetContents(&batch, record);
+      *sequence = WriteBatchInternal::Sequence(&batch);
       return Status::OK();
     }
   }
 
-  // ReadRecord returns false on EOF, which is deemed as OK() by Reader
-  if (status.ok()) {
-    status = Status::Corruption("eof reached");
-  }
+  // ReadRecord returns false on EOF, which means that the log file is empty. we
+  // return status.ok() in that case and set sequence number to 0
+  *sequence = 0;
   return status;
 }
 

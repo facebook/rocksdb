@@ -191,6 +191,10 @@ class DBImpl : public DB {
   void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
                              std::vector<std::vector<FileMetaData>>* metadata);
 
+  Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
+                              SequenceNumber* sequence);
+
+  Status TEST_ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
 #endif  // NDEBUG
 
   // needed for CleanupIteratorState
@@ -408,14 +412,11 @@ class DBImpl : public DB {
   // Greater Than or Equal to the requested SequenceNumber.
   Status RetainProbableWalFiles(VectorLogPtr& all_logs,
                                 const SequenceNumber target);
-  //  return true if
-  bool CheckWalFileExistsAndEmpty(const WalFileType type,
-                                  const uint64_t number);
 
   Status ReadFirstRecord(const WalFileType type, const uint64_t number,
-                         WriteBatch* const result);
+                         SequenceNumber* sequence);
 
-  Status ReadFirstLine(const std::string& fname, WriteBatch* const batch);
+  Status ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
 #endif  // ROCKSDB_LITE
 
   void PrintStatistics();
@@ -458,6 +459,10 @@ class DBImpl : public DB {
   WriteBatch tmp_batch_;
 
   SnapshotList snapshots_;
+
+  // cache for ReadFirstRecord() calls
+  std::unordered_map<uint64_t, SequenceNumber> read_first_record_cache_;
+  port::Mutex read_first_record_cache_mutex_;
 
   // Set of table files to protect from deletion because they are
   // part of ongoing compactions.
