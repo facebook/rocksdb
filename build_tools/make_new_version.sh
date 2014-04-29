@@ -28,17 +28,19 @@ fi
 ROCKSDB_VERSION=$1
 
 GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`
+echo $GIT_BRANCH
+
 if [ $GIT_BRANCH != "master" ]; then
   echo "Error: Current branch is '$GIT_BRANCH', Please switch to master branch."
+  exit 1
 fi
 
 title "Adding new tag for this release ..."
-TAG="$ROCKSDB_VERSION.fb"
-$GIT tag -a "$TAG" -m "RocksDB $ROCKSDB_VERSION"
+BRANCH="$ROCKSDB_VERSION.fb"
+$GIT co -b $BRANCH
 
 # Setting up the proxy for remote repo access
-title "Pushing new tag to remote repo ..."
-$GIT push origin --tags
+title "Pushing new branch to remote repo ..."
+git push origin --set-upstream $BRANCH
 
-title "Tag $TAG is pushed to github; if you want to delete it, please run"
-title "git tags -d $TAG && git push origin :refs/tags/$TAG"
+title "Branch $BRANCH is pushed to github;"
