@@ -14,6 +14,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/cache.h"
 #include "util/coding.h"
+#include "utilities/ttl/db_ttl_impl.h"
 
 #include <ctime>
 #include <dirent.h>
@@ -909,11 +910,11 @@ void DBDumperCommand::DoCommand() {
   int max_keys = max_keys_;
   int ttl_start;
   if (!ParseIntOption(option_map_, ARG_TTL_START, ttl_start, exec_state_)) {
-    ttl_start = DBWithTTL::kMinTimestamp; // TTL introduction time
+    ttl_start = DBWithTTLImpl::kMinTimestamp;  // TTL introduction time
   }
   int ttl_end;
   if (!ParseIntOption(option_map_, ARG_TTL_END, ttl_end, exec_state_)) {
-    ttl_end = DBWithTTL::kMaxTimestamp; // Max time allowed by TTL feature
+    ttl_end = DBWithTTLImpl::kMaxTimestamp;  // Max time allowed by TTL feature
   }
   if (ttl_end < ttl_start) {
     fprintf(stderr, "Error: End time can't be less than start time\n");
@@ -1600,11 +1601,11 @@ void ScanCommand::DoCommand() {
   }
   int ttl_start;
   if (!ParseIntOption(option_map_, ARG_TTL_START, ttl_start, exec_state_)) {
-    ttl_start = DBWithTTL::kMinTimestamp; // TTL introduction time
+    ttl_start = DBWithTTLImpl::kMinTimestamp;  // TTL introduction time
   }
   int ttl_end;
   if (!ParseIntOption(option_map_, ARG_TTL_END, ttl_end, exec_state_)) {
-    ttl_end = DBWithTTL::kMaxTimestamp; // Max time allowed by TTL feature
+    ttl_end = DBWithTTLImpl::kMaxTimestamp;  // Max time allowed by TTL feature
   }
   if (ttl_end < ttl_start) {
     fprintf(stderr, "Error: End time can't be less than start time\n");

@@ -21,6 +21,16 @@ class StackableDB : public DB {
     return db_;
   }
 
+  virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
+                                    const std::string& column_family_name,
+                                    ColumnFamilyHandle** handle) {
+    return db_->CreateColumnFamily(options, column_family_name, handle);
+  }
+
+  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) {
+    return db_->DropColumnFamily(column_family);
+  }
+
   using DB::Put;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
