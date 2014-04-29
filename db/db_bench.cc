@@ -1685,7 +1685,7 @@ class Benchmark {
       OpenDb(options, FLAGS_db, &db_);
     } else {
       multi_dbs_.clear();
-      for (size_t i = 0; i < FLAGS_num_multi_db; i++) {
+      for (int i = 0; i < FLAGS_num_multi_db; i++) {
         DB* db;
         OpenDb(options, GetDbNameForMultiple(FLAGS_db, i), &db);
         multi_dbs_.push_back(db);
@@ -1910,7 +1910,7 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::vector<Slice> keys;
     std::vector<std::string> values(entries_per_batch_);
-    while (keys.size() < entries_per_batch_) {
+    while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
       keys.push_back(AllocateKey());
     }
 
@@ -1922,7 +1922,7 @@ class Benchmark {
             FLAGS_num, &keys[i]);
       }
       std::vector<Status> statuses = db->MultiGet(options, keys, &values);
-      assert(statuses.size() == entries_per_batch_);
+      assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
 
       read += entries_per_batch_;
       for (int64_t i = 0; i < entries_per_batch_; ++i) {

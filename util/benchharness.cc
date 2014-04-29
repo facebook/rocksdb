@@ -305,7 +305,7 @@ static void PrintBenchmarkResultsAsTable(
 
   // Compute the longest benchmark name
   size_t longestName = 0;
-  for (auto i = 1; i < benchmarks.size(); i++) {
+  for (size_t i = 1; i < benchmarks.size(); i++) {
     longestName = max(longestName, strlen(get<1>(benchmarks[i])));
   }
 
@@ -379,7 +379,7 @@ void RunBenchmarks() {
 
   auto const globalBaseline = RunBenchmarkGetNSPerIteration(
     get<2>(benchmarks.front()), 0);
-  for (auto i = 1; i < benchmarks.size(); i++) {
+  for (size_t i = 1; i < benchmarks.size(); i++) {
     double elapsed = 0.0;
     if (strcmp(get<1>(benchmarks[i]), "-") != 0) {  // skip separators
       elapsed = RunBenchmarkGetNSPerIteration(get<2>(benchmarks[i]),

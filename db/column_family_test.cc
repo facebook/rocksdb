@@ -922,7 +922,7 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
 
-  for (int i = 0; i < handles_.size(); ++i) {
+  for (size_t i = 0; i < handles_.size(); ++i) {
     PutRandomData(i, 10, 100);
   }
   int num_writable_file_start = env_->GetNumberOfNewWritableFileCalls();

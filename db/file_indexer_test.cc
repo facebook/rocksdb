@@ -60,7 +60,7 @@ struct FileIndexerTest {
   }
 
   void Reset() {
-    for (int i = 0; i < kNumLevels; ++i) {
+    for (uint32_t i = 0; i < kNumLevels; ++i) {
       for (auto* f : files[i]) {
         delete f;
       }
