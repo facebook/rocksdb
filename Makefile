@@ -181,6 +181,10 @@ release:
 	$(MAKE) clean
 	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(PROGRAMS) -j32
 
+release_shared_lib:
+	$(MAKE) clean
+	OPT="-DNDEBUG -O2" $(MAKE) shared_lib -j32
+
 coverage:
 	$(MAKE) clean
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check -j32

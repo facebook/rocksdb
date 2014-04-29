@@ -5735,10 +5735,10 @@ TEST(DBTest, ReadFirstRecordCache) {
 
   SequenceNumber s;
   ASSERT_OK(dbfull()->TEST_ReadFirstLine(path, &s));
-  ASSERT_EQ(s, 0);
+  ASSERT_EQ(s, 0U);
 
   ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
-  ASSERT_EQ(s, 0);
+  ASSERT_EQ(s, 0U);
 
   log::Writer writer(std::move(file));
   WriteBatch batch;
@@ -5751,12 +5751,12 @@ TEST(DBTest, ReadFirstRecordCache) {
   ASSERT_EQ(env_->sequential_read_counter_.Read(), 0);
 
   ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
-  ASSERT_EQ(s, 10);
+  ASSERT_EQ(s, 10U);
   // did a read
   ASSERT_EQ(env_->sequential_read_counter_.Read(), 1);
 
   ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
-  ASSERT_EQ(s, 10);
+  ASSERT_EQ(s, 10U);
   // no new reads since the value is cached
   ASSERT_EQ(env_->sequential_read_counter_.Read(), 1);
 }

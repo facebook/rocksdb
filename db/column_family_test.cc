@@ -934,7 +934,7 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   }
   int total_new_writable_files =
       env_->GetNumberOfNewWritableFileCalls() - num_writable_file_start;
-  ASSERT_EQ(total_new_writable_files, handles_.size() + 1);
+  ASSERT_EQ(static_cast<size_t>(total_new_writable_files), handles_.size() + 1);
   Close();
 }
 
