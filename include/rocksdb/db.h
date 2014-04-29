@@ -41,9 +41,8 @@ struct ColumnFamilyDescriptor {
       : name(_name), options(_options) {}
 };
 
-// Update Makefile if you change these
-static const int kMajorVersion = 3;
-static const int kMinorVersion = 0;
+static const int kMajorVersion = __ROCKSDB_MAJOR__;
+static const int kMinorVersion = __ROCKSDB_MINOR__;
 
 struct Options;
 struct ReadOptions;
