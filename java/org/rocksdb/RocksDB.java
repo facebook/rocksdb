@@ -171,6 +171,8 @@ public class RocksDB {
    */
   public Map<byte[], byte[]> multiGet(List<byte[]> keys)
       throws RocksDBException {
+    assert(keys.size() != 0);
+
     List<byte[]> values = multiGet(
         nativeHandle_, keys, keys.size());
 
@@ -199,6 +201,8 @@ public class RocksDB {
    */
   public Map<byte[], byte[]> multiGet(ReadOptions opt, List<byte[]> keys)
       throws RocksDBException {
+    assert(keys.size() != 0);
+
     List<byte[]> values = multiGet(
         nativeHandle_, opt.nativeHandle_, keys, keys.size());
 
