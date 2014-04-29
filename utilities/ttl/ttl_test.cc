@@ -533,7 +533,7 @@ TEST(TtlTest, ColumnFamiliesTest) {
   std::vector<ColumnFamilyHandle*> handles;
 
   ASSERT_OK(DBWithTTL::Open(DBOptions(options), dbname_, column_families,
-                            &handles, &db_ttl_, {2, 4}, false));
+                            &handles, &db_ttl_, {3, 5}, false));
   ASSERT_EQ(handles.size(), 2U);
   ColumnFamilyHandle* new_handle;
   ASSERT_OK(db_ttl_->CreateColumnFamilyWithTtl(options, "ttl_column_family_2",
@@ -550,12 +550,12 @@ TEST(TtlTest, ColumnFamiliesTest) {
   SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[1]);
   SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[2]);
 
-  // only column family 1 should be alive after 3 seconds
-  SleepCompactCheck(2, 0, kSampleSize_, false, false, handles[0]);
+  // only column family 1 should be alive after 4 seconds
+  SleepCompactCheck(3, 0, kSampleSize_, false, false, handles[0]);
   SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[1]);
   SleepCompactCheck(0, 0, kSampleSize_, false, false, handles[2]);
 
-  // nothing should be there after 5 seconds
+  // nothing should be there after 6 seconds
   SleepCompactCheck(2, 0, kSampleSize_, false, false, handles[0]);
   SleepCompactCheck(0, 0, kSampleSize_, false, false, handles[1]);
   SleepCompactCheck(0, 0, kSampleSize_, false, false, handles[2]);
