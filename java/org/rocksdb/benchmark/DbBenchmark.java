@@ -162,6 +162,15 @@ public class DbBenchmark {
     EXISTING
   }
 
+  enum CompressionType {
+    NONE,
+    SNAPPY,
+    ZLIB,
+    BZIP2,
+    LZ4,
+    LZ4HC
+  }
+
   static {
     System.loadLibrary("rocksdbjni");
   }
@@ -435,7 +444,6 @@ public class DbBenchmark {
     databaseDir_ = (String) flags.get(Flag.db);
     writesPerSeconds_ = (Integer) flags.get(Flag.writes_per_second);
     cacheSize_ = (Long) flags.get(Flag.cache_size);
-    gen_ = new RandomGenerator(randSeed_, compressionRatio_);
     memtable_ = (String) flags.get(Flag.memtablerep);
     maxWriteBufferNumber_ = (Integer) flags.get(Flag.max_write_buffer_number);
     prefixSize_ = (Integer) flags.get(Flag.prefix_size);
@@ -446,6 +454,28 @@ public class DbBenchmark {
     finishLock_ = new Object();
     // options.setPrefixSize((Integer)flags_.get(Flag.prefix_size));
     // options.setKeysPerPrefix((Long)flags_.get(Flag.keys_per_prefix));
+    compressionType_ = (String) flags.get(Flag.compression_type);
+    compression_ = CompressionType.NONE;
+    try {
+      if (compressionType_.equals("snappy")) {
+        System.loadLibrary("snappy");
+      } else if (compressionType_.equals("zlib")) {
+        System.loadLibrary("zlib");
+      } else if (compressionType_.equals("bzip2")) {
+        System.loadLibrary("bzip2");
+      } else if (compressionType_.equals("lz4")) {
+        System.loadLibrary("lz4");
+      } else if (compressionType_.equals("lz4hc")) {
+        System.loadLibrary("lz4hc");
+      }
+    } catch (UnsatisfiedLinkError e) {
+      System.err.format("Unable to load %s library:%s%n" +
+                        "No compression is used.%n",
+          compressionType_, e.toString());
+      compressionType_ = "none";
+      compressionRatio_ = 1.0;
+    }
+    gen_ = new RandomGenerator(randSeed_, compressionRatio_);
   }
 
   private void prepareReadOptions(ReadOptions options) {
@@ -462,6 +492,8 @@ public class DbBenchmark {
     options.setCacheSize(cacheSize_);
     if (!useExisting_) {
       options.setCreateIfMissing(true);
+    } else {
+      options.setCreateIfMissing(false);
     }
     if (memtable_.equals("skip_list")) {
       options.setMemTableConfig(new SkipListMemTableConfig());
@@ -488,6 +520,8 @@ public class DbBenchmark {
       options.setTableFormatConfig(
           new PlainTableConfig().setKeySize(keySize_));
     }
+    options.setWriteBufferSize(
+        (Long)flags_.get(Flag.write_buffer_size));
     options.setMaxWriteBufferNumber(
         (Integer)flags_.get(Flag.max_write_buffer_number));
     options.setMaxBackgroundCompactions(
@@ -513,7 +547,7 @@ public class DbBenchmark {
     options.setDisableSeekCompaction(
         (Boolean)flags_.get(Flag.disable_seek_compaction));
     options.setDeleteObsoleteFilesPeriodMicros(
-        (Long)flags_.get(Flag.delete_obsolete_files_period_micros));
+        (Integer)flags_.get(Flag.delete_obsolete_files_period_micros));
     options.setTableCacheNumshardbits(
         (Integer)flags_.get(Flag.table_cache_numshardbits));
     options.setAllowMmapReads(
@@ -640,12 +674,12 @@ public class DbBenchmark {
       } else if (benchmark.equals("readseq")) {
         for (int t = 0; t < threadNum_; ++t) {
           tasks.add(new ReadSequentialTask(
-              currentTaskId++, randSeed_, reads_, num_));
+              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
         }
       } else if (benchmark.equals("readrandom")) {
         for (int t = 0; t < threadNum_; ++t) {
           tasks.add(new ReadRandomTask(
-              currentTaskId++, randSeed_, reads_, num_));
+              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
         }
       } else if (benchmark.equals("readwhilewriting")) {
         WriteTask writeTask = new WriteRandomTask(
@@ -717,12 +751,12 @@ public class DbBenchmark {
         (int) (valueSize_ * compressionRatio_ + 0.5));
     System.out.printf("Entries:  %d\n", num_);
     System.out.printf("RawSize:  %.1f MB (estimated)\n",
-        ((kKeySize + valueSize_) * num_) / 1048576.0);
+        ((double)(kKeySize + valueSize_) * num_) / SizeUnit.MB);
     System.out.printf("FileSize:   %.1f MB (estimated)\n",
-        (((kKeySize + valueSize_ * compressionRatio_) * num_)
-            / 1048576.0));
+        (((kKeySize + valueSize_ * compressionRatio_) * num_) / SizeUnit.MB));
     System.out.format("Memtable Factory: %s%n", options.memTableFactoryName());
     System.out.format("Prefix:   %d bytes%n", prefixSize_);
+    System.out.format("Compression: %s%n", compressionType_);
     printWarnings();
     System.out.printf("------------------------------------------------\n");
   }
@@ -769,7 +803,7 @@ public class DbBenchmark {
 
     System.out.printf(
         "%-16s : %11.5f micros/op; %6.1f MB/s; %d / %d task(s) finished.\n",
-        benchmark, elapsedSeconds * 1e6 / stats.done_,
+        benchmark, (double) elapsedSeconds / stats.done_ * 1e6,
         (stats.bytes_ / 1048576.0) / elapsedSeconds,
         taskFinishedCount, concurrentThreads);
   }
@@ -932,7 +966,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    write_buffer_size(4 << 20,
+    write_buffer_size(4 * SizeUnit.MB,
         "Number of bytes to buffer in memtable before compacting\n" +
         "\t(initialized to default value by 'main'.)") {
       @Override public Object parseValue(String value) {
@@ -1275,11 +1309,17 @@ public class DbBenchmark {
         return Boolean.parseBoolean(value);
       }
     },
-    delete_obsolete_files_period_micros(0L,"Option to delete\n" +
+    delete_obsolete_files_period_micros(0,"Option to delete\n" +
         "\tobsolete files periodically. 0 means that obsolete files are\n" +
         "\tdeleted after every compaction run.") {
       @Override public Object parseValue(String value) {
-        return Long.parseLong(value);
+        return Integer.parseInt(value);
+      }
+    },
+    compression_type("snappy",
+        "Algorithm used to compress the database.") {
+      @Override public Object parseValue(String value) {
+        return value;
       }
     },
     compression_level(-1,
@@ -1512,7 +1552,7 @@ public class DbBenchmark {
   final long cacheSize_;
   final boolean useExisting_;
   final String databaseDir_;
-  final double compressionRatio_;
+  double compressionRatio_;
   RandomGenerator gen_;
   long startTime_;
 
@@ -1532,4 +1572,6 @@ public class DbBenchmark {
   // as the scope of a static member equals to the scope of the problem,
   // we let its c++ pointer to be disposed in its finalizer.
   static Options defaultOptions_ = new Options();
+  String compressionType_;
+  CompressionType compression_;
 }

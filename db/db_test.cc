@@ -5555,9 +5555,6 @@ TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
   } while (ChangeCompactOptions());
 }
 
-// TODO(kailiu) disable the in non-linux platforms to temporarily solve
-// // the unit test failure.
-#ifdef OS_LINUX
 TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
   do {
     Options options = OptionsForLogIterTest();
@@ -5575,7 +5572,6 @@ TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
     ASSERT_TRUE(iter->Valid());
   } while (ChangeCompactOptions());
 }
-#endif
 
 TEST(DBTest, TransactionLogIteratorJustEmptyFile) {
   do {

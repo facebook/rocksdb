@@ -94,34 +94,6 @@ public class ReadOptions {
       long handle, boolean fillCache);
 
   /**
-   * If this option is set and memtable implementation allows, Seek
-   * might only return keys with the same prefix as the seek-key
-   * Default: false
-   *
-   * @return true if prefix-seek is enabled.
-   */
-  public boolean prefixSeek() {
-    assert(isInitialized());
-    return prefixSeek(nativeHandle_);
-  }
-  private native boolean prefixSeek(long handle);
-
-  /**
-   * If this option is set and memtable implementation allows, Seek
-   * might only return keys with the same prefix as the seek-key
-   *
-   * @param prefixSeek if true, then prefix-seek will be enabled.
-   * @return the reference to the current ReadOptions.
-   */
-  public ReadOptions setPrefixSeek(boolean prefixSeek) {
-    assert(isInitialized());
-    setPrefixSeek(nativeHandle_, prefixSeek);
-    return this;
-  }
-  private native void setPrefixSeek(
-      long handle, boolean prefixSeek);
-
-  /**
    * Specify to create a tailing iterator -- a special iterator that has a
    * view of the complete database (i.e. it can also be used to read newly
    * added data) and is optimized for sequential reads. It will return records

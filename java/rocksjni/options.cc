@@ -1787,27 +1787,6 @@ void Java_org_rocksdb_ReadOptions_setFillCache(
 
 /*
  * Class:     org_rocksdb_ReadOptions
- * Method:    prefixSeek
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_ReadOptions_prefixSeek(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->prefix_seek;
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
- * Method:    setPrefixSeek
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_ReadOptions_setPrefixSeek(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jprefix_seek) {
-  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->prefix_seek =
-      static_cast<bool>(jprefix_seek);
-}
-
-/*
- * Class:     org_rocksdb_ReadOptions
  * Method:    tailing
  * Signature: (J)Z
  */

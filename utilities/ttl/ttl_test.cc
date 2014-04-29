@@ -4,7 +4,7 @@
 
 #include <memory>
 #include "rocksdb/compaction_filter.h"
-#include "utilities/utility_db.h"
+#include "utilities/db_ttl.h"
 #include "util/testharness.h"
 #include "util/logging.h"
 #include <map>
@@ -45,13 +45,13 @@ class TtlTest {
   void OpenTtl() {
     ASSERT_TRUE(db_ttl_ ==
                 nullptr);  //  db should be closed before opening again
-    ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_));
+    ASSERT_OK(DBWithTTL::Open(options_, dbname_, &db_ttl_));
   }
 
   // Open database with TTL support when TTL provided with db_ttl_ pointer
   void OpenTtl(int32_t ttl) {
     ASSERT_TRUE(db_ttl_ == nullptr);
-    ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_, ttl));
+    ASSERT_OK(DBWithTTL::Open(options_, dbname_, &db_ttl_, ttl));
   }
 
   // Open with TestFilter compaction filter
@@ -65,7 +65,7 @@ class TtlTest {
   // Open database with TTL support in read_only mode
   void OpenReadOnlyTtl(int32_t ttl) {
     ASSERT_TRUE(db_ttl_ == nullptr);
-    ASSERT_OK(UtilityDB::OpenTtlDB(options_, dbname_, &db_ttl_, ttl, true));
+    ASSERT_OK(DBWithTTL::Open(options_, dbname_, &db_ttl_, ttl, true));
   }
 
   void CloseTtl() {
@@ -317,7 +317,7 @@ class TtlTest {
   // Choose carefully so that Put, Gets & Compaction complete in 1 second buffer
   const int64_t kSampleSize_ = 100;
   std::string dbname_;
-  StackableDB* db_ttl_;
+  DBWithTTL* db_ttl_;
 
  private:
   Options options_;
@@ -532,25 +532,33 @@ TEST(TtlTest, ColumnFamiliesTest) {
 
   std::vector<ColumnFamilyHandle*> handles;
 
-  ASSERT_OK(UtilityDB::OpenTtlDB(DBOptions(options), dbname_, column_families,
-                                 &handles, &db_ttl_, {2, 4}, false));
+  ASSERT_OK(DBWithTTL::Open(DBOptions(options), dbname_, column_families,
+                            &handles, &db_ttl_, {2, 4}, false));
   ASSERT_EQ(handles.size(), 2U);
+  ColumnFamilyHandle* new_handle;
+  ASSERT_OK(db_ttl_->CreateColumnFamilyWithTtl(options, "ttl_column_family_2",
+                                               &new_handle, 2));
+  handles.push_back(new_handle);
 
   MakeKVMap(kSampleSize_);
   PutValues(0, kSampleSize_, false, handles[0]);
   PutValues(0, kSampleSize_, false, handles[1]);
+  PutValues(0, kSampleSize_, false, handles[2]);
 
   // everything should be there after 1 second
   SleepCompactCheck(1, 0, kSampleSize_, true, false, handles[0]);
   SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[1]);
+  SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[2]);
 
   // only column family 1 should be alive after 3 seconds
   SleepCompactCheck(2, 0, kSampleSize_, false, false, handles[0]);
   SleepCompactCheck(0, 0, kSampleSize_, true, false, handles[1]);
+  SleepCompactCheck(0, 0, kSampleSize_, false, false, handles[2]);
 
   // nothing should be there after 5 seconds
   SleepCompactCheck(2, 0, kSampleSize_, false, false, handles[0]);
   SleepCompactCheck(0, 0, kSampleSize_, false, false, handles[1]);
+  SleepCompactCheck(0, 0, kSampleSize_, false, false, handles[2]);
 
   for (auto h : handles) {
     delete h;

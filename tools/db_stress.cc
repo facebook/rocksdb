@@ -28,7 +28,7 @@
 #include "db/version_set.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/cache.h"
-#include "utilities/utility_db.h"
+#include "utilities/db_ttl.h"
 #include "rocksdb/env.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
@@ -42,7 +42,6 @@
 #include "util/random.h"
 #include "util/testutil.h"
 #include "util/logging.h"
-#include "utilities/ttl/db_ttl.h"
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
 
@@ -1620,9 +1619,9 @@ class StressTest {
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
     } else {
-      StackableDB* sdb;
-      s = UtilityDB::OpenTtlDB(options_, FLAGS_db, &sdb, FLAGS_ttl);
-      db_ = sdb;
+      DBWithTTL* db_with_ttl;
+      s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
+      db_ = db_with_ttl;
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());

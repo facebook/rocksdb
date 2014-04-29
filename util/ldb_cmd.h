@@ -19,8 +19,8 @@
 #include "util/logging.h"
 #include "util/ldb_cmd_execute_result.h"
 #include "util/string_util.h"
-#include "utilities/utility_db.h"
-#include "utilities/ttl/db_ttl.h"
+#include "utilities/db_ttl.h"
+#include "utilities/ttl/db_ttl_impl.h"
 
 using std::string;
 using std::map;
@@ -149,7 +149,7 @@ protected:
   LDBCommandExecuteResult exec_state_;
   string db_path_;
   DB* db_;
-  StackableDB* sdb_;
+  DBWithTTL* db_ttl_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -217,11 +217,11 @@ protected:
     Status st;
     if (is_db_ttl_) {
       if (is_read_only_) {
-        st = UtilityDB::OpenTtlDB(opt, db_path_, &sdb_, 0, true);
+        st = DBWithTTL::Open(opt, db_path_, &db_ttl_, 0, true);
       } else {
-        st = UtilityDB::OpenTtlDB(opt, db_path_, &sdb_);
+        st = DBWithTTL::Open(opt, db_path_, &db_ttl_);
       }
-      db_ = sdb_;
+      db_ = db_ttl_;
     } else if (is_read_only_) {
       st = DB::OpenForReadOnly(opt, db_path_, &db_);
     } else {
