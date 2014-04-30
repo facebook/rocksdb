@@ -8,7 +8,7 @@ clean:
 	rm -f $(ROCKSDB_JAR)
 
 java:
-	javac org/rocksdb/*.java org/rocksdb/util/*.java
+	javac org/rocksdb/util/*.java org/rocksdb/*.java
 	jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
 	javah -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
 

@@ -13,7 +13,7 @@ import java.io.IOException;
 
 public class RocksDBSample {
   static {
-    System.loadLibrary("rocksdbjni");
+    RocksDB.loadLibrary();
   }
 
   public static void main(String[] args) {

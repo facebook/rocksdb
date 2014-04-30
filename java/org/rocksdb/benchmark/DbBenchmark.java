@@ -172,7 +172,7 @@ public class DbBenchmark {
   }
 
   static {
-    System.loadLibrary("rocksdbjni");
+    RocksDB.loadLibrary();
   }
 
   abstract class BenchmarkTask implements Callable<Stats> {

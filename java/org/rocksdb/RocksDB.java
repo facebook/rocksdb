@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.io.Closeable;
 import java.io.IOException;
+import org.rocksdb.util.Environment;
 
 /**
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for
@@ -19,6 +20,60 @@ import java.io.IOException;
  */
 public class RocksDB {
   public static final int NOT_FOUND = -1;
+  private static final String[] compressionLibs_ = {
+      "snappy", "zlib", "bzip2", "lz4", "lz4hc"};
+
+  /**
+   * Loads the necessary library files.
+   * Calling this method twice will have no effect.
+   */
+  public static synchronized void loadLibrary() {
+    // loading possibly necessary libraries.
+    for (String lib : compressionLibs_) {
+      try {
+      System.loadLibrary(lib);
+      } catch (UnsatisfiedLinkError e) {
+        // since it may be optional, we ignore its loading failure here.
+      }
+    }
+    // However, if any of them is required.  We will see error here.
+    System.loadLibrary("rocksdbjni");
+  }
+
+  /**
+   * Tries to load the necessary library files from the given list of
+   * directories.
+   *
+   * @param paths a list of strings where each describes a directory
+   *     of a library.
+   */
+  public static synchronized void loadLibrary(List<String> paths) {
+    for (String lib : compressionLibs_) {
+      for (String path : paths) {
+        try {
+          System.load(path + "/" + Environment.getSharedLibraryName(lib));
+          break;
+        } catch (UnsatisfiedLinkError e) {
+          // since they are optional, we ignore loading fails.
+        }
+      }
+    }
+    boolean success = false;
+    UnsatisfiedLinkError err = null;
+    for (String path : paths) {
+      try {
+        System.load(path + "/" + Environment.getJniLibraryName("rocksdbjni"));
+        success = true;
+        break;
+      } catch (UnsatisfiedLinkError e) {
+        err = e;
+      }
+    }
+    if (success == false) {
+      throw err;
+    }
+  }
+
   /**
    * The factory constructor of RocksDB that opens a RocksDB instance given
    * the path to the database using the default options w/ createIfMissing

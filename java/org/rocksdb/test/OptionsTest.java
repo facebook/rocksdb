@@ -6,11 +6,12 @@
 package org.rocksdb.test;
 
 import java.util.Random;
+import org.rocksdb.RocksDB;
 import org.rocksdb.Options;
 
 public class OptionsTest {
   static {
-    System.loadLibrary("rocksdbjni");
+    RocksDB.loadLibrary();
   }
   public static void main(String[] args) {
     Options opt = new Options();

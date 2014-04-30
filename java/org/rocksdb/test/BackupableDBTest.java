@@ -11,7 +11,7 @@ public class BackupableDBTest {
   static final String db_path = "/tmp/backupablejni_db";
   static final String backup_path = "/tmp/backupablejni_db_backup";
   static {
-    System.loadLibrary("rocksdbjni");
+    RocksDB.loadLibrary();
   }
   public static void main(String[] args) {
 
