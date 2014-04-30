@@ -275,6 +275,9 @@ class DB {
   // this handle will all observe a stable snapshot of the current DB
   // state.  The caller must call ReleaseSnapshot(result) when the
   // snapshot is no longer needed.
+  //
+  // nullptr will be returned if the DB fails to take a snapshot or does
+  // not support snapshot.
   virtual const Snapshot* GetSnapshot() = 0;
 
   // Release a previously acquired snapshot.  The caller must not

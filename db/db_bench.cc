@@ -490,7 +490,8 @@ enum RepFactory {
   kSkipList,
   kPrefixHash,
   kVectorRep,
-  kHashLinkedList
+  kHashLinkedList,
+  kCuckoo
 };
 
 namespace {
@@ -505,6 +506,8 @@ enum RepFactory StringToRepFactory(const char* ctype) {
     return kVectorRep;
   else if (!strcasecmp(ctype, "hash_linkedlist"))
     return kHashLinkedList;
+  else if (!strcasecmp(ctype, "cuckoo"))
+    return kCuckoo;
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
@@ -879,6 +882,9 @@ class Benchmark {
         break;
       case kHashLinkedList:
         fprintf(stdout, "Memtablerep: hash_linkedlist\n");
+        break;
+      case kCuckoo:
+        fprintf(stdout, "Memtablerep: cuckoo\n");
         break;
     }
     fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
@@ -1578,6 +1584,10 @@ class Benchmark {
         options.memtable_factory.reset(
           new VectorRepFactory
         );
+        break;
+      case kCuckoo:
+        options.memtable_factory.reset(NewHashCuckooRepFactory(
+            options.write_buffer_size, FLAGS_key_size + FLAGS_value_size));
         break;
     }
     if (FLAGS_use_plain_table) {

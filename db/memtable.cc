@@ -11,6 +11,7 @@
 
 #include <memory>
 #include <algorithm>
+#include <limits>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
@@ -62,7 +63,16 @@ MemTable::~MemTable() {
 }
 
 size_t MemTable::ApproximateMemoryUsage() {
-  return arena_.ApproximateMemoryUsage() + table_->ApproximateMemoryUsage();
+  size_t arena_usage = arena_.ApproximateMemoryUsage();
+  size_t table_usage = table_->ApproximateMemoryUsage();
+  // let MAX_USAGE =  std::numeric_limits<size_t>::max()
+  // then if arena_usage + total_usage >= MAX_USAGE, return MAX_USAGE.
+  // the following variation is to avoid numeric overflow.
+  if (arena_usage >= std::numeric_limits<size_t>::max() - table_usage) {
+    return std::numeric_limits<size_t>::max();
+  }
+  // otherwise, return the actual usage
+  return arena_usage + table_usage;
 }
 
 bool MemTable::ShouldFlushNow() const {

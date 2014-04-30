@@ -424,6 +424,13 @@ class DBImpl : public DB {
   // dump rocksdb.stats to LOG
   void MaybeDumpStats();
 
+  // Return true if the current db supports snapshot.  If the current
+  // DB does not support snapshot, then calling GetSnapshot() will always
+  // return nullptr.
+  //
+  // @see GetSnapshot()
+  virtual bool IsSnapshotSupported() const;
+
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
   int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd, int level);

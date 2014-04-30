@@ -149,6 +149,14 @@ class MemTable {
   // Notify the underlying storage that no more items will be added
   void MarkImmutable() { table_->MarkReadOnly(); }
 
+  // return true if the current MemTableRep supports merge operator.
+  bool IsMergeOperatorSupported() const {
+    return table_->IsMergeOperatorSupported();
+  }
+
+  // return true if the current MemTableRep supports snapshots.
+  bool IsSnapshotSupported() const { return table_->IsSnapshotSupported(); }
+
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
 

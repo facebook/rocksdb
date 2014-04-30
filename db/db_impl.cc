@@ -2406,6 +2406,9 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact,
 inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
   SequenceNumber in, std::vector<SequenceNumber>& snapshots,
   SequenceNumber* prev_snapshot) {
+  if (!IsSnapshotSupported()) {
+    return 0;
+  }
   SequenceNumber prev __attribute__((unused)) = 0;
   for (const auto cur : snapshots) {
     assert(prev <= cur);
@@ -3559,7 +3562,18 @@ Status DBImpl::NewIterators(
   return Status::OK();
 }
 
+bool DBImpl::IsSnapshotSupported() const {
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (!cfd->mem()->IsSnapshotSupported()) {
+      return false;
+    }
+  }
+  return true;
+}
+
 const Snapshot* DBImpl::GetSnapshot() {
+  // returns null if the underlying memtable does not support snapshot.
+  if (!IsSnapshotSupported()) return nullptr;
   MutexLock l(&mutex_);
   return snapshots_.New(versions_->LastSequence());
 }
@@ -4421,6 +4435,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
             break;
           }
         }
+      }
+      if (cfd->options()->merge_operator != nullptr &&
+          !cfd->mem()->IsMergeOperatorSupported()) {
+        s = Status::InvalidArgument(
+            "The memtable of column family %s does not support merge operator "
+            "its options.merge_operator is non-null", cfd->GetName().c_str());
       }
       if (!s.ok()) {
         break;

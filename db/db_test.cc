@@ -301,6 +301,7 @@ class DBTest {
     kPlainTableAllBytesPrefix,
     kVectorRep,
     kHashLinkList,
+    kHashCuckoo,
     kMergePut,
     kFilter,
     kUncompressed,
@@ -336,7 +337,8 @@ class DBTest {
     kSkipMergePut = 4,
     kSkipPlainTable = 8,
     kSkipHashIndex = 16,
-    kSkipNoSeekToLast = 32
+    kSkipNoSeekToLast = 32,
+    kSkipHashCuckoo = 64
   };
 
   DBTest() : option_config_(kDefault),
@@ -358,7 +360,6 @@ class DBTest {
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions(int skip_mask = kNoSkip) {
-    // skip some options
     for(option_config_++; option_config_ < kEnd; option_config_++) {
       if ((skip_mask & kSkipDeletesFilterFirst) &&
           option_config_ == kDeletesFilterFirst) {
@@ -386,7 +387,9 @@ class DBTest {
            option_config_ == kBlockBasedTableWithWholeKeyHashIndex)) {
         continue;
       }
-
+      if ((skip_mask & kSkipHashCuckoo) && (option_config_ == kHashCuckoo)) {
+        continue;
+      }
       break;
     }
 
@@ -417,6 +420,12 @@ class DBTest {
   // Return the current option configuration.
   Options CurrentOptions() {
     Options options;
+    return CurrentOptions(options);
+  }
+
+  Options CurrentOptions(const Options& defaultOptions) {
+    // this redudant copy is to minimize code change w/o having lint error.
+    Options options = defaultOptions;
     switch (option_config_) {
       case kHashSkipList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -472,6 +481,10 @@ class DBTest {
       case kHashLinkList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
         options.memtable_factory.reset(NewHashLinkListRepFactory(4));
+        break;
+      case kHashCuckoo:
+        options.memtable_factory.reset(
+            NewHashCuckooRepFactory(options.write_buffer_size));
         break;
       case kUniversalCompaction:
         options.compaction_style = kCompactionStyleUniversal;
@@ -1040,9 +1053,10 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
 
 TEST(DBTest, Empty) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     std::string num;
@@ -1244,9 +1258,10 @@ TEST(DBTest, PutDeleteGet) {
 
 TEST(DBTest, GetFromImmutableLayer) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     ASSERT_OK(Put(1, "foo", "v1"));
@@ -1287,7 +1302,8 @@ TEST(DBTest, GetSnapshot) {
       ASSERT_EQ("v1", Get(1, key, s1));
       db_->ReleaseSnapshot(s1);
     }
-  } while (ChangeOptions());
+    // skip as HashCuckooRep does not support snapshot
+  } while (ChangeOptions(kSkipHashCuckoo));
 }
 
 TEST(DBTest, GetLevel0Ordering) {
@@ -1499,7 +1515,9 @@ TEST(DBTest, NonBlockingIteration) {
 
     // This test verifies block cache behaviors, which is not used by plain
     // table format.
-  } while (ChangeOptions(kSkipPlainTable | kSkipNoSeekToLast));
+    // Exclude kHashCuckoo as it does not support iteration currently
+  } while (ChangeOptions(kSkipPlainTable | kSkipNoSeekToLast |
+                         kSkipHashCuckoo));
 }
 
 // A delete is skipped for key if KeyMayExist(key) returns False
@@ -2035,7 +2053,8 @@ TEST(DBTest, IterWithSnapshot) {
     }
     db_->ReleaseSnapshot(snapshot);
     delete iter;
-  } while (ChangeOptions());
+    // skip as HashCuckooRep does not support snapshot
+  } while (ChangeOptions(kSkipHashCuckoo));
 }
 
 TEST(DBTest, Recover) {
@@ -2063,10 +2082,11 @@ TEST(DBTest, Recover) {
 
 TEST(DBTest, RecoverWithTableHandle) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.create_if_missing = true;
     options.write_buffer_size = 100;
     options.disable_auto_compactions = true;
+    options = CurrentOptions(options);
     DestroyAndReopen(&options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
@@ -2184,7 +2204,7 @@ TEST(DBTest, IgnoreRecoveredLog) {
     }
     Status s = TryReopen(&options);
     ASSERT_TRUE(!s.ok());
-  } while (ChangeOptions());
+  } while (ChangeOptions(kSkipHashCuckoo));
 }
 
 TEST(DBTest, RollLog) {
@@ -2505,9 +2525,10 @@ TEST(DBTest, RecoveryWithEmptyLog) {
 // if the database is shutdown during the memtable compaction.
 TEST(DBTest, RecoverDuringMemtableCompaction) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.env = env_;
     options.write_buffer_size = 1000000;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Trigger a long memtable compaction and reopen the database during it
@@ -2526,8 +2547,9 @@ TEST(DBTest, RecoverDuringMemtableCompaction) {
 
 TEST(DBTest, MinorCompactionsHappen) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.write_buffer_size = 10000;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     const int N = 500;
@@ -2553,8 +2575,9 @@ TEST(DBTest, MinorCompactionsHappen) {
 
 TEST(DBTest, ManifestRollOver) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.max_manifest_file_size = 10 ;  // 10 bytes
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
     {
       ASSERT_OK(Put(1, "manifest_key1", std::string(1000, '1')));
@@ -2610,8 +2633,9 @@ TEST(DBTest, RecoverWithLargeLog) {
 
     // Make sure that if we re-open with a small write buffer size that
     // we flush table files in the middle of a large log file.
-    Options options = CurrentOptions();
+    Options options;
     options.write_buffer_size = 100000;
+    options = CurrentOptions(options);
     ReopenWithColumnFamilies({"default", "pikachu"}, &options);
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 3);
     ASSERT_EQ(std::string(200000, '1'), Get(1, "big1"));
@@ -2623,8 +2647,9 @@ TEST(DBTest, RecoverWithLargeLog) {
 }
 
 TEST(DBTest, CompactionsGenerateMultipleFiles) {
-  Options options = CurrentOptions();
+  Options options;
   options.write_buffer_size = 100000000;        // Large write buffer
+  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   Random rnd(301);
@@ -2649,11 +2674,12 @@ TEST(DBTest, CompactionsGenerateMultipleFiles) {
 }
 
 TEST(DBTest, CompactionTrigger) {
-  Options options = CurrentOptions();
+  Options options;
   options.write_buffer_size = 100<<10; //100KB
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 3;
+  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   Random rnd(301);
@@ -2778,7 +2804,7 @@ class ChangeFilterFactory : public CompactionFilterFactory {
 //  2. Made assumption on the memtable flush conidtions, which may change from
 //     time to time.
 TEST(DBTest, UniversalCompactionTrigger) {
-  Options options = CurrentOptions();
+  Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   // trigger compaction if there are >= 4 files
@@ -2787,6 +2813,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   filter->expect_manual_compaction_.store(false);
   options.compaction_filter_factory.reset(filter);
 
+  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   Random rnd(301);
@@ -2915,7 +2942,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
 }
 
 TEST(DBTest, UniversalCompactionSizeAmplification) {
-  Options options = CurrentOptions();
+  Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 3;
@@ -2923,6 +2950,7 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
 
   // Trigger compaction if size amplification exceeds 110%
   options.compaction_options_universal.max_size_amplification_percent = 110;
+  options = CurrentOptions(options);
   ReopenWithColumnFamilies({"default", "pikachu"}, &options);
 
   Random rnd(301);
@@ -2953,12 +2981,13 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
 }
 
 TEST(DBTest, UniversalCompactionOptions) {
-  Options options = CurrentOptions();
+  Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = 1;
   options.compaction_options_universal.compression_size_percent = -1;
+  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   Random rnd(301);
@@ -3114,6 +3143,7 @@ TEST(DBTest, CompressedCache) {
     Options no_block_cache_opts;
     no_block_cache_opts.no_block_cache = true;
     no_block_cache_opts.statistics = options.statistics;
+    options = CurrentOptions(options);
     ReopenWithColumnFamilies({"default", "pikachu"},
                              {&no_block_cache_opts, &options});
 
@@ -3180,12 +3210,13 @@ static std::string CompressibleString(Random* rnd, int len) {
 }
 
 TEST(DBTest, UniversalCompactionCompressRatio1) {
-  Options options = CurrentOptions();
+  Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
   options.compaction_options_universal.compression_size_percent = 70;
+  options = CurrentOptions(options);
   Reopen(&options);
 
   Random rnd(301);
@@ -3244,12 +3275,13 @@ TEST(DBTest, UniversalCompactionCompressRatio1) {
 }
 
 TEST(DBTest, UniversalCompactionCompressRatio2) {
-  Options options = CurrentOptions();
+  Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
   options.compaction_options_universal.compression_size_percent = 95;
+  options = CurrentOptions(options);
   Reopen(&options);
 
   Random rnd(301);
@@ -3277,7 +3309,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   int max_key_universal_insert = 600;
 
   // Stage 1: generate a db with level compaction
-  Options options = CurrentOptions();
+  Options options;
   options.write_buffer_size = 100<<10; //100KB
   options.num_levels = 4;
   options.level0_file_num_compaction_trigger = 3;
@@ -3285,6 +3317,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   options.max_bytes_for_level_multiplier = 1;
   options.target_file_size_base = 200<<10; // 200KB
   options.target_file_size_multiplier = 1;
+  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   for (int i = 0; i <= max_key_level_insert; i++) {
@@ -3304,6 +3337,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   // Stage 2: reopen with universal compaction - should fail
   options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
+  options = CurrentOptions(options);
   Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, &options);
   ASSERT_TRUE(s.IsInvalidArgument());
 
@@ -3314,6 +3348,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   options.target_file_size_multiplier = 1;
   options.max_bytes_for_level_base = INT_MAX;
   options.max_bytes_for_level_multiplier = 1;
+  options = CurrentOptions(options);
   ReopenWithColumnFamilies({"default", "pikachu"}, &options);
 
   dbfull()->CompactRange(handles_[1], nullptr, nullptr, true /* reduce level */,
@@ -3333,6 +3368,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 3;
+  options = CurrentOptions(options);
   ReopenWithColumnFamilies({"default", "pikachu"}, &options);
 
   for (int i = max_key_level_insert / 2; i <= max_key_universal_insert; i++) {
@@ -3483,9 +3519,10 @@ TEST(DBTest, MinLevelToCompress2) {
 
 TEST(DBTest, RepeatedWritesToSameKey) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // We must have at most one file per level except for level-0,
@@ -3504,11 +3541,12 @@ TEST(DBTest, RepeatedWritesToSameKey) {
 
 TEST(DBTest, InPlaceUpdate) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.create_if_missing = true;
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Update key with values of smaller size
@@ -3527,11 +3565,12 @@ TEST(DBTest, InPlaceUpdate) {
 
 TEST(DBTest, InPlaceUpdateLargeNewValue) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.create_if_missing = true;
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Update key with values of larger size
@@ -3551,7 +3590,7 @@ TEST(DBTest, InPlaceUpdateLargeNewValue) {
 
 TEST(DBTest, InPlaceUpdateCallbackSmallerSize) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
@@ -3559,6 +3598,7 @@ TEST(DBTest, InPlaceUpdateCallbackSmallerSize) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceSmallerSize;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Update key with values of smaller size
@@ -3579,7 +3619,7 @@ TEST(DBTest, InPlaceUpdateCallbackSmallerSize) {
 
 TEST(DBTest, InPlaceUpdateCallbackSmallerVarintSize) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
@@ -3587,6 +3627,7 @@ TEST(DBTest, InPlaceUpdateCallbackSmallerVarintSize) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceSmallerVarintSize;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Update key with values of smaller varint size
@@ -3607,7 +3648,7 @@ TEST(DBTest, InPlaceUpdateCallbackSmallerVarintSize) {
 
 TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
@@ -3615,6 +3656,7 @@ TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceLargerSize;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Update key with values of larger size
@@ -3633,7 +3675,7 @@ TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
 
 TEST(DBTest, InPlaceUpdateCallbackNoAction) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
@@ -3641,6 +3683,7 @@ TEST(DBTest, InPlaceUpdateCallbackNoAction) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceNoAction;
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Callback function requests no actions from db
@@ -3656,6 +3699,7 @@ TEST(DBTest, CompactionFilter) {
   options.num_levels = 3;
   options.max_mem_compaction_level = 0;
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
+  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   // Write 100K keys, these are written to a few files in L0.
@@ -3792,12 +3836,12 @@ TEST(DBTest, CompactionFilter) {
 
 TEST(DBTest, CompactionFilterWithValueChange) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.num_levels = 3;
     options.max_mem_compaction_level = 0;
     options.compaction_filter_factory =
       std::make_shared<ChangeFilterFactory>();
-    Reopen(&options);
+    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Write 100K+1 keys, these are written to a few files
@@ -4115,6 +4159,7 @@ TEST(DBTest, CompactionFilterV2WithValueChange) {
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
   options.compaction_style = (rocksdb::CompactionStyle)1;
+  options = CurrentOptions(options);
   Reopen(&options);
 
   // Write 100K+1 keys, these are written to a few files
@@ -4253,9 +4298,10 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
 
 TEST(DBTest, ApproximateSizes) {
   do {
-    Options options = CurrentOptions();
+    Options options;
     options.write_buffer_size = 100000000;        // Large write buffer
     options.compression = kNoCompression;
+    options = CurrentOptions(options);
     DestroyAndReopen();
     CreateAndReopenWithCF({"pikachu"}, &options);
 
@@ -4411,7 +4457,7 @@ TEST(DBTest, Snapshot) {
     db_->ReleaseSnapshot(s2);
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
-  } while (ChangeOptions());
+  } while (ChangeOptions(kSkipHashCuckoo));
 }
 
 TEST(DBTest, HiddenValuesAreRemoved) {
@@ -4445,7 +4491,9 @@ TEST(DBTest, HiddenValuesAreRemoved) {
     ASSERT_TRUE(Between(Size("", "pastfoo", 1), 0, 1000));
     // ApproximateOffsetOf() is not yet implemented in plain table format,
     // which is used by Size().
-  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable));
+    // skip HashCuckooRep as it does not support snapshot
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable |
+                         kSkipHashCuckoo));
 }
 
 TEST(DBTest, CompactBetweenSnapshots) {
@@ -4500,8 +4548,8 @@ TEST(DBTest, CompactBetweenSnapshots) {
     dbfull()->CompactRange(handles_[1], nullptr, nullptr);
     ASSERT_EQ("sixth", Get(1, "foo"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
-
-  } while (ChangeOptions());
+    // skip HashCuckooRep as it does not support snapshot
+  } while (ChangeOptions(kSkipHashCuckoo));
 }
 
 TEST(DBTest, DeletionMarkers1) {
@@ -4721,6 +4769,7 @@ TEST(DBTest, CustomComparator) {
     new_options.comparator = &cmp;
     new_options.filter_policy = nullptr;     // Cannot use bloom filters
     new_options.write_buffer_size = 1000;  // Compact more often
+    new_options = CurrentOptions(new_options);
     DestroyAndReopen(&new_options);
     CreateAndReopenWithCF({"pikachu"}, &new_options);
     ASSERT_OK(Put(1, "[10]", "ten"));
@@ -5955,7 +6004,8 @@ TEST(DBTest, MultiThreaded) {
         env_->SleepForMicroseconds(100000);
       }
     }
-  } while (ChangeOptions());
+    // skip as HashCuckooRep does not support snapshot
+  } while (ChangeOptions(kSkipHashCuckoo));
 }
 
 // Group commit test:
@@ -6119,6 +6169,7 @@ class ModelDB: public DB {
   virtual void ReleaseSnapshot(const Snapshot* snapshot) {
     delete reinterpret_cast<const ModelSnapshot*>(snapshot);
   }
+
   virtual Status Write(const WriteOptions& options, WriteBatch* batch) {
     class Handler : public WriteBatch::Handler {
      public:
@@ -6333,6 +6384,7 @@ TEST(DBTest, Randomized) {
       int minimum = 0;
       if (option_config_ == kHashSkipList ||
           option_config_ == kHashLinkList ||
+          option_config_ == kHashCuckoo ||
           option_config_ == kPlainTableFirstBytePrefix ||
           option_config_ == kBlockBasedTableWithWholeKeyHashIndex ||
           option_config_ == kBlockBasedTableWithPrefixHashIndex) {
@@ -6393,7 +6445,9 @@ TEST(DBTest, Randomized) {
     }
     if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
     if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
-  } while (ChangeOptions(kSkipDeletesFilterFirst | kSkipNoSeekToLast));
+    // skip cuckoo hash as it does not support snapshot.
+  } while (ChangeOptions(kSkipDeletesFilterFirst |
+                         kSkipNoSeekToLast | kSkipHashCuckoo));
 }
 
 TEST(DBTest, MultiGetSimple) {
