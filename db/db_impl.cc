@@ -3644,7 +3644,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_SELF, 1);
   }
 
-  int64_t flush_column_family_if_log_file = 0;
+  uint64_t flush_column_family_if_log_file = 0;
   uint64_t max_total_wal_size = (options_.max_total_wal_size == 0)
                                     ? 2 * max_total_in_memory_state_
                                     : options_.max_total_wal_size;
