@@ -156,7 +156,9 @@ case "$TARGET_OS" in
         exit 1
 esac
 
-$PWD/build_tools/build_detect_version
+if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
+  $PWD/build_tools/build_detect_version
+fi
 
 # We want to make a list of all cc files within util, db, table, and helpers
 # except for the test and benchmark files. By default, find will output a list

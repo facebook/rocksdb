@@ -87,7 +87,7 @@ struct FileIndexerTest {
 
 TEST(FileIndexerTest, next_level_hint) {
   for (uint32_t i = 0; i < kNumLevels; ++i) {
-    ASSERT_EQ(0, indexer.LevelIndexSize(i));
+    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
   }
 
   // Case 1: no overlap, files are on the left of next level files
@@ -129,7 +129,7 @@ TEST(FileIndexerTest, next_level_hint) {
   // Case 2: no overlap, files are on the right of next level files
   Reset();
   for (uint32_t i = 1; i < kNumLevels; ++i) {
-    ASSERT_EQ(0, indexer.LevelIndexSize(i));
+    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
   }
   // level 1
   AddFile(1, 2100, 2200);
@@ -170,7 +170,7 @@ TEST(FileIndexerTest, next_level_hint) {
   // Case 3: empty L2
   Reset();
   for (uint32_t i = 1; i < kNumLevels; ++i) {
-    ASSERT_EQ(0, indexer.LevelIndexSize(i));
+    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
   }
   // level 1
   AddFile(1, 2100, 2200);
@@ -206,7 +206,7 @@ TEST(FileIndexerTest, next_level_hint) {
   // Case 4: mixed
   Reset();
   for (uint32_t i = 1; i < kNumLevels; ++i) {
-    ASSERT_EQ(0, indexer.LevelIndexSize(i));
+    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
   }
   // level 1
   AddFile(1, 100, 200);

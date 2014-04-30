@@ -16,7 +16,7 @@ namespace rocksdb {
 class HashCuckooRepFactory : public MemTableRepFactory {
  public:
   // maxinum number of hash functions used in the cuckoo hash.
-  static const int kMaxHashCount = 10;
+  static const unsigned int kMaxHashCount = 10;
 
   explicit HashCuckooRepFactory(size_t write_buffer_size,
                                 size_t average_data_size,

@@ -265,7 +265,7 @@ TEST(PlainTableDBTest, Flush) {
 
       TablePropertiesCollection ptc;
       reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
-      ASSERT_EQ(1, ptc.size());
+      ASSERT_EQ(1U, ptc.size());
       auto row = ptc.begin();
       auto tp = row->second;
       ASSERT_EQ(
