@@ -2742,6 +2742,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     for (int level = 0; level < cfd->NumberLevels(); level++) {
       for (const auto& file : cfd->current()->files_[level]) {
         LiveFileMetaData filemetadata;
+        filemetadata.column_family_name = cfd->GetName();
         filemetadata.name = TableFileName("", file->number);
         filemetadata.level = level;
         filemetadata.size = file->file_size;
