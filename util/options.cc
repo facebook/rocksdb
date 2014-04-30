@@ -9,6 +9,8 @@
 
 #include "rocksdb/options.h"
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <limits>
 
 #include "rocksdb/cache.h"
@@ -160,6 +162,7 @@ DBOptions::DBOptions()
       info_log(nullptr),
       info_log_level(INFO_LEVEL),
       max_open_files(5000),
+      max_total_wal_size(0),
       statistics(nullptr),
       disableDataSync(false),
       use_fsync(false),
@@ -198,6 +201,7 @@ DBOptions::DBOptions(const Options& options)
       info_log(options.info_log),
       info_log_level(options.info_log_level),
       max_open_files(options.max_open_files),
+      max_total_wal_size(options.max_total_wal_size),
       statistics(options.statistics),
       disableDataSync(options.disableDataSync),
       use_fsync(options.use_fsync),
@@ -241,6 +245,7 @@ void DBOptions::Dump(Logger* log) const {
     Log(log,"                     Options.env: %p", env);
     Log(log,"                Options.info_log: %p", info_log.get());
     Log(log,"          Options.max_open_files: %d", max_open_files);
+    Log(log,"      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
     Log(log, "       Options.disableDataSync: %d", disableDataSync);
     Log(log, "             Options.use_fsync: %d", use_fsync);
     Log(log, "     Options.max_log_file_size: %zu", max_log_file_size);

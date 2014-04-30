@@ -455,7 +455,19 @@ class DBImpl : public DB {
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
-  std::deque<uint64_t> alive_log_files_;
+  struct LogFileNumberSize {
+    explicit LogFileNumberSize(uint64_t _number)
+        : number(_number), size(0), getting_flushed(false) {}
+    void AddSize(uint64_t new_size) { size += new_size; }
+    uint64_t number;
+    uint64_t size;
+    bool getting_flushed;
+  };
+  std::deque<LogFileNumberSize> alive_log_files_;
+  uint64_t total_log_size_;
+  // only used for dynamically adjusting max_total_wal_size. it is a sum of
+  // [write_buffer_size * max_write_buffer_number] over all column families
+  uint64_t max_total_in_memory_state_;
 
   std::string host_name_;
 

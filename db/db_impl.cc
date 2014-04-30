@@ -350,6 +350,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       logfile_number_(0),
       log_empty_(true),
       default_cf_handle_(nullptr),
+      total_log_size_(0),
+      max_total_in_memory_state_(0),
       tmp_batch_(),
       bg_schedule_needed_(false),
       bg_compaction_scheduled_(0),
@@ -1186,6 +1188,11 @@ Status DBImpl::Recover(
                    versions_->LastSequence());
   }
 
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    max_total_in_memory_state_ += cfd->options()->write_buffer_size *
+                                  cfd->options()->max_write_buffer_number;
+  }
+
   return s;
 }
 
@@ -1434,9 +1441,6 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
         cfd->GetName().c_str(), (unsigned long)meta.number,
         (unsigned long)meta.file_size, s.ToString().c_str());
 
-    Version::LevelSummaryStorage tmp;
-    Log(options_.info_log, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
-        cfd->current()->LevelSummary(&tmp));
     if (!options_.disableDataSync) {
       db_directory_->Fsync();
     }
@@ -1536,14 +1540,19 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     if (madeProgress) {
       *madeProgress = 1;
     }
+    Version::LevelSummaryStorage tmp;
+    LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
+                cfd->current()->LevelSummary(&tmp));
 
     MaybeScheduleLogDBDeployStats();
 
     if (disable_delete_obsolete_files_ == 0) {
       // add to deletion state
       while (alive_log_files_.size() &&
-             *alive_log_files_.begin() < versions_->MinLogNumber()) {
-        deletion_state.log_delete_files.push_back(*alive_log_files_.begin());
+             alive_log_files_.begin()->number < versions_->MinLogNumber()) {
+        const auto& earliest = *alive_log_files_.begin();
+        deletion_state.log_delete_files.push_back(earliest.number);
+        total_log_size_ -= earliest.size;
         alive_log_files_.pop_front();
       }
     }
@@ -3420,6 +3429,8 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
     *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
     Log(options_.info_log, "Created column family [%s] (ID %u)",
         column_family_name.c_str(), (unsigned)cfd->GetID());
+    max_total_in_memory_state_ += cfd->options()->write_buffer_size *
+                                  cfd->options()->max_write_buffer_number;
   } else {
     Log(options_.info_log, "Creating column family [%s] FAILED -- %s",
         column_family_name.c_str(), s.ToString().c_str());
@@ -3451,6 +3462,8 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 
   if (s.ok()) {
     assert(cfd->IsDropped());
+    max_total_in_memory_state_ -= cfd->options()->write_buffer_size *
+                                  cfd->options()->max_write_buffer_number;
     Log(options_.info_log, "Dropped column family with id %u\n", cfd->GetID());
     // Flush the memtables. This will make all WAL files referencing dropped
     // column family to be obsolete. They will be deleted once user deletes
@@ -3631,6 +3644,19 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_SELF, 1);
   }
 
+  int64_t flush_column_family_if_log_file = 0;
+  uint64_t max_total_wal_size = (options_.max_total_wal_size == 0)
+                                    ? 2 * max_total_in_memory_state_
+                                    : options_.max_total_wal_size;
+  if (alive_log_files_.begin()->getting_flushed == false &&
+      total_log_size_ > max_total_wal_size) {
+    flush_column_family_if_log_file = alive_log_files_.begin()->number;
+    alive_log_files_.begin()->getting_flushed = true;
+    Log(options_.info_log,
+        "Flushing all column families with data in WAL number %" PRIu64,
+        flush_column_family_if_log_file);
+  }
+
   Status status;
   // refcounting cfd in iteration
   bool dead_cfd = false;
@@ -3638,8 +3664,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   autovector<log::Writer*> logs_to_free;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     cfd->Ref();
+    bool force_flush = my_batch == nullptr ||
+                       (flush_column_family_if_log_file != 0 &&
+                        cfd->GetLogNumber() <= flush_column_family_if_log_file);
     // May temporarily unlock and wait.
-    status = MakeRoomForWrite(cfd, my_batch == nullptr, &superversions_to_free,
+    status = MakeRoomForWrite(cfd, force_flush, &superversions_to_free,
                               &logs_to_free);
     if (cfd->Unref()) {
       dead_cfd = true;
@@ -3693,6 +3722,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         PERF_TIMER_START(write_wal_time);
         Slice log_entry = WriteBatchInternal::Contents(updates);
         status = log_->AddRecord(log_entry);
+        total_log_size_ += log_entry.size();
+        alive_log_files_.back().AddSize(log_entry.size());
         log_empty_ = false;
         RecordTick(options_.statistics.get(), WAL_FILE_SYNCED, 1);
         RecordTick(options_.statistics.get(), WAL_FILE_BYTES, log_entry.size());
@@ -4023,7 +4054,7 @@ Status DBImpl::MakeRoomForWrite(
         logs_to_free->push_back(log_.release());
         log_.reset(new_log);
         log_empty_ = true;
-        alive_log_files_.push_back(logfile_number_);
+        alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
         for (auto cfd : *versions_->GetColumnFamilySet()) {
           // all this is just optimization to delete logs that
           // are no longer needed -- if CF is empty, that means it
@@ -4415,7 +4446,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
         delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
       }
-      impl->alive_log_files_.push_back(impl->logfile_number_);
+      impl->alive_log_files_.push_back(
+          DBImpl::LogFileNumberSize(impl->logfile_number_));
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleFlushOrCompaction();
       impl->MaybeScheduleLogDBDeployStats();

@@ -585,6 +585,14 @@ struct DBOptions {
   // Default: 5000
   int max_open_files;
 
+  // Once write-ahead logs exceed this size, we will start forcing the flush of
+  // column families whose memtables are backed by the oldest live WAL file
+  // (i.e. the ones that are causing all the space amplification). If set to 0
+  // (default), we will dynamically choose the WAL size limit to be
+  // [sum of all write_buffer_size * max_write_buffer_number] * 2
+  // Default: 0
+  uint64_t max_total_wal_size;
+
   // If non-null, then we should collect metrics about database operations
   // Statistics objects should not be shared between DB instances as
   // it does not use any locks to prevent concurrent updates.
