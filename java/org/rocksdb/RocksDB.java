@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.io.Closeable;
 import java.io.IOException;
 
@@ -147,6 +150,7 @@ public class RocksDB {
    * returned if the specified key is not found.
    *
    * @param key the key retrieve the value.
+   * @param opt Read options.
    * @return a byte array storing the value associated with the input key if
    *     any.  null if it does not find the specified key.
    *
@@ -154,6 +158,64 @@ public class RocksDB {
    */
   public byte[] get(ReadOptions opt, byte[] key) throws RocksDBException {
     return get(nativeHandle_, opt.nativeHandle_, key, key.length);
+  }
+
+  /**
+   * Returns a map of keys for which values were found in DB.
+   *
+   * @param keys List of keys for which values need to be retrieved.
+   * @return Map where key of map is the key passed by user and value for map
+   * entry is the corresponding value in DB.
+   *
+   * @see RocksDBException
+   */
+  public Map<byte[], byte[]> multiGet(List<byte[]> keys)
+      throws RocksDBException {
+    assert(keys.size() != 0);
+
+    List<byte[]> values = multiGet(
+        nativeHandle_, keys, keys.size());
+
+    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
+    for(int i = 0; i < values.size(); i++) {
+      if(values.get(i) == null) {
+        continue;
+      }
+
+      keyValueMap.put(keys.get(i), values.get(i));
+    }
+
+    return keyValueMap;
+  }
+
+
+  /**
+   * Returns a map of keys for which values were found in DB.
+   *
+   * @param List of keys for which values need to be retrieved.
+   * @param opt Read options.
+   * @return Map where key of map is the key passed by user and value for map
+   * entry is the corresponding value in DB.
+   *
+   * @see RocksDBException
+   */
+  public Map<byte[], byte[]> multiGet(ReadOptions opt, List<byte[]> keys)
+      throws RocksDBException {
+    assert(keys.size() != 0);
+
+    List<byte[]> values = multiGet(
+        nativeHandle_, opt.nativeHandle_, keys, keys.size());
+
+    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
+    for(int i = 0; i < values.size(); i++) {
+      if(values.get(i) == null) {
+        continue;
+      }
+
+      keyValueMap.put(keys.get(i), values.get(i));
+    }
+
+    return keyValueMap;
   }
 
   /**
@@ -229,6 +291,10 @@ public class RocksDB {
   protected native int get(
       long handle, long readOptHandle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
+  protected native List<byte[]> multiGet(
+      long dbHandle, List<byte[]> keys, int keysCount);
+  protected native List<byte[]> multiGet(
+      long dbHandle, long rOptHandle, List<byte[]> keys, int keysCount);
   protected native byte[] get(
       long handle, byte[] key, int keyLen) throws RocksDBException;
   protected native byte[] get(
