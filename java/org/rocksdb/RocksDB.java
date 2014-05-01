@@ -18,7 +18,7 @@ import org.rocksdb.util.Environment;
  * All methods of this class could potentially throw RocksDBException, which
  * indicates sth wrong at the rocksdb library side and the call failed.
  */
-public class RocksDB {
+public class RocksDB extends RocksObject {
   public static final int NOT_FOUND = -1;
   private static final String[] compressionLibs_ = {
       "snappy", "zlib", "bzip2", "lz4", "lz4hc"};
@@ -114,10 +114,19 @@ public class RocksDB {
     return db;
   }
 
-  public synchronized void close() {
-    if (nativeHandle_ != 0) {
-      close0();
+  @Override public synchronized void dispose() {
+    if (isInitialized()) {
+      dispose(nativeHandle_);
+      nativeHandle_ = 0;
     }
+  }
+
+  /**
+   * Close the RocksDB instance.
+   * This function is equivalent to dispose().
+   */
+  public void close() {
+    dispose();
   }
 
   /**
@@ -314,7 +323,7 @@ public class RocksDB {
    * Private constructor.
    */
   protected RocksDB() {
-    nativeHandle_ = 0;
+    super();
   }
 
   /**
@@ -361,8 +370,7 @@ public class RocksDB {
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
   protected native long iterator0(long optHandle);
-  protected native void close0();
+  protected native void dispose(long handle);
 
-  protected long nativeHandle_;
   protected Filter filter_;
 }

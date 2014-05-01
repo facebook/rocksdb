@@ -12,8 +12,9 @@ package org.rocksdb;
  * Note that dispose() must be called before an Options instance
  * become out-of-scope to release the allocated memory in c++.
  */
-public class BackupableDBOptions {
+public class BackupableDBOptions extends RocksObject {
   public BackupableDBOptions(String path) {
+    super();
     newBackupableDBOptions(path);
   }
 
@@ -31,22 +32,13 @@ public class BackupableDBOptions {
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
-  public synchronized void dispose() {
+  @Override public synchronized void dispose() {
     if (isInitialized()) {
       dispose(nativeHandle_);
     }
   }
 
-  @Override protected void finalize() {
-    dispose();
-  }
-
-  boolean isInitialized() {
-    return nativeHandle_ != 0;
-  }
-
   private native void newBackupableDBOptions(String path);
   private native String backupDir(long handle);
   private native void dispose(long handle);
-  long nativeHandle_;
 }

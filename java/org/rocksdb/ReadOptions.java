@@ -11,9 +11,9 @@ package org.rocksdb;
  * Note that dispose() must be called before an Options instance
  * become out-of-scope to release the allocated memory in c++.
  */
-public class ReadOptions {
+public class ReadOptions extends RocksObject {
   public ReadOptions() {
-    nativeHandle_ = 0;
+    super();
     newReadOptions();
   }
   private native void newReadOptions();
@@ -24,7 +24,7 @@ public class ReadOptions {
    *
    * Calling other methods after dispose() leads to undefined behavior.
    */
-  public synchronized void dispose() {
+  @Override public synchronized void dispose() {
     if (isInitialized()) {
       dispose(nativeHandle_);
     }
@@ -127,10 +127,4 @@ public class ReadOptions {
   }
   private native void setTailing(
       long handle, boolean tailing);
-
-  protected long nativeHandle_;
-
-  private boolean isInitialized() {
-    return nativeHandle_ != 0;
-  }
 }

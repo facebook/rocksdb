@@ -12,26 +12,20 @@ package org.rocksdb;
  * number of disk seeks form a handful to a single disk seek per
  * DB::Get() call.
  */
-public abstract class Filter {
-  protected long nativeHandle_ = 0;
-
+public abstract class Filter extends RocksObject {
   protected abstract void createNewFilter();
 
   /**
    * Deletes underlying C++ filter pointer.
+   *
+   * Note that this function should be called only after all
+   * RocksDB instances referencing the filter are closed.
+   * Otherwise an undefined behavior will occur.
    */
-  protected synchronized void dispose() {
-    if(nativeHandle_ != 0) {
+  @Override public synchronized void dispose() {
+    if (isInitialized()) {
       dispose0(nativeHandle_);
     }
-  }
-
-  @Override protected void finalize() {
-    dispose();
-  }
-
-  protected boolean isInitialized() {
-    return (nativeHandle_ != 0);
   }
 
   private native void dispose0(long handle);

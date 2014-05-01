@@ -218,7 +218,7 @@ public class RocksDBSample {
 
       System.out.println("iterator seek test passed.");
 
-      iterator.close();
+      iterator.dispose();
       System.out.println("iterator tests passed.");
 
       iterator = db.newIterator();
@@ -226,7 +226,7 @@ public class RocksDBSample {
       for (iterator.seekToLast(); iterator.isValid(); iterator.prev()) {
         keys.add(iterator.key());
       }
-      iterator.close();
+      iterator.dispose();
 
       Map<byte[], byte[]> values = db.multiGet(keys);
       assert(values.size() == keys.size());
@@ -248,5 +248,6 @@ public class RocksDBSample {
     // be sure to dispose c++ pointers
     options.dispose();
     readOptions.dispose();
+    filter.dispose();
   }
 }

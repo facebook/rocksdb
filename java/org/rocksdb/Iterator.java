@@ -16,10 +16,9 @@ package org.rocksdb;
  * non-const method, all threads accessing the same Iterator must use
  * external synchronization.
  */
-public class Iterator {
-  private long nativeHandle_;
-
+public class Iterator extends RocksObject {
   public Iterator(long nativeHandle) {
+    super();
     nativeHandle_ = nativeHandle;
   }
 
@@ -119,22 +118,15 @@ public class Iterator {
   /**
    * Deletes underlying C++ iterator pointer.
    */
-  public synchronized void close() {
-    if(nativeHandle_ != 0) {
-      close0(nativeHandle_);
+  @Override public synchronized void dispose() {
+    if(isInitialized()) {
+      dispose(nativeHandle_);
+      nativeHandle_ = 0;
     }
   }
 
-  @Override protected void finalize() {
-    close();
-  }
-
-  private boolean isInitialized() {
-    return (nativeHandle_ != 0);
-  }
-
   private native boolean isValid0(long handle);
-  private native void close0(long handle);
+  private native void dispose(long handle);
   private native void seekToFirst0(long handle);
   private native void seekToLast0(long handle);
   private native void next0(long handle);

@@ -11,14 +11,14 @@ package org.rocksdb;
  * Note that developers should call WriteOptions.dispose() to release the
  * c++ side memory before a WriteOptions instance runs out of scope.
  */
-public class WriteOptions {
+public class WriteOptions extends RocksObject {
   public WriteOptions() {
-    nativeHandle_ = 0;
+    super();
     newWriteOptions();
   }
 
-  public synchronized void dispose() {
-    if (nativeHandle_ != 0) {
+  @Override public synchronized void dispose() {
+    if (isInitialized()) {
       dispose0(nativeHandle_);
     }
   }
@@ -91,16 +91,10 @@ public class WriteOptions {
     return disableWAL(nativeHandle_);
   }
 
-  @Override protected void finalize() {
-    dispose();
-  }
-
   private native void newWriteOptions();
   private native void setSync(long handle, boolean flag);
   private native boolean sync(long handle);
   private native void setDisableWAL(long handle, boolean flag);
   private native boolean disableWAL(long handle);
   private native void dispose0(long handle);
-
-  protected long nativeHandle_;
 }

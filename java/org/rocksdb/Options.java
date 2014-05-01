@@ -12,7 +12,7 @@ package org.rocksdb;
  * Note that dispose() must be called before an Options instance
  * become out-of-scope to release the allocated memory in c++.
  */
-public class Options {
+public class Options extends RocksObject {
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
   /**
    * Construct options for opening a RocksDB.
@@ -21,7 +21,7 @@ public class Options {
    * an rocksdb::Options in the c++ side.
    */
   public Options() {
-    nativeHandle_ = 0;
+    super();
     cacheSize_ = DEFAULT_CACHE_SIZE;
     newOptions();
   }
@@ -2311,18 +2311,10 @@ public class Options {
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
-  public synchronized void dispose() {
+  @Override public synchronized void dispose() {
     if (isInitialized()) {
       dispose0();
     }
-  }
-
-  @Override protected void finalize() {
-    dispose();
-  }
-
-  private boolean isInitialized() {
-    return (nativeHandle_ != 0);
   }
 
   static final int DEFAULT_PLAIN_TABLE_BLOOM_BITS_PER_KEY = 10;
@@ -2358,7 +2350,6 @@ public class Options {
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
 
-  long nativeHandle_;
   long cacheSize_;
   Filter filter_;
 }

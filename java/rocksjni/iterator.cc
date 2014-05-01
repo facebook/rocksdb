@@ -26,7 +26,7 @@ jboolean Java_org_rocksdb_Iterator_isValid0(
 
 /*
  * Class:     org_rocksdb_Iterator
- * Method:    close0
+ * Method:    seekToFirst0
  * Signature: (J)V
  */
 void Java_org_rocksdb_Iterator_seekToFirst0(
@@ -135,13 +135,11 @@ void Java_org_rocksdb_Iterator_status0(
 
 /*
  * Class:     org_rocksdb_Iterator
- * Method:    status0
+ * Method:    dispose
  * Signature: (J)V
  */
-void Java_org_rocksdb_Iterator_close0(
+void Java_org_rocksdb_Iterator_dispose(
     JNIEnv* env, jobject jobj, jlong handle) {
   auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
   delete it;
-
-  rocksdb::IteratorJni::setHandle(env, jobj, nullptr);
 }

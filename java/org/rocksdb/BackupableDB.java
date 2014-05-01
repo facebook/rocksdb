@@ -55,8 +55,8 @@ public class BackupableDB extends RocksDB {
    * should be transparent to Java developers.
    */
   @Override public synchronized void close() {
-    if (isOpened()) {
-      super.close0();
+    if (isInitialized()) {
+      super.close();
     }
   }
 
@@ -71,10 +71,6 @@ public class BackupableDB extends RocksDB {
 
   @Override protected void finalize() {
     close();
-  }
-
-  private boolean isOpened() {
-    return nativeHandle_ != 0;
   }
 
   protected native void open(long rocksDBHandle, long backupDBOptionsHandle);
