@@ -95,6 +95,7 @@ inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
     return kPlainTableMagicNumber;
   }
   assert(false);
+  return 0;
 }
 }  // namespace
 
