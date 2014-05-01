@@ -15,6 +15,7 @@
 #include <vector>
 #include <stdint.h>
 
+#include "rocksdb/version.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
