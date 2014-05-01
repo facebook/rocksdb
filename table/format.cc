@@ -231,7 +231,7 @@ Status ReadBlockContents(RandomAccessFile* file,
   const char* data = contents.data();    // Pointer to where Read put the data
   if (options.verify_checksums) {
     uint32_t value = DecodeFixed32(data + n + 1);
-    uint32_t actual;
+    uint32_t actual = 0;
     switch (footer.checksum()) {
       case kCRC32c:
         value = crc32c::Unmask(value);
