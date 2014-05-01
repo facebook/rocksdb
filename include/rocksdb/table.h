@@ -38,6 +38,12 @@ struct Options;
 
 using std::unique_ptr;
 
+enum ChecksumType : char {
+  kNoChecksum = 0x0,  // not yet supported. Will fail
+  kCRC32c = 0x1,
+  kxxHash = 0x2,
+};
+
 // For advanced user only
 struct BlockBasedTableOptions {
   // @flush_block_policy_factory creates the instances of flush block policy.
@@ -67,6 +73,11 @@ struct BlockBasedTableOptions {
   };
 
   IndexType index_type = kBinarySearch;
+
+  // Use the specified checksum type. Newly created table files will be
+  // protected with this checksum type. Old table files will still be readable,
+  // even though they have different checksum type.
+  ChecksumType checksum = kCRC32c;
 };
 
 // Table Properties that are specific to block-based table properties.

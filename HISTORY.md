@@ -4,12 +4,11 @@
 
 ### Public API changes
 * Added _LEVEL to all InfoLogLevel enums
+* Deprecated ReadOptions.prefix and ReadOptions.prefix_seek. Seek() defaults to prefix-based seek when Options.prefix_extractor is supplied. More detail is documented in https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
 
 ### New Features
 * Column family support
-
-### Public API changes
-* Deprecated ReadOptions.prefix and ReadOptions.prefix_seek. Seek() defaults to prefix-based seek when Options.prefix_extractor is supplied. More detail is documented in https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
+* Added an option to use different checksum functions in BlockBasedTableOptions
 
 ## 2.8.0 (04/04/2014)
 

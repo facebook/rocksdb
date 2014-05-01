@@ -133,9 +133,9 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
-Status ReadProperties(const Slice& handle_value, RandomAccessFile* file,
-                      Env* env, Logger* logger,
-                      TableProperties** table_properties) {
+Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
+                      const Footer &footer, Env *env, Logger *logger,
+                      TableProperties **table_properties) {
   assert(table_properties);
 
   Slice v = handle_value;
@@ -147,8 +147,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFile* file,
   BlockContents block_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  Status s = ReadBlockContents(file, read_options, handle, &block_contents, env,
-                               false);
+  Status s = ReadBlockContents(file, footer, read_options, handle,
+                               &block_contents, env, false);
 
   if (!s.ok()) {
     return s;
@@ -234,7 +234,7 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  s = ReadBlockContents(file, read_options, metaindex_handle,
+  s = ReadBlockContents(file, footer, read_options, metaindex_handle,
                         &metaindex_contents, env, false);
   if (!s.ok()) {
     return s;
@@ -252,7 +252,8 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
 
   TableProperties table_properties;
   if (found_properties_block == true) {
-    s = ReadProperties(meta_iter->value(), file, env, info_log, properties);
+    s = ReadProperties(meta_iter->value(), file, footer, env, info_log,
+                       properties);
   } else {
     s = Status::Corruption("Unable to read the property block.");
     Log(WARN_LEVEL, info_log,
@@ -260,40 +261,6 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
   }
 
   return s;
-}
-
-Status ReadTableMagicNumber(const std::string& file_path,
-                            const Options& options,
-                            const EnvOptions& env_options,
-                            uint64_t* table_magic_number) {
-  unique_ptr<RandomAccessFile> file;
-  Status s = options.env->NewRandomAccessFile(file_path, &file, env_options);
-  if (!s.ok()) {
-    return s;
-  }
-
-  uint64_t file_size;
-  options.env->GetFileSize(file_path, &file_size);
-  return ReadTableMagicNumber(file.get(), file_size, options, env_options,
-                              table_magic_number);
-}
-
-Status ReadTableMagicNumber(RandomAccessFile* file, uint64_t file_size,
-                            const Options& options,
-                            const EnvOptions& env_options,
-                            uint64_t* table_magic_number) {
-  if (file_size < Footer::kEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
-  }
-
-  Footer footer;
-  auto s = ReadFooterFromFile(file, file_size, &footer);
-  if (!s.ok()) {
-    return s;
-  }
-
-  *table_magic_number = footer.table_magic_number();
-  return Status::OK();
 }
 
 }  // namespace rocksdb

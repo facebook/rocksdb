@@ -37,6 +37,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -231,12 +232,14 @@ Slice CompressBlock(const Slice& raw,
 }  // anonymous namespace
 
 // kBlockBasedTableMagicNumber was picked by running
-//    echo http://code.google.com/p/leveldb/ | sha1sum
+//    echo rocksdb.table.block_based | sha1sum
 // and taking the leading 64 bits.
 // Please note that kBlockBasedTableMagicNumber may also be accessed by
 // other .cc files so it have to be explicitly declared with "extern".
-extern const uint64_t kBlockBasedTableMagicNumber
-    = 0xdb4775248b80fb57ull;
+extern const uint64_t kBlockBasedTableMagicNumber = 0x88e241b785f4cff7ull;
+// We also support reading and writing legacy block based table format (for
+// backwards compatibility)
+extern const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 
 // A collector that collects properties of interest to block-based table.
 // For now this class looks heavy-weight since we only write one additional
@@ -289,6 +292,7 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string last_key;
   CompressionType compression_type;
+  ChecksumType checksum_type;
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
@@ -303,7 +307,8 @@ struct BlockBasedTableBuilder::Rep {
 
   Rep(const Options& opt, const InternalKeyComparator& icomparator,
       WritableFile* f, FlushBlockPolicyFactory* flush_block_policy_factory,
-      CompressionType compression_type, IndexType index_block_type)
+      CompressionType compression_type, IndexType index_block_type,
+      ChecksumType checksum_type)
       : options(opt),
         internal_comparator(icomparator),
         file(f),
@@ -311,6 +316,7 @@ struct BlockBasedTableBuilder::Rep {
         index_builder(
             CreateIndexBuilder(index_block_type, &internal_comparator)),
         compression_type(compression_type),
+        checksum_type(checksum_type),
         filter_block(opt.filter_policy == nullptr
                          ? nullptr
                          : new FilterBlockBuilder(opt, &internal_comparator)),
@@ -330,7 +336,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     : rep_(new Rep(options, internal_comparator, file,
                    table_options.flush_block_policy_factory.get(),
                    compression_type,
-                   BlockBasedTableOptions::IndexType::kBinarySearch)) {
+                   BlockBasedTableOptions::IndexType::kBinarySearch,
+                   table_options.checksum)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
@@ -443,9 +450,27 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
-    uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
-    crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
-    EncodeFixed32(trailer+1, crc32c::Mask(crc));
+    char* trailer_without_type = trailer + 1;
+    switch (r->checksum_type) {
+      case kNoChecksum:
+        // we don't support no checksum yet
+        assert(false);
+        // intentional fallthrough in release binary
+      case kCRC32c: {
+        auto crc = crc32c::Value(block_contents.data(), block_contents.size());
+        crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
+        EncodeFixed32(trailer_without_type, crc32c::Mask(crc));
+        break;
+      }
+      case kxxHash: {
+        void* xxh = XXH32_init(0);
+        XXH32_update(xxh, block_contents.data(), block_contents.size());
+        XXH32_update(xxh, trailer, 1);  // Extend  to cover block type
+        EncodeFixed32(trailer_without_type, XXH32_digest(xxh));
+        break;
+      }
+    }
+
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
@@ -596,9 +621,19 @@ Status BlockBasedTableBuilder::Finish() {
 
   // Write footer
   if (ok()) {
-    Footer footer(kBlockBasedTableMagicNumber);
+    // No need to write out new footer if we're using default checksum.
+    // We're writing legacy magic number because we want old versions of RocksDB
+    // be able to read files generated with new release (just in case if
+    // somebody wants to roll back after an upgrade)
+    // TODO(icanadi) at some point in the future, when we're absolutely sure
+    // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
+    // number and always write new table files with new magic number
+    bool legacy = (r->checksum_type == kCRC32c);
+    Footer footer(legacy ? kLegacyBlockBasedTableMagicNumber
+                         : kBlockBasedTableMagicNumber);
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
+    footer.set_checksum(r->checksum_type);
     std::string footer_encoding;
     footer.EncodeTo(&footer_encoding);
     r->status = r->file->Append(footer_encoding);

@@ -20,9 +20,9 @@
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
+#include "table/meta_blocks.h"
 #include "table/block.h"
 #include "table/block_builder.h"
-#include "table/meta_blocks.h"
 #include "table/format.h"
 #include "util/ldb_cmd.h"
 #include "util/random.h"
@@ -84,30 +84,36 @@ extern uint64_t kPlainTableMagicNumber;
 
 Status SstFileReader::NewTableReader(const std::string& file_path) {
   uint64_t magic_number;
-  Status s =
-      ReadTableMagicNumber(file_path, options_, soptions_, &magic_number);
-  if (!s.ok()) {
-    return s;
-  }
-  if (magic_number == kPlainTableMagicNumber) {
-    soptions_.use_mmap_reads = true;
-  }
-  options_.comparator = &internal_comparator_;
 
-  s = options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
-  if (!s.ok()) {
-    return s;
-  }
+  // read table magic number
+  Footer footer;
+
+  unique_ptr<RandomAccessFile> file;
   uint64_t file_size;
-  options_.env->GetFileSize(file_path, &file_size);
-  s = SetTableOptionsByMagicNumber(magic_number, file_.get(), file_size);
-  if (!s.ok()) {
-    return s;
+  Status s = options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
+  if (s.ok()) {
+    s = options_.env->GetFileSize(file_path, &file_size);
+  }
+  if (s.ok()) {
+    s = ReadFooterFromFile(file_.get(), file_size, &footer);
+  }
+  if (s.ok()) {
+    magic_number = footer.table_magic_number();
   }
 
-  s = options_.table_factory->NewTableReader(
-      options_, soptions_, internal_comparator_, std::move(file_), file_size,
-      &table_reader_);
+  if (s.ok()) {
+    if (magic_number == kPlainTableMagicNumber) {
+      soptions_.use_mmap_reads = true;
+    }
+    options_.comparator = &internal_comparator_;
+    s = SetTableOptionsByMagicNumber(magic_number, file_.get(), file_size);
+  }
+
+  if (s.ok()) {
+    s = options_.table_factory->NewTableReader(
+        options_, soptions_, internal_comparator_, std::move(file_), file_size,
+        &table_reader_);
+  }
   return s;
 }
 

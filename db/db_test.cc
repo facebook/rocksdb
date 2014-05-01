@@ -316,6 +316,7 @@ class DBTest {
     kUniversalCompaction,
     kCompressedBlockCache,
     kInfiniteMaxOpenFiles,
+    kxxHashChecksum,
     kEnd
   };
   int option_config_;
@@ -496,6 +497,12 @@ class DBTest {
       case kInfiniteMaxOpenFiles:
         options.max_open_files = -1;
         break;
+      case kxxHashChecksum: {
+        BlockBasedTableOptions table_options;
+        table_options.checksum = kxxHash;
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        break;
+      }
       case kBlockBasedTableWithPrefixHashIndex: {
         BlockBasedTableOptions table_options;
         table_options.index_type = BlockBasedTableOptions::kHashSearch;
@@ -6778,7 +6785,40 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   ASSERT_TRUE(!iter->Valid());
 }
 
+TEST(DBTest, ChecksumTest) {
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
 
+  table_options.checksum = kCRC32c;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(&options);
+  ASSERT_OK(Put("a", "b"));
+  ASSERT_OK(Put("c", "d"));
+  ASSERT_OK(Flush());  // table with crc checksum
+
+  table_options.checksum = kxxHash;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(&options);
+  ASSERT_OK(Put("e", "f"));
+  ASSERT_OK(Put("g", "h"));
+  ASSERT_OK(Flush());  // table with xxhash checksum
+
+  table_options.checksum = kCRC32c;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(&options);
+  ASSERT_EQ("b", Get("a"));
+  ASSERT_EQ("d", Get("c"));
+  ASSERT_EQ("f", Get("e"));
+  ASSERT_EQ("h", Get("g"));
+
+  table_options.checksum = kCRC32c;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(&options);
+  ASSERT_EQ("b", Get("a"));
+  ASSERT_EQ("d", Get("c"));
+  ASSERT_EQ("f", Get("e"));
+  ASSERT_EQ("h", Get("g"));
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
