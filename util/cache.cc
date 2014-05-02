@@ -164,6 +164,9 @@ class LRUCache {
     return usage_;
   }
 
+  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                              bool thread_safe);
+
  private:
   void LRU_Remove(LRUHandle* e);
   void LRU_Append(LRUHandle* e);
@@ -218,6 +221,19 @@ void LRUCache::FreeEntry(LRUHandle* e) {
   assert(e->refs == 0);
   (*e->deleter)(e->key(), e->value);
   free(e);
+}
+
+void LRUCache::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                                      bool thread_safe) {
+  if (thread_safe) {
+    mutex_.Lock();
+  }
+  for (auto e = lru_.next; e != &lru_; e = e->next) {
+    callback(e->value, e->charge);
+  }
+  if (thread_safe) {
+    mutex_.Unlock();
+  }
 }
 
 void LRUCache::LRU_Remove(LRUHandle* e) {
@@ -431,6 +447,14 @@ class ShardedLRUCache : public Cache {
 
   virtual void DisownData() {
     shards_ = nullptr;
+  }
+
+  virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
+                                      bool thread_safe) override {
+    int num_shards = 1 << num_shard_bits_;
+    for (int s = 0; s < num_shards; s++) {
+      shards_[s].ApplyToAllCacheEntries(callback, thread_safe);
+    }
   }
 };
 

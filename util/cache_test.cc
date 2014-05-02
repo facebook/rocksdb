@@ -420,6 +420,28 @@ TEST(CacheTest, BadEviction) {
   std::cout << "Poor entries\n";
 }
 
+namespace {
+std::vector<std::pair<int, int>> callback_state;
+void callback(void* entry, size_t charge) {
+  callback_state.push_back({DecodeValue(entry), static_cast<int>(charge)});
+}
+};
+
+TEST(CacheTest, ApplyToAllCacheEntiresTest) {
+  std::vector<std::pair<int, int>> inserted;
+  callback_state.clear();
+
+  for (int i = 0; i < 10; ++i) {
+    Insert(i, i * 2, i + 1);
+    inserted.push_back({i * 2, i + 1});
+  }
+  cache_->ApplyToAllCacheEntries(callback, true);
+
+  sort(inserted.begin(), inserted.end());
+  sort(callback_state.begin(), callback_state.end());
+  ASSERT_TRUE(inserted == callback_state);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
