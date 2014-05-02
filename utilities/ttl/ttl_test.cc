@@ -20,14 +20,31 @@ enum BatchOperation {
   PUT = 0,
   DELETE = 1
 };
-
 }
+
+class SpecialTimeEnv : public EnvWrapper {
+ public:
+  explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
+    base->GetCurrentTime(&current_time_);
+  }
+
+  void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
+  virtual Status GetCurrentTime(int64_t* current_time) {
+    *current_time = current_time_;
+    return Status::OK();
+  }
+
+ private:
+  int64_t current_time_;
+};
 
 class TtlTest {
  public:
   TtlTest() {
+    env_.reset(new SpecialTimeEnv(Env::Default()));
     dbname_ = test::TmpDir() + "/db_ttl";
     options_.create_if_missing = true;
+    options_.env = env_.get();
     // ensure that compaction is kicked in to always strip timestamp from kvs
     options_.max_grandparent_overlap_factor = 0;
     // compaction should take place always from level0 for determinism
@@ -183,7 +200,8 @@ class TtlTest {
                          bool test_compaction_change = false,
                          ColumnFamilyHandle* cf = nullptr) {
     ASSERT_TRUE(db_ttl_);
-    sleep(slp_tim);
+
+    env_->Sleep(slp_tim);
     ManualCompact(cf);
     static ReadOptions ropts;
     kv_it_ = kvmap_.begin();
@@ -219,7 +237,7 @@ class TtlTest {
   // Similar as SleepCompactCheck but uses TtlIterator to read from db
   void SleepCompactCheckIter(int slp, int st_pos, int span, bool check=true) {
     ASSERT_TRUE(db_ttl_);
-    sleep(slp);
+    env_->Sleep(slp);
     ManualCompact();
     static ReadOptions ropts;
     Iterator *dbiter = db_ttl_->NewIterator(ropts);
@@ -318,6 +336,7 @@ class TtlTest {
   const int64_t kSampleSize_ = 100;
   std::string dbname_;
   DBWithTTL* db_ttl_;
+  unique_ptr<SpecialTimeEnv> env_;
 
  private:
   Options options_;
@@ -379,7 +398,7 @@ TEST(TtlTest, ResetTimestamp) {
 
   OpenTtl(3);
   PutValues(0, kSampleSize_);            // T=0: Insert Set1. Delete at t=3
-  sleep(2);                             // T=2
+  env_->Sleep(2);                        // T=2
   PutValues(0, kSampleSize_);            // T=2: Insert Set1. Delete at t=5
   SleepCompactCheck(2, 0, kSampleSize_); // T=4: Set1 should still be there
   CloseTtl();
@@ -515,6 +534,7 @@ TEST(TtlTest, ColumnFamiliesTest) {
   DB* db;
   Options options;
   options.create_if_missing = true;
+  options.env = env_.get();
 
   DB::Open(options, dbname_, &db);
   ColumnFamilyHandle* handle;
