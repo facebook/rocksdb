@@ -7,15 +7,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #pragma once
-#include "utilities/stackable_db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/status.h"
+#ifndef ROCKSDB_LITE
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <string>
 #include <map>
 #include <vector>
+
+#include "utilities/stackable_db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/status.h"
 
 namespace rocksdb {
 
@@ -72,6 +75,14 @@ struct BackupableDBOptions {
   // Default: 0
   uint64_t restore_rate_limit;
 
+  // Only used if share_table_files is set to true. If true, will consider that
+  // backups can come from different databases, hence a sst is not uniquely
+  // identifed by its name, but by the triple (file name, crc32, file length)
+  // Default: false
+  // Note: this is an experimental option, and you'll need to set it manually
+  // *turn it on only if you know what you're doing*
+  bool share_files_with_checksum;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(const std::string& _backup_dir,
@@ -90,7 +101,10 @@ struct BackupableDBOptions {
         destroy_old_data(_destroy_old_data),
         backup_log_files(_backup_log_files),
         backup_rate_limit(_backup_rate_limit),
-        restore_rate_limit(_restore_rate_limit) {}
+        restore_rate_limit(_restore_rate_limit),
+        share_files_with_checksum(false) {
+    assert(share_table_files || !share_files_with_checksum);
+  }
 };
 
 struct RestoreOptions {
@@ -233,5 +247,5 @@ class RestoreBackupableDB {
   BackupEngine* backup_engine_;
 };
 
-} // rocksdb namespace
+}  // namespace rocksdb
 #endif  // ROCKSDB_LITE

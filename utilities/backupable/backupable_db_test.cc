@@ -7,6 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <string>
+#include <algorithm>
+#include <iostream>
+
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 #include "utilities/utility_db.h"
@@ -15,9 +19,6 @@
 #include "util/random.h"
 #include "util/testutil.h"
 #include "util/auto_roll_logger.h"
-
-#include <string>
-#include <algorithm>
 
 namespace rocksdb {
 
@@ -375,7 +376,8 @@ class BackupableDBTest {
   }
 
   void OpenBackupableDB(bool destroy_old_data = false, bool dummy = false,
-                        bool share_table_files = true) {
+                        bool share_table_files = true,
+                        bool share_with_checksums = false) {
     // reset all the defaults
     test_backup_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetLimitWrittenFiles(1000000);
@@ -390,6 +392,7 @@ class BackupableDBTest {
     }
     backupable_options_->destroy_old_data = destroy_old_data;
     backupable_options_->share_table_files = share_table_files;
+    backupable_options_->share_files_with_checksum = share_with_checksums;
     db_.reset(new BackupableDB(db, *backupable_options_));
   }
 
@@ -791,6 +794,53 @@ TEST(BackupableDBTest, NoShareTableFiles) {
   for (int i = 0; i < 5; ++i) {
     AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
                             keys_iteration * 6);
+  }
+}
+
+// Verify that you can backup and restore with share_files_with_checksum on
+TEST(BackupableDBTest, ShareTableFilesWithChecksums) {
+  const int keys_iteration = 5000;
+  OpenBackupableDB(true, false, true, true);
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(db_->CreateNewBackup(!!(i % 2)));
+  }
+  CloseBackupableDB();
+
+  for (int i = 0; i < 5; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * 6);
+  }
+}
+
+// Verify that you can backup and restore using share_files_with_checksum set to
+// false and then transition this option to true
+TEST(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
+  const int keys_iteration = 5000;
+  // set share_files_with_checksum to false
+  OpenBackupableDB(true, false, true, false);
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(db_->CreateNewBackup(true));
+  }
+  CloseBackupableDB();
+
+  for (int i = 0; i < 5; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * 6);
+  }
+
+  // set share_files_with_checksum to true and do some more backups
+  OpenBackupableDB(true, false, true, true);
+  for (int i = 5; i < 10; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(db_->CreateNewBackup(true));
+  }
+  CloseBackupableDB();
+
+  for (int i = 0; i < 5; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 5 + 1),
+                            keys_iteration * 11);
   }
 }
 
