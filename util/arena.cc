@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/arena.h"
-#include <sys/mman.h>
 #include <algorithm>
 
 namespace rocksdb {
@@ -39,13 +38,6 @@ Arena::~Arena() {
   for (const auto& block : blocks_) {
     delete[] block;
   }
-  for (const auto& mmap_info : huge_blocks_) {
-    auto ret = munmap(mmap_info.addr_, mmap_info.length_);
-    if (ret != 0) {
-      // TODO(sdong): Better handling
-      perror("munmap");
-    }
-  }
 }
 
 char* Arena::AllocateFallback(size_t bytes, bool aligned) {
@@ -71,29 +63,9 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   }
 }
 
-char* Arena::AllocateAligned(size_t bytes, size_t huge_page_tlb_size) {
+char* Arena::AllocateAligned(size_t bytes) {
   assert((kAlignUnit & (kAlignUnit - 1)) ==
          0);  // Pointer size should be a power of 2
-
-#ifdef OS_LINUX
-  if (huge_page_tlb_size > 0 && bytes > 0) {
-    // Allocate from a huge page TBL table.
-    size_t reserved_size =
-        ((bytes - 1U) / huge_page_tlb_size + 1U) * huge_page_tlb_size;
-    assert(reserved_size >= bytes);
-    void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
-                      (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
-    if (addr == MAP_FAILED) {
-      perror("mmap");
-      // fail back to malloc
-    } else {
-      blocks_memory_ += reserved_size;
-      huge_blocks_.push_back(MmapInfo(addr, reserved_size));
-      return reinterpret_cast<char*>(addr);
-    }
-  }
-#endif
-
   size_t current_mod =
       reinterpret_cast<uintptr_t>(aligned_alloc_ptr_) & (kAlignUnit - 1);
   size_t slop = (current_mod == 0 ? 0 : kAlignUnit - current_mod);

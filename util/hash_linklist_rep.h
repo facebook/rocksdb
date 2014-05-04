@@ -15,9 +15,8 @@ namespace rocksdb {
 
 class HashLinkListRepFactory : public MemTableRepFactory {
  public:
-  explicit HashLinkListRepFactory(size_t bucket_count,
-                                  size_t huge_page_tlb_size)
-      : bucket_count_(bucket_count), huge_page_tlb_size_(huge_page_tlb_size) {}
+  explicit HashLinkListRepFactory(size_t bucket_count)
+      : bucket_count_(bucket_count) { }
 
   virtual ~HashLinkListRepFactory() {}
 
@@ -31,7 +30,6 @@ class HashLinkListRepFactory : public MemTableRepFactory {
 
  private:
   const size_t bucket_count_;
-  const size_t huge_page_tlb_size_;
 };
 
 }

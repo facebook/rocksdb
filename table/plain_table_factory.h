@@ -56,19 +56,14 @@ class PlainTableFactory : public TableFactory {
   // inside the same prefix. It will be the maximum number of linear search
   // required after hash and binary search.
   // index_sparseness = 0 means index for every key.
-  // huge_page_tlb_size determines whether to allocate hash indexes from huge
-  // page TLB and the page size if allocating from there. See comments of
-  // Arena::AllocateAligned() for details.
   explicit PlainTableFactory(uint32_t user_key_len = kPlainTableVariableLength,
                              int bloom_bits_per_key = 0,
                              double hash_table_ratio = 0.75,
-                             size_t index_sparseness = 16,
-                             size_t huge_page_tlb_size = 2 * 1024 * 1024)
+                             size_t index_sparseness = 16)
       : user_key_len_(user_key_len),
         bloom_bits_per_key_(bloom_bits_per_key),
         hash_table_ratio_(hash_table_ratio),
-        index_sparseness_(index_sparseness),
-        huge_page_tlb_size_(huge_page_tlb_size) {}
+        index_sparseness_(index_sparseness) {}
   const char* Name() const override { return "PlainTable"; }
   Status NewTableReader(const Options& options, const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
@@ -87,7 +82,6 @@ class PlainTableFactory : public TableFactory {
   int bloom_bits_per_key_;
   double hash_table_ratio_;
   size_t index_sparseness_;
-  size_t huge_page_tlb_size_;
 };
 
 }  // namespace rocksdb

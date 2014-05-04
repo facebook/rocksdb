@@ -19,7 +19,6 @@
 #include "rocksdb/table_properties.h"
 #include "table/table_reader.h"
 #include "table/plain_table_factory.h"
-#include "util/arena.h"
 
 namespace rocksdb {
 
@@ -53,7 +52,7 @@ class PlainTableReader: public TableReader {
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
-                     size_t index_sparseness, size_t huge_page_tlb_size);
+                     size_t index_sparseness);
 
   Iterator* NewIterator(const ReadOptions&);
 
@@ -75,8 +74,7 @@ class PlainTableReader: public TableReader {
                    const InternalKeyComparator& internal_comparator,
                    uint64_t file_size, int bloom_num_bits,
                    double hash_table_ratio, size_t index_sparseness,
-                   const TableProperties* table_properties,
-                   size_t huge_page_tlb_size);
+                   const TableProperties* table_properties);
   virtual ~PlainTableReader();
 
  protected:
@@ -138,9 +136,9 @@ class PlainTableReader: public TableReader {
   // For more details about the in-memory index, please refer to:
   // https://github.com/facebook/rocksdb/wiki/PlainTable-Format
   // #wiki-in-memory-index-format
-  uint32_t* index_;
+  std::unique_ptr<uint32_t[]> index_;
   int index_size_ = 0;
-  char* sub_index_;
+  std::unique_ptr<char[]> sub_index_;
 
   Options options_;
   const EnvOptions& soptions_;
@@ -161,7 +159,6 @@ class PlainTableReader: public TableReader {
   const size_t kIndexIntervalForSamePrefixKeys = 16;
   // Bloom filter is used to rule out non-existent key
   unique_ptr<DynamicBloom> bloom_;
-  Arena arena_;
 
   std::shared_ptr<const TableProperties> table_properties_;
   // data_start_offset_ and data_end_offset_ defines the range of the
@@ -169,7 +166,6 @@ class PlainTableReader: public TableReader {
   const uint32_t data_start_offset_ = 0;
   const uint32_t data_end_offset_;
   const size_t user_key_len_;
-  const size_t huge_page_tlb_size_;
 
   static const size_t kNumInternalBytes = 8;
   static const uint32_t kSubIndexMask = 0x80000000;

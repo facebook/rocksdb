@@ -34,14 +34,7 @@ class Arena {
 
   char* Allocate(size_t bytes);
 
-  // huge_page_tlb_size: if >0, allocate bytes from huge page TLB and the size
-  // of the huge page TLB. Bytes will be rounded up to multiple and 2MB and
-  // allocate huge pages through mmap anonymous option with huge page on.
-  // The extra  space allocated will be wasted. To enable it, need to reserve
-  // huge pages for it to be allocated, like:
-  //     sysctl -w vm.nr_hugepages=20
-  // See linux doc Documentation/vm/hugetlbpage.txt for details.
-  char* AllocateAligned(size_t bytes, size_t huge_page_tlb_size = 0);
+  char* AllocateAligned(size_t bytes);
 
   // Returns an estimate of the total memory usage of data allocated
   // by the arena (exclude the space allocated but not yet used for future
@@ -67,14 +60,6 @@ class Arena {
   // Array of new[] allocated memory blocks
   typedef std::vector<char*> Blocks;
   Blocks blocks_;
-
-  struct MmapInfo {
-    void* addr_;
-    size_t length_;
-
-    MmapInfo(void* addr, size_t length) : addr_(addr), length_(length) {}
-  };
-  std::vector<MmapInfo> huge_blocks_;
   size_t irregular_block_num = 0;
 
   // Stats for current active block.
