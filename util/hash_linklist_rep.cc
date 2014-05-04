@@ -53,7 +53,8 @@ struct Node {
 class HashLinkListRep : public MemTableRep {
  public:
   HashLinkListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
-                  const SliceTransform* transform, size_t bucket_size);
+                  const SliceTransform* transform, size_t bucket_size,
+                  size_t huge_page_tlb_size);
 
   virtual KeyHandle Allocate(const size_t len, char** buf) override;
 
@@ -306,13 +307,13 @@ class HashLinkListRep : public MemTableRep {
 
 HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
                                  Arena* arena, const SliceTransform* transform,
-                                 size_t bucket_size)
-  : MemTableRep(arena),
-    bucket_size_(bucket_size),
-    transform_(transform),
-    compare_(compare) {
-  char* mem = arena_->AllocateAligned(
-      sizeof(port::AtomicPointer) * bucket_size);
+                                 size_t bucket_size, size_t huge_page_tlb_size)
+    : MemTableRep(arena),
+      bucket_size_(bucket_size),
+      transform_(transform),
+      compare_(compare) {
+  char* mem = arena_->AllocateAligned(sizeof(port::AtomicPointer) * bucket_size,
+                                      huge_page_tlb_size);
 
   buckets_ = new (mem) port::AtomicPointer[bucket_size];
 
@@ -469,11 +470,13 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
     const SliceTransform* transform) {
-  return new HashLinkListRep(compare, arena, transform, bucket_count_);
+  return new HashLinkListRep(compare, arena, transform, bucket_count_,
+                             huge_page_tlb_size_);
 }
 
-MemTableRepFactory* NewHashLinkListRepFactory(size_t bucket_count) {
-  return new HashLinkListRepFactory(bucket_count);
+MemTableRepFactory* NewHashLinkListRepFactory(size_t bucket_count,
+                                              size_t huge_page_tlb_size) {
+  return new HashLinkListRepFactory(bucket_count, huge_page_tlb_size);
 }
 
 } // namespace rocksdb

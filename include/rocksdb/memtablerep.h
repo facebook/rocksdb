@@ -223,9 +223,14 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 // The factory is to create memtables with a hashed linked list:
 // it contains a fixed array of buckets, each pointing to a sorted single
 // linked list (null if the bucket is empty).
-// bucket_count: number of fixed array buckets
+// @bucket_count: number of fixed array buckets
+// @huge_page_tlb_size: if <=0, allocate the hash table bytes from malloc.
+//                      Otherwise from huge page TLB. The user needs to reserve
+//                      huge pages for it to be allocated, like:
+//                          sysctl -w vm.nr_hugepages=20
+//                      See linux doc Documentation/vm/hugetlbpage.txt
 extern MemTableRepFactory* NewHashLinkListRepFactory(
-    size_t bucket_count = 50000);
+    size_t bucket_count = 50000, size_t huge_page_tlb_size = 0);
 
 // This factory creates a cuckoo-hashing based mem-table representation.
 // Cuckoo-hash is a closed-hash strategy, in which all key/value pairs

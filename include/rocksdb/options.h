@@ -498,6 +498,14 @@ struct ColumnFamilyOptions {
   // number of hash probes per key
   uint32_t memtable_prefix_bloom_probes;
 
+  // Page size for huge page TLB for bloom in memtable. If <=0, not allocate
+  // from huge page TLB but from malloc.
+  // Need to reserve huge pages for it to be allocated. For example:
+  //      sysctl -w vm.nr_hugepages=20
+  // See linux doc Documentation/vm/hugetlbpage.txt
+
+  size_t memtable_prefix_bloom_huge_page_tlb_size;
+
   // Control locality of bloom filter probes to improve cache miss rate.
   // This option only applies to memtable prefix bloom and plaintable
   // prefix bloom. It essentially limits the max number of cache lines each

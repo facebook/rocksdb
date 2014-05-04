@@ -185,7 +185,7 @@ class TestPlainTableReader : public PlainTableReader {
                        const Options& options, bool* expect_bloom_not_match)
       : PlainTableReader(options, std::move(file), storage_options, icomparator,
                          file_size, bloom_bits_per_key, hash_table_ratio,
-                         index_sparseness, table_properties),
+                         index_sparseness, table_properties, 2 * 1024 * 1024),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = PopulateIndex(const_cast<TableProperties*>(table_properties));
     ASSERT_TRUE(s.ok());
@@ -206,13 +206,12 @@ extern const uint64_t kPlainTableMagicNumber;
 class TestPlainTableFactory : public PlainTableFactory {
  public:
   explicit TestPlainTableFactory(bool* expect_bloom_not_match,
-                                 uint32_t user_key_len =
-                                     kPlainTableVariableLength,
-                                 int bloom_bits_per_key = 0,
-                                 double hash_table_ratio = 0.75,
-                                 size_t index_sparseness = 16)
+                                 uint32_t user_key_len, int bloom_bits_per_key,
+                                 double hash_table_ratio,
+                                 size_t index_sparseness,
+                                 size_t huge_page_tlb_size)
       : PlainTableFactory(user_key_len, user_key_len, hash_table_ratio,
-                          hash_table_ratio),
+                          index_sparseness, huge_page_tlb_size),
         bloom_bits_per_key_(bloom_bits_per_key),
         hash_table_ratio_(hash_table_ratio),
         index_sparseness_(index_sparseness),
@@ -244,197 +243,209 @@ class TestPlainTableFactory : public PlainTableFactory {
 };
 
 TEST(PlainTableDBTest, Flush) {
-  for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
-    for (int total_order = 0; total_order <= 1; total_order++) {
-      Options options = CurrentOptions();
-      options.create_if_missing = true;
-      // Set only one bucket to force bucket conflict.
-      // Test index interval for the same prefix to be 1, 2 and 4
-      if (total_order) {
-        options.table_factory.reset(
-            NewTotalOrderPlainTableFactory(16, bloom_bits, 2));
-      } else {
-        options.table_factory.reset(NewPlainTableFactory(16, bloom_bits));
+  for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
+       huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+      for (int total_order = 0; total_order <= 1; total_order++) {
+        Options options = CurrentOptions();
+        options.create_if_missing = true;
+        // Set only one bucket to force bucket conflict.
+        // Test index interval for the same prefix to be 1, 2 and 4
+        if (total_order) {
+          options.table_factory.reset(NewTotalOrderPlainTableFactory(
+              16, bloom_bits, 2, huge_page_tlb_size));
+        } else {
+          options.table_factory.reset(NewPlainTableFactory(
+              16, bloom_bits, 0.75, 16, huge_page_tlb_size));
+        }
+        DestroyAndReopen(&options);
+
+        ASSERT_OK(Put("1000000000000foo", "v1"));
+        ASSERT_OK(Put("0000000000000bar", "v2"));
+        ASSERT_OK(Put("1000000000000foo", "v3"));
+        dbfull()->TEST_FlushMemTable();
+
+        TablePropertiesCollection ptc;
+        reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
+        ASSERT_EQ(1U, ptc.size());
+        auto row = ptc.begin();
+        auto tp = row->second;
+        ASSERT_EQ(total_order ? "4" : "12", (tp->user_collected_properties).at(
+                                                "plain_table_hash_table_size"));
+        ASSERT_EQ(total_order ? "9" : "0", (tp->user_collected_properties).at(
+                                               "plain_table_sub_index_size"));
+
+        ASSERT_EQ("v3", Get("1000000000000foo"));
+        ASSERT_EQ("v2", Get("0000000000000bar"));
       }
-      DestroyAndReopen(&options);
-
-      ASSERT_OK(Put("1000000000000foo", "v1"));
-      ASSERT_OK(Put("0000000000000bar", "v2"));
-      ASSERT_OK(Put("1000000000000foo", "v3"));
-      dbfull()->TEST_FlushMemTable();
-
-      TablePropertiesCollection ptc;
-      reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
-      ASSERT_EQ(1U, ptc.size());
-      auto row = ptc.begin();
-      auto tp = row->second;
-      ASSERT_EQ(
-          total_order ? "4" : "12",
-          (tp->user_collected_properties).at("plain_table_hash_table_size"));
-      ASSERT_EQ(
-          total_order ? "9" : "0",
-          (tp->user_collected_properties).at("plain_table_sub_index_size"));
-
-      ASSERT_EQ("v3", Get("1000000000000foo"));
-      ASSERT_EQ("v2", Get("0000000000000bar"));
     }
   }
 }
 
 TEST(PlainTableDBTest, Flush2) {
-  for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
-    for (int total_order = 0; total_order <= 1; total_order++) {
-      bool expect_bloom_not_match = false;
-      Options options = CurrentOptions();
-      options.create_if_missing = true;
-      // Set only one bucket to force bucket conflict.
-      // Test index interval for the same prefix to be 1, 2 and 4
-      if (total_order) {
-        options.prefix_extractor = nullptr;
-        options.table_factory.reset(new TestPlainTableFactory(
-            &expect_bloom_not_match, 16, bloom_bits, 0, 2));
-      } else {
-        options.table_factory.reset(
-            new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits));
-      }
-      DestroyAndReopen(&options);
-      ASSERT_OK(Put("0000000000000bar", "b"));
-      ASSERT_OK(Put("1000000000000foo", "v1"));
-      dbfull()->TEST_FlushMemTable();
-
-      ASSERT_OK(Put("1000000000000foo", "v2"));
-      dbfull()->TEST_FlushMemTable();
-      ASSERT_EQ("v2", Get("1000000000000foo"));
-
-      ASSERT_OK(Put("0000000000000eee", "v3"));
-      dbfull()->TEST_FlushMemTable();
-      ASSERT_EQ("v3", Get("0000000000000eee"));
-
-      ASSERT_OK(Delete("0000000000000bar"));
-      dbfull()->TEST_FlushMemTable();
-      ASSERT_EQ("NOT_FOUND", Get("0000000000000bar"));
-
-      ASSERT_OK(Put("0000000000000eee", "v5"));
-      ASSERT_OK(Put("9000000000000eee", "v5"));
-      dbfull()->TEST_FlushMemTable();
-      ASSERT_EQ("v5", Get("0000000000000eee"));
-
-      // Test Bloom Filter
-      if (bloom_bits > 0) {
-        // Neither key nor value should exist.
-        expect_bloom_not_match = true;
-        ASSERT_EQ("NOT_FOUND", Get("5_not00000000bar"));
-
-        // Key doesn't exist any more but prefix exists.
+  for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
+       huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+      for (int total_order = 0; total_order <= 1; total_order++) {
+        bool expect_bloom_not_match = false;
+        Options options = CurrentOptions();
+        options.create_if_missing = true;
+        // Set only one bucket to force bucket conflict.
+        // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
-          ASSERT_EQ("NOT_FOUND", Get("1000000000000not"));
-          ASSERT_EQ("NOT_FOUND", Get("0000000000000not"));
+          options.prefix_extractor = nullptr;
+          options.table_factory.reset(
+              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
+                                        0, 2, huge_page_tlb_size));
+        } else {
+          options.table_factory.reset(
+              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
+                                        0.75, 16, huge_page_tlb_size));
         }
-        expect_bloom_not_match = false;
+        DestroyAndReopen(&options);
+        ASSERT_OK(Put("0000000000000bar", "b"));
+        ASSERT_OK(Put("1000000000000foo", "v1"));
+        dbfull()->TEST_FlushMemTable();
+
+        ASSERT_OK(Put("1000000000000foo", "v2"));
+        dbfull()->TEST_FlushMemTable();
+        ASSERT_EQ("v2", Get("1000000000000foo"));
+
+        ASSERT_OK(Put("0000000000000eee", "v3"));
+        dbfull()->TEST_FlushMemTable();
+        ASSERT_EQ("v3", Get("0000000000000eee"));
+
+        ASSERT_OK(Delete("0000000000000bar"));
+        dbfull()->TEST_FlushMemTable();
+        ASSERT_EQ("NOT_FOUND", Get("0000000000000bar"));
+
+        ASSERT_OK(Put("0000000000000eee", "v5"));
+        ASSERT_OK(Put("9000000000000eee", "v5"));
+        dbfull()->TEST_FlushMemTable();
+        ASSERT_EQ("v5", Get("0000000000000eee"));
+
+        // Test Bloom Filter
+        if (bloom_bits > 0) {
+          // Neither key nor value should exist.
+          expect_bloom_not_match = true;
+          ASSERT_EQ("NOT_FOUND", Get("5_not00000000bar"));
+
+          // Key doesn't exist any more but prefix exists.
+          if (total_order) {
+            ASSERT_EQ("NOT_FOUND", Get("1000000000000not"));
+            ASSERT_EQ("NOT_FOUND", Get("0000000000000not"));
+          }
+          expect_bloom_not_match = false;
+        }
       }
     }
   }
 }
 
 TEST(PlainTableDBTest, Iterator) {
-  for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
-    for (int total_order = 0; total_order <= 1; total_order++) {
-      bool expect_bloom_not_match = false;
-      Options options = CurrentOptions();
-      options.create_if_missing = true;
-      // Set only one bucket to force bucket conflict.
-      // Test index interval for the same prefix to be 1, 2 and 4
-      if (total_order) {
-        options.prefix_extractor = nullptr;
-        options.table_factory.reset(new TestPlainTableFactory(
-            &expect_bloom_not_match, 16, bloom_bits, 0, 2));
-      } else {
-        options.table_factory.reset(
-            new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits));
-      }
-      DestroyAndReopen(&options);
+  for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
+       huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
+      for (int total_order = 0; total_order <= 1; total_order++) {
+        bool expect_bloom_not_match = false;
+        Options options = CurrentOptions();
+        options.create_if_missing = true;
+        // Set only one bucket to force bucket conflict.
+        // Test index interval for the same prefix to be 1, 2 and 4
+        if (total_order) {
+          options.prefix_extractor = nullptr;
+          options.table_factory.reset(
+              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
+                                        0, 2, huge_page_tlb_size));
+        } else {
+          options.table_factory.reset(
+              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
+                                        0.75, 16, huge_page_tlb_size));
+        }
+        DestroyAndReopen(&options);
 
-      ASSERT_OK(Put("1000000000foo002", "v_2"));
-      ASSERT_OK(Put("0000000000000bar", "random"));
-      ASSERT_OK(Put("1000000000foo001", "v1"));
-      ASSERT_OK(Put("3000000000000bar", "bar_v"));
-      ASSERT_OK(Put("1000000000foo003", "v__3"));
-      ASSERT_OK(Put("1000000000foo004", "v__4"));
-      ASSERT_OK(Put("1000000000foo005", "v__5"));
-      ASSERT_OK(Put("1000000000foo007", "v__7"));
-      ASSERT_OK(Put("1000000000foo008", "v__8"));
-      dbfull()->TEST_FlushMemTable();
-      ASSERT_EQ("v1", Get("1000000000foo001"));
-      ASSERT_EQ("v__3", Get("1000000000foo003"));
-      Iterator* iter = dbfull()->NewIterator(ReadOptions());
-      iter->Seek("1000000000foo000");
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo001", iter->key().ToString());
-      ASSERT_EQ("v1", iter->value().ToString());
+        ASSERT_OK(Put("1000000000foo002", "v_2"));
+        ASSERT_OK(Put("0000000000000bar", "random"));
+        ASSERT_OK(Put("1000000000foo001", "v1"));
+        ASSERT_OK(Put("3000000000000bar", "bar_v"));
+        ASSERT_OK(Put("1000000000foo003", "v__3"));
+        ASSERT_OK(Put("1000000000foo004", "v__4"));
+        ASSERT_OK(Put("1000000000foo005", "v__5"));
+        ASSERT_OK(Put("1000000000foo007", "v__7"));
+        ASSERT_OK(Put("1000000000foo008", "v__8"));
+        dbfull()->TEST_FlushMemTable();
+        ASSERT_EQ("v1", Get("1000000000foo001"));
+        ASSERT_EQ("v__3", Get("1000000000foo003"));
+        Iterator* iter = dbfull()->NewIterator(ReadOptions());
+        iter->Seek("1000000000foo000");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo001", iter->key().ToString());
+        ASSERT_EQ("v1", iter->value().ToString());
 
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo002", iter->key().ToString());
-      ASSERT_EQ("v_2", iter->value().ToString());
+        iter->Next();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo002", iter->key().ToString());
+        ASSERT_EQ("v_2", iter->value().ToString());
 
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo003", iter->key().ToString());
-      ASSERT_EQ("v__3", iter->value().ToString());
+        iter->Next();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo003", iter->key().ToString());
+        ASSERT_EQ("v__3", iter->value().ToString());
 
-      iter->Next();
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo004", iter->key().ToString());
-      ASSERT_EQ("v__4", iter->value().ToString());
+        iter->Next();
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo004", iter->key().ToString());
+        ASSERT_EQ("v__4", iter->value().ToString());
 
-      iter->Seek("3000000000000bar");
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("3000000000000bar", iter->key().ToString());
-      ASSERT_EQ("bar_v", iter->value().ToString());
-
-      iter->Seek("1000000000foo000");
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo001", iter->key().ToString());
-      ASSERT_EQ("v1", iter->value().ToString());
-
-      iter->Seek("1000000000foo005");
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo005", iter->key().ToString());
-      ASSERT_EQ("v__5", iter->value().ToString());
-
-      iter->Seek("1000000000foo006");
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo007", iter->key().ToString());
-      ASSERT_EQ("v__7", iter->value().ToString());
-
-      iter->Seek("1000000000foo008");
-      ASSERT_TRUE(iter->Valid());
-      ASSERT_EQ("1000000000foo008", iter->key().ToString());
-      ASSERT_EQ("v__8", iter->value().ToString());
-
-      if (total_order == 0) {
-        iter->Seek("1000000000foo009");
+        iter->Seek("3000000000000bar");
         ASSERT_TRUE(iter->Valid());
         ASSERT_EQ("3000000000000bar", iter->key().ToString());
-      }
+        ASSERT_EQ("bar_v", iter->value().ToString());
 
-      // Test Bloom Filter
-      if (bloom_bits > 0) {
-        if (!total_order) {
-          // Neither key nor value should exist.
-          expect_bloom_not_match = true;
-          iter->Seek("2not000000000bar");
-          ASSERT_TRUE(!iter->Valid());
-          ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
-          expect_bloom_not_match = false;
-        } else {
-          expect_bloom_not_match = true;
-          ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
-          expect_bloom_not_match = false;
+        iter->Seek("1000000000foo000");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo001", iter->key().ToString());
+        ASSERT_EQ("v1", iter->value().ToString());
+
+        iter->Seek("1000000000foo005");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo005", iter->key().ToString());
+        ASSERT_EQ("v__5", iter->value().ToString());
+
+        iter->Seek("1000000000foo006");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo007", iter->key().ToString());
+        ASSERT_EQ("v__7", iter->value().ToString());
+
+        iter->Seek("1000000000foo008");
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_EQ("1000000000foo008", iter->key().ToString());
+        ASSERT_EQ("v__8", iter->value().ToString());
+
+        if (total_order == 0) {
+          iter->Seek("1000000000foo009");
+          ASSERT_TRUE(iter->Valid());
+          ASSERT_EQ("3000000000000bar", iter->key().ToString());
         }
-      }
 
-      delete iter;
+        // Test Bloom Filter
+        if (bloom_bits > 0) {
+          if (!total_order) {
+            // Neither key nor value should exist.
+            expect_bloom_not_match = true;
+            iter->Seek("2not000000000bar");
+            ASSERT_TRUE(!iter->Valid());
+            ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
+            expect_bloom_not_match = false;
+          } else {
+            expect_bloom_not_match = true;
+            ASSERT_EQ("NOT_FOUND", Get("2not000000000bar"));
+            expect_bloom_not_match = false;
+          }
+        }
+
+        delete iter;
+      }
     }
   }
 }
@@ -581,165 +592,173 @@ TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
 }
 
 TEST(PlainTableDBTest, HashBucketConflict) {
-  for (unsigned char i = 1; i <= 3; i++) {
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    // Set only one bucket to force bucket conflict.
-    // Test index interval for the same prefix to be 1, 2 and 4
-    options.table_factory.reset(NewTotalOrderPlainTableFactory(16, 0, 2 ^ i));
-    DestroyAndReopen(&options);
-    ASSERT_OK(Put("5000000000000fo0", "v1"));
-    ASSERT_OK(Put("5000000000000fo1", "v2"));
-    ASSERT_OK(Put("5000000000000fo2", "v"));
-    ASSERT_OK(Put("2000000000000fo0", "v3"));
-    ASSERT_OK(Put("2000000000000fo1", "v4"));
-    ASSERT_OK(Put("2000000000000fo2", "v"));
-    ASSERT_OK(Put("2000000000000fo3", "v"));
+  for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
+       huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (unsigned char i = 1; i <= 3; i++) {
+      Options options = CurrentOptions();
+      options.create_if_missing = true;
+      // Set only one bucket to force bucket conflict.
+      // Test index interval for the same prefix to be 1, 2 and 4
+      options.table_factory.reset(
+          NewTotalOrderPlainTableFactory(16, 0, 2 ^ i, huge_page_tlb_size));
+      DestroyAndReopen(&options);
+      ASSERT_OK(Put("5000000000000fo0", "v1"));
+      ASSERT_OK(Put("5000000000000fo1", "v2"));
+      ASSERT_OK(Put("5000000000000fo2", "v"));
+      ASSERT_OK(Put("2000000000000fo0", "v3"));
+      ASSERT_OK(Put("2000000000000fo1", "v4"));
+      ASSERT_OK(Put("2000000000000fo2", "v"));
+      ASSERT_OK(Put("2000000000000fo3", "v"));
 
-    dbfull()->TEST_FlushMemTable();
+      dbfull()->TEST_FlushMemTable();
 
-    ASSERT_EQ("v1", Get("5000000000000fo0"));
-    ASSERT_EQ("v2", Get("5000000000000fo1"));
-    ASSERT_EQ("v3", Get("2000000000000fo0"));
-    ASSERT_EQ("v4", Get("2000000000000fo1"));
+      ASSERT_EQ("v1", Get("5000000000000fo0"));
+      ASSERT_EQ("v2", Get("5000000000000fo1"));
+      ASSERT_EQ("v3", Get("2000000000000fo0"));
+      ASSERT_EQ("v4", Get("2000000000000fo1"));
 
-    ASSERT_EQ("NOT_FOUND", Get("5000000000000bar"));
-    ASSERT_EQ("NOT_FOUND", Get("2000000000000bar"));
-    ASSERT_EQ("NOT_FOUND", Get("5000000000000fo8"));
-    ASSERT_EQ("NOT_FOUND", Get("2000000000000fo8"));
+      ASSERT_EQ("NOT_FOUND", Get("5000000000000bar"));
+      ASSERT_EQ("NOT_FOUND", Get("2000000000000bar"));
+      ASSERT_EQ("NOT_FOUND", Get("5000000000000fo8"));
+      ASSERT_EQ("NOT_FOUND", Get("2000000000000fo8"));
 
-    ReadOptions ro;
-    Iterator* iter = dbfull()->NewIterator(ro);
+      ReadOptions ro;
+      Iterator* iter = dbfull()->NewIterator(ro);
 
-    iter->Seek("5000000000000fo0");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo0", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo1", iter->key().ToString());
+      iter->Seek("5000000000000fo0");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo0", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo1", iter->key().ToString());
 
-    iter->Seek("5000000000000fo1");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo1", iter->key().ToString());
+      iter->Seek("5000000000000fo1");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo1", iter->key().ToString());
 
-    iter->Seek("2000000000000fo0");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo0", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo1", iter->key().ToString());
+      iter->Seek("2000000000000fo0");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo0", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo1", iter->key().ToString());
 
-    iter->Seek("2000000000000fo1");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo1", iter->key().ToString());
+      iter->Seek("2000000000000fo1");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo1", iter->key().ToString());
 
-    iter->Seek("2000000000000bar");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo0", iter->key().ToString());
+      iter->Seek("2000000000000bar");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo0", iter->key().ToString());
 
-    iter->Seek("5000000000000bar");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo0", iter->key().ToString());
+      iter->Seek("5000000000000bar");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo0", iter->key().ToString());
 
-    iter->Seek("2000000000000fo8");
-    ASSERT_TRUE(!iter->Valid() ||
-                options.comparator->Compare(iter->key(), "20000001") > 0);
+      iter->Seek("2000000000000fo8");
+      ASSERT_TRUE(!iter->Valid() ||
+                  options.comparator->Compare(iter->key(), "20000001") > 0);
 
-    iter->Seek("5000000000000fo8");
-    ASSERT_TRUE(!iter->Valid());
+      iter->Seek("5000000000000fo8");
+      ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("1000000000000fo2");
-    ASSERT_TRUE(!iter->Valid());
+      iter->Seek("1000000000000fo2");
+      ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("3000000000000fo2");
-    ASSERT_TRUE(!iter->Valid());
+      iter->Seek("3000000000000fo2");
+      ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("8000000000000fo2");
-    ASSERT_TRUE(!iter->Valid());
+      iter->Seek("8000000000000fo2");
+      ASSERT_TRUE(!iter->Valid());
 
-    delete iter;
+      delete iter;
+    }
   }
 }
 
 TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
-  for (unsigned char i = 1; i <= 3; i++) {
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    SimpleSuffixReverseComparator comp;
-    options.comparator = &comp;
-    // Set only one bucket to force bucket conflict.
-    // Test index interval for the same prefix to be 1, 2 and 4
-    options.table_factory.reset(NewTotalOrderPlainTableFactory(16, 0, 2 ^ i));
-    DestroyAndReopen(&options);
-    ASSERT_OK(Put("5000000000000fo0", "v1"));
-    ASSERT_OK(Put("5000000000000fo1", "v2"));
-    ASSERT_OK(Put("5000000000000fo2", "v"));
-    ASSERT_OK(Put("2000000000000fo0", "v3"));
-    ASSERT_OK(Put("2000000000000fo1", "v4"));
-    ASSERT_OK(Put("2000000000000fo2", "v"));
-    ASSERT_OK(Put("2000000000000fo3", "v"));
+  for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
+       huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (unsigned char i = 1; i <= 3; i++) {
+      Options options = CurrentOptions();
+      options.create_if_missing = true;
+      SimpleSuffixReverseComparator comp;
+      options.comparator = &comp;
+      // Set only one bucket to force bucket conflict.
+      // Test index interval for the same prefix to be 1, 2 and 4
+      options.table_factory.reset(
+          NewTotalOrderPlainTableFactory(16, 0, 2 ^ i, huge_page_tlb_size));
+      DestroyAndReopen(&options);
+      ASSERT_OK(Put("5000000000000fo0", "v1"));
+      ASSERT_OK(Put("5000000000000fo1", "v2"));
+      ASSERT_OK(Put("5000000000000fo2", "v"));
+      ASSERT_OK(Put("2000000000000fo0", "v3"));
+      ASSERT_OK(Put("2000000000000fo1", "v4"));
+      ASSERT_OK(Put("2000000000000fo2", "v"));
+      ASSERT_OK(Put("2000000000000fo3", "v"));
 
-    dbfull()->TEST_FlushMemTable();
+      dbfull()->TEST_FlushMemTable();
 
-    ASSERT_EQ("v1", Get("5000000000000fo0"));
-    ASSERT_EQ("v2", Get("5000000000000fo1"));
-    ASSERT_EQ("v3", Get("2000000000000fo0"));
-    ASSERT_EQ("v4", Get("2000000000000fo1"));
+      ASSERT_EQ("v1", Get("5000000000000fo0"));
+      ASSERT_EQ("v2", Get("5000000000000fo1"));
+      ASSERT_EQ("v3", Get("2000000000000fo0"));
+      ASSERT_EQ("v4", Get("2000000000000fo1"));
 
-    ASSERT_EQ("NOT_FOUND", Get("5000000000000bar"));
-    ASSERT_EQ("NOT_FOUND", Get("2000000000000bar"));
-    ASSERT_EQ("NOT_FOUND", Get("5000000000000fo8"));
-    ASSERT_EQ("NOT_FOUND", Get("2000000000000fo8"));
+      ASSERT_EQ("NOT_FOUND", Get("5000000000000bar"));
+      ASSERT_EQ("NOT_FOUND", Get("2000000000000bar"));
+      ASSERT_EQ("NOT_FOUND", Get("5000000000000fo8"));
+      ASSERT_EQ("NOT_FOUND", Get("2000000000000fo8"));
 
-    ReadOptions ro;
-    Iterator* iter = dbfull()->NewIterator(ro);
+      ReadOptions ro;
+      Iterator* iter = dbfull()->NewIterator(ro);
 
-    iter->Seek("5000000000000fo1");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo1", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo0", iter->key().ToString());
+      iter->Seek("5000000000000fo1");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo1", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo0", iter->key().ToString());
 
-    iter->Seek("5000000000000fo1");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo1", iter->key().ToString());
+      iter->Seek("5000000000000fo1");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo1", iter->key().ToString());
 
-    iter->Seek("2000000000000fo1");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo1", iter->key().ToString());
-    iter->Next();
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo0", iter->key().ToString());
+      iter->Seek("2000000000000fo1");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo1", iter->key().ToString());
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo0", iter->key().ToString());
 
-    iter->Seek("2000000000000fo1");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo1", iter->key().ToString());
+      iter->Seek("2000000000000fo1");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo1", iter->key().ToString());
 
-    iter->Seek("2000000000000var");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("2000000000000fo3", iter->key().ToString());
+      iter->Seek("2000000000000var");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("2000000000000fo3", iter->key().ToString());
 
-    iter->Seek("5000000000000var");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("5000000000000fo2", iter->key().ToString());
+      iter->Seek("5000000000000var");
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ("5000000000000fo2", iter->key().ToString());
 
-    std::string seek_key = "2000000000000bar";
-    iter->Seek(seek_key);
-    ASSERT_TRUE(!iter->Valid() ||
-                options.prefix_extractor->Transform(iter->key()) !=
-                    options.prefix_extractor->Transform(seek_key));
+      std::string seek_key = "2000000000000bar";
+      iter->Seek(seek_key);
+      ASSERT_TRUE(!iter->Valid() ||
+                  options.prefix_extractor->Transform(iter->key()) !=
+                      options.prefix_extractor->Transform(seek_key));
 
-    iter->Seek("1000000000000fo2");
-    ASSERT_TRUE(!iter->Valid());
+      iter->Seek("1000000000000fo2");
+      ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("3000000000000fo2");
-    ASSERT_TRUE(!iter->Valid());
+      iter->Seek("3000000000000fo2");
+      ASSERT_TRUE(!iter->Valid());
 
-    iter->Seek("8000000000000fo2");
-    ASSERT_TRUE(!iter->Valid());
+      iter->Seek("8000000000000fo2");
+      ASSERT_TRUE(!iter->Valid());
 
-    delete iter;
+      delete iter;
+    }
   }
 }
 

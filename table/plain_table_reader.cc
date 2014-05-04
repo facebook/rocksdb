@@ -24,6 +24,7 @@
 #include "table/two_level_iterator.h"
 #include "table/plain_table_factory.h"
 
+#include "util/arena.h"
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
@@ -95,7 +96,8 @@ PlainTableReader::PlainTableReader(
     const Options& options, unique_ptr<RandomAccessFile>&& file,
     const EnvOptions& storage_options, const InternalKeyComparator& icomparator,
     uint64_t file_size, int bloom_bits_per_key, double hash_table_ratio,
-    size_t index_sparseness, const TableProperties* table_properties)
+    size_t index_sparseness, const TableProperties* table_properties,
+    size_t huge_page_tlb_size)
     : options_(options),
       soptions_(storage_options),
       file_(std::move(file)),
@@ -106,19 +108,23 @@ PlainTableReader::PlainTableReader(
       kIndexIntervalForSamePrefixKeys(index_sparseness),
       table_properties_(nullptr),
       data_end_offset_(table_properties->data_size),
-      user_key_len_(table_properties->fixed_key_len) {
+      user_key_len_(table_properties->fixed_key_len),
+      huge_page_tlb_size_(huge_page_tlb_size) {
   assert(kHashTableRatio >= 0.0);
 }
 
 PlainTableReader::~PlainTableReader() {
 }
 
-Status PlainTableReader::Open(
-    const Options& options, const EnvOptions& soptions,
-    const InternalKeyComparator& internal_comparator,
-    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table_reader, const int bloom_bits_per_key,
-    double hash_table_ratio, size_t index_sparseness) {
+Status PlainTableReader::Open(const Options& options,
+                              const EnvOptions& soptions,
+                              const InternalKeyComparator& internal_comparator,
+                              unique_ptr<RandomAccessFile>&& file,
+                              uint64_t file_size,
+                              unique_ptr<TableReader>* table_reader,
+                              const int bloom_bits_per_key,
+                              double hash_table_ratio, size_t index_sparseness,
+                              size_t huge_page_tlb_size) {
   assert(options.allow_mmap_reads);
 
   if (file_size > kMaxFileSize) {
@@ -134,7 +140,8 @@ Status PlainTableReader::Open(
 
   std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
       options, std::move(file), soptions, internal_comparator, file_size,
-      bloom_bits_per_key, hash_table_ratio, index_sparseness, props));
+      bloom_bits_per_key, hash_table_ratio, index_sparseness, props,
+      huge_page_tlb_size));
 
   // -- Populate Index
   s = new_reader->PopulateIndex(props);
@@ -261,12 +268,11 @@ Status PlainTableReader::PopulateIndexRecordList(IndexRecordList* record_list,
 }
 
 void PlainTableReader::AllocateIndexAndBloom(int num_prefixes) {
-  index_.reset();
-
   if (options_.prefix_extractor.get() != nullptr) {
     uint32_t bloom_total_bits = num_prefixes * kBloomBitsPerKey;
     if (bloom_total_bits > 0) {
-      bloom_.reset(new DynamicBloom(bloom_total_bits, options_.bloom_locality));
+      bloom_.reset(new DynamicBloom(bloom_total_bits, options_.bloom_locality,
+                                    6, nullptr, huge_page_tlb_size_));
     }
   }
 
@@ -278,7 +284,6 @@ void PlainTableReader::AllocateIndexAndBloom(int num_prefixes) {
     double hash_table_size_multipier = 1.0 / kHashTableRatio;
     index_size_ = num_prefixes * hash_table_size_multipier + 1;
   }
-  index_.reset(new uint32_t[index_size_]);
 }
 
 size_t PlainTableReader::BucketizeIndexesAndFillBloom(
@@ -322,7 +327,12 @@ void PlainTableReader::FillIndexes(
     const std::vector<uint32_t>& entries_per_bucket) {
   Log(options_.info_log, "Reserving %zu bytes for plain table's sub_index",
       kSubIndexSize);
-  sub_index_.reset(new char[kSubIndexSize]);
+  auto total_allocate_size = sizeof(uint32_t) * index_size_ + kSubIndexSize;
+  char* allocated =
+      arena_.AllocateAligned(total_allocate_size, huge_page_tlb_size_);
+  index_ = reinterpret_cast<uint32_t*>(allocated);
+  sub_index_ = allocated + sizeof(uint32_t) * index_size_;
+
   size_t sub_index_offset = 0;
   for (int i = 0; i < index_size_; i++) {
     uint32_t num_keys_for_bucket = entries_per_bucket[i];
@@ -387,7 +397,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props) {
   if (IsTotalOrderMode()) {
     uint32_t num_bloom_bits = table_properties_->num_entries * kBloomBitsPerKey;
     if (num_bloom_bits > 0) {
-      bloom_.reset(new DynamicBloom(num_bloom_bits, options_.bloom_locality));
+      bloom_.reset(new DynamicBloom(num_bloom_bits, options_.bloom_locality, 6,
+                                    nullptr, huge_page_tlb_size_));
     }
   }
 
