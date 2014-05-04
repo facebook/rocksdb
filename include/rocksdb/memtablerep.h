@@ -230,6 +230,6 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 //                          sysctl -w vm.nr_hugepages=20
 //                      See linux doc Documentation/vm/hugetlbpage.txt
 extern MemTableRepFactory* NewHashLinkListRepFactory(
-    size_t bucket_count = 50000, size_t huge_page_tlb_size = 2 * 1024 * 1024);
+    size_t bucket_count = 50000, size_t huge_page_tlb_size = 0);
 
 }  // namespace rocksdb
