@@ -5,6 +5,7 @@
 ### Public API changes
 * Added _LEVEL to all InfoLogLevel enums
 * Deprecated ReadOptions.prefix and ReadOptions.prefix_seek. Seek() defaults to prefix-based seek when Options.prefix_extractor is supplied. More detail is documented in https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
+* MemTableRepFactory::CreateMemTableRep() takes info logger as an extra parameter.
 
 ### New Features
 * Column family support

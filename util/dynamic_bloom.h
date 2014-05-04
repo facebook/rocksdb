@@ -13,6 +13,7 @@
 namespace rocksdb {
 
 class Slice;
+class Logger;
 
 class DynamicBloom {
  public:
@@ -29,7 +30,8 @@ class DynamicBloom {
   explicit DynamicBloom(uint32_t total_bits, uint32_t cl_per_block = 0,
                         uint32_t num_probes = 6,
                         uint32_t (*hash_func)(const Slice& key) = nullptr,
-                        size_t huge_page_tlb_size = 0);
+                        size_t huge_page_tlb_size = 0,
+                        Logger* logger = nullptr);
 
   ~DynamicBloom() {}
 

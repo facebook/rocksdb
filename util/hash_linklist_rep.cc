@@ -54,7 +54,7 @@ class HashLinkListRep : public MemTableRep {
  public:
   HashLinkListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
                   const SliceTransform* transform, size_t bucket_size,
-                  size_t huge_page_tlb_size);
+                  size_t huge_page_tlb_size, Logger* logger);
 
   virtual KeyHandle Allocate(const size_t len, char** buf) override;
 
@@ -307,13 +307,14 @@ class HashLinkListRep : public MemTableRep {
 
 HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
                                  Arena* arena, const SliceTransform* transform,
-                                 size_t bucket_size, size_t huge_page_tlb_size)
+                                 size_t bucket_size, size_t huge_page_tlb_size,
+                                 Logger* logger)
     : MemTableRep(arena),
       bucket_size_(bucket_size),
       transform_(transform),
       compare_(compare) {
   char* mem = arena_->AllocateAligned(sizeof(port::AtomicPointer) * bucket_size,
-                                      huge_page_tlb_size);
+                                      huge_page_tlb_size, logger);
 
   buckets_ = new (mem) port::AtomicPointer[bucket_size];
 
@@ -469,9 +470,9 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform* transform) {
+    const SliceTransform* transform, Logger* logger) {
   return new HashLinkListRep(compare, arena, transform, bucket_count_,
-                             huge_page_tlb_size_);
+                             huge_page_tlb_size_, logger);
 }
 
 MemTableRepFactory* NewHashLinkListRepFactory(size_t bucket_count,

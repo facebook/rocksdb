@@ -10,6 +10,7 @@
 #include "util/arena.h"
 #include <sys/mman.h>
 #include <algorithm>
+#include "rocksdb/env.h"
 
 namespace rocksdb {
 
@@ -70,20 +71,23 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   }
 }
 
-char* Arena::AllocateAligned(size_t bytes, size_t huge_page_tlb_size) {
+char* Arena::AllocateAligned(size_t bytes, size_t huge_page_tlb_size,
+                             Logger* logger) {
   assert((kAlignUnit & (kAlignUnit - 1)) ==
          0);  // Pointer size should be a power of 2
 
 #ifdef OS_LINUX
   if (huge_page_tlb_size > 0 && bytes > 0) {
     // Allocate from a huge page TBL table.
+    assert(logger != nullptr);  // logger need to be passed in.
     size_t reserved_size =
         ((bytes - 1U) / huge_page_tlb_size + 1U) * huge_page_tlb_size;
     assert(reserved_size >= bytes);
     void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
                       (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
     if (addr == MAP_FAILED) {
-      // TODO(sdong): Better handling
+      Warn(logger, "AllocateAligned fail to allocate huge TLB pages: %s",
+           strerror(errno));
       // fail back to malloc
     } else {
       blocks_memory_ += reserved_size;

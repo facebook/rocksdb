@@ -275,7 +275,7 @@ MemTableRep::Iterator* VectorRep::GetIterator() {
 
 MemTableRep* VectorRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform*) {
+    const SliceTransform*, Logger* logger) {
   return new VectorRep(compare, arena, count_);
 }
 } // namespace rocksdb

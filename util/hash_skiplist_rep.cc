@@ -320,7 +320,7 @@ MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator() {
 
 MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform* transform) {
+    const SliceTransform* transform, Logger* logger) {
   return new HashSkipListRep(compare, arena, transform, bucket_count_,
                              skiplist_height_, skiplist_branching_factor_);
 }

@@ -272,7 +272,8 @@ void PlainTableReader::AllocateIndexAndBloom(int num_prefixes) {
     uint32_t bloom_total_bits = num_prefixes * kBloomBitsPerKey;
     if (bloom_total_bits > 0) {
       bloom_.reset(new DynamicBloom(bloom_total_bits, options_.bloom_locality,
-                                    6, nullptr, huge_page_tlb_size_));
+                                    6, nullptr, huge_page_tlb_size_,
+                                    options_.info_log.get()));
     }
   }
 
@@ -328,8 +329,8 @@ void PlainTableReader::FillIndexes(
   Log(options_.info_log, "Reserving %zu bytes for plain table's sub_index",
       kSubIndexSize);
   auto total_allocate_size = sizeof(uint32_t) * index_size_ + kSubIndexSize;
-  char* allocated =
-      arena_.AllocateAligned(total_allocate_size, huge_page_tlb_size_);
+  char* allocated = arena_.AllocateAligned(
+      total_allocate_size, huge_page_tlb_size_, options_.info_log.get());
   index_ = reinterpret_cast<uint32_t*>(allocated);
   sub_index_ = allocated + sizeof(uint32_t) * index_size_;
 
@@ -398,7 +399,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props) {
     uint32_t num_bloom_bits = table_properties_->num_entries * kBloomBitsPerKey;
     if (num_bloom_bits > 0) {
       bloom_.reset(new DynamicBloom(num_bloom_bits, options_.bloom_locality, 6,
-                                    nullptr, huge_page_tlb_size_));
+                                    nullptr, huge_page_tlb_size_,
+                                    options_.info_log.get()));
     }
   }
 

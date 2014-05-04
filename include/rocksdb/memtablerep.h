@@ -44,6 +44,7 @@ class Arena;
 class LookupKey;
 class Slice;
 class SliceTransform;
+class Logger;
 
 typedef void* KeyHandle;
 
@@ -174,7 +175,8 @@ class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() {}
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-      Arena*, const SliceTransform*) = 0;
+                                         Arena*, const SliceTransform*,
+                                         Logger* logger) = 0;
   virtual const char* Name() const = 0;
 };
 
@@ -182,8 +184,8 @@ class MemTableRepFactory {
 class SkipListFactory : public MemTableRepFactory {
  public:
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Arena*,
-                                         const SliceTransform*) override;
+                                         Arena*, const SliceTransform*,
+                                         Logger* logger) override;
   virtual const char* Name() const override { return "SkipListFactory"; }
 };
 
@@ -201,9 +203,9 @@ class VectorRepFactory : public MemTableRepFactory {
 
  public:
   explicit VectorRepFactory(size_t count = 0) : count_(count) { }
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator&, Arena*,
-      const SliceTransform*) override;
+  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+                                         Arena*, const SliceTransform*,
+                                         Logger* logger) override;
   virtual const char* Name() const override {
     return "VectorRepFactory";
   }

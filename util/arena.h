@@ -20,6 +20,8 @@
 
 namespace rocksdb {
 
+class Logger;
+
 class Arena {
  public:
   // No copying allowed
@@ -41,7 +43,12 @@ class Arena {
   // huge pages for it to be allocated, like:
   //     sysctl -w vm.nr_hugepages=20
   // See linux doc Documentation/vm/hugetlbpage.txt for details.
-  char* AllocateAligned(size_t bytes, size_t huge_page_tlb_size = 0);
+  // huge page allocation can fail. In this case it will fail back to
+  // normal cases. The messages will be logged to logger. So when calling with
+  // huge_page_tlb_size > 0, we highly recommend a logger is passed in.
+  // Otherwise, the error message will be printed out to stderr directly.
+  char* AllocateAligned(size_t bytes, size_t huge_page_tlb_size = 0,
+                        Logger* logger = nullptr);
 
   // Returns an estimate of the total memory usage of data allocated
   // by the arena (exclude the space allocated but not yet used for future

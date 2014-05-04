@@ -37,7 +37,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
       kWriteBufferSize(options.write_buffer_size),
       arena_(options.arena_block_size),
       table_(options.memtable_factory->CreateMemTableRep(
-          comparator_, &arena_, options.prefix_extractor.get())),
+          comparator_, &arena_, options.prefix_extractor.get(),
+          options.info_log.get())),
       num_entries_(0),
       flush_in_progress_(false),
       flush_completed_(false),
@@ -55,7 +56,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     prefix_bloom_.reset(new DynamicBloom(
         options.memtable_prefix_bloom_bits, options.bloom_locality,
         options.memtable_prefix_bloom_probes, nullptr,
-        options.memtable_prefix_bloom_huge_page_tlb_size));
+        options.memtable_prefix_bloom_huge_page_tlb_size,
+        options.info_log.get()));
   }
 }
 

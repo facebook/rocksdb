@@ -116,7 +116,7 @@ public:
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform*) {
+    const SliceTransform*, Logger* logger) {
   return new SkipListRep(compare, arena);
 }
 
