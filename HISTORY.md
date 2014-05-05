@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-## Unreleased (will be released in 3.0)
+## 3.0.0 (05/05/2014)
 
 ### Public API changes
 * Added _LEVEL to all InfoLogLevel enums
@@ -9,6 +9,7 @@
 ### New Features
 * Column family support
 * Added an option to use different checksum functions in BlockBasedTableOptions
+* Added ApplyToAllCacheEntries() function to Cache
 
 ## 2.8.0 (04/04/2014)
 
