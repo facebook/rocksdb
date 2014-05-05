@@ -43,7 +43,6 @@ Arena::~Arena() {
     auto ret = munmap(mmap_info.addr_, mmap_info.length_);
     if (ret != 0) {
       // TODO(sdong): Better handling
-      perror("munmap");
     }
   }
 }
@@ -84,7 +83,7 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_tlb_size) {
     void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
                       (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
     if (addr == MAP_FAILED) {
-      perror("mmap");
+      // TODO(sdong): Better handling
       // fail back to malloc
     } else {
       blocks_memory_ += reserved_size;
