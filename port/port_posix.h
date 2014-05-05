@@ -465,8 +465,12 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
   char *p = const_cast<char *>(output->c_str());
   memcpy(p, &length, sizeof(length));
   size_t outlen;
+#ifdef LZ4_VERSION_MAJOR  // they only started defining this since r113
   outlen = LZ4_compressHC2_limitedOutput(input, p + 8, length, compressBound,
                                          opts.level);
+#else
+  outlen = LZ4_compressHC_limitedOutput(input, p + 8, length, compressBound);
+#endif
   if (outlen == 0) {
     return false;
   }

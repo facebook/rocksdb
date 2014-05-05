@@ -44,8 +44,8 @@ BZIP_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/bzip2/bzip2-1.0.6/c3f970a/include"
 BZIP_LIBS=" $TOOLCHAIN_LIB_BASE/bzip2/bzip2-1.0.6/c3f970a/lib/libbz2.a"
 
 LZ4_REV=065ec7e38fe83329031f6668c43bef83eff5808b
-LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/$LZ4_REV/r117/gcc-4.8.1-glibc-2.17/c3f970a/include"
-LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/$LZ4_REV/r117/gcc-4.8.1-glibc-2.17/c3f970a/lib/liblz4.a"
+LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/$LZ4_REV/r108/gcc-4.8.1-glibc-2.17/c3f970a/include"
+LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/$LZ4_REV/r108/gcc-4.8.1-glibc-2.17/c3f970a/lib/liblz4.a"
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/gflags/gflags-1.6/c3f970a/include"
