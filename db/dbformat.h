@@ -32,6 +32,8 @@ enum ValueType : unsigned char {
   kTypeDeletion = 0x0,
   kTypeValue = 0x1,
   kTypeMerge = 0x2,
+  // Following types are used only in write ahead logs. They are not used in
+  // memtables or sst files:
   kTypeLogData = 0x3,
   kTypeColumnFamilyDeletion = 0x4,
   kTypeColumnFamilyValue = 0x5,
