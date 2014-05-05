@@ -262,6 +262,13 @@ AddBenchmark(const char* file, const char* name, Lambda&& lambda) {
 #define BENCHMARK_NAMED_PARAM(name, param_name, ...)                    \
   BENCHMARK_IMPL(                                                       \
       FB_CONCATENATE(name, FB_CONCATENATE(_, param_name)),              \
+      FB_STRINGIZE(name) "(" FB_STRINGIZE(param_name) ")") {            \
+    name(__VA_ARGS__);                                                  \
+  }
+
+#define BENCHMARK_NAMED_PARAM_N(name, param_name, ...)                  \
+  BENCHMARK_IMPL_N(                                                     \
+      FB_CONCATENATE(name, FB_CONCATENATE(_, param_name)),              \
       FB_STRINGIZE(name) "(" FB_STRINGIZE(param_name) ")",              \
       unsigned,                                                         \
       iters) {                                                          \
@@ -307,14 +314,14 @@ AddBenchmark(const char* file, const char* name, Lambda&& lambda) {
 /**
  * A combination of BENCHMARK_RELATIVE and BENCHMARK_PARAM.
  */
-#define BENCHMARK_RELATIVE_PARAM(name, param)                           \
+#define BENCHMARK_RELATIVE_PARAM(name, param)                   \
   BENCHMARK_RELATIVE_NAMED_PARAM(name, param, param)
 
 /**
  * A combination of BENCHMARK_RELATIVE and BENCHMARK_NAMED_PARAM.
  */
 #define BENCHMARK_RELATIVE_NAMED_PARAM(name, param_name, ...)           \
-  BENCHMARK_IMPL(                                                       \
+  BENCHMARK_IMPL_N(                                                     \
       FB_CONCATENATE(name, FB_CONCATENATE(_, param_name)),              \
       "%" FB_STRINGIZE(name) "(" FB_STRINGIZE(param_name) ")",          \
       unsigned,                                                         \
@@ -327,7 +334,7 @@ AddBenchmark(const char* file, const char* name, Lambda&& lambda) {
  */
 #define BENCHMARK_DRAW_LINE()                                       \
   static bool FB_ANONYMOUS_VARIABLE(rocksdbBenchmarkUnused) = (     \
-    ::rocksdb::benchmark::AddBenchmark(__FILE__, "-", []() { }),               \
+    ::rocksdb::benchmark::AddBenchmark(__FILE__, "-", []() { }),    \
     true);
 
 /**
@@ -346,5 +353,5 @@ AddBenchmark(const char* file, const char* name, Lambda&& lambda) {
  */
 #define BENCHMARK_SUSPEND                               \
   if (auto FB_ANONYMOUS_VARIABLE(BENCHMARK_SUSPEND) =   \
-      ::rocksdb::benchmark::BenchmarkSuspender()) {}               \
+      ::rocksdb::benchmark::BenchmarkSuspender()) {}    \
   else

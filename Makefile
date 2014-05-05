@@ -123,7 +123,7 @@ TOOLS = \
 	db_repl_stress \
 	blob_store_bench
 
-PROGRAMS = db_bench signal_test table_reader_bench $(TOOLS)
+PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench $(TOOLS)
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
@@ -336,6 +336,9 @@ simple_table_db_test: db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
+
+log_and_apply_bench: db/log_and_apply_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS)
+	$(CXX) db/log_and_apply_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
