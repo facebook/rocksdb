@@ -63,7 +63,7 @@ class PlainTableFactory : public TableFactory {
                              int bloom_bits_per_key = 0,
                              double hash_table_ratio = 0.75,
                              size_t index_sparseness = 16,
-                             size_t huge_page_tlb_size = 2 * 1024 * 1024)
+                             size_t huge_page_tlb_size = 0)
       : user_key_len_(user_key_len),
         bloom_bits_per_key_(bloom_bits_per_key),
         hash_table_ratio_(hash_table_ratio),
