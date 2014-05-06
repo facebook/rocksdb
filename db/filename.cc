@@ -226,7 +226,8 @@ bool ParseFileName(const std::string& fname,
 }
 
 Status SetCurrentFile(Env* env, const std::string& dbname,
-                      uint64_t descriptor_number) {
+                      uint64_t descriptor_number,
+                      Directory* directory_to_fsync) {
   // Remove leading "dbname/" and add newline to manifest file name
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
   Slice contents = manifest;
@@ -237,7 +238,11 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   if (s.ok()) {
     s = env->RenameFile(tmp, CurrentFileName(dbname));
   }
-  if (!s.ok()) {
+  if (s.ok()) {
+    if (directory_to_fsync != nullptr) {
+      directory_to_fsync->Fsync();
+    }
+  } else {
     env->DeleteFile(tmp);
   }
   return s;

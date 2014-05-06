@@ -363,7 +363,7 @@ class Repairer {
       // Install new manifest
       status = env_->RenameFile(tmp, DescriptorFileName(dbname_, 1));
       if (status.ok()) {
-        status = SetCurrentFile(env_, dbname_, 1);
+        status = SetCurrentFile(env_, dbname_, 1, nullptr);
       } else {
         env_->DeleteFile(tmp);
       }

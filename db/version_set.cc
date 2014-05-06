@@ -1731,7 +1731,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_);
+      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
+                         db_directory);
       if (s.ok() && pending_manifest_file_number_ > manifest_file_number_) {
         // delete old manifest file
         Log(options_->info_log,
@@ -1740,9 +1741,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         // we don't care about an error here, PurgeObsoleteFiles will take care
         // of it later
         env_->DeleteFile(DescriptorFileName(dbname_, manifest_file_number_));
-      }
-      if (!options_->disableDataSync && db_directory != nullptr) {
-        db_directory->Fsync();
       }
     }
 

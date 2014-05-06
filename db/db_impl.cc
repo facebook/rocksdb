@@ -487,7 +487,7 @@ Status DBImpl::NewDB() {
   }
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1);
+    s = SetCurrentFile(env_, dbname_, 1, db_directory_.get());
   } else {
     env_->DeleteFile(manifest);
   }
