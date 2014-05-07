@@ -146,6 +146,11 @@ class InternalKey {
     AppendInternalKey(&rep_, ParsedInternalKey(user_key, s, t));
   }
 
+  bool Valid() const {
+    ParsedInternalKey parsed;
+    return ParseInternalKey(Slice(rep_), &parsed);
+  }
+
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }
   Slice Encode() const {
     assert(!rep_.empty());

@@ -123,7 +123,7 @@ static bool GetInternalKey(Slice* input, InternalKey* dst) {
   Slice str;
   if (GetLengthPrefixedSlice(input, &str)) {
     dst->DecodeFrom(str);
-    return true;
+    return dst->Valid();
   } else {
     return false;
   }
