@@ -1,19 +1,32 @@
+## Compilation
+
+RocksDB's library should be able to compile without any dependency installed,
+although we recommend installing some compression libraries (see below).
+We do depend on newer gcc with C++11 support.
+
+There are few options when compiling RocksDB:
+
+* [recommended] `make static_lib` will compile librocksdb.a, RocksDB static library.
+
+* `make shared_lib` will compile librocksdb.so, RocksDB shared library.
+
+* `make check` will compile and run all the unit tests
+
+* `make all` will compile our static library, and all our tools and unit tests. Our tools
+depend on gflags. You will need to have gflags installed to run `make all`.
+
 ## Dependencies
 
-RocksDB is developed on Linux (CentOS release 5.2), with gcc 4.8.1.
-It depends on gcc with C++11 support.
-
-* RocksDB depends on the following libraries:
+* You can link RocksDB with following compression libraries:
   - [zlib](http://www.zlib.net/) - a library for data compression.
   - [bzip2](http://www.bzip.org/) - a library for data compression.
   - [snappy](https://code.google.com/p/snappy/) - a library for fast
       data compression.
-  - [gflags](https://code.google.com/p/gflags/) - a library that handles
-      command line flags processing.
 
-RocksDB will successfully compile without the compression libraries included,
-but some things may fail. We do not support releases without the compression
-libraries. You are on your own.
+* All our tools depend on:
+  - [gflags](https://code.google.com/p/gflags/) - a library that handles
+      command line flags processing. You can compile rocksdb library even
+      if you don't have gflags installed.
 
 ## Supported platforms
 
@@ -69,12 +82,3 @@ libraries. You are on your own.
 
 * **iOS**:
   * Run: `TARGET_OS=IOS make static_lib`
-
-## Compilation
-`make clean; make` will compile librocksdb.a (RocksDB static library) and all
-the unit tests. You can run all unit tests with `make check`.
-
-For shared library builds, exec `make shared_lib` instead.
-
-If you followed the above steps and your compile or unit tests fail,
-please submit an issue: (https://github.com/facebook/rocksdb/issues)

@@ -184,12 +184,6 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Also don't need any compilation tests if compiling on fbcode
     true
 else
-    # do fPIC on 64 bit in non-fbcode environment
-    case "$TARGET_OS" in
-        x86_64)
-            PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS -fPIC"
-    esac
-
     # If -std=c++0x works, use <atomic>.  Otherwise use port_posix.h.
     $CXX $CFLAGS -std=c++0x -x c++ - -o /dev/null 2>/dev/null  <<EOF
       #include <atomic>

@@ -14,12 +14,10 @@ else
 endif
 
 ifeq ($(MAKECMDGOALS),shared_lib)
-PLATFORM_SHARED_LDFLAGS=-fPIC
 OPT += -DNDEBUG
 endif
 
 ifeq ($(MAKECMDGOALS),static_lib)
-PLATFORM_SHARED_LDFLAGS=-fPIC
 OPT += -DNDEBUG
 endif
 
@@ -181,10 +179,6 @@ release:
 	$(MAKE) clean
 	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(PROGRAMS) -j32
 
-release_shared_lib:
-	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) shared_lib -j32
-
 coverage:
 	$(MAKE) clean
 	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check -j32
@@ -192,11 +186,11 @@ coverage:
 	# Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-check: $(PROGRAMS) $(TESTS) $(TOOLS)
+check: $(TESTS) ldb
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 	python tools/ldb_test.py
 
-ldb_tests: all $(PROGRAMS) $(TESTS) $(TOOLS)
+ldb_tests: ldb
 	python tools/ldb_test.py
 
 crash_test: whitebox_crash_test blackbox_crash_test
