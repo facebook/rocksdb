@@ -20,6 +20,13 @@ class IteratorWrapper {
   explicit IteratorWrapper(Iterator* iter): iter_(nullptr) {
     Set(iter);
   }
+  IteratorWrapper(const IteratorWrapper&) {
+    // Iterator wrapper exclusively owns iter_ so it cannot be copied.
+    // Didn't delete the function because vector<IteratorWrapper> requires
+    // this function to compile.
+    assert(false);
+  }
+  void operator=(const IteratorWrapper&) = delete;
   ~IteratorWrapper() { delete iter_; }
   Iterator* iter() const { return iter_; }
 
@@ -34,7 +41,6 @@ class IteratorWrapper {
       Update();
     }
   }
-
 
   // Iterator interface methods
   bool Valid() const        { return valid_; }

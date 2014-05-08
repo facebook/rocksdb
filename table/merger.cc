@@ -19,6 +19,7 @@
 #include "table/iterator_wrapper.h"
 #include "util/stop_watch.h"
 #include "util/perf_context_imp.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 namespace {
@@ -43,16 +44,18 @@ MinIterHeap NewMinIterHeap(const Comparator* comparator) {
   return MinIterHeap(MinIteratorComparator(comparator));
 }
 
+const size_t kNumIterReserve = 4;
+
 class MergingIterator : public Iterator {
  public:
   MergingIterator(const Comparator* comparator, Iterator** children, int n)
       : comparator_(comparator),
-        children_(n),
         current_(nullptr),
         use_heap_(true),
         direction_(kForward),
         maxHeap_(NewMaxIterHeap(comparator_)),
         minHeap_(NewMinIterHeap(comparator_)) {
+    children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
     }
@@ -240,7 +243,7 @@ class MergingIterator : public Iterator {
   void ClearHeaps();
 
   const Comparator* comparator_;
-  std::vector<IteratorWrapper> children_;
+  autovector<IteratorWrapper, kNumIterReserve> children_;
   IteratorWrapper* current_;
   // If the value is true, both of iterators in the heap and current_
   // contain valid rows. If it is false, only current_ can possibly contain
