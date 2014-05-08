@@ -3841,6 +3841,38 @@ TEST(DBTest, CompactionFilter) {
   delete iter;
 }
 
+// Tests the edge case where compaction does not produce any output -- all
+// entries are deleted. The compaction should create bunch of 'DeleteFile'
+// entries in VersionEdit, but none of the 'AddFile's.
+TEST(DBTest, CompactionFilterDeletesAll) {
+  Options options;
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+
+  // put some data
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(std::to_string(table * 100 + i), "val");
+    }
+    Flush();
+  }
+
+  // this will produce empty file (delete compaction filter)
+  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_EQ(0, CountLiveFiles());
+
+  Reopen(&options);
+
+  Iterator* itr = db_->NewIterator(ReadOptions());
+  itr->SeekToFirst();
+  // empty db
+  ASSERT_TRUE(!itr->Valid());
+
+  delete itr;
+}
+
 TEST(DBTest, CompactionFilterWithValueChange) {
   do {
     Options options;
