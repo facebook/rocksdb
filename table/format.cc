@@ -23,9 +23,16 @@
 namespace rocksdb {
 
 extern const uint64_t kLegacyBlockBasedTableMagicNumber;
-extern const uint64_t kLegacyPlainTableMagicNumber;
 extern const uint64_t kBlockBasedTableMagicNumber;
+
+#ifndef ROCKSDB_LITE
+extern const uint64_t kLegacyPlainTableMagicNumber;
 extern const uint64_t kPlainTableMagicNumber;
+#else
+// ROCKSDB_LITE doesn't have plain table
+const uint64_t kLegacyPlainTableMagicNumber = 0;
+const uint64_t kPlainTableMagicNumber = 0;
+#endif
 
 void BlockHandle::EncodeTo(std::string* dst) const {
   // Sanity check that all fields have been set
