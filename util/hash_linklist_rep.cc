@@ -259,7 +259,6 @@ class HashLinkListRep : public MemTableRep {
     const HashLinkListRep* const hash_link_list_rep_;
     Node* head_;
     Node* node_;
-    std::string tmp_;       // For passing to EncodeKey
 
     virtual void SeekToHead() {
       node_ = head_;
