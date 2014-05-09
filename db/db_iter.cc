@@ -126,7 +126,6 @@ class DBIter: public Iterator {
   Status status_;
   IterKey saved_key_;   // == current key when direction_==kReverse
   std::string saved_value_;   // == current raw value when direction_==kReverse
-  std::string skip_key_;
   Direction direction_;
   bool valid_;
   bool current_entry_is_merged_;
