@@ -3,12 +3,23 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
+
 #include <gflags/gflags.h>
 
 #include "rocksdb/env.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+
+using GFLAGS::ParseCommandLineFlags;
+using GFLAGS::SetUsageMessage;
 
 // A simple benchmark to simulate transactional logs
 
@@ -60,10 +71,12 @@ void RunBenchmark() {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                          " [OPTIONS]...");
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+                  " [OPTIONS]...");
+  ParseCommandLineFlags(&argc, &argv, true);
 
   rocksdb::RunBenchmark();
   return 0;
 }
+
+#endif  // GFLAGS

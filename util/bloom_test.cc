@@ -7,6 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
+
 #include <gflags/gflags.h>
 
 #include "rocksdb/filter_policy.h"
@@ -14,6 +22,8 @@
 #include "util/logging.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+
+using GFLAGS::ParseCommandLineFlags;
 
 DEFINE_int32(bits_per_key, 10, "");
 
@@ -164,7 +174,9 @@ TEST(BloomTest, VaryingLengths) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  ParseCommandLineFlags(&argc, &argv, true);
 
   return rocksdb::test::RunAllTests();
 }
+
+#endif  // GFLAGS

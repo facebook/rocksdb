@@ -3,6 +3,14 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
+
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <algorithm>
@@ -14,6 +22,8 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/stop_watch.h"
+
+using GFLAGS::ParseCommandLineFlags;
 
 DEFINE_int32(bits_per_key, 10, "");
 DEFINE_int32(num_probes, 6, "");
@@ -196,7 +206,9 @@ TEST(DynamicBloomTest, perf) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  ParseCommandLineFlags(&argc, &argv, true);
 
   return rocksdb::test::RunAllTests();
 }
+
+#endif  // GFLAGS
