@@ -2,7 +2,15 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
+
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
+
 #include <cstdio>
 
 #include <gflags/gflags.h>
@@ -13,7 +21,6 @@
 #include "port/atomic_pointer.h"
 #include "util/testutil.h"
 
-
 // Run a thread to perform Put's.
 // Another thread uses GetUpdatesSince API to keep getting the updates.
 // options :
@@ -21,6 +28,9 @@
 // --wal_ttl = the wal ttl for the run.
 
 using namespace rocksdb;
+
+using GFLAGS::ParseCommandLineFlags;
+using GFLAGS::SetUsageMessage;
 
 struct DataPumpThread {
   size_t no_records;
@@ -87,10 +97,11 @@ DEFINE_uint64(wal_size_limit_MB, 10, "the wal size limit for the run"
               "(in MB)");
 
 int main(int argc, const char** argv) {
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-    " --num_inserts=<num_inserts> --wal_ttl_seconds=<WAL_ttl_seconds>" +
-    " --wal_size_limit_MB=<WAL_size_limit_MB>");
-  google::ParseCommandLineFlags(&argc, const_cast<char***>(&argv), true);
+  SetUsageMessage(
+      std::string("\nUSAGE:\n") + std::string(argv[0]) +
+      " --num_inserts=<num_inserts> --wal_ttl_seconds=<WAL_ttl_seconds>" +
+      " --wal_size_limit_MB=<WAL_size_limit_MB>");
+  ParseCommandLineFlags(&argc, const_cast<char***>(&argv), true);
 
   Env* env = Env::Default();
   std::string default_db_path;
@@ -132,3 +143,5 @@ int main(int argc, const char** argv) {
   fprintf(stderr, "Successful!\n");
   exit(0);
 }
+
+#endif  // GFLAGS

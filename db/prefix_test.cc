@@ -3,6 +3,14 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
+
 #include <algorithm>
 #include <iostream>
 #include <vector>
@@ -16,6 +24,8 @@
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
+
+using GFLAGS::ParseCommandLineFlags;
 
 DEFINE_bool(trigger_deadlock, false,
             "issue delete in range scan to trigger PrefixHashMap deadlock");
@@ -479,9 +489,11 @@ TEST(PrefixTest, DynamicPrefixIterator) {
 }
 
 int main(int argc, char** argv) {
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  ParseCommandLineFlags(&argc, &argv, true);
   std::cout << kDbName << "\n";
 
   rocksdb::test::RunAllTests();
   return 0;
 }
+
+#endif  // GFLAGS
