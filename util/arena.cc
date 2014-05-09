@@ -84,12 +84,13 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_tlb_size,
         ((bytes - 1U) / huge_page_tlb_size + 1U) * huge_page_tlb_size;
     assert(reserved_size >= bytes);
 
+#ifdef MAP_HUGETLB
+    void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
+                       (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
+#else
     void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
                       (MAP_PRIVATE | MAP_ANONYMOUS), 0, 0);
-
-    // only supported in kernel's 2.6.34 and above
-    // void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
-    //                   (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
+#endif
 
     if (addr == MAP_FAILED) {
       Warn(logger, "AllocateAligned fail to allocate huge TLB pages: %s",
