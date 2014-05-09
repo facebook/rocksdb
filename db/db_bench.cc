@@ -8,6 +8,15 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #define __STDC_FORMAT_MACROS
+
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
+
 #include <inttypes.h>
 #include <cstddef>
 #include <sys/types.h>
@@ -40,6 +49,9 @@
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
 
+using GFLAGS::ParseCommandLineFlags;
+using GFLAGS::RegisterFlagValidator;
+using GFLAGS::SetUsageMessage;
 
 DEFINE_string(benchmarks,
               "fillseq,"
@@ -376,8 +388,7 @@ static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
 }
 
 static const bool FLAGS_compression_level_dummy __attribute__((unused)) =
-    google::RegisterFlagValidator(&FLAGS_compression_level,
-                                  &ValidateCompressionLevel);
+    RegisterFlagValidator(&FLAGS_compression_level, &ValidateCompressionLevel);
 
 DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " from this level. Levels with number < min_level_to_compress are"
@@ -529,33 +540,29 @@ DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               " utilities/merge_operators.h");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_soft_rate_limit,
-                                &ValidateRateLimit);
+    RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
 
 static const bool FLAGS_hard_rate_limit_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
+    RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
 
 static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
+    RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 static const bool FLAGS_key_size_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_key_size, &ValidateKeySize);
+    RegisterFlagValidator(&FLAGS_key_size, &ValidateKeySize);
 
 static const bool FLAGS_cache_numshardbits_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_cache_numshardbits,
-                                &ValidateCacheNumshardbits);
+    RegisterFlagValidator(&FLAGS_cache_numshardbits,
+                          &ValidateCacheNumshardbits);
 
 static const bool FLAGS_readwritepercent_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_readwritepercent,
-                                &ValidateInt32Percent);
+    RegisterFlagValidator(&FLAGS_readwritepercent, &ValidateInt32Percent);
 
 static const bool FLAGS_deletepercent_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_deletepercent,
-                                &ValidateInt32Percent);
-static const bool
-  FLAGS_table_cache_numshardbits_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
-                                &ValidateTableCacheNumshardbits);
+    RegisterFlagValidator(&FLAGS_deletepercent, &ValidateInt32Percent);
+static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((unused)) =
+    RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
+                          &ValidateTableCacheNumshardbits);
 
 namespace rocksdb {
 
@@ -2561,9 +2568,9 @@ class Benchmark {
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                          " [OPTIONS]...");
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+                  " [OPTIONS]...");
+  ParseCommandLineFlags(&argc, &argv, true);
 
   FLAGS_compaction_style_e = (rocksdb::CompactionStyle) FLAGS_compaction_style;
   if (FLAGS_statistics) {
@@ -2614,3 +2621,5 @@ int main(int argc, char** argv) {
   benchmark.Run();
   return 0;
 }
+
+#endif  // GFLAGS
