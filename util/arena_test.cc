@@ -31,8 +31,10 @@ TEST(ArenaTest, MemoryAllocatedBytes) {
   for (int i = 0; i < N; i++) {
     arena.Allocate(req_sz);
   }
-  expected_memory_allocated = req_sz * N;
+  expected_memory_allocated = req_sz * N + Arena::kInlineSize;
   ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
+
+  arena.Allocate(Arena::kInlineSize - 1);
 
   // requested size < quarter of a block:
   //   allocate a block with the default size, then try to use unused part
@@ -64,12 +66,19 @@ TEST(ArenaTest, ApproximateMemoryUsageTest) {
   Arena arena(kBlockSize);
   ASSERT_EQ(kZero, arena.ApproximateMemoryUsage());
 
+  // allocate inline bytes
+  arena.AllocateAligned(8);
+  arena.AllocateAligned(Arena::kInlineSize / 2 - 16);
+  arena.AllocateAligned(Arena::kInlineSize / 2);
+  ASSERT_EQ(arena.ApproximateMemoryUsage(), Arena::kInlineSize - 8);
+  ASSERT_EQ(arena.MemoryAllocatedBytes(), Arena::kInlineSize);
+
   auto num_blocks = kBlockSize / kEntrySize;
 
   // first allocation
   arena.AllocateAligned(kEntrySize);
   auto mem_usage = arena.MemoryAllocatedBytes();
-  ASSERT_EQ(mem_usage, kBlockSize);
+  ASSERT_EQ(mem_usage, kBlockSize + Arena::kInlineSize);
   auto usage = arena.ApproximateMemoryUsage();
   ASSERT_LT(usage, mem_usage);
   for (size_t i = 1; i < num_blocks; ++i) {
