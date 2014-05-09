@@ -76,7 +76,7 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_tlb_size,
   assert((kAlignUnit & (kAlignUnit - 1)) ==
          0);  // Pointer size should be a power of 2
 
-#ifdef OS_LINUX
+#ifdef MAP_HUGETLB
   if (huge_page_tlb_size > 0 && bytes > 0) {
     // Allocate from a huge page TBL table.
     assert(logger != nullptr);  // logger need to be passed in.
@@ -84,13 +84,8 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_tlb_size,
         ((bytes - 1U) / huge_page_tlb_size + 1U) * huge_page_tlb_size;
     assert(reserved_size >= bytes);
 
-#ifdef MAP_HUGETLB
     void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
                        (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
-#else
-    void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
-                      (MAP_PRIVATE | MAP_ANONYMOUS), 0, 0);
-#endif
 
     if (addr == MAP_FAILED) {
       Warn(logger, "AllocateAligned fail to allocate huge TLB pages: %s",
