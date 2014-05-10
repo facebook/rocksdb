@@ -92,6 +92,8 @@ struct ColumnFamilyOptions {
   // Factor for big data sets, but increases Space Amplification. You can learn
   // more about the different styles here:
   // https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide
+  // Make sure to also call IncreaseParallelism(), which will provide the
+  // biggest performance gains.
   // Note: we might use more memory than memtable_memory_budget during high
   // write rate period
   ColumnFamilyOptions* OptimizeLevelStyleCompaction(
