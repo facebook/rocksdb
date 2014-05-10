@@ -480,4 +480,68 @@ Options::PrepareForBulkLoad()
   return this;
 }
 
+// Optimization functions
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup() {
+  prefix_extractor.reset(NewNoopTransform());
+  BlockBasedTableOptions block_based_options;
+  block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
+  table_factory.reset(new BlockBasedTableFactory(block_based_options));
+  memtable_factory.reset(NewHashLinkListRepFactory());
+  return this;
+}
+
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
+    uint64_t memtable_memory_budget) {
+  write_buffer_size = memtable_memory_budget / 4;
+  // merge two memtables when flushing to L0
+  min_write_buffer_number_to_merge = 2;
+  // this means we'll use 50% extra memory in the worst case, but will reduce
+  // write stalls.
+  max_write_buffer_number = 6;
+  // start flushing L0->L1 as soon as possible. each file on level0 is
+  // (memtable_memory_budget / 2). This will flush level 0 when it's bigger than
+  // memtable_memory_budget.
+  level0_file_num_compaction_trigger = 2;
+  // doesn't really matter much, but we don't want to create too many files
+  target_file_size_base = memtable_memory_budget / 8;
+  // make Level1 size equal to Level0 size, so that L0->L1 compactions are fast
+  max_bytes_for_level_base = memtable_memory_budget;
+
+  // level style compaction
+  compaction_style = kCompactionStyleLevel;
+
+  // only compress levels >= 2
+  compression_per_level.resize(num_levels);
+  for (int i = 0; i < num_levels; ++i) {
+    if (i < 2) {
+      compression_per_level[i] = kNoCompression;
+    } else {
+      compression_per_level[i] = kSnappyCompression;
+    }
+  }
+  return this;
+}
+
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
+    uint64_t memtable_memory_budget) {
+  write_buffer_size = memtable_memory_budget / 4;
+  // merge two memtables when flushing to L0
+  min_write_buffer_number_to_merge = 2;
+  // this means we'll use 50% extra memory in the worst case, but will reduce
+  // write stalls.
+  max_write_buffer_number = 6;
+  // universal style compaction
+  compaction_style = kCompactionStyleUniversal;
+  compaction_options_universal.compression_size_percent = 80;
+  return this;
+}
+
+DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
+  max_background_compactions = total_threads - 1;
+  max_background_flushes = 1;
+  env->SetBackgroundThreads(total_threads, Env::LOW);
+  env->SetBackgroundThreads(1, Env::HIGH);
+  return this;
+}
+
 }  // namespace rocksdb

@@ -76,6 +76,29 @@ enum UpdateStatus {    // Return status For inplace update callback
 struct Options;
 
 struct ColumnFamilyOptions {
+  // Some functions that make it easier to optimize RocksDB
+
+  // Use this if you don't need to keep the data sorted, i.e. you'll never use
+  // an iterator, only Put() and Get() API calls
+  ColumnFamilyOptions* OptimizeForPointLookup();
+
+  // Default values for some parameters in ColumnFamilyOptions are not
+  // optimized for heavy workloads and big datasets, which means you might
+  // observe write stalls under some conditions. As a starting point for tuning
+  // RocksDB options, use the following two functions:
+  // * OptimizeLevelStyleCompaction -- optimizes level style compaction
+  // * OptimizeUniversalStyleCompaction -- optimizes universal style compaction
+  // Universal style compaction is focused on reducing Write Amplification
+  // Factor for big data sets, but increases Space Amplification. You can learn
+  // more about the different styles here:
+  // https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide
+  // Note: we might use more memory than memtable_memory_budget during high
+  // write rate period
+  ColumnFamilyOptions* OptimizeLevelStyleCompaction(
+      uint64_t memtable_memory_budget = 512 * 1024 * 1024);
+  ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
+      uint64_t memtable_memory_budget = 512 * 1024 * 1024);
+
   // -------------------
   // Parameters that affect behavior
 
@@ -336,6 +359,7 @@ struct ColumnFamilyOptions {
   // With bloomfilter and fast storage, a miss on one level
   // is very cheap if the file handle is cached in table cache
   // (which is true if max_open_files is large).
+  // Default: true
   bool disable_seek_compaction;
 
   // Puts are delayed 0-1 ms when any level has a compaction score that exceeds
@@ -546,6 +570,15 @@ struct ColumnFamilyOptions {
 };
 
 struct DBOptions {
+  // Some functions that make it easier to optimize RocksDB
+
+  // By default, RocksDB uses only one background thread for flush and
+  // compaction. Calling this function will set it up such that total of
+  // `total_threads` is used. Good value for `total_threads` is the number of
+  // cores. You almost definitely want to call this function if your system is
+  // bottlenecked by RocksDB.
+  DBOptions* IncreaseParallelism(int total_threads = 16);
+
   // If true, the database will be created if it is missing.
   // Default: false
   bool create_if_missing;
