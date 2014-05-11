@@ -50,18 +50,18 @@ if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
         CENTOS_VERSION=`rpm -q --qf "%{VERSION}" \
           $(rpm -q --whatprovides redhat-release)`
         if [ "$CENTOS_VERSION" = "6" ]; then
-          source $PWD/build_tools/fbcode.gcc481.sh
+          source "$PWD/build_tools/fbcode.gcc481.sh"
         else
-          source $PWD/build_tools/fbcode.gcc471.sh
+          source "$PWD/build_tools/fbcode.gcc471.sh"
         fi
     else
-        source $PWD/build_tools/fbcode.clang31.sh
+        source "$PWD/build_tools/fbcode.clang31.sh"
     fi
 fi
 
 # Delete existing output, if it exists
-rm -f $OUTPUT
-touch $OUTPUT
+rm -f "$OUTPUT"
+touch "$OUTPUT"
 
 if test -z "$CC"; then
    CC=cc
@@ -87,7 +87,7 @@ PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=false
 
 # generic port files (working on all platform by #ifdef) go directly in /port
-GENERIC_PORT_FILES=`cd $ROCKSDB_ROOT; find port -name '*.cc' | tr "\n" " "`
+GENERIC_PORT_FILES=`cd "$ROCKSDB_ROOT"; find port -name '*.cc' | tr "\n" " "`
 
 # On GCC, we pick libc's memcmp over GCC's memcmp via -fno-builtin-memcmp
 case "$TARGET_OS" in
@@ -157,7 +157,7 @@ case "$TARGET_OS" in
 esac
 
 if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
-  $PWD/build_tools/build_detect_version
+  "$PWD/build_tools/build_detect_version"
 fi
 
 # We want to make a list of all cc files within util, db, table, and helpers
@@ -169,15 +169,15 @@ DIRS="util db table utilities"
 set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *bench*.cc -prune"
-PORTABLE_FILES=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
-PORTABLE_CPP=`cd $ROCKSDB_ROOT; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
+PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
+PORTABLE_CPP=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
 set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port
 # file.
-echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> $OUTPUT
-echo "SOURCESCPP=$PORTABLE_CPP" >> $OUTPUT
-echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> $OUTPUT
+echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> "$OUTPUT"
+echo "SOURCESCPP=$PORTABLE_CPP" >> "$OUTPUT"
+echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> "$OUTPUT"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
@@ -304,17 +304,17 @@ PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 
 VALGRIND_VER="$VALGRIND_VER"
 
-echo "CC=$CC" >> $OUTPUT
-echo "CXX=$CXX" >> $OUTPUT
-echo "PLATFORM=$PLATFORM" >> $OUTPUT
-echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> $OUTPUT
-echo "VALGRIND_VER=$VALGRIND_VER" >> $OUTPUT
-echo "PLATFORM_CCFLAGS=$PLATFORM_CCFLAGS" >> $OUTPUT
-echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> $OUTPUT
-echo "PLATFORM_SHARED_CFLAGS=$PLATFORM_SHARED_CFLAGS" >> $OUTPUT
-echo "PLATFORM_SHARED_EXT=$PLATFORM_SHARED_EXT" >> $OUTPUT
-echo "PLATFORM_SHARED_LDFLAGS=$PLATFORM_SHARED_LDFLAGS" >> $OUTPUT
-echo "PLATFORM_SHARED_VERSIONED=$PLATFORM_SHARED_VERSIONED" >> $OUTPUT
-echo "EXEC_LDFLAGS=$EXEC_LDFLAGS" >> $OUTPUT
-echo "JEMALLOC_INCLUDE=$JEMALLOC_INCLUDE" >> $OUTPUT
-echo "JEMALLOC_LIB=$JEMALLOC_LIB" >> $OUTPUT
+echo "CC=$CC" >> "$OUTPUT"
+echo "CXX=$CXX" >> "$OUTPUT"
+echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
+echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
+echo "VALGRIND_VER=$VALGRIND_VER" >> "$OUTPUT"
+echo "PLATFORM_CCFLAGS=$PLATFORM_CCFLAGS" >> "$OUTPUT"
+echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> "$OUTPUT"
+echo "PLATFORM_SHARED_CFLAGS=$PLATFORM_SHARED_CFLAGS" >> "$OUTPUT"
+echo "PLATFORM_SHARED_EXT=$PLATFORM_SHARED_EXT" >> "$OUTPUT"
+echo "PLATFORM_SHARED_LDFLAGS=$PLATFORM_SHARED_LDFLAGS" >> "$OUTPUT"
+echo "PLATFORM_SHARED_VERSIONED=$PLATFORM_SHARED_VERSIONED" >> "$OUTPUT"
+echo "EXEC_LDFLAGS=$EXEC_LDFLAGS" >> "$OUTPUT"
+echo "JEMALLOC_INCLUDE=$JEMALLOC_INCLUDE" >> "$OUTPUT"
+echo "JEMALLOC_LIB=$JEMALLOC_LIB" >> "$OUTPUT"
