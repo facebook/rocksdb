@@ -311,8 +311,8 @@ public class RocksDB extends RocksObject {
    *
    * @return instance of iterator object.
    */
-  public Iterator newIterator() {
-    return new Iterator(iterator0(nativeHandle_));
+  public RocksIterator newIterator() {
+    return new RocksIterator(iterator0(nativeHandle_));
   }
 
   @Override protected void finalize() {

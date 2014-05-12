@@ -416,7 +416,7 @@ public class DbBenchmark {
       super(tid, randSeed, numEntries, keyRange);
     }
     @Override public void runTask() throws RocksDBException {
-      org.rocksdb.Iterator iter = db_.newIterator();
+      RocksIterator iter = db_.newIterator();
       long i;
       for (iter.seekToFirst(), i = 0;
            iter.isValid() && i < numEntries_;
