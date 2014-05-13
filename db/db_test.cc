@@ -5609,48 +5609,56 @@ TEST(DBTest, TransactionLogIterator) {
 
 #ifndef NDEBUG // sync point is not included with DNDEBUG build
 TEST(DBTest, TransactionLogIteratorRace) {
-  // Setup sync point dependency to reproduce the race condition of
-  // a log file moved to archived dir, in the middle of GetSortedWalFiles
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
-    { { "DBImpl::GetSortedWalFiles:1", "DBImpl::PurgeObsoleteFiles:1" },
-      { "DBImpl::PurgeObsoleteFiles:2", "DBImpl::GetSortedWalFiles:2" },
-    });
+  static const int LOG_ITERATOR_RACE_TEST_COUNT = 2;
+  static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] =
+    { { "DBImpl::GetSortedWalFiles:1", "DBImpl::PurgeObsoleteFiles:1",
+        "DBImpl::PurgeObsoleteFiles:2", "DBImpl::GetSortedWalFiles:2" },
+      { "DBImpl::GetSortedWalsOfType:1", "DBImpl::PurgeObsoleteFiles:1",
+        "DBImpl::PurgeObsoleteFiles:2", "DBImpl::GetSortedWalsOfType:2" }};
+  for (int test = 0; test < LOG_ITERATOR_RACE_TEST_COUNT; ++test) {
+    // Setup sync point dependency to reproduce the race condition of
+    // a log file moved to archived dir, in the middle of GetSortedWalFiles
+    rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      { { sync_points[test][0], sync_points[test][1] },
+        { sync_points[test][2], sync_points[test][3] },
+      });
 
-  do {
-    rocksdb::SyncPoint::GetInstance()->ClearTrace();
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
-    Put("key1", DummyString(1024));
-    dbfull()->Flush(FlushOptions());
-    Put("key2", DummyString(1024));
-    dbfull()->Flush(FlushOptions());
-    Put("key3", DummyString(1024));
-    dbfull()->Flush(FlushOptions());
-    Put("key4", DummyString(1024));
-    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 4U);
+    do {
+      rocksdb::SyncPoint::GetInstance()->ClearTrace();
+      rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+      Options options = OptionsForLogIterTest();
+      DestroyAndReopen(&options);
+      Put("key1", DummyString(1024));
+      dbfull()->Flush(FlushOptions());
+      Put("key2", DummyString(1024));
+      dbfull()->Flush(FlushOptions());
+      Put("key3", DummyString(1024));
+      dbfull()->Flush(FlushOptions());
+      Put("key4", DummyString(1024));
+      ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 4U);
 
-    {
-      auto iter = OpenTransactionLogIter(0);
-      ExpectRecords(4, iter);
-    }
+      {
+        auto iter = OpenTransactionLogIter(0);
+        ExpectRecords(4, iter);
+      }
 
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    // trigger async flush, and log move. Well, log move will
-    // wait until the GetSortedWalFiles:1 to reproduce the race
-    // condition
-    FlushOptions flush_options;
-    flush_options.wait = false;
-    dbfull()->Flush(flush_options);
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+      // trigger async flush, and log move. Well, log move will
+      // wait until the GetSortedWalFiles:1 to reproduce the race
+      // condition
+      FlushOptions flush_options;
+      flush_options.wait = false;
+      dbfull()->Flush(flush_options);
 
-    // "key5" would be written in a new memtable and log
-    Put("key5", DummyString(1024));
-    {
-      // this iter would miss "key4" if not fixed
-      auto iter = OpenTransactionLogIter(0);
-      ExpectRecords(5, iter);
-    }
-  } while (ChangeCompactOptions());
+      // "key5" would be written in a new memtable and log
+      Put("key5", DummyString(1024));
+      {
+        // this iter would miss "key4" if not fixed
+        auto iter = OpenTransactionLogIter(0);
+        ExpectRecords(5, iter);
+      }
+    } while (ChangeCompactOptions());
+  }
 }
 #endif
 

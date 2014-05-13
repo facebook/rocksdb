@@ -935,8 +935,19 @@ Status DBImpl::GetSortedWalsOfType(const std::string& path,
         continue;
       }
 
+      // Reproduce the race condition where a log file is moved
+      // to archived dir, between these two sync points, used in
+      // (DBTest,TransactionLogIteratorRace)
+      TEST_SYNC_POINT("DBImpl::GetSortedWalsOfType:1");
+      TEST_SYNC_POINT("DBImpl::GetSortedWalsOfType:2");
+
       uint64_t size_bytes;
       s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
+      // re-try in case the alive log file has been moved to archive.
+      if (!s.ok() && log_type == kAliveLogFile &&
+          env_->FileExists(ArchivedLogFileName(path, number))) {
+        s = env_->GetFileSize(ArchivedLogFileName(path, number), &size_bytes);
+      }
       if (!s.ok()) {
         return s;
       }
