@@ -395,7 +395,7 @@ public class DbBenchmark {
       byte[] key = new byte[keySize_];
       byte[] value = new byte[valueSize_];
       for (long i = 0; i < numEntries_; i++) {
-        getRandomKey(key, numEntries_);
+        getRandomKey(key, keyRange_);
         int len = db_.get(key, value);
         if (len != RocksDB.NOT_FOUND) {
           stats_.found_++;
