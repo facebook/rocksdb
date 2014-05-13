@@ -96,12 +96,11 @@ void LogPropertiesCollectionError(
 }
 
 bool NotifyCollectTableCollectorsOnAdd(
-    const Slice& key,
-    const Slice& value,
-    const Options::TablePropertiesCollectors& collectors,
+    const Slice& key, const Slice& value,
+    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
     Logger* info_log) {
   bool all_succeeded = true;
-  for (auto collector : collectors) {
+  for (auto& collector : collectors) {
     Status s = collector->Add(key, value);
     all_succeeded = all_succeeded && s.ok();
     if (!s.ok()) {
@@ -113,11 +112,10 @@ bool NotifyCollectTableCollectorsOnAdd(
 }
 
 bool NotifyCollectTableCollectorsOnFinish(
-    const Options::TablePropertiesCollectors& collectors,
-    Logger* info_log,
-    PropertyBlockBuilder* builder) {
+    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
+    Logger* info_log, PropertyBlockBuilder* builder) {
   bool all_succeeded = true;
-  for (auto collector : collectors) {
+  for (auto& collector : collectors) {
     UserCollectedProperties user_collected_properties;
     Status s = collector->Finish(&user_collected_properties);
 

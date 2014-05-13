@@ -65,6 +65,12 @@ PlainTableBuilder::PlainTableBuilder(const Options& options,
   properties_.index_size = 0;
   properties_.filter_size = 0;
   properties_.format_version = 0;
+
+  for (auto& collector_factories :
+       options.table_properties_collector_factories) {
+    table_properties_collectors_.emplace_back(
+        collector_factories->CreateTablePropertiesCollector());
+  }
 }
 
 PlainTableBuilder::~PlainTableBuilder() {
@@ -122,12 +128,8 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   properties_.raw_value_size += value.size();
 
   // notify property collectors
-  NotifyCollectTableCollectorsOnAdd(
-      key,
-      value,
-      options_.table_properties_collectors,
-      options_.info_log.get()
-  );
+  NotifyCollectTableCollectorsOnAdd(key, value, table_properties_collectors_,
+                                    options_.info_log.get());
 }
 
 Status PlainTableBuilder::status() const { return status_; }
@@ -149,11 +151,9 @@ Status PlainTableBuilder::Finish() {
   property_block_builder.AddTableProperty(properties_);
 
   // -- Add user collected properties
-  NotifyCollectTableCollectorsOnFinish(
-      options_.table_properties_collectors,
-      options_.info_log.get(),
-      &property_block_builder
-  );
+  NotifyCollectTableCollectorsOnFinish(table_properties_collectors_,
+                                       options_.info_log.get(),
+                                       &property_block_builder);
 
   // -- Write property block
   BlockHandle property_block_handle;

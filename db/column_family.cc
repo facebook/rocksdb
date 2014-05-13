@@ -104,14 +104,17 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
   // All user defined properties collectors will be wrapped by
   // UserKeyTablePropertiesCollector since for them they only have the
   // knowledge of the user keys; internal keys are invisible to them.
-  auto& collectors = result.table_properties_collectors;
-  for (size_t i = 0; i < result.table_properties_collectors.size(); ++i) {
-    assert(collectors[i]);
-    collectors[i] =
-        std::make_shared<UserKeyTablePropertiesCollector>(collectors[i]);
+  auto& collector_factories = result.table_properties_collector_factories;
+  for (size_t i = 0; i < result.table_properties_collector_factories.size();
+       ++i) {
+    assert(collector_factories[i]);
+    collector_factories[i] =
+        std::make_shared<UserKeyTablePropertiesCollectorFactory>(
+            collector_factories[i]);
   }
   // Add collector to collect internal key statistics
-  collectors.push_back(std::make_shared<InternalKeyPropertiesCollector>());
+  collector_factories.push_back(
+      std::make_shared<InternalKeyPropertiesCollectorFactory>());
 
   return result;
 }

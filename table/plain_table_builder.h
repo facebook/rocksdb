@@ -5,9 +5,10 @@
 // IndexedTable is a simple table format for UNIT TEST ONLY. It is not built
 // as production quality.
 
-#ifndef ROCKSDB_LITE
 #pragma once
+#ifndef ROCKSDB_LITE
 #include <stdint.h>
+#include <vector>
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "table/table_builder.h"
@@ -62,6 +63,8 @@ public:
 
 private:
   Options options_;
+  std::vector<std::unique_ptr<TablePropertiesCollector>>
+      table_properties_collectors_;
   WritableFile* file_;
   uint64_t offset_ = 0;
   Status status_;
