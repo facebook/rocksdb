@@ -802,7 +802,9 @@ public class DbBenchmark {
     }
     String extra = "";
     if (benchmark.indexOf("read") >= 0) {
-      extra = String.format(" %s / %s found; ", stats.found_, reads_);
+      extra = String.format(" %d / %d found; ", stats.found_, stats.done_);
+    } else {
+      extra = String.format(" %d ops done; ", stats.done_);
     }
 
     System.out.printf(
