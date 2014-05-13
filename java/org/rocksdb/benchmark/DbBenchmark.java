@@ -800,11 +800,15 @@ public class DbBenchmark {
         }
       }
     }
+    String extra = "";
+    if (benchmark.indexOf("read") >= 0) {
+      extra = String.format(" %s / %s found; ", stats.found_, reads_);
+    }
 
     System.out.printf(
-        "%-16s : %11.5f micros/op; %6.1f MB/s; %d / %d task(s) finished.\n",
+        "%-16s : %11.5f micros/op; %6.1f MB/s;%s %d / %d task(s) finished.\n",
         benchmark, (double) elapsedSeconds / stats.done_ * 1e6,
-        (stats.bytes_ / 1048576.0) / elapsedSeconds,
+        (stats.bytes_ / 1048576.0) / elapsedSeconds, extra,
         taskFinishedCount, concurrentThreads);
   }
 
