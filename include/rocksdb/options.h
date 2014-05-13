@@ -33,7 +33,7 @@ class MergeOperator;
 class Snapshot;
 class TableFactory;
 class MemTableRepFactory;
-class TablePropertiesCollector;
+class TablePropertiesCollectorFactory;
 class Slice;
 class SliceTransform;
 class Statistics;
@@ -455,11 +455,11 @@ struct ColumnFamilyOptions {
 
   // This option allows user to to collect their own interested statistics of
   // the tables.
-  // Default: emtpy vector -- no user-defined statistics collection will be
+  // Default: empty vector -- no user-defined statistics collection will be
   // performed.
-  typedef std::vector<std::shared_ptr<TablePropertiesCollector>>
-      TablePropertiesCollectors;
-  TablePropertiesCollectors table_properties_collectors;
+  typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+      TablePropertiesCollectorFactories;
+  TablePropertiesCollectorFactories table_properties_collector_factories;
 
   // Allows thread-safe inplace updates.
   // If inplace_callback function is not set,

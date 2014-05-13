@@ -74,6 +74,7 @@ class BlockBasedTableBuilder : public TableBuilder {
                             const CompressionType type,
                             const BlockHandle* handle);
   struct Rep;
+  class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
   Rep* rep_;
 

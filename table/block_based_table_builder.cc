@@ -305,6 +305,9 @@ struct BlockBasedTableBuilder::Rep {
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
+  std::vector<std::unique_ptr<TablePropertiesCollector>>
+      table_properties_collectors;
+
   Rep(const Options& opt, const InternalKeyComparator& icomparator,
       WritableFile* f, FlushBlockPolicyFactory* flush_block_policy_factory,
       CompressionType compression_type, IndexType index_block_type,
@@ -322,8 +325,13 @@ struct BlockBasedTableBuilder::Rep {
                          : new FilterBlockBuilder(opt, &internal_comparator)),
         flush_block_policy(flush_block_policy_factory->NewFlushBlockPolicy(
             options, data_block)) {
-    options.table_properties_collectors.push_back(
-        std::make_shared<BlockBasedTablePropertiesCollector>(index_block_type));
+    for (auto& collector_factories :
+         options.table_properties_collector_factories) {
+      table_properties_collectors.emplace_back(
+          collector_factories->CreateTablePropertiesCollector());
+    }
+    table_properties_collectors.emplace_back(
+        new BlockBasedTablePropertiesCollector(index_block_type));
   }
 };
 
@@ -391,12 +399,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   r->props.raw_key_size += key.size();
   r->props.raw_value_size += value.size();
 
-  NotifyCollectTableCollectorsOnAdd(
-      key,
-      value,
-      r->options.table_properties_collectors,
-      r->options.info_log.get()
-  );
+  NotifyCollectTableCollectorsOnAdd(key, value, r->table_properties_collectors,
+                                    r->options.info_log.get());
 }
 
 void BlockBasedTableBuilder::Flush() {
@@ -590,11 +594,9 @@ Status BlockBasedTableBuilder::Finish() {
       property_block_builder.AddTableProperty(r->props);
 
       // Add use collected properties
-      NotifyCollectTableCollectorsOnFinish(
-          r->options.table_properties_collectors,
-          r->options.info_log.get(),
-          &property_block_builder
-      );
+      NotifyCollectTableCollectorsOnFinish(r->table_properties_collectors,
+                                           r->options.info_log.get(),
+                                           &property_block_builder);
 
       BlockHandle properties_block_handle;
       WriteRawBlock(
@@ -647,7 +649,7 @@ Status BlockBasedTableBuilder::Finish() {
     // user collected properties
     std::string user_collected;
     user_collected.reserve(1024);
-    for (auto collector : r->options.table_properties_collectors) {
+    for (const auto& collector : r->table_properties_collectors) {
       for (const auto& prop : collector->GetReadableProperties()) {
         user_collected.append(prop.first);
         user_collected.append("=");

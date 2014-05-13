@@ -140,7 +140,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.max_sequential_skip_in_iterations),
       memtable_factory(options.memtable_factory),
       table_factory(options.table_factory),
-      table_properties_collectors(options.table_properties_collectors),
+      table_properties_collector_factories(
+          options.table_properties_collector_factories),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
       inplace_callback(options.inplace_callback),
@@ -413,8 +414,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         "Options.compaction_options_universal.compression_size_percent: %u",
         compaction_options_universal.compression_size_percent);
     std::string collector_names;
-    for (auto collector : table_properties_collectors) {
-      collector_names.append(collector->Name());
+    for (const auto& collector_factory : table_properties_collector_factories) {
+      collector_names.append(collector_factory->Name());
       collector_names.append("; ");
     }
     Log(log, "                  Options.table_properties_collectors: %s",
