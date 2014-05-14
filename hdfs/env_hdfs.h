@@ -18,9 +18,6 @@
 
 namespace rocksdb {
 
-static const std::string kProto = "hdfs://";
-static const std::string pathsep = "/";
-
 // Thrown during execution when there is an issue with the supplied
 // arguments.
 class HdfsUsageException : public std::exception { };
@@ -58,20 +55,23 @@ class HdfsEnv : public Env {
   }
 
   virtual Status NewSequentialFile(const std::string& fname,
-                                   SequentialFile** result);
+                                   std::unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& options);
 
   virtual Status NewRandomAccessFile(const std::string& fname,
-                                     RandomAccessFile** result);
+                                     std::unique_ptr<RandomAccessFile>* result,
+                                     const EnvOptions& options);
 
   virtual Status NewWritableFile(const std::string& fname,
-                                 WritableFile** result);
+                                 std::unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options);
 
   virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
+                                 std::unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options);
 
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result);
+                              std::unique_ptr<Directory>* result);
 
   virtual bool FileExists(const std::string& fname);
 
@@ -97,7 +97,8 @@ class HdfsEnv : public Env {
 
   virtual Status UnlockFile(FileLock* lock);
 
-  virtual Status NewLogger(const std::string& fname, Logger** result);
+  virtual Status NewLogger(const std::string& fname,
+                           std::shared_ptr<Logger>* result);
 
   virtual void Schedule(void (*function)(void* arg), void* arg,
                         Priority pri = LOW) {
@@ -160,6 +161,9 @@ class HdfsEnv : public Env {
                         // posixEnv. We have posixnv as an encapsulated
                         // object here so that we can use posix timers,
                         // posix threads, etc.
+
+  static const std::string kProto;
+  static const std::string pathsep;
 
   /**
    * If the URI is specified of the form hdfs://server:port/path,
