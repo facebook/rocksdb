@@ -16,4 +16,5 @@ before_install:
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
  - sed -i "s/fallocate(/HACK_NO_fallocate(/" build_tools/build_detect_platform
 script: make check -j8
-
+notifications:
+    email: false
