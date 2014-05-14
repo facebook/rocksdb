@@ -14,6 +14,7 @@
 
 namespace rocksdb {
 
+const size_t Arena::kInlineSize = 2048;
 const size_t Arena::kMinBlockSize = 4096;
 const size_t Arena::kMaxBlockSize = 2 << 30;
 static const int kAlignUnit = sizeof(void*);
