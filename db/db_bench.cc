@@ -159,14 +159,7 @@ DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
 DEFINE_int32(value_size, 100, "Size of each value");
 
 
-// the maximum size of key in bytes
-static const int kMaxKeySize = 128;
 static bool ValidateKeySize(const char* flagname, int32_t value) {
-  if (value > kMaxKeySize) {
-    fprintf(stderr, "Invalid value for --%s: %d, must be < %d\n",
-            flagname, value, kMaxKeySize);
-    return false;
-  }
   return true;
 }
 
