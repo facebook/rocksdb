@@ -28,7 +28,7 @@ class Arena {
   Arena(const Arena&) = delete;
   void operator=(const Arena&) = delete;
 
-  static const size_t kInlineSize;
+  static const size_t kInlineSize = 2048;
   static const size_t kMinBlockSize;
   static const size_t kMaxBlockSize;
 
