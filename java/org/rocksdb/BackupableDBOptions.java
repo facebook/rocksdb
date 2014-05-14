@@ -13,9 +13,12 @@ package org.rocksdb;
  * become out-of-scope to release the allocated memory in c++.
  */
 public class BackupableDBOptions extends RocksObject {
-  public BackupableDBOptions(String path) {
+  public BackupableDBOptions(String path, boolean shareTableFiles, boolean sync,
+      boolean destroyOldData, boolean backupLogFiles, long backupRateLimit,
+      long restoreRateLimit) {
     super();
-    newBackupableDBOptions(path);
+    newBackupableDBOptions(path, shareTableFiles, sync, destroyOldData,
+        backupLogFiles, backupRateLimit, restoreRateLimit);
   }
 
   /**
@@ -38,7 +41,9 @@ public class BackupableDBOptions extends RocksObject {
     }
   }
 
-  private native void newBackupableDBOptions(String path);
+  private native void newBackupableDBOptions(String path,
+      boolean shareTableFiles, boolean sync, boolean destroyOldData,
+      boolean backupLogFiles, long backupRateLimit, long restoreRateLimit);
   private native String backupDir(long handle);
   private native void dispose(long handle);
 }

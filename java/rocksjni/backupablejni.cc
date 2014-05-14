@@ -4,7 +4,8 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 //
 // This file implements the "bridge" between Java and C++ and enables
-// calling c++ rocksdb::DB methods from Java side.
+// calling c++ rocksdb::BackupableDB and rocksdb::BackupableDBOptions methods
+// from Java side.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,9 +52,15 @@ void Java_org_rocksdb_BackupableDB_createNewBackup(
  * Signature: (Ljava/lang/String;)V
  */
 void Java_org_rocksdb_BackupableDBOptions_newBackupableDBOptions(
-    JNIEnv* env, jobject jobj, jstring jpath) {
+    JNIEnv* env, jobject jobj, jstring jpath, jboolean jshare_table_files,
+    jboolean jsync, jboolean jdestroy_old_data, jboolean jbackup_log_files,
+    jlong jbackup_rate_limit, jlong jrestore_rate_limit) {
   const char* cpath = env->GetStringUTFChars(jpath, 0);
-  auto bopt = new rocksdb::BackupableDBOptions(cpath);
+
+  auto bopt = new rocksdb::BackupableDBOptions(cpath, nullptr,
+      jshare_table_files, nullptr, jsync, jdestroy_old_data, jbackup_log_files,
+      jbackup_rate_limit, jrestore_rate_limit);
+
   env->ReleaseStringUTFChars(jpath, cpath);
 
   rocksdb::BackupableDBOptionsJni::setHandle(env, jobj, bopt);
