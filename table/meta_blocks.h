@@ -123,4 +123,9 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
 // set to true.
 extern Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found);
 
+// Find the meta block from the meta index block.
+Status FindMetaBlock(Iterator* meta_index_iter,
+                     const std::string& meta_block_name,
+                     BlockHandle* block_handle);
+
 }  // namespace rocksdb
