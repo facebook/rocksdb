@@ -13,6 +13,7 @@
 
 #pragma once
 #include <cstddef>
+#include <cerrno>
 #include <vector>
 #include <assert.h>
 #include <stdint.h>
