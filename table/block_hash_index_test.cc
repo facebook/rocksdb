@@ -81,9 +81,9 @@ TEST(BlockTest, BasicTest) {
   MapIterator index_iter(index_entries);
 
   auto prefix_extractor = NewFixedPrefixTransform(prefix_size);
-  std::unique_ptr<BlockHashIndex> block_hash_index(
-      CreateBlockHashIndex(&index_iter, &data_iter, index_entries.size(),
-                           BytewiseComparator(), prefix_extractor));
+  std::unique_ptr<BlockHashIndex> block_hash_index(CreateBlockHashIndexOnTheFly(
+      &index_iter, &data_iter, index_entries.size(), BytewiseComparator(),
+      prefix_extractor));
 
   std::map<std::string, BlockHashIndex::RestartIndex> expected = {
       {"01xx", BlockHashIndex::RestartIndex(0, 1)},

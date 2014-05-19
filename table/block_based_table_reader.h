@@ -160,8 +160,13 @@ class BlockBasedTable : public TableReader {
   friend class BlockBasedTableBuilder;
 
   void ReadMeta(const Footer& footer);
-  void ReadFilter(const Slice& filter_handle_value);
-  Status CreateIndexReader(IndexReader** index_reader);
+
+  // Create a index reader based on the index type stored in the table.
+  // Optionally, user can pass a preloaded meta_index_iter for the index that
+  // need to access extra meta blocks for index construction. This parameter
+  // helps avoid re-reading meta index block if caller already created one.
+  Status CreateIndexReader(IndexReader** index_reader,
+                           Iterator* preloaded_meta_index_iter = nullptr);
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(
@@ -170,10 +175,8 @@ class BlockBasedTable : public TableReader {
       std::unique_ptr<Iterator>* iter);
 
   // Create the filter from the filter block.
-  static FilterBlockReader* ReadFilter(
-      const Slice& filter_handle_value,
-      Rep* rep,
-      size_t* filter_size = nullptr);
+  static FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
+                                       Rep* rep, size_t* filter_size = nullptr);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 

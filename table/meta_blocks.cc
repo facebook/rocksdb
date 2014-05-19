@@ -254,11 +254,23 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
                        properties);
   } else {
     s = Status::Corruption("Unable to read the property block.");
-    Log(WARN_LEVEL, info_log,
-        "Cannot find Properties block from file.");
+    Log(WARN_LEVEL, info_log, "Cannot find Properties block from file.");
   }
 
   return s;
+}
+
+Status FindMetaBlock(Iterator* meta_index_iter,
+                     const std::string& meta_block_name,
+                     BlockHandle* block_handle) {
+  meta_index_iter->Seek(meta_block_name);
+  if (meta_index_iter->status().ok() && meta_index_iter->Valid() &&
+      meta_index_iter->key() == meta_block_name) {
+    Slice v = meta_index_iter->value();
+    return block_handle->DecodeFrom(&v);
+  } else {
+    return Status::Corruption("Cannot find the meta block", meta_block_name);
+  }
 }
 
 }  // namespace rocksdb

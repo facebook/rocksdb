@@ -7,9 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#define __STDC_FORMAT_MACROS
 #include "db/version_set.h"
 
+#define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <algorithm>
 #include <map>
@@ -1151,6 +1151,10 @@ const char* Version::LevelSummary(LevelSummaryStorage* scratch) const {
     if (ret < 0 || ret >= sz) break;
     len += ret;
   }
+  if (len > 0) {
+    // overwrite the last space
+    --len;
+  }
   snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
   return scratch->buffer;
 }
@@ -1160,15 +1164,19 @@ const char* Version::LevelFileSummary(FileSummaryStorage* scratch,
   int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files_size[");
   for (const auto& f : files_[level]) {
     int sz = sizeof(scratch->buffer) - len;
+    char sztxt[16];
+    AppendHumanBytes(f->file_size, sztxt, 16);
     int ret = snprintf(scratch->buffer + len, sz,
-                       "#%lu(seq=%lu,sz=%lu,%lu) ",
-                       (unsigned long)f->number,
-                       (unsigned long)f->smallest_seqno,
-                       (unsigned long)f->file_size,
-                       (unsigned long)f->being_compacted);
+                       "#%" PRIu64 "(seq=%" PRIu64 ",sz=%s,%d) ", f->number,
+                       f->smallest_seqno, sztxt,
+                       static_cast<int>(f->being_compacted));
     if (ret < 0 || ret >= sz)
       break;
     len += ret;
+  }
+  // overwrite the last space (only if files_[level].size() is non-zero)
+  if (files_[level].size() && len > 0) {
+    --len;
   }
   snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
   return scratch->buffer;

@@ -8,7 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction.h"
+
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+#include <vector>
+
 #include "db/column_family.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
@@ -191,71 +197,51 @@ void Compaction::ResetNextCompactionIndex() {
   input_version_->ResetNextCompactionIndex(level_);
 }
 
-/*
-for sizes >=10TB, print "XXTB"
-for sizes >=10GB, print "XXGB"
-etc.
-*/
-static void FileSizeSummary(unsigned long long sz, char* output, int len) {
-  const unsigned long long ull10 = 10;
-  if (sz >= ull10<<40) {
-    snprintf(output, len, "%lluTB", sz>>40);
-  } else if (sz >= ull10<<30) {
-    snprintf(output, len, "%lluGB", sz>>30);
-  } else if (sz >= ull10<<20) {
-    snprintf(output, len, "%lluMB", sz>>20);
-  } else if (sz >= ull10<<10) {
-    snprintf(output, len, "%lluKB", sz>>10);
-  } else {
-    snprintf(output, len, "%lluB", sz);
-  }
-}
-
-static int InputSummary(std::vector<FileMetaData*>& files, char* output,
-                         int len) {
+namespace {
+int InputSummary(const std::vector<FileMetaData*>& files, char* output,
+                 int len) {
   *output = '\0';
   int write = 0;
   for (unsigned int i = 0; i < files.size(); i++) {
     int sz = len - write;
     int ret;
     char sztxt[16];
-    FileSizeSummary((unsigned long long)files.at(i)->file_size, sztxt, 16);
-    ret = snprintf(output + write, sz, "%lu(%s) ",
-                   (unsigned long)files.at(i)->number,
+    AppendHumanBytes(files.at(i)->file_size, sztxt, 16);
+    ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ", files.at(i)->number,
                    sztxt);
-    if (ret < 0 || ret >= sz)
-      break;
+    if (ret < 0 || ret >= sz) break;
     write += ret;
   }
-  return write;
+  // if files.size() is non-zero, overwrite the last space
+  return write - !!files.size();
 }
+}  // namespace
 
 void Compaction::Summary(char* output, int len) {
-  int write = snprintf(output, len,
-      "Base version %lu Base level %d, seek compaction:%d, inputs: [",
-      (unsigned long)input_version_->GetVersionNumber(),
-      level_,
-      seek_compaction_);
+  int write =
+      snprintf(output, len, "Base version %" PRIu64
+                            " Base level %d, seek compaction:%d, inputs: [",
+               input_version_->GetVersionNumber(), level_, seek_compaction_);
   if (write < 0 || write >= len) {
     return;
   }
 
-  write += InputSummary(inputs_[0], output+write, len-write);
+  write += InputSummary(inputs_[0], output + write, len - write);
   if (write < 0 || write >= len) {
     return;
   }
 
-  write += snprintf(output+write, len-write, "],[");
+  write += snprintf(output + write, len - write, "], [");
   if (write < 0 || write >= len) {
     return;
   }
 
-  write += InputSummary(inputs_[1], output+write, len-write);
+  write += InputSummary(inputs_[1], output + write, len - write);
   if (write < 0 || write >= len) {
     return;
   }
 
-  snprintf(output+write, len-write, "]");
+  snprintf(output + write, len - write, "]");
 }
 
 }  // namespace rocksdb

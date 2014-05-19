@@ -8,6 +8,7 @@
 #include "rocksdb/env.h"
 #include "util/arena.h"
 #include "util/autovector.h"
+#include <ctime>
 
 namespace rocksdb {
 

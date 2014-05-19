@@ -2365,9 +2365,9 @@ TEST(DBTest, NumImmutableMemTable) {
     ASSERT_EQ(num, "0");
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.cur-size-active-mem-table", &num));
-    // "208" is the size of the metadata of an empty skiplist, this would
+    // "200" is the size of the metadata of an empty skiplist, this would
     // break if we change the default skiplist implementation
-    ASSERT_EQ(num, "208");
+    ASSERT_EQ(num, "200");
     SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
