@@ -36,10 +36,12 @@ public class BackupableDBTest {
       bdb.close();
 
       // restore from backup
+      RestoreOptions ropt = new RestoreOptions(false);
       RestoreBackupableDB rdb = new RestoreBackupableDB(bopt);
       rdb.restoreDBFromLatestBackup(db_path, db_path,
-          new RestoreOptions(false));
+          ropt);
       rdb.dispose();
+      ropt.dispose();
 
       // verify that backed up data contains deleted record
       bdb = BackupableDB.open(opt, bopt, db_path);

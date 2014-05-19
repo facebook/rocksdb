@@ -4,7 +4,7 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 //
 // This file implements the "bridge" between Java and C++ and enables
-// calling c++ rocksdb::RestoreBackupableDB and rocksdb::RestoreOptions methods 
+// calling c++ rocksdb::RestoreBackupableDB and rocksdb::RestoreOptions methods
 // from Java side.
 
 #include <stdio.h>
@@ -20,12 +20,12 @@
 /*
  * Class:     org_rocksdb_RestoreOptions
  * Method:    newRestoreOptions
- * Signature: (Z)V
+ * Signature: (Z)J
  */
-void Java_org_rocksdb_RestoreOptions_newRestoreOptions(JNIEnv* env,
+jlong Java_org_rocksdb_RestoreOptions_newRestoreOptions(JNIEnv* env,
     jobject jobj, jboolean keep_log_files) {
   auto ropt = new rocksdb::RestoreOptions(keep_log_files);
-  rocksdb::RestoreOptionsJni::setHandle(env, jobj, ropt);
+  return reinterpret_cast<jlong>(ropt);
 }
 
 /*
@@ -38,20 +38,18 @@ void Java_org_rocksdb_RestoreOptions_dispose(JNIEnv* env, jobject jobj,
   auto ropt = reinterpret_cast<rocksdb::RestoreOptions*>(jhandle);
   assert(ropt);
   delete ropt;
-
-  rocksdb::RestoreOptionsJni::setHandle(env, jobj, nullptr);
 }
 
 /*
  * Class:     org_rocksdb_RestoreBackupableDB
  * Method:    newRestoreBackupableDB
- * Signature: (J)V
+ * Signature: (J)J
  */
-void Java_org_rocksdb_RestoreBackupableDB_newRestoreBackupableDB(JNIEnv* env,
+jlong Java_org_rocksdb_RestoreBackupableDB_newRestoreBackupableDB(JNIEnv* env,
     jobject jobj, jlong jopt_handle) {
   auto opt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jopt_handle);
   auto rdb = new rocksdb::RestoreBackupableDB(rocksdb::Env::Default(), *opt);
-  rocksdb::RestoreBackupableDBJni::setHandle(env, jobj, rdb);
+  return reinterpret_cast<jlong>(rdb);
 }
 
 /*
@@ -63,17 +61,17 @@ void Java_org_rocksdb_RestoreBackupableDB_restoreDBFromBackup0(JNIEnv* env,
     jobject jobj, jlong jhandle, jlong jbackup_id, jstring jdb_dir,
     jstring jwal_dir, jlong jopt_handle) {
   auto opt = reinterpret_cast<rocksdb::RestoreOptions*>(jopt_handle);
-  
+
   const char* cdb_dir = env->GetStringUTFChars(jdb_dir, 0);
   const char* cwal_dir = env->GetStringUTFChars(jwal_dir, 0);
-  
+
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s =
       rdb->RestoreDBFromBackup(jbackup_id, cdb_dir, cwal_dir, *opt);
-  
+
   env->ReleaseStringUTFChars(jdb_dir, cdb_dir);
   env->ReleaseStringUTFChars(jwal_dir, cwal_dir);
-  
+
   if(!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -88,17 +86,17 @@ void Java_org_rocksdb_RestoreBackupableDB_restoreDBFromLatestBackup0(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jdb_dir, jstring jwal_dir,
     jlong jopt_handle) {
   auto opt = reinterpret_cast<rocksdb::RestoreOptions*>(jopt_handle);
-  
+
   const char* cdb_dir = env->GetStringUTFChars(jdb_dir, 0);
   const char* cwal_dir = env->GetStringUTFChars(jwal_dir, 0);
-  
+
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s =
       rdb->RestoreDBFromLatestBackup(cdb_dir, cwal_dir, *opt);
-  
+
   env->ReleaseStringUTFChars(jdb_dir, cdb_dir);
   env->ReleaseStringUTFChars(jwal_dir, cwal_dir);
-  
+
   if(!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -113,7 +111,7 @@ void Java_org_rocksdb_RestoreBackupableDB_purgeOldBackups0(JNIEnv* env,
     jobject jobj, jlong jhandle, jint jnum_backups_to_keep) {
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s = rdb->PurgeOldBackups(jnum_backups_to_keep);
-  
+
   if(!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -128,7 +126,7 @@ void Java_org_rocksdb_RestoreBackupableDB_deleteBackup0(JNIEnv* env,
     jobject jobj, jlong jhandle, jlong jbackup_id) {
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s = rdb->DeleteBackup(jbackup_id);
-  
+
   if(!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -144,6 +142,4 @@ void Java_org_rocksdb_RestoreBackupableDB_dispose(JNIEnv* env, jobject jobj,
   auto ropt = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   assert(ropt);
   delete ropt;
-
-  rocksdb::RestoreBackupableDBJni::setHandle(env, jobj, nullptr);
 }

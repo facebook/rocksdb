@@ -8,21 +8,21 @@ package org.rocksdb;
 /**
  * RestoreOptions to control the behavior of restore.
  *
- * Note that dispose() must be called before this instance become out-of-scope 
+ * Note that dispose() must be called before this instance become out-of-scope
  * to release the allocated memory in c++.
- * 
+ *
  * @param If true, restore won't overwrite the existing log files in wal_dir. It
  *     will also move all log files from archive directory to wal_dir. Use this
- *     option in combination with BackupableDBOptions::backup_log_files = false 
+ *     option in combination with BackupableDBOptions::backup_log_files = false
  *     for persisting in-memory databases.
  *     Default: false
  */
 public class RestoreOptions extends RocksObject {
   public RestoreOptions(boolean keepLogFiles) {
     super();
-    newRestoreOptions(keepLogFiles);
+    nativeHandle_ = newRestoreOptions(keepLogFiles);
   }
-  
+
   /**
    * Release the memory allocated for the current instance
    * in the c++ side.
@@ -30,9 +30,10 @@ public class RestoreOptions extends RocksObject {
   @Override public synchronized void dispose() {
     if (isInitialized()) {
       dispose(nativeHandle_);
+      nativeHandle_ = 0;
     }
   }
-  
-  private native void newRestoreOptions(boolean keepLogFiles);
+
+  private native long newRestoreOptions(boolean keepLogFiles);
   private native void dispose(long handle);
 }
