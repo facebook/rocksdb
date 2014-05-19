@@ -1479,8 +1479,7 @@ class PosixEnv : public Env {
     // Always terminate the running thread that is added last, even if there are
     // more than one thread to terminate.
     bool IsLastExcessiveThread(size_t thread_id) {
-      return HasExcessiveThread() &&
-             thread_id == bgthreads_.size() - 1;
+      return HasExcessiveThread() && thread_id == bgthreads_.size() - 1;
     }
 
     // Is one of the threads to terminate.
@@ -1505,13 +1504,18 @@ class PosixEnv : public Env {
           // Current thread is the last generated one and is excessive.
           // We always terminate excessive thread in the reverse order of
           // generation time.
-          pthread_detach(bgthreads_.back());
+          auto terminating_thread = bgthreads_.back();
+          pthread_detach(terminating_thread);
           bgthreads_.pop_back();
           if (HasExcessiveThread()) {
             // There is still at least more excessive thread to terminate.
             WakeUpAllThreads();
           }
           PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+          // TODO(sdong): temp logging. Need to help debugging. Remove it when
+          // the feature is proved to be stable.
+          fprintf(stdout, "Bg thread %zu terminates %llx\n", thread_id,
+                  static_cast<long long unsigned int>(terminating_thread));
           break;
         }
         void (*function)(void*) = queue_.front().function;
