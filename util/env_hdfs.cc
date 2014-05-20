@@ -15,11 +15,11 @@
 #include <sstream>
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "hdfs/hdfs.h"
 #include "hdfs/env_hdfs.h"
 
 #define HDFS_EXISTS 0
-#define HDFS_DOESNT_EXIST 1
+#define HDFS_DOESNT_EXIST -1
+#define HDFS_SUCCESS 0
 
 //
 // This file defines an HDFS environment for rocksdb. It uses the libhdfs
@@ -223,7 +223,7 @@ class HdfsWritableFile: public WritableFile {
     if (hdfsFlush(fileSys_, hfile_) == -1) {
       return IOError(filename_, errno);
     }
-    if (hdfsSync(fileSys_, hfile_) == -1) {
+    if (hdfsHSync(fileSys_, hfile_) == -1) {
       return IOError(filename_, errno);
     }
     Log(mylog, "[hdfs] HdfsWritableFile Synced %s\n", filename_.c_str());
@@ -398,12 +398,40 @@ Status HdfsEnv::NewRandomRWFile(const std::string& fname,
   return Status::NotSupported("NewRandomRWFile not supported on HdfsEnv");
 }
 
+class HdfsDirectory : public Directory {
+ public:
+  explicit HdfsDirectory(int fd) : fd_(fd) {}
+  ~HdfsDirectory() {
+    //close(fd_);
+  }
+
+  virtual Status Fsync() {
+    //if (fsync(fd_) == -1) {
+    //  return IOError("directory", errno);
+   // }
+    return Status::OK();
+  }
+
+ private:
+  int fd_;
+};
+
 Status HdfsEnv::NewDirectory(const std::string& name,
                              unique_ptr<Directory>* result) {
-  return Status::NotSupported("NewDirectory not supported on HdfsEnv");
+
+  int value = hdfsCreateDirectory(fileSys_, name.c_str());
+  result->reset(new HdfsDirectory(0));
+  switch (value) {
+    case HDFS_SUCCESS:  // directory created
+      return Status::OK();
+    default:
+      Log(mylog, "directory already exists "); 
+      return Status::OK();
+  }
 }
 
 bool HdfsEnv::FileExists(const std::string& fname) {
+  
   int value = hdfsExists(fileSys_, fname.c_str());
   switch (value) {
     case HDFS_EXISTS:
@@ -412,8 +440,8 @@ bool HdfsEnv::FileExists(const std::string& fname) {
       return false;
     default:  // anything else should be an error
       Log(mylog, "FileExists hdfsExists call failed");
-      throw HdfsFatalException("hdfsExists call failed with error " +
-                               std::to_string(value) + ".\n");
+      throw HdfsFatalException("1. hdfsExists call failed with error " +
+                               std::to_string(value) + " on path " + fname  + ".\n");
   }
 }
 
@@ -449,13 +477,13 @@ Status HdfsEnv::GetChildren(const std::string& path,
   default:          // anything else should be an error
     Log(mylog, "GetChildren hdfsExists call failed");
     throw HdfsFatalException("hdfsExists call failed with error " +
-                             std::to_string(value) + ".\n");
+                             std::to_string(value) + " on path " + path.c_str()  + ".\n");
   }
   return Status::OK();
 }
 
 Status HdfsEnv::DeleteFile(const std::string& fname) {
-  if (hdfsDelete(fileSys_, fname.c_str()) == 0) {
+  if (hdfsDelete(fileSys_, fname.c_str(),1) == 0) {
     return Status::OK();
   }
   return IOError(fname, errno);
@@ -478,7 +506,7 @@ Status HdfsEnv::CreateDirIfMissing(const std::string& name) {
     return CreateDir(name);
     default:  // anything else should be an error
       Log(mylog, "CreateDirIfMissing hdfsExists call failed");
-      throw HdfsFatalException("hdfsExists call failed with error " +
+      throw HdfsFatalException("3. hdfsExists call failed with error " +
                                std::to_string(value) + ".\n");
   }
 };
@@ -514,7 +542,7 @@ Status HdfsEnv::GetFileModificationTime(const std::string& fname,
 // target already exists. So, we delete the target before attemting the
 // rename.
 Status HdfsEnv::RenameFile(const std::string& src, const std::string& target) {
-  hdfsDelete(fileSys_, target.c_str());
+  hdfsDelete(fileSys_, target.c_str(), 1);
   if (hdfsRename(fileSys_, src.c_str(), target.c_str()) == 0) {
     return Status::OK();
   }
