@@ -31,6 +31,10 @@ public class BackupableDB extends RocksDB {
     BackupableDB bdb = new BackupableDB(RocksDB.open(opt, db_path));
     bdb.open(bdb.db_.nativeHandle_, bopt.nativeHandle_);
 
+    // Prevent the RocksDB object from attempting to delete
+    // the underly C++ DB object.
+    bdb.db_.disOwnNativeObject();
+
     return bdb;
   }
 
