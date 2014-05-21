@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <limits>
 
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -116,6 +117,15 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
   collector_factories.push_back(
       std::make_shared<InternalKeyPropertiesCollectorFactory>());
 
+  if (result.compaction_style == kCompactionStyleFIFO) {
+    result.num_levels = 1;
+    // since we delete level0 files in FIFO compaction when there are too many
+    // of them, these options don't really mean anything
+    result.level0_file_num_compaction_trigger = std::numeric_limits<int>::max();
+    result.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
+    result.level0_stop_writes_trigger = std::numeric_limits<int>::max();
+  }
+
   return result;
 }
 
@@ -196,7 +206,7 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
       options_(*db_options, SanitizeOptions(&internal_comparator_,
                                             &internal_filter_policy_, options)),
       mem_(nullptr),
-      imm_(options.min_write_buffer_number_to_merge),
+      imm_(options_.min_write_buffer_number_to_merge),
       super_version_(nullptr),
       super_version_number_(0),
       local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
@@ -209,16 +219,20 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
 
   // if dummy_versions is nullptr, then this is a dummy column family.
   if (dummy_versions != nullptr) {
-    internal_stats_.reset(new InternalStats(options.num_levels, db_options->env,
-                                            db_options->statistics.get()));
+    internal_stats_.reset(new InternalStats(
+        options_.num_levels, db_options->env, db_options->statistics.get()));
     table_cache_.reset(
         new TableCache(dbname, &options_, storage_options, table_cache));
     if (options_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(&options_, &internal_comparator_));
-    } else {
+    } else if (options_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(&options_, &internal_comparator_));
+    } else {
+      assert(options_.compaction_style == kCompactionStyleFIFO);
+      compaction_picker_.reset(
+          new FIFOCompactionPicker(&options_, &internal_comparator_));
     }
 
     Log(options_.info_log, "Options for column family \"%s\":\n",

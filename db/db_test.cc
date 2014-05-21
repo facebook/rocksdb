@@ -317,6 +317,7 @@ class DBTest {
     kCompressedBlockCache,
     kInfiniteMaxOpenFiles,
     kxxHashChecksum,
+    kFIFOCompaction,
     kEnd
   };
   int option_config_;
@@ -339,7 +340,8 @@ class DBTest {
     kSkipPlainTable = 8,
     kSkipHashIndex = 16,
     kSkipNoSeekToLast = 32,
-    kSkipHashCuckoo = 64
+    kSkipHashCuckoo = 64,
+    kSkipFIFOCompaction = 128,
   };
 
   DBTest() : option_config_(kDefault),
@@ -389,6 +391,10 @@ class DBTest {
         continue;
       }
       if ((skip_mask & kSkipHashCuckoo) && (option_config_ == kHashCuckoo)) {
+        continue;
+      }
+      if ((skip_mask & kSkipFIFOCompaction) &&
+          option_config_ == kFIFOCompaction) {
         continue;
       }
       break;
@@ -501,6 +507,10 @@ class DBTest {
         BlockBasedTableOptions table_options;
         table_options.checksum = kxxHash;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        break;
+      }
+      case kFIFOCompaction: {
+        options.compaction_style = kCompactionStyleFIFO;
         break;
       }
       case kBlockBasedTableWithPrefixHashIndex: {
@@ -1394,7 +1404,7 @@ TEST(DBTest, GetEncountersEmptyLevel) {
     env_->SleepForMicroseconds(1000000);
 
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 1);  // XXX
-  } while (ChangeOptions(kSkipUniversalCompaction));
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction));
 }
 
 // KeyMayExist can lead to a few false positives, but not false negatives.
@@ -1460,7 +1470,8 @@ TEST(DBTest, KeyMayExist) {
 
     // KeyMayExist function only checks data in block caches, which is not used
     // by plain table format.
-  } while (ChangeOptions(kSkipPlainTable | kSkipHashIndex));
+  } while (
+      ChangeOptions(kSkipPlainTable | kSkipHashIndex | kSkipFIFOCompaction));
 }
 
 TEST(DBTest, NonBlockingIteration) {
@@ -4387,7 +4398,8 @@ TEST(DBTest, ApproximateSizes) {
       ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
     }
     // ApproximateOffsetOf() is not yet implemented in plain table format.
-  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable));
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
+                         kSkipPlainTable));
 }
 
 TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
@@ -4531,8 +4543,8 @@ TEST(DBTest, HiddenValuesAreRemoved) {
     // ApproximateOffsetOf() is not yet implemented in plain table format,
     // which is used by Size().
     // skip HashCuckooRep as it does not support snapshot
-  } while (ChangeOptions(kSkipUniversalCompaction | kSkipPlainTable |
-                         kSkipHashCuckoo));
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
+                         kSkipPlainTable | kSkipHashCuckoo));
 }
 
 TEST(DBTest, CompactBetweenSnapshots) {
@@ -4588,7 +4600,7 @@ TEST(DBTest, CompactBetweenSnapshots) {
     ASSERT_EQ("sixth", Get(1, "foo"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
     // skip HashCuckooRep as it does not support snapshot
-  } while (ChangeOptions(kSkipHashCuckoo));
+  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction));
 }
 
 TEST(DBTest, DeletionMarkers1) {
@@ -4694,7 +4706,7 @@ TEST(DBTest, OverlapInLevel0) {
     Flush(1);
     ASSERT_EQ("3", FilesPerLevel(1));
     ASSERT_EQ("NOT_FOUND", Get(1, "600"));
-  } while (ChangeOptions(kSkipUniversalCompaction));
+  } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction));
 }
 
 TEST(DBTest, L0_CompactionBug_Issue44_a) {
@@ -6796,6 +6808,42 @@ TEST(DBTest, ChecksumTest) {
   ASSERT_EQ("d", Get("c"));
   ASSERT_EQ("f", Get("e"));
   ASSERT_EQ("h", Get("g"));
+}
+
+TEST(DBTest, FIFOCompactionTest) {
+  for (int iter = 0; iter < 2; ++iter) {
+    // first iteration -- auto compaction
+    // second iteration -- manual compaction
+    Options options;
+    options.compaction_style = kCompactionStyleFIFO;
+    options.write_buffer_size = 100 << 10;                             // 100KB
+    options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
+    options.compression = kNoCompression;
+    options.create_if_missing = true;
+    if (iter == 1) {
+      options.disable_auto_compactions = true;
+    }
+    DestroyAndReopen(&options);
+
+    Random rnd(301);
+    for (int i = 0; i < 6; ++i) {
+      for (int j = 0; j < 100; ++j) {
+        ASSERT_OK(Put(std::to_string(i * 100 + j), RandomString(&rnd, 1024)));
+      }
+      // flush should happen here
+    }
+    if (iter == 0) {
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    } else {
+      ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+    }
+    // only 5 files should survive
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+    for (int i = 0; i < 50; ++i) {
+      // these keys should be deleted in previous compaction
+      ASSERT_EQ("NOT_FOUND", Get(std::to_string(i)));
+    }
+  }
 }
 }  // namespace rocksdb
 

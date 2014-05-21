@@ -53,8 +53,18 @@ enum CompressionType : char {
 };
 
 enum CompactionStyle : char {
-  kCompactionStyleLevel = 0x0,     // level based compaction style
-  kCompactionStyleUniversal = 0x1  // Universal compaction style
+  kCompactionStyleLevel = 0x0,      // level based compaction style
+  kCompactionStyleUniversal = 0x1,  // Universal compaction style
+  kCompactionStyleFIFO = 0x2,       // FIFO compaction style
+};
+
+struct CompactionOptionsFIFO {
+  // once the total sum of table files reaches this, we will delete the oldest
+  // table file
+  // Default: 1GB
+  uint64_t max_table_files_size;
+
+  CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
 };
 
 // Compression options for different compression algorithms like Zlib
@@ -428,6 +438,9 @@ struct ColumnFamilyOptions {
 
   // The options needed to support Universal Style compactions
   CompactionOptionsUniversal compaction_options_universal;
+
+  // The options for FIFO compaction style
+  CompactionOptionsFIFO compaction_options_fifo;
 
   // Use KeyMayExist API to filter deletes when this is true.
   // If KeyMayExist returns false, i.e. the key definitely does not exist, then

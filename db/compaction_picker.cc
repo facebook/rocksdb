@@ -9,6 +9,8 @@
 
 #include "db/compaction_picker.h"
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <limits>
 #include "util/log_buffer.h"
 #include "util/statistics.h"
@@ -307,6 +309,9 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
                                            const InternalKey* begin,
                                            const InternalKey* end,
                                            InternalKey** compaction_end) {
+  // CompactionPickerFIFO has its own implementation of compact range
+  assert(options_->compaction_style != kCompactionStyleFIFO);
+
   std::vector<FileMetaData*> inputs;
   bool covering_the_whole_range = true;
 
@@ -883,6 +888,72 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
                 version->cfd_->GetName().c_str(), (unsigned long)f->number,
                 index, (unsigned long)f->file_size);
   }
+  return c;
+}
+
+Compaction* FIFOCompactionPicker::PickCompaction(Version* version,
+                                                 LogBuffer* log_buffer) {
+  assert(version->NumberLevels() == 1);
+  uint64_t total_size = 0;
+  for (const auto& file : version->files_[0]) {
+    total_size += file->file_size;
+  }
+
+  if (total_size <= options_->compaction_options_fifo.max_table_files_size ||
+      version->files_[0].size() == 0) {
+    // total size not exceeded
+    LogToBuffer(log_buffer,
+                "[%s] FIFO compaction: nothing to do. Total size %" PRIu64
+                ", max size %" PRIu64 "\n",
+                version->cfd_->GetName().c_str(), total_size,
+                options_->compaction_options_fifo.max_table_files_size);
+    return nullptr;
+  }
+
+  if (compactions_in_progress_[0].size() > 0) {
+    LogToBuffer(log_buffer,
+                "[%s] FIFO compaction: Already executing compaction. No need "
+                "to run parallel compactions since compactions are very fast",
+                version->cfd_->GetName().c_str());
+    return nullptr;
+  }
+
+  Compaction* c = new Compaction(version, 0, 0, 0, 0, false, false,
+                                 true /* is deletion compaction */);
+  // delete old files (FIFO)
+  for (auto ritr = version->files_[0].rbegin();
+       ritr != version->files_[0].rend(); ++ritr) {
+    auto f = *ritr;
+    total_size -= f->file_size;
+    c->inputs_[0].push_back(f);
+    char tmp_fsize[16];
+    AppendHumanBytes(f->file_size, tmp_fsize, sizeof(tmp_fsize));
+    LogToBuffer(log_buffer, "[%s] FIFO compaction: picking file %" PRIu64
+                            " with size %s for deletion",
+                version->cfd_->GetName().c_str(), f->number, tmp_fsize);
+    if (total_size <= options_->compaction_options_fifo.max_table_files_size) {
+      break;
+    }
+  }
+
+  c->MarkFilesBeingCompacted(true);
+  compactions_in_progress_[0].insert(c);
+
+  return c;
+}
+
+Compaction* FIFOCompactionPicker::CompactRange(Version* version,
+                                               int input_level,
+                                               int output_level,
+                                               const InternalKey* begin,
+                                               const InternalKey* end,
+                                               InternalKey** compaction_end) {
+  assert(input_level == 0);
+  assert(output_level == 0);
+  *compaction_end = nullptr;
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_->info_log.get());
+  auto c = PickCompaction(version, &log_buffer);
+  log_buffer.FlushBufferToLog();
   return c;
 }
 
