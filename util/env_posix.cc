@@ -94,6 +94,17 @@ static Status IOError(const std::string& context, int err_number) {
   return Status::IOError(context, strerror(err_number));
 }
 
+// TODO(sdong): temp logging. Need to help debugging. Remove it when
+// the feature is proved to be stable.
+inline void PrintThreadInfo(size_t thread_id, pthread_t id) {
+  unsigned char* ptc = (unsigned char*)(void*)(&id);
+  fprintf(stdout, "Bg thread %zu terminates 0x", thread_id);
+  for (size_t i = 0; i < sizeof(id); i++) {
+    fprintf(stdout, "%02x", (unsigned)(ptc[i]));
+  }
+  fprintf(stdout, "\n");
+}
+
 #ifdef NDEBUG
 // empty in release build
 #define TEST_KILL_RANDOM(rocksdb_kill_odds)
@@ -1514,8 +1525,7 @@ class PosixEnv : public Env {
           PthreadCall("unlock", pthread_mutex_unlock(&mu_));
           // TODO(sdong): temp logging. Need to help debugging. Remove it when
           // the feature is proved to be stable.
-          fprintf(stdout, "Bg thread %zu terminates %llx\n", thread_id,
-                  static_cast<long long unsigned int>(terminating_thread));
+          PrintThreadInfo(thread_id, terminating_thread);
           break;
         }
         void (*function)(void*) = queue_.front().function;
