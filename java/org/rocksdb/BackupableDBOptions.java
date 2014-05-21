@@ -29,14 +29,17 @@ package org.rocksdb;
  *     useful for backing up in-memory databases where log file are persisted,
  *     but table files are in memory. Default: true
  * @param backupRateLimit Max bytes that can be transferred in a second during
- *     backup. If 0, go as fast as you can. Default: 0
+ *     backup. If 0 or negative, then go as fast as you can. Default: 0
  * @param restoreRateLimit Max bytes that can be transferred in a second during
- *     restore. If 0, go as fast as you can. Default: 0
+ *     restore. If 0 or negative, then go as fast as you can. Default: 0
  */
 public class BackupableDBOptions extends RocksObject {
   public BackupableDBOptions(String path, boolean shareTableFiles, boolean sync,
       boolean destroyOldData, boolean backupLogFiles, long backupRateLimit,
       long restoreRateLimit) {
+    backupRateLimit = (backupRateLimit <= 0) ? 0 : backupRateLimit;
+    restoreRateLimit = (restoreRateLimit <= 0) ? 0 : restoreRateLimit;
+
     super();
     newBackupableDBOptions(path, shareTableFiles, sync, destroyOldData,
         backupLogFiles, backupRateLimit, restoreRateLimit);

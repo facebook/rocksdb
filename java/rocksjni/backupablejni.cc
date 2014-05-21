@@ -55,6 +55,9 @@ void Java_org_rocksdb_BackupableDBOptions_newBackupableDBOptions(
     JNIEnv* env, jobject jobj, jstring jpath, jboolean jshare_table_files,
     jboolean jsync, jboolean jdestroy_old_data, jboolean jbackup_log_files,
     jlong jbackup_rate_limit, jlong jrestore_rate_limit) {
+  jbackup_rate_limit = (jbackup_rate_limit <= 0) ? 0 : jbackup_rate_limit;
+  jrestore_rate_limit = (jrestore_rate_limit <= 0) ? 0 : jrestore_rate_limit;
+
   const char* cpath = env->GetStringUTFChars(jpath, 0);
 
   auto bopt = new rocksdb::BackupableDBOptions(cpath, nullptr,
