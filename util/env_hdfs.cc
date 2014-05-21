@@ -501,7 +501,7 @@ Status HdfsEnv::CreateDirIfMissing(const std::string& name) {
     return CreateDir(name);
     default:  // anything else should be an error
       Log(mylog, "CreateDirIfMissing hdfsExists call failed");
-      throw HdfsFatalException("3. hdfsExists call failed with error " +
+      throw HdfsFatalException("hdfsExists call failed with error " +
                                std::to_string(value) + ".\n");
   }
 };
