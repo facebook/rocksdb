@@ -401,16 +401,9 @@ Status HdfsEnv::NewRandomRWFile(const std::string& fname,
 class HdfsDirectory : public Directory {
  public:
   explicit HdfsDirectory(int fd) : fd_(fd) {}
-  ~HdfsDirectory() {
-    //close(fd_);
-  }
+  ~HdfsDirectory() {}
 
-  virtual Status Fsync() {
-    //if (fsync(fd_) == -1) {
-    //  return IOError("directory", errno);
-   // }
-    return Status::OK();
-  }
+  virtual Status Fsync() { return Status::OK(); }
 
  private:
   int fd_;
@@ -418,20 +411,21 @@ class HdfsDirectory : public Directory {
 
 Status HdfsEnv::NewDirectory(const std::string& name,
                              unique_ptr<Directory>* result) {
-
-  int value = hdfsCreateDirectory(fileSys_, name.c_str());
-  result->reset(new HdfsDirectory(0));
+  int value = hdfsExists(fileSys_, name.c_str());
   switch (value) {
-    case HDFS_SUCCESS:  // directory created
+    case HDFS_EXISTS:
+      result->reset(new HdfsDirectory(0));
       return Status::OK();
-    default:
-      Log(mylog, "directory already exists "); 
-      return Status::OK();
+    default:  // fail if the directory doesn't exist
+      Log(mylog, "NewDirectory hdfsExists call failed");
+      throw HdfsFatalException("hdfsExists call failed with error " +
+                               std::to_string(value) + " on path " + name +
+                               ".\n");
   }
 }
 
 bool HdfsEnv::FileExists(const std::string& fname) {
-  
+
   int value = hdfsExists(fileSys_, fname.c_str());
   switch (value) {
     case HDFS_EXISTS:
@@ -440,8 +434,9 @@ bool HdfsEnv::FileExists(const std::string& fname) {
       return false;
     default:  // anything else should be an error
       Log(mylog, "FileExists hdfsExists call failed");
-      throw HdfsFatalException("1. hdfsExists call failed with error " +
-                               std::to_string(value) + " on path " + fname  + ".\n");
+      throw HdfsFatalException("hdfsExists call failed with error " +
+                               std::to_string(value) + " on path " + fname +
+                               ".\n");
   }
 }
 
@@ -477,13 +472,13 @@ Status HdfsEnv::GetChildren(const std::string& path,
   default:          // anything else should be an error
     Log(mylog, "GetChildren hdfsExists call failed");
     throw HdfsFatalException("hdfsExists call failed with error " +
-                             std::to_string(value) + " on path " + path.c_str()  + ".\n");
+                             std::to_string(value) + ".\n");
   }
   return Status::OK();
 }
 
 Status HdfsEnv::DeleteFile(const std::string& fname) {
-  if (hdfsDelete(fileSys_, fname.c_str(),1) == 0) {
+  if (hdfsDelete(fileSys_, fname.c_str(), 1) == 0) {
     return Status::OK();
   }
   return IOError(fname, errno);
