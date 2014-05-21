@@ -426,7 +426,7 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     s = db->GetSortedWalFiles(live_wal_files);
   }
   if (!s.ok()) {
-    db->EnableFileDeletions();
+    db->EnableFileDeletions(false);
     return s;
   }
 
@@ -495,7 +495,7 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   }
 
   // we copied all the files, enable file deletions
-  db->EnableFileDeletions();
+  db->EnableFileDeletions(false);
 
   if (s.ok()) {
     // move tmp private backup to real backup folder

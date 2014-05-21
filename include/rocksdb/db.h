@@ -396,7 +396,7 @@ class DB {
   // times have the same effect as calling it once.
   virtual Status DisableFileDeletions() = 0;
 
-  // Allow compactions to delete obselete files.
+  // Allow compactions to delete obsolete files.
   // If force == true, the call to EnableFileDeletions() will guarantee that
   // file deletions are enabled after the call, even if DisableFileDeletions()
   // was called multiple times before.

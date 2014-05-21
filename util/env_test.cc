@@ -200,6 +200,197 @@ TEST(EnvPosixTest, TwoPools) {
   ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
 }
 
+TEST(EnvPosixTest, DecreaseNumBgThreads) {
+  class SleepingBackgroundTask {
+   public:
+    explicit SleepingBackgroundTask()
+        : bg_cv_(&mutex_), should_sleep_(true), sleeping_(false) {}
+    void DoSleep() {
+      MutexLock l(&mutex_);
+      sleeping_ = true;
+      while (should_sleep_) {
+        bg_cv_.Wait();
+      }
+      sleeping_ = false;
+      bg_cv_.SignalAll();
+    }
+
+    void WakeUp() {
+      MutexLock l(&mutex_);
+      should_sleep_ = false;
+      bg_cv_.SignalAll();
+
+      while (sleeping_) {
+        bg_cv_.Wait();
+      }
+    }
+
+    bool IsSleeping() {
+      MutexLock l(&mutex_);
+      return sleeping_;
+    }
+
+    static void DoSleepTask(void* arg) {
+      reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+    }
+
+   private:
+    port::Mutex mutex_;
+    port::CondVar bg_cv_;  // Signalled when background work finishes
+    bool should_sleep_;
+    bool sleeping_;
+  };
+
+  std::vector<SleepingBackgroundTask> tasks(10);
+
+  // Set number of thread to 1 first.
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+
+  // Schedule 3 tasks. 0 running; Task 1, 2 waiting.
+  for (size_t i = 0; i < 3; i++) {
+    env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &tasks[i],
+                   Env::Priority::HIGH);
+    Env::Default()->SleepForMicroseconds(kDelayMicros);
+  }
+  ASSERT_EQ(2U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[0].IsSleeping());
+  ASSERT_TRUE(!tasks[1].IsSleeping());
+  ASSERT_TRUE(!tasks[2].IsSleeping());
+
+  // Increase to 2 threads. Task 0, 1 running; 2 waiting
+  env_->SetBackgroundThreads(2, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[0].IsSleeping());
+  ASSERT_TRUE(tasks[1].IsSleeping());
+  ASSERT_TRUE(!tasks[2].IsSleeping());
+
+  // Shrink back to 1 thread. Still task 0, 1 running, 2 waiting
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[0].IsSleeping());
+  ASSERT_TRUE(tasks[1].IsSleeping());
+  ASSERT_TRUE(!tasks[2].IsSleeping());
+
+  // The last task finishes. Task 0 running, 2 waiting.
+  tasks[1].WakeUp();
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(1U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[0].IsSleeping());
+  ASSERT_TRUE(!tasks[1].IsSleeping());
+  ASSERT_TRUE(!tasks[2].IsSleeping());
+
+  // Increase to 5 threads. Task 0 and 2 running.
+  env_->SetBackgroundThreads(5, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[0].IsSleeping());
+  ASSERT_TRUE(tasks[2].IsSleeping());
+
+  // Change number of threads a couple of times while there is no sufficient
+  // tasks.
+  env_->SetBackgroundThreads(7, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  tasks[2].WakeUp();
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  env_->SetBackgroundThreads(3, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  env_->SetBackgroundThreads(4, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  env_->SetBackgroundThreads(5, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  env_->SetBackgroundThreads(4, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+  Env::Default()->SleepForMicroseconds(kDelayMicros * 50);
+
+  // Enqueue 5 more tasks. Thread pool size now is 4.
+  // Task 0, 3, 4, 5 running;6, 7 waiting.
+  for (size_t i = 3; i < 8; i++) {
+    env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &tasks[i],
+                   Env::Priority::HIGH);
+  }
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(2U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[3].IsSleeping());
+  ASSERT_TRUE(tasks[4].IsSleeping());
+  ASSERT_TRUE(tasks[5].IsSleeping());
+  ASSERT_TRUE(!tasks[6].IsSleeping());
+  ASSERT_TRUE(!tasks[7].IsSleeping());
+
+  // Wake up task 0, 3 and 4. Task 5, 6, 7 running.
+  tasks[0].WakeUp();
+  tasks[3].WakeUp();
+  tasks[4].WakeUp();
+
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  for (size_t i = 5; i < 8; i++) {
+    ASSERT_TRUE(tasks[i].IsSleeping());
+  }
+
+  // Shrink back to 1 thread. Still task 5, 6, 7 running
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_TRUE(tasks[5].IsSleeping());
+  ASSERT_TRUE(tasks[6].IsSleeping());
+  ASSERT_TRUE(tasks[7].IsSleeping());
+
+  // Wake up task  6. Task 5, 7 running
+  tasks[6].WakeUp();
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_TRUE(tasks[5].IsSleeping());
+  ASSERT_TRUE(!tasks[6].IsSleeping());
+  ASSERT_TRUE(tasks[7].IsSleeping());
+
+  // Wake up threads 7. Task 5 running
+  tasks[7].WakeUp();
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_TRUE(!tasks[7].IsSleeping());
+
+  // Enqueue thread 8 and 9. Task 5 running; one of 8, 9 might be running.
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &tasks[8],
+                 Env::Priority::HIGH);
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &tasks[9],
+                 Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_GT(env_->GetThreadPoolQueueLen(Env::Priority::HIGH), 0);
+  ASSERT_TRUE(!tasks[8].IsSleeping() || !tasks[9].IsSleeping());
+
+  // Increase to 4 threads. Task 5, 8, 9 running.
+  env_->SetBackgroundThreads(4, Env::Priority::HIGH);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ(0, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+  ASSERT_TRUE(tasks[8].IsSleeping());
+  ASSERT_TRUE(tasks[9].IsSleeping());
+
+  // Shrink to 1 thread
+  env_->SetBackgroundThreads(1, Env::Priority::HIGH);
+
+  // Wake up thread 9.
+  tasks[9].WakeUp();
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_TRUE(!tasks[9].IsSleeping());
+  ASSERT_TRUE(tasks[8].IsSleeping());
+
+  // Wake up thread 8
+  tasks[8].WakeUp();
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_TRUE(!tasks[8].IsSleeping());
+
+  // Wake up the last thread
+  tasks[5].WakeUp();
+
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_TRUE(!tasks[5].IsSleeping());
+}
+
 #ifdef OS_LINUX
 // To make sure the Env::GetUniqueId() related tests work correctly, The files
 // should be stored in regular storage like "hard disk" or "flash device".

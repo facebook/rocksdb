@@ -1470,15 +1470,52 @@ class PosixEnv : public Env {
       }
     }
 
-    void BGThread() {
+    // Return true if there is at least one thread needs to terminate.
+    bool HasExcessiveThread() {
+      return static_cast<int>(bgthreads_.size()) > total_threads_limit_;
+    }
+
+    // Return true iff the current thread is the excessive thread to terminate.
+    // Always terminate the running thread that is added last, even if there are
+    // more than one thread to terminate.
+    bool IsLastExcessiveThread(size_t thread_id) {
+      return HasExcessiveThread() && thread_id == bgthreads_.size() - 1;
+    }
+
+    // Is one of the threads to terminate.
+    bool IsExcessiveThread(size_t thread_id) {
+      return static_cast<int>(thread_id) >= total_threads_limit_;
+    }
+
+    void BGThread(size_t thread_id) {
       while (true) {
         // Wait until there is an item that is ready to run
         PthreadCall("lock", pthread_mutex_lock(&mu_));
-        while (queue_.empty() && !exit_all_threads_) {
+        // Stop waiting if the thread needs to do work or needs to terminate.
+        while (!exit_all_threads_ && !IsLastExcessiveThread(thread_id) &&
+               (queue_.empty() || IsExcessiveThread(thread_id))) {
           PthreadCall("wait", pthread_cond_wait(&bgsignal_, &mu_));
         }
         if (exit_all_threads_) { // mechanism to let BG threads exit safely
           PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+          break;
+        }
+        if (IsLastExcessiveThread(thread_id)) {
+          // Current thread is the last generated one and is excessive.
+          // We always terminate excessive thread in the reverse order of
+          // generation time.
+          auto terminating_thread = bgthreads_.back();
+          pthread_detach(terminating_thread);
+          bgthreads_.pop_back();
+          if (HasExcessiveThread()) {
+            // There is still at least more excessive thread to terminate.
+            WakeUpAllThreads();
+          }
+          PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+          // TODO(sdong): temp logging. Need to help debugging. Remove it when
+          // the feature is proved to be stable.
+          fprintf(stdout, "Bg thread %zu terminates %llx\n", thread_id,
+                  static_cast<long long unsigned int>(terminating_thread));
           break;
         }
         void (*function)(void*) = queue_.front().function;
@@ -1491,36 +1528,50 @@ class PosixEnv : public Env {
       }
     }
 
+    // Helper struct for passing arguments when creating threads.
+    struct BGThreadMetadata {
+      ThreadPool* thread_pool_;
+      size_t thread_id_;  // Thread count in the thread.
+      explicit BGThreadMetadata(ThreadPool* thread_pool, size_t thread_id)
+          : thread_pool_(thread_pool), thread_id_(thread_id) {}
+    };
+
     static void* BGThreadWrapper(void* arg) {
-      reinterpret_cast<ThreadPool*>(arg)->BGThread();
+      BGThreadMetadata* meta = reinterpret_cast<BGThreadMetadata*>(arg);
+      size_t thread_id = meta->thread_id_;
+      ThreadPool* tp = meta->thread_pool_;
+      delete meta;
+      tp->BGThread(thread_id);
       return nullptr;
+    }
+
+    void WakeUpAllThreads() {
+      PthreadCall("signalall", pthread_cond_broadcast(&bgsignal_));
     }
 
     void SetBackgroundThreads(int num) {
       PthreadCall("lock", pthread_mutex_lock(&mu_));
-      if (num > total_threads_limit_) {
+      if (exit_all_threads_) {
+        PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+        return;
+      }
+      if (num != total_threads_limit_) {
         total_threads_limit_ = num;
+        WakeUpAllThreads();
+        StartBGThreads();
       }
       assert(total_threads_limit_ > 0);
       PthreadCall("unlock", pthread_mutex_unlock(&mu_));
     }
 
-    void Schedule(void (*function)(void*), void* arg) {
-      PthreadCall("lock", pthread_mutex_lock(&mu_));
-
-      if (exit_all_threads_) {
-        PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-        return;
-      }
+    void StartBGThreads() {
       // Start background thread if necessary
       while ((int)bgthreads_.size() < total_threads_limit_) {
         pthread_t t;
         PthreadCall(
-          "create thread",
-          pthread_create(&t,
-                         nullptr,
-                         &ThreadPool::BGThreadWrapper,
-                         this));
+            "create thread",
+            pthread_create(&t, nullptr, &ThreadPool::BGThreadWrapper,
+                           new BGThreadMetadata(this, bgthreads_.size())));
 
         // Set the thread name to aid debugging
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
@@ -1534,6 +1585,17 @@ class PosixEnv : public Env {
 
         bgthreads_.push_back(t);
       }
+    }
+
+    void Schedule(void (*function)(void*), void* arg) {
+      PthreadCall("lock", pthread_mutex_lock(&mu_));
+
+      if (exit_all_threads_) {
+        PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+        return;
+      }
+
+      StartBGThreads();
 
       // Add to priority queue
       queue_.push_back(BGItem());
@@ -1541,8 +1603,14 @@ class PosixEnv : public Env {
       queue_.back().arg = arg;
       queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
-      // always wake up at least one waiting thread.
-      PthreadCall("signal", pthread_cond_signal(&bgsignal_));
+      if (!HasExcessiveThread()) {
+        // Wake up at least one waiting thread.
+        PthreadCall("signal", pthread_cond_signal(&bgsignal_));
+      } else {
+        // Need to wake up all threads to make sure the one woken
+        // up is not the one to terminate.
+        WakeUpAllThreads();
+      }
 
       PthreadCall("unlock", pthread_mutex_unlock(&mu_));
     }
