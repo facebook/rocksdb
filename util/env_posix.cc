@@ -1515,7 +1515,7 @@ class PosixEnv : public Env {
           // TODO(sdong): temp logging. Need to help debugging. Remove it when
           // the feature is proved to be stable.
           fprintf(stdout, "Bg thread %zu terminates %llx\n", thread_id,
-                  static_cast<long long unsigned int>(terminating_thread));
+                  reinterpret_cast<long long unsigned int>(terminating_thread));
           break;
         }
         void (*function)(void*) = queue_.front().function;
