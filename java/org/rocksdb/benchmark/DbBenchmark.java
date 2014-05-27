@@ -534,8 +534,6 @@ public class DbBenchmark {
         (Long)flags_.get(Flag.block_size));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
-    options.setCreateIfMissing(
-        !(Boolean)flags_.get(Flag.use_existing_db));
     options.setTableCacheRemoveScanCountLimit(
         (Integer)flags_.get(Flag.cache_remove_scan_count_limit));
     options.setDisableDataSync(
@@ -939,7 +937,7 @@ public class DbBenchmark {
         "\tflag and also specify a benchmark that wants a fresh database,\n" +
         "\tthat benchmark will fail.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     num(1000000,
@@ -1028,7 +1026,7 @@ public class DbBenchmark {
     use_plain_table(false,
         "Use plain-table sst format.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     cache_size(-1L,
@@ -1085,7 +1083,7 @@ public class DbBenchmark {
     },
     histogram(false,"Print histogram of operation timings.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     min_write_buffer_number_to_merge(
@@ -1203,12 +1201,12 @@ public class DbBenchmark {
     verify_checksum(false,"Verify checksum for every block read\n" +
         "\tfrom storage.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     statistics(false,"Database statistics.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     writes(-1,"Number of write operations to do. If negative, do\n" +
@@ -1219,23 +1217,23 @@ public class DbBenchmark {
     },
     sync(false,"Sync all writes to disk.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     disable_data_sync(false,"If true, do not wait until data is\n" +
         "\tsynced to disk.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     use_fsync(false,"If true, issue fsync instead of fdatasync.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     disable_wal(false,"If true, do not write WAL for write.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     wal_dir("", "If not empty, use the given dir for WAL.") {
@@ -1312,7 +1310,7 @@ public class DbBenchmark {
     disable_seek_compaction(false,"Option to disable compaction\n" +
         "\ttriggered by read.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     delete_obsolete_files_period_micros(0,"Option to delete\n" +
@@ -1393,12 +1391,12 @@ public class DbBenchmark {
     },
     readonly(false,"Run read only benchmarks.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     disable_auto_compactions(false,"Do not auto trigger compactions.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     source_compaction_factor(1,"Cap the size of data in level-K for\n" +
@@ -1423,26 +1421,26 @@ public class DbBenchmark {
     bufferedio(rocksdb::EnvOptions().use_os_buffer,
         "Allow buffered io using OS buffers.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     */
     mmap_read(false,
         "Allow reads to occur via mmap-ing files.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     mmap_write(false,
         "Allow writes to occur via mmap-ing files.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     advise_random_on_open(defaultOptions_.adviseRandomOnOpen(),
         "Advise random access on table file open.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     compaction_fadvice("NORMAL",
@@ -1454,13 +1452,13 @@ public class DbBenchmark {
     use_tailing_iterator(false,
         "Use tailing iterator to access a series of keys instead of get.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     use_adaptive_mutex(defaultOptions_.useAdaptiveMutex(),
         "Use adaptive mutex.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     bytes_per_sync(defaultOptions_.bytesPerSync(),
@@ -1474,7 +1472,7 @@ public class DbBenchmark {
     filter_deletes(false," On true, deletes use bloom-filter and drop\n" +
         "\tthe delete if key not present.") {
       @Override public Object parseValue(String value) {
-        return Boolean.parseBoolean(value);
+        return parseBoolean(value);
       }
     },
     max_successive_merges(0,"Maximum number of successive merge\n" +
@@ -1495,8 +1493,6 @@ public class DbBenchmark {
       desc_ = desc;
     }
 
-    protected abstract Object parseValue(String value);
-
     public Object getDefaultValue() {
       return defaultValue_;
     }
@@ -1504,6 +1500,17 @@ public class DbBenchmark {
     public String desc() {
       return desc_;
     }
+
+    public boolean parseBoolean(String value) {
+      if (value.equals("1")) {
+        return true;
+      } else if (value.equals("0")) {
+        return false;
+      }
+      return Boolean.parseBoolean(value);
+    }
+
+    protected abstract Object parseValue(String value);
 
     private final Object defaultValue_;
     private final String desc_;
