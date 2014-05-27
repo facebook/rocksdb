@@ -25,11 +25,14 @@ public class BackupableDB extends RocksDB {
   public static BackupableDB open(
       Options opt, BackupableDBOptions bopt, String db_path)
       throws RocksDBException {
-    // since BackupableDB c++ will handle the life cycle of
-    // the returned RocksDB of RocksDB.open(), here we store
-    // it as a BackupableDB member variable to avoid GC.
-    BackupableDB bdb = new BackupableDB(RocksDB.open(opt, db_path));
-    bdb.open(bdb.db_.nativeHandle_, bopt.nativeHandle_);
+
+    RocksDB db = RocksDB.open(opt, db_path);
+    BackupableDB bdb = new BackupableDB();
+    bdb.open(db.nativeHandle_, bopt.nativeHandle_);
+
+    // Prevent the RocksDB object from attempting to delete
+    // the underly C++ DB object.
+    db.disOwnNativeObject();
 
     return bdb;
   }
@@ -64,9 +67,8 @@ public class BackupableDB extends RocksDB {
    * A protected construction that will be used in the static factory
    * method BackupableDB.open().
    */
-  protected BackupableDB(RocksDB db) {
+  protected BackupableDB() {
     super();
-    db_ = db;
   }
 
   @Override protected void finalize() {
@@ -75,6 +77,4 @@ public class BackupableDB extends RocksDB {
 
   protected native void open(long rocksDBHandle, long backupDBOptionsHandle);
   protected native void createNewBackup(long handle, boolean flag);
-
-  private final RocksDB db_;
 }

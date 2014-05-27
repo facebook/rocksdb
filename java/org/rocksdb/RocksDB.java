@@ -337,6 +337,18 @@ public class RocksDB extends RocksObject {
     opt.filter_ = null;
   }
 
+  /**
+   * Revoke ownership of the native object.
+   *
+   * This will prevent the object from attempting to delete the underlying
+   * native object in its finalizer. This must be used when another object
+   * (e.g. BackupableDB) takes over ownership of the native object or both
+   * will attempt to delete the underlying object when garbage collected.
+   */
+  protected void disOwnNativeObject() {
+    nativeHandle_ = 0;
+  }
+
   // native methods
   protected native void open(
       long optionsHandle, long cacheSize, String path) throws RocksDBException;
