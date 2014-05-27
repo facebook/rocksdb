@@ -14,7 +14,7 @@
 #include "rocksdb/status.h"
 
 #ifdef USE_HDFS
-#include "hdfs/hdfs.h"
+#include <hdfs.h>
 
 namespace rocksdb {
 

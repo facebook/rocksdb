@@ -289,7 +289,7 @@ if test "$USE_HDFS"; then
     exit 1
   fi
   HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -Wl,--no-whole-archive hdfs/libhdfs.a -L$JAVA_HOME/jre/lib/amd64"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -Wl,--no-whole-archive -lhdfs -L$JAVA_HOME/jre/lib/amd64"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
   COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"

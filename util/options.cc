@@ -135,6 +135,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       compaction_style(options.compaction_style),
       verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       compaction_options_universal(options.compaction_options_universal),
+      compaction_options_fifo(options.compaction_options_fifo),
       filter_deletes(options.filter_deletes),
       max_sequential_skip_in_iterations(
           options.max_sequential_skip_in_iterations),
@@ -413,6 +414,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Log(log,
         "Options.compaction_options_universal.compression_size_percent: %u",
         compaction_options_universal.compression_size_percent);
+    Log(log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
+        compaction_options_fifo.max_table_files_size);
     std::string collector_names;
     for (const auto& collector_factory : table_properties_collector_factories) {
       collector_names.append(collector_factory->Name());

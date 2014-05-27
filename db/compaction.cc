@@ -29,7 +29,8 @@ static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
 Compaction::Compaction(Version* input_version, int level, int out_level,
                        uint64_t target_file_size,
                        uint64_t max_grandparent_overlap_bytes,
-                       bool seek_compaction, bool enable_compression)
+                       bool seek_compaction, bool enable_compression,
+                       bool deletion_compaction)
     : level_(level),
       out_level_(out_level),
       max_output_file_size_(target_file_size),
@@ -39,6 +40,7 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
       cfd_(input_version_->cfd_),
       seek_compaction_(seek_compaction),
       enable_compression_(enable_compression),
+      deletion_compaction_(deletion_compaction),
       grandparent_index_(0),
       seen_key_(false),
       overlapped_bytes_(0),
@@ -83,6 +85,8 @@ bool Compaction::IsTrivialMove() const {
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
 
+bool Compaction::IsDeletionCompaction() const { return deletion_compaction_; }
+
 void Compaction::AddInputDeletions(VersionEdit* edit) {
   for (int which = 0; which < 2; which++) {
     for (size_t i = 0; i < inputs_[which].size(); i++) {
@@ -92,6 +96,7 @@ void Compaction::AddInputDeletions(VersionEdit* edit) {
 }
 
 bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
+  assert(cfd_->options()->compaction_style != kCompactionStyleFIFO);
   if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     return bottommost_level_;
   }
@@ -155,6 +160,7 @@ void Compaction::MarkFilesBeingCompacted(bool value) {
 
 // Is this compaction producing files at the bottommost level?
 void Compaction::SetupBottomMostLevel(bool isManual) {
+  assert(cfd_->options()->compaction_style != kCompactionStyleFIFO);
   if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     // If universal compaction style is used and manual
     // compaction is occuring, then we are guaranteed that

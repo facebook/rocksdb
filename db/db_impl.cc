@@ -1590,7 +1590,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     return s;
   }
 
-  int max_level_with_files = 1;
+  int max_level_with_files = 0;
   {
     MutexLock l(&mutex_);
     Version* base = cfd->current();
@@ -1604,6 +1604,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     // in case the compaction is unversal or if we're compacting the
     // bottom-most level, the output level will be the same as input one
     if (cfd->options()->compaction_style == kCompactionStyleUniversal ||
+        cfd->options()->compaction_style == kCompactionStyleFIFO ||
         level == max_level_with_files) {
       s = RunManualCompaction(cfd, level, level, begin, end);
     } else {
@@ -1754,14 +1755,16 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
-      cfd->options()->compaction_style == kCompactionStyleUniversal) {
+      cfd->options()->compaction_style == kCompactionStyleUniversal ||
+      cfd->options()->compaction_style == kCompactionStyleFIFO) {
     manual.begin = nullptr;
   } else {
     begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
     manual.begin = &begin_storage;
   }
   if (end == nullptr ||
-      cfd->options()->compaction_style == kCompactionStyleUniversal) {
+      cfd->options()->compaction_style == kCompactionStyleUniversal ||
+      cfd->options()->compaction_style == kCompactionStyleFIFO) {
     manual.end = nullptr;
   } else {
     end_storage = InternalKey(*end, 0, static_cast<ValueType>(0));
@@ -2150,6 +2153,24 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   if (!c) {
     // Nothing to do
     LogToBuffer(log_buffer, "Compaction nothing to do");
+  } else if (c->IsDeletionCompaction()) {
+    // TODO(icanadi) Do we want to honor snapshots here? i.e. not delete old
+    // file if there is alive snapshot pointing to it
+    assert(c->num_input_files(1) == 0);
+    assert(c->level() == 0);
+    assert(c->column_family_data()->options()->compaction_style ==
+           kCompactionStyleFIFO);
+    for (const auto& f : *c->inputs(0)) {
+      c->edit()->DeleteFile(c->level(), f->number);
+    }
+    status = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
+                                    db_directory_.get());
+    InstallSuperVersion(c->column_family_data(), deletion_state);
+    LogToBuffer(log_buffer, "[%s] Deleted %d files\n",
+                c->column_family_data()->GetName().c_str(),
+                c->num_input_files(0));
+    c->ReleaseCompactionFiles(status);
+    *madeProgress = true;
   } else if (!is_manual && c->IsTrivialMove()) {
     // Move file to next level
     assert(c->num_input_files(0) == 1);
@@ -2219,8 +2240,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     if (!m->done) {
       // We only compacted part of the requested range.  Update *m
       // to the range that is left to be compacted.
-      // Universal compaction should always compact the whole range
+      // Universal and FIFO compactions should always compact the whole range
       assert(m->cfd->options()->compaction_style != kCompactionStyleUniversal);
+      assert(m->cfd->options()->compaction_style != kCompactionStyleFIFO);
       m->tmp_storage = *manual_end;
       m->begin = &m->tmp_storage;
     }
@@ -4468,13 +4490,15 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      if (cfd->options()->compaction_style == kCompactionStyleUniversal) {
+      if (cfd->options()->compaction_style == kCompactionStyleUniversal ||
+          cfd->options()->compaction_style == kCompactionStyleFIFO) {
         Version* current = cfd->current();
         for (int i = 1; i < current->NumberLevels(); ++i) {
           int num_files = current->NumLevelFiles(i);
           if (num_files > 0) {
-            s = Status::InvalidArgument("Not all files are at level 0. Cannot "
-                "open with universal compaction style.");
+            s = Status::InvalidArgument(
+                "Not all files are at level 0. Cannot "
+                "open with universal or FIFO compaction style.");
             break;
           }
         }

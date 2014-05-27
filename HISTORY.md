@@ -1,12 +1,13 @@
 # Rocksdb Change Log
 
-## Unreleased (3.1.0)
+## 3.1.0 (05/21/2014)
 
 ### Public API changes
 * Replaced ColumnFamilyOptions::table_properties_collectors with ColumnFamilyOptions::table_properties_collector_factories
 
 ### New Features
 * Hash index for block-based table will be materialized and reconstructed more efficiently. Previously hash index is constructed by scanning the whole table during every table open.
+* FIFO compaction style
 
 ## 3.0.0 (05/05/2014)
 

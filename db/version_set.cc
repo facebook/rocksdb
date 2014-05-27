@@ -711,7 +711,8 @@ void Version::ComputeCompactionScore(
   int max_score_level = 0;
 
   int num_levels_to_check =
-      (cfd_->options()->compaction_style != kCompactionStyleUniversal)
+      (cfd_->options()->compaction_style != kCompactionStyleUniversal &&
+       cfd_->options()->compaction_style != kCompactionStyleFIFO)
           ? NumberLevels() - 1
           : 1;
 
@@ -730,14 +731,18 @@ void Version::ComputeCompactionScore(
       // setting, or very high compression ratios, or lots of
       // overwrites/deletions).
       int numfiles = 0;
+      uint64_t total_size = 0;
       for (unsigned int i = 0; i < files_[level].size(); i++) {
         if (!files_[level][i]->being_compacted) {
+          total_size += files_[level][i]->file_size;
           numfiles++;
         }
       }
-
-      // If we are slowing down writes, then we better compact that first
-      if (numfiles >= cfd_->options()->level0_stop_writes_trigger) {
+      if (cfd_->options()->compaction_style == kCompactionStyleFIFO) {
+        score = static_cast<double>(total_size) /
+                cfd_->options()->compaction_options_fifo.max_table_files_size;
+      } else if (numfiles >= cfd_->options()->level0_stop_writes_trigger) {
+        // If we are slowing down writes, then we better compact that first
         score = 1000000;
       } else if (numfiles >= cfd_->options()->level0_slowdown_writes_trigger) {
         score = 10000;
@@ -803,6 +808,10 @@ bool CompareSeqnoDescending(const Version::Fsize& first,
 } // anonymous namespace
 
 void Version::UpdateFilesBySize() {
+  if (cfd_->options()->compaction_style == kCompactionStyleFIFO) {
+    // don't need this
+    return;
+  }
   // No need to sort the highest level because it is never compacted.
   int max_level =
       (cfd_->options()->compaction_style == kCompactionStyleUniversal)
@@ -871,7 +880,8 @@ bool Version::NeedsCompaction() const {
   // TODO(sdong): improve this function to be accurate for universal
   //              compactions.
   int num_levels_to_check =
-      (cfd_->options()->compaction_style != kCompactionStyleUniversal)
+      (cfd_->options()->compaction_style != kCompactionStyleUniversal &&
+       cfd_->options()->compaction_style != kCompactionStyleFIFO)
           ? NumberLevels() - 1
           : 1;
   for (int i = 0; i < num_levels_to_check; i++) {
@@ -1253,7 +1263,7 @@ struct VersionSet::ManifestWriter {
 class VersionSet::Builder {
  private:
   // Helper to sort v->files_
-  // kLevel0LevelCompaction -- NewestFirst
+  // kLevel0LevelCompaction -- NewestFirst (also used for FIFO compaction)
   // kLevel0UniversalCompaction -- NewestFirstBySeqNo
   // kLevelNon0 -- BySmallestKey
   struct FileComparator {

@@ -217,6 +217,7 @@ class Version {
   friend class CompactionPicker;
   friend class LevelCompactionPicker;
   friend class UniversalCompactionPicker;
+  friend class FIFOCompactionPicker;
 
   class LevelFileNumIterator;
   class LevelFileIteratorState;

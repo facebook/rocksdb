@@ -60,7 +60,7 @@ def main(argv):
           + str(ops_per_thread) + "\nwrite_buffer_size=" \
           + str(write_buf_size) + "\n"
 
-    total_check_mode = 3
+    total_check_mode = 4
     check_mode = 0
 
     while time.time() < exit_time:
@@ -75,8 +75,14 @@ def main(argv):
             # normal run with universal compaction mode
             additional_opts = "--ops_per_thread=" + str(ops_per_thread) + \
                               " --compaction_style=1"
+        elif check_mode == 2:
+            # normal run with FIFO compaction mode
+            # ops_per_thread is divided by 5 because FIFO compaction
+            # style is quite a bit slower on reads with lot of files
+            additional_opts = "--ops_per_thread=" + str(ops_per_thread / 5) + \
+                              " --compaction_style=2"
         else:
-            # nomral run
+            # normal run
             additional_opts = "--ops_per_thread=" + str(ops_per_thread)
 
         dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
