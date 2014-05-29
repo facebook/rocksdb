@@ -29,13 +29,10 @@ void Java_org_rocksdb_BloomFilter_createNewFilter0(
 
 /*
  * Class:     org_rocksdb_Filter
- * Method:    dispose0
+ * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_Filter_dispose0(
+void Java_org_rocksdb_Filter_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  auto fp = reinterpret_cast<rocksdb::FilterPolicy*>(handle);
-  delete fp;
-
-  rocksdb::FilterJni::setHandle(env, jobj, nullptr);
+  delete reinterpret_cast<rocksdb::FilterPolicy*>(handle);
 }

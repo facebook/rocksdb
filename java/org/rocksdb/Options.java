@@ -2311,10 +2311,9 @@ public class Options extends RocksObject {
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose0();
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
   static final int DEFAULT_PLAIN_TABLE_BLOOM_BITS_PER_KEY = 10;
@@ -2322,7 +2321,7 @@ public class Options extends RocksObject {
   static final int DEFAULT_PLAIN_TABLE_INDEX_SPARSENESS = 16;
 
   private native void newOptions();
-  private native void dispose0();
+  private native void disposeInternal(long handle);
   private native void setCreateIfMissing(long handle, boolean flag);
   private native boolean createIfMissing(long handle);
   private native void setWriteBufferSize(long handle, long writeBufferSize);

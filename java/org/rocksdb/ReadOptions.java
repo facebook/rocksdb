@@ -19,19 +19,6 @@ public class ReadOptions extends RocksObject {
   private native void newReadOptions();
 
   /**
-   * Release the memory allocated for the current instance
-   * in the c++ side.
-   *
-   * Calling other methods after dispose() leads to undefined behavior.
-   */
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose(nativeHandle_);
-    }
-  }
-  private native void dispose(long handle);
-
-  /**
    * If true, all data read from underlying storage will be
    * verified against corresponding checksums.
    * Default: true
@@ -127,4 +114,12 @@ public class ReadOptions extends RocksObject {
   }
   private native void setTailing(
       long handle, boolean tailing);
+
+
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
+  }
+  private native void disposeInternal(long handle);
+
 }

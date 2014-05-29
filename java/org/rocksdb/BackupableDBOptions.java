@@ -32,13 +32,12 @@ public class BackupableDBOptions extends RocksObject {
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose(nativeHandle_);
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
   private native void newBackupableDBOptions(String path);
   private native String backupDir(long handle);
-  private native void dispose(long handle);
+  private native void disposeInternal(long handle);
 }

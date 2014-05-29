@@ -118,15 +118,13 @@ public class RocksIterator extends RocksObject {
   /**
    * Deletes underlying C++ iterator pointer.
    */
-  @Override public synchronized void dispose() {
-    if(isInitialized()) {
-      dispose(nativeHandle_);
-      nativeHandle_ = 0;
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
   private native boolean isValid0(long handle);
-  private native void dispose(long handle);
+  private native void disposeInternal(long handle);
   private native void seekToFirst0(long handle);
   private native void seekToLast0(long handle);
   private native void next0(long handle);

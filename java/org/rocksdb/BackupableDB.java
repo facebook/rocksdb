@@ -32,7 +32,7 @@ public class BackupableDB extends RocksDB {
 
     // Prevent the RocksDB object from attempting to delete
     // the underly C++ DB object.
-    db.disOwnNativeObject();
+    db.disOwnNativeHandle();
 
     return bdb;
   }
