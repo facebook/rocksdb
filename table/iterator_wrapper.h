@@ -8,6 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+
+#include "rocksdb/iterator.h"
+
 namespace rocksdb {
 
 // A internal wrapper class with an interface similar to Iterator that

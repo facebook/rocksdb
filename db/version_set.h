@@ -218,6 +218,7 @@ class Version {
   friend class LevelCompactionPicker;
   friend class UniversalCompactionPicker;
   friend class FIFOCompactionPicker;
+  friend class ForwardIterator;
 
   class LevelFileNumIterator;
   class LevelFileIteratorState;

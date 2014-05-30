@@ -256,10 +256,10 @@ class IterKey {
 
   void Clear() { key_size_ = 0; }
 
-  void SetUserKey(const Slice& user_key) {
-    size_t size = user_key.size();
+  void SetKey(const Slice& key) {
+    size_t size = key.size();
     EnlargeBufferIfNeeded(size);
-    memcpy(key_, user_key.data(), size);
+    memcpy(key_, key.data(), size);
     key_size_ = size;
   }
 

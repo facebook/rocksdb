@@ -36,6 +36,7 @@
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/tailing_iter.h"
+#include "db/forward_iterator.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -2578,7 +2579,7 @@ Status DBImpl::ProcessKeyValueCompaction(
           cfd->user_comparator()->Compare(ikey.user_key,
                                           current_user_key.GetKey()) != 0) {
         // First occurrence of this user key
-        current_user_key.SetUserKey(ikey.user_key);
+        current_user_key.SetKey(ikey.user_key);
         has_current_user_key = true;
         last_sequence_for_key = kMaxSequenceNumber;
         visible_in_snapshot = kMaxSequenceNumber;
@@ -3538,7 +3539,11 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
     // not supported in lite version
     return nullptr;
 #else
-    iter = new TailingIterator(env_, this, options, cfd);
+    // TODO(ljin): remove tailing iterator
+    iter = new ForwardIterator(env_, this, options, cfd);
+    iter = NewDBIterator(env_, *cfd->options(),
+        cfd->user_comparator(), iter, kMaxSequenceNumber);
+    //iter = new TailingIterator(env_, this, options, cfd);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();

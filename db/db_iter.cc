@@ -211,18 +211,18 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
           case kTypeDeletion:
             // Arrange to skip all upcoming entries for this key since
             // they are hidden by this deletion.
-            saved_key_.SetUserKey(ikey.user_key);
+            saved_key_.SetKey(ikey.user_key);
             skipping = true;
             num_skipped = 0;
             PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             break;
           case kTypeValue:
             valid_ = true;
-            saved_key_.SetUserKey(ikey.user_key);
+            saved_key_.SetKey(ikey.user_key);
             return;
           case kTypeMerge:
             // By now, we are sure the current ikey is going to yield a value
-            saved_key_.SetUserKey(ikey.user_key);
+            saved_key_.SetKey(ikey.user_key);
             current_entry_is_merged_ = true;
             valid_ = true;
             MergeValuesNewToOld();  // Go to a different state machine
@@ -331,7 +331,7 @@ void DBIter::Prev() {
     // iter_ is pointing at the current entry.  Scan backwards until
     // the key changes so we can use the normal reverse scanning code.
     assert(iter_->Valid());  // Otherwise valid_ would have been false
-    saved_key_.SetUserKey(ExtractUserKey(iter_->key()));
+    saved_key_.SetKey(ExtractUserKey(iter_->key()));
     while (true) {
       iter_->Prev();
       if (!iter_->Valid()) {
@@ -377,7 +377,7 @@ void DBIter::FindPrevUserEntry() {
             std::string empty;
             swap(empty, saved_value_);
           }
-          saved_key_.SetUserKey(ExtractUserKey(iter_->key()));
+          saved_key_.SetKey(ExtractUserKey(iter_->key()));
           saved_value_.assign(raw_value.data(), raw_value.size());
         }
       } else {

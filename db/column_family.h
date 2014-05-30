@@ -180,7 +180,7 @@ class ColumnFamilyData {
   void SetCurrent(Version* current);
   void CreateNewMemtable();
 
-  TableCache* table_cache() { return table_cache_.get(); }
+  TableCache* table_cache() const { return table_cache_.get(); }
 
   // See documentation in compaction_picker.h
   Compaction* PickCompaction(LogBuffer* log_buffer);
