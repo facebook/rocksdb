@@ -419,14 +419,12 @@ void Java_org_rocksdb_RocksDB_remove__JJ_3BI(
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    dispose
+ * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksDB_dispose(
+void Java_org_rocksdb_RocksDB_disposeInternal(
     JNIEnv* env, jobject java_db, jlong jhandle) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jhandle);
-  assert(db != nullptr);
-  delete db;
+  delete reinterpret_cast<rocksdb::DB*>(jhandle);
 }
 
 /*

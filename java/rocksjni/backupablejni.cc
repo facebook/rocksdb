@@ -82,10 +82,10 @@ jstring Java_org_rocksdb_BackupableDBOptions_backupDir(
 
 /*
  * Class:     org_rocksdb_BackupableDBOptions
- * Method:    dispose
+ * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_BackupableDBOptions_dispose(
+void Java_org_rocksdb_BackupableDBOptions_disposeInternal(
     JNIEnv* env, jobject jopt, jlong jhandle) {
   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
   assert(bopt);

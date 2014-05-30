@@ -135,10 +135,10 @@ void Java_org_rocksdb_RocksIterator_status0(
 
 /*
  * Class:     org_rocksdb_RocksIterator
- * Method:    dispose
+ * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksIterator_dispose(
+void Java_org_rocksdb_RocksIterator_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
   auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
   delete it;

@@ -114,11 +114,9 @@ public class RocksDB extends RocksObject {
     return db;
   }
 
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose(nativeHandle_);
-      nativeHandle_ = 0;
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
   /**
@@ -315,10 +313,6 @@ public class RocksDB extends RocksObject {
     return new RocksIterator(iterator0(nativeHandle_));
   }
 
-  @Override protected void finalize() {
-    close();
-  }
-
   /**
    * Private constructor.
    */
@@ -370,7 +364,7 @@ public class RocksDB extends RocksObject {
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
   protected native long iterator0(long optHandle);
-  protected native void dispose(long handle);
+  private native void disposeInternal(long handle);
 
   protected Filter filter_;
 }
