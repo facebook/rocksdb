@@ -1,0 +1,24 @@
+{
+  "description": "Embedded key-value store for fast storage",
+
+  "keywords": [
+    "dictionary",
+    "embeddable",
+    "embedded",
+    "fast",
+    "hash",
+    "key",
+    "storage",
+    "store",
+    "value"
+  ],
+
+  "name": "rocksdb",
+  "repo": "facebook/rocksdb",
+
+  "src": [
+    "include/rocksdb/c.h"
+  ],
+
+  "version": "3.1"
+}
