@@ -3684,15 +3684,17 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
 
   uint64_t flush_column_family_if_log_file = 0;
   uint64_t max_total_wal_size = (options_.max_total_wal_size == 0)
-                                    ? 2 * max_total_in_memory_state_
+                                    ? 4 * max_total_in_memory_state_
                                     : options_.max_total_wal_size;
-  if (alive_log_files_.begin()->getting_flushed == false &&
+  if (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 &&
+      alive_log_files_.begin()->getting_flushed == false &&
       total_log_size_ > max_total_wal_size) {
     flush_column_family_if_log_file = alive_log_files_.begin()->number;
     alive_log_files_.begin()->getting_flushed = true;
     Log(options_.info_log,
-        "Flushing all column families with data in WAL number %" PRIu64,
-        flush_column_family_if_log_file);
+        "Flushing all column families with data in WAL number %" PRIu64
+        ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
+        flush_column_family_if_log_file, total_log_size_, max_total_wal_size);
   }
 
   Status status;
