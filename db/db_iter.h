@@ -11,8 +11,13 @@
 #include <stdint.h>
 #include "rocksdb/db.h"
 #include "db/dbformat.h"
+#include "util/arena.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
+
+class Arena;
+class DBIter;
 
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number
@@ -22,6 +27,47 @@ extern Iterator* NewDBIterator(
     const Options& options,
     const Comparator *user_key_comparator,
     Iterator* internal_iter,
+    const SequenceNumber& sequence);
+
+// A wrapper iterator which wraps DB Iterator and the arena, with which the DB
+// iterator is supposed be allocated. This class is used as an entry point of
+// a iterator hierarchy whose memory can be allocated inline. In that way,
+// accessing the iterator tree can be more cache friendly. It is also faster
+// to allocate.
+class ArenaWrappedDBIter : public Iterator {
+ public:
+  virtual ~ArenaWrappedDBIter();
+
+  // Get the arena to be used to allocate memory for DBIter to be wrapped,
+  // as well as child iterators in it.
+  virtual Arena* GetArena() { return &arena_; }
+
+  // Set the DB Iterator to be wrapped
+
+  virtual void SetDBIter(DBIter* iter);
+
+  // Set the internal iterator wrapped inside the DB Iterator. Usually it is
+  // a merging iterator.
+  virtual void SetIterUnderDBIter(Iterator* iter);
+  virtual bool Valid() const override;
+  virtual void SeekToFirst() override;
+  virtual void SeekToLast() override;
+  virtual void Seek(const Slice& target) override;
+  virtual void Next() override;
+  virtual void Prev() override;
+  virtual Slice key() const override;
+  virtual Slice value() const override;
+  virtual Status status() const override;
+  void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
+
+ private:
+  DBIter* db_iter_;
+  Arena arena_;
+};
+
+// Generate the arena wrapped iterator class.
+extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
+    Env* env, const Options& options, const Comparator* user_key_comparator,
     const SequenceNumber& sequence);
 
 }  // namespace rocksdb

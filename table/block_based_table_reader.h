@@ -68,7 +68,7 @@ class BlockBasedTable : public TableReader {
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
-  Iterator* NewIterator(const ReadOptions&) override;
+  Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              void* handle_context,

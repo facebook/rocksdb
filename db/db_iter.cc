@@ -18,6 +18,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "port/port.h"
+#include "util/arena.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
@@ -37,8 +38,6 @@ static void DumpInternalIter(Iterator* iter) {
 }
 #endif
 
-namespace {
-
 // Memtables and sstables that make the DB representation contain
 // (userkey,seq,type) => uservalue entries.  DBIter
 // combines multiple entries for the same userkey found in the DB
@@ -57,9 +56,10 @@ class DBIter: public Iterator {
     kReverse
   };
 
-  DBIter(Env* env, const Options& options,
-         const Comparator* cmp, Iterator* iter, SequenceNumber s)
-      : env_(env),
+  DBIter(Env* env, const Options& options, const Comparator* cmp,
+         Iterator* iter, SequenceNumber s, bool arena_mode)
+      : arena_mode_(arena_mode),
+        env_(env),
         logger_(options.info_log.get()),
         user_comparator_(cmp),
         user_merge_operator_(options.merge_operator.get()),
@@ -74,7 +74,15 @@ class DBIter: public Iterator {
   }
   virtual ~DBIter() {
     RecordTick(statistics_, NO_ITERATORS, -1);
-    delete iter_;
+    if (!arena_mode_) {
+      delete iter_;
+    } else {
+      iter_->~Iterator();
+    }
+  }
+  virtual void SetIter(Iterator* iter) {
+    assert(iter_ == nullptr);
+    iter_ = iter;
   }
   virtual bool Valid() const { return valid_; }
   virtual Slice key() const {
@@ -116,11 +124,12 @@ class DBIter: public Iterator {
     }
   }
 
+  bool arena_mode_;
   Env* const env_;
   Logger* logger_;
   const Comparator* const user_comparator_;
   const MergeOperator* const user_merge_operator_;
-  Iterator* const iter_;
+  Iterator* iter_;
   SequenceNumber const sequence_;
 
   Status status_;
@@ -461,16 +470,48 @@ void DBIter::SeekToLast() {
   FindPrevUserEntry();
 }
 
-}  // anonymous namespace
+Iterator* NewDBIterator(Env* env, const Options& options,
+                        const Comparator* user_key_comparator,
+                        Iterator* internal_iter,
+                        const SequenceNumber& sequence) {
+  return new DBIter(env, options, user_key_comparator, internal_iter, sequence,
+                    false);
+}
 
-Iterator* NewDBIterator(
-    Env* env,
-    const Options& options,
-    const Comparator *user_key_comparator,
-    Iterator* internal_iter,
+ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~Iterator(); }
+
+void ArenaWrappedDBIter::SetDBIter(DBIter* iter) { db_iter_ = iter; }
+
+void ArenaWrappedDBIter::SetIterUnderDBIter(Iterator* iter) {
+  static_cast<DBIter*>(db_iter_)->SetIter(iter);
+}
+
+inline bool ArenaWrappedDBIter::Valid() const { return db_iter_->Valid(); }
+inline void ArenaWrappedDBIter::SeekToFirst() { db_iter_->SeekToFirst(); }
+inline void ArenaWrappedDBIter::SeekToLast() { db_iter_->SeekToLast(); }
+inline void ArenaWrappedDBIter::Seek(const Slice& target) {
+  db_iter_->Seek(target);
+}
+inline void ArenaWrappedDBIter::Next() { db_iter_->Next(); }
+inline void ArenaWrappedDBIter::Prev() { db_iter_->Prev(); }
+inline Slice ArenaWrappedDBIter::key() const { return db_iter_->key(); }
+inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
+inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
+void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
+                                         void* arg2) {
+  db_iter_->RegisterCleanup(function, arg1, arg2);
+}
+
+ArenaWrappedDBIter* NewArenaWrappedDbIterator(
+    Env* env, const Options& options, const Comparator* user_key_comparator,
     const SequenceNumber& sequence) {
-  return new DBIter(env, options, user_key_comparator,
-                    internal_iter, sequence);
+  ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
+  Arena* arena = iter->GetArena();
+  auto mem = arena->AllocateAligned(sizeof(DBIter));
+  DBIter* db_iter = new (mem)
+      DBIter(env, options, user_key_comparator, nullptr, sequence, true);
+  iter->SetDBIter(db_iter);
+  return iter;
 }
 
 }  // namespace rocksdb

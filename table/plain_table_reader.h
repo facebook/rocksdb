@@ -55,7 +55,7 @@ class PlainTableReader: public TableReader {
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size);
 
-  Iterator* NewIterator(const ReadOptions&);
+  Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
   Status Get(const ReadOptions&, const Slice& key, void* arg,
              bool (*result_handler)(void* arg, const ParsedInternalKey& k,

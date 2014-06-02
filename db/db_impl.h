@@ -39,6 +39,7 @@ class Version;
 class VersionEdit;
 class VersionSet;
 class CompactionFilterV2;
+class Arena;
 
 class DBImpl : public DB {
  public:
@@ -278,7 +279,8 @@ class DBImpl : public DB {
   const DBOptions options_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
-                                SuperVersion* super_version);
+                                SuperVersion* super_version,
+                                Arena* arena = nullptr);
 
  private:
   friend class DB;

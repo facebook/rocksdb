@@ -51,6 +51,7 @@ class MergeContext;
 class ColumnFamilyData;
 class ColumnFamilySet;
 class TableCache;
+class MergeIteratorBuilder;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.
@@ -79,6 +80,9 @@ class Version {
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   void AddIterators(const ReadOptions&, const EnvOptions& soptions,
                     std::vector<Iterator*>* iters);
+
+  void AddIterators(const ReadOptions&, const EnvOptions& soptions,
+                    MergeIteratorBuilder* merger_iter_builder);
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.

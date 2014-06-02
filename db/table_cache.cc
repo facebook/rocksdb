@@ -13,6 +13,7 @@
 #include "db/version_edit.h"
 
 #include "rocksdb/statistics.h"
+#include "table/iterator_wrapper.h"
 #include "table/table_reader.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
@@ -102,7 +103,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   const InternalKeyComparator& icomparator,
                                   const FileMetaData& file_meta,
                                   TableReader** table_reader_ptr,
-                                  bool for_compaction) {
+                                  bool for_compaction, Arena* arena) {
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
@@ -113,12 +114,12 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
     s = FindTable(toptions, icomparator, file_meta.number, file_meta.file_size,
                   &handle, nullptr, options.read_tier == kBlockCacheTier);
     if (!s.ok()) {
-      return NewErrorIterator(s);
+      return NewErrorIterator(s, arena);
     }
     table_reader = GetTableReaderFromHandle(handle);
   }
 
-  Iterator* result = table_reader->NewIterator(options);
+  Iterator* result = table_reader->NewIterator(options, arena);
   if (handle != nullptr) {
     result->RegisterCleanup(&UnrefEntry, cache_, handle);
   }

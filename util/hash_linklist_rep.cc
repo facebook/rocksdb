@@ -70,11 +70,12 @@ class HashLinkListRep : public MemTableRep {
 
   virtual ~HashLinkListRep();
 
-  virtual MemTableRep::Iterator* GetIterator() override;
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override;
 
   virtual MemTableRep::Iterator* GetIterator(const Slice& slice) override;
 
-  virtual MemTableRep::Iterator* GetDynamicPrefixIterator() override;
+  virtual MemTableRep::Iterator* GetDynamicPrefixIterator(
+      Arena* arena = nullptr) override;
 
  private:
   friend class DynamicIterator;
@@ -411,7 +412,7 @@ void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
   }
 }
 
-MemTableRep::Iterator* HashLinkListRep::GetIterator() {
+MemTableRep::Iterator* HashLinkListRep::GetIterator(Arena* alloc_arena) {
   // allocate a new arena of similar size to the one currently in use
   Arena* new_arena = new Arena(arena_->BlockSize());
   auto list = new FullList(compare_, new_arena);
@@ -424,7 +425,12 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator() {
       }
     }
   }
-  return new FullListIterator(list, new_arena);
+  if (alloc_arena == nullptr) {
+    return new FullListIterator(list, new_arena);
+  } else {
+    auto mem = alloc_arena->AllocateAligned(sizeof(FullListIterator));
+    return new (mem) FullListIterator(list, new_arena);
+  }
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetIterator(const Slice& slice) {
@@ -435,8 +441,14 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator(const Slice& slice) {
   return new Iterator(this, bucket);
 }
 
-MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator() {
-  return new DynamicIterator(*this);
+MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator(
+    Arena* alloc_arena) {
+  if (alloc_arena == nullptr) {
+    return new DynamicIterator(*this);
+  } else {
+    auto mem = alloc_arena->AllocateAligned(sizeof(DynamicIterator));
+    return new (mem) DynamicIterator(*this);
+  }
 }
 
 bool HashLinkListRep::BucketContains(Node* head, const Slice& user_key) const {

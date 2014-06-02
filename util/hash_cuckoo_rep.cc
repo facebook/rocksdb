@@ -251,7 +251,7 @@ class HashCuckooRep : public MemTableRep {
   // are sorted according to the user specified KeyComparator.  Note that
   // any insert after this function call may affect the sorted nature of
   // the returned iterator.
-  virtual MemTableRep::Iterator* GetIterator() override {
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena) override {
     std::vector<const char*> compact_buckets;
     for (unsigned int bid = 0; bid < bucket_count_; ++bid) {
       const char* bucket = cuckoo_array_[bid].load(std::memory_order_relaxed);
@@ -266,10 +266,18 @@ class HashCuckooRep : public MemTableRep {
         compact_buckets.push_back(iter->key());
       }
     }
-    return new Iterator(
-        std::shared_ptr<std::vector<const char*>>(
-            new std::vector<const char*>(std::move(compact_buckets))),
-        compare_);
+    if (arena == nullptr) {
+      return new Iterator(
+          std::shared_ptr<std::vector<const char*>>(
+              new std::vector<const char*>(std::move(compact_buckets))),
+          compare_);
+    } else {
+      auto mem = arena->AllocateAligned(sizeof(Iterator));
+      return new (mem) Iterator(
+          std::shared_ptr<std::vector<const char*>>(
+              new std::vector<const char*>(std::move(compact_buckets))),
+          compare_);
+    }
   }
 };
 

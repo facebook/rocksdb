@@ -980,10 +980,11 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   return may_match;
 }
 
-Iterator* BlockBasedTable::NewIterator(const ReadOptions& read_options) {
-  return NewTwoLevelIterator(new BlockEntryIteratorState(this, read_options,
-                                                         nullptr),
-                             NewIndexIterator(read_options));
+Iterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
+                                       Arena* arena) {
+  return NewTwoLevelIterator(
+      new BlockEntryIteratorState(this, read_options, nullptr),
+      NewIndexIterator(read_options), arena);
 }
 
 Status BlockBasedTable::Get(

@@ -15,6 +15,7 @@ namespace rocksdb {
 class Iterator;
 struct ParsedInternalKey;
 class Slice;
+class Arena;
 struct ReadOptions;
 struct TableProperties;
 
@@ -28,7 +29,11 @@ class TableReader {
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
-  virtual Iterator* NewIterator(const ReadOptions&) = 0;
+  // arena: If not null, the arena needs to be used to allocate the Iterator.
+  //        When destroying the iterator, the caller will not call "delete"
+  //        but Iterator::~Iterator() directly. The destructor needs to destroy
+  //        all the states but those allocated in arena.
+  virtual Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) = 0;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were

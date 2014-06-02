@@ -3179,18 +3179,34 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
-                                      SuperVersion* super_version) {
-  std::vector<Iterator*> iterator_list;
-  // Collect iterator for mutable mem
-  iterator_list.push_back(super_version->mem->NewIterator(options));
-  // Collect all needed child iterators for immutable memtables
-  super_version->imm->AddIterators(options, &iterator_list);
-  // Collect iterators for files in L0 - Ln
-  super_version->current->AddIterators(options, storage_options_,
-                                       &iterator_list);
-  Iterator* internal_iter = NewMergingIterator(
-      &cfd->internal_comparator(), &iterator_list[0], iterator_list.size());
-
+                                      SuperVersion* super_version,
+                                      Arena* arena) {
+  Iterator* internal_iter;
+  if (arena != nullptr) {
+    // Need to create internal iterator from the arena.
+    MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
+    // Collect iterator for mutable mem
+    merge_iter_builder.AddIterator(
+        super_version->mem->NewIterator(options, false, arena));
+    // Collect all needed child iterators for immutable memtables
+    super_version->imm->AddIterators(options, &merge_iter_builder);
+    // Collect iterators for files in L0 - Ln
+    super_version->current->AddIterators(options, storage_options_,
+                                         &merge_iter_builder);
+    internal_iter = merge_iter_builder.Finish();
+  } else {
+    // Need to create internal iterator using malloc.
+    std::vector<Iterator*> iterator_list;
+    // Collect iterator for mutable mem
+    iterator_list.push_back(super_version->mem->NewIterator(options));
+    // Collect all needed child iterators for immutable memtables
+    super_version->imm->AddIterators(options, &iterator_list);
+    // Collect iterators for files in L0 - Ln
+    super_version->current->AddIterators(options, storage_options_,
+                                         &iterator_list);
+    internal_iter = NewMergingIterator(&cfd->internal_comparator(),
+                                       &iterator_list[0], iterator_list.size());
+  }
   IterState* cleanup = new IterState(this, &mutex_, super_version);
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
@@ -3541,34 +3557,77 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
-  Iterator* iter;
   if (options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
     return nullptr;
 #else
     // TODO(ljin): remove tailing iterator
-    iter = new ForwardIterator(env_, this, options, cfd);
-    iter = NewDBIterator(env_, *cfd->options(),
-        cfd->user_comparator(), iter, kMaxSequenceNumber);
-    //iter = new TailingIterator(env_, this, options, cfd);
+    auto iter = new ForwardIterator(env_, this, options, cfd);
+    return NewDBIterator(env_, *cfd->options(), cfd->user_comparator(), iter,
+                         kMaxSequenceNumber);
+// return new TailingIterator(env_, this, options, cfd);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
     SuperVersion* sv = nullptr;
     sv = cfd->GetReferencedSuperVersion(&mutex_);
 
-    iter = NewInternalIterator(options, cfd, sv);
-
     auto snapshot =
         options.snapshot != nullptr
             ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
             : latest_snapshot;
-    iter = NewDBIterator(env_, *cfd->options(),
-                         cfd->user_comparator(), iter, snapshot);
-  }
 
-  return iter;
+    // Try to generate a DB iterator tree in continuous memory area to be
+    // cache friendly. Here is an example of result:
+    // +-------------------------------+
+    // |                               |
+    // | ArenaWrappedDBIter            |
+    // |  +                            |
+    // |  +---> Inner Iterator   ------------+
+    // |  |                            |     |
+    // |  |    +-- -- -- -- -- -- -- --+     |
+    // |  +--- | Arena                 |     |
+    // |       |                       |     |
+    // |          Allocated Memory:    |     |
+    // |       |   +-------------------+     |
+    // |       |   | DBIter            | <---+
+    // |           |  +                |
+    // |       |   |  +-> iter_  ------------+
+    // |       |   |                   |     |
+    // |       |   +-------------------+     |
+    // |       |   | MergingIterator   | <---+
+    // |           |  +                |
+    // |       |   |  +->child iter1  ------------+
+    // |       |   |  |                |          |
+    // |           |  +->child iter2  ----------+ |
+    // |       |   |  |                |        | |
+    // |       |   |  +->child iter3  --------+ | |
+    // |           |                   |      | | |
+    // |       |   +-------------------+      | | |
+    // |       |   | Iterator1         | <--------+
+    // |       |   +-------------------+      | |
+    // |       |   | Iterator2         | <------+
+    // |       |   +-------------------+      |
+    // |       |   | Iterator3         | <----+
+    // |       |   +-------------------+
+    // |       |                       |
+    // +-------+-----------------------+
+    //
+    // ArenaWrappedDBIter inlines an arena area where all the iterartor in the
+    // the iterator tree is allocated in the order of being accessed when
+    // querying.
+    // Laying out the iterators in the order of being accessed makes it more
+    // likely that any iterator pointer is close to the iterator it points to so
+    // that they are likely to be in the same cache line and/or page.
+    ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
+        env_, *cfd->options(), cfd->user_comparator(), snapshot);
+    Iterator* internal_iter =
+        NewInternalIterator(options, cfd, sv, db_iter->GetArena());
+    db_iter->SetIterUnderDBIter(internal_iter);
+
+    return db_iter;
+  }
 }
 
 Status DBImpl::NewIterators(

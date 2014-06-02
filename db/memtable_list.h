@@ -28,6 +28,7 @@ namespace rocksdb {
 class ColumnFamilyData;
 class InternalKeyComparator;
 class Mutex;
+class MergeIteratorBuilder;
 
 // keeps a list of immutable memtables in a vector. the list is immutable
 // if refcount is bigger than one. It is used as a state for Get() and
@@ -48,6 +49,9 @@ class MemTableListVersion {
 
   void AddIterators(const ReadOptions& options,
                     std::vector<Iterator*>* iterator_list);
+
+  void AddIterators(const ReadOptions& options,
+                    MergeIteratorBuilder* merge_iter_builder);
 
   uint64_t GetTotalNumEntries() const;
 

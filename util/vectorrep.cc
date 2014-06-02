@@ -95,7 +95,7 @@ class VectorRep : public MemTableRep {
   using MemTableRep::GetIterator;
 
   // Return an iterator over the keys in this representation.
-  virtual MemTableRep::Iterator* GetIterator() override;
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena) override;
 
  private:
   friend class Iterator;
@@ -259,16 +259,28 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
   }
 }
 
-MemTableRep::Iterator* VectorRep::GetIterator() {
+MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
+  char* mem = nullptr;
+  if (arena != nullptr) {
+    mem = arena->AllocateAligned(sizeof(Iterator));
+  }
   ReadLock l(&rwlock_);
   // Do not sort here. The sorting would be done the first time
   // a Seek is performed on the iterator.
   if (immutable_) {
-    return new Iterator(this, bucket_, compare_);
+    if (arena == nullptr) {
+      return new Iterator(this, bucket_, compare_);
+    } else {
+      return new (mem) Iterator(this, bucket_, compare_);
+    }
   } else {
     std::shared_ptr<Bucket> tmp;
     tmp.reset(new Bucket(*bucket_)); // make a copy
-    return new Iterator(nullptr, tmp, compare_);
+    if (arena == nullptr) {
+      return new Iterator(nullptr, tmp, compare_);
+    } else {
+      return new (mem) Iterator(nullptr, tmp, compare_);
+    }
   }
 }
 } // anon namespace

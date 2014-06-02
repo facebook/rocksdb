@@ -23,6 +23,8 @@ namespace rocksdb {
 
 class Logger;
 
+const size_t kInlineSize = 2048;
+
 class Arena {
  public:
   // No copying allowed

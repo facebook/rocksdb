@@ -142,16 +142,28 @@ class MemTableRep {
   };
 
   // Return an iterator over the keys in this representation.
-  virtual Iterator* GetIterator() = 0;
+  // arena: If not null, the arena needs to be used to allocate the Iterator.
+  //        When destroying the iterator, the caller will not call "delete"
+  //        but Iterator::~Iterator() directly. The destructor needs to destroy
+  //        all the states but those allocated in arena.
+  virtual Iterator* GetIterator(Arena* arena = nullptr) = 0;
 
   // Return an iterator over at least the keys with the specified user key. The
   // iterator may also allow access to other keys, but doesn't have to. Default:
   // GetIterator().
-  virtual Iterator* GetIterator(const Slice& user_key) { return GetIterator(); }
+  virtual Iterator* GetIterator(const Slice& user_key) {
+    return GetIterator(nullptr);
+  }
 
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
-  virtual Iterator* GetDynamicPrefixIterator() { return GetIterator(); }
+  // arena: If not null, the arena needs to be used to allocate the Iterator.
+  //        When destroying the iterator, the caller will not call "delete"
+  //        but Iterator::~Iterator() directly. The destructor needs to destroy
+  //        all the states but those allocated in arena.
+  virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr) {
+    return GetIterator(arena);
+  }
 
   // Return true if the current MemTableRep supports merge operator.
   // Default: true
