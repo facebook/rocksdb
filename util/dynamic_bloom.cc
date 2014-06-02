@@ -17,34 +17,41 @@ namespace {
 static uint32_t BloomHash(const Slice& key) {
   return Hash(key.data(), key.size(), 0xbc9f1d34);
 }
+
+uint32_t GetNumBlocks(uint32_t total_bits) {
+  uint32_t num_blocks = (total_bits + CACHE_LINE_SIZE * 8 - 1) /
+                        (CACHE_LINE_SIZE * 8) * (CACHE_LINE_SIZE * 8);
+  // Make num_blocks an odd number to make sure more bits are involved
+  // when determining which block.
+  if (num_blocks % 2 == 0) {
+    num_blocks++;
+  }
+  return num_blocks;
+}
 }
 
-DynamicBloom::DynamicBloom(uint32_t total_bits, uint32_t cl_per_block,
+DynamicBloom::DynamicBloom(uint32_t total_bits, uint32_t locality,
                            uint32_t num_probes,
                            uint32_t (*hash_func)(const Slice& key),
                            size_t huge_page_tlb_size, Logger* logger)
-    : kBlocked(cl_per_block > 0),
-      kBitsPerBlock(std::min(cl_per_block, num_probes) * CACHE_LINE_SIZE * 8),
-      kTotalBits((kBlocked ? (total_bits + kBitsPerBlock - 1) / kBitsPerBlock *
-                                 kBitsPerBlock
-                           : total_bits + 7) /
+    : kTotalBits(((locality > 0) ? GetNumBlocks(total_bits) : total_bits + 7) /
                  8 * 8),
-      kNumBlocks(kBlocked ? kTotalBits / kBitsPerBlock : 1),
+      kNumBlocks((locality > 0) ? kTotalBits / (CACHE_LINE_SIZE * 8) : 0),
       kNumProbes(num_probes),
       hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {
-  assert(kBlocked ? kTotalBits > 0 : kTotalBits >= kBitsPerBlock);
+  assert(kNumBlocks > 0 || kTotalBits > 0);
   assert(kNumProbes > 0);
 
   uint32_t sz = kTotalBits / 8;
-  if (kBlocked) {
+  if (kNumBlocks > 0) {
     sz += CACHE_LINE_SIZE - 1;
   }
   raw_ = reinterpret_cast<unsigned char*>(
       arena_.AllocateAligned(sz, huge_page_tlb_size, logger));
   memset(raw_, 0, sz);
-  if (kBlocked && (reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE)) {
+  if (kNumBlocks > 0 && (reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE)) {
     data_ = raw_ + CACHE_LINE_SIZE -
-      reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE;
+            reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE;
   } else {
     data_ = raw_;
   }

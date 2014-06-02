@@ -91,17 +91,16 @@ TEST(DynamicBloomTest, VaryingLengths) {
   fprintf(stderr, "bits_per_key: %d  num_probes: %d\n",
           FLAGS_bits_per_key, num_probes);
 
-  for (uint32_t cl_per_block = 0; cl_per_block < num_probes;
-      ++cl_per_block) {
+  for (uint32_t enable_locality = 0; enable_locality < 2; ++enable_locality) {
     for (uint32_t num = 1; num <= 10000; num = NextNum(num)) {
       uint32_t bloom_bits = 0;
-      if (cl_per_block == 0) {
+      if (enable_locality == 0) {
         bloom_bits = std::max(num * FLAGS_bits_per_key, 64U);
       } else {
         bloom_bits = std::max(num * FLAGS_bits_per_key,
-            cl_per_block * CACHE_LINE_SIZE * 8);
+                              enable_locality * CACHE_LINE_SIZE * 8);
       }
-      DynamicBloom bloom(bloom_bits, cl_per_block, num_probes);
+      DynamicBloom bloom(bloom_bits, enable_locality, num_probes);
       for (uint64_t i = 0; i < num; i++) {
         bloom.Add(Key(i, buffer));
         ASSERT_TRUE(bloom.MayContain(Key(i, buffer)));
@@ -123,8 +122,10 @@ TEST(DynamicBloomTest, VaryingLengths) {
       }
       double rate = result / 10000.0;
 
-      fprintf(stderr, "False positives: %5.2f%% @ num = %6u, bloom_bits = %6u, "
-              "cl per block = %u\n", rate*100.0, num, bloom_bits, cl_per_block);
+      fprintf(stderr,
+              "False positives: %5.2f%% @ num = %6u, bloom_bits = %6u, "
+              "enable locality?%u\n",
+              rate * 100.0, num, bloom_bits, enable_locality);
 
       if (rate > 0.0125)
         mediocre_filters++;  // Allowed, but not too often
@@ -173,20 +174,20 @@ TEST(DynamicBloomTest, perf) {
             elapsed / count);
     ASSERT_TRUE(count == num_keys);
 
-    for (uint32_t cl_per_block = 1; cl_per_block <= num_probes;
-        ++cl_per_block) {
-      DynamicBloom blocked_bloom(num_keys * 10, cl_per_block, num_probes);
+    // Locality enabled version
+    DynamicBloom blocked_bloom(num_keys * 10, 1, num_probes);
 
       timer.Start();
       for (uint64_t i = 1; i <= num_keys; ++i) {
         blocked_bloom.Add(Slice(reinterpret_cast<const char*>(&i), 8));
       }
 
-      uint64_t elapsed = timer.ElapsedNanos();
-      fprintf(stderr, "blocked bloom(%d), avg add latency %" PRIu64 "\n",
-              cl_per_block, elapsed / num_keys);
+      elapsed = timer.ElapsedNanos();
+      fprintf(stderr,
+              "blocked bloom(enable locality), avg add latency %" PRIu64 "\n",
+              elapsed / num_keys);
 
-      uint64_t count = 0;
+      count = 0;
       timer.Start();
       for (uint64_t i = 1; i <= num_keys; ++i) {
         if (blocked_bloom.MayContain(
@@ -196,11 +197,11 @@ TEST(DynamicBloomTest, perf) {
       }
 
       elapsed = timer.ElapsedNanos();
-      fprintf(stderr, "blocked bloom(%d), avg query latency %" PRIu64 "\n",
-              cl_per_block, elapsed / count);
+      fprintf(stderr,
+              "blocked bloom(enable locality), avg query latency %" PRIu64 "\n",
+              elapsed / count);
       ASSERT_TRUE(count == num_keys);
     }
-  }
 }
 
 }  // namespace rocksdb

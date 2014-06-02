@@ -547,12 +547,9 @@ struct ColumnFamilyOptions {
 
   // Control locality of bloom filter probes to improve cache miss rate.
   // This option only applies to memtable prefix bloom and plaintable
-  // prefix bloom. It essentially limits the max number of cache lines each
-  // bloom filter check can touch.
-  // This optimization is turned off when set to 0. The number should never
-  // be greater than number of probes. This option can boost performance
-  // for in-memory workload but should use with care since it can cause
-  // higher false positive rate.
+  // prefix bloom. It essentially limits every bloom checking to one cache line.
+  // This optimization is turned off when set to 0, and positive number to turn
+  // it on.
   // Default: 0
   uint32_t bloom_locality;
 
