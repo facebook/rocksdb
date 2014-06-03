@@ -2068,7 +2068,15 @@ void DBImpl::BackgroundCallCompaction() {
     if (madeProgress || bg_schedule_needed_) {
       MaybeScheduleFlushOrCompaction();
     }
-    bg_cv_.SignalAll();
+    if (madeProgress || bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
+      // signal if
+      // * madeProgress -- need to wakeup MakeRoomForWrite
+      // * bg_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
+      // * bg_manual_only_ > 0 -- need to wakeup RunManualCompaction
+      // If none of this is true, there is no need to signal since nobody is
+      // waiting for it
+      bg_cv_.SignalAll();
+    }
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
     // that case, all DB variables will be dealloacated and referencing them
@@ -3930,6 +3938,10 @@ Status DBImpl::MakeRoomForWrite(
   uint64_t rate_limit_delay_millis = 0;
   Status s;
   double score;
+  // Once we schedule background work, we shouldn't schedule it again, since it
+  // might generate a tight feedback loop, constantly scheduling more background
+  // work, even if additional background work is not needed
+  bool schedule_background_work = true;
 
   while (true) {
     if (!bg_error_.ok()) {
@@ -3973,7 +3985,10 @@ Status DBImpl::MakeRoomForWrite(
       DelayLoggingAndReset();
       Log(options_.info_log, "[%s] wait for memtable flush...\n",
           cfd->GetName().c_str());
-      MaybeScheduleFlushOrCompaction();
+      if (schedule_background_work) {
+        MaybeScheduleFlushOrCompaction();
+        schedule_background_work = false;
+      }
       uint64_t stall;
       {
         StopWatch sw(env_, options_.statistics.get(),
