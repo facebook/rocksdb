@@ -918,7 +918,6 @@ TEST(BackupableDBTest, RateLimiting) {
     auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
                                     backupable_options_->backup_rate_limit;
     ASSERT_GT(backup_time, 0.9 * rate_limited_backup_time);
-    ASSERT_LT(backup_time, 2.5 * rate_limited_backup_time);
 
     CloseBackupableDB();
 

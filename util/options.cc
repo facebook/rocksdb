@@ -490,7 +490,9 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup() {
   BlockBasedTableOptions block_based_options;
   block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
+#ifndef ROCKSDB_LITE
   memtable_factory.reset(NewHashLinkListRepFactory());
+#endif
   return this;
 }
 
