@@ -3563,7 +3563,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
     return nullptr;
 #else
     // TODO(ljin): remove tailing iterator
-    auto iter = new ForwardIterator(env_, this, options, cfd);
+    auto iter = new ForwardIterator(this, options, cfd);
     return NewDBIterator(env_, *cfd->options(), cfd->user_comparator(), iter,
                          kMaxSequenceNumber);
 // return new TailingIterator(env_, this, options, cfd);

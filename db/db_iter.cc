@@ -478,7 +478,7 @@ Iterator* NewDBIterator(Env* env, const Options& options,
                     false);
 }
 
-ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~Iterator(); }
+ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
 
 void ArenaWrappedDBIter::SetDBIter(DBIter* iter) { db_iter_ = iter; }
 

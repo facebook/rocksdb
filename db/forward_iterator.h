@@ -22,7 +22,7 @@ class Env;
 struct SuperVersion;
 class ColumnFamilyData;
 class LevelIterator;
-class FileMetaData;
+struct FileMetaData;
 
 class MinIterComparator {
  public:
@@ -49,8 +49,8 @@ typedef std::priority_queue<Iterator*,
  */
 class ForwardIterator : public Iterator {
  public:
-  ForwardIterator(Env* const env, DBImpl* db, const ReadOptions& read_options,
-             ColumnFamilyData* cfd);
+  ForwardIterator(DBImpl* db, const ReadOptions& read_options,
+                  ColumnFamilyData* cfd);
   virtual ~ForwardIterator();
 
   void SeekToLast() override {
@@ -81,7 +81,6 @@ class ForwardIterator : public Iterator {
     uint32_t left, uint32_t right);
 
   DBImpl* const db_;
-  Env* const env_;
   const ReadOptions read_options_;
   ColumnFamilyData* const cfd_;
   const SliceTransform* const prefix_extractor_;

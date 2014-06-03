@@ -101,10 +101,9 @@ class LevelIterator : public Iterator {
   std::unique_ptr<Iterator> file_iter_;
 };
 
-ForwardIterator::ForwardIterator(Env* const env, DBImpl* db,
-    const ReadOptions& read_options, ColumnFamilyData* cfd)
+ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
+                                 ColumnFamilyData* cfd)
     : db_(db),
-      env_(env),
       read_options_(read_options),
       cfd_(cfd),
       prefix_extractor_(cfd->options()->prefix_extractor.get()),
