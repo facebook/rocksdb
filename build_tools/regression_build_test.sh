@@ -308,9 +308,9 @@ function send_benchmark_to_ods {
   file="$3"
 
   QPS=$(grep $bench $file | awk '{print $5}')
-  P50_MICROS=$(grep $bench $file -A 4 | tail -n1 | awk '{print $3}' )
-  P75_MICROS=$(grep $bench $file -A 4 | tail -n1 | awk '{print $5}' )
-  P99_MICROS=$(grep $bench $file -A 4 | tail -n1 | awk '{print $7}' )
+  P50_MICROS=$(grep $bench $file -A 6 | grep "Percentiles" | awk '{print $3}' )
+  P75_MICROS=$(grep $bench $file -A 6 | grep "Percentiles" | awk '{print $5}' )
+  P99_MICROS=$(grep $bench $file -A 6 | grep "Percentiles" | awk '{print $7}' )
 
   send_to_ods rocksdb.build.$bench_key.qps $QPS
   send_to_ods rocksdb.build.$bench_key.p50_micros $P50_MICROS
