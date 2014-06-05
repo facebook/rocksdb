@@ -217,6 +217,7 @@ class HistogramDataJni {
     return mid;
   }
 };
+
 class BackupableDBOptionsJni {
  public:
   // Get the java class id of org.rocksdb.BackupableDBOptions.
