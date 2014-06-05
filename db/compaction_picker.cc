@@ -19,14 +19,6 @@ namespace rocksdb {
 
 namespace {
 
-uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
-  uint64_t sum = 0;
-  for (size_t i = 0; i < files.size() && files[i]; i++) {
-    sum += files[i]->file_size;
-  }
-  return sum;
-}
-
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
   if (op1 == 0) {

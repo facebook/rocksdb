@@ -45,7 +45,6 @@ namespace rocksdb {
 
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
-namespace {
 
 typedef BlockBasedTableOptions::IndexType IndexType;
 
@@ -334,8 +333,6 @@ Slice CompressBlock(const Slice& raw,
   *type = kNoCompression;
   return raw;
 }
-
-}  // anonymous namespace
 
 // kBlockBasedTableMagicNumber was picked by running
 //    echo rocksdb.table.block_based | sha1sum

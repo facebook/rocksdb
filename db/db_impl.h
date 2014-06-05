@@ -632,4 +632,11 @@ CompressionType GetCompressionType(const Options& options, int level,
 // Determine compression type for L0 file written by memtable flush.
 CompressionType GetCompressionFlush(const Options& options);
 
+// Fix user-supplied options to be reasonable
+template <class T, class V>
+inline void ClipToRange(T* ptr, V minvalue, V maxvalue) {
+  if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
+  if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+}
+
 }  // namespace rocksdb

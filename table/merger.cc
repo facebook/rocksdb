@@ -23,7 +23,7 @@
 #include "util/autovector.h"
 
 namespace rocksdb {
-namespace {
+namespace merger {
 typedef std::priority_queue<
           IteratorWrapper*,
           std::vector<IteratorWrapper*>,
@@ -43,7 +43,7 @@ MaxIterHeap NewMaxIterHeap(const Comparator* comparator) {
 MinIterHeap NewMinIterHeap(const Comparator* comparator) {
   return MinIterHeap(MinIteratorComparator(comparator));
 }
-}  // namespace
+}  // namespace merger
 
 const size_t kNumIterReserve = 4;
 
@@ -56,8 +56,8 @@ class MergingIterator : public Iterator {
         current_(nullptr),
         use_heap_(true),
         direction_(kForward),
-        maxHeap_(NewMaxIterHeap(comparator_)),
-        minHeap_(NewMinIterHeap(comparator_)) {
+        maxHeap_(merger::NewMaxIterHeap(comparator_)),
+        minHeap_(merger::NewMinIterHeap(comparator_)) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
@@ -274,8 +274,8 @@ class MergingIterator : public Iterator {
     kReverse
   };
   Direction direction_;
-  MaxIterHeap maxHeap_;
-  MinIterHeap minHeap_;
+  merger::MaxIterHeap maxHeap_;
+  merger::MinIterHeap minHeap_;
 };
 
 void MergingIterator::FindSmallest() {
@@ -302,8 +302,8 @@ void MergingIterator::FindLargest() {
 
 void MergingIterator::ClearHeaps() {
   use_heap_ = true;
-  maxHeap_ = NewMaxIterHeap(comparator_);
-  minHeap_ = NewMinIterHeap(comparator_);
+  maxHeap_ = merger::NewMaxIterHeap(comparator_);
+  minHeap_ = merger::NewMinIterHeap(comparator_);
 }
 
 Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n,
