@@ -180,7 +180,7 @@ class ColumnFamilyData {
   void SetCurrent(Version* current);
   void CreateNewMemtable();
 
-  TableCache* table_cache() { return table_cache_.get(); }
+  TableCache* table_cache() const { return table_cache_.get(); }
 
   // See documentation in compaction_picker.h
   Compaction* PickCompaction(LogBuffer* log_buffer);
@@ -302,8 +302,8 @@ class ColumnFamilyData {
 // family might get dropped when the DB mutex is released
 // * GetDefault() -- thread safe
 // * GetColumnFamily() -- either inside of DB mutex or call Lock() <-> Unlock()
-// * GetNextColumnFamilyID(), GetMaxColumnFamily(), UpdateMaxColumnFamily() --
-// inside of DB mutex
+// * GetNextColumnFamilyID(), GetMaxColumnFamily(), UpdateMaxColumnFamily(),
+// NumberOfColumnFamilies -- inside of DB mutex
 class ColumnFamilySet {
  public:
   // ColumnFamilySet supports iteration
@@ -342,6 +342,7 @@ class ColumnFamilySet {
   uint32_t GetNextColumnFamilyID();
   uint32_t GetMaxColumnFamily();
   void UpdateMaxColumnFamily(uint32_t new_max_column_family);
+  size_t NumberOfColumnFamilies() const;
 
   ColumnFamilyData* CreateColumnFamily(const std::string& name, uint32_t id,
                                        Version* dummy_version,

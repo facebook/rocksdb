@@ -23,6 +23,7 @@
 namespace rocksdb {
 
 class Env;
+class Arena;
 struct FileMetaData;
 
 // TODO(sdong): try to come up with a better API to pass the file information
@@ -44,7 +45,7 @@ class TableCache {
                         const InternalKeyComparator& internal_comparator,
                         const FileMetaData& file_meta,
                         TableReader** table_reader_ptr = nullptr,
-                        bool for_compaction = false);
+                        bool for_compaction = false, Arena* arena = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until

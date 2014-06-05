@@ -6,6 +6,7 @@
 #include "rocksdb/memtablerep.h"
 #include "db/memtable.h"
 #include "db/skiplist.h"
+#include "util/arena.h"
 
 namespace rocksdb {
 namespace {
@@ -108,8 +109,13 @@ public:
   // Unhide default implementations of GetIterator
   using MemTableRep::GetIterator;
 
-  virtual MemTableRep::Iterator* GetIterator() override {
-    return new SkipListRep::Iterator(&skip_list_);
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
+    if (arena == nullptr) {
+      return new SkipListRep::Iterator(&skip_list_);
+    } else {
+      auto mem = arena->AllocateAligned(sizeof(SkipListRep::Iterator));
+      return new (mem) SkipListRep::Iterator(&skip_list_);
+    }
   }
 };
 }

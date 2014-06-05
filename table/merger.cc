@@ -17,13 +17,13 @@
 #include "rocksdb/options.h"
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
+#include "util/arena.h"
 #include "util/stop_watch.h"
 #include "util/perf_context_imp.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
 namespace {
-
 typedef std::priority_queue<
           IteratorWrapper*,
           std::vector<IteratorWrapper*>,
@@ -43,13 +43,16 @@ MaxIterHeap NewMaxIterHeap(const Comparator* comparator) {
 MinIterHeap NewMinIterHeap(const Comparator* comparator) {
   return MinIterHeap(MinIteratorComparator(comparator));
 }
+}  // namespace
 
 const size_t kNumIterReserve = 4;
 
 class MergingIterator : public Iterator {
  public:
-  MergingIterator(const Comparator* comparator, Iterator** children, int n)
-      : comparator_(comparator),
+  MergingIterator(const Comparator* comparator, Iterator** children, int n,
+                  bool is_arena_mode)
+      : is_arena_mode_(is_arena_mode),
+        comparator_(comparator),
         current_(nullptr),
         use_heap_(true),
         direction_(kForward),
@@ -66,7 +69,20 @@ class MergingIterator : public Iterator {
     }
   }
 
-  virtual ~MergingIterator() { }
+  virtual void AddIterator(Iterator* iter) {
+    assert(direction_ == kForward);
+    children_.emplace_back(iter);
+    auto new_wrapper = children_.back();
+    if (new_wrapper.Valid()) {
+      minHeap_.push(&new_wrapper);
+    }
+  }
+
+  virtual ~MergingIterator() {
+    for (auto& child : children_) {
+      child.DeleteIter(is_arena_mode_);
+    }
+  }
 
   virtual bool Valid() const {
     return (current_ != nullptr);
@@ -242,6 +258,7 @@ class MergingIterator : public Iterator {
   void FindLargest();
   void ClearHeaps();
 
+  bool is_arena_mode_;
   const Comparator* comparator_;
   autovector<IteratorWrapper, kNumIterReserve> children_;
   IteratorWrapper* current_;
@@ -288,16 +305,51 @@ void MergingIterator::ClearHeaps() {
   maxHeap_ = NewMaxIterHeap(comparator_);
   minHeap_ = NewMinIterHeap(comparator_);
 }
-}  // namespace
 
-Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n) {
+Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n,
+                             Arena* arena) {
   assert(n >= 0);
   if (n == 0) {
-    return NewEmptyIterator();
+    return NewEmptyIterator(arena);
   } else if (n == 1) {
     return list[0];
   } else {
-    return new MergingIterator(cmp, list, n);
+    if (arena == nullptr) {
+      return new MergingIterator(cmp, list, n, false);
+    } else {
+      auto mem = arena->AllocateAligned(sizeof(MergingIterator));
+      return new (mem) MergingIterator(cmp, list, n, true);
+    }
+  }
+}
+
+MergeIteratorBuilder::MergeIteratorBuilder(const Comparator* comparator,
+                                           Arena* a)
+    : first_iter(nullptr), use_merging_iter(false), arena(a) {
+
+  auto mem = arena->AllocateAligned(sizeof(MergingIterator));
+  merge_iter = new (mem) MergingIterator(comparator, nullptr, 0, true);
+}
+
+void MergeIteratorBuilder::AddIterator(Iterator* iter) {
+  if (!use_merging_iter && first_iter != nullptr) {
+    merge_iter->AddIterator(first_iter);
+    use_merging_iter = true;
+  }
+  if (use_merging_iter) {
+    merge_iter->AddIterator(iter);
+  } else {
+    first_iter = iter;
+  }
+}
+
+Iterator* MergeIteratorBuilder::Finish() {
+  if (!use_merging_iter) {
+    return first_iter;
+  } else {
+    auto ret = merge_iter;
+    merge_iter = nullptr;
+    return ret;
   }
 }
 

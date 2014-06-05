@@ -39,6 +39,7 @@ class Version;
 class VersionEdit;
 class VersionSet;
 class CompactionFilterV2;
+class Arena;
 
 class DBImpl : public DB {
  public:
@@ -278,13 +279,15 @@ class DBImpl : public DB {
   const DBOptions options_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
-                                SuperVersion* super_version);
+                                SuperVersion* super_version,
+                                Arena* arena = nullptr);
 
  private:
   friend class DB;
   friend class InternalStats;
 #ifndef ROCKSDB_LITE
   friend class TailingIterator;
+  friend class ForwardIterator;
 #endif
   friend struct SuperVersion;
   struct CompactionState;
@@ -449,7 +452,16 @@ class DBImpl : public DB {
   // State below is protected by mutex_
   port::Mutex mutex_;
   port::AtomicPointer shutting_down_;
-  port::CondVar bg_cv_;          // Signalled when background work finishes
+  // This condition variable is signaled on these conditions:
+  // * whenever bg_compaction_scheduled_ goes down to 0
+  // * if bg_manual_only_ > 0, whenever a compaction finishes, even if it hasn't
+  // made any progress
+  // * whenever a compaction made any progress
+  // * whenever bg_flush_scheduled_ value decreases (i.e. whenever a flush is
+  // done, even if it didn't make any progress)
+  // * whenever there is an error in background flush or compaction
+  // * whenever bg_logstats_scheduled_ turns to false
+  port::CondVar bg_cv_;
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
   bool log_empty_;

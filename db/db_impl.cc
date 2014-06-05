@@ -36,6 +36,7 @@
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/tailing_iter.h"
+#include "db/forward_iterator.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -2067,7 +2068,15 @@ void DBImpl::BackgroundCallCompaction() {
     if (madeProgress || bg_schedule_needed_) {
       MaybeScheduleFlushOrCompaction();
     }
-    bg_cv_.SignalAll();
+    if (madeProgress || bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
+      // signal if
+      // * madeProgress -- need to wakeup MakeRoomForWrite
+      // * bg_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
+      // * bg_manual_only_ > 0 -- need to wakeup RunManualCompaction
+      // If none of this is true, there is no need to signal since nobody is
+      // waiting for it
+      bg_cv_.SignalAll();
+    }
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
     // that case, all DB variables will be dealloacated and referencing them
@@ -2578,7 +2587,7 @@ Status DBImpl::ProcessKeyValueCompaction(
           cfd->user_comparator()->Compare(ikey.user_key,
                                           current_user_key.GetKey()) != 0) {
         // First occurrence of this user key
-        current_user_key.SetUserKey(ikey.user_key);
+        current_user_key.SetKey(ikey.user_key);
         has_current_user_key = true;
         last_sequence_for_key = kMaxSequenceNumber;
         visible_in_snapshot = kMaxSequenceNumber;
@@ -3170,18 +3179,34 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
-                                      SuperVersion* super_version) {
-  std::vector<Iterator*> iterator_list;
-  // Collect iterator for mutable mem
-  iterator_list.push_back(super_version->mem->NewIterator(options));
-  // Collect all needed child iterators for immutable memtables
-  super_version->imm->AddIterators(options, &iterator_list);
-  // Collect iterators for files in L0 - Ln
-  super_version->current->AddIterators(options, storage_options_,
-                                       &iterator_list);
-  Iterator* internal_iter = NewMergingIterator(
-      &cfd->internal_comparator(), &iterator_list[0], iterator_list.size());
-
+                                      SuperVersion* super_version,
+                                      Arena* arena) {
+  Iterator* internal_iter;
+  if (arena != nullptr) {
+    // Need to create internal iterator from the arena.
+    MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
+    // Collect iterator for mutable mem
+    merge_iter_builder.AddIterator(
+        super_version->mem->NewIterator(options, false, arena));
+    // Collect all needed child iterators for immutable memtables
+    super_version->imm->AddIterators(options, &merge_iter_builder);
+    // Collect iterators for files in L0 - Ln
+    super_version->current->AddIterators(options, storage_options_,
+                                         &merge_iter_builder);
+    internal_iter = merge_iter_builder.Finish();
+  } else {
+    // Need to create internal iterator using malloc.
+    std::vector<Iterator*> iterator_list;
+    // Collect iterator for mutable mem
+    iterator_list.push_back(super_version->mem->NewIterator(options));
+    // Collect all needed child iterators for immutable memtables
+    super_version->imm->AddIterators(options, &iterator_list);
+    // Collect iterators for files in L0 - Ln
+    super_version->current->AddIterators(options, storage_options_,
+                                         &iterator_list);
+    internal_iter = NewMergingIterator(&cfd->internal_comparator(),
+                                       &iterator_list[0], iterator_list.size());
+  }
   IterState* cleanup = new IterState(this, &mutex_, super_version);
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
@@ -3532,30 +3557,77 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
-  Iterator* iter;
   if (options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
     return nullptr;
 #else
-    iter = new TailingIterator(env_, this, options, cfd);
+    // TODO(ljin): remove tailing iterator
+    auto iter = new ForwardIterator(this, options, cfd);
+    return NewDBIterator(env_, *cfd->options(), cfd->user_comparator(), iter,
+                         kMaxSequenceNumber);
+// return new TailingIterator(env_, this, options, cfd);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
     SuperVersion* sv = nullptr;
     sv = cfd->GetReferencedSuperVersion(&mutex_);
 
-    iter = NewInternalIterator(options, cfd, sv);
-
     auto snapshot =
         options.snapshot != nullptr
             ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
             : latest_snapshot;
-    iter = NewDBIterator(env_, *cfd->options(),
-                         cfd->user_comparator(), iter, snapshot);
-  }
 
-  return iter;
+    // Try to generate a DB iterator tree in continuous memory area to be
+    // cache friendly. Here is an example of result:
+    // +-------------------------------+
+    // |                               |
+    // | ArenaWrappedDBIter            |
+    // |  +                            |
+    // |  +---> Inner Iterator   ------------+
+    // |  |                            |     |
+    // |  |    +-- -- -- -- -- -- -- --+     |
+    // |  +--- | Arena                 |     |
+    // |       |                       |     |
+    // |          Allocated Memory:    |     |
+    // |       |   +-------------------+     |
+    // |       |   | DBIter            | <---+
+    // |           |  +                |
+    // |       |   |  +-> iter_  ------------+
+    // |       |   |                   |     |
+    // |       |   +-------------------+     |
+    // |       |   | MergingIterator   | <---+
+    // |           |  +                |
+    // |       |   |  +->child iter1  ------------+
+    // |       |   |  |                |          |
+    // |           |  +->child iter2  ----------+ |
+    // |       |   |  |                |        | |
+    // |       |   |  +->child iter3  --------+ | |
+    // |           |                   |      | | |
+    // |       |   +-------------------+      | | |
+    // |       |   | Iterator1         | <--------+
+    // |       |   +-------------------+      | |
+    // |       |   | Iterator2         | <------+
+    // |       |   +-------------------+      |
+    // |       |   | Iterator3         | <----+
+    // |       |   +-------------------+
+    // |       |                       |
+    // +-------+-----------------------+
+    //
+    // ArenaWrappedDBIter inlines an arena area where all the iterartor in the
+    // the iterator tree is allocated in the order of being accessed when
+    // querying.
+    // Laying out the iterators in the order of being accessed makes it more
+    // likely that any iterator pointer is close to the iterator it points to so
+    // that they are likely to be in the same cache line and/or page.
+    ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
+        env_, *cfd->options(), cfd->user_comparator(), snapshot);
+    Iterator* internal_iter =
+        NewInternalIterator(options, cfd, sv, db_iter->GetArena());
+    db_iter->SetIterUnderDBIter(internal_iter);
+
+    return db_iter;
+  }
 }
 
 Status DBImpl::NewIterators(
@@ -3679,15 +3751,17 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
 
   uint64_t flush_column_family_if_log_file = 0;
   uint64_t max_total_wal_size = (options_.max_total_wal_size == 0)
-                                    ? 2 * max_total_in_memory_state_
+                                    ? 4 * max_total_in_memory_state_
                                     : options_.max_total_wal_size;
-  if (alive_log_files_.begin()->getting_flushed == false &&
+  if (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 &&
+      alive_log_files_.begin()->getting_flushed == false &&
       total_log_size_ > max_total_wal_size) {
     flush_column_family_if_log_file = alive_log_files_.begin()->number;
     alive_log_files_.begin()->getting_flushed = true;
     Log(options_.info_log,
-        "Flushing all column families with data in WAL number %" PRIu64,
-        flush_column_family_if_log_file);
+        "Flushing all column families with data in WAL number %" PRIu64
+        ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
+        flush_column_family_if_log_file, total_log_size_, max_total_wal_size);
   }
 
   Status status;
@@ -3923,6 +3997,10 @@ Status DBImpl::MakeRoomForWrite(
   uint64_t rate_limit_delay_millis = 0;
   Status s;
   double score;
+  // Once we schedule background work, we shouldn't schedule it again, since it
+  // might generate a tight feedback loop, constantly scheduling more background
+  // work, even if additional background work is not needed
+  bool schedule_background_work = true;
 
   while (true) {
     if (!bg_error_.ok()) {
@@ -3966,7 +4044,10 @@ Status DBImpl::MakeRoomForWrite(
       DelayLoggingAndReset();
       Log(options_.info_log, "[%s] wait for memtable flush...\n",
           cfd->GetName().c_str());
-      MaybeScheduleFlushOrCompaction();
+      if (schedule_background_work) {
+        MaybeScheduleFlushOrCompaction();
+        schedule_background_work = false;
+      }
       uint64_t stall;
       {
         StopWatch sw(env_, options_.statistics.get(),

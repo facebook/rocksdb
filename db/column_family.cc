@@ -506,6 +506,10 @@ void ColumnFamilySet::UpdateMaxColumnFamily(uint32_t new_max_column_family) {
   max_column_family_ = std::max(new_max_column_family, max_column_family_);
 }
 
+size_t ColumnFamilySet::NumberOfColumnFamilies() const {
+  return column_families_.size();
+}
+
 // under a DB mutex
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,

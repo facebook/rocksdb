@@ -156,8 +156,15 @@ Status PlainTableReader::Open(const Options& options,
 void PlainTableReader::SetupForCompaction() {
 }
 
-Iterator* PlainTableReader::NewIterator(const ReadOptions& options) {
-  return new PlainTableIterator(this, options_.prefix_extractor != nullptr);
+Iterator* PlainTableReader::NewIterator(const ReadOptions& options,
+                                        Arena* arena) {
+  if (arena == nullptr) {
+    return new PlainTableIterator(this, options_.prefix_extractor != nullptr);
+  } else {
+    auto mem = arena->AllocateAligned(sizeof(PlainTableIterator));
+    return new (mem)
+        PlainTableIterator(this, options_.prefix_extractor != nullptr);
+  }
 }
 
 struct PlainTableReader::IndexRecord {

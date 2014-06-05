@@ -332,6 +332,32 @@ void Version::AddIterators(const ReadOptions& read_options,
   }
 }
 
+void Version::AddIterators(const ReadOptions& read_options,
+                           const EnvOptions& soptions,
+                           MergeIteratorBuilder* merge_iter_builder) {
+  // Merge all level zero files together since they may overlap
+  for (const FileMetaData* file : files_[0]) {
+    merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
+        read_options, soptions, cfd_->internal_comparator(), *file, nullptr,
+        false, merge_iter_builder->GetArena()));
+  }
+
+  // For levels > 0, we can use a concatenating iterator that sequentially
+  // walks through the non-overlapping files in the level, opening them
+  // lazily.
+  for (int level = 1; level < num_levels_; level++) {
+    if (!files_[level].empty()) {
+      merge_iter_builder->AddIterator(NewTwoLevelIterator(
+          new LevelFileIteratorState(
+              cfd_->table_cache(), read_options, soptions,
+              cfd_->internal_comparator(), false /* for_compaction */,
+              cfd_->options()->prefix_extractor != nullptr),
+          new LevelFileNumIterator(cfd_->internal_comparator(), &files_[level]),
+          merge_iter_builder->GetArena()));
+    }
+  }
+}
+
 // Callback from TableCache::Get()
 namespace {
 enum SaverState {
