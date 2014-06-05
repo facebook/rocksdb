@@ -266,5 +266,4 @@ uint64_t Compaction::OutputFilePreallocationSize() {
   return preallocation_size * 1.1;
 }
 
-
 }  // namespace rocksdb

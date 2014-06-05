@@ -132,6 +132,16 @@ Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
   if (table_magic_number == kBlockBasedTableMagicNumber) {
     options_.table_factory = std::make_shared<BlockBasedTableFactory>();
     fprintf(stdout, "Sst file format: block-based\n");
+    auto& props = table_properties->user_collected_properties;
+    auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
+    if (pos != props.end()) {
+      auto index_type_on_file = static_cast<BlockBasedTableOptions::IndexType>(
+          DecodeFixed32(pos->second.c_str()));
+      if (index_type_on_file ==
+          BlockBasedTableOptions::IndexType::kHashSearch) {
+        options_.prefix_extractor.reset(NewNoopTransform());
+      }
+    }
   } else if (table_magic_number == kPlainTableMagicNumber) {
     options_.allow_mmap_reads = true;
     options_.table_factory = std::make_shared<PlainTableFactory>(
