@@ -27,11 +27,9 @@ public class RestoreOptions extends RocksObject {
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose(nativeHandle_);
-      nativeHandle_ = 0;
-    }
+  @Override public synchronized void disposeInternal() {
+    assert(isInitialized());
+    dispose(nativeHandle_);
   }
 
   private native long newRestoreOptions(boolean keepLogFiles);
