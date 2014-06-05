@@ -250,4 +250,21 @@ void Compaction::Summary(char* output, int len) {
   snprintf(output + write, len - write, "]");
 }
 
+uint64_t Compaction::OutputFilePreallocationSize() {
+  uint64_t preallocation_size = 0;
+
+  if (cfd_->options()->compaction_style == kCompactionStyleLevel) {
+    preallocation_size =
+        cfd_->compaction_picker()->MaxFileSizeForLevel(output_level());
+  } else {
+    for (const auto& f : inputs_[0]) {
+      preallocation_size += f->file_size;
+    }
+  }
+  // Over-estimate slightly so we don't end up just barely crossing
+  // the threshold
+  return preallocation_size * 1.1;
+}
+
+
 }  // namespace rocksdb

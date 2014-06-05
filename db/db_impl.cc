@@ -2334,13 +2334,10 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   Status s = env_->NewWritableFile(fname, &compact->outfile, storage_options_);
 
   if (s.ok()) {
-    // Over-estimate slightly so we don't end up just barely crossing
-    // the threshold.
-    ColumnFamilyData* cfd = compact->compaction->column_family_data();
     compact->outfile->SetPreallocationBlockSize(
-        1.1 * cfd->compaction_picker()->MaxFileSizeForLevel(
-                  compact->compaction->output_level()));
+        compact->compaction->OutputFilePreallocationSize());
 
+    ColumnFamilyData* cfd = compact->compaction->column_family_data();
     CompressionType compression_type =
         GetCompressionType(*cfd->options(), compact->compaction->output_level(),
                            compact->compaction->enable_compression());

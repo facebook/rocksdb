@@ -91,6 +91,11 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool IsManualCompaction() { return is_manual_compaction_; }
 
+  // Returns a number of byte that the output file should be preallocated to
+  // In level compaction, that is max_file_size_. In universal compaction, that
+  // is the sum of all input file sizes
+  uint64_t OutputFilePreallocationSize();
+
  private:
   friend class CompactionPicker;
   friend class UniversalCompactionPicker;
