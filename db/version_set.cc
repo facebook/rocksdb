@@ -19,6 +19,7 @@
 #include <vector>
 #include <stdio.h>
 
+#include "db/compaction.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -39,23 +40,6 @@
 #include "util/stop_watch.h"
 
 namespace rocksdb {
-
-static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
-  uint64_t sum = 0;
-  for (size_t i = 0; i < files.size() && files[i]; i++) {
-    sum += files[i]->fd.GetFileSize();
-  }
-  return sum;
-}
-
-static uint64_t TotalCompensatedFileSize(
-    const std::vector<FileMetaData*>& files) {
-  uint64_t sum = 0;
-  for (size_t i = 0; i < files.size() && files[i]; i++) {
-    sum += files[i]->compensated_file_size;
-  }
-  return sum;
-}
 
 Version::~Version() {
   assert(refs_ == 0);
@@ -373,7 +357,6 @@ void Version::AddIterators(const ReadOptions& read_options,
 }
 
 // Callback from TableCache::Get()
-namespace {
 enum SaverState {
   kNotFound,
   kFound,
@@ -381,6 +364,7 @@ enum SaverState {
   kCorrupt,
   kMerge // saver contains the current merge result (the operands)
 };
+namespace version_set {
 struct Saver {
   SaverState state;
   const Comparator* ucmp;
@@ -393,7 +377,7 @@ struct Saver {
   Logger* logger;
   Statistics* statistics;
 };
-}
+} // namespace version_set
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may  exist are not there in TableCache/BlockCache respectively. In this
@@ -401,7 +385,7 @@ struct Saver {
 // IO to be  certain.Set the status=kFound and value_found=false to let the
 // caller know that key may exist but is not there in memory
 static void MarkKeyMayExist(void* arg) {
-  Saver* s = reinterpret_cast<Saver*>(arg);
+  version_set::Saver* s = reinterpret_cast<version_set::Saver*>(arg);
   s->state = kFound;
   if (s->value_found != nullptr) {
     *(s->value_found) = false;
@@ -410,7 +394,7 @@ static void MarkKeyMayExist(void* arg) {
 
 static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
                       const Slice& v) {
-  Saver* s = reinterpret_cast<Saver*>(arg);
+  version_set::Saver* s = reinterpret_cast<version_set::Saver*>(arg);
   MergeContext* merge_contex = s->merge_context;
   std::string merge_result;  // temporary area for merge results later
 
@@ -538,7 +522,7 @@ void Version::Get(const ReadOptions& options,
   Slice user_key = k.user_key();
 
   assert(status->ok() || status->IsMergeInProgress());
-  Saver saver;
+  version_set::Saver saver;
   saver.state = status->ok()? kNotFound : kMerge;
   saver.ucmp = user_comparator_;
   saver.user_key = user_key;

@@ -14,9 +14,6 @@
 namespace rocksdb {
 
 namespace {
-static uint32_t BloomHash(const Slice& key) {
-  return Hash(key.data(), key.size(), 0xbc9f1d34);
-}
 
 uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
   uint32_t num_blocks =

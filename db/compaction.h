@@ -10,7 +10,11 @@
 #pragma once
 #include "db/version_set.h"
 
+#include <vector>
+
 namespace rocksdb {
+
+struct FileMetaData;
 
 class Version;
 class ColumnFamilyData;
@@ -163,5 +167,9 @@ class Compaction {
   // to pick up the next file to be compacted from files_by_size_
   void ResetNextCompactionIndex();
 };
+
+// Utility functions
+extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
+extern uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files);
 
 }  // namespace rocksdb
