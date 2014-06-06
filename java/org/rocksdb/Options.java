@@ -24,6 +24,7 @@ public class Options extends RocksObject {
     super();
     cacheSize_ = DEFAULT_CACHE_SIZE;
     newOptions();
+    env_ = RocksEnv.getDefault();
   }
 
   /**
@@ -41,6 +42,24 @@ public class Options extends RocksObject {
     setCreateIfMissing(nativeHandle_, flag);
     return this;
   }
+
+  /**
+   * Use the specified object to interact with the environment,
+   * e.g. to read/write files, schedule background work, etc.
+   * Default: RocksEnv.getDefault()
+   */
+  public Options setEnv(RocksEnv env) {
+    assert(isInitialized());
+    setEnv(nativeHandle_, env.nativeHandle_);
+    env_ = env;
+    return this;
+  }
+  private native void setEnv(long optHandle, long envHandle);
+
+  public RocksEnv getEnv() {
+    return env_;
+  }
+  private native long getEnvHandle(long handle);
 
   /**
    * Return true if the create_if_missing flag is set to true.
@@ -2351,4 +2370,5 @@ public class Options extends RocksObject {
 
   long cacheSize_;
   Filter filter_;
+  RocksEnv env_;
 }

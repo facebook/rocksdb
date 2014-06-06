@@ -526,6 +526,8 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_write_buffer_number));
     options.setMaxBackgroundCompactions(
         (Integer)flags_.get(Flag.max_background_compactions));
+    options.getEnv().setBackgroundThreads(
+        (Integer)flags_.get(Flag.max_background_compactions));
     options.setMaxBackgroundFlushes(
         (Integer)flags_.get(Flag.max_background_flushes));
     options.setCacheSize(
