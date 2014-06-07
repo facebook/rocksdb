@@ -1149,6 +1149,8 @@ Status DBImpl::Recover(
     SequenceNumber max_sequence(0);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
+    single_column_family_mode_ =
+        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
     // Recover from all newer log files than the ones named in the
     // descriptor (new log files may have been added by the previous
@@ -3477,6 +3479,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   Status s = versions_->LogAndApply(nullptr, &edit, &mutex_,
                                     db_directory_.get(), false, &options);
   if (s.ok()) {
+    single_column_family_mode_ = false;
     auto cfd =
         versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
     assert(cfd != nullptr);
@@ -3746,11 +3749,14 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_SELF, 1);
   }
 
+  assert(!single_column_family_mode_ ||
+         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
+
   uint64_t flush_column_family_if_log_file = 0;
   uint64_t max_total_wal_size = (options_.max_total_wal_size == 0)
                                     ? 4 * max_total_in_memory_state_
                                     : options_.max_total_wal_size;
-  if (versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1 &&
+  if (UNLIKELY(!single_column_family_mode_) &&
       alive_log_files_.begin()->getting_flushed == false &&
       total_log_size_ > max_total_wal_size) {
     flush_column_family_if_log_file = alive_log_files_.begin()->number;
@@ -3762,27 +3768,35 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   }
 
   Status status;
-  // refcounting cfd in iteration
-  bool dead_cfd = false;
   autovector<SuperVersion*> superversions_to_free;
   autovector<log::Writer*> logs_to_free;
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    cfd->Ref();
-    bool force_flush = my_batch == nullptr ||
-                       (flush_column_family_if_log_file != 0 &&
-                        cfd->GetLogNumber() <= flush_column_family_if_log_file);
-    // May temporarily unlock and wait.
-    status = MakeRoomForWrite(cfd, force_flush, &superversions_to_free,
-                              &logs_to_free);
-    if (cfd->Unref()) {
-      dead_cfd = true;
+
+  if (LIKELY(single_column_family_mode_)) {
+    // fast path
+    status = MakeRoomForWrite(default_cf_handle_->cfd(), my_batch == nullptr,
+                              &superversions_to_free, &logs_to_free);
+  } else {
+    // refcounting cfd in iteration
+    bool dead_cfd = false;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      cfd->Ref();
+      bool force_flush =
+          my_batch == nullptr ||
+          (flush_column_family_if_log_file != 0 &&
+           cfd->GetLogNumber() <= flush_column_family_if_log_file);
+      // May temporarily unlock and wait.
+      status = MakeRoomForWrite(cfd, force_flush, &superversions_to_free,
+                                &logs_to_free);
+      if (cfd->Unref()) {
+        dead_cfd = true;
+      }
+      if (!status.ok()) {
+        break;
+      }
     }
-    if (!status.ok()) {
-      break;
+    if (dead_cfd) {
+      versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
     }
-  }
-  if (dead_cfd) {
-    versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
 
   uint64_t last_sequence = versions_->LastSequence();
