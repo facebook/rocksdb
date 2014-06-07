@@ -47,12 +47,13 @@ class SstFileReader {
   Status ReadTableProperties(
       std::shared_ptr<const TableProperties>* table_properties);
   uint64_t GetReadNumber() { return read_num_; }
+  TableProperties* GetInitTableProperties() { return table_properties_.get(); }
 
  private:
   Status NewTableReader(const std::string& file_path);
-  Status SetTableOptionsByMagicNumber(uint64_t table_magic_number,
-                                      RandomAccessFile* file,
-                                      uint64_t file_size);
+  Status ReadTableProperties(uint64_t table_magic_number,
+                             RandomAccessFile* file, uint64_t file_size);
+  Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
 
   std::string file_name_;
   uint64_t read_num_;
@@ -67,6 +68,7 @@ class SstFileReader {
   // ReadSequential internally (specifically, seek-related operations)
   Options options_;
   InternalKeyComparator internal_comparator_;
+  unique_ptr<TableProperties> table_properties_;
 };
 
 SstFileReader::SstFileReader(const std::string& file_path,
@@ -106,7 +108,10 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
       soptions_.use_mmap_reads = true;
     }
     options_.comparator = &internal_comparator_;
-    s = SetTableOptionsByMagicNumber(magic_number, file_.get(), file_size);
+    s = ReadTableProperties(magic_number, file_.get(), file_size);
+    if (s.ok()) {
+      s = SetTableOptionsByMagicNumber(magic_number);
+    }
   }
 
   if (s.ok()) {
@@ -117,22 +122,24 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
   return s;
 }
 
-Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
-                                                   RandomAccessFile* file,
-                                                   uint64_t file_size) {
+Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
+                                          RandomAccessFile* file,
+                                          uint64_t file_size) {
   TableProperties* table_properties;
   Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,
                                           options_.env, options_.info_log.get(),
                                           &table_properties);
-  if (!s.ok()) {
-    return s;
-  }
-  std::unique_ptr<TableProperties> props_guard(table_properties);
+  table_properties_.reset(table_properties);
+  return s;
+}
 
+Status SstFileReader::SetTableOptionsByMagicNumber(
+    uint64_t table_magic_number) {
+  assert(table_properties_);
   if (table_magic_number == kBlockBasedTableMagicNumber) {
     options_.table_factory = std::make_shared<BlockBasedTableFactory>();
     fprintf(stdout, "Sst file format: block-based\n");
-    auto& props = table_properties->user_collected_properties;
+    auto& props = table_properties_->user_collected_properties;
     auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
     if (pos != props.end()) {
       auto index_type_on_file = static_cast<BlockBasedTableOptions::IndexType>(
@@ -145,7 +152,7 @@ Status SstFileReader::SetTableOptionsByMagicNumber(uint64_t table_magic_number,
   } else if (table_magic_number == kPlainTableMagicNumber) {
     options_.allow_mmap_reads = true;
     options_.table_factory = std::make_shared<PlainTableFactory>(
-        table_properties->fixed_key_len, 2, 0.8);
+        table_properties_->fixed_key_len, 2, 0.8);
     options_.prefix_extractor.reset(NewNoopTransform());
     fprintf(stdout, "Sst file format: plain table\n");
   } else {
@@ -226,14 +233,14 @@ Status SstFileReader::ReadTableProperties(
 
 static void print_help() {
   fprintf(stderr,
-      "sst_dump [--command=check|scan] [--verify_checksum] "
-      "--file=data_dir_OR_sst_file"
-      " [--output_hex]"
-      " [--input_key_hex]"
-      " [--from=<user_key>]"
-      " [--to=<user_key>]"
-      " [--read_num=NUM]"
-      " [--show_properties]\n");
+          "sst_dump [--command=check|scan|none] [--verify_checksum] "
+          "--file=data_dir_OR_sst_file"
+          " [--output_hex]"
+          " [--input_key_hex]"
+          " [--from=<user_key>]"
+          " [--to=<user_key>]"
+          " [--read_num=NUM]"
+          " [--show_properties]\n");
 }
 
 namespace {
@@ -299,7 +306,6 @@ int main(int argc, char** argv) {
     }
   }
 
-
   if (input_key_hex) {
     if (has_from) {
       from_key = HexToString(from_key);
@@ -358,11 +364,19 @@ int main(int argc, char** argv) {
       }
     }
     if (show_properties) {
-      std::shared_ptr<const rocksdb::TableProperties> table_properties;
-      st = reader.ReadTableProperties(&table_properties);
+      const rocksdb::TableProperties* table_properties;
+
+      std::shared_ptr<const rocksdb::TableProperties>
+          table_properties_from_reader;
+      st = reader.ReadTableProperties(&table_properties_from_reader);
       if (!st.ok()) {
         fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
+        fprintf(stderr, "Try to use initial table properties\n");
+        table_properties = reader.GetInitTableProperties();
       } else {
+        table_properties = table_properties_from_reader.get();
+      }
+      if (table_properties != nullptr) {
         fprintf(stdout,
                 "Table Properties:\n"
                 "------------------------------\n"
