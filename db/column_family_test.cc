@@ -970,6 +970,16 @@ TEST(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Close();
 }
 
+TEST(ColumnFamilyTest, CreateMissingColumnFamilies) {
+  Status s = TryOpen({"one", "two"});
+  ASSERT_TRUE(!s.ok());
+  db_options_.create_missing_column_families = true;
+  s = TryOpen({"default", "one", "two"});
+  printf("%s\n", s.ToString().c_str());
+  ASSERT_TRUE(s.ok());
+  Close();
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

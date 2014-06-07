@@ -1677,19 +1677,15 @@ class StressTest {
         }
         cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
       }
+      while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
+        std::string name = std::to_string(new_column_family_name_.load());
+        new_column_family_name_++;
+        cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
+        column_family_names_.push_back(name);
+      }
+      options_.create_missing_column_families = true;
       s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                    &column_families_, &db_);
-      if (s.ok()) {
-        while (s.ok() &&
-               column_families_.size() < (size_t)FLAGS_column_families) {
-          ColumnFamilyHandle* cf = nullptr;
-          std::string name = std::to_string(new_column_family_name_.load());
-          new_column_family_name_++;
-          s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), name, &cf);
-          column_families_.push_back(cf);
-          column_family_names_.push_back(name);
-        }
-      }
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
     } else {

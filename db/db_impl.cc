@@ -4559,12 +4559,26 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       for (auto cf : column_families) {
         auto cfd =
             impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
-        if (cfd == nullptr) {
-          s = Status::InvalidArgument("Column family not found: ", cf.name);
-          break;
+        if (cfd != nullptr) {
+          handles->push_back(
+              new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
+        } else {
+          if (db_options.create_missing_column_families) {
+            // missing column family, create it
+            ColumnFamilyHandle* handle;
+            impl->mutex_.Unlock();
+            s = impl->CreateColumnFamily(cf.options, cf.name, &handle);
+            impl->mutex_.Lock();
+            if (s.ok()) {
+              handles->push_back(handle);
+            } else {
+              break;
+            }
+          } else {
+            s = Status::InvalidArgument("Column family not found: ", cf.name);
+            break;
+          }
         }
-        handles->push_back(
-            new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
       }
     }
     if (s.ok()) {

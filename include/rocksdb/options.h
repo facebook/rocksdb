@@ -595,6 +595,10 @@ struct DBOptions {
   // Default: false
   bool create_if_missing;
 
+  // If true, missing column families will be automatically created.
+  // Default: false
+  bool create_missing_column_families;
+
   // If true, an error is raised if the database already exists.
   // Default: false
   bool error_if_exists;

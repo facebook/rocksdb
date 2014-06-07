@@ -158,6 +158,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
 
 DBOptions::DBOptions()
     : create_if_missing(false),
+      create_missing_column_families(false),
       error_if_exists(false),
       paranoid_checks(true),
       env(Env::Default()),
@@ -197,6 +198,7 @@ DBOptions::DBOptions()
 
 DBOptions::DBOptions(const Options& options)
     : create_if_missing(options.create_if_missing),
+      create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       env(options.env),
@@ -259,9 +261,11 @@ void DBOptions::Dump(Logger* log) const {
     Log(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
     Log(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Log(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
+    Log(log, "         Options.create_missing_column_families: %d",
+        create_missing_column_families);
     Log(log, "                             Options.db_log_dir: %s",
         db_log_dir.c_str());
-    Log(log, "                             Options.wal_dir: %s",
+    Log(log, "                                Options.wal_dir: %s",
         wal_dir.c_str());
     Log(log, "               Options.table_cache_numshardbits: %d",
         table_cache_numshardbits);
