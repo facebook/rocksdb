@@ -22,11 +22,13 @@ public class RocksEnv extends RocksObject {
   private static native long getDefaultEnvInternal();
 
   /**
-   * Returns a default environment suitable for the current operating
+   * Returns the default environment suitable for the current operating
    * system.
    *
-   * The result of getDefault() belongs to rocksdb c++, and calling its
-   * dispose() will be no-op.
+   * The result of getDefault() is a singleton whose ownership belongs
+   * to rocksdb c++.  As a result, the returned RocksEnv will not
+   * have the ownership of its c++ resource, and calling its dispose()
+   * will be no-op.
    */
   public static RocksEnv getDefault() {
     return default_env_;
@@ -71,8 +73,10 @@ public class RocksEnv extends RocksObject {
 
   /**
    * Package-private constructor that uses the specified native handle
-   * to construct a RocksEnv.  Note that the newly created RocksEnv
-   * will not take the ownership of the input handle.
+   * to construct a RocksEnv.  Note that the ownership of the input handle
+   * belongs to the caller, and the newly created RocksEnv will not take
+   * the ownership of the input handle.  As a result, calling dispose()
+   * of the created RocksEnv will be no-op.
    */
   RocksEnv(long handle) {
     super();
