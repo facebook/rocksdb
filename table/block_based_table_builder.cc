@@ -541,9 +541,16 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   Rep* r = rep_;
 
   auto type = r->compression_type;
-  auto block_contents =
-      CompressBlock(raw_block_contents, r->options.compression_opts, &type,
-                    &r->compressed_output);
+  Slice block_contents;
+  if (raw_block_contents.size() < kCompressionSizeLimit) {
+    block_contents =
+        CompressBlock(raw_block_contents, r->options.compression_opts, &type,
+                      &r->compressed_output);
+  } else {
+    RecordTick(r->options.statistics.get(), NUMBER_BLOCK_NOT_COMPRESSED);
+    type = kNoCompression;
+    block_contents = raw_block_contents;
+  }
   WriteRawBlock(block_contents, type, handle);
   r->compressed_output.clear();
 }

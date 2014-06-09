@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+#include <limits>
 
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
@@ -83,6 +84,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   // the same data block.  Most clients should not need to use this method.
   // REQUIRES: Finish(), Abandon() have not been called
   void Flush();
+
+  // Some compression libraries fail when the raw size is bigger than int. If
+  // uncompressed size is bigger than kCompressionSizeLimit, don't compress it
+  const uint64_t kCompressionSizeLimit = std::numeric_limits<int>::max();
 
   // No copying allowed
   BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
