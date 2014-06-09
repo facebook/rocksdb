@@ -18,15 +18,17 @@ static uint32_t BloomHash(const Slice& key) {
   return Hash(key.data(), key.size(), 0xbc9f1d34);
 }
 
-uint32_t GetNumBlocks(uint32_t total_bits) {
-  uint32_t num_blocks = (total_bits + CACHE_LINE_SIZE * 8 - 1) /
-                        (CACHE_LINE_SIZE * 8) * (CACHE_LINE_SIZE * 8);
+uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
+  uint32_t num_blocks =
+      (total_bits + CACHE_LINE_SIZE * 8 - 1) / (CACHE_LINE_SIZE * 8);
+
   // Make num_blocks an odd number to make sure more bits are involved
   // when determining which block.
   if (num_blocks % 2 == 0) {
     num_blocks++;
   }
-  return num_blocks;
+
+  return num_blocks * (CACHE_LINE_SIZE * 8);
 }
 }
 
@@ -34,11 +36,23 @@ DynamicBloom::DynamicBloom(uint32_t total_bits, uint32_t locality,
                            uint32_t num_probes,
                            uint32_t (*hash_func)(const Slice& key),
                            size_t huge_page_tlb_size, Logger* logger)
-    : kTotalBits(((locality > 0) ? GetNumBlocks(total_bits) : total_bits + 7) /
-                 8 * 8),
-      kNumBlocks((locality > 0) ? kTotalBits / (CACHE_LINE_SIZE * 8) : 0),
+    : DynamicBloom(num_probes, hash_func) {
+  SetTotalBits(total_bits, locality, huge_page_tlb_size, logger);
+}
+
+DynamicBloom::DynamicBloom(uint32_t num_probes,
+                           uint32_t (*hash_func)(const Slice& key))
+    : kTotalBits(0),
+      kNumBlocks(0),
       kNumProbes(num_probes),
-      hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {
+      hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {}
+
+void DynamicBloom::SetTotalBits(uint32_t total_bits, uint32_t locality,
+                                size_t huge_page_tlb_size, Logger* logger) {
+  kTotalBits = (locality > 0) ? GetTotalBitsForLocality(total_bits)
+                              : (total_bits + 7) / 8 * 8;
+  kNumBlocks = (locality > 0) ? (kTotalBits / (CACHE_LINE_SIZE * 8)) : 0;
+
   assert(kNumBlocks > 0 || kTotalBits > 0);
   assert(kNumProbes > 0);
 

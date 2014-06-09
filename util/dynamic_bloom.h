@@ -33,6 +33,12 @@ class DynamicBloom {
                         size_t huge_page_tlb_size = 0,
                         Logger* logger = nullptr);
 
+  explicit DynamicBloom(uint32_t num_probes = 6,
+                        uint32_t (*hash_func)(const Slice& key) = nullptr);
+
+  void SetTotalBits(uint32_t total_bits, uint32_t locality,
+                    size_t huge_page_tlb_size, Logger* logger);
+
   ~DynamicBloom() {}
 
   // Assuming single threaded access to this function.
@@ -42,14 +48,14 @@ class DynamicBloom {
   void AddHash(uint32_t hash);
 
   // Multithreaded access to this function is OK
-  bool MayContain(const Slice& key);
+  bool MayContain(const Slice& key) const;
 
   // Multithreaded access to this function is OK
-  bool MayContainHash(uint32_t hash);
+  bool MayContainHash(uint32_t hash) const;
 
  private:
-  const uint32_t kTotalBits;
-  const uint32_t kNumBlocks;
+  uint32_t kTotalBits;
+  uint32_t kNumBlocks;
   const uint32_t kNumProbes;
 
   uint32_t (*hash_func_)(const Slice& key);
@@ -61,11 +67,12 @@ class DynamicBloom {
 
 inline void DynamicBloom::Add(const Slice& key) { AddHash(hash_func_(key)); }
 
-inline bool DynamicBloom::MayContain(const Slice& key) {
+inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(hash_func_(key)));
 }
 
-inline bool DynamicBloom::MayContainHash(uint32_t h) {
+inline bool DynamicBloom::MayContainHash(uint32_t h) const {
+  assert(kNumBlocks > 0 || kTotalBits > 0);
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
@@ -82,6 +89,10 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) {
       h += delta;
     }
   } else {
+    if (kTotalBits == 0) {
+      // Not initialized.
+      return true;
+    }
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
       if (((data_[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
@@ -94,6 +105,7 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) {
 }
 
 inline void DynamicBloom::AddHash(uint32_t h) {
+  assert(kNumBlocks > 0 || kTotalBits > 0);
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
