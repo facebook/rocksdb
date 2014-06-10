@@ -283,6 +283,76 @@ make release
     --value_size=10 \
     --threads=16 > ${STAT_FILE}.memtablefillreadrandom
 
+common_in_mem_args="--db=/dev/shm/rocksdb \
+    --num_levels=6 \
+    --key_size=20 \
+    --prefix_size=12 \
+    --keys_per_prefix=10 \
+    --value_size=100 \
+    --compression_type=none \
+    --compression_ratio=1 \
+    --disable_seek_compaction=1 \
+    --hard_rate_limit=2 \
+    --write_buffer_size=134217728 \
+    --max_write_buffer_number=4 \
+    --level0_file_num_compaction_trigger=8 \
+    --level0_slowdown_writes_trigger=16 \
+    --level0_stop_writes_trigger=24 \
+    --target_file_size_base=134217728 \
+    --max_bytes_for_level_base=1073741824 \
+    --disable_wal=0 \
+    --wal_dir=/dev/shm/rocksdb \
+    --sync=0 \
+    --disable_data_sync=1 \
+    --verify_checksum=1 \
+    --delete_obsolete_files_period_micros=314572800 \
+    --max_grandparent_overlap_factor=10 \
+    --use_plain_table=1 \
+    --open_files=-1 \
+    --mmap_read=1 \
+    --mmap_write=0 \
+    --memtablerep=prefix_hash \
+    --bloom_bits=10 \
+    --bloom_locality=1 \
+    --perf_level=0"
+
+# prepare a in-memory DB with 50M keys, total DB size is ~6G
+./db_bench \
+    $common_in_mem_args \
+    --statistics=0 \
+    --max_background_compactions=16 \
+    --max_background_flushes=16 \
+    --benchmarks=filluniquerandom \
+    --use_existing_db=0 \
+    --num=52428800 \
+    --threads=1 > /dev/null
+
+# Readwhilewriting
+./db_bench \
+    $common_in_mem_args \
+    --statistics=1 \
+    --max_background_compactions=4 \
+    --max_background_flushes=0 \
+    --benchmarks=readwhilewriting\
+    --use_existing_db=1 \
+    --duration=600 \
+    --threads=32 \
+    --writes_per_second=81920 > ${STAT_FILE}.readwhilewriting_in_ram
+
+# Seekrandomwhilewriting
+./db_bench \
+    $common_args \
+    --statistics=1 \
+    --max_background_compactions=4 \
+    --max_background_flushes=0 \
+    --benchmarks=seekrandomwhilewriting \
+    --use_existing_db=1 \
+    --use_tailing_iterator=1 \
+    --duration=600 \
+    --threads=32 \
+    --writes_per_second=81920 > ${STAT_FILE}.seekwhilewriting_in_ram
+
+
 # send data to ods
 function send_to_ods {
   key="$1"
@@ -328,3 +398,5 @@ send_benchmark_to_ods readrandom readrandom_fillunique_random $STAT_FILE.readran
 send_benchmark_to_ods fillrandom memtablefillrandom $STAT_FILE.memtablefillreadrandom
 send_benchmark_to_ods readrandom memtablereadrandom $STAT_FILE.memtablefillreadrandom
 send_benchmark_to_ods readwhilewriting readwhilewriting $STAT_FILE.readwhilewriting
+send_benchmark_to_ods readwhilewriting_in_ram readwhilewriting_in_ram ${STAT_FILE}.readwhilewriting_in_ram
+send_benchmark_to_ods seekwhilewriting_in_ram seekwhilewriting_in_ram ${STAT_FILE}.seekwhilewriting_in_ram
