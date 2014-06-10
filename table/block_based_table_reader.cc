@@ -914,6 +914,10 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
+  if (!rep_->options.filter_policy) {
+    return true;
+  }
+
   assert(rep_->options.prefix_extractor != nullptr);
   auto prefix = rep_->options.prefix_extractor->Transform(
       ExtractUserKey(internal_key));
@@ -922,10 +926,6 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
 
   bool may_match = true;
   Status s;
-
-  if (!rep_->options.filter_policy) {
-    return true;
-  }
 
   // To prevent any io operation in this method, we set `read_tier` to make
   // sure we always read index or filter only when they have already been
