@@ -341,7 +341,7 @@ common_in_mem_args="--db=/dev/shm/rocksdb \
 
 # Seekrandomwhilewriting
 ./db_bench \
-    $common_args \
+    $common_in_mem_args \
     --statistics=1 \
     --max_background_compactions=4 \
     --max_background_flushes=0 \
