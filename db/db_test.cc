@@ -6704,6 +6704,53 @@ TEST(DBTest, TailingIteratorKeepAdding) {
   }
 }
 
+TEST(DBTest, TailingIteratorSeekToNext) {
+  CreateAndReopenWithCF({"pikachu"});
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  std::string value(1024, 'a');
+
+  const int num_records = 1000;
+  for (int i = 1; i < num_records; ++i) {
+    char buf1[32];
+    char buf2[32];
+    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
+
+    Slice key(buf1, 20);
+    ASSERT_OK(Put(1, key, value));
+
+    if (i % 100 == 99) {
+      ASSERT_OK(Flush(1));
+    }
+
+    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+    Slice target(buf2, 20);
+    iter->Seek(target);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(key), 0);
+  }
+  for (int i = 2 * num_records; i > 0; --i) {
+    char buf1[32];
+    char buf2[32];
+    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
+
+    Slice key(buf1, 20);
+    ASSERT_OK(Put(1, key, value));
+
+    if (i % 100 == 99) {
+      ASSERT_OK(Flush(1));
+    }
+
+    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+    Slice target(buf2, 20);
+    iter->Seek(target);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(key), 0);
+  }
+}
+
 TEST(DBTest, TailingIteratorDeletes) {
   CreateAndReopenWithCF({"pikachu"});
   ReadOptions read_options;

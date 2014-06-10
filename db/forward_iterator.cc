@@ -322,7 +322,7 @@ void ForwardIterator::UpdateCurrent() {
     assert(current_ != nullptr);
     assert(current_->Valid());
     int cmp = cfd_->internal_comparator().InternalKeyComparator::Compare(
-        mutable_iter_->key(), current_->key()) > 0;
+        mutable_iter_->key(), current_->key());
     assert(cmp != 0);
     if (cmp > 0) {
       immutable_min_heap_.pop();
