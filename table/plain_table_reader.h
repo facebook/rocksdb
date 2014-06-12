@@ -57,6 +57,8 @@ class PlainTableReader: public TableReader {
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
+  void Prepare(const Slice& target);
+
   Status Get(const ReadOptions&, const Slice& key, void* arg,
              bool (*result_handler)(void* arg, const ParsedInternalKey& k,
                                     const Slice& v, bool),

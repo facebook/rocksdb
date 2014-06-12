@@ -92,6 +92,7 @@ class Version {
     FileMetaData* seek_file;
     int seek_file_level;
   };
+
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
            Status* status, MergeContext* merge_context, GetStats* stats,
            bool* value_found = nullptr);

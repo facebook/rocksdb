@@ -567,6 +567,16 @@ void Version::Get(const ReadOptions& options,
       continue;
     }
 
+    // Prefetch table data to avoid cache miss if possible
+    if (level == 0) {
+      for (int i = 0; i < num_files; ++i) {
+        auto* r = files_[0][i]->table_reader;
+        if (r) {
+          r->Prepare(ikey);
+        }
+      }
+    }
+
     // Get the list of files to search in this level
     FileMetaData* const* files = &files_[level][0];
 
@@ -607,6 +617,7 @@ void Version::Get(const ReadOptions& options,
 
     for (int32_t i = start_index; i < num_files;) {
       FileMetaData* f = files[i];
+
       // Check if key is within a file's range. If search left bound and right
       // bound point to the same find, we are sure key falls in range.
       assert(level == 0 || i == start_index ||

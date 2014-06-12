@@ -5,11 +5,11 @@
 
 #pragma once
 
+#include <util/arena.h>
+#include <port/port_posix.h>
+
 #include <atomic>
 #include <memory>
-
-#include "port/port.h"
-#include <util/arena.h>
 
 namespace rocksdb {
 
@@ -53,6 +53,8 @@ class DynamicBloom {
   // Multithreaded access to this function is OK
   bool MayContainHash(uint32_t hash) const;
 
+  void Prefetch(uint32_t h);
+
  private:
   uint32_t kTotalBits;
   uint32_t kNumBlocks;
@@ -69,6 +71,13 @@ inline void DynamicBloom::Add(const Slice& key) { AddHash(hash_func_(key)); }
 
 inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(hash_func_(key)));
+}
+
+inline void DynamicBloom::Prefetch(uint32_t h) {
+  if (kNumBlocks != 0) {
+    uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
+    PREFETCH(&(data_[b]), 0, 3);
+  }
 }
 
 inline bool DynamicBloom::MayContainHash(uint32_t h) const {

@@ -610,6 +610,13 @@ Status PlainTableReader::Next(uint32_t* offset, ParsedInternalKey* key,
   return Status::OK();
 }
 
+void PlainTableReader::Prepare(const Slice& target) {
+  if (enable_bloom_) {
+    uint32_t prefix_hash = GetSliceHash(GetPrefix(target));
+    bloom_.Prefetch(prefix_hash);
+  }
+}
+
 Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
                              void* arg,
                              bool (*saver)(void*, const ParsedInternalKey&,

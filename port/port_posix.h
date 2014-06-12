@@ -482,6 +482,8 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
 
 #define CACHE_LINE_SIZE 64U
 
+#define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+
 } // namespace port
 } // namespace rocksdb
 
