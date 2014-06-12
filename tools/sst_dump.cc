@@ -82,7 +82,9 @@ SstFileReader::SstFileReader(const std::string& file_path,
 }
 
 extern uint64_t kBlockBasedTableMagicNumber;
+extern uint64_t kLegacyBlockBasedTableMagicNumber;
 extern uint64_t kPlainTableMagicNumber;
+extern uint64_t kLegacyPlainTableMagicNumber;
 
 Status SstFileReader::NewTableReader(const std::string& file_path) {
   uint64_t magic_number;
@@ -104,8 +106,10 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
   }
 
   if (s.ok()) {
-    if (magic_number == kPlainTableMagicNumber) {
+    if (magic_number == kPlainTableMagicNumber ||
+        magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
+      options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
     }
     options_.comparator = &internal_comparator_;
     s = ReadTableProperties(magic_number, file_.get(), file_size);
@@ -136,7 +140,8 @@ Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
 Status SstFileReader::SetTableOptionsByMagicNumber(
     uint64_t table_magic_number) {
   assert(table_properties_);
-  if (table_magic_number == kBlockBasedTableMagicNumber) {
+  if (table_magic_number == kBlockBasedTableMagicNumber ||
+      table_magic_number == kLegacyBlockBasedTableMagicNumber) {
     options_.table_factory = std::make_shared<BlockBasedTableFactory>();
     fprintf(stdout, "Sst file format: block-based\n");
     auto& props = table_properties_->user_collected_properties;
@@ -149,7 +154,8 @@ Status SstFileReader::SetTableOptionsByMagicNumber(
         options_.prefix_extractor.reset(NewNoopTransform());
       }
     }
-  } else if (table_magic_number == kPlainTableMagicNumber) {
+  } else if (table_magic_number == kPlainTableMagicNumber ||
+             table_magic_number == kLegacyPlainTableMagicNumber) {
     options_.allow_mmap_reads = true;
     options_.table_factory = std::make_shared<PlainTableFactory>(
         table_properties_->fixed_key_len, 2, 0.8);
