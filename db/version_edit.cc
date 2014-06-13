@@ -95,8 +95,8 @@ void VersionEdit::EncodeTo(std::string* dst) const {
     const FileMetaData& f = new_files_[i].second;
     PutVarint32(dst, kNewFile2);
     PutVarint32(dst, new_files_[i].first);  // level
-    PutVarint64(dst, f.number);
-    PutVarint64(dst, f.file_size);
+    PutVarint64(dst, f.fd.GetNumber());
+    PutVarint64(dst, f.fd.GetFileSize());
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
     PutVarint64(dst, f.smallest_seqno);
@@ -230,12 +230,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
-      case kNewFile:
-        if (GetLevel(&input, &level, &msg) &&
-            GetVarint64(&input, &f.number) &&
-            GetVarint64(&input, &f.file_size) &&
+      case kNewFile: {
+        uint64_t number;
+        uint64_t file_size;
+        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
+            GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest)) {
+          f.fd = FileDescriptor(number, file_size);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -243,15 +245,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
-
-      case kNewFile2:
-        if (GetLevel(&input, &level, &msg) &&
-            GetVarint64(&input, &f.number) &&
-            GetVarint64(&input, &f.file_size) &&
+      }
+      case kNewFile2: {
+        uint64_t number;
+        uint64_t file_size;
+        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
+            GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &f.smallest_seqno) &&
-            GetVarint64(&input, &f.largest_seqno) ) {
+            GetVarint64(&input, &f.largest_seqno)) {
+          f.fd = FileDescriptor(number, file_size);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -259,6 +263,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
+      }
 
       case kColumnFamily:
         if (!GetVarint32(&input, &column_family_)) {
@@ -336,9 +341,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  AddFile: ");
     AppendNumberTo(&r, new_files_[i].first);
     r.append(" ");
-    AppendNumberTo(&r, f.number);
+    AppendNumberTo(&r, f.fd.GetNumber());
     r.append(" ");
-    AppendNumberTo(&r, f.file_size);
+    AppendNumberTo(&r, f.fd.GetFileSize());
     r.append(" ");
     r.append(f.smallest.DebugString(hex_key));
     r.append(" .. ");

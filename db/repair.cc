@@ -84,7 +84,7 @@ class Repairer {
     if (status.ok()) {
       unsigned long long bytes = 0;
       for (size_t i = 0; i < tables_.size(); i++) {
-        bytes += tables_[i].meta.file_size;
+        bytes += tables_[i].meta.fd.GetFileSize();
       }
       Log(options_.info_log,
           "**** Repaired rocksdb %s; "
@@ -230,7 +230,7 @@ class Repairer {
     // Do not record a version edit for this conversion to a Table
     // since ExtractMetaData() will also generate edits.
     FileMetaData meta;
-    meta.number = next_file_number_++;
+    meta.fd.number = next_file_number_++;
     ReadOptions ro;
     Iterator* iter = mem->NewIterator(ro, true /* enforce_total_order */);
     status = BuildTable(dbname_, env_, options_, storage_options_, table_cache_,
@@ -240,22 +240,20 @@ class Repairer {
     delete cf_mems_default;
     mem = nullptr;
     if (status.ok()) {
-      if (meta.file_size > 0) {
-        table_numbers_.push_back(meta.number);
+      if (meta.fd.GetFileSize() > 0) {
+        table_numbers_.push_back(meta.fd.GetNumber());
       }
     }
     Log(options_.info_log, "Log #%llu: %d ops saved to Table #%llu %s",
-        (unsigned long long) log,
-        counter,
-        (unsigned long long) meta.number,
-        status.ToString().c_str());
+        (unsigned long long)log, counter,
+        (unsigned long long)meta.fd.GetNumber(), status.ToString().c_str());
     return status;
   }
 
   void ExtractMetaData() {
     for (size_t i = 0; i < table_numbers_.size(); i++) {
       TableInfo t;
-      t.meta.number = table_numbers_[i];
+      t.meta.fd.number = table_numbers_[i];
       Status status = ScanTable(&t);
       if (!status.ok()) {
         std::string fname = TableFileName(dbname_, table_numbers_[i]);
@@ -270,13 +268,12 @@ class Repairer {
   }
 
   Status ScanTable(TableInfo* t) {
-    std::string fname = TableFileName(dbname_, t->meta.number);
+    std::string fname = TableFileName(dbname_, t->meta.fd.GetNumber());
     int counter = 0;
-    Status status = env_->GetFileSize(fname, &t->meta.file_size);
+    Status status = env_->GetFileSize(fname, &t->meta.fd.file_size);
     if (status.ok()) {
-      FileMetaData dummy_meta(t->meta.number, t->meta.file_size);
       Iterator* iter = table_cache_->NewIterator(
-          ReadOptions(), storage_options_, icmp_, dummy_meta);
+          ReadOptions(), storage_options_, icmp_, t->meta.fd);
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;
@@ -285,7 +282,7 @@ class Repairer {
         Slice key = iter->key();
         if (!ParseInternalKey(key, &parsed)) {
           Log(options_.info_log, "Table #%llu: unparsable key %s",
-              (unsigned long long) t->meta.number,
+              (unsigned long long)t->meta.fd.GetNumber(),
               EscapeString(key).c_str());
           continue;
         }
@@ -309,8 +306,7 @@ class Repairer {
       delete iter;
     }
     Log(options_.info_log, "Table #%llu: %d entries %s",
-        (unsigned long long) t->meta.number,
-        counter,
+        (unsigned long long)t->meta.fd.GetNumber(), counter,
         status.ToString().c_str());
     return status;
   }
@@ -339,9 +335,9 @@ class Repairer {
     for (size_t i = 0; i < tables_.size(); i++) {
       // TODO(opt): separate out into multiple levels
       const TableInfo& t = tables_[i];
-      edit_->AddFile(0, t.meta.number, t.meta.file_size,
-                    t.meta.smallest, t.meta.largest,
-                    t.min_sequence, t.max_sequence);
+      edit_->AddFile(0, t.meta.fd.GetNumber(), t.meta.fd.GetFileSize(),
+                     t.meta.smallest, t.meta.largest, t.min_sequence,
+                     t.max_sequence);
     }
 
     //fprintf(stderr, "NewDescriptor:\n%s\n", edit_.DebugString().c_str());

@@ -39,7 +39,7 @@ class LevelIterator : public Iterator {
       file_index_ = file_index;
       file_iter_.reset(cfd_->table_cache()->NewIterator(
           read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-          *(files_[file_index_]), nullptr /* table_reader_ptr */, false));
+          files_[file_index_]->fd, nullptr /* table_reader_ptr */, false));
     }
     valid_ = false;
   }
@@ -293,7 +293,7 @@ void ForwardIterator::RebuildIterators() {
   l0_iters_.reserve(l0_files.size());
   for (const auto* l0 : l0_files) {
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
-        read_options_, *cfd_->soptions(), cfd_->internal_comparator(), *l0));
+        read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd));
   }
   level_iters_.reserve(sv_->current->NumberLevels() - 1);
   for (int32_t level = 1; level < sv_->current->NumberLevels(); ++level) {

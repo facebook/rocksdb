@@ -644,8 +644,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   const char* kDumbDbName = "";
   for (auto file : state.sst_delete_files) {
     candidate_files.push_back(
-        TableFileName(kDumbDbName, file->number).substr(1)
-    );
+        TableFileName(kDumbDbName, file->fd.GetNumber()).substr(1));
     delete file;
   }
 
@@ -1370,14 +1369,14 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  meta.number = versions_->NewFileNumber();
-  pending_outputs_.insert(meta.number);
+  meta.fd.number = versions_->NewFileNumber();
+  pending_outputs_.insert(meta.fd.GetNumber());
   Iterator* iter = mem->NewIterator(ReadOptions(), true);
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mem->GetFirstSequenceNumber();
   Log(options_.info_log, "[%s] Level-0 table #%lu: started",
-      cfd->GetName().c_str(), (unsigned long)meta.number);
+      cfd->GetName().c_str(), (unsigned long)meta.fd.GetNumber());
 
   Status s;
   {
@@ -1391,27 +1390,28 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   }
 
   Log(options_.info_log, "[%s] Level-0 table #%lu: %lu bytes %s",
-      cfd->GetName().c_str(), (unsigned long)meta.number,
-      (unsigned long)meta.file_size, s.ToString().c_str());
+      cfd->GetName().c_str(), (unsigned long)meta.fd.GetNumber(),
+      (unsigned long)meta.fd.GetFileSize(), s.ToString().c_str());
   delete iter;
 
-  pending_outputs_.erase(meta.number);
+  pending_outputs_.erase(meta.fd.GetNumber());
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   int level = 0;
-  if (s.ok() && meta.file_size > 0) {
-    edit->AddFile(level, meta.number, meta.file_size,
-                  meta.smallest, meta.largest,
-                  meta.smallest_seqno, meta.largest_seqno);
+  if (s.ok() && meta.fd.GetFileSize() > 0) {
+    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetFileSize(),
+                  meta.smallest, meta.largest, meta.smallest_seqno,
+                  meta.largest_seqno);
   }
 
   InternalStats::CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
-  stats.bytes_written = meta.file_size;
+  stats.bytes_written = meta.fd.GetFileSize();
   stats.files_out_levelnp1 = 1;
   cfd->internal_stats()->AddCompactionStats(level, stats);
-  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES, meta.file_size);
+  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
+             meta.fd.GetFileSize());
   return s;
 }
 
@@ -1421,9 +1421,9 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  meta.number = versions_->NewFileNumber();
-  *filenumber = meta.number;
-  pending_outputs_.insert(meta.number);
+  meta.fd.number = versions_->NewFileNumber();
+  *filenumber = meta.fd.GetNumber();
+  pending_outputs_.insert(meta.fd.GetNumber());
 
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
@@ -1443,7 +1443,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     Iterator* iter = NewMergingIterator(&cfd->internal_comparator(),
                                         &memtables[0], memtables.size());
     Log(options_.info_log, "[%s] Level-0 flush table #%lu: started",
-        cfd->GetName().c_str(), (unsigned long)meta.number);
+        cfd->GetName().c_str(), (unsigned long)meta.fd.GetNumber());
 
     s = BuildTable(dbname_, env_, *cfd->options(), storage_options_,
                    cfd->table_cache(), iter, &meta, cfd->internal_comparator(),
@@ -1452,8 +1452,8 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     LogFlush(options_.info_log);
     delete iter;
     Log(options_.info_log, "[%s] Level-0 flush table #%lu: %lu bytes %s",
-        cfd->GetName().c_str(), (unsigned long)meta.number,
-        (unsigned long)meta.file_size, s.ToString().c_str());
+        cfd->GetName().c_str(), (unsigned long)meta.fd.GetFileSize(),
+        (unsigned long)meta.fd.GetFileSize(), s.ToString().c_str());
 
     if (!options_.disableDataSync) {
       db_directory_->Fsync();
@@ -1477,7 +1477,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   int level = 0;
-  if (s.ok() && meta.file_size > 0) {
+  if (s.ok() && meta.fd.GetFileSize() > 0) {
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
     // if we have more than 1 background thread, then we cannot
@@ -1488,16 +1488,17 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
         cfd->options()->compaction_style == kCompactionStyleLevel) {
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
-    edit->AddFile(level, meta.number, meta.file_size,
-                  meta.smallest, meta.largest,
-                  meta.smallest_seqno, meta.largest_seqno);
+    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetFileSize(),
+                  meta.smallest, meta.largest, meta.smallest_seqno,
+                  meta.largest_seqno);
   }
 
   InternalStats::CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
-  stats.bytes_written = meta.file_size;
+  stats.bytes_written = meta.fd.GetFileSize();
   cfd->internal_stats()->AddCompactionStats(level, stats);
-  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES, meta.file_size);
+  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
+             meta.fd.GetFileSize());
   return s;
 }
 
@@ -1688,9 +1689,10 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : cfd->current()->files_[level]) {
-      edit.DeleteFile(level, f->number);
-      edit.AddFile(to_level, f->number, f->file_size, f->smallest, f->largest,
-                   f->smallest_seqno, f->largest_seqno);
+      edit.DeleteFile(level, f->fd.GetNumber());
+      edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetFileSize(),
+                   f->smallest, f->largest, f->smallest_seqno,
+                   f->largest_seqno);
     }
     Log(options_.info_log, "[%s] Apply version edit:\n%s",
         cfd->GetName().c_str(), edit.DebugString().data());
@@ -2172,7 +2174,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     assert(c->column_family_data()->options()->compaction_style ==
            kCompactionStyleFIFO);
     for (const auto& f : *c->inputs(0)) {
-      c->edit()->DeleteFile(c->level(), f->number);
+      c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
     status = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
                                     db_directory_.get());
@@ -2186,21 +2188,21 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
-    c->edit()->DeleteFile(c->level(), f->number);
-    c->edit()->AddFile(c->level() + 1, f->number, f->file_size,
-                       f->smallest, f->largest,
-                       f->smallest_seqno, f->largest_seqno);
+    c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+    c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetFileSize(),
+                       f->smallest, f->largest, f->smallest_seqno,
+                       f->largest_seqno);
     status = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
                                     db_directory_.get());
     InstallSuperVersion(c->column_family_data(), deletion_state);
 
     Version::LevelSummaryStorage tmp;
-    LogToBuffer(log_buffer, "[%s] Moved #%lld to level-%d %lld bytes %s: %s\n",
-                c->column_family_data()->GetName().c_str(),
-                static_cast<unsigned long long>(f->number), c->level() + 1,
-                static_cast<unsigned long long>(f->file_size),
-                status.ToString().c_str(),
-                c->input_version()->LevelSummary(&tmp));
+    LogToBuffer(
+        log_buffer, "[%s] Moved #%lld to level-%d %lld bytes %s: %s\n",
+        c->column_family_data()->GetName().c_str(),
+        static_cast<unsigned long long>(f->fd.GetNumber()), c->level() + 1,
+        static_cast<unsigned long long>(f->fd.GetFileSize()),
+        status.ToString().c_str(), c->input_version()->LevelSummary(&tmp));
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   } else {
@@ -2394,7 +2396,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
     ColumnFamilyData* cfd = compact->compaction->column_family_data();
-    FileMetaData meta(output_number, current_bytes);
+    FileDescriptor meta(output_number, current_bytes);
     Iterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), storage_options_, cfd->internal_comparator(), meta);
     s = iter->status();
@@ -3094,15 +3096,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   stats.files_out_levelnp1 = num_output_files;
 
   for (int i = 0; i < compact->compaction->num_input_files(0); i++) {
-    stats.bytes_readn += compact->compaction->input(0, i)->file_size;
+    stats.bytes_readn += compact->compaction->input(0, i)->fd.GetFileSize();
     RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
-               compact->compaction->input(0, i)->file_size);
+               compact->compaction->input(0, i)->fd.GetFileSize());
   }
 
   for (int i = 0; i < compact->compaction->num_input_files(1); i++) {
-    stats.bytes_readnp1 += compact->compaction->input(1, i)->file_size;
+    stats.bytes_readnp1 += compact->compaction->input(1, i)->fd.GetFileSize();
     RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
-               compact->compaction->input(1, i)->file_size);
+               compact->compaction->input(1, i)->fd.GetFileSize());
   }
 
   for (int i = 0; i < num_output_files; i++) {

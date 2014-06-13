@@ -19,11 +19,28 @@ namespace rocksdb {
 
 class VersionSet;
 
+// A copyable structure contains information needed to read data from an SST
+// file. It can contains a pointer to a table reader opened for the file, or
+// file number and size, which can be used to create a new table reader for it.
+// The behavior is undefined when a copied of the structure is used when the
+// file is not in any live version any more.
+struct FileDescriptor {
+  uint64_t number;
+  uint64_t file_size;  // File size in bytes
+  // Table reader in table_reader_handle
+  TableReader* table_reader;
+
+  FileDescriptor(uint64_t number, uint64_t file_size)
+      : number(number), file_size(file_size), table_reader(nullptr) {}
+
+  uint64_t GetNumber() const { return number; }
+  uint64_t GetFileSize() const { return file_size; }
+};
+
 struct FileMetaData {
   int refs;
+  FileDescriptor fd;
   int allowed_seeks;          // Seeks allowed until compaction
-  uint64_t number;
-  uint64_t file_size;         // File size in bytes
   InternalKey smallest;       // Smallest internal key served by table
   InternalKey largest;        // Largest internal key served by table
   bool being_compacted;       // Is this file undergoing compaction?
@@ -32,18 +49,13 @@ struct FileMetaData {
 
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
-  // Table reader in table_reader_handle
-  TableReader* table_reader;
 
-  FileMetaData(uint64_t number, uint64_t file_size)
+  FileMetaData()
       : refs(0),
+        fd(0, 0),
         allowed_seeks(1 << 30),
-        number(number),
-        file_size(file_size),
         being_compacted(false),
-        table_reader_handle(nullptr),
-        table_reader(nullptr) {}
-  FileMetaData() : FileMetaData(0, 0) {}
+        table_reader_handle(nullptr) {}
 };
 
 class VersionEdit {
@@ -89,8 +101,7 @@ class VersionEdit {
                const SequenceNumber& largest_seqno) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
-    f.number = file;
-    f.file_size = file_size;
+    f.fd = FileDescriptor(file, file_size);
     f.smallest = smallest;
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;
