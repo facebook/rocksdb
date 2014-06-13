@@ -16,8 +16,7 @@ single database.
 
 Start with example usage here: https://github.com/facebook/rocksdb/tree/master/examples
 
-See [doc/index.html](https://github.com/facebook/rocksdb/blob/master/doc/index.html) and
-[github wiki](https://github.com/facebook/rocksdb/wiki) for more explanation.
+See the [github wiki](https://github.com/facebook/rocksdb/wiki) for more explanation.
 
 The public interface is in `include/`.  Callers should not include or
 rely on the details of any other header files in this package.  Those
