@@ -498,12 +498,13 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       info_log_((cfd == nullptr) ? nullptr : cfd->options()->info_log.get()),
       db_statistics_((cfd == nullptr) ? nullptr
                                       : cfd->options()->statistics.get()),
+      // cfd is nullptr if Version is dummy
+      num_levels_(cfd == nullptr ? 0 : cfd->NumberLevels()),
+      num_non_empty_levels_(num_levels_),
       vset_(vset),
       next_(this),
       prev_(this),
       refs_(0),
-      // cfd is nullptr if Version is dummy
-      num_levels_(cfd == nullptr ? 0 : cfd->NumberLevels()),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
@@ -551,7 +552,7 @@ void Version::Get(const ReadOptions& options,
 
   int32_t search_left_bound = 0;
   int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
-  for (int level = 0; level < num_levels_; ++level) {
+  for (int level = 0; level < num_non_empty_levels_; ++level) {
     int num_files = files_[level].size();
     if (num_files == 0) {
       // When current level is empty, the search bound generated from upper
@@ -617,31 +618,46 @@ void Version::Get(const ReadOptions& options,
 
     for (int32_t i = start_index; i < num_files;) {
       FileMetaData* f = files[i];
-
-      // Check if key is within a file's range. If search left bound and right
-      // bound point to the same find, we are sure key falls in range.
-      assert(level == 0 || i == start_index ||
-             user_comparator_->Compare(user_key, f->smallest.user_key()) <= 0);
-
-      int cmp_smallest = user_comparator_->Compare(user_key, f->smallest.user_key());
       int cmp_largest = -1;
-      if (cmp_smallest >= 0) {
-        cmp_largest = user_comparator_->Compare(user_key, f->largest.user_key());
-      }
 
-      // Setup file search bound for the next level based on the comparison
-      // results
-      if (level > 0) {
-        file_indexer_.GetNextLevelIndex(level, i, cmp_smallest, cmp_largest,
-            &search_left_bound, &search_right_bound);
-      }
-      // Key falls out of current file's range
-      if (cmp_smallest < 0 || cmp_largest > 0) {
-        if (level == 0) {
-          ++i;
-          continue;
-        } else {
-          break;
+      // Do key range filtering of files or/and fractional cascading if:
+      // (1) not all the files are in level 0, or
+      // (2) there are more than 3 Level 0 files
+      // If there are only 3 or less level 0 files in the system, we skip the
+      // key range filtering. In this case, more likely, the system is highly
+      // tuned to minimize number of tables queried by each query, so it is
+      // unlikely that key range filtering is more efficient than querying the
+      // files.
+      if (num_non_empty_levels_ > 1 || num_files > 3) {
+        // Check if key is within a file's range. If search left bound and right
+        // bound point to the same find, we are sure key falls in range.
+        assert(
+            level == 0 || i == start_index
+                || user_comparator_->Compare(user_key, f->smallest.user_key())
+                    <= 0);
+
+        int cmp_smallest = user_comparator_->Compare(user_key,
+                                                     f->smallest.user_key());
+        if (cmp_smallest >= 0) {
+          cmp_largest = user_comparator_->Compare(user_key,
+                                                  f->largest.user_key());
+        }
+
+        // Setup file search bound for the next level based on the comparison
+        // results
+        if (level > 0) {
+          file_indexer_.GetNextLevelIndex(level, i, cmp_smallest, cmp_largest,
+                                          &search_left_bound,
+                                          &search_right_bound);
+        }
+        // Key falls out of current file's range
+        if (cmp_smallest < 0 || cmp_largest > 0) {
+          if (level == 0) {
+            ++i;
+            continue;
+          } else {
+            break;
+          }
         }
       }
 
@@ -740,6 +756,12 @@ bool Version::UpdateStats(const GetStats& stats) {
     }
   }
   return false;
+}
+
+void Version::PrepareApply(std::vector<uint64_t>& size_being_compacted) {
+  ComputeCompactionScore(size_being_compacted);
+  UpdateFilesBySize();
+  UpdateNumNonEmptyLevels();
 }
 
 void Version::ComputeCompactionScore(
@@ -843,6 +865,17 @@ bool CompareSeqnoDescending(const Version::Fsize& first,
 }
 
 } // anonymous namespace
+
+void Version::UpdateNumNonEmptyLevels() {
+  num_non_empty_levels_ = num_levels_;
+  for (int i = num_levels_ - 1; i >= 0; i--) {
+    if (files_[i].size() != 0) {
+      return;
+    } else {
+      num_non_empty_levels_ = i;
+    }
+  }
+}
 
 void Version::UpdateFilesBySize() {
   if (cfd_->options()->compaction_style == kCompactionStyleFIFO) {
@@ -1735,10 +1768,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     }
 
     if (!edit->IsColumnFamilyManipulation()) {
-      // The calls to ComputeCompactionScore and UpdateFilesBySize are cpu-heavy
-      // and is best called outside the mutex.
-      v->ComputeCompactionScore(size_being_compacted);
-      v->UpdateFilesBySize();
+      // This is cpu-heavy operations, which should be called outside mutex.
+      v->PrepareApply(size_being_compacted);
     }
 
     // Write new record to MANIFEST log
@@ -2155,8 +2186,7 @@ Status VersionSet::Recover(
       // Install recovered version
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->ComputeCompactionScore(size_being_compacted);
-      v->UpdateFilesBySize();
+      v->PrepareApply(size_being_compacted);
       AppendVersion(cfd, v);
     }
 
@@ -2489,8 +2519,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       builder->SaveTo(v);
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->ComputeCompactionScore(size_being_compacted);
-      v->UpdateFilesBySize();
+      v->PrepareApply(size_being_compacted);
       delete builder;
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",

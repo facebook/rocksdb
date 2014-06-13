@@ -108,6 +108,10 @@ class Version {
   // a lock. Once a version is saved to current_, call only with mutex held
   void ComputeCompactionScore(std::vector<uint64_t>& size_being_compacted);
 
+  // Update scores, pre-calculated variables. It needs to be called before
+  // applying the version to the version set.
+  void PrepareApply(std::vector<uint64_t>& size_being_compacted);
+
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
   void Ref();
@@ -231,6 +235,9 @@ class Version {
   bool PrefixMayMatch(const ReadOptions& options, Iterator* level_iter,
                       const Slice& internal_prefix) const;
 
+  // Update num_non_empty_levels_.
+  void UpdateNumNonEmptyLevels();
+
   // Sort all files for this version based on their file size and
   // record results in files_by_size_. The largest files are listed first.
   void UpdateFilesBySize();
@@ -242,11 +249,13 @@ class Version {
   const MergeOperator* merge_operator_;
   Logger* info_log_;
   Statistics* db_statistics_;
+  int num_levels_;              // Number of levels
+  int num_non_empty_levels_;    // Number of levels. Any level larger than it
+                                // is guaranteed to be empty.
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
-  int num_levels_;              // Number of levels
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys
