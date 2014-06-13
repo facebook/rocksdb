@@ -27,6 +27,7 @@
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/block_hash_index.h"
+#include "table/block_prefix_index.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
@@ -194,7 +195,8 @@ class HashIndexReader : public IndexReader {
                        const Footer& footer, RandomAccessFile* file, Env* env,
                        const Comparator* comparator,
                        const BlockHandle& index_handle,
-                       Iterator* meta_index_iter, IndexReader** index_reader) {
+                       Iterator* meta_index_iter, IndexReader** index_reader,
+                       bool hash_index_allow_collision) {
     Block* index_block = nullptr;
     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
                                &index_block, env);
@@ -203,12 +205,21 @@ class HashIndexReader : public IndexReader {
       return s;
     }
 
+    // Note, failure to create prefix hash index does not need to be a
+    // hard error. We can still fall back to the original binary search index.
+    // So, Create will succeed regardless, from this point on.
+
+    auto new_index_reader =
+        new HashIndexReader(comparator, index_block);
+    *index_reader = new_index_reader;
+
     // Get prefixes block
     BlockHandle prefixes_handle;
     s = FindMetaBlock(meta_index_iter, kHashIndexPrefixesBlock,
                       &prefixes_handle);
     if (!s.ok()) {
-      return s;
+      // TODO: log error
+      return Status::OK();
     }
 
     // Get index metadata block
@@ -216,7 +227,8 @@ class HashIndexReader : public IndexReader {
     s = FindMetaBlock(meta_index_iter, kHashIndexPrefixesMetadataBlock,
                       &prefixes_meta_handle);
     if (!s.ok()) {
-      return s;
+      // TODO: log error
+      return Status::OK();
     }
 
     // Read contents for the blocks
@@ -234,27 +246,47 @@ class HashIndexReader : public IndexReader {
       if (prefixes_contents.heap_allocated) {
         delete[] prefixes_contents.data.data();
       }
-      return s;
+      // TODO: log error
+      return Status::OK();
     }
 
-    auto new_index_reader =
-        new HashIndexReader(comparator, index_block, prefixes_contents);
-    BlockHashIndex* hash_index = nullptr;
-    s = CreateBlockHashIndex(hash_key_extractor, prefixes_contents.data,
-                             prefixes_meta_contents.data, &hash_index);
-    if (!s.ok()) {
-      return s;
+    if (!hash_index_allow_collision) {
+      // TODO: deprecate once hash_index_allow_collision proves to be stable.
+      BlockHashIndex* hash_index = nullptr;
+      s = CreateBlockHashIndex(hash_key_extractor,
+                               prefixes_contents.data,
+                               prefixes_meta_contents.data,
+                               &hash_index);
+      // TODO: log error
+      if (s.ok()) {
+        new_index_reader->index_block_->SetBlockHashIndex(hash_index);
+        new_index_reader->OwnPrefixesContents(prefixes_contents);
+      }
+    } else {
+      BlockPrefixIndex* prefix_index = nullptr;
+      s = BlockPrefixIndex::Create(hash_key_extractor,
+                                   prefixes_contents.data,
+                                   prefixes_meta_contents.data,
+                                   &prefix_index);
+      // TODO: log error
+      if (s.ok()) {
+        new_index_reader->index_block_->SetBlockPrefixIndex(prefix_index);
+      }
     }
 
-    new_index_reader->index_block_->SetBlockHashIndex(hash_index);
-
-    *index_reader = new_index_reader;
-
-    // release resources
+    // Always release prefix meta block
     if (prefixes_meta_contents.heap_allocated) {
       delete[] prefixes_meta_contents.data.data();
     }
-    return s;
+
+    // Release prefix content block if we don't own it.
+    if (!new_index_reader->own_prefixes_contents_) {
+      if (prefixes_contents.heap_allocated) {
+        delete[] prefixes_contents.data.data();
+      }
+    }
+
+    return Status::OK();
   }
 
   virtual Iterator* NewIterator() override {
@@ -264,21 +296,26 @@ class HashIndexReader : public IndexReader {
   virtual size_t size() const override { return index_block_->size(); }
 
  private:
-  HashIndexReader(const Comparator* comparator, Block* index_block,
-                  const BlockContents& prefixes_contents)
+  HashIndexReader(const Comparator* comparator, Block* index_block)
       : IndexReader(comparator),
         index_block_(index_block),
-        prefixes_contents_(prefixes_contents) {
+        own_prefixes_contents_(false) {
     assert(index_block_ != nullptr);
   }
 
   ~HashIndexReader() {
-    if (prefixes_contents_.heap_allocated) {
+    if (own_prefixes_contents_ && prefixes_contents_.heap_allocated) {
       delete[] prefixes_contents_.data.data();
     }
   }
 
+  void OwnPrefixesContents(const BlockContents& prefixes_contents) {
+    prefixes_contents_ = prefixes_contents;
+    own_prefixes_contents_ = true;
+  }
+
   std::unique_ptr<Block> index_block_;
+  bool own_prefixes_contents_;
   BlockContents prefixes_contents_;
 };
 
@@ -308,6 +345,7 @@ struct BlockBasedTable::Rep {
 
   std::shared_ptr<const TableProperties> table_properties;
   BlockBasedTableOptions::IndexType index_type;
+  bool hash_index_allow_collision;
   // TODO(kailiu) It is very ugly to use internal key in table, since table
   // module should not be relying on db module. However to make things easier
   // and compatible with existing code, we introduce a wrapper that allows
@@ -407,6 +445,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
+  rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
   SetupCacheKeyPrefix(rep);
   unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
 
@@ -1122,7 +1161,8 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
           new InternalKeySliceTransform(rep_->options.prefix_extractor.get()));
       return HashIndexReader::Create(
           rep_->internal_prefix_transform.get(), footer, file, env, comparator,
-          footer.index_handle(), meta_index_iter, index_reader);
+          footer.index_handle(), meta_index_iter, index_reader,
+          rep_->hash_index_allow_collision);
     }
     default: {
       std::string error_message =

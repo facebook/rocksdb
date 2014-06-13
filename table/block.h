@@ -19,6 +19,7 @@ namespace rocksdb {
 struct BlockContents;
 class Comparator;
 class BlockHashIndex;
+class BlockPrefixIndex;
 
 class Block {
  public:
@@ -41,6 +42,7 @@ class Block {
   // the key that is just pass the target key.
   Iterator* NewIterator(const Comparator* comparator);
   void SetBlockHashIndex(BlockHashIndex* hash_index);
+  void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
 
  private:
   const char* data_;
@@ -50,6 +52,7 @@ class Block {
   bool cachable_;
   CompressionType compression_type_;
   std::unique_ptr<BlockHashIndex> hash_index_;
+  std::unique_ptr<BlockPrefixIndex> prefix_index_;
 
   // No copying allowed
   Block(const Block&);
