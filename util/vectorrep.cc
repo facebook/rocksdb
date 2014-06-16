@@ -252,7 +252,7 @@ void VectorRep::Get(const LookupKey& k, void* callback_args,
     bucket.reset(new Bucket(*bucket_));  // make a copy
   }
   VectorRep::Iterator iter(vector_rep, immutable_ ? bucket_ : bucket, compare_);
-  rwlock_.Unlock();
+  rwlock_.ReadUnlock();
 
   for (iter.Seek(k.user_key(), k.memtable_key().data());
        iter.Valid() && callback_func(callback_args, iter.key()); iter.Next()) {

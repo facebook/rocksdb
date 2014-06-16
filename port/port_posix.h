@@ -120,7 +120,8 @@ class RWMutex {
 
   void ReadLock();
   void WriteLock();
-  void Unlock();
+  void ReadUnlock();
+  void WriteUnlock();
   void AssertHeld() { }
 
  private:

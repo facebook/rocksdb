@@ -46,7 +46,7 @@ class ReadLock {
   explicit ReadLock(port::RWMutex *mu) : mu_(mu) {
     this->mu_->ReadLock();
   }
-  ~ReadLock() { this->mu_->Unlock(); }
+  ~ReadLock() { this->mu_->ReadUnlock(); }
 
  private:
   port::RWMutex *const mu_;
@@ -66,7 +66,7 @@ class WriteLock {
   explicit WriteLock(port::RWMutex *mu) : mu_(mu) {
     this->mu_->WriteLock();
   }
-  ~WriteLock() { this->mu_->Unlock(); }
+  ~WriteLock() { this->mu_->WriteUnlock(); }
 
  private:
   port::RWMutex *const mu_;
