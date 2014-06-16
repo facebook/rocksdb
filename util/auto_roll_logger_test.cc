@@ -285,6 +285,18 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
   inFile.close();
 }
 
+TEST(AutoRollLoggerTest, LogFileExistence) {
+  rocksdb::DB* db;
+  rocksdb::Options options;
+  string deleteCmd = "rm -rf " + kTestDir;
+  ASSERT_EQ(system(deleteCmd.c_str()), 0);
+  options.max_log_file_size = 100 * 1024 * 1024;
+  options.create_if_missing = true;
+  ASSERT_OK(rocksdb::DB::Open(options, kTestDir, &db));
+  ASSERT_TRUE(env->FileExists(kLogFile));
+  delete db;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
