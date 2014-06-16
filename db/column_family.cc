@@ -92,6 +92,9 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
   if (result.soft_rate_limit > result.hard_rate_limit) {
     result.soft_rate_limit = result.hard_rate_limit;
   }
+  if (result.max_write_buffer_number < 2) {
+    result.max_write_buffer_number = 2;
+  }
   if (!result.prefix_extractor) {
     assert(result.memtable_factory);
     Slice name = result.memtable_factory->Name();

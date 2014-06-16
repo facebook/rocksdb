@@ -184,8 +184,9 @@ struct ColumnFamilyOptions {
   size_t write_buffer_size;
 
   // The maximum number of write buffers that are built up in memory.
-  // The default is 2, so that when 1 write buffer is being flushed to
-  // storage, new writes can continue to the other write buffer.
+  // The default and the minimum number is 2, so that when 1 write buffer
+  // is being flushed to storage, new writes can continue to the other
+  // write buffer.
   // Default: 2
   int max_write_buffer_number;
 
