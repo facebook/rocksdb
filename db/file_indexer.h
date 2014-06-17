@@ -55,7 +55,11 @@ class FileIndexer {
   void UpdateIndex(std::vector<FileMetaData*>* const files);
 
   enum {
+#if !defined(_MSC_VER)
     kLevelMaxIndex = std::numeric_limits<int32_t>::max()
+#else
+    kLevelMaxIndex = INT32_MAX
+#endif
   };
 
  private:
