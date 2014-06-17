@@ -38,7 +38,13 @@ class StatisticsImpl : public Statistics {
     char padding[64 - sizeof(std::atomic_uint_fast64_t)];
   };
 
+#if defined(_MSC_VER)
+  __declspec(align(64))
+#endif
   Ticker tickers_[TICKER_ENUM_MAX] __attribute__((aligned(64)));
+#if defined(_MSC_VER)
+  __declspec(align(64))
+#endif
   HistogramImpl histograms_[HISTOGRAM_ENUM_MAX] __attribute__((aligned(64)));
 };
 
