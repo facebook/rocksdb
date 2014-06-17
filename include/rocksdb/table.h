@@ -203,4 +203,19 @@ class TableFactory {
       WritableFile* file, CompressionType compression_type) const = 0;
 };
 
+#ifndef ROCKSDB_LITE
+// Create a special table factory that can open both of block based table format
+// and plain table, based on setting inside the SST files. It should be used to
+// convert a DB from one table format to another.
+// @block_based_table_factory:  block based table factory to use. If NULL, use
+//                              a default one.
+// @plain_table_factory: plain table factory to use. If NULL, use a default one.
+// @table_factory_to_write: the table factory used when writing to new files.
+extern TableFactory* NewAdaptiveTableFactory(
+    std::shared_ptr<TableFactory> block_based_table_factory = nullptr,
+    std::shared_ptr<TableFactory> plain_table_factory = nullptr,
+    std::shared_ptr<TableFactory> table_factory_to_write = nullptr);
+
+#endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb

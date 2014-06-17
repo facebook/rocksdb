@@ -847,6 +847,47 @@ TEST(PlainTableDBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
 }
 
+TEST(PlainTableDBTest, AdaptiveTable) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  options.table_factory.reset(NewPlainTableFactory());
+  DestroyAndReopen(&options);
+
+  ASSERT_OK(Put("1000000000000foo", "v1"));
+  ASSERT_OK(Put("0000000000000bar", "v2"));
+  ASSERT_OK(Put("1000000000000foo", "v3"));
+  dbfull()->TEST_FlushMemTable();
+
+  options.create_if_missing = false;
+  std::shared_ptr<TableFactory> dummy_factory;
+  options.table_factory.reset(
+      NewAdaptiveTableFactory(dummy_factory, dummy_factory, false));
+  Reopen(&options);
+  ASSERT_EQ("v3", Get("1000000000000foo"));
+  ASSERT_EQ("v2", Get("0000000000000bar"));
+
+  ASSERT_OK(Put("2000000000000foo", "v4"));
+  ASSERT_OK(Put("3000000000000bar", "v5"));
+  dbfull()->TEST_FlushMemTable();
+  ASSERT_EQ("v4", Get("2000000000000foo"));
+  ASSERT_EQ("v5", Get("3000000000000bar"));
+
+  Reopen(&options);
+  ASSERT_EQ("v3", Get("1000000000000foo"));
+  ASSERT_EQ("v2", Get("0000000000000bar"));
+  ASSERT_EQ("v4", Get("2000000000000foo"));
+  ASSERT_EQ("v5", Get("3000000000000bar"));
+
+  options.table_factory.reset(NewBlockBasedTableFactory());
+  Reopen(&options);
+  ASSERT_NE("v3", Get("1000000000000foo"));
+
+  options.table_factory.reset(NewPlainTableFactory());
+  Reopen(&options);
+  ASSERT_NE("v5", Get("3000000000000bar"));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
