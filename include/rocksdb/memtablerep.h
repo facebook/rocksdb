@@ -243,8 +243,14 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 //                      huge pages for it to be allocated, like:
 //                          sysctl -w vm.nr_hugepages=20
 //                      See linux doc Documentation/vm/hugetlbpage.txt
+// @bucket_entries_logging_threshold: if number of entries in one bucket
+//                                    exceeds this number, log about it.
+// @if_log_bucket_dist_when_flash: if true, log distribution of number of
+//                                 entries when flushing.
 extern MemTableRepFactory* NewHashLinkListRepFactory(
-    size_t bucket_count = 50000, size_t huge_page_tlb_size = 0);
+    size_t bucket_count = 50000, size_t huge_page_tlb_size = 0,
+    int bucket_entries_logging_threshold = 4096,
+    bool if_log_bucket_dist_when_flash = true);
 
 // This factory creates a cuckoo-hashing based mem-table representation.
 // Cuckoo-hash is a closed-hash strategy, in which all key/value pairs
