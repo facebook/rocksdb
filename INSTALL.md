@@ -74,7 +74,7 @@ depend on gflags. You will need to have gflags installed to run `make all`.
             * run `brew tap homebrew/dupes; brew install gcc47 --use-llvm` to install gcc 4.7 (or higher).
     * Install zlib, bzip2 and snappy libraries for compression.
     * Install gflags. We have included a script
-    `build_tools/mac-install-gflags.sh`, which should automatically install it.
+    `build_tools/mac-install-gflags.sh`, which should automatically install it (execute this file instead of runing using "source" command).
     If you installed gflags by other means (for example, `brew install gflags`),
     please set `LIBRARY_PATH` and `CPATH` accordingly.
     * Please note that some of the optimizations/features are disabled in OSX.
