@@ -319,9 +319,9 @@ Status UncompressBlockContents(const char* data, size_t n,
     }
     case kZlibCompression:
       ubuf = port::Zlib_Uncompress(data, n, &decompress_size);
-      static char zlib_corrupt_msg[] =
-        "Zlib not supported or corrupted Zlib compressed block contents";
       if (!ubuf) {
+        static char zlib_corrupt_msg[] =
+          "Zlib not supported or corrupted Zlib compressed block contents";
         return Status::Corruption(zlib_corrupt_msg);
       }
       result->data = Slice(ubuf, decompress_size);
@@ -330,9 +330,9 @@ Status UncompressBlockContents(const char* data, size_t n,
       break;
     case kBZip2Compression:
       ubuf = port::BZip2_Uncompress(data, n, &decompress_size);
-      static char bzip2_corrupt_msg[] =
-        "Bzip2 not supported or corrupted Bzip2 compressed block contents";
       if (!ubuf) {
+        static char bzip2_corrupt_msg[] =
+          "Bzip2 not supported or corrupted Bzip2 compressed block contents";
         return Status::Corruption(bzip2_corrupt_msg);
       }
       result->data = Slice(ubuf, decompress_size);
@@ -341,9 +341,9 @@ Status UncompressBlockContents(const char* data, size_t n,
       break;
     case kLZ4Compression:
       ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
-      static char lz4_corrupt_msg[] =
-          "LZ4 not supported or corrupted LZ4 compressed block contents";
       if (!ubuf) {
+        static char lz4_corrupt_msg[] =
+          "LZ4 not supported or corrupted LZ4 compressed block contents";
         return Status::Corruption(lz4_corrupt_msg);
       }
       result->data = Slice(ubuf, decompress_size);
@@ -352,9 +352,9 @@ Status UncompressBlockContents(const char* data, size_t n,
       break;
     case kLZ4HCCompression:
       ubuf = port::LZ4_Uncompress(data, n, &decompress_size);
-      static char lz4hc_corrupt_msg[] =
-          "LZ4HC not supported or corrupted LZ4HC compressed block contents";
       if (!ubuf) {
+        static char lz4hc_corrupt_msg[] =
+          "LZ4HC not supported or corrupted LZ4HC compressed block contents";
         return Status::Corruption(lz4hc_corrupt_msg);
       }
       result->data = Slice(ubuf, decompress_size);
