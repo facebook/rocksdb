@@ -366,7 +366,7 @@ static bool SaveValue(void* arg, const char* entry) {
           s->value->assign(v.data(), v.size());
         }
         if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->Unlock();
+          s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
         return false;
