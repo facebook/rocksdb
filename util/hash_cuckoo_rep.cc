@@ -109,7 +109,7 @@ class HashCuckooRep : public MemTableRep {
 
   class Iterator : public MemTableRep::Iterator {
     std::shared_ptr<std::vector<const char*>> bucket_;
-    typename std::vector<const char*>::const_iterator mutable cit_;
+    std::vector<const char*>::const_iterator mutable cit_;
     const KeyComparator& compare_;
     std::string tmp_;  // For passing to EncodeKey
     bool mutable sorted_;
