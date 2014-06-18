@@ -11,6 +11,7 @@
 #include <algorithm>
 #include "util/testharness.h"
 #include "util/auto_roll_logger.h"
+#include "util/posix_logger.h"
 #include "rocksdb/db.h"
 #include <sys/stat.h>
 #include <errno.h>
