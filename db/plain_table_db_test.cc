@@ -862,8 +862,10 @@ TEST(PlainTableDBTest, AdaptiveTable) {
 
   options.create_if_missing = false;
   std::shared_ptr<TableFactory> dummy_factory;
-  options.table_factory.reset(
-      NewAdaptiveTableFactory(dummy_factory, dummy_factory, false));
+  std::shared_ptr<TableFactory> block_based_factory(
+      NewBlockBasedTableFactory());
+  options.table_factory.reset(NewAdaptiveTableFactory(
+      block_based_factory, dummy_factory, dummy_factory));
   Reopen(&options);
   ASSERT_EQ("v3", Get("1000000000000foo"));
   ASSERT_EQ("v2", Get("0000000000000bar"));
