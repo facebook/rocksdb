@@ -34,6 +34,7 @@
   #include <endian.h>
 #endif
 #include <pthread.h>
+#include <sys/time.h>
 #ifdef SNAPPY
 #include <snappy.h>
 #endif

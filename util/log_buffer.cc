@@ -4,8 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "util/log_buffer.h"
-
-#include <sys/time.h>
+#include "port/port.h"
 
 namespace rocksdb {
 
