@@ -263,17 +263,38 @@ class IterKey {
     key_size_ = size;
   }
 
+  void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
+                      SequenceNumber s,
+                      ValueType value_type = kValueTypeForSeek) {
+    size_t psize = key_prefix.size();
+    size_t usize = user_key.size();
+    EnlargeBufferIfNeeded(psize + usize + sizeof(uint64_t));
+    if (psize > 0) {
+      memcpy(key_, key_prefix.data(), psize);
+    }
+    memcpy(key_ + psize, user_key.data(), usize);
+    EncodeFixed64(key_ + usize + psize, PackSequenceAndType(s, value_type));
+    key_size_ = psize + usize + sizeof(uint64_t);
+  }
+
   void SetInternalKey(const Slice& user_key, SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek) {
-    size_t usize = user_key.size();
-    EnlargeBufferIfNeeded(usize + sizeof(uint64_t));
-    memcpy(key_, user_key.data(), usize);
-    EncodeFixed64(key_ + usize, PackSequenceAndType(s, value_type));
-    key_size_ = usize + sizeof(uint64_t);
+    SetInternalKey(Slice(), user_key, s, value_type);
+  }
+
+  void Reserve(size_t size) {
+    EnlargeBufferIfNeeded(size);
+    key_size_ = size;
   }
 
   void SetInternalKey(const ParsedInternalKey& parsed_key) {
-    SetInternalKey(parsed_key.user_key, parsed_key.sequence, parsed_key.type);
+    SetInternalKey(Slice(), parsed_key);
+  }
+
+  void SetInternalKey(const Slice& key_prefix,
+                      const ParsedInternalKey& parsed_key_suffix) {
+    SetInternalKey(key_prefix, parsed_key_suffix.user_key,
+                   parsed_key_suffix.sequence, parsed_key_suffix.type);
   }
 
  private:

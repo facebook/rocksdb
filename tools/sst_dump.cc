@@ -157,9 +157,8 @@ Status SstFileReader::SetTableOptionsByMagicNumber(
   } else if (table_magic_number == kPlainTableMagicNumber ||
              table_magic_number == kLegacyPlainTableMagicNumber) {
     options_.allow_mmap_reads = true;
-    options_.table_factory = std::make_shared<PlainTableFactory>(
-        table_properties_->fixed_key_len, 2, 0.8);
-    options_.prefix_extractor.reset(NewNoopTransform());
+    options_.table_factory.reset(NewTotalOrderPlainTableFactory(
+        kPlainTableVariableLength, 0, 1, 0, true));
     fprintf(stdout, "Sst file format: plain table\n");
   } else {
     char error_msg_buffer[80];

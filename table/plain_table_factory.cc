@@ -23,32 +23,42 @@ Status PlainTableFactory::NewTableReader(const Options& options,
   return PlainTableReader::Open(options, soptions, icomp, std::move(file),
                                 file_size, table, bloom_bits_per_key_,
                                 hash_table_ratio_, index_sparseness_,
-                                huge_page_tlb_size_);
+                                huge_page_tlb_size_, full_scan_mode_);
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
     const Options& options, const InternalKeyComparator& internal_comparator,
     WritableFile* file, CompressionType compression_type) const {
-  return new PlainTableBuilder(options, file, user_key_len_);
+  return new PlainTableBuilder(options, file, user_key_len_, encoding_type_,
+                               index_sparseness_);
 }
 
 extern TableFactory* NewPlainTableFactory(uint32_t user_key_len,
                                           int bloom_bits_per_key,
                                           double hash_table_ratio,
                                           size_t index_sparseness,
-                                          size_t huge_page_tlb_size) {
+                                          size_t huge_page_tlb_size,
+                                          EncodingType encoding_type) {
   return new PlainTableFactory(user_key_len, bloom_bits_per_key,
                                hash_table_ratio, index_sparseness,
-                               huge_page_tlb_size);
+                               huge_page_tlb_size, encoding_type);
 }
 
 extern TableFactory* NewTotalOrderPlainTableFactory(uint32_t user_key_len,
                                                     int bloom_bits_per_key,
                                                     size_t index_sparseness,
-                                                    size_t huge_page_tlb_size) {
+                                                    size_t huge_page_tlb_size,
+                                                    bool full_scan_mode) {
   return new PlainTableFactory(user_key_len, bloom_bits_per_key, 0,
-                               index_sparseness, huge_page_tlb_size);
+                               index_sparseness, huge_page_tlb_size, kPlain,
+                               full_scan_mode);
 }
+
+const std::string PlainTablePropertyNames::kPrefixExtractorName =
+    "rocksdb.prefix.extractor.name";
+
+const std::string PlainTablePropertyNames::kEncodingType =
+    "rocksdb.plain.table.encoding.type";
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

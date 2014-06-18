@@ -33,6 +33,7 @@ struct ReadOptions;
 class TableCache;
 class TableReader;
 class InternalKeyComparator;
+class PlainTableKeyDecoder;
 
 using std::unique_ptr;
 using std::unordered_map;
@@ -53,7 +54,8 @@ class PlainTableReader: public TableReader {
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
-                     size_t index_sparseness, size_t huge_page_tlb_size);
+                     size_t index_sparseness, size_t huge_page_tlb_size,
+                     bool full_scan_mode);
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
@@ -75,7 +77,8 @@ class PlainTableReader: public TableReader {
   PlainTableReader(const Options& options, unique_ptr<RandomAccessFile>&& file,
                    const EnvOptions& storage_options,
                    const InternalKeyComparator& internal_comparator,
-                   uint64_t file_size, const TableProperties* table_properties);
+                   EncodingType encoding_type, uint64_t file_size,
+                   const TableProperties* table_properties);
   virtual ~PlainTableReader();
 
  protected:
@@ -128,6 +131,7 @@ class PlainTableReader: public TableReader {
   Status PopulateIndex(TableProperties* props, int bloom_bits_per_key,
                        double hash_table_ratio, size_t index_sparseness,
                        size_t huge_page_tlb_size);
+  Status MmapDataFile();
 
  private:
   struct IndexRecord;
@@ -143,6 +147,7 @@ class PlainTableReader: public TableReader {
   int index_size_ = 0;
   char* sub_index_;
   const InternalKeyComparator internal_comparator_;
+  EncodingType encoding_type_;
   // represents plain table's current status.
   Status status_;
   Slice file_data_;
@@ -159,6 +164,7 @@ class PlainTableReader: public TableReader {
   static const size_t kOffsetLen = sizeof(uint32_t);
   static const uint64_t kMaxFileSize = 1u << 31;
   static const size_t kRecordsPerGroup = 256;
+  static const int kFullScanModeFlag = -1;
 
   // Bloom filter is used to rule out non-existent key
   bool enable_bloom_;
@@ -213,14 +219,17 @@ class PlainTableReader: public TableReader {
                    const std::vector<uint32_t>& entries_per_bucket,
                    size_t huge_page_tlb_size);
 
-  // Read a plain table key from the position `start`. The read content
-  // will be written to `key` and the size of read bytes will be populated
-  // in `bytes_read`.
-  Status ReadKey(const char* row_ptr, ParsedInternalKey* key,
-                 size_t* bytes_read) const;
-  // Read the key and value at `offset` to parameters `key` and `value`.
+  // Read the key and value at `offset` to parameters for keys, the and
+  // `seekable`.
   // On success, `offset` will be updated as the offset for the next key.
-  Status Next(uint32_t* offset, ParsedInternalKey* key, Slice* value) const;
+  // `parsed_key` will be key in parsed format.
+  // if `internal_key` is not empty, it will be filled with key with slice
+  // format.
+  // if `seekable` is not null, it will return whether we can directly read
+  // data using this offset.
+  Status Next(PlainTableKeyDecoder* decoder, uint32_t* offset,
+              ParsedInternalKey* parsed_key, Slice* internal_key, Slice* value,
+              bool* seekable = nullptr) const;
   // Get file offset for key target.
   // return value prefix_matched is set to true if the offset is confirmed
   // for a key with the same prefix as target.

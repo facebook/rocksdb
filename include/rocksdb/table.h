@@ -97,6 +97,30 @@ extern TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options = BlockBasedTableOptions());
 
 #ifndef ROCKSDB_LITE
+
+enum EncodingType : char {
+  // Always write full keys without any special encoding.
+  kPlain,
+  // Find opportunity to write the same prefix once for multiple rows.
+  // In some cases, when a key follows a previous key with the same prefix,
+  // instead of writing out the full key, it just writes out the size of the
+  // shared prefix, as well as other bytes, to save some bytes.
+  //
+  // When using this option, the user is required to use the same prefix
+  // extractor to make sure the same prefix will be extracted from the same key.
+  // The Name() value of the prefix extractor will be stored in the file. When
+  // reopening the file, the name of the options.prefix_extractor given will be
+  // bitwise compared to the prefix extractors stored in the file. An error
+  // will be returned if the two don't match.
+  kPrefix,
+};
+
+// Table Properties that are specific to plain table properties.
+struct PlainTablePropertyNames {
+  static const std::string kPrefixExtractorName;
+  static const std::string kEncodingType;
+};
+
 // -- Plain Table with prefix-only seek
 // For this factory, you need to set Options.prefix_extrator properly to make it
 // work. Look-up will starts with prefix hash lookup for key prefix. Inside the
@@ -113,11 +137,22 @@ extern TableFactory* NewBlockBasedTableFactory(
 //                    in the hash table
 // @index_sparseness: inside each prefix, need to build one index record for how
 //                    many keys for binary search inside each hash bucket.
+//                    For encoding type kPrefix, the value will be used when
+//                    writing to determine an interval to rewrite the full key.
+//                    It will also be used as a suggestion and satisfied when
+//                    possible.
 // @huge_page_tlb_size: if <=0, allocate hash indexes and blooms from malloc.
 //                      Otherwise from huge page TLB. The user needs to reserve
 //                      huge pages for it to be allocated, like:
 //                          sysctl -w vm.nr_hugepages=20
 //                      See linux doc Documentation/vm/hugetlbpage.txt
+// @encoding_type: how to encode the keys. See enum EncodingType above for
+//                 the choices. The value will determine how to encode keys
+//                 when writing to a new SST file. This value will be stored
+//                 inside the SST file which will be used when reading from the
+//                 file, which makes it possible for users to choose different
+//                 encoding type when reopening a DB. Files with different
+//                 encoding types can co-exist in the same DB and can be read.
 
 const uint32_t kPlainTableVariableLength = 0;
 extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
@@ -125,7 +160,8 @@ extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
                                           int bloom_bits_per_prefix = 10,
                                           double hash_table_ratio = 0.75,
                                           size_t index_sparseness = 16,
-                                          size_t huge_page_tlb_size = 0);
+                                          size_t huge_page_tlb_size = 0,
+                                          EncodingType encoding_type = kPlain);
 
 // -- Plain Table
 // This factory of plain table ignores Options.prefix_extractor and assumes no
@@ -147,7 +183,7 @@ extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
 extern TableFactory* NewTotalOrderPlainTableFactory(
     uint32_t user_key_len = kPlainTableVariableLength,
     int bloom_bits_per_key = 0, size_t index_sparseness = 16,
-    size_t huge_page_tlb_size = 0);
+    size_t huge_page_tlb_size = 0, bool full_scan_mode = false);
 
 #endif  // ROCKSDB_LITE
 
