@@ -230,6 +230,9 @@ extern const char* rocksdb_writebatch_data(rocksdb_writebatch_t*, size_t *size);
 
 extern rocksdb_options_t* rocksdb_options_create();
 extern void rocksdb_options_destroy(rocksdb_options_t*);
+extern void rocksdb_options_set_compaction_filter(
+    rocksdb_options_t*,
+    rocksdb_compactionfilter_t*);
 extern void rocksdb_options_set_comparator(
     rocksdb_options_t*,
     rocksdb_comparator_t*);

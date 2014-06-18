@@ -676,6 +676,12 @@ void rocksdb_options_destroy(rocksdb_options_t* options) {
   delete options;
 }
 
+void rocksdb_options_set_compaction_filter(
+    rocksdb_options_t* opt,
+    rocksdb_compactionfilter_t* filter) {
+  opt->rep.compaction_filter = filter;
+}
+
 void rocksdb_options_set_comparator(
     rocksdb_options_t* opt,
     rocksdb_comparator_t* cmp) {
