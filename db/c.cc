@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include "rocksdb/cache.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -30,6 +31,7 @@
 #include "rocksdb/table.h"
 
 using rocksdb::Cache;
+using rocksdb::CompactionFilter;
 using rocksdb::Comparator;
 using rocksdb::CompressionType;
 using rocksdb::DB;
@@ -76,6 +78,49 @@ struct rocksdb_filelock_t        { FileLock*         rep; };
 struct rocksdb_logger_t          { shared_ptr<Logger>  rep; };
 struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
+
+struct rocksdb_compactionfilter_t : public CompactionFilter {
+  void* state_;
+  void (*destructor_)(void*);
+  unsigned char (*filter_)(
+      void*,
+      int level,
+      const char* key, size_t key_length,
+      const char* existing_value, size_t value_length,
+      char** new_value, size_t *new_value_length,
+      unsigned char* value_changed);
+  const char* (*name_)(void*);
+
+  virtual ~rocksdb_compactionfilter_t() {
+    (*destructor_)(state_);
+  }
+
+  virtual bool Filter(
+      int level,
+      const Slice& key,
+      const Slice& existing_value,
+      std::string* new_value,
+      bool* value_changed) const {
+    char* c_new_value = NULL;
+    size_t new_value_length = 0;
+    unsigned char c_value_changed = 0;
+    unsigned char result = (*filter_)(
+        state_,
+        level,
+        key.data(), key.size(),
+        existing_value.data(), existing_value.size(),
+        &c_new_value, &new_value_length, &c_value_changed);
+    if (c_value_changed) {
+      new_value->assign(c_new_value, new_value_length);
+      *value_changed = true;
+    }
+    return result;
+  }
+
+  virtual const char* Name() const {
+    return (*name_)(state_);
+  }
+};
 
 struct rocksdb_comparator_t : public Comparator {
   void* state_;
@@ -1119,9 +1164,31 @@ DB::GetUpdatesSince
 DB::GetDbIdentity
 DB::RunManualCompaction
 custom cache
-compaction_filter
 table_properties_collectors
 */
+
+rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
+    void* state,
+    void (*destructor)(void*),
+    unsigned char (*filter)(
+        void*,
+        int level,
+        const char* key, size_t key_length,
+        const char* existing_value, size_t value_length,
+        char** new_value, size_t *new_value_length,
+        unsigned char* value_changed),
+    const char* (*name)(void*)) {
+  rocksdb_compactionfilter_t* result = new rocksdb_compactionfilter_t;
+  result->state_ = state;
+  result->destructor_ = destructor;
+  result->filter_ = filter;
+  result->name_ = name;
+  return result;
+}
+
+void rocksdb_compactionfilter_destroy(rocksdb_compactionfilter_t* filter) {
+  delete filter;
+}
 
 rocksdb_comparator_t* rocksdb_comparator_create(
     void* state,
