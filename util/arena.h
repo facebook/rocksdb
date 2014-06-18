@@ -81,6 +81,7 @@ class Arena {
   typedef std::vector<char*> Blocks;
   Blocks blocks_;
 
+#ifdef MAP_HUGETLB
   struct MmapInfo {
     void* addr_;
     size_t length_;
@@ -88,6 +89,7 @@ class Arena {
     MmapInfo(void* addr, size_t length) : addr_(addr), length_(length) {}
   };
   std::vector<MmapInfo> huge_blocks_;
+#endif
   size_t irregular_block_num = 0;
 
   // Stats for current active block.
