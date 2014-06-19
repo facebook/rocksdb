@@ -3862,19 +3862,19 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       }
       if (status.ok()) {
         PERF_TIMER_START(write_memtable_time);
+
         status = WriteBatchInternal::InsertInto(
             updates, column_family_memtables_.get(), false, 0, this, false);
+        // A non-OK status here indicates iteration failure (either in-memory
+        // writebatch corruption (very bad), or the client specified invalid
+        // column family).  This will later on trigger bg_error_.
+        //
+        // Note that existing logic was not sound. Any partial failure writing
+        // into the memtable would result in a state that some write ops might
+        // have succeeded in memtable but Status reports error for all writes.
+
         PERF_TIMER_STOP(write_memtable_time);
 
-        if (!status.ok()) {
-          // Iteration failed (either in-memory writebatch corruption (very
-          // bad), or the client specified invalid column family). Return
-          // failure.
-          // Note that existing logic was not sound. Any partial failure writing
-          // into the memtable would result in a state that some write ops might
-          // have succeeded in memtable but Status reports error for all writes.
-          return status;
-        }
         SetTickerCount(options_.statistics.get(), SEQUENCE_NUMBER,
                        last_sequence);
       }
