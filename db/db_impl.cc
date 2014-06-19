@@ -4448,7 +4448,11 @@ Status DBImpl::GetDbIdentity(std::string& identity) {
   if (!s.ok()) {
     return s;
   }
+#if !defined(_MSC_VER)
   char buffer[file_size];
+#else
+  char * buffer = static_cast<char*>(alloca(file_size));
+#endif
   Slice id;
   s = idfile->Read(file_size, &id, buffer);
   if (!s.ok()) {
