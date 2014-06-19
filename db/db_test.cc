@@ -6822,6 +6822,31 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   ASSERT_TRUE(!iter->Valid());
 }
 
+TEST(DBTest, BlockBasedTablePrefixIndexTest) {
+  // create a DB with block prefix index
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+
+  Reopen(&options);
+  ASSERT_OK(Put("k1", "v1"));
+  Flush();
+  ASSERT_OK(Put("k2", "v2"));
+
+  // Reopen it without prefix extractor, make sure everything still works.
+  // RocksDB should just fall back to the binary index.
+  table_options.index_type = BlockBasedTableOptions::kBinarySearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset();
+
+  Reopen(&options);
+  ASSERT_EQ("v1", Get("k1"));
+  ASSERT_EQ("v2", Get("k2"));
+}
+
 TEST(DBTest, ChecksumTest) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();

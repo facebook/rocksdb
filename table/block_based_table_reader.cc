@@ -1132,6 +1132,15 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
   auto comparator = &rep_->internal_comparator;
   const Footer& footer = rep_->footer;
 
+  if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
+      rep_->options.prefix_extractor == nullptr) {
+    Log(rep_->options.info_log,
+        "BlockBasedTableOptions::kHashSearch requires "
+        "options.prefix_extractor to be set."
+        " Fall back to binary seach index.");
+    index_type_on_file = BlockBasedTableOptions::kBinarySearch;
+  }
+
   switch (index_type_on_file) {
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(
@@ -1144,19 +1153,19 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
       if (meta_index_iter == nullptr) {
         auto s = ReadMetaBlock(rep_, &meta_guard, &meta_iter_guard);
         if (!s.ok()) {
-          return Status::Corruption("Unable to read the metaindex block");
+          // we simply fall back to binary search in case there is any
+          // problem with prefix hash index loading.
+          Log(rep_->options.info_log,
+              "Unable to read the metaindex block."
+              " Fall back to binary seach index.");
+          return BinarySearchIndexReader::Create(
+            file, footer, footer.index_handle(), env, comparator, index_reader);
         }
         meta_index_iter = meta_iter_guard.get();
       }
 
       // We need to wrap data with internal_prefix_transform to make sure it can
       // handle prefix correctly.
-      if (rep_->options.prefix_extractor == nullptr) {
-        return Status::InvalidArgument(
-            "BlockBasedTableOptions::kHashSearch requires "
-            "options.prefix_extractor to be set.");
-      }
-
       rep_->internal_prefix_transform.reset(
           new InternalKeySliceTransform(rep_->options.prefix_extractor.get()));
       return HashIndexReader::Create(
