@@ -3,8 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#ifndef ROCKSDB_LITE
 #pragma once
+#ifndef ROCKSDB_LITE
 
 #include "rocksdb/slice.h"
 #include "db/dbformat.h"
@@ -12,7 +12,7 @@
 namespace rocksdb {
 
 class WritableFile;
-class ParsedInternalKey;
+struct ParsedInternalKey;
 
 // Helper class to write out a key to an output file
 // Actual data format of the key is documented in plain_table_factory.h
