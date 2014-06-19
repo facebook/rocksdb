@@ -376,6 +376,7 @@ class DBImpl : public DB {
   // Call compaction filter if is_compaction_v2 is not true. Then iterate
   // through input and compact the kv-pairs
   Status ProcessKeyValueCompaction(
+    bool is_snapshot_supported,
     SequenceNumber visible_at_tip,
     SequenceNumber earliest_snapshot,
     SequenceNumber latest_snapshot,

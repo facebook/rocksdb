@@ -2458,9 +2458,6 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact,
 inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
   SequenceNumber in, std::vector<SequenceNumber>& snapshots,
   SequenceNumber* prev_snapshot) {
-  if (!IsSnapshotSupported()) {
-    return 0;
-  }
   SequenceNumber prev __attribute__((unused)) = 0;
   for (const auto cur : snapshots) {
     assert(prev <= cur);
@@ -2499,6 +2496,7 @@ uint64_t DBImpl::CallFlushDuringCompaction(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::ProcessKeyValueCompaction(
+    bool is_snapshot_supported,
     SequenceNumber visible_at_tip,
     SequenceNumber earliest_snapshot,
     SequenceNumber latest_snapshot,
@@ -2627,11 +2625,10 @@ Status DBImpl::ProcessKeyValueCompaction(
       // Otherwise, search though all existing snapshots to find
       // the earlist snapshot that is affected by this kv.
       SequenceNumber prev_snapshot = 0; // 0 means no previous snapshot
-      SequenceNumber visible = visible_at_tip ?
-        visible_at_tip :
-        findEarliestVisibleSnapshot(ikey.sequence,
-            compact->existing_snapshots,
-            &prev_snapshot);
+      SequenceNumber visible = visible_at_tip ? visible_at_tip :
+        is_snapshot_supported ?  findEarliestVisibleSnapshot(ikey.sequence,
+                                  compact->existing_snapshots, &prev_snapshot)
+                              : 0;
 
       if (visible_in_snapshot == visible) {
         // If the earliest snapshot is which this key is visible in
@@ -2897,6 +2894,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   // Allocate the output file numbers before we release the lock
   AllocateCompactionOutputFileNumbers(compact);
 
+  bool is_snapshot_supported = IsSnapshotSupported();
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
   log_buffer->FlushBufferToLog();
@@ -2983,6 +2981,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       // Done buffering for the current prefix. Spit it out to disk
       // Now just iterate through all the kv-pairs
       status = ProcessKeyValueCompaction(
+          is_snapshot_supported,
           visible_at_tip,
           earliest_snapshot,
           latest_snapshot,
@@ -3018,6 +3017,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         compact->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
 
         status = ProcessKeyValueCompaction(
+            is_snapshot_supported,
             visible_at_tip,
             earliest_snapshot,
             latest_snapshot,
@@ -3039,6 +3039,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     }
     compact->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
     status = ProcessKeyValueCompaction(
+        is_snapshot_supported,
         visible_at_tip,
         earliest_snapshot,
         latest_snapshot,
@@ -3053,6 +3054,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   if (!compaction_filter_v2) {
     status = ProcessKeyValueCompaction(
+      is_snapshot_supported,
       visible_at_tip,
       earliest_snapshot,
       latest_snapshot,
@@ -3692,9 +3694,9 @@ bool DBImpl::IsSnapshotSupported() const {
 }
 
 const Snapshot* DBImpl::GetSnapshot() {
+  MutexLock l(&mutex_);
   // returns null if the underlying memtable does not support snapshot.
   if (!IsSnapshotSupported()) return nullptr;
-  MutexLock l(&mutex_);
   return snapshots_.New(versions_->LastSequence());
 }
 
