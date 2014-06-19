@@ -3335,6 +3335,15 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   return s;
 }
 
+namespace {
+struct MultiGetColumnFamilyData {
+  ColumnFamilyData* cfd;
+  SuperVersion* super_version;
+  Version::GetStats stats;
+  bool have_stat_update = false;
+}; 
+}
+
 std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
@@ -3345,12 +3354,6 @@ std::vector<Status> DBImpl::MultiGet(
 
   SequenceNumber snapshot;
 
-  struct MultiGetColumnFamilyData {
-    ColumnFamilyData* cfd;
-    SuperVersion* super_version;
-    Version::GetStats stats;
-    bool have_stat_update = false;
-  };
   std::unordered_map<uint32_t, MultiGetColumnFamilyData*> multiget_cf_data;
   // fill up and allocate outside of mutex
   for (auto cf : column_family) {
