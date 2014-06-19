@@ -111,6 +111,7 @@ class BlockPrefixIndex::Builder {
         if (distance <= 1) {
           prev->end_block = current->end_block;
           prev->num_blocks = prev->end_block - prev->start_block + 1;
+          num_blocks_per_bucket[bucket] += (current->num_blocks + distance - 1);
           continue;
         }
       }
