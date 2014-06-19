@@ -56,5 +56,8 @@ TableFactory* NewBlockBasedTableFactory(
 
 const std::string BlockBasedTablePropertyNames::kIndexType =
     "rocksdb.block.based.table.index.type";
+const std::string kHashIndexPrefixesBlock = "rocksdb.hashindex.prefixes";
+const std::string kHashIndexPrefixesMetadataBlock =
+    "rocksdb.hashindex.metadata";
 
 }  // namespace rocksdb

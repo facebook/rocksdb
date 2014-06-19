@@ -33,7 +33,7 @@ class MergeOperator;
 class Snapshot;
 class TableFactory;
 class MemTableRepFactory;
-class TablePropertiesCollector;
+class TablePropertiesCollectorFactory;
 class Slice;
 class SliceTransform;
 class Statistics;
@@ -53,8 +53,18 @@ enum CompressionType : char {
 };
 
 enum CompactionStyle : char {
-  kCompactionStyleLevel = 0x0,     // level based compaction style
-  kCompactionStyleUniversal = 0x1  // Universal compaction style
+  kCompactionStyleLevel = 0x0,      // level based compaction style
+  kCompactionStyleUniversal = 0x1,  // Universal compaction style
+  kCompactionStyleFIFO = 0x2,       // FIFO compaction style
+};
+
+struct CompactionOptionsFIFO {
+  // once the total sum of table files reaches this, we will delete the oldest
+  // table file
+  // Default: 1GB
+  uint64_t max_table_files_size;
+
+  CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
 };
 
 // Compression options for different compression algorithms like Zlib
@@ -76,6 +86,31 @@ enum UpdateStatus {    // Return status For inplace update callback
 struct Options;
 
 struct ColumnFamilyOptions {
+  // Some functions that make it easier to optimize RocksDB
+
+  // Use this if you don't need to keep the data sorted, i.e. you'll never use
+  // an iterator, only Put() and Get() API calls
+  ColumnFamilyOptions* OptimizeForPointLookup();
+
+  // Default values for some parameters in ColumnFamilyOptions are not
+  // optimized for heavy workloads and big datasets, which means you might
+  // observe write stalls under some conditions. As a starting point for tuning
+  // RocksDB options, use the following two functions:
+  // * OptimizeLevelStyleCompaction -- optimizes level style compaction
+  // * OptimizeUniversalStyleCompaction -- optimizes universal style compaction
+  // Universal style compaction is focused on reducing Write Amplification
+  // Factor for big data sets, but increases Space Amplification. You can learn
+  // more about the different styles here:
+  // https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide
+  // Make sure to also call IncreaseParallelism(), which will provide the
+  // biggest performance gains.
+  // Note: we might use more memory than memtable_memory_budget during high
+  // write rate period
+  ColumnFamilyOptions* OptimizeLevelStyleCompaction(
+      uint64_t memtable_memory_budget = 512 * 1024 * 1024);
+  ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
+      uint64_t memtable_memory_budget = 512 * 1024 * 1024);
+
   // -------------------
   // Parameters that affect behavior
 
@@ -149,8 +184,9 @@ struct ColumnFamilyOptions {
   size_t write_buffer_size;
 
   // The maximum number of write buffers that are built up in memory.
-  // The default is 2, so that when 1 write buffer is being flushed to
-  // storage, new writes can continue to the other write buffer.
+  // The default and the minimum number is 2, so that when 1 write buffer
+  // is being flushed to storage, new writes can continue to the other
+  // write buffer.
   // Default: 2
   int max_write_buffer_number;
 
@@ -336,6 +372,7 @@ struct ColumnFamilyOptions {
   // With bloomfilter and fast storage, a miss on one level
   // is very cheap if the file handle is cached in table cache
   // (which is true if max_open_files is large).
+  // Default: true
   bool disable_seek_compaction;
 
   // Puts are delayed 0-1 ms when any level has a compaction score that exceeds
@@ -403,6 +440,9 @@ struct ColumnFamilyOptions {
   // The options needed to support Universal Style compactions
   CompactionOptionsUniversal compaction_options_universal;
 
+  // The options for FIFO compaction style
+  CompactionOptionsFIFO compaction_options_fifo;
+
   // Use KeyMayExist API to filter deletes when this is true.
   // If KeyMayExist returns false, i.e. the key definitely does not exist, then
   // the delete is a noop. KeyMayExist only incurs in-memory look up.
@@ -429,11 +469,11 @@ struct ColumnFamilyOptions {
 
   // This option allows user to to collect their own interested statistics of
   // the tables.
-  // Default: emtpy vector -- no user-defined statistics collection will be
+  // Default: empty vector -- no user-defined statistics collection will be
   // performed.
-  typedef std::vector<std::shared_ptr<TablePropertiesCollector>>
-      TablePropertiesCollectors;
-  TablePropertiesCollectors table_properties_collectors;
+  typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+      TablePropertiesCollectorFactories;
+  TablePropertiesCollectorFactories table_properties_collector_factories;
 
   // Allows thread-safe inplace updates.
   // If inplace_callback function is not set,
@@ -508,12 +548,9 @@ struct ColumnFamilyOptions {
 
   // Control locality of bloom filter probes to improve cache miss rate.
   // This option only applies to memtable prefix bloom and plaintable
-  // prefix bloom. It essentially limits the max number of cache lines each
-  // bloom filter check can touch.
-  // This optimization is turned off when set to 0. The number should never
-  // be greater than number of probes. This option can boost performance
-  // for in-memory workload but should use with care since it can cause
-  // higher false positive rate.
+  // prefix bloom. It essentially limits every bloom checking to one cache line.
+  // This optimization is turned off when set to 0, and positive number to turn
+  // it on.
   // Default: 0
   uint32_t bloom_locality;
 
@@ -546,9 +583,22 @@ struct ColumnFamilyOptions {
 };
 
 struct DBOptions {
+  // Some functions that make it easier to optimize RocksDB
+
+  // By default, RocksDB uses only one background thread for flush and
+  // compaction. Calling this function will set it up such that total of
+  // `total_threads` is used. Good value for `total_threads` is the number of
+  // cores. You almost definitely want to call this function if your system is
+  // bottlenecked by RocksDB.
+  DBOptions* IncreaseParallelism(int total_threads = 16);
+
   // If true, the database will be created if it is missing.
   // Default: false
   bool create_if_missing;
+
+  // If true, missing column families will be automatically created.
+  // Default: false
+  bool create_missing_column_families;
 
   // If true, an error is raised if the database already exists.
   // Default: false

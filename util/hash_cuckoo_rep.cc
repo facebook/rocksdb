@@ -1,4 +1,3 @@
-
 //  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
@@ -251,7 +250,7 @@ class HashCuckooRep : public MemTableRep {
   // are sorted according to the user specified KeyComparator.  Note that
   // any insert after this function call may affect the sorted nature of
   // the returned iterator.
-  virtual MemTableRep::Iterator* GetIterator() override {
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena) override {
     std::vector<const char*> compact_buckets;
     for (unsigned int bid = 0; bid < bucket_count_; ++bid) {
       const char* bucket = cuckoo_array_[bid].load(std::memory_order_relaxed);
@@ -266,10 +265,18 @@ class HashCuckooRep : public MemTableRep {
         compact_buckets.push_back(iter->key());
       }
     }
-    return new Iterator(
-        std::shared_ptr<std::vector<const char*>>(
-            new std::vector<const char*>(std::move(compact_buckets))),
-        compare_);
+    if (arena == nullptr) {
+      return new Iterator(
+          std::shared_ptr<std::vector<const char*>>(
+              new std::vector<const char*>(std::move(compact_buckets))),
+          compare_);
+    } else {
+      auto mem = arena->AllocateAligned(sizeof(Iterator));
+      return new (mem) Iterator(
+          std::shared_ptr<std::vector<const char*>>(
+              new std::vector<const char*>(std::move(compact_buckets))),
+          compare_);
+    }
   }
 };
 
@@ -314,7 +321,8 @@ void HashCuckooRep::Insert(KeyHandle handle) {
     // immutable.
     if (backup_table_.get() == nullptr) {
       VectorRepFactory factory(10);
-      backup_table_.reset(factory.CreateMemTableRep(compare_, arena_, nullptr));
+      backup_table_.reset(
+          factory.CreateMemTableRep(compare_, arena_, nullptr, nullptr));
       is_nearly_full_ = true;
     }
     backup_table_->Insert(key);
@@ -595,7 +603,7 @@ void HashCuckooRep::Iterator::SeekToLast() {
 
 MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform* transform) {
+    const SliceTransform* transform, Logger* logger) {
   // The estimated average fullness.  The write performance of any close hash
   // degrades as the fullness of the mem-table increases.  Setting kFullness
   // to a value around 0.7 can better avoid write performance degradation while

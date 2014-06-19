@@ -121,9 +121,16 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
     return UserCollectedProperties{};
   }
 
-
  private:
   uint32_t count_ = 0;
+};
+
+class RegularKeysStartWithAFactory : public TablePropertiesCollectorFactory {
+ public:
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector() {
+    return new RegularKeysStartWithA();
+  }
+  const char* Name() const { return "RegularKeysStartWithA"; }
 };
 
 extern uint64_t kBlockBasedTableMagicNumber;
@@ -188,14 +195,14 @@ TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // for block based table
   for (bool encode_as_internal : { true, false }) {
     Options options;
-    auto collector = new RegularKeysStartWithA();
+    std::shared_ptr<TablePropertiesCollectorFactory> collector_factory(
+        new RegularKeysStartWithAFactory());
     if (encode_as_internal) {
-      options.table_properties_collectors = {
-        std::make_shared<UserKeyTablePropertiesCollector>(collector)
-      };
+      options.table_properties_collector_factories.emplace_back(
+          new UserKeyTablePropertiesCollectorFactory(collector_factory));
     } else {
-      options.table_properties_collectors.resize(1);
-      options.table_properties_collectors[0].reset(collector);
+      options.table_properties_collector_factories.resize(1);
+      options.table_properties_collector_factories[0] = collector_factory;
     }
     test::PlainInternalKeyComparator ikc(options.comparator);
     TestCustomizedTablePropertiesCollector(kBlockBasedTableMagicNumber,
@@ -204,9 +211,8 @@ TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
 
   // test plain table
   Options options;
-  options.table_properties_collectors.push_back(
-      std::make_shared<RegularKeysStartWithA>()
-  );
+  options.table_properties_collector_factories.emplace_back(
+      new RegularKeysStartWithAFactory());
   options.table_factory = std::make_shared<PlainTableFactory>(8, 8, 0);
   test::PlainInternalKeyComparator ikc(options.comparator);
   TestCustomizedTablePropertiesCollector(kPlainTableMagicNumber, true, options,
@@ -235,9 +241,8 @@ void TestInternalKeyPropertiesCollector(
 
   options.table_factory = table_factory;
   if (sanitized) {
-    options.table_properties_collectors = {
-      std::make_shared<RegularKeysStartWithA>()
-    };
+    options.table_properties_collector_factories.emplace_back(
+        new RegularKeysStartWithAFactory());
     // with sanitization, even regular properties collector will be able to
     // handle internal keys.
     auto comparator = options.comparator;
@@ -249,40 +254,36 @@ void TestInternalKeyPropertiesCollector(
                               options);
     options.comparator = comparator;
   } else {
-    options.table_properties_collectors = {
-      std::make_shared<InternalKeyPropertiesCollector>()
-    };
+    options.table_properties_collector_factories = {
+        std::make_shared<InternalKeyPropertiesCollectorFactory>()};
   }
 
-  MakeBuilder(options, pikc, &writable, &builder);
-  for (const auto& k : keys) {
-    builder->Add(k.Encode(), "val");
-  }
+  for (int iter = 0; iter < 2; ++iter) {
+    MakeBuilder(options, pikc, &writable, &builder);
+    for (const auto& k : keys) {
+      builder->Add(k.Encode(), "val");
+    }
 
-  ASSERT_OK(builder->Finish());
+    ASSERT_OK(builder->Finish());
 
-  FakeRandomeAccessFile readable(writable->contents());
-  TableProperties* props;
-  Status s = ReadTableProperties(
-      &readable,
-      writable->contents().size(),
-      magic_number,
-      Env::Default(),
-      nullptr,
-      &props
-  );
-  ASSERT_OK(s);
+    FakeRandomeAccessFile readable(writable->contents());
+    TableProperties* props;
+    Status s =
+        ReadTableProperties(&readable, writable->contents().size(),
+                            magic_number, Env::Default(), nullptr, &props);
+    ASSERT_OK(s);
 
-  std::unique_ptr<TableProperties> props_guard(props);
-  auto user_collected = props->user_collected_properties;
-  uint64_t deleted = GetDeletedKeys(user_collected);
-  ASSERT_EQ(4u, deleted);
+    std::unique_ptr<TableProperties> props_guard(props);
+    auto user_collected = props->user_collected_properties;
+    uint64_t deleted = GetDeletedKeys(user_collected);
+    ASSERT_EQ(4u, deleted);
 
-  if (sanitized) {
-    uint32_t starts_with_A = 0;
-    Slice key(user_collected.at("Count"));
-    ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
-    ASSERT_EQ(1u, starts_with_A);
+    if (sanitized) {
+      uint32_t starts_with_A = 0;
+      Slice key(user_collected.at("Count"));
+      ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
+      ASSERT_EQ(1u, starts_with_A);
+    }
   }
 }
 }  // namespace

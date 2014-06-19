@@ -24,6 +24,7 @@ public class Options extends RocksObject {
     super();
     cacheSize_ = DEFAULT_CACHE_SIZE;
     newOptions();
+    env_ = RocksEnv.getDefault();
   }
 
   /**
@@ -41,6 +42,24 @@ public class Options extends RocksObject {
     setCreateIfMissing(nativeHandle_, flag);
     return this;
   }
+
+  /**
+   * Use the specified object to interact with the environment,
+   * e.g. to read/write files, schedule background work, etc.
+   * Default: RocksEnv.getDefault()
+   */
+  public Options setEnv(RocksEnv env) {
+    assert(isInitialized());
+    setEnv(nativeHandle_, env.nativeHandle_);
+    env_ = env;
+    return this;
+  }
+  private native void setEnv(long optHandle, long envHandle);
+
+  public RocksEnv getEnv() {
+    return env_;
+  }
+  private native long getEnvHandle(long handle);
 
   /**
    * Return true if the create_if_missing flag is set to true.
@@ -2311,10 +2330,9 @@ public class Options extends RocksObject {
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose0();
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
   static final int DEFAULT_PLAIN_TABLE_BLOOM_BITS_PER_KEY = 10;
@@ -2322,7 +2340,7 @@ public class Options extends RocksObject {
   static final int DEFAULT_PLAIN_TABLE_INDEX_SPARSENESS = 16;
 
   private native void newOptions();
-  private native void dispose0();
+  private native void disposeInternal(long handle);
   private native void setCreateIfMissing(long handle, boolean flag);
   private native boolean createIfMissing(long handle);
   private native void setWriteBufferSize(long handle, long writeBufferSize);
@@ -2352,4 +2370,5 @@ public class Options extends RocksObject {
 
   long cacheSize_;
   Filter filter_;
+  RocksEnv env_;
 }

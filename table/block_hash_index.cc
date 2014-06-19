@@ -3,21 +3,62 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+#include "table/block_hash_index.h"
+
 #include <algorithm>
 
-#include "table/block_hash_index.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
+#include "util/coding.h"
 
 namespace rocksdb {
 
-BlockHashIndex* CreateBlockHashIndex(Iterator* index_iter, Iterator* data_iter,
-                                     const uint32_t num_restarts,
-                                     const Comparator* comparator,
-                                     const SliceTransform* hash_key_extractor) {
+Status CreateBlockHashIndex(const SliceTransform* hash_key_extractor,
+                            const Slice& prefixes, const Slice& prefix_meta,
+                            BlockHashIndex** hash_index) {
+  uint64_t pos = 0;
+  auto meta_pos = prefix_meta;
+  Status s;
+  *hash_index = new BlockHashIndex(
+      hash_key_extractor,
+      false /* external module manages memory space for prefixes */);
+
+  while (!meta_pos.empty()) {
+    uint32_t prefix_size = 0;
+    uint32_t entry_index = 0;
+    uint32_t num_blocks = 0;
+    if (!GetVarint32(&meta_pos, &prefix_size) ||
+        !GetVarint32(&meta_pos, &entry_index) ||
+        !GetVarint32(&meta_pos, &num_blocks)) {
+      s = Status::Corruption(
+          "Corrupted prefix meta block: unable to read from it.");
+      break;
+    }
+    Slice prefix(prefixes.data() + pos, prefix_size);
+    (*hash_index)->Add(prefix, entry_index, num_blocks);
+
+    pos += prefix_size;
+  }
+
+  if (s.ok() && pos != prefixes.size()) {
+    s = Status::Corruption("Corrupted prefix meta block");
+  }
+
+  if (!s.ok()) {
+    delete *hash_index;
+  }
+
+  return s;
+}
+
+BlockHashIndex* CreateBlockHashIndexOnTheFly(
+    Iterator* index_iter, Iterator* data_iter, const uint32_t num_restarts,
+    const Comparator* comparator, const SliceTransform* hash_key_extractor) {
   assert(hash_key_extractor);
-  auto hash_index = new BlockHashIndex(hash_key_extractor);
+  auto hash_index = new BlockHashIndex(
+      hash_key_extractor,
+      true /* hash_index will copy prefix when Add() is called */);
   uint64_t current_restart_index = 0;
 
   std::string pending_entry_prefix;
@@ -88,12 +129,16 @@ BlockHashIndex* CreateBlockHashIndex(Iterator* index_iter, Iterator* data_iter,
 
 bool BlockHashIndex::Add(const Slice& prefix, uint32_t restart_index,
                          uint32_t num_blocks) {
-  auto prefix_ptr = arena_.Allocate(prefix.size());
-  std::copy(prefix.data() /* begin */, prefix.data() + prefix.size() /* end */,
-            prefix_ptr /* destination */);
-  auto result =
-      restart_indices_.insert({Slice(prefix_ptr, prefix.size()),
-                               RestartIndex(restart_index, num_blocks)});
+  auto prefix_to_insert = prefix;
+  if (kOwnPrefixes) {
+    auto prefix_ptr = arena_.Allocate(prefix.size());
+    std::copy(prefix.data() /* begin */,
+              prefix.data() + prefix.size() /* end */,
+              prefix_ptr /* destination */);
+    prefix_to_insert = Slice(prefix_ptr, prefix.size());
+  }
+  auto result = restart_indices_.insert(
+      {prefix_to_insert, RestartIndex(restart_index, num_blocks)});
   return result.second;
 }
 

@@ -217,6 +217,7 @@ class HistogramDataJni {
     return mid;
   }
 };
+
 class BackupableDBOptionsJni {
  public:
   // Get the java class id of org.rocksdb.BackupableDBOptions.
@@ -254,7 +255,7 @@ class IteratorJni {
  public:
   // Get the java class id of org.rocksdb.Iteartor.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/Iterator");
+    static jclass jclazz = env->FindClass("org/rocksdb/RocksIterator");
     assert(jclazz != nullptr);
     return jclazz;
   }

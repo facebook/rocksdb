@@ -44,6 +44,7 @@ class Arena;
 class LookupKey;
 class Slice;
 class SliceTransform;
+class Logger;
 
 typedef void* KeyHandle;
 
@@ -141,16 +142,28 @@ class MemTableRep {
   };
 
   // Return an iterator over the keys in this representation.
-  virtual Iterator* GetIterator() = 0;
+  // arena: If not null, the arena needs to be used to allocate the Iterator.
+  //        When destroying the iterator, the caller will not call "delete"
+  //        but Iterator::~Iterator() directly. The destructor needs to destroy
+  //        all the states but those allocated in arena.
+  virtual Iterator* GetIterator(Arena* arena = nullptr) = 0;
 
   // Return an iterator over at least the keys with the specified user key. The
   // iterator may also allow access to other keys, but doesn't have to. Default:
   // GetIterator().
-  virtual Iterator* GetIterator(const Slice& user_key) { return GetIterator(); }
+  virtual Iterator* GetIterator(const Slice& user_key) {
+    return GetIterator(nullptr);
+  }
 
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
-  virtual Iterator* GetDynamicPrefixIterator() { return GetIterator(); }
+  // arena: If not null, the arena needs to be used to allocate the Iterator.
+  //        When destroying the iterator, the caller will not call "delete"
+  //        but Iterator::~Iterator() directly. The destructor needs to destroy
+  //        all the states but those allocated in arena.
+  virtual Iterator* GetDynamicPrefixIterator(Arena* arena = nullptr) {
+    return GetIterator(arena);
+  }
 
   // Return true if the current MemTableRep supports merge operator.
   // Default: true
@@ -174,7 +187,8 @@ class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() {}
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-      Arena*, const SliceTransform*) = 0;
+                                         Arena*, const SliceTransform*,
+                                         Logger* logger) = 0;
   virtual const char* Name() const = 0;
 };
 
@@ -182,8 +196,8 @@ class MemTableRepFactory {
 class SkipListFactory : public MemTableRepFactory {
  public:
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Arena*,
-                                         const SliceTransform*) override;
+                                         Arena*, const SliceTransform*,
+                                         Logger* logger) override;
   virtual const char* Name() const override { return "SkipListFactory"; }
 };
 
@@ -201,9 +215,9 @@ class VectorRepFactory : public MemTableRepFactory {
 
  public:
   explicit VectorRepFactory(size_t count = 0) : count_(count) { }
-  virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator&, Arena*,
-      const SliceTransform*) override;
+  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+                                         Arena*, const SliceTransform*,
+                                         Logger* logger) override;
   virtual const char* Name() const override {
     return "VectorRepFactory";
   }
@@ -229,8 +243,14 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 //                      huge pages for it to be allocated, like:
 //                          sysctl -w vm.nr_hugepages=20
 //                      See linux doc Documentation/vm/hugetlbpage.txt
+// @bucket_entries_logging_threshold: if number of entries in one bucket
+//                                    exceeds this number, log about it.
+// @if_log_bucket_dist_when_flash: if true, log distribution of number of
+//                                 entries when flushing.
 extern MemTableRepFactory* NewHashLinkListRepFactory(
-    size_t bucket_count = 50000, size_t huge_page_tlb_size = 0);
+    size_t bucket_count = 50000, size_t huge_page_tlb_size = 0,
+    int bucket_entries_logging_threshold = 4096,
+    bool if_log_bucket_dist_when_flash = true);
 
 // This factory creates a cuckoo-hashing based mem-table representation.
 // Cuckoo-hash is a closed-hash strategy, in which all key/value pairs

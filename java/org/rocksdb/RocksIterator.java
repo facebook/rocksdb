@@ -11,13 +11,13 @@ package org.rocksdb;
  * are provided by this library.  In particular, iterators are provided
  * to access the contents of a Table or a DB.
  *
- * Multiple threads can invoke const methods on an Iterator without
+ * Multiple threads can invoke const methods on an RocksIterator without
  * external synchronization, but if any of the threads may call a
- * non-const method, all threads accessing the same Iterator must use
+ * non-const method, all threads accessing the same RocksIterator must use
  * external synchronization.
  */
-public class Iterator extends RocksObject {
-  public Iterator(long nativeHandle) {
+public class RocksIterator extends RocksObject {
+  public RocksIterator(long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
   }
@@ -118,15 +118,13 @@ public class Iterator extends RocksObject {
   /**
    * Deletes underlying C++ iterator pointer.
    */
-  @Override public synchronized void dispose() {
-    if(isInitialized()) {
-      dispose(nativeHandle_);
-      nativeHandle_ = 0;
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
   private native boolean isValid0(long handle);
-  private native void dispose(long handle);
+  private native void disposeInternal(long handle);
   private native void seekToFirst0(long handle);
   private native void seekToLast0(long handle);
   private native void next0(long handle);

@@ -97,7 +97,6 @@ class Status {
   // Returns the string "OK" for success.
   std::string ToString() const;
 
- private:
   enum Code {
     kOk = 0,
     kNotFound = 1,
@@ -110,6 +109,10 @@ class Status {
     kShutdownInProgress = 8
   };
 
+  Code code() const {
+    return code_;
+  }
+ private:
   // A nullptr state_ (which is always the case for OK) means the message
   // is empty.
   // of the following form:
@@ -118,9 +121,6 @@ class Status {
   Code code_;
   const char* state_;
 
-  Code code() const {
-    return code_;
-  }
   explicit Status(Code code) : code_(code), state_(nullptr) { }
   Status(Code code, const Slice& msg, const Slice& msg2);
   static const char* CopyState(const char* s);

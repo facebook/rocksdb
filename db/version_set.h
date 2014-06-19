@@ -51,6 +51,7 @@ class MergeContext;
 class ColumnFamilyData;
 class ColumnFamilySet;
 class TableCache;
+class MergeIteratorBuilder;
 
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.
@@ -80,6 +81,9 @@ class Version {
   void AddIterators(const ReadOptions&, const EnvOptions& soptions,
                     std::vector<Iterator*>* iters);
 
+  void AddIterators(const ReadOptions&, const EnvOptions& soptions,
+                    MergeIteratorBuilder* merger_iter_builder);
+
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.  Fills *stats.
   // Uses *operands to store merge_operator operations to apply later
@@ -88,6 +92,7 @@ class Version {
     FileMetaData* seek_file;
     int seek_file_level;
   };
+
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
            Status* status, MergeContext* merge_context, GetStats* stats,
            bool* value_found = nullptr);
@@ -102,6 +107,10 @@ class Version {
   // REQUIRES: If Version is not yet saved to current_, it can be called without
   // a lock. Once a version is saved to current_, call only with mutex held
   void ComputeCompactionScore(std::vector<uint64_t>& size_being_compacted);
+
+  // Update scores, pre-calculated variables. It needs to be called before
+  // applying the version to the version set.
+  void PrepareApply(std::vector<uint64_t>& size_being_compacted);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -217,12 +226,17 @@ class Version {
   friend class CompactionPicker;
   friend class LevelCompactionPicker;
   friend class UniversalCompactionPicker;
+  friend class FIFOCompactionPicker;
+  friend class ForwardIterator;
 
   class LevelFileNumIterator;
   class LevelFileIteratorState;
 
   bool PrefixMayMatch(const ReadOptions& options, Iterator* level_iter,
                       const Slice& internal_prefix) const;
+
+  // Update num_non_empty_levels_.
+  void UpdateNumNonEmptyLevels();
 
   // Sort all files for this version based on their file size and
   // record results in files_by_size_. The largest files are listed first.
@@ -235,11 +249,13 @@ class Version {
   const MergeOperator* merge_operator_;
   Logger* info_log_;
   Statistics* db_statistics_;
+  int num_levels_;              // Number of levels
+  int num_non_empty_levels_;    // Number of levels. Any level larger than it
+                                // is guaranteed to be empty.
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
-  int num_levels_;              // Number of levels
 
   // List of files per level, files in each level are arranged
   // in increasing order of keys

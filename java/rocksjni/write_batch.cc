@@ -134,15 +134,12 @@ void Java_org_rocksdb_WriteBatch_putLogData(
 
 /*
  * Class:     org_rocksdb_WriteBatch
- * Method:    dispose0
- * Signature: ()V
+ * Method:    disposeInternal
+ * Signature: (J)V
  */
-void Java_org_rocksdb_WriteBatch_dispose0(JNIEnv* env, jobject jobj) {
-  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
-  assert(wb != nullptr);
-  delete wb;
-
-  rocksdb::WriteBatchJni::setHandle(env, jobj, nullptr);
+void Java_org_rocksdb_WriteBatch_disposeInternal(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  delete reinterpret_cast<rocksdb::WriteBatch*>(handle);
 }
 
 /*

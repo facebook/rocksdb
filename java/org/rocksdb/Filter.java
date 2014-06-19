@@ -22,11 +22,10 @@ public abstract class Filter extends RocksObject {
    * RocksDB instances referencing the filter are closed.
    * Otherwise an undefined behavior will occur.
    */
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose0(nativeHandle_);
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
-  private native void dispose0(long handle);
+  private native void disposeInternal(long handle);
 }

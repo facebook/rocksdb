@@ -24,7 +24,7 @@ class autovector : public std::vector<T> {};
 // full-fledged generic container.
 //
 // Currently we don't support:
-//  * reserve()/shrink_to_fit()/resize()
+//  * reserve()/shrink_to_fit()
 //     If used correctly, in most cases, people should not touch the
 //     underlying vector at all.
 //  * random insert()/erase(), please only use push_back()/pop_back().
@@ -175,6 +175,18 @@ class autovector {
   }
 
   size_type size() const { return num_stack_items_ + vect_.size(); }
+
+  // resize does not guarantee anything about the contents of the newly
+  // available elements
+  void resize(size_type n) {
+    if (n > kSize) {
+      vect_.resize(n - kSize);
+      num_stack_items_ = kSize;
+    } else {
+      vect_.clear();
+      num_stack_items_ = n;
+    }
+  }
 
   bool empty() const { return size() == 0; }
 

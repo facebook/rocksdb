@@ -19,6 +19,7 @@ build_config.mk
 *.*jnilib*
 *.d-e
 *.o-*
+*.swp
 
 ldb
 manifest_dump

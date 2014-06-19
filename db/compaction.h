@@ -54,6 +54,9 @@ class Compaction {
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
 
+  // If true, just delete all files in inputs_[0]
+  bool IsDeletionCompaction() const;
+
   // Add all inputs to this compaction as delete operations to *edit.
   void AddInputDeletions(VersionEdit* edit);
 
@@ -88,14 +91,21 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool IsManualCompaction() { return is_manual_compaction_; }
 
+  // Returns a number of byte that the output file should be preallocated to
+  // In level compaction, that is max_file_size_. In universal compaction, that
+  // is the sum of all input file sizes
+  uint64_t OutputFilePreallocationSize();
+
  private:
   friend class CompactionPicker;
   friend class UniversalCompactionPicker;
+  friend class FIFOCompactionPicker;
   friend class LevelCompactionPicker;
 
   Compaction(Version* input_version, int level, int out_level,
              uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
-             bool seek_compaction = false, bool enable_compression = true);
+             bool seek_compaction = false, bool enable_compression = true,
+             bool deletion_compaction = false);
 
   int level_;
   int out_level_; // levels to which output files are stored
@@ -108,6 +118,8 @@ class Compaction {
 
   bool seek_compaction_;
   bool enable_compression_;
+  // if true, just delete files in inputs_[0]
+  bool deletion_compaction_;
 
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData*> inputs_[2];      // The two sets of inputs

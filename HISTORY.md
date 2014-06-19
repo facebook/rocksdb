@@ -1,14 +1,27 @@
 # Rocksdb Change Log
 
-## Unreleased (will be released in 3.0)
+## 3.1.0 (05/21/2014)
+
+### Public API changes
+* Replaced ColumnFamilyOptions::table_properties_collectors with ColumnFamilyOptions::table_properties_collector_factories
+* Add two paramters to NewHashLinkListRepFactory() for logging on too many entries in a hash bucket when flushing.
+
+### New Features
+* Hash index for block-based table will be materialized and reconstructed more efficiently. Previously hash index is constructed by scanning the whole table during every table open.
+* FIFO compaction style
+* Add AdaptiveTableFactory, which is used to convert from a DB of PlainTable to BlockBasedTabe, or vise versa. It can be created using NewAdaptiveTableFactory()
+
+## 3.0.0 (05/05/2014)
 
 ### Public API changes
 * Added _LEVEL to all InfoLogLevel enums
 * Deprecated ReadOptions.prefix and ReadOptions.prefix_seek. Seek() defaults to prefix-based seek when Options.prefix_extractor is supplied. More detail is documented in https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
+* MemTableRepFactory::CreateMemTableRep() takes info logger as an extra parameter.
 
 ### New Features
 * Column family support
 * Added an option to use different checksum functions in BlockBasedTableOptions
+* Added ApplyToAllCacheEntries() function to Cache
 
 ## 2.8.0 (04/04/2014)
 

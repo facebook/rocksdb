@@ -8,6 +8,15 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #define __STDC_FORMAT_MACROS
+
+#ifndef GFLAGS
+#include <cstdio>
+int main() {
+  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
+  return 1;
+}
+#else
+
 #include <inttypes.h>
 #include <cstddef>
 #include <sys/types.h>
@@ -40,6 +49,9 @@
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
 
+using GFLAGS::ParseCommandLineFlags;
+using GFLAGS::RegisterFlagValidator;
+using GFLAGS::SetUsageMessage;
 
 DEFINE_string(benchmarks,
               "fillseq,"
@@ -147,14 +159,7 @@ DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
 DEFINE_int32(value_size, 100, "Size of each value");
 
 
-// the maximum size of key in bytes
-static const int kMaxKeySize = 128;
 static bool ValidateKeySize(const char* flagname, int32_t value) {
-  if (value > kMaxKeySize) {
-    fprintf(stderr, "Invalid value for --%s: %d, must be < %d\n",
-            flagname, value, kMaxKeySize);
-    return false;
-  }
   return true;
 }
 
@@ -376,8 +381,7 @@ static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
 }
 
 static const bool FLAGS_compression_level_dummy __attribute__((unused)) =
-    google::RegisterFlagValidator(&FLAGS_compression_level,
-                                  &ValidateCompressionLevel);
+    RegisterFlagValidator(&FLAGS_compression_level, &ValidateCompressionLevel);
 
 DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " from this level. Levels with number < min_level_to_compress are"
@@ -461,6 +465,8 @@ static auto FLAGS_compaction_fadvice_e =
 
 DEFINE_bool(use_tailing_iterator, false,
             "Use tailing iterator to access a series of keys instead of get");
+DEFINE_int64(iter_refresh_interval_us, -1,
+             "How often to refresh iterators. Disable refresh when -1");
 
 DEFINE_bool(use_adaptive_mutex, rocksdb::Options().use_adaptive_mutex,
             "Use adaptive mutex");
@@ -529,33 +535,29 @@ DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               " utilities/merge_operators.h");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_soft_rate_limit,
-                                &ValidateRateLimit);
+    RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
 
 static const bool FLAGS_hard_rate_limit_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
+    RegisterFlagValidator(&FLAGS_hard_rate_limit, &ValidateRateLimit);
 
 static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
+    RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 static const bool FLAGS_key_size_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_key_size, &ValidateKeySize);
+    RegisterFlagValidator(&FLAGS_key_size, &ValidateKeySize);
 
 static const bool FLAGS_cache_numshardbits_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_cache_numshardbits,
-                                &ValidateCacheNumshardbits);
+    RegisterFlagValidator(&FLAGS_cache_numshardbits,
+                          &ValidateCacheNumshardbits);
 
 static const bool FLAGS_readwritepercent_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_readwritepercent,
-                                &ValidateInt32Percent);
+    RegisterFlagValidator(&FLAGS_readwritepercent, &ValidateInt32Percent);
 
 static const bool FLAGS_deletepercent_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_deletepercent,
-                                &ValidateInt32Percent);
-static const bool
-  FLAGS_table_cache_numshardbits_dummy __attribute__((unused)) =
-  google::RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
-                                &ValidateTableCacheNumshardbits);
+    RegisterFlagValidator(&FLAGS_deletepercent, &ValidateInt32Percent);
+static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((unused)) =
+    RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
+                          &ValidateTableCacheNumshardbits);
 
 namespace rocksdb {
 
@@ -1926,7 +1928,7 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
              found, read);
 
     thread->stats.AddMessage(msg);
@@ -2009,12 +2011,31 @@ class Benchmark {
         multi_iters.push_back(db->NewIterator(options));
       }
     }
+    uint64_t last_refresh = FLAGS_env->NowMicros();
 
     Slice key = AllocateKey();
     std::unique_ptr<const char[]> key_guard(key.data());
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
+      if (!FLAGS_use_tailing_iterator && FLAGS_iter_refresh_interval_us >= 0) {
+        uint64_t now = FLAGS_env->NowMicros();
+        if (now - last_refresh > (uint64_t)FLAGS_iter_refresh_interval_us) {
+          if (db_ != nullptr) {
+            delete single_iter;
+            single_iter = db_->NewIterator(options);
+          } else {
+            for (auto iter : multi_iters) {
+              delete iter;
+            }
+            multi_iters.clear();
+            for (DB* db : multi_dbs_) {
+              multi_iters.push_back(db->NewIterator(options));
+            }
+          }
+        }
+        last_refresh = now;
+      }
       // Pick a Iterator to use
       Iterator* iter_to_use = single_iter;
       if (single_iter == nullptr) {
@@ -2035,9 +2056,12 @@ class Benchmark {
     }
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
              found, read);
     thread->stats.AddMessage(msg);
+    if (FLAGS_perf_level > 0) {
+      thread->stats.AddMessage(perf_context.ToString());
+    }
   }
 
   void SeekRandomWhileWriting(ThreadState* thread) {
@@ -2561,9 +2585,9 @@ class Benchmark {
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                          " [OPTIONS]...");
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+                  " [OPTIONS]...");
+  ParseCommandLineFlags(&argc, &argv, true);
 
   FLAGS_compaction_style_e = (rocksdb::CompactionStyle) FLAGS_compaction_style;
   if (FLAGS_statistics) {
@@ -2614,3 +2638,5 @@ int main(int argc, char** argv) {
   benchmark.Run();
   return 0;
 }
+
+#endif  // GFLAGS

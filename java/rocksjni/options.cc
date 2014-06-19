@@ -35,14 +35,12 @@ void Java_org_rocksdb_Options_newOptions(JNIEnv* env, jobject jobj) {
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    dispose0
- * Signature: ()V
+ * Method:    disposeInternal
+ * Signature: (J)V
  */
-void Java_org_rocksdb_Options_dispose0(JNIEnv* env, jobject jobj) {
-  rocksdb::Options* op = rocksdb::OptionsJni::getHandle(env, jobj);
-  delete op;
-
-  rocksdb::OptionsJni::setHandle(env, jobj, nullptr);
+void Java_org_rocksdb_Options_disposeInternal(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  delete reinterpret_cast<rocksdb::Options*>(handle);
 }
 
 /*
@@ -1665,10 +1663,10 @@ void Java_org_rocksdb_WriteOptions_newWriteOptions(
 
 /*
  * Class:     org_rocksdb_WriteOptions
- * Method:    dispose0
+ * Method:    disposeInternal
  * Signature: ()V
  */
-void Java_org_rocksdb_WriteOptions_dispose0(
+void Java_org_rocksdb_WriteOptions_disposeInternal(
     JNIEnv* env, jobject jwrite_options, jlong jhandle) {
   auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(jhandle);
   delete write_options;
@@ -1732,10 +1730,10 @@ void Java_org_rocksdb_ReadOptions_newReadOptions(
 
 /*
  * Class:     org_rocksdb_ReadOptions
- * Method:    dispose
+ * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_ReadOptions_dispose(
+void Java_org_rocksdb_ReadOptions_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
   rocksdb::ReadOptionsJni::setHandle(env, jobj, nullptr);

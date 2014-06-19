@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/iterator.h"
+#include "table/iterator_wrapper.h"
+#include "util/arena.h"
 
 namespace rocksdb {
 
@@ -65,8 +67,26 @@ Iterator* NewEmptyIterator() {
   return new EmptyIterator(Status::OK());
 }
 
+Iterator* NewEmptyIterator(Arena* arena) {
+  if (arena == nullptr) {
+    return NewEmptyIterator();
+  } else {
+    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
+    return new (mem) EmptyIterator(Status::OK());
+  }
+}
+
 Iterator* NewErrorIterator(const Status& status) {
   return new EmptyIterator(status);
+}
+
+Iterator* NewErrorIterator(const Status& status, Arena* arena) {
+  if (arena == nullptr) {
+    return NewErrorIterator(status);
+  } else {
+    auto mem = arena->AllocateAligned(sizeof(EmptyIterator));
+    return new (mem) EmptyIterator(status);
+  }
 }
 
 }  // namespace rocksdb

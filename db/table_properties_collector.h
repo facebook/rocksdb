@@ -36,6 +36,18 @@ class InternalKeyPropertiesCollector : public TablePropertiesCollector {
   uint64_t deleted_keys_ = 0;
 };
 
+class InternalKeyPropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ public:
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector() {
+    return new InternalKeyPropertiesCollector();
+  }
+
+  virtual const char* Name() const override {
+    return "InternalKeyPropertiesCollectorFactory";
+  }
+};
+
 // When rocksdb creates a new table, it will encode all "user keys" into
 // "internal keys", which contains meta information of a given entry.
 //
@@ -43,19 +55,11 @@ class InternalKeyPropertiesCollector : public TablePropertiesCollector {
 // invoked.
 class UserKeyTablePropertiesCollector : public TablePropertiesCollector {
  public:
-  explicit UserKeyTablePropertiesCollector(
-      TablePropertiesCollector* collector) :
-      UserKeyTablePropertiesCollector(
-        std::shared_ptr<TablePropertiesCollector>(collector)
-    ) {
-  }
+  // transfer of ownership
+  explicit UserKeyTablePropertiesCollector(TablePropertiesCollector* collector)
+      : collector_(collector) {}
 
-  explicit UserKeyTablePropertiesCollector(
-      std::shared_ptr<TablePropertiesCollector> collector) :
-      collector_(collector) {
-  }
-
-  virtual ~UserKeyTablePropertiesCollector() { }
+  virtual ~UserKeyTablePropertiesCollector() {}
 
   virtual Status Add(const Slice& key, const Slice& value) override;
 
@@ -66,7 +70,26 @@ class UserKeyTablePropertiesCollector : public TablePropertiesCollector {
   UserCollectedProperties GetReadableProperties() const override;
 
  protected:
-  std::shared_ptr<TablePropertiesCollector> collector_;
+  std::unique_ptr<TablePropertiesCollector> collector_;
+};
+
+class UserKeyTablePropertiesCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ public:
+  explicit UserKeyTablePropertiesCollectorFactory(
+      std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory)
+      : user_collector_factory_(user_collector_factory) {}
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector() {
+    return new UserKeyTablePropertiesCollector(
+        user_collector_factory_->CreateTablePropertiesCollector());
+  }
+
+  virtual const char* Name() const override {
+    return user_collector_factory_->Name();
+  }
+
+ private:
+  std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory_;
 };
 
 }  // namespace rocksdb

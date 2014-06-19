@@ -20,6 +20,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice_transform.h"
+#include "table/merger.h"
 #include "util/arena.h"
 #include "util/coding.h"
 #include "util/murmurhash.h"
@@ -37,7 +38,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
       kWriteBufferSize(options.write_buffer_size),
       arena_(options.arena_block_size),
       table_(options.memtable_factory->CreateMemTableRep(
-          comparator_, &arena_, options.prefix_extractor.get())),
+          comparator_, &arena_, options.prefix_extractor.get(),
+          options.info_log.get())),
       num_entries_(0),
       flush_in_progress_(false),
       flush_completed_(false),
@@ -55,7 +57,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
     prefix_bloom_.reset(new DynamicBloom(
         options.memtable_prefix_bloom_bits, options.bloom_locality,
         options.memtable_prefix_bloom_probes, nullptr,
-        options.memtable_prefix_bloom_huge_page_tlb_size));
+        options.memtable_prefix_bloom_huge_page_tlb_size,
+        options.info_log.get()));
   }
 }
 
@@ -171,15 +174,24 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 class MemTableIterator: public Iterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& options,
-                   bool enforce_total_order)
+                   bool enforce_total_order, Arena* arena)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
-        valid_(false) {
+        valid_(false),
+        arena_mode_(arena != nullptr) {
     if (prefix_extractor_ != nullptr && !enforce_total_order) {
       bloom_ = mem.prefix_bloom_.get();
-      iter_.reset(mem.table_->GetDynamicPrefixIterator());
+      iter_ = mem.table_->GetDynamicPrefixIterator(arena);
     } else {
-      iter_.reset(mem.table_->GetIterator());
+      iter_ = mem.table_->GetIterator(arena);
+    }
+  }
+
+  ~MemTableIterator() {
+    if (arena_mode_) {
+      iter_->~Iterator();
+    } else {
+      delete iter_;
     }
   }
 
@@ -226,8 +238,9 @@ class MemTableIterator: public Iterator {
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;
-  std::unique_ptr<MemTableRep::Iterator> iter_;
+  MemTableRep::Iterator* iter_;
   bool valid_;
+  bool arena_mode_;
 
   // No copying allowed
   MemTableIterator(const MemTableIterator&);
@@ -235,8 +248,14 @@ class MemTableIterator: public Iterator {
 };
 
 Iterator* MemTable::NewIterator(const ReadOptions& options,
-    bool enforce_total_order) {
-  return new MemTableIterator(*this, options, enforce_total_order);
+                                bool enforce_total_order, Arena* arena) {
+  if (arena == nullptr) {
+    return new MemTableIterator(*this, options, enforce_total_order, nullptr);
+  } else {
+    auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
+    return new (mem)
+        MemTableIterator(*this, options, enforce_total_order, arena);
+  }
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
@@ -347,7 +366,7 @@ static bool SaveValue(void* arg, const char* entry) {
           s->value->assign(v.data(), v.size());
         }
         if (s->inplace_update_support) {
-          s->mem->GetLock(s->key->user_key())->Unlock();
+          s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
         return false;

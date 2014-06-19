@@ -21,6 +21,7 @@
 
 namespace rocksdb {
 
+class Arena;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
@@ -77,8 +78,12 @@ class MemTable {
   //
   // By default, it returns an iterator for prefix seek if prefix_extractor
   // is configured in Options.
+  // arena: If not null, the arena needs to be used to allocate the Iterator.
+  //        Calling ~Iterator of the iterator will destroy all the states but
+  //        those allocated in arena.
   Iterator* NewIterator(const ReadOptions& options,
-                        bool enforce_total_order = false);
+                        bool enforce_total_order = false,
+                        Arena* arena = nullptr);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.

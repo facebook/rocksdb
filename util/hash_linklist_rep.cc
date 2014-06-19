@@ -13,6 +13,7 @@
 #include "rocksdb/slice_transform.h"
 #include "port/port.h"
 #include "port/atomic_pointer.h"
+#include "util/histogram.h"
 #include "util/murmurhash.h"
 #include "db/memtable.h"
 #include "db/skiplist.h"
@@ -54,7 +55,9 @@ class HashLinkListRep : public MemTableRep {
  public:
   HashLinkListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
                   const SliceTransform* transform, size_t bucket_size,
-                  size_t huge_page_tlb_size);
+                  size_t huge_page_tlb_size, Logger* logger,
+                  int bucket_entries_logging_threshold,
+                  bool if_log_bucket_dist_when_flash);
 
   virtual KeyHandle Allocate(const size_t len, char** buf) override;
 
@@ -70,11 +73,12 @@ class HashLinkListRep : public MemTableRep {
 
   virtual ~HashLinkListRep();
 
-  virtual MemTableRep::Iterator* GetIterator() override;
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override;
 
   virtual MemTableRep::Iterator* GetIterator(const Slice& slice) override;
 
-  virtual MemTableRep::Iterator* GetDynamicPrefixIterator() override;
+  virtual MemTableRep::Iterator* GetDynamicPrefixIterator(
+      Arena* arena = nullptr) override;
 
  private:
   friend class DynamicIterator;
@@ -90,6 +94,10 @@ class HashLinkListRep : public MemTableRep {
   const SliceTransform* transform_;
 
   const MemTableRep::KeyComparator& compare_;
+
+  Logger* logger_;
+  int bucket_entries_logging_threshold_;
+  bool if_log_bucket_dist_when_flash_;
 
   bool BucketContains(Node* head, const Slice& key) const;
 
@@ -259,7 +267,6 @@ class HashLinkListRep : public MemTableRep {
     const HashLinkListRep* const hash_link_list_rep_;
     Node* head_;
     Node* node_;
-    std::string tmp_;       // For passing to EncodeKey
 
     virtual void SeekToHead() {
       node_ = head_;
@@ -307,13 +314,19 @@ class HashLinkListRep : public MemTableRep {
 
 HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
                                  Arena* arena, const SliceTransform* transform,
-                                 size_t bucket_size, size_t huge_page_tlb_size)
+                                 size_t bucket_size, size_t huge_page_tlb_size,
+                                 Logger* logger,
+                                 int bucket_entries_logging_threshold,
+                                 bool if_log_bucket_dist_when_flash)
     : MemTableRep(arena),
       bucket_size_(bucket_size),
       transform_(transform),
-      compare_(compare) {
+      compare_(compare),
+      logger_(logger),
+      bucket_entries_logging_threshold_(bucket_entries_logging_threshold),
+      if_log_bucket_dist_when_flash_(if_log_bucket_dist_when_flash) {
   char* mem = arena_->AllocateAligned(sizeof(port::AtomicPointer) * bucket_size,
-                                      huge_page_tlb_size);
+                                      huge_page_tlb_size, logger);
 
   buckets_ = new (mem) port::AtomicPointer[bucket_size];
 
@@ -411,20 +424,46 @@ void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
   }
 }
 
-MemTableRep::Iterator* HashLinkListRep::GetIterator() {
+MemTableRep::Iterator* HashLinkListRep::GetIterator(Arena* alloc_arena) {
   // allocate a new arena of similar size to the one currently in use
   Arena* new_arena = new Arena(arena_->BlockSize());
   auto list = new FullList(compare_, new_arena);
+  HistogramImpl keys_per_bucket_hist;
+
   for (size_t i = 0; i < bucket_size_; ++i) {
+    int count = 0;
+    bool num_entries_printed = false;
     auto bucket = GetBucket(i);
     if (bucket != nullptr) {
       Iterator itr(this, bucket);
       for (itr.SeekToHead(); itr.Valid(); itr.Next()) {
         list->Insert(itr.key());
+        if (logger_ != nullptr &&
+            ++count >= bucket_entries_logging_threshold_ &&
+            !num_entries_printed) {
+          num_entries_printed = true;
+          Info(logger_, "HashLinkedList bucket %zu has more than %d "
+               "entries. %dth key: %s",
+               i, count, count,
+               GetLengthPrefixedSlice(itr.key()).ToString(true).c_str());
+        }
       }
     }
+    if (if_log_bucket_dist_when_flash_) {
+      keys_per_bucket_hist.Add(count);
+    }
   }
-  return new FullListIterator(list, new_arena);
+  if (if_log_bucket_dist_when_flash_ && logger_ != nullptr) {
+    Info(logger_, "hashLinkedList Entry distribution among buckets: %s",
+         keys_per_bucket_hist.ToString().c_str());
+  }
+
+  if (alloc_arena == nullptr) {
+    return new FullListIterator(list, new_arena);
+  } else {
+    auto mem = alloc_arena->AllocateAligned(sizeof(FullListIterator));
+    return new (mem) FullListIterator(list, new_arena);
+  }
 }
 
 MemTableRep::Iterator* HashLinkListRep::GetIterator(const Slice& slice) {
@@ -435,8 +474,14 @@ MemTableRep::Iterator* HashLinkListRep::GetIterator(const Slice& slice) {
   return new Iterator(this, bucket);
 }
 
-MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator() {
-  return new DynamicIterator(*this);
+MemTableRep::Iterator* HashLinkListRep::GetDynamicPrefixIterator(
+    Arena* alloc_arena) {
+  if (alloc_arena == nullptr) {
+    return new DynamicIterator(*this);
+  } else {
+    auto mem = alloc_arena->AllocateAligned(sizeof(DynamicIterator));
+    return new (mem) DynamicIterator(*this);
+  }
 }
 
 bool HashLinkListRep::BucketContains(Node* head, const Slice& user_key) const {
@@ -469,14 +514,18 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform* transform) {
-  return new HashLinkListRep(compare, arena, transform, bucket_count_,
-                             huge_page_tlb_size_);
+    const SliceTransform* transform, Logger* logger) {
+  return new HashLinkListRep(
+      compare, arena, transform, bucket_count_, huge_page_tlb_size_, logger,
+      bucket_entries_logging_threshold_, if_log_bucket_dist_when_flash_);
 }
 
-MemTableRepFactory* NewHashLinkListRepFactory(size_t bucket_count,
-                                              size_t huge_page_tlb_size) {
-  return new HashLinkListRepFactory(bucket_count, huge_page_tlb_size);
+MemTableRepFactory* NewHashLinkListRepFactory(
+    size_t bucket_count, size_t huge_page_tlb_size,
+    int bucket_entries_logging_threshold, bool if_log_bucket_dist_when_flash) {
+  return new HashLinkListRepFactory(bucket_count, huge_page_tlb_size,
+                                    bucket_entries_logging_threshold,
+                                    if_log_bucket_dist_when_flash);
 }
 
 } // namespace rocksdb

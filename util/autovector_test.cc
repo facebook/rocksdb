@@ -70,6 +70,28 @@ TEST(AutoVectorTest, EmplaceBack) {
   ASSERT_TRUE(!vec.only_in_stack());
 }
 
+TEST(AutoVectorTest, Resize) {
+  autovector<size_t, kSize> vec;
+
+  vec.resize(kSize);
+  ASSERT_TRUE(vec.only_in_stack());
+  for (size_t i = 0; i < kSize; ++i) {
+    vec[i] = i;
+  }
+
+  vec.resize(kSize * 2);
+  ASSERT_TRUE(!vec.only_in_stack());
+  for (size_t i = 0; i < kSize; ++i) {
+    ASSERT_EQ(vec[i], i);
+  }
+  for (size_t i = 0; i < kSize; ++i) {
+    vec[i + kSize] = i;
+  }
+
+  vec.resize(1);
+  ASSERT_EQ(1U, vec.size());
+}
+
 namespace {
 void AssertEqual(
     const autovector<size_t, kSize>& a, const autovector<size_t, kSize>& b) {

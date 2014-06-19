@@ -83,7 +83,7 @@ public:
                      unique_ptr<RandomAccessFile> && file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
-  Iterator* NewIterator(const ReadOptions&) override;
+  Iterator* NewIterator(const ReadOptions&, Arena* arena) override;
 
   Status Get(const ReadOptions&, const Slice& key, void* arg,
              bool (*handle_result)(void* arg, const ParsedInternalKey& k,
@@ -218,8 +218,14 @@ std::shared_ptr<const TableProperties> SimpleTableReader::GetTableProperties()
   return rep_->table_properties;
 }
 
-Iterator* SimpleTableReader::NewIterator(const ReadOptions& options) {
-  return new SimpleTableIterator(this);
+Iterator* SimpleTableReader::NewIterator(const ReadOptions& options,
+                                         Arena* arena) {
+  if (arena == nullptr) {
+    return new SimpleTableIterator(this);
+  } else {
+    auto mem = arena->AllocateAligned(sizeof(SimpleTableIterator));
+    return new (mem) SimpleTableIterator(this);
+  }
 }
 
 Status SimpleTableReader::GetOffset(const Slice& target, uint64_t* offset) {

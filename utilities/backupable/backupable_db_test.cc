@@ -11,12 +11,14 @@
 #include <algorithm>
 #include <iostream>
 
+#include "port/port.h"
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 #include "utilities/utility_db.h"
 #include "utilities/backupable_db.h"
 #include "util/testharness.h"
 #include "util/random.h"
+#include "util/mutexlock.h"
 #include "util/testutil.h"
 #include "util/auto_roll_logger.h"
 
@@ -161,6 +163,7 @@ class TestEnv : public EnvWrapper {
   Status NewSequentialFile(const std::string& f,
                            unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) {
+    MutexLock l(&mutex_);
     if (dummy_sequential_file_) {
       r->reset(new TestEnv::DummySequentialFile());
       return Status::OK();
@@ -171,6 +174,7 @@ class TestEnv : public EnvWrapper {
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
                          const EnvOptions& options) {
+    MutexLock l(&mutex_);
     written_files_.push_back(f);
     if (limit_written_files_ <= 0) {
       return Status::NotSupported("Sorry, can't do this");
@@ -180,32 +184,41 @@ class TestEnv : public EnvWrapper {
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
+    MutexLock l(&mutex_);
     ASSERT_GT(limit_delete_files_, 0U);
     limit_delete_files_--;
     return EnvWrapper::DeleteFile(fname);
   }
 
   void AssertWrittenFiles(std::vector<std::string>& should_have_written) {
+    MutexLock l(&mutex_);
     sort(should_have_written.begin(), should_have_written.end());
     sort(written_files_.begin(), written_files_.end());
     ASSERT_TRUE(written_files_ == should_have_written);
   }
 
   void ClearWrittenFiles() {
+    MutexLock l(&mutex_);
     written_files_.clear();
   }
 
   void SetLimitWrittenFiles(uint64_t limit) {
+    MutexLock l(&mutex_);
     limit_written_files_ = limit;
   }
 
-  void SetLimitDeleteFiles(uint64_t limit) { limit_delete_files_ = limit; }
+  void SetLimitDeleteFiles(uint64_t limit) {
+    MutexLock l(&mutex_);
+    limit_delete_files_ = limit;
+  }
 
   void SetDummySequentialFile(bool dummy_sequential_file) {
+    MutexLock l(&mutex_);
     dummy_sequential_file_ = dummy_sequential_file;
   }
 
  private:
+  port::Mutex mutex_;
   bool dummy_sequential_file_ = false;
   std::vector<std::string> written_files_;
   uint64_t limit_written_files_ = 1000000;
@@ -905,7 +918,6 @@ TEST(BackupableDBTest, RateLimiting) {
     auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
                                     backupable_options_->backup_rate_limit;
     ASSERT_GT(backup_time, 0.9 * rate_limited_backup_time);
-    ASSERT_LT(backup_time, 2.5 * rate_limited_backup_time);
 
     CloseBackupableDB();
 
@@ -917,7 +929,6 @@ TEST(BackupableDBTest, RateLimiting) {
     auto rate_limited_restore_time = (bytes_written * kMicrosPerSec) /
                                      backupable_options_->restore_rate_limit;
     ASSERT_GT(restore_time, 0.9 * rate_limited_restore_time);
-    ASSERT_LT(restore_time, 2.5 * rate_limited_restore_time);
 
     AssertBackupConsistency(0, 0, 100000, 100010);
   }

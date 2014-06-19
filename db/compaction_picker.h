@@ -47,9 +47,10 @@ class CompactionPicker {
   // compaction_end will be set to nullptr.
   // Client is responsible for compaction_end storage -- when called,
   // *compaction_end should point to valid InternalKey!
-  Compaction* CompactRange(Version* version, int input_level, int output_level,
-                           const InternalKey* begin, const InternalKey* end,
-                           InternalKey** compaction_end);
+  virtual Compaction* CompactRange(Version* version, int input_level,
+                                   int output_level, const InternalKey* begin,
+                                   const InternalKey* end,
+                                   InternalKey** compaction_end);
 
   // Free up the files that participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
@@ -160,6 +161,21 @@ class LevelCompactionPicker : public CompactionPicker {
   // If level is 0 and there is already a compaction on that level, this
   // function will return nullptr.
   Compaction* PickCompactionBySize(Version* version, int level, double score);
+};
+
+class FIFOCompactionPicker : public CompactionPicker {
+ public:
+  FIFOCompactionPicker(const Options* options,
+                       const InternalKeyComparator* icmp)
+      : CompactionPicker(options, icmp) {}
+
+  virtual Compaction* PickCompaction(Version* version,
+                                     LogBuffer* log_buffer) override;
+
+  virtual Compaction* CompactRange(Version* version, int input_level,
+                                   int output_level, const InternalKey* begin,
+                                   const InternalKey* end,
+                                   InternalKey** compaction_end) override;
 };
 
 }  // namespace rocksdb

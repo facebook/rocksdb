@@ -135,12 +135,14 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       compaction_style(options.compaction_style),
       verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       compaction_options_universal(options.compaction_options_universal),
+      compaction_options_fifo(options.compaction_options_fifo),
       filter_deletes(options.filter_deletes),
       max_sequential_skip_in_iterations(
           options.max_sequential_skip_in_iterations),
       memtable_factory(options.memtable_factory),
       table_factory(options.table_factory),
-      table_properties_collectors(options.table_properties_collectors),
+      table_properties_collector_factories(
+          options.table_properties_collector_factories),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
       inplace_callback(options.inplace_callback),
@@ -156,6 +158,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
 
 DBOptions::DBOptions()
     : create_if_missing(false),
+      create_missing_column_families(false),
       error_if_exists(false),
       paranoid_checks(true),
       env(Env::Default()),
@@ -195,6 +198,7 @@ DBOptions::DBOptions()
 
 DBOptions::DBOptions(const Options& options)
     : create_if_missing(options.create_if_missing),
+      create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
       env(options.env),
@@ -257,9 +261,11 @@ void DBOptions::Dump(Logger* log) const {
     Log(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
     Log(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Log(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
+    Log(log, "         Options.create_missing_column_families: %d",
+        create_missing_column_families);
     Log(log, "                             Options.db_log_dir: %s",
         db_log_dir.c_str());
-    Log(log, "                             Options.wal_dir: %s",
+    Log(log, "                                Options.wal_dir: %s",
         wal_dir.c_str());
     Log(log, "               Options.table_cache_numshardbits: %d",
         table_cache_numshardbits);
@@ -412,9 +418,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Log(log,
         "Options.compaction_options_universal.compression_size_percent: %u",
         compaction_options_universal.compression_size_percent);
+    Log(log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
+        compaction_options_fifo.max_table_files_size);
     std::string collector_names;
-    for (auto collector : table_properties_collectors) {
-      collector_names.append(collector->Name());
+    for (const auto& collector_factory : table_properties_collector_factories) {
+      collector_names.append(collector_factory->Name());
       collector_names.append("; ");
     }
     Log(log, "                  Options.table_properties_collectors: %s",
@@ -477,6 +485,72 @@ Options::PrepareForBulkLoad()
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
+  return this;
+}
+
+// Optimization functions
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup() {
+  prefix_extractor.reset(NewNoopTransform());
+  BlockBasedTableOptions block_based_options;
+  block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
+  table_factory.reset(new BlockBasedTableFactory(block_based_options));
+#ifndef ROCKSDB_LITE
+  memtable_factory.reset(NewHashLinkListRepFactory());
+#endif
+  return this;
+}
+
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
+    uint64_t memtable_memory_budget) {
+  write_buffer_size = memtable_memory_budget / 4;
+  // merge two memtables when flushing to L0
+  min_write_buffer_number_to_merge = 2;
+  // this means we'll use 50% extra memory in the worst case, but will reduce
+  // write stalls.
+  max_write_buffer_number = 6;
+  // start flushing L0->L1 as soon as possible. each file on level0 is
+  // (memtable_memory_budget / 2). This will flush level 0 when it's bigger than
+  // memtable_memory_budget.
+  level0_file_num_compaction_trigger = 2;
+  // doesn't really matter much, but we don't want to create too many files
+  target_file_size_base = memtable_memory_budget / 8;
+  // make Level1 size equal to Level0 size, so that L0->L1 compactions are fast
+  max_bytes_for_level_base = memtable_memory_budget;
+
+  // level style compaction
+  compaction_style = kCompactionStyleLevel;
+
+  // only compress levels >= 2
+  compression_per_level.resize(num_levels);
+  for (int i = 0; i < num_levels; ++i) {
+    if (i < 2) {
+      compression_per_level[i] = kNoCompression;
+    } else {
+      compression_per_level[i] = kSnappyCompression;
+    }
+  }
+  return this;
+}
+
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
+    uint64_t memtable_memory_budget) {
+  write_buffer_size = memtable_memory_budget / 4;
+  // merge two memtables when flushing to L0
+  min_write_buffer_number_to_merge = 2;
+  // this means we'll use 50% extra memory in the worst case, but will reduce
+  // write stalls.
+  max_write_buffer_number = 6;
+  // universal style compaction
+  compaction_style = kCompactionStyleUniversal;
+  compaction_options_universal.compression_size_percent = 80;
+  return this;
+}
+
+DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
+  max_background_compactions = total_threads - 1;
+  max_background_flushes = 1;
+  env->SetBackgroundThreads(total_threads, Env::LOW);
+  env->SetBackgroundThreads(1, Env::HIGH);
   return this;
 }
 

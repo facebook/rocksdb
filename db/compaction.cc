@@ -8,14 +8,20 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/compaction.h"
+
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+#include <vector>
+
 #include "db/column_family.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
 static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
   for (size_t i = 0; i < files.size() && files[i]; i++) {
-    sum += files[i]->file_size;
+    sum += files[i]->fd.GetFileSize();
   }
   return sum;
 }
@@ -23,7 +29,8 @@ static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
 Compaction::Compaction(Version* input_version, int level, int out_level,
                        uint64_t target_file_size,
                        uint64_t max_grandparent_overlap_bytes,
-                       bool seek_compaction, bool enable_compression)
+                       bool seek_compaction, bool enable_compression,
+                       bool deletion_compaction)
     : level_(level),
       out_level_(out_level),
       max_output_file_size_(target_file_size),
@@ -33,6 +40,7 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
       cfd_(input_version_->cfd_),
       seek_compaction_(seek_compaction),
       enable_compression_(enable_compression),
+      deletion_compaction_(deletion_compaction),
       grandparent_index_(0),
       seen_key_(false),
       overlapped_bytes_(0),
@@ -77,15 +85,18 @@ bool Compaction::IsTrivialMove() const {
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
 
+bool Compaction::IsDeletionCompaction() const { return deletion_compaction_; }
+
 void Compaction::AddInputDeletions(VersionEdit* edit) {
   for (int which = 0; which < 2; which++) {
     for (size_t i = 0; i < inputs_[which].size(); i++) {
-      edit->DeleteFile(level_ + which, inputs_[which][i]->number);
+      edit->DeleteFile(level_ + which, inputs_[which][i]->fd.GetNumber());
     }
   }
 }
 
 bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
+  assert(cfd_->options()->compaction_style != kCompactionStyleFIFO);
   if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     return bottommost_level_;
   }
@@ -116,7 +127,7 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
       icmp->Compare(internal_key,
                     grandparents_[grandparent_index_]->largest.Encode()) > 0) {
     if (seen_key_) {
-      overlapped_bytes_ += grandparents_[grandparent_index_]->file_size;
+      overlapped_bytes_ += grandparents_[grandparent_index_]->fd.GetFileSize();
     }
     assert(grandparent_index_ + 1 >= grandparents_.size() ||
            icmp->Compare(grandparents_[grandparent_index_]->largest.Encode(),
@@ -149,6 +160,7 @@ void Compaction::MarkFilesBeingCompacted(bool value) {
 
 // Is this compaction producing files at the bottommost level?
 void Compaction::SetupBottomMostLevel(bool isManual) {
+  assert(cfd_->options()->compaction_style != kCompactionStyleFIFO);
   if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     // If universal compaction style is used and manual
     // compaction is occuring, then we are guaranteed that
@@ -191,71 +203,67 @@ void Compaction::ResetNextCompactionIndex() {
   input_version_->ResetNextCompactionIndex(level_);
 }
 
-/*
-for sizes >=10TB, print "XXTB"
-for sizes >=10GB, print "XXGB"
-etc.
-*/
-static void FileSizeSummary(unsigned long long sz, char* output, int len) {
-  const unsigned long long ull10 = 10;
-  if (sz >= ull10<<40) {
-    snprintf(output, len, "%lluTB", sz>>40);
-  } else if (sz >= ull10<<30) {
-    snprintf(output, len, "%lluGB", sz>>30);
-  } else if (sz >= ull10<<20) {
-    snprintf(output, len, "%lluMB", sz>>20);
-  } else if (sz >= ull10<<10) {
-    snprintf(output, len, "%lluKB", sz>>10);
-  } else {
-    snprintf(output, len, "%lluB", sz);
-  }
-}
-
-static int InputSummary(std::vector<FileMetaData*>& files, char* output,
-                         int len) {
+namespace {
+int InputSummary(const std::vector<FileMetaData*>& files, char* output,
+                 int len) {
   *output = '\0';
   int write = 0;
   for (unsigned int i = 0; i < files.size(); i++) {
     int sz = len - write;
     int ret;
     char sztxt[16];
-    FileSizeSummary((unsigned long long)files.at(i)->file_size, sztxt, 16);
-    ret = snprintf(output + write, sz, "%lu(%s) ",
-                   (unsigned long)files.at(i)->number,
-                   sztxt);
-    if (ret < 0 || ret >= sz)
-      break;
+    AppendHumanBytes(files.at(i)->fd.GetFileSize(), sztxt, 16);
+    ret = snprintf(output + write, sz, "%" PRIu64 "(%s) ",
+                   files.at(i)->fd.GetNumber(), sztxt);
+    if (ret < 0 || ret >= sz) break;
     write += ret;
   }
-  return write;
+  // if files.size() is non-zero, overwrite the last space
+  return write - !!files.size();
 }
+}  // namespace
 
 void Compaction::Summary(char* output, int len) {
-  int write = snprintf(output, len,
-      "Base version %lu Base level %d, seek compaction:%d, inputs: [",
-      (unsigned long)input_version_->GetVersionNumber(),
-      level_,
-      seek_compaction_);
+  int write =
+      snprintf(output, len, "Base version %" PRIu64
+                            " Base level %d, seek compaction:%d, inputs: [",
+               input_version_->GetVersionNumber(), level_, seek_compaction_);
   if (write < 0 || write >= len) {
     return;
   }
 
-  write += InputSummary(inputs_[0], output+write, len-write);
+  write += InputSummary(inputs_[0], output + write, len - write);
   if (write < 0 || write >= len) {
     return;
   }
 
-  write += snprintf(output+write, len-write, "],[");
+  write += snprintf(output + write, len - write, "], [");
   if (write < 0 || write >= len) {
     return;
   }
 
-  write += InputSummary(inputs_[1], output+write, len-write);
+  write += InputSummary(inputs_[1], output + write, len - write);
   if (write < 0 || write >= len) {
     return;
   }
 
-  snprintf(output+write, len-write, "]");
+  snprintf(output + write, len - write, "]");
+}
+
+uint64_t Compaction::OutputFilePreallocationSize() {
+  uint64_t preallocation_size = 0;
+
+  if (cfd_->options()->compaction_style == kCompactionStyleLevel) {
+    preallocation_size =
+        cfd_->compaction_picker()->MaxFileSizeForLevel(output_level());
+  } else {
+    for (const auto& f : inputs_[0]) {
+      preallocation_size += f->fd.GetFileSize();
+    }
+  }
+  // Over-estimate slightly so we don't end up just barely crossing
+  // the threshold
+  return preallocation_size * 1.1;
 }
 
 }  // namespace rocksdb

@@ -11,6 +11,7 @@
 #include "db/version_set.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "table/merger.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
 
@@ -75,6 +76,14 @@ void MemTableListVersion::AddIterators(const ReadOptions& options,
                                        std::vector<Iterator*>* iterator_list) {
   for (auto& m : memlist_) {
     iterator_list->push_back(m->NewIterator(options));
+  }
+}
+
+void MemTableListVersion::AddIterators(
+    const ReadOptions& options, MergeIteratorBuilder* merge_iter_builder) {
+  for (auto& m : memlist_) {
+    merge_iter_builder->AddIterator(
+        m->NewIterator(options, merge_iter_builder->GetArena()));
   }
 }
 

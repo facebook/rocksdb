@@ -87,6 +87,7 @@ Status CreateLoggerFromOptions(
   env->GetAbsolutePath(dbname, &db_absolute_path);
   std::string fname = InfoLogFileName(dbname, db_absolute_path, db_log_dir);
 
+  env->CreateDirIfMissing(dbname);  // In case it does not exist
   // Currently we only support roll by time-to-roll and log size
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
@@ -102,7 +103,6 @@ Status CreateLoggerFromOptions(
     return s;
   } else {
     // Open a log file in the same directory as the db
-    env->CreateDir(dbname);  // In case it does not exist
     env->RenameFile(fname, OldInfoLogFileName(dbname, env->NowMicros(),
                                               db_absolute_path, db_log_dir));
     auto s = env->NewLogger(fname, logger);

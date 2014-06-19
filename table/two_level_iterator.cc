@@ -13,6 +13,7 @@
 #include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/format.h"
+#include "util/arena.h"
 
 namespace rocksdb {
 
@@ -23,7 +24,10 @@ class TwoLevelIterator: public Iterator {
   explicit TwoLevelIterator(TwoLevelIteratorState* state,
       Iterator* first_level_iter);
 
-  virtual ~TwoLevelIterator() {}
+  virtual ~TwoLevelIterator() {
+    first_level_iter_.DeleteIter(false);
+    second_level_iter_.DeleteIter(false);
+  }
 
   virtual void Seek(const Slice& target);
   virtual void SeekToFirst();
@@ -183,8 +187,13 @@ void TwoLevelIterator::InitDataBlock() {
 }  // namespace
 
 Iterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
-      Iterator* first_level_iter) {
-  return new TwoLevelIterator(state, first_level_iter);
+                              Iterator* first_level_iter, Arena* arena) {
+  if (arena == nullptr) {
+    return new TwoLevelIterator(state, first_level_iter);
+  } else {
+    auto mem = arena->AllocateAligned(sizeof(TwoLevelIterator));
+    return new (mem) TwoLevelIterator(state, first_level_iter);
+  }
 }
 
 }  // namespace rocksdb

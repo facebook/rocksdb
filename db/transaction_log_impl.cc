@@ -93,6 +93,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   Status s = OpenLogReader(files_->at(startFileIndex).get());
   if (!s.ok()) {
     currentStatus_ = s;
+    reporter_.Info(currentStatus_.ToString().c_str());
     return;
   }
   while (RestrictedRead(&record, &scratch)) {

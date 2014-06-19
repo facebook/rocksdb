@@ -8,8 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <memory>
 #include <stdint.h>
+
+#include <memory>
+#include <string>
 
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
@@ -44,5 +46,8 @@ class BlockBasedTableFactory : public TableFactory {
  private:
   BlockBasedTableOptions table_options_;
 };
+
+extern const std::string kHashIndexPrefixesBlock;
+extern const std::string kHashIndexPrefixesMetadataBlock;
 
 }  // namespace rocksdb

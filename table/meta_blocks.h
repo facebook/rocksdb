@@ -6,6 +6,7 @@
 
 #include <map>
 #include <memory>
+#include <vector>
 #include <string>
 
 #include "db/builder.h"
@@ -91,17 +92,15 @@ void LogPropertiesCollectionError(
 // NotifyCollectTableCollectorsOnAdd() triggers the `Add` event for all
 // property collectors.
 bool NotifyCollectTableCollectorsOnAdd(
-    const Slice& key,
-    const Slice& value,
-    const Options::TablePropertiesCollectors& collectors,
+    const Slice& key, const Slice& value,
+    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
     Logger* info_log);
 
 // NotifyCollectTableCollectorsOnAdd() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
 bool NotifyCollectTableCollectorsOnFinish(
-    const Options::TablePropertiesCollectors& collectors,
-    Logger* info_log,
-    PropertyBlockBuilder* builder);
+    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
+    Logger* info_log, PropertyBlockBuilder* builder);
 
 // Read the properties from the table.
 // @returns a status to indicate if the operation succeeded. On success,
@@ -123,5 +122,10 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
 // If it successfully seeks to the properties block, "is_found" will be
 // set to true.
 extern Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found);
+
+// Find the meta block from the meta index block.
+Status FindMetaBlock(Iterator* meta_index_iter,
+                     const std::string& meta_block_name,
+                     BlockHandle* block_handle);
 
 }  // namespace rocksdb

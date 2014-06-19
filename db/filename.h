@@ -20,6 +20,7 @@
 namespace rocksdb {
 
 class Env;
+class Directory;
 
 enum FileType {
   kLogFile,
@@ -100,7 +101,8 @@ extern bool ParseFileName(const std::string& filename,
 // Make the CURRENT file point to the descriptor file with the
 // specified number.
 extern Status SetCurrentFile(Env* env, const std::string& dbname,
-                             uint64_t descriptor_number);
+                             uint64_t descriptor_number,
+                             Directory* directory_to_fsync);
 
 // Make the IDENTITY file for the db
 extern Status SetIdentityFile(Env* env, const std::string& dbname);

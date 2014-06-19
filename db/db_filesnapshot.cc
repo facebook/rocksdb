@@ -29,8 +29,11 @@ Status DBImpl::DisableFileDeletions() {
   MutexLock l(&mutex_);
   ++disable_delete_obsolete_files_;
   if (disable_delete_obsolete_files_ == 1) {
-    // if not, it has already been disabled, so don't log anything
     Log(options_.info_log, "File Deletions Disabled");
+  } else {
+    Log(options_.info_log,
+        "File Deletions Disabled, but already disabled. Counter: %d",
+        disable_delete_obsolete_files_);
   }
   return Status::OK();
 }
@@ -50,6 +53,10 @@ Status DBImpl::EnableFileDeletions(bool force) {
       Log(options_.info_log, "File Deletions Enabled");
       should_purge_files = true;
       FindObsoleteFiles(deletion_state, true);
+    } else {
+      Log(options_.info_log,
+          "File Deletions Enable, but not really enabled. Counter: %d",
+          disable_delete_obsolete_files_);
     }
   }
   if (should_purge_files)  {

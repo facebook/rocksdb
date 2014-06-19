@@ -86,10 +86,9 @@ public class WriteBatch extends RocksObject {
   /**
    * Delete the c++ side pointer.
    */
-  @Override public synchronized void dispose() {
-    if (isInitialized()) {
-      dispose0();
-    }
+  @Override protected void disposeInternal() {
+    assert(isInitialized());
+    disposeInternal(nativeHandle_);
   }
 
   private native void newWriteBatch(int reserved_bytes);
@@ -99,7 +98,7 @@ public class WriteBatch extends RocksObject {
                             byte[] value, int valueLen);
   private native void remove(byte[] key, int keyLen);
   private native void putLogData(byte[] blob, int blobLen);
-  private native void dispose0();
+  private native void disposeInternal(long handle);
 }
 
 /**
