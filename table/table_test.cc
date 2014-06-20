@@ -1481,6 +1481,14 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   for (const std::string& key : keys) {
     ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
+
+  // rerun with different block cache
+  opt.block_cache = NewLRUCache(16 * 1024 * 1024);
+  ASSERT_OK(c.Reopen(opt));
+  table_reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  for (const std::string& key : keys) {
+    ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
+  }
 }
 
 TEST(PlainTableTest, BasicPlainTableProperties) {

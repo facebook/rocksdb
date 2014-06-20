@@ -407,31 +407,6 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
     }
   }
 
-  // Find compactions needed by seeks
-  FileMetaData* f = version->file_to_compact_;
-  if (c == nullptr && f != nullptr && !f->being_compacted) {
-
-    level = version->file_to_compact_level_;
-    int parent_index = -1;
-
-    // Only allow one level 0 compaction at a time.
-    // Do not pick this file if its parents at level+1 are being compacted.
-    if (level != 0 || compactions_in_progress_[0].empty()) {
-      if (!ParentRangeInCompaction(version, &f->smallest, &f->largest, level,
-                                   &parent_index)) {
-        c = new Compaction(version, level, level + 1,
-                           MaxFileSizeForLevel(level + 1),
-                           MaxGrandParentOverlapBytes(level), true);
-        c->inputs_[0].push_back(f);
-        c->parent_index_ = parent_index;
-        c->input_version_->file_to_compact_ = nullptr;
-        if (ExpandWhileOverlapping(c) == false) {
-          return nullptr;
-        }
-      }
-    }
-  }
-
   if (c == nullptr) {
     return nullptr;
   }

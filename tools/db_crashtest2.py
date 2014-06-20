@@ -100,7 +100,6 @@ def main(argv):
             --iterpercent=10
             --db=%s
             --max_key=100000000
-            --disable_seek_compaction=%s
             --mmap_read=%s
             --block_size=16384
             --cache_size=1048576
@@ -123,7 +122,6 @@ def main(argv):
                    threads,
                    write_buf_size,
                    dbname,
-                   random.randint(0, 1),
                    random.randint(0, 1),
                    random.randint(0, 1),
                    additional_opts))

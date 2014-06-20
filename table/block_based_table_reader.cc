@@ -56,13 +56,11 @@ const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
 
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
-// Set *didIO to true if didIO is not null.
 // On failure return non-OK.
 // On success fill *result and return OK - caller owns *result
 Status ReadBlockFromFile(RandomAccessFile* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,
-                         Block** result, Env* env, bool* didIO = nullptr,
-                         bool do_uncompress = true) {
+                         Block** result, Env* env, bool do_uncompress = true) {
   BlockContents contents;
   Status s = ReadBlockContents(file, footer, options, handle, &contents, env,
                                do_uncompress);
@@ -70,9 +68,6 @@ Status ReadBlockFromFile(RandomAccessFile* file, const Footer& footer,
     *result = new Block(contents);
   }
 
-  if (didIO != nullptr) {
-    *didIO = true;
-  }
   return s;
 }
 
@@ -834,7 +829,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
 Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
-    const ReadOptions& ro, bool* didIO, const Slice& index_value) {
+    const ReadOptions& ro, const Slice& index_value) {
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->options.block_cache.get();
   Cache* block_cache_compressed = rep->options.
@@ -872,7 +867,7 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
     }
 
     s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
-                      statistics, ro, &block);
+                              statistics, ro, &block);
 
     if (block.value == nullptr && !no_io && ro.fill_cache) {
       Histograms histogram = READ_BLOCK_GET_MICROS;
@@ -880,7 +875,7 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
       {
         StopWatch sw(rep->options.env, statistics, histogram);
         s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
-                              &raw_block, rep->options.env, didIO,
+                              &raw_block, rep->options.env,
                               block_cache_compressed == nullptr);
       }
 
@@ -898,7 +893,7 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
       return NewErrorIterator(Status::Incomplete("no blocking io"));
     }
     s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
-                          &block.value, rep->options.env, didIO);
+                          &block.value, rep->options.env);
   }
 
   Iterator* iter;
@@ -919,13 +914,13 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
 class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
   BlockEntryIteratorState(BlockBasedTable* table,
-      const ReadOptions& read_options, bool* did_io)
-    : TwoLevelIteratorState(table->rep_->options.prefix_extractor != nullptr),
-      table_(table), read_options_(read_options), did_io_(did_io) {}
+                          const ReadOptions& read_options)
+      : TwoLevelIteratorState(table->rep_->options.prefix_extractor != nullptr),
+        table_(table),
+        read_options_(read_options) {}
 
   Iterator* NewSecondaryIterator(const Slice& index_value) override {
-    return NewDataBlockIterator(table_->rep_, read_options_, did_io_,
-                                index_value);
+    return NewDataBlockIterator(table_->rep_, read_options_, index_value);
   }
 
   bool PrefixMayMatch(const Slice& internal_key) override {
@@ -936,8 +931,6 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   // Don't own table_
   BlockBasedTable* table_;
   const ReadOptions read_options_;
-  // Don't own did_io_
-  bool* did_io_;
 };
 
 // This will be broken if the user specifies an unusual implementation
@@ -1021,15 +1014,14 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
 
 Iterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
                                        Arena* arena) {
-  return NewTwoLevelIterator(
-      new BlockEntryIteratorState(this, read_options, nullptr),
-      NewIndexIterator(read_options), arena);
+  return NewTwoLevelIterator(new BlockEntryIteratorState(this, read_options),
+                             NewIndexIterator(read_options), arena);
 }
 
 Status BlockBasedTable::Get(
     const ReadOptions& read_options, const Slice& key, void* handle_context,
     bool (*result_handler)(void* handle_context, const ParsedInternalKey& k,
-                           const Slice& v, bool didIO),
+                           const Slice& v),
     void (*mark_key_may_exist_handler)(void* handle_context)) {
   Status s;
   Iterator* iiter = NewIndexIterator(read_options);
@@ -1052,9 +1044,8 @@ Status BlockBasedTable::Get(
       RecordTick(rep_->options.statistics.get(), BLOOM_FILTER_USEFUL);
       break;
     } else {
-      bool didIO = false;
       unique_ptr<Iterator> block_iter(
-          NewDataBlockIterator(rep_, read_options, &didIO, iiter->value()));
+          NewDataBlockIterator(rep_, read_options, iiter->value()));
 
       if (read_options.read_tier && block_iter->status().IsIncomplete()) {
         // couldn't get block from block_cache
@@ -1071,8 +1062,8 @@ Status BlockBasedTable::Get(
           s = Status::Corruption(Slice());
         }
 
-        if (!(*result_handler)(handle_context, parsed_key, block_iter->value(),
-                               didIO)) {
+        if (!(*result_handler)(handle_context, parsed_key,
+                               block_iter->value())) {
           done = true;
           break;
         }
@@ -1089,22 +1080,34 @@ Status BlockBasedTable::Get(
   return s;
 }
 
-namespace {
-bool SaveDidIO(void* arg, const ParsedInternalKey& key, const Slice& value,
-               bool didIO) {
-  *reinterpret_cast<bool*>(arg) = didIO;
-  return false;
-}
-}  // namespace
-
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
-  // We use Get() as it has logic that checks whether we read the
-  // block from the disk or not.
-  bool didIO = false;
-  Status s = Get(options, key, &didIO, SaveDidIO);
+  std::unique_ptr<Iterator> iiter(NewIndexIterator(options));
+  iiter->Seek(key);
+  assert(iiter->Valid());
+  CachableEntry<Block> block;
+
+  BlockHandle handle;
+  Slice input = iiter->value();
+  Status s = handle.DecodeFrom(&input);
   assert(s.ok());
-  return !didIO;
+  Cache* block_cache = rep_->options.block_cache.get();
+  assert(block_cache != nullptr);
+
+  char cache_key_storage[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+  Slice cache_key =
+      GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size, handle,
+                  cache_key_storage);
+  Slice ckey;
+
+  s = GetDataBlockFromCache(cache_key, ckey, block_cache, nullptr, nullptr,
+                            options, &block);
+  assert(s.ok());
+  bool in_cache = block.value != nullptr;
+  if (in_cache) {
+    ReleaseCachedEntry(block_cache, block.cache_handle);
+  }
+  return in_cache;
 }
 
 // REQUIRES: The following fields of rep_ should have already been populated:

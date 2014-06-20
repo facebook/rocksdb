@@ -109,7 +109,6 @@ make release
     --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
-    --disable_seek_compaction=1 \
     --statistics=1 \
     --histogram=1 \
     --disable_data_sync=1 \
@@ -129,7 +128,6 @@ make release
     --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
-    --disable_seek_compaction=1 \
     --use_tailing_iterator=1 \
     --statistics=1 \
     --histogram=1 \
@@ -150,7 +148,6 @@ make release
     --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
-    --disable_seek_compaction=1 \
     --statistics=1 \
     --histogram=1 \
     --disable_data_sync=1 \
@@ -172,7 +169,6 @@ make release
     --table_cache_numshardbits=4 \
     --write_buffer_size=1000000000 \
     --open_files=55000 \
-    --disable_seek_compaction=1 \
     --statistics=1 \
     --histogram=1 \
     --disable_data_sync=1 \
@@ -231,7 +227,6 @@ make release
     --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
-    --disable_seek_compaction=1 \
     --disable_auto_compactions=1 \
     --statistics=1 \
     --histogram=1 \
@@ -254,7 +249,6 @@ make release
     --cache_numshardbits=6 \
     --table_cache_numshardbits=4 \
     --open_files=55000 \
-    --disable_seek_compaction=1 \
     --statistics=1 \
     --histogram=1 \
     --disable_data_sync=1 \
@@ -274,7 +268,6 @@ make release
     --table_cache_numshardbits=4 \
     --write_buffer_size=1000000000 \
     --open_files=55000 \
-    --disable_seek_compaction=1 \
     --statistics=1 \
     --histogram=1 \
     --disable_data_sync=1 \
@@ -291,7 +284,6 @@ common_in_mem_args="--db=/dev/shm/rocksdb \
     --value_size=100 \
     --compression_type=none \
     --compression_ratio=1 \
-    --disable_seek_compaction=1 \
     --hard_rate_limit=2 \
     --write_buffer_size=134217728 \
     --max_write_buffer_number=4 \

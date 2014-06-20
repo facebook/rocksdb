@@ -65,9 +65,7 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   if (super_version->mem->Get(lkey, value, &s, merge_context,
                               *cfd->options())) {
   } else {
-    Version::GetStats stats;
-    super_version->current->Get(options, lkey, value, &s, &merge_context,
-                                &stats);
+    super_version->current->Get(options, lkey, value, &s, &merge_context);
   }
   return s;
 }

@@ -642,10 +642,6 @@ Default:1, i.e. pick maxfilesize amount of data as the source of a compaction.
 <li> <code>Options::max_grandparent_overlap_factor</code> -   Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
 stop building a single file in a level->level+1 compaction.
 <p>
-<li> <code>Options::disable_seek_compaction</code> -  Disable compaction triggered by seek.
-With bloomfilter and fast storage, a miss on one level is very cheap if the file handle is cached in table cache
-(which is true if max_open_files is large).
-<p>
 <li> <code>Options::max_background_compactions</code> - Maximum number of concurrent background jobs, submitted to
 the default LOW priority thread pool
 </ul>

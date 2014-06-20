@@ -5869,69 +5869,6 @@ TEST(DBTest, ReadFirstRecordCache) {
   ASSERT_EQ(env_->sequential_read_counter_.Read(), 1);
 }
 
-TEST(DBTest, ReadCompaction) {
-  std::string value(4096, '4'); // a string of size 4K
-  {
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    options.max_open_files = 20; // only 10 file in file-cache
-    options.target_file_size_base = 512;
-    options.write_buffer_size = 64 * 1024;
-    options.filter_policy = nullptr;
-    options.block_size = 4096;
-    options.no_block_cache = true;
-    options.disable_seek_compaction = false;
-
-    CreateAndReopenWithCF({"pikachu"}, &options);
-
-    // Write 8MB (2000 values, each 4K)
-    ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
-    std::vector<std::string> values;
-    for (int i = 0; i < 2000; i++) {
-      ASSERT_OK(Put(1, Key(i), value));
-    }
-
-    // clear level 0 and 1 if necessary.
-    Flush(1);
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
-    ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
-    ASSERT_EQ(NumTableFilesAtLevel(1, 1), 0);
-
-    // write some new keys into level 0
-    for (int i = 0; i < 2000; i = i + 16) {
-      ASSERT_OK(Put(1, Key(i), value));
-    }
-    Flush(1);
-
-    // Wait for any write compaction to finish
-    dbfull()->TEST_WaitForCompact();
-
-    // remember number of files in each level
-    int l1 = NumTableFilesAtLevel(0, 1);
-    int l2 = NumTableFilesAtLevel(1, 1);
-    int l3 = NumTableFilesAtLevel(2, 1);
-    ASSERT_NE(NumTableFilesAtLevel(0, 1), 0);
-    ASSERT_NE(NumTableFilesAtLevel(1, 1), 0);
-    ASSERT_NE(NumTableFilesAtLevel(2, 1), 0);
-
-    // read a bunch of times, trigger read compaction
-    for (int j = 0; j < 100; j++) {
-      for (int i = 0; i < 2000; i++) {
-        Get(1, Key(i));
-      }
-    }
-    // wait for read compaction to finish
-    env_->SleepForMicroseconds(1000000);
-
-    // verify that the number of files have decreased
-    // in some level, indicating that there was a compaction
-    ASSERT_TRUE(NumTableFilesAtLevel(0, 1) < l1 ||
-                NumTableFilesAtLevel(1, 1) < l2 ||
-                NumTableFilesAtLevel(2, 1) < l3);
-  }
-}
-
 // Multi-threaded test:
 namespace {
 
@@ -6641,7 +6578,6 @@ TEST(DBTest, PrefixScan) {
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
   options.create_if_missing = true;
-  options.disable_seek_compaction = true;
   options.memtable_factory.reset(NewHashSkipListRepFactory());
 
   // 11 RAND I/Os

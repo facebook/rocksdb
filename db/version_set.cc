@@ -362,7 +362,6 @@ struct Saver {
   // the merge operations encountered;
   MergeContext* merge_context;
   Logger* logger;
-  bool didIO;    // did we do any disk io?
   Statistics* statistics;
 };
 }
@@ -381,15 +380,14 @@ static void MarkKeyMayExist(void* arg) {
 }
 
 static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
-                      const Slice& v, bool didIO) {
+                      const Slice& v) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   MergeContext* merge_contex = s->merge_context;
   std::string merge_result;  // temporary area for merge results later
 
   assert(s != nullptr && merge_contex != nullptr);
 
-  // TODO: didIO and Merge?
-  s->didIO = didIO;
+  // TODO: Merge?
   if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
     // Key matches. Process it
     switch (parsed_key.type) {
@@ -490,8 +488,6 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       files_(new std::vector<FileMetaData*>[num_levels_]),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
-      file_to_compact_(nullptr),
-      file_to_compact_level_(-1),
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
       version_number_(version_number),
@@ -504,7 +500,6 @@ void Version::Get(const ReadOptions& options,
                   std::string* value,
                   Status* status,
                   MergeContext* merge_context,
-                  GetStats* stats,
                   bool* value_found) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
@@ -519,13 +514,7 @@ void Version::Get(const ReadOptions& options,
   saver.merge_operator = merge_operator_;
   saver.merge_context = merge_context;
   saver.logger = info_log_;
-  saver.didIO = false;
   saver.statistics = db_statistics_;
-
-  stats->seek_file = nullptr;
-  stats->seek_file_level = -1;
-  FileMetaData* last_file_read = nullptr;
-  int last_file_read_level = -1;
 
   // We can search level-by-level since entries never hop across
   // levels. Therefore we are guaranteed that if we find data
@@ -657,30 +646,11 @@ void Version::Get(const ReadOptions& options,
       }
       prev_file = f;
 #endif
-      bool tableIO = false;
       *status = table_cache_->Get(options, *internal_comparator_, f->fd, ikey,
-                                  &saver, SaveValue, &tableIO, MarkKeyMayExist);
+                                  &saver, SaveValue, MarkKeyMayExist);
       // TODO: examine the behavior for corrupted key
       if (!status->ok()) {
         return;
-      }
-
-      if (last_file_read != nullptr && stats->seek_file == nullptr) {
-        // We have had more than one seek for this read.  Charge the 1st file.
-        stats->seek_file = last_file_read;
-        stats->seek_file_level = last_file_read_level;
-      }
-
-      // If we did any IO as part of the read, then we remember it because
-      // it is a possible candidate for seek-based compaction. saver.didIO
-      // is true if the block had to be read in from storage and was not
-      // pre-exisiting in the block cache. Also, if this file was not pre-
-      // existing in the table cache and had to be freshly opened that needed
-      // the index blocks to be read-in, then tableIO is true. One thing
-      // to note is that the index blocks are not part of the block cache.
-      if (saver.didIO || tableIO) {
-        last_file_read = f;
-        last_file_read_level = level;
       }
 
       switch (saver.state) {
@@ -721,19 +691,6 @@ void Version::Get(const ReadOptions& options,
   } else {
     *status = Status::NotFound(); // Use an empty error message for speed
   }
-}
-
-bool Version::UpdateStats(const GetStats& stats) {
-  FileMetaData* f = stats.seek_file;
-  if (f != nullptr) {
-    f->allowed_seeks--;
-    if (f->allowed_seeks <= 0 && file_to_compact_ == nullptr) {
-      file_to_compact_ = f;
-      file_to_compact_level_ = stats.seek_file_level;
-      return true;
-    }
-  }
-  return false;
 }
 
 void Version::PrepareApply(std::vector<uint64_t>& size_being_compacted) {
@@ -917,9 +874,6 @@ bool Version::Unref() {
 }
 
 bool Version::NeedsCompaction() const {
-  if (file_to_compact_ != nullptr) {
-    return true;
-  }
   // In universal compaction case, this check doesn't really
   // check the compaction condition, but checks num of files threshold
   // only. We are not going to miss any compaction opportunity
@@ -1477,22 +1431,6 @@ class VersionSet::Builder {
       FileMetaData* f = new FileMetaData(new_file.second);
       f->refs = 1;
 
-      // We arrange to automatically compact this file after
-      // a certain number of seeks.  Let's assume:
-      //   (1) One seek costs 10ms
-      //   (2) Writing or reading 1MB costs 10ms (100MB/s)
-      //   (3) A compaction of 1MB does 25MB of IO:
-      //         1MB read from this level
-      //         10-12MB read from next level (boundaries may be misaligned)
-      //         10-12MB written to next level
-      // This implies that 25 seeks cost the same as the compaction
-      // of 1MB of data.  I.e., one seek costs approximately the
-      // same as the compaction of 40KB of data.  We are a little
-      // conservative and allow approximately one seek for every 16KB
-      // of data before triggering a compaction.
-      f->allowed_seeks = (f->fd.GetFileSize() / 16384);
-      if (f->allowed_seeks < 100) f->allowed_seeks = 100;
-
       levels_[level].deleted_files.erase(f->fd.GetNumber());
       levels_[level].added_files->insert(f);
     }
@@ -1539,10 +1477,9 @@ class VersionSet::Builder {
     for (int level = 0; level < cfd_->NumberLevels(); level++) {
       for (auto& file_meta : *(levels_[level].added_files)) {
         assert (!file_meta->table_reader_handle);
-        bool table_io;
         cfd_->table_cache()->FindTable(
             base_->vset_->storage_options_, cfd_->internal_comparator(),
-            file_meta->fd, &file_meta->table_reader_handle, &table_io, false);
+            file_meta->fd, &file_meta->table_reader_handle, false);
         if (file_meta->table_reader_handle != nullptr) {
           // Load table_reader
           file_meta->fd.table_reader =

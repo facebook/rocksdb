@@ -3276,9 +3276,6 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     mutex_.Unlock();
   }
 
-  bool have_stat_update = false;
-  Version::GetStats stats;
-
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
 
@@ -3297,22 +3294,12 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   } else {
     PERF_TIMER_START(get_from_output_files_time);
 
-    sv->current->Get(options, lkey, value, &s, &merge_context, &stats,
-                     value_found);
-    have_stat_update = true;
+    sv->current->Get(options, lkey, value, &s, &merge_context, value_found);
     PERF_TIMER_STOP(get_from_output_files_time);
     RecordTick(options_.statistics.get(), MEMTABLE_MISS);
   }
 
   PERF_TIMER_START(get_post_process_time);
-
-  if (!cfd->options()->disable_seek_compaction && have_stat_update) {
-    mutex_.Lock();
-    if (sv->current->UpdateStats(stats)) {
-      MaybeScheduleFlushOrCompaction();
-    }
-    mutex_.Unlock();
-  }
 
   bool unref_sv = true;
   if (LIKELY(options_.allow_thread_local)) {
@@ -3350,8 +3337,6 @@ std::vector<Status> DBImpl::MultiGet(
   struct MultiGetColumnFamilyData {
     ColumnFamilyData* cfd;
     SuperVersion* super_version;
-    Version::GetStats stats;
-    bool have_stat_update = false;
   };
   std::unordered_map<uint32_t, MultiGetColumnFamilyData*> multiget_cf_data;
   // fill up and allocate outside of mutex
@@ -3412,9 +3397,7 @@ std::vector<Status> DBImpl::MultiGet(
                                        *cfd->options())) {
       // Done
     } else {
-      super_version->current->Get(options, lkey, value, &s, &merge_context,
-                                  &mgd->stats);
-      mgd->have_stat_update = true;
+      super_version->current->Get(options, lkey, value, &s, &merge_context);
     }
 
     if (s.ok()) {
@@ -3426,23 +3409,14 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_TIMER_START(get_post_process_time);
   autovector<SuperVersion*> superversions_to_delete;
 
-  bool schedule_flush_or_compaction = false;
+  // TODO(icanadi) do we need lock here or just around Cleanup()?
   mutex_.Lock();
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;
-    auto cfd = mgd->cfd;
-    if (!cfd->options()->disable_seek_compaction && mgd->have_stat_update) {
-      if (mgd->super_version->current->UpdateStats(mgd->stats)) {
-        schedule_flush_or_compaction = true;
-      }
-    }
     if (mgd->super_version->Unref()) {
       mgd->super_version->Cleanup();
       superversions_to_delete.push_back(mgd->super_version);
     }
-  }
-  if (schedule_flush_or_compaction) {
-    MaybeScheduleFlushOrCompaction();
   }
   mutex_.Unlock();
 

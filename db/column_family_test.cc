@@ -749,7 +749,6 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.filter_policy = nullptr;
   default_cf.no_block_cache = true;
   default_cf.source_compaction_factor = 100;
-  default_cf.disable_seek_compaction = false;
 
   one.compaction_style = kCompactionStyleUniversal;
   // trigger compaction if there are >= 4 files
@@ -763,33 +762,6 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   two.write_buffer_size = 100000;
 
   Reopen({default_cf, one, two});
-
-  // SETUP column family "default" - test read compaction
-  ASSERT_EQ("", FilesPerLevel(0));
-  PutRandomData(0, 1, 4096);
-  ASSERT_OK(Flush(0));
-  ASSERT_EQ("0,0,1", FilesPerLevel(0));
-  // write 8MB
-  PutRandomData(0, 2000, 4096);
-  ASSERT_OK(Flush(0));
-  // clear levels 0 and 1
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[0]);
-  dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[0]);
-  ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
-  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);
-  // write some new keys into level 0 and 1
-  PutRandomData(0, 1024, 512);
-  ASSERT_OK(Flush(0));
-  WaitForCompaction();
-  PutRandomData(0, 10, 512);
-  ASSERT_OK(Flush(0));
-  // remember number of files in each level
-  int l1 = NumTableFilesAtLevel(0, 0);
-  int l2 = NumTableFilesAtLevel(1, 0);
-  int l3 = NumTableFilesAtLevel(2, 0);
-  ASSERT_NE(l1, 0);
-  ASSERT_NE(l2, 0);
-  ASSERT_NE(l3, 0);
 
   // SETUP column family "one" -- universal style
   for (int i = 0; i < one.level0_file_num_compaction_trigger - 1; ++i) {
@@ -805,12 +777,6 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
     ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(2));
   }
 
-  // TRIGGER compaction "default"
-  // read a bunch of times, trigger read compaction
-  for (int i = 0; i < 200000; ++i) {
-    Get(0, std::to_string(i));
-  }
-
   // TRIGGER compaction "one"
   PutRandomData(1, 12, 10000);
 
@@ -819,13 +785,6 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
 
   // WAIT for compactions
   WaitForCompaction();
-
-  // VERIFY compaction "default"
-  // verify that the number of files have decreased
-  // in some level, indicating that there was a compaction
-  ASSERT_TRUE(NumTableFilesAtLevel(0, 0) < l1 ||
-              NumTableFilesAtLevel(1, 0) < l2 ||
-              NumTableFilesAtLevel(2, 0) < l3);
 
   // VERIFY compaction "one"
   ASSERT_EQ("1", FilesPerLevel(1));

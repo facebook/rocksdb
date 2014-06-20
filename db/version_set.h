@@ -85,22 +85,12 @@ class Version {
                     MergeIteratorBuilder* merger_iter_builder);
 
   // Lookup the value for key.  If found, store it in *val and
-  // return OK.  Else return a non-OK status.  Fills *stats.
+  // return OK.  Else return a non-OK status.
   // Uses *operands to store merge_operator operations to apply later
   // REQUIRES: lock is not held
-  struct GetStats {
-    FileMetaData* seek_file;
-    int seek_file_level;
-  };
-
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
-           Status* status, MergeContext* merge_context, GetStats* stats,
+           Status* status, MergeContext* merge_context,
            bool* value_found = nullptr);
-
-  // Adds "stats" into the current state.  Returns true if a new
-  // compaction may need to be triggered, false otherwise.
-  // REQUIRES: lock is held
-  bool UpdateStats(const GetStats& stats);
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next
@@ -277,10 +267,6 @@ class Version {
   // few largest files because a new version is created every few
   // seconds/minutes (because of concurrent compactions).
   static const int number_of_files_to_sort_ = 50;
-
-  // Next file to compact based on seek stats.
-  FileMetaData* file_to_compact_;
-  int file_to_compact_level_;
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields

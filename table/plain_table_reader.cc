@@ -643,7 +643,7 @@ void PlainTableReader::Prepare(const Slice& target) {
 Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
                              void* arg,
                              bool (*saver)(void*, const ParsedInternalKey&,
-                                           const Slice&, bool),
+                                           const Slice&),
                              void (*mark_key_may_exist)(void*)) {
   // Check bloom filter first.
   Slice prefix_slice;
@@ -699,7 +699,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
       prefix_match = true;
     }
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
-      if (!(*saver)(arg, found_key, found_value, true)) {
+      if (!(*saver)(arg, found_key, found_value)) {
         break;
       }
     }

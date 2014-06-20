@@ -40,7 +40,6 @@ struct FileDescriptor {
 struct FileMetaData {
   int refs;
   FileDescriptor fd;
-  int allowed_seeks;          // Seeks allowed until compaction
   InternalKey smallest;       // Smallest internal key served by table
   InternalKey largest;        // Largest internal key served by table
   bool being_compacted;       // Is this file undergoing compaction?
@@ -53,7 +52,6 @@ struct FileMetaData {
   FileMetaData()
       : refs(0),
         fd(0, 0),
-        allowed_seeks(1 << 30),
         being_compacted(false),
         table_reader_handle(nullptr) {}
 };

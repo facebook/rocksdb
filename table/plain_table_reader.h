@@ -63,7 +63,7 @@ class PlainTableReader: public TableReader {
 
   Status Get(const ReadOptions&, const Slice& key, void* arg,
              bool (*result_handler)(void* arg, const ParsedInternalKey& k,
-                                    const Slice& v, bool),
+                                    const Slice& v),
              void (*mark_key_may_exist)(void*) = nullptr);
 
   uint64_t ApproximateOffsetOf(const Slice& key);
