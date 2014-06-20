@@ -263,6 +263,8 @@ bool JSONDocument::operator==(const JSONDocument& rhs) const {
     default:
       assert(false);
   }
+  // it can't come to here, but we don't want the compiler to complain
+  return false;
 }
 
 JSONDocument::ItemsIteratorGenerator JSONDocument::Items() const {
