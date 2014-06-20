@@ -4726,8 +4726,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 //
 // A global method that can dump out the build version
 void DumpLeveldbBuildVersion(Logger * log) {
-#if !defined(IOS_CROSS_COMPILE)
-  // if we compile with Xcode, we don't run build_detect_vesion, so we don't generate util/build_version.cc
+#if !defined(IOS_CROSS_COMPILE) && !defined(ROCKSDB_PLATFORM_WIN)
+  // if we compile with Xcode or Visual Studio, we don't run build_detect_version, so we don't generate util/build_version.cc
   Log(log, "Git sha %s", rocksdb_build_git_sha);
   Log(log, "Compile time %s %s",
       rocksdb_build_compile_time, rocksdb_build_compile_date);
