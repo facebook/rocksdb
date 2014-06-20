@@ -445,9 +445,6 @@ static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
 }
 
 namespace {
-bool NewestFirst(FileMetaData* a, FileMetaData* b) {
-  return a->fd.GetNumber() > b->fd.GetNumber();
-}
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
   if (a->smallest_seqno != b->smallest_seqno) {
     return a->smallest_seqno > b->smallest_seqno;
@@ -456,7 +453,7 @@ bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
     return a->largest_seqno > b->largest_seqno;
   }
   // Break ties by file number
-  return NewestFirst(a, b);
+  return a->fd.GetNumber() > b->fd.GetNumber();
 }
 bool BySmallestKey(FileMetaData* a, FileMetaData* b,
                    const InternalKeyComparator* cmp) {
@@ -655,11 +652,7 @@ void Version::Get(const ReadOptions& options,
           assert(comp_sign < 0);
         } else {
           // level == 0, the current file cannot be newer than the previous one.
-          if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
-            assert(!NewestFirstBySeqNo(f, prev_file));
-          } else {
-            assert(!NewestFirst(f, prev_file));
-          }
+          assert(!NewestFirstBySeqNo(f, prev_file));
         }
       }
       prev_file = f;
@@ -1318,22 +1311,18 @@ struct VersionSet::ManifestWriter {
 class VersionSet::Builder {
  private:
   // Helper to sort v->files_
-  // kLevel0LevelCompaction -- NewestFirst (also used for FIFO compaction)
-  // kLevel0UniversalCompaction -- NewestFirstBySeqNo
+  // kLevel0 -- NewestFirstBySeqNo
   // kLevelNon0 -- BySmallestKey
   struct FileComparator {
     enum SortMethod {
-      kLevel0LevelCompaction = 0,
-      kLevel0UniversalCompaction = 1,
-      kLevelNon0 = 2,
+      kLevel0 = 0,
+      kLevelNon0 = 1,
     } sort_method;
     const InternalKeyComparator* internal_comparator;
 
     bool operator()(FileMetaData* f1, FileMetaData* f2) const {
       switch (sort_method) {
-        case kLevel0LevelCompaction:
-          return NewestFirst(f1, f2);
-        case kLevel0UniversalCompaction:
+        case kLevel0:
           return NewestFirstBySeqNo(f1, f2);
         case kLevelNon0:
           return BySmallestKey(f1, f2, internal_comparator);
@@ -1359,10 +1348,7 @@ class VersionSet::Builder {
   Builder(ColumnFamilyData* cfd) : cfd_(cfd), base_(cfd->current()) {
     base_->Ref();
     levels_ = new LevelState[base_->NumberLevels()];
-    level_zero_cmp_.sort_method =
-        (cfd_->options()->compaction_style == kCompactionStyleUniversal)
-            ? FileComparator::kLevel0UniversalCompaction
-            : FileComparator::kLevel0LevelCompaction;
+    level_zero_cmp_.sort_method = FileComparator::kLevel0;
     level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
     level_nonzero_cmp_.internal_comparator = &cfd->internal_comparator();
 
@@ -1408,9 +1394,7 @@ class VersionSet::Builder {
         auto f2 = v->files_[level][i];
         if (level == 0) {
           assert(level_zero_cmp_(f1, f2));
-          if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
-            assert(f1->largest_seqno > f2->largest_seqno);
-          }
+          assert(f1->largest_seqno > f2->largest_seqno);
         } else {
           assert(level_nonzero_cmp_(f1, f2));
 
