@@ -38,6 +38,7 @@ extern void PutLengthPrefixedSliceParts(std::string* dst,
 
 // Standard Get... routines parse a value from the beginning of a Slice
 // and advance the slice past the parsed value.
+extern bool GetFixed64(Slice* input, uint64_t* value);
 extern bool GetVarint32(Slice* input, uint32_t* value);
 extern bool GetVarint64(Slice* input, uint64_t* value);
 extern bool GetLengthPrefixedSlice(Slice* input, Slice* result);
@@ -226,6 +227,15 @@ inline int VarintLength(uint64_t v) {
     len++;
   }
   return len;
+}
+
+inline bool GetFixed64(Slice* input, uint64_t* value) {
+  if (input->size() < sizeof(uint64_t)) {
+    return false;
+  }
+  *value = DecodeFixed64(input->data());
+  input->remove_prefix(sizeof(uint64_t));
+  return true;
 }
 
 inline bool GetVarint32(Slice* input, uint32_t* value) {
