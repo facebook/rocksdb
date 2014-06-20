@@ -132,6 +132,7 @@ TEST(JSONDocumentTest, Serialization) {
   auto deserialized_json = JSONDocument::Deserialize(Slice(serialized));
   ASSERT_TRUE(deserialized_json != nullptr);
   AssertSampleJSON(*deserialized_json);
+  delete deserialized_json;
 
   // deserialization failure
   ASSERT_TRUE(JSONDocument::Deserialize(
