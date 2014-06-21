@@ -61,7 +61,7 @@ class PlainTableDBTest {
   // Return the current option configuration.
   Options CurrentOptions() {
     Options options;
-    options.table_factory.reset(NewPlainTableFactory(16, 2, 0.8, 3));
+    options.table_factory.reset(NewPlainTableFactory(0, 2, 0.8, 3, 0, kPrefix));
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.allow_mmap_reads = true;
@@ -179,17 +179,21 @@ class TestPlainTableReader : public PlainTableReader {
  public:
   TestPlainTableReader(const EnvOptions& storage_options,
                        const InternalKeyComparator& icomparator,
-                       uint64_t file_size, int bloom_bits_per_key,
-                       double hash_table_ratio, size_t index_sparseness,
+                       EncodingType encoding_type, uint64_t file_size,
+                       int bloom_bits_per_key, double hash_table_ratio,
+                       size_t index_sparseness,
                        const TableProperties* table_properties,
                        unique_ptr<RandomAccessFile>&& file,
                        const Options& options, bool* expect_bloom_not_match)
       : PlainTableReader(options, std::move(file), storage_options, icomparator,
-                         file_size, table_properties),
+                         encoding_type, file_size, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
-    Status s = PopulateIndex(const_cast<TableProperties*>(table_properties),
-                             bloom_bits_per_key, hash_table_ratio,
-                             index_sparseness, 2 * 1024 * 1024);
+    Status s = MmapDataFile();
+    ASSERT_TRUE(s.ok());
+
+    s = PopulateIndex(const_cast<TableProperties*>(table_properties),
+                      bloom_bits_per_key, hash_table_ratio, index_sparseness,
+                      2 * 1024 * 1024);
     ASSERT_TRUE(s.ok());
   }
 
@@ -211,9 +215,10 @@ class TestPlainTableFactory : public PlainTableFactory {
                                  uint32_t user_key_len, int bloom_bits_per_key,
                                  double hash_table_ratio,
                                  size_t index_sparseness,
-                                 size_t huge_page_tlb_size)
-      : PlainTableFactory(user_key_len, user_key_len, hash_table_ratio,
-                          index_sparseness, huge_page_tlb_size),
+                                 size_t huge_page_tlb_size,
+                                 EncodingType encoding_type)
+      : PlainTableFactory(user_key_len, bloom_bits_per_key, hash_table_ratio,
+                          index_sparseness, huge_page_tlb_size, encoding_type),
         bloom_bits_per_key_(bloom_bits_per_key),
         hash_table_ratio_(hash_table_ratio),
         index_sparseness_(index_sparseness),
@@ -228,10 +233,17 @@ class TestPlainTableFactory : public PlainTableFactory {
                                  options.env, options.info_log.get(), &props);
     ASSERT_TRUE(s.ok());
 
+    auto& user_props = props->user_collected_properties;
+    auto encoding_type_prop =
+        user_props.find(PlainTablePropertyNames::kEncodingType);
+    assert(encoding_type_prop != user_props.end());
+    EncodingType encoding_type = static_cast<EncodingType>(
+        DecodeFixed32(encoding_type_prop->second.c_str()));
+
     std::unique_ptr<PlainTableReader> new_reader(new TestPlainTableReader(
-        soptions, internal_comparator, file_size, bloom_bits_per_key_,
-        hash_table_ratio_, index_sparseness_, props, std::move(file), options,
-        expect_bloom_not_match_));
+        soptions, internal_comparator, encoding_type, file_size,
+        bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
+        std::move(file), options, expect_bloom_not_match_));
 
     *table = std::move(new_reader);
     return s;
@@ -247,18 +259,22 @@ class TestPlainTableFactory : public PlainTableFactory {
 TEST(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (EncodingType encoding_type : {kPlain, kPrefix}) {
     for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
       for (int total_order = 0; total_order <= 1; total_order++) {
+        if (encoding_type == kPrefix && total_order == 1) {
+          continue;
+        }
         Options options = CurrentOptions();
         options.create_if_missing = true;
         // Set only one bucket to force bucket conflict.
         // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
           options.table_factory.reset(NewTotalOrderPlainTableFactory(
-              16, bloom_bits, 2, huge_page_tlb_size));
+              0, bloom_bits, 2, huge_page_tlb_size));
         } else {
           options.table_factory.reset(NewPlainTableFactory(
-              16, bloom_bits, 0.75, 16, huge_page_tlb_size));
+              0, bloom_bits, 0.75, 16, huge_page_tlb_size, encoding_type));
         }
         DestroyAndReopen(&options);
 
@@ -281,14 +297,19 @@ TEST(PlainTableDBTest, Flush) {
         ASSERT_EQ("v2", Get("0000000000000bar"));
       }
     }
+    }
   }
 }
 
 TEST(PlainTableDBTest, Flush2) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (EncodingType encoding_type : {kPlain, kPrefix}) {
     for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
       for (int total_order = 0; total_order <= 1; total_order++) {
+        if (encoding_type == kPrefix && total_order == 1) {
+          continue;
+        }
         bool expect_bloom_not_match = false;
         Options options = CurrentOptions();
         options.create_if_missing = true;
@@ -296,13 +317,13 @@ TEST(PlainTableDBTest, Flush2) {
         // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
           options.prefix_extractor = nullptr;
-          options.table_factory.reset(
-              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
-                                        0, 2, huge_page_tlb_size));
+          options.table_factory.reset(new TestPlainTableFactory(
+              &expect_bloom_not_match, 0, bloom_bits, 0, 2, huge_page_tlb_size,
+              encoding_type));
         } else {
-          options.table_factory.reset(
-              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
-                                        0.75, 16, huge_page_tlb_size));
+          options.table_factory.reset(new TestPlainTableFactory(
+              &expect_bloom_not_match, 0, bloom_bits, 0.75, 16,
+              huge_page_tlb_size, encoding_type));
         }
         DestroyAndReopen(&options);
         ASSERT_OK(Put("0000000000000bar", "b"));
@@ -341,14 +362,19 @@ TEST(PlainTableDBTest, Flush2) {
         }
       }
     }
+    }
   }
 }
 
 TEST(PlainTableDBTest, Iterator) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
+    for (EncodingType encoding_type : {kPlain, kPrefix}) {
     for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
       for (int total_order = 0; total_order <= 1; total_order++) {
+        if (encoding_type == kPrefix && total_order == 1) {
+          continue;
+        }
         bool expect_bloom_not_match = false;
         Options options = CurrentOptions();
         options.create_if_missing = true;
@@ -356,13 +382,13 @@ TEST(PlainTableDBTest, Iterator) {
         // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
           options.prefix_extractor = nullptr;
-          options.table_factory.reset(
-              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
-                                        0, 2, huge_page_tlb_size));
+          options.table_factory.reset(new TestPlainTableFactory(
+              &expect_bloom_not_match, 16, bloom_bits, 0, 2, huge_page_tlb_size,
+              encoding_type));
         } else {
-          options.table_factory.reset(
-              new TestPlainTableFactory(&expect_bloom_not_match, 16, bloom_bits,
-                                        0.75, 16, huge_page_tlb_size));
+          options.table_factory.reset(new TestPlainTableFactory(
+              &expect_bloom_not_match, 16, bloom_bits, 0.75, 16,
+              huge_page_tlb_size, encoding_type));
         }
         DestroyAndReopen(&options);
 
@@ -449,6 +475,7 @@ TEST(PlainTableDBTest, Iterator) {
         delete iter;
       }
     }
+    }
   }
 }
 
@@ -460,7 +487,7 @@ std::string MakeLongKey(size_t length, char c) {
 
 TEST(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();
-  options.table_factory.reset(NewTotalOrderPlainTableFactory(0, 0, 16));
+  options.table_factory.reset(NewTotalOrderPlainTableFactory(0, 0, 16, 0));
   options.create_if_missing = true;
   options.prefix_extractor.reset();
   DestroyAndReopen(&options);
@@ -474,6 +501,45 @@ TEST(PlainTableDBTest, IteratorLargeKeys) {
       MakeLongKey(50, '5'),
       MakeLongKey(26, '6')
   };
+
+  for (size_t i = 0; i < 7; i++) {
+    ASSERT_OK(Put(key_list[i], std::to_string(i)));
+  }
+
+  dbfull()->TEST_FlushMemTable();
+
+  Iterator* iter = dbfull()->NewIterator(ReadOptions());
+  iter->Seek(key_list[0]);
+
+  for (size_t i = 0; i < 7; i++) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(key_list[i], iter->key().ToString());
+    ASSERT_EQ(std::to_string(i), iter->value().ToString());
+    iter->Next();
+  }
+
+  ASSERT_TRUE(!iter->Valid());
+
+  delete iter;
+}
+
+namespace {
+std::string MakeLongKeyWithPrefix(size_t length, char c) {
+  return "00000000" + std::string(length - 8, c);
+}
+}  // namespace
+
+TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
+  Options options = CurrentOptions();
+  options.table_factory.reset(NewPlainTableFactory(16, 0, 0.8, 3, 0, kPrefix));
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+
+  std::string key_list[] = {
+      MakeLongKeyWithPrefix(30, '0'), MakeLongKeyWithPrefix(16, '1'),
+      MakeLongKeyWithPrefix(32, '2'), MakeLongKeyWithPrefix(60, '3'),
+      MakeLongKeyWithPrefix(90, '4'), MakeLongKeyWithPrefix(50, '5'),
+      MakeLongKeyWithPrefix(26, '6')};
 
   for (size_t i = 0; i < 7; i++) {
     ASSERT_OK(Put(key_list[i], std::to_string(i)));

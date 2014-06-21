@@ -1,5 +1,14 @@
 # Rocksdb Change Log
 
+## Unreleased (will be released with 3.2.0)
+
+### Public API changes
+* We removed seek compaction as a concept from RocksDB because:
+1) It makes more sense for spinning disk workloads, while RocksDB is primarily designed for flash and memory,
+2) It added some complexity to the important code-paths,
+3) None of our internal customers were really using it.
+Because of that, Options::disable_seek_compaction is now obsolete. It is still a parameter in Options, so it does not break the build, but it does not have any effect. We plan to completely remove it at some point, so we ask users to please remove this option from your code base.
+
 ## 3.1.0 (05/21/2014)
 
 ### Public API changes

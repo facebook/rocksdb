@@ -333,9 +333,6 @@ DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
              "deletepercent), so deletepercent must be smaller than (100 - "
              "FLAGS_readwritepercent)");
 
-DEFINE_int32(disable_seek_compaction, false, "Option to disable compaction"
-             " triggered by read.");
-
 DEFINE_uint64(delete_obsolete_files_period_micros, 0, "Option to delete "
               "obsolete files periodically. 0 means that obsolete files are"
               " deleted after every compaction run.");
@@ -552,6 +549,9 @@ static const bool FLAGS_cache_numshardbits_dummy __attribute__((unused)) =
 
 static const bool FLAGS_readwritepercent_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_readwritepercent, &ValidateInt32Percent);
+
+DEFINE_int32(disable_seek_compaction, false,
+             "Not used, left here for backwards compatibility");
 
 static const bool FLAGS_deletepercent_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_deletepercent, &ValidateInt32Percent);
@@ -1663,7 +1663,6 @@ class Benchmark {
         options.compression_per_level[i] = FLAGS_compression_type_e;
       }
     }
-    options.disable_seek_compaction = FLAGS_disable_seek_compaction;
     options.delete_obsolete_files_period_micros =
       FLAGS_delete_obsolete_files_period_micros;
     options.soft_rate_limit = FLAGS_soft_rate_limit;

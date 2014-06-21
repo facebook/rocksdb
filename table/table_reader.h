@@ -55,8 +55,8 @@ class TableReader {
   // Calls (*result_handler)(handle_context, ...) repeatedly, starting with
   // the entry found after a call to Seek(key), until result_handler returns
   // false, where k is the actual internal key for a row found and v as the
-  // value of the key. didIO is true if I/O is involved in the operation. May
-  // not make such a call if filter policy says that key is not present.
+  // value of the key. May not make such a call if filter policy says that key
+  // is not present.
   //
   // mark_key_may_exist_handler needs to be called when it is configured to be
   // memory only and the key is not found in the block cache, with
@@ -67,7 +67,7 @@ class TableReader {
   virtual Status Get(
       const ReadOptions& readOptions, const Slice& key, void* handle_context,
       bool (*result_handler)(void* arg, const ParsedInternalKey& k,
-                             const Slice& v, bool didIO),
+                             const Slice& v),
       void (*mark_key_may_exist_handler)(void* handle_context) = nullptr) = 0;
 };
 

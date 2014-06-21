@@ -87,7 +87,7 @@ public:
 
   Status Get(const ReadOptions&, const Slice& key, void* arg,
              bool (*handle_result)(void* arg, const ParsedInternalKey& k,
-                                   const Slice& v, bool),
+                                   const Slice& v),
              void (*mark_key_may_exist)(void*) = nullptr) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key) override;
@@ -285,7 +285,7 @@ Status SimpleTableReader::GetOffset(const Slice& target, uint64_t* offset) {
 Status SimpleTableReader::Get(const ReadOptions& options, const Slice& k,
                               void* arg,
                               bool (*saver)(void*, const ParsedInternalKey&,
-                                            const Slice&, bool),
+                                            const Slice&),
                               void (*mark_key_may_exist)(void*)) {
   Status s;
   SimpleTableIterator* iter = new SimpleTableIterator(this);
@@ -295,7 +295,7 @@ Status SimpleTableReader::Get(const ReadOptions& options, const Slice& k,
       return Status::Corruption(Slice());
     }
 
-    if (!(*saver)(arg, parsed_key, iter->value(), true)) {
+    if (!(*saver)(arg, parsed_key, iter->value())) {
       break;
     }
   }

@@ -73,8 +73,7 @@ class BlockBasedTable : public TableReader {
   Status Get(const ReadOptions& readOptions, const Slice& key,
              void* handle_context,
              bool (*result_handler)(void* handle_context,
-                                    const ParsedInternalKey& k, const Slice& v,
-                                    bool didIO),
+                                    const ParsedInternalKey& k, const Slice& v),
              void (*mark_key_may_exist_handler)(void* handle_context) =
                  nullptr) override;
 
@@ -87,7 +86,7 @@ class BlockBasedTable : public TableReader {
   uint64_t ApproximateOffsetOf(const Slice& key) override;
 
   // Returns true if the block for the specified key is in cache.
-  // REQUIRES: key is in this table.
+  // REQUIRES: key is in this table && block cache enabled
   bool TEST_KeyInCache(const ReadOptions& options, const Slice& key);
 
   // Set up the table for Compaction. Might change some parameters with
@@ -113,7 +112,7 @@ class BlockBasedTable : public TableReader {
 
   class BlockEntryIteratorState;
   static Iterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-      bool* didIO, const Slice& index_value);
+                                        const Slice& index_value);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file

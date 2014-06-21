@@ -56,6 +56,7 @@ extern "C" {
 
 typedef struct rocksdb_t                 rocksdb_t;
 typedef struct rocksdb_cache_t           rocksdb_cache_t;
+typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_comparator_t      rocksdb_comparator_t;
 typedef struct rocksdb_env_t             rocksdb_env_t;
 typedef struct rocksdb_filelock_t        rocksdb_filelock_t;
@@ -229,6 +230,9 @@ extern const char* rocksdb_writebatch_data(rocksdb_writebatch_t*, size_t *size);
 
 extern rocksdb_options_t* rocksdb_options_create();
 extern void rocksdb_options_destroy(rocksdb_options_t*);
+extern void rocksdb_options_set_compaction_filter(
+    rocksdb_options_t*,
+    rocksdb_compactionfilter_t*);
 extern void rocksdb_options_set_comparator(
     rocksdb_options_t*,
     rocksdb_comparator_t*);
@@ -401,6 +405,22 @@ enum {
 };
 extern void rocksdb_options_set_compaction_style(rocksdb_options_t*, int);
 extern void rocksdb_options_set_universal_compaction_options(rocksdb_options_t*, rocksdb_universal_compaction_options_t*);
+
+/* Compaction Filter */
+
+extern rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
+    void* state,
+    void (*destructor)(void*),
+    unsigned char (*filter)(
+        void*,
+        int level,
+        const char* key, size_t key_length,
+        const char* existing_value, size_t value_length,
+        char** new_value, size_t *new_value_length,
+        unsigned char* value_changed),
+    const char* (*name)(void*));
+extern void rocksdb_compactionfilter_destroy(rocksdb_compactionfilter_t*);
+
 /* Comparator */
 
 extern rocksdb_comparator_t* rocksdb_comparator_create(

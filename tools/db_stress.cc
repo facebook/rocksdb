@@ -286,9 +286,6 @@ DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
-DEFINE_bool(disable_seek_compaction, false,
-            "Option to disable compation triggered by read.");
-
 namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -1585,7 +1582,6 @@ class StressTest {
         FLAGS_level0_file_num_compaction_trigger;
     options_.compression = FLAGS_compression_type_e;
     options_.create_if_missing = true;
-    options_.disable_seek_compaction = FLAGS_disable_seek_compaction;
     options_.max_manifest_file_size = 10 * 1024;
     options_.filter_deletes = FLAGS_filter_deletes;
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {

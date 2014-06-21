@@ -2458,9 +2458,6 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact,
 inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
   SequenceNumber in, std::vector<SequenceNumber>& snapshots,
   SequenceNumber* prev_snapshot) {
-  if (!IsSnapshotSupported()) {
-    return 0;
-  }
   SequenceNumber prev __attribute__((unused)) = 0;
   for (const auto cur : snapshots) {
     assert(prev <= cur);
@@ -2499,6 +2496,7 @@ uint64_t DBImpl::CallFlushDuringCompaction(ColumnFamilyData* cfd,
 }
 
 Status DBImpl::ProcessKeyValueCompaction(
+    bool is_snapshot_supported,
     SequenceNumber visible_at_tip,
     SequenceNumber earliest_snapshot,
     SequenceNumber latest_snapshot,
@@ -2627,11 +2625,10 @@ Status DBImpl::ProcessKeyValueCompaction(
       // Otherwise, search though all existing snapshots to find
       // the earlist snapshot that is affected by this kv.
       SequenceNumber prev_snapshot = 0; // 0 means no previous snapshot
-      SequenceNumber visible = visible_at_tip ?
-        visible_at_tip :
-        findEarliestVisibleSnapshot(ikey.sequence,
-            compact->existing_snapshots,
-            &prev_snapshot);
+      SequenceNumber visible = visible_at_tip ? visible_at_tip :
+        is_snapshot_supported ?  findEarliestVisibleSnapshot(ikey.sequence,
+                                  compact->existing_snapshots, &prev_snapshot)
+                              : 0;
 
       if (visible_in_snapshot == visible) {
         // If the earliest snapshot is which this key is visible in
@@ -2897,6 +2894,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   // Allocate the output file numbers before we release the lock
   AllocateCompactionOutputFileNumbers(compact);
 
+  bool is_snapshot_supported = IsSnapshotSupported();
   // Release mutex while we're actually doing the compaction work
   mutex_.Unlock();
   log_buffer->FlushBufferToLog();
@@ -2983,6 +2981,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       // Done buffering for the current prefix. Spit it out to disk
       // Now just iterate through all the kv-pairs
       status = ProcessKeyValueCompaction(
+          is_snapshot_supported,
           visible_at_tip,
           earliest_snapshot,
           latest_snapshot,
@@ -3018,6 +3017,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         compact->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
 
         status = ProcessKeyValueCompaction(
+            is_snapshot_supported,
             visible_at_tip,
             earliest_snapshot,
             latest_snapshot,
@@ -3039,6 +3039,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     }
     compact->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
     status = ProcessKeyValueCompaction(
+        is_snapshot_supported,
         visible_at_tip,
         earliest_snapshot,
         latest_snapshot,
@@ -3053,6 +3054,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   if (!compaction_filter_v2) {
     status = ProcessKeyValueCompaction(
+      is_snapshot_supported,
       visible_at_tip,
       earliest_snapshot,
       latest_snapshot,
@@ -3274,9 +3276,6 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     mutex_.Unlock();
   }
 
-  bool have_stat_update = false;
-  Version::GetStats stats;
-
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
 
@@ -3295,22 +3294,12 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   } else {
     PERF_TIMER_START(get_from_output_files_time);
 
-    sv->current->Get(options, lkey, value, &s, &merge_context, &stats,
-                     value_found);
-    have_stat_update = true;
+    sv->current->Get(options, lkey, value, &s, &merge_context, value_found);
     PERF_TIMER_STOP(get_from_output_files_time);
     RecordTick(options_.statistics.get(), MEMTABLE_MISS);
   }
 
   PERF_TIMER_START(get_post_process_time);
-
-  if (!cfd->options()->disable_seek_compaction && have_stat_update) {
-    mutex_.Lock();
-    if (sv->current->UpdateStats(stats)) {
-      MaybeScheduleFlushOrCompaction();
-    }
-    mutex_.Unlock();
-  }
 
   bool unref_sv = true;
   if (LIKELY(options_.allow_thread_local)) {
@@ -3339,8 +3328,6 @@ namespace {
 struct MultiGetColumnFamilyData {
   ColumnFamilyData* cfd;
   SuperVersion* super_version;
-  Version::GetStats stats;
-  bool have_stat_update = false;
 }; 
 }
 
@@ -3413,9 +3400,7 @@ std::vector<Status> DBImpl::MultiGet(
                                        *cfd->options())) {
       // Done
     } else {
-      super_version->current->Get(options, lkey, value, &s, &merge_context,
-                                  &mgd->stats);
-      mgd->have_stat_update = true;
+      super_version->current->Get(options, lkey, value, &s, &merge_context);
     }
 
     if (s.ok()) {
@@ -3427,23 +3412,14 @@ std::vector<Status> DBImpl::MultiGet(
   PERF_TIMER_START(get_post_process_time);
   autovector<SuperVersion*> superversions_to_delete;
 
-  bool schedule_flush_or_compaction = false;
+  // TODO(icanadi) do we need lock here or just around Cleanup()?
   mutex_.Lock();
   for (auto mgd_iter : multiget_cf_data) {
     auto mgd = mgd_iter.second;
-    auto cfd = mgd->cfd;
-    if (!cfd->options()->disable_seek_compaction && mgd->have_stat_update) {
-      if (mgd->super_version->current->UpdateStats(mgd->stats)) {
-        schedule_flush_or_compaction = true;
-      }
-    }
     if (mgd->super_version->Unref()) {
       mgd->super_version->Cleanup();
       superversions_to_delete.push_back(mgd->super_version);
     }
-  }
-  if (schedule_flush_or_compaction) {
-    MaybeScheduleFlushOrCompaction();
   }
   mutex_.Unlock();
 
@@ -3695,9 +3671,9 @@ bool DBImpl::IsSnapshotSupported() const {
 }
 
 const Snapshot* DBImpl::GetSnapshot() {
+  MutexLock l(&mutex_);
   // returns null if the underlying memtable does not support snapshot.
   if (!IsSnapshotSupported()) return nullptr;
-  MutexLock l(&mutex_);
   return snapshots_.New(versions_->LastSequence());
 }
 
@@ -3863,19 +3839,19 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       }
       if (status.ok()) {
         PERF_TIMER_START(write_memtable_time);
+
         status = WriteBatchInternal::InsertInto(
             updates, column_family_memtables_.get(), false, 0, this, false);
+        // A non-OK status here indicates iteration failure (either in-memory
+        // writebatch corruption (very bad), or the client specified invalid
+        // column family).  This will later on trigger bg_error_.
+        //
+        // Note that existing logic was not sound. Any partial failure writing
+        // into the memtable would result in a state that some write ops might
+        // have succeeded in memtable but Status reports error for all writes.
+
         PERF_TIMER_STOP(write_memtable_time);
 
-        if (!status.ok()) {
-          // Iteration failed (either in-memory writebatch corruption (very
-          // bad), or the client specified invalid column family). Return
-          // failure.
-          // Note that existing logic was not sound. Any partial failure writing
-          // into the memtable would result in a state that some write ops might
-          // have succeeded in memtable but Status reports error for all writes.
-          return status;
-        }
         SetTickerCount(options_.statistics.get(), SEQUENCE_NUMBER,
                        last_sequence);
       }

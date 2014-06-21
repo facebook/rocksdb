@@ -1,6 +1,7 @@
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
 
 #ifndef ROCKSDB_LITE
 #include "table/plain_table_builder.h"
@@ -12,6 +13,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "rocksdb/table.h"
 #include "table/plain_table_factory.h"
 #include "db/dbformat.h"
 #include "table/block_builder.h"
@@ -52,10 +54,14 @@ Status WriteBlock(
 extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
-PlainTableBuilder::PlainTableBuilder(const Options& options,
-                                     WritableFile* file,
-                                     uint32_t user_key_len) :
-    options_(options), file_(file), user_key_len_(user_key_len) {
+PlainTableBuilder::PlainTableBuilder(const Options& options, WritableFile* file,
+                                     uint32_t user_key_len,
+                                     EncodingType encoding_type,
+                                     size_t index_sparseness)
+    : options_(options),
+      file_(file),
+      encoder_(encoding_type, user_key_len, options.prefix_extractor.get(),
+               index_sparseness) {
   properties_.fixed_key_len = user_key_len;
 
   // for plain table, we put all the data in a big chuck.
@@ -64,7 +70,20 @@ PlainTableBuilder::PlainTableBuilder(const Options& options,
   // filter block.
   properties_.index_size = 0;
   properties_.filter_size = 0;
-  properties_.format_version = 0;
+  // To support roll-back to previous version, now still use version 0 for
+  // plain encoding.
+  properties_.format_version = (encoding_type == kPlain) ? 0 : 1;
+
+  if (options_.prefix_extractor) {
+    properties_.user_collected_properties
+        [PlainTablePropertyNames::kPrefixExtractorName] =
+        options_.prefix_extractor->Name();
+  }
+
+  std::string val;
+  PutFixed32(&val, static_cast<uint32_t>(encoder_.GetEncodingType()));
+  properties_.user_collected_properties
+      [PlainTablePropertyNames::kEncodingType] = val;
 
   for (auto& collector_factories :
        options.table_properties_collector_factories) {
@@ -77,51 +96,25 @@ PlainTableBuilder::~PlainTableBuilder() {
 }
 
 void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
-  size_t user_key_size = key.size() - 8;
-  assert(user_key_len_ == 0 || user_key_size == user_key_len_);
+  // temp buffer for metadata bytes between key and value.
+  char meta_bytes_buf[6];
+  size_t meta_bytes_buf_size = 0;
 
-  if (!IsFixedLength()) {
-    // Write key length
-    char key_size_buf[5];  // tmp buffer for key size as varint32
-    char* ptr = EncodeVarint32(key_size_buf, user_key_size);
-    assert(ptr <= key_size_buf + sizeof(key_size_buf));
-    auto len = ptr - key_size_buf;
-    file_->Append(Slice(key_size_buf, len));
-    offset_ += len;
-  }
-
-  // Write key
-  ParsedInternalKey parsed_key;
-  if (!ParseInternalKey(key, &parsed_key)) {
-    status_ = Status::Corruption(Slice());
-    return;
-  }
-  // For value size as varint32 (up to 5 bytes).
-  // If the row is of value type with seqId 0, flush the special flag together
-  // in this buffer to safe one file append call, which takes 1 byte.
-  char value_size_buf[6];
-  size_t value_size_buf_size = 0;
-  if (parsed_key.sequence == 0 && parsed_key.type == kTypeValue) {
-    file_->Append(Slice(key.data(), user_key_size));
-    offset_ += user_key_size;
-    value_size_buf[0] = PlainTableFactory::kValueTypeSeqId0;
-    value_size_buf_size = 1;
-  } else {
-    file_->Append(key);
-    offset_ += key.size();
-  }
+  // Write out the key
+  encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
+                     &meta_bytes_buf_size);
 
   // Write value length
   int value_size = value.size();
   char* end_ptr =
-      EncodeVarint32(value_size_buf + value_size_buf_size, value_size);
-  assert(end_ptr <= value_size_buf + sizeof(value_size_buf));
-  value_size_buf_size = end_ptr - value_size_buf;
-  file_->Append(Slice(value_size_buf, value_size_buf_size));
+      EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
+  assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
+  meta_bytes_buf_size = end_ptr - meta_bytes_buf;
+  file_->Append(Slice(meta_bytes_buf, meta_bytes_buf_size));
 
   // Write value
   file_->Append(value);
-  offset_ += value_size + value_size_buf_size;
+  offset_ += value_size + meta_bytes_buf_size;
 
   properties_.num_entries++;
   properties_.raw_key_size += key.size();
@@ -149,6 +142,8 @@ Status PlainTableBuilder::Finish() {
   PropertyBlockBuilder property_block_builder;
   // -- Add basic properties
   property_block_builder.AddTableProperty(properties_);
+
+  property_block_builder.Add(properties_.user_collected_properties);
 
   // -- Add user collected properties
   NotifyCollectTableCollectorsOnFinish(table_properties_collectors_,

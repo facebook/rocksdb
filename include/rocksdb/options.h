@@ -368,10 +368,15 @@ struct ColumnFamilyOptions {
   // stop building a single file in a level->level+1 compaction.
   int max_grandparent_overlap_factor;
 
-  // Disable compaction triggered by seek.
-  // With bloomfilter and fast storage, a miss on one level
-  // is very cheap if the file handle is cached in table cache
-  // (which is true if max_open_files is large).
+  // We decided to remove seek compaction from RocksDB because:
+  // 1) It makes more sense for spinning disk workloads, while RocksDB is
+  // primarily designed for flash and memory,
+  // 2) It added some complexity to the important code-paths,
+  // 3) None of our internal customers were really using it.
+  //
+  // Since we removed seek compaction, this option is now obsolete.
+  // We left it here for backwards compatiblity (otherwise it would break the
+  // build), but we'll remove it at some point.
   // Default: true
   bool disable_seek_compaction;
 

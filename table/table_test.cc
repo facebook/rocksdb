@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <iostream>
 #include <map>
 #include <string>
 #include <memory>
@@ -1086,6 +1087,7 @@ TEST(TableTest, HashIndexTest) {
   Options options;
   BlockBasedTableOptions table_options;
   table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.hash_index_allow_collision = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
 
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
@@ -1160,7 +1162,13 @@ TEST(TableTest, HashIndexTest) {
     // regular_iter->Seek(prefix);
 
     ASSERT_OK(hash_iter->status());
-    ASSERT_TRUE(!hash_iter->Valid());
+    // Seek to non-existing prefixes should yield either invalid, or a
+    // key with prefix greater than the target.
+    if (hash_iter->Valid()) {
+      Slice ukey = ExtractUserKey(hash_iter->key());
+      Slice ukey_prefix = options.prefix_extractor->Transform(ukey);
+      ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) < 0);
+    }
   }
 }
 
@@ -1472,6 +1480,14 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   auto table_reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
   for (const std::string& key : keys) {
     ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
+  }
+
+  // rerun with different block cache
+  opt.block_cache = NewLRUCache(16 * 1024 * 1024);
+  ASSERT_OK(c.Reopen(opt));
+  table_reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  for (const std::string& key : keys) {
+    ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
 }
 

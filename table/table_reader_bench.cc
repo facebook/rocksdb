@@ -49,7 +49,7 @@ static std::string MakeKey(int i, int j, bool through_db) {
 }
 
 static bool DummySaveValue(void* arg, const ParsedInternalKey& ikey,
-                           const Slice& v, bool didIO) {
+                           const Slice& v) {
   return false;
 }
 

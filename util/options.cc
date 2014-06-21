@@ -382,8 +382,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         source_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Log(log,"                Options.disable_seek_compaction: %d",
-        disable_seek_compaction);
     Log(log,"                         Options.no_block_cache: %d",
         no_block_cache);
     Log(log,"                       Options.arena_block_size: %zu",
@@ -466,7 +464,6 @@ Options::PrepareForBulkLoad()
   // no auto compactions please. The application should issue a
   // manual compaction after all data is loaded into L0.
   disable_auto_compactions = true;
-  disable_seek_compaction = true;
   disableDataSync = true;
 
   // A manual compaction run should pick all files in L0 in

@@ -52,8 +52,8 @@ class TableCache {
              const InternalKeyComparator& internal_comparator,
              const FileDescriptor& file_fd, const Slice& k, void* arg,
              bool (*handle_result)(void*, const ParsedInternalKey&,
-                                   const Slice&, bool),
-             bool* table_io, void (*mark_key_may_exist)(void*) = nullptr);
+                                   const Slice&),
+             void (*mark_key_may_exist)(void*) = nullptr);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
@@ -62,7 +62,7 @@ class TableCache {
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
-                   bool* table_io = nullptr, const bool no_io = false);
+                   const bool no_io = false);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);

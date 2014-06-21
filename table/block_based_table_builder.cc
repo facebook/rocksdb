@@ -476,7 +476,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   if (r->props.num_entries > 0) {
     assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
   }
-  r->index_builder->OnKeyAdded(key);
+
   auto should_flush = r->flush_block_policy->Update(key, value);
   if (should_flush) {
     assert(!r->data_block.empty());
@@ -505,6 +505,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   r->props.raw_key_size += key.size();
   r->props.raw_value_size += value.size();
 
+  r->index_builder->OnKeyAdded(key);
   NotifyCollectTableCollectorsOnAdd(key, value, r->table_properties_collectors,
                                     r->options.info_log.get());
 }
