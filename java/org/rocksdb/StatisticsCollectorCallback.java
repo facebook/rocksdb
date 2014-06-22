@@ -17,7 +17,7 @@ public interface StatisticsCollectorCallback {
    * @param tickerCount Value of ticker type.
   */
   void tickerCallback(TickerType tickerType, long tickerCount);
-  
+
   /**
    * Callback function to get histogram values.
    * @param histType Histogram type.

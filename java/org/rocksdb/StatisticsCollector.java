@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Helper class to collect DB statistics periodically at a period specified in
  * constructor. Callback function (provided in constructor) is called with
  * every statistics collection.
- * 
+ *
  * Caller should call start() to start statistics collection. Shutdown() should
  * be called to stop stats collection and should be called before statistics (
  * provided in constructor) reference has been disposed.
@@ -25,31 +25,31 @@ public class StatisticsCollector {
   private final int _statsCollectionInterval;
   private final StatisticsCollectorCallback _statsCallback;
   private volatile boolean _isRunning = true;
-      
-  public StatisticsCollector(Statistics statistics, 
+
+  public StatisticsCollector(Statistics statistics,
       int statsCollectionIntervalInMilliSeconds,
       StatisticsCollectorCallback statsCallback) {
     _statistics = statistics;
     _statsCollectionInterval = statsCollectionIntervalInMilliSeconds;
     _statsCallback = statsCallback;
-    
+
     _threadPoolExecutor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
         new ArrayBlockingQueue<Runnable>(1));
   }
-  
+
   public void start() {
     _threadPoolExecutor.submit(collectStatistics());
   }
-  
+
   public void shutDown() throws InterruptedException {
     _isRunning = false;
-    
+
     _threadPoolExecutor.shutdown();
-    // Wait for collectStatistics runnable to finish so that disposal of 
+    // Wait for collectStatistics runnable to finish so that disposal of
     // statistics does not cause any exceptions to be thrown.
     _threadPoolExecutor.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
   }
-  
+
   private Runnable collectStatistics() {
     return new Runnable() {
 
@@ -65,11 +65,11 @@ public class StatisticsCollector {
 
             // Collect histogram data
             for(HistogramType histogramType : HistogramType.values()) {
-              HistogramData histogramData = 
+              HistogramData histogramData =
                   _statistics.geHistogramData(histogramType);
               _statsCallback.histogramCallback(histogramType, histogramData);
             }
-            
+
             Thread.sleep(_statsCollectionInterval);
           }
           catch (InterruptedException e) {
