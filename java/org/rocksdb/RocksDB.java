@@ -93,10 +93,7 @@ public class RocksDB extends RocksObject {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     Options options = new Options();
-    db.open(options.nativeHandle_, options.cacheSize_, path);
-    db.transferCppRawPointersOwnershipFrom(options);
-    options.dispose();
-    return db;
+    return open(options, path);
   }
 
   /**

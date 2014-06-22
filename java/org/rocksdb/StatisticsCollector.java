@@ -57,7 +57,7 @@ public class StatisticsCollector {
       public void run() {
         while (_isRunning) {
           try {
-              // Collect ticker data
+            // Collect ticker data
             for(TickerType ticker : TickerType.values()) {
               long tickerValue = _statistics.getTickerCount(ticker);
               _statsCallback.tickerCallback(ticker, tickerValue);
