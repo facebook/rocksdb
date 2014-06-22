@@ -13,7 +13,8 @@ public class StatisticsCollectorTest {
     RocksDB.loadLibrary();
   }
 
-  public static void main(String[] args) throws InterruptedException, RocksDBException {
+  public static void main(String[] args) 
+      throws InterruptedException, RocksDBException {
     Options opt = new Options().createStatistics().setCreateIfMissing(true);
     Statistics stats = opt.statisticsPtr();
 
