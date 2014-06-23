@@ -837,6 +837,15 @@ class Benchmark {
   int64_t writes_;
   int64_t readwrites_;
   int64_t merge_keys_;
+
+  bool SanityCheck() {
+    if (FLAGS_compression_ratio > 1) {
+      fprintf(stderr, "compression_ratio should be between 0 and 1\n");
+      return false;
+    }
+    return true;
+  }
+
   void PrintHeader() {
     PrintEnvironment();
     fprintf(stdout, "Keys:       %d bytes each\n", FLAGS_key_size);
@@ -1116,6 +1125,9 @@ class Benchmark {
   }
 
   void Run() {
+    if (!SanityCheck()) {
+      exit(1);
+    }
     PrintHeader();
     Open();
     const char* benchmarks = FLAGS_benchmarks.c_str();
