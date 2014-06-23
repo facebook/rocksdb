@@ -664,7 +664,7 @@ class Stats {
   void SetId(int id) { id_ = id; }
   void SetExcludeFromMerge() { exclude_from_merge_ = true; }
 
-  void FinishedSingleOp(DB* db) {
+  void FinishedOps(DB* db, int64_t num_ops) {
     if (FLAGS_histogram) {
       double now = FLAGS_env->NowMicros();
       double micros = now - last_op_finish_;
@@ -676,7 +676,7 @@ class Stats {
       last_op_finish_ = now;
     }
 
-    done_++;
+    done_ += num_ops;
     if (done_ >= next_report_) {
       if (!FLAGS_stats_interval) {
         if      (next_report_ < 1000)   next_report_ += 100;
@@ -722,7 +722,7 @@ class Stats {
 
   void Report(const Slice& name) {
     // Pretend at least one op was done in case we are running a benchmark
-    // that does not call FinishedSingleOp().
+    // that does not call FinishedOps().
     if (done_ < 1) done_ = 1;
 
     std::string extra;
@@ -1391,7 +1391,7 @@ class Benchmark {
     uint32_t crc = 0;
     while (bytes < 500 * 1048576) {
       crc = crc32c::Value(data.data(), size);
-      thread->stats.FinishedSingleOp(nullptr);
+      thread->stats.FinishedOps(nullptr, 1);
       bytes += size;
     }
     // Print so result is not dead
@@ -1410,7 +1410,7 @@ class Benchmark {
     unsigned int xxh32 = 0;
     while (bytes < 500 * 1048576) {
       xxh32 = XXH32(data.data(), size, 0);
-      thread->stats.FinishedSingleOp(nullptr);
+      thread->stats.FinishedOps(nullptr, 1);
       bytes += size;
     }
     // Print so result is not dead
@@ -1431,7 +1431,7 @@ class Benchmark {
         ptr = ap.Acquire_Load();
       }
       count++;
-      thread->stats.FinishedSingleOp(nullptr);
+      thread->stats.FinishedOps(nullptr, 1);
     }
     if (ptr == nullptr) exit(1); // Disable unused variable warning.
   }
@@ -1472,7 +1472,7 @@ class Benchmark {
       }
       produced += compressed.size();
       bytes += input.size();
-      thread->stats.FinishedSingleOp(nullptr);
+      thread->stats.FinishedOps(nullptr, 1);
     }
 
     if (!ok) {
@@ -1553,7 +1553,7 @@ class Benchmark {
       }
       delete[] uncompressed;
       bytes += input.size();
-      thread->stats.FinishedSingleOp(nullptr);
+      thread->stats.FinishedOps(nullptr, 1);
     }
 
     if (!ok) {
@@ -1862,9 +1862,9 @@ class Benchmark {
         GenerateKeyFromInt(key_gens[id]->Next(), FLAGS_num, &key);
         batch.Put(key, gen.Generate(value_size_));
         bytes += value_size_ + key_size_;
-        thread->stats.FinishedSingleOp(db_to_write);
       }
       s = db_to_write->Write(write_options_, &batch);
+      thread->stats.FinishedOps(db_to_write, entries_per_batch_);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
@@ -1889,7 +1889,7 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedSingleOp(db);
+      thread->stats.FinishedOps(db, 1);
       ++i;
     }
     delete iter;
@@ -1912,7 +1912,7 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
       ++i;
     }
     delete iter;
@@ -1935,7 +1935,7 @@ class Benchmark {
       if (db->Get(options, key, &value).ok()) {
         found++;
       }
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
     }
 
     char msg[100];
@@ -1995,7 +1995,7 @@ class Benchmark {
       DB* db = SelectDB(thread);
       Iterator* iter = db->NewIterator(options);
       delete iter;
-      thread->stats.FinishedSingleOp(db);
+      thread->stats.FinishedOps(db, 1);
     }
   }
 
@@ -2059,7 +2059,7 @@ class Benchmark {
       if (iter_to_use->Valid() && iter_to_use->key().compare(key) == 0) {
         found++;
       }
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
     }
     delete single_iter;
     for (auto iter : multi_iters) {
@@ -2097,9 +2097,9 @@ class Benchmark {
         const int64_t k = seq ? i + j : (thread->rand.Next() % FLAGS_num);
         GenerateKeyFromInt(k, FLAGS_num, &key);
         batch.Delete(key);
-        thread->stats.FinishedSingleOp(db);
       }
       auto s = db->Write(write_options_, &batch);
+      thread->stats.FinishedOps(db, entries_per_batch_);
       if (!s.ok()) {
         fprintf(stderr, "del error: %s\n", s.ToString().c_str());
         exit(1);
@@ -2159,7 +2159,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
 
       ++num_writes;
       if (writes_per_second_by_10 && num_writes >= writes_per_second_by_10) {
@@ -2319,7 +2319,7 @@ class Benchmark {
         deletes_done++;
       }
 
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
@@ -2377,7 +2377,7 @@ class Benchmark {
         put_weight--;
         writes_done++;
       }
-      thread->stats.FinishedSingleOp(db);
+      thread->stats.FinishedOps(db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "( reads:%" PRIu64 " writes:%" PRIu64 \
@@ -2411,7 +2411,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedSingleOp(db);
+      thread->stats.FinishedOps(db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
@@ -2458,7 +2458,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
     }
 
     char msg[100];
@@ -2494,7 +2494,7 @@ class Benchmark {
         fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
     }
 
     // Print some statistics
@@ -2555,7 +2555,7 @@ class Benchmark {
 
       }
 
-      thread->stats.FinishedSingleOp(db_);
+      thread->stats.FinishedOps(db_, 1);
     }
 
     char msg[100];
