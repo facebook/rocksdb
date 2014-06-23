@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 
-## Unreleased (will be released with 3.2.0)
+## Unreleased
+
+
+## 3.2.0 (06/20/2014)
 
 ### Public API changes
 * We removed seek compaction as a concept from RocksDB because:
@@ -8,17 +11,20 @@
 2) It added some complexity to the important code-paths,
 3) None of our internal customers were really using it.
 Because of that, Options::disable_seek_compaction is now obsolete. It is still a parameter in Options, so it does not break the build, but it does not have any effect. We plan to completely remove it at some point, so we ask users to please remove this option from your code base.
+* Add two paramters to NewHashLinkListRepFactory() for logging on too many entries in a hash bucket when flushing.
+
+### New Features
+* PlainTable now supports a new key encoding: for keys of the same prefix, the prefix is only written once. It can be enabled through encoding_type paramter of NewPlainTableFactory()
+* Add AdaptiveTableFactory, which is used to convert from a DB of PlainTable to BlockBasedTabe, or vise versa. It can be created using NewAdaptiveTableFactory()
 
 ## 3.1.0 (05/21/2014)
 
 ### Public API changes
 * Replaced ColumnFamilyOptions::table_properties_collectors with ColumnFamilyOptions::table_properties_collector_factories
-* Add two paramters to NewHashLinkListRepFactory() for logging on too many entries in a hash bucket when flushing.
 
 ### New Features
 * Hash index for block-based table will be materialized and reconstructed more efficiently. Previously hash index is constructed by scanning the whole table during every table open.
 * FIFO compaction style
-* Add AdaptiveTableFactory, which is used to convert from a DB of PlainTable to BlockBasedTabe, or vise versa. It can be created using NewAdaptiveTableFactory()
 
 ## 3.0.0 (05/05/2014)
 
