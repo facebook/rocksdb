@@ -55,15 +55,15 @@ public:
 
   static LDBCommand* InitFromCmdLineArgs(
     const vector<string>& args,
-    const Options& options = Options(),
-    const LDBOptions& ldb_options = LDBOptions()
+    const Options& options,
+    const LDBOptions& ldb_options
   );
 
   static LDBCommand* InitFromCmdLineArgs(
     int argc,
     char** argv,
-    const Options& options = Options(),
-    const LDBOptions& ldb_options = LDBOptions()
+    const Options& options,
+    const LDBOptions& ldb_options
   );
 
   bool ValidateCmdLineOptions();
