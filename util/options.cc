@@ -154,6 +154,9 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands) {
   assert(memtable_factory.get() != nullptr);
+  if (max_bytes_for_level_multiplier_additional.size() < num_levels) {
+    max_bytes_for_level_multiplier_additional.resize(num_levels, 1);
+  }
 }
 
 DBOptions::DBOptions()
