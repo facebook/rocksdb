@@ -106,9 +106,6 @@ public:
     std::string tmp_;       // For passing to EncodeKey
   };
 
-  // Unhide default implementations of GetIterator
-  using MemTableRep::GetIterator;
-
   virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
     if (arena == nullptr) {
       return new SkipListRep::Iterator(&skip_list_);
