@@ -40,30 +40,32 @@ struct FileDescriptor {
 struct FileMetaData {
   int refs;
   FileDescriptor fd;
+  InternalKey smallest;            // Smallest internal key served by table
+  InternalKey largest;             // Largest internal key served by table
+  bool being_compacted;            // Is this file undergoing compaction?
+  SequenceNumber smallest_seqno;   // The smallest seqno in this file
+  SequenceNumber largest_seqno;    // The largest seqno in this file
+
+  // Needs to be disposed when refs becomes 0.
+  Cache::Handle* table_reader_handle;
+
+  // stats for compensating deletion entries during compaction
   uint64_t compensated_file_size;  // File size compensated by deletion entry.
   uint64_t num_entries;            // the number of entries.
   uint64_t num_deletions;          // the number of deletion entries.
   uint64_t raw_key_size;           // total uncompressed key size.
   uint64_t raw_value_size;         // total uncompressed value size.
-  InternalKey smallest;       // Smallest internal key served by table
-  InternalKey largest;        // Largest internal key served by table
-  bool being_compacted;       // Is this file undergoing compaction?
-  SequenceNumber smallest_seqno;// The smallest seqno in this file
-  SequenceNumber largest_seqno; // The largest seqno in this file
-
-  // Needs to be disposed when refs becomes 0.
-  Cache::Handle* table_reader_handle;
 
   FileMetaData()
       : refs(0),
         fd(0, 0),
+        being_compacted(false),
+        table_reader_handle(nullptr),
         compensated_file_size(0),
         num_entries(0),
         num_deletions(0),
         raw_key_size(0),
-        raw_value_size(0),
-        being_compacted(false),
-        table_reader_handle(nullptr) {}
+        raw_value_size(0) {}
 };
 
 class VersionEdit {
