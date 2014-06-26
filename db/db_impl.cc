@@ -4026,8 +4026,7 @@ Status DBImpl::MakeRoomForWrite(
         DelayLoggingAndReset();
       }
       break;
-    } else if (cfd->imm()->size() ==
-               cfd->options()->max_write_buffer_number - 1) {
+    } else if (cfd->NeedWaitForNumMemtables()) {
       // We have filled up the current memtable, but the previous
       // ones are still being flushed, so we wait.
       DelayLoggingAndReset();
@@ -4048,9 +4047,7 @@ Status DBImpl::MakeRoomForWrite(
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
       cfd->internal_stats()->RecordWriteStall(
           InternalStats::MEMTABLE_COMPACTION, stall);
-    } else if (cfd->current()->NumLevelFiles(0) >=
-               cfd->options()->level0_stop_writes_trigger) {
-      // There are too many level-0 files.
+    } else if (cfd->NeedWaitForNumLevel0Files()) {
       DelayLoggingAndReset();
       Log(options_.info_log, "[%s] wait for fewer level0 files...\n",
           cfd->GetName().c_str());
@@ -4064,12 +4061,10 @@ Status DBImpl::MakeRoomForWrite(
       RecordTick(options_.statistics.get(), STALL_L0_NUM_FILES_MICROS, stall);
       cfd->internal_stats()->RecordWriteStall(InternalStats::LEVEL0_NUM_FILES,
                                               stall);
-    } else if (allow_hard_rate_limit_delay &&
-               cfd->options()->hard_rate_limit > 1.0 &&
-               (score = cfd->current()->MaxCompactionScore()) >
-                   cfd->options()->hard_rate_limit) {
+    } else if (allow_hard_rate_limit_delay && cfd->ExceedsHardRateLimit()) {
       // Delay a write when the compaction score for any level is too large.
       int max_level = cfd->current()->MaxCompactionScoreLevel();
+      score = cfd->current()->MaxCompactionScore();
       mutex_.Unlock();
       uint64_t delayed;
       {
@@ -4090,10 +4085,8 @@ Status DBImpl::MakeRoomForWrite(
         allow_hard_rate_limit_delay = false;
       }
       mutex_.Lock();
-    } else if (allow_soft_rate_limit_delay &&
-               cfd->options()->soft_rate_limit > 0.0 &&
-               (score = cfd->current()->MaxCompactionScore()) >
-                   cfd->options()->soft_rate_limit) {
+    } else if (allow_soft_rate_limit_delay && cfd->ExceedsSoftRateLimit()) {
+      score = cfd->current()->MaxCompactionScore();
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
       mutex_.Unlock();
