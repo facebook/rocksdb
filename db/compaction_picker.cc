@@ -278,14 +278,12 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
       if (expanded1.size() == c->inputs_[1].size() &&
           !FilesInCompaction(expanded1)) {
         Log(options_->info_log,
-            "[%s] Expanding@%lu %lu+%lu (%lu+%lu bytes) to %lu+%lu (%lu+%lu "
-            "bytes)\n",
-            c->column_family_data()->GetName().c_str(), (unsigned long)level,
-            (unsigned long)(c->inputs_[0].size()),
-            (unsigned long)(c->inputs_[1].size()), (unsigned long)inputs0_size,
-            (unsigned long)inputs1_size, (unsigned long)(expanded0.size()),
-            (unsigned long)(expanded1.size()), (unsigned long)expanded0_size,
-            (unsigned long)inputs1_size);
+            "[%s] Expanding@%d %zu+%zu (%" PRIu64 "+%" PRIu64
+            " bytes) to %zu+%zu (%" PRIu64 "+%" PRIu64 "bytes)\n",
+            c->column_family_data()->GetName().c_str(), level,
+            c->inputs_[0].size(), c->inputs_[1].size(), inputs0_size,
+            inputs1_size, expanded0.size(), expanded1.size(), expanded0_size,
+            inputs1_size);
         smallest = new_start;
         largest = new_limit;
         c->inputs_[0] = expanded0;
@@ -656,10 +654,9 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
         candidate_count = 1;
         break;
       }
-      LogToBuffer(log_buffer,
-                  "[%s] Universal: file %lu[%d] being compacted, skipping",
-                  version->cfd_->GetName().c_str(),
-                  (unsigned long)f->fd.GetNumber(), loop);
+      LogToBuffer(log_buffer, "[%s] Universal: file %" PRIu64
+                              "[%d] being compacted, skipping",
+                  version->cfd_->GetName().c_str(), f->fd.GetNumber(), loop);
       f = nullptr;
     }
 
@@ -668,9 +665,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     uint64_t candidate_size =  f != nullptr? f->compensated_file_size : 0;
     if (f != nullptr) {
       LogToBuffer(log_buffer,
-                  "[%s] Universal: Possible candidate file %lu[%d].",
-                  version->cfd_->GetName().c_str(),
-                  (unsigned long)f->fd.GetNumber(), loop);
+                  "[%s] Universal: Possible candidate file %" PRIu64 "[%d].",
+                  version->cfd_->GetName().c_str(), f->fd.GetNumber(), loop);
     }
 
     // Check if the suceeding files need compaction.
@@ -800,19 +796,19 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
       start_index = loop;         // Consider this as the first candidate.
       break;
     }
-    LogToBuffer(
-        log_buffer, "[%s] Universal: skipping file %lu[%d] compacted %s",
-        version->cfd_->GetName().c_str(), (unsigned long)f->fd.GetNumber(),
-        loop, " cannot be a candidate to reduce size amp.\n");
+    LogToBuffer(log_buffer,
+                "[%s] Universal: skipping file %" PRIu64 "[%d] compacted %s",
+                version->cfd_->GetName().c_str(), f->fd.GetNumber(), loop,
+                " cannot be a candidate to reduce size amp.\n");
     f = nullptr;
   }
   if (f == nullptr) {
     return nullptr;             // no candidate files
   }
 
-  LogToBuffer(log_buffer, "[%s] Universal: First candidate file %lu[%d] %s",
-              version->cfd_->GetName().c_str(),
-              (unsigned long)f->fd.GetNumber(), start_index,
+  LogToBuffer(log_buffer,
+              "[%s] Universal: First candidate file %" PRIu64 "[%d] %s",
+              version->cfd_->GetName().c_str(), f->fd.GetNumber(), start_index,
               " to reduce size amp.\n");
 
   // keep adding up all the remaining files
@@ -822,9 +818,9 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
     f = version->files_[level][index];
     if (f->being_compacted) {
       LogToBuffer(
-          log_buffer, "[%s] Universal: Possible candidate file %lu[%d] %s.",
-          version->cfd_->GetName().c_str(), (unsigned long)f->fd.GetNumber(),
-          loop,
+          log_buffer,
+          "[%s] Universal: Possible candidate file %" PRIu64 "[%d] %s.",
+          version->cfd_->GetName().c_str(), f->fd.GetNumber(), loop,
           " is already being compacted. No size amp reduction possible.\n");
       return nullptr;
     }
@@ -843,17 +839,16 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   if (candidate_size * 100 < ratio * earliest_file_size) {
     LogToBuffer(
         log_buffer,
-        "[%s] Universal: size amp not needed. newer-files-total-size %lu "
-        "earliest-file-size %lu",
-        version->cfd_->GetName().c_str(), (unsigned long)candidate_size,
-        (unsigned long)earliest_file_size);
+        "[%s] Universal: size amp not needed. newer-files-total-size %" PRIu64
+        "earliest-file-size %" PRIu64,
+        version->cfd_->GetName().c_str(), candidate_size, earliest_file_size);
     return nullptr;
   } else {
-    LogToBuffer(log_buffer,
-                "[%s] Universal: size amp needed. newer-files-total-size %lu "
-                "earliest-file-size %lu",
-                version->cfd_->GetName().c_str(), (unsigned long)candidate_size,
-                (unsigned long)earliest_file_size);
+    LogToBuffer(
+        log_buffer,
+        "[%s] Universal: size amp needed. newer-files-total-size %" PRIu64
+        "earliest-file-size %" PRIu64,
+        version->cfd_->GetName().c_str(), candidate_size, earliest_file_size);
   }
   assert(start_index >= 0 && start_index < file_by_time.size() - 1);
 

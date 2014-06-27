@@ -31,6 +31,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include "db/builder.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
@@ -82,18 +84,17 @@ class Repairer {
       status = WriteDescriptor();
     }
     if (status.ok()) {
-      unsigned long long bytes = 0;
+      uint64_t bytes = 0;
       for (size_t i = 0; i < tables_.size(); i++) {
         bytes += tables_[i].meta.fd.GetFileSize();
       }
       Log(options_.info_log,
           "**** Repaired rocksdb %s; "
-          "recovered %d files; %llu bytes. "
+          "recovered %zu files; %" PRIu64
+          "bytes. "
           "Some data may have been lost. "
           "****",
-          dbname_.c_str(),
-          static_cast<int>(tables_.size()),
-          bytes);
+          dbname_.c_str(), tables_.size(), bytes);
     }
     return status;
   }
@@ -159,8 +160,8 @@ class Repairer {
       std::string logname = LogFileName(dbname_, logs_[i]);
       Status status = ConvertLogToTable(logs_[i]);
       if (!status.ok()) {
-        Log(options_.info_log, "Log #%llu: ignoring conversion error: %s",
-            (unsigned long long) logs_[i],
+        Log(options_.info_log,
+            "Log #%" PRIu64 ": ignoring conversion error: %s", logs_[i],
             status.ToString().c_str());
       }
       ArchiveFile(logname);
@@ -174,10 +175,8 @@ class Repairer {
       uint64_t lognum;
       virtual void Corruption(size_t bytes, const Status& s) {
         // We print error messages for corruption, but continue repairing.
-        Log(info_log, "Log #%llu: dropping %d bytes; %s",
-            (unsigned long long) lognum,
-            static_cast<int>(bytes),
-            s.ToString().c_str());
+        Log(info_log, "Log #%" PRIu64 ": dropping %d bytes; %s", lognum,
+            static_cast<int>(bytes), s.ToString().c_str());
       }
     };
 
@@ -220,8 +219,7 @@ class Repairer {
       if (status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {
-        Log(options_.info_log, "Log #%llu: ignoring %s",
-            (unsigned long long) log,
+        Log(options_.info_log, "Log #%" PRIu64 ": ignoring %s", log,
             status.ToString().c_str());
         status = Status::OK();  // Keep going with rest of file
       }
@@ -244,9 +242,9 @@ class Repairer {
         table_numbers_.push_back(meta.fd.GetNumber());
       }
     }
-    Log(options_.info_log, "Log #%llu: %d ops saved to Table #%llu %s",
-        (unsigned long long)log, counter,
-        (unsigned long long)meta.fd.GetNumber(), status.ToString().c_str());
+    Log(options_.info_log,
+        "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s", log, counter,
+        meta.fd.GetNumber(), status.ToString().c_str());
     return status;
   }
 
@@ -257,9 +255,8 @@ class Repairer {
       Status status = ScanTable(&t);
       if (!status.ok()) {
         std::string fname = TableFileName(dbname_, table_numbers_[i]);
-        Log(options_.info_log, "Table #%llu: ignoring %s",
-            (unsigned long long) table_numbers_[i],
-            status.ToString().c_str());
+        Log(options_.info_log, "Table #%" PRIu64 ": ignoring %s",
+            table_numbers_[i], status.ToString().c_str());
         ArchiveFile(fname);
       } else {
         tables_.push_back(t);
@@ -281,9 +278,8 @@ class Repairer {
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (!ParseInternalKey(key, &parsed)) {
-          Log(options_.info_log, "Table #%llu: unparsable key %s",
-              (unsigned long long)t->meta.fd.GetNumber(),
-              EscapeString(key).c_str());
+          Log(options_.info_log, "Table #%" PRIu64 ": unparsable key %s",
+              t->meta.fd.GetNumber(), EscapeString(key).c_str());
           continue;
         }
 
@@ -305,9 +301,8 @@ class Repairer {
       }
       delete iter;
     }
-    Log(options_.info_log, "Table #%llu: %d entries %s",
-        (unsigned long long)t->meta.fd.GetNumber(), counter,
-        status.ToString().c_str());
+    Log(options_.info_log, "Table #%" PRIu64 ": %d entries %s",
+        t->meta.fd.GetNumber(), counter, status.ToString().c_str());
     return status;
   }
 
