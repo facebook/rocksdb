@@ -50,13 +50,14 @@ const char* LDBCommand::DELIM = " ==> ";
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
   int argc,
   char** argv,
-  const Options& options
+  const Options& options,
+  const LDBOptions& ldb_options
 ) {
   vector<string> args;
   for (int i = 1; i < argc; i++) {
     args.push_back(argv[i]);
   }
-  return InitFromCmdLineArgs(args, options);
+  return InitFromCmdLineArgs(args, options, ldb_options);
 }
 
 /**
@@ -71,7 +72,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
  */
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
   const vector<string>& args,
-  const Options& options
+  const Options& options,
+  const LDBOptions& ldb_options
 ) {
   // --x=y command line arguments are added as x->y map entries.
   map<string, string> option_map;
@@ -115,7 +117,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   );
 
   if (command) {
-    command->SetOptions(options);
+    command->SetDBOptions(options);
+    command->SetLDBOptions(ldb_options);
   }
   return command;
 }
@@ -1619,7 +1622,7 @@ void ScanCommand::DoCommand() {
   for ( ;
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
-    string key = it->key().ToString();
+    string key = ldb_options_.key_formatter->Format(it->key());
     if (is_db_ttl_) {
       TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(it);
       assert(it_ttl);
@@ -1633,8 +1636,8 @@ void ScanCommand::DoCommand() {
     }
     string value = it->value().ToString();
     fprintf(stdout, "%s : %s\n",
-          (is_key_hex_ ? StringToHex(key) : key).c_str(),
-          (is_value_hex_ ? StringToHex(value) : value).c_str()
+            (is_key_hex_ ? "0x" + it->key().ToString(true) : key).c_str(),
+            (is_value_hex_ ? StringToHex(value) : value).c_str()
         );
     num_keys_scanned++;
     if (max_keys_scanned_ >= 0 && num_keys_scanned >= max_keys_scanned_) {

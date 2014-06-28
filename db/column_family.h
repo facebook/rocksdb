@@ -229,6 +229,22 @@ class ColumnFamilyData {
     return need_slowdown_for_num_level0_files_;
   }
 
+  bool NeedWaitForNumLevel0Files() const {
+    return need_wait_for_num_level0_files_;
+  }
+
+  bool NeedWaitForNumMemtables() const {
+    return need_wait_for_num_memtables_;
+  }
+
+  bool ExceedsSoftRateLimit() const {
+    return exceeds_soft_rate_limit_;
+  }
+
+  bool ExceedsHardRateLimit() const {
+    return exceeds_hard_rate_limit_;
+  }
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(const std::string& dbname, uint32_t id,
@@ -237,6 +253,14 @@ class ColumnFamilyData {
                    const DBOptions* db_options,
                    const EnvOptions& storage_options,
                    ColumnFamilySet* column_family_set);
+
+  // Recalculate some small conditions, which are changed only during
+  // compaction, adding new memtable and/or
+  // recalculation of compaction score. These values are used in
+  // DBImpl::MakeRoomForWrite function to decide, if it need to make
+  // a write stall
+  void RecalculateWriteStallConditions();
+  void RecalculateWriteStallRateLimitsConditions();
 
   uint32_t id_;
   const std::string name_;
@@ -281,6 +305,22 @@ class ColumnFamilyData {
   // A flag indicating whether we should delay writes because
   // we have too many level 0 files
   bool need_slowdown_for_num_level0_files_;
+
+  // These 4 variables are updated only after compaction,
+  // adding new memtable, flushing memtables to files
+  // and/or add recalculation of compaction score.
+  // That's why theirs values are cached in ColumnFamilyData.
+  // Recalculation is made by RecalculateWriteStallConditions and
+  // RecalculateWriteStallRateLimitsConditions function. They are used
+  // in DBImpl::MakeRoomForWrite function to decide, if it need
+  // to sleep during write operation
+  bool need_wait_for_num_memtables_;
+
+  bool need_wait_for_num_level0_files_;
+
+  bool exceeds_hard_rate_limit_;
+
+  bool exceeds_soft_rate_limit_;
 
   // An object that keeps all the compaction stats
   // and picks the next compaction

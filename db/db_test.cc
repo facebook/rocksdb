@@ -2726,6 +2726,119 @@ TEST(DBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 1);
 }
 
+namespace {
+static const int kCDTValueSize = 1000;
+static const int kCDTKeysPerBuffer = 4;
+static const int kCDTNumLevels = 8;
+Options DeletionTriggerOptions() {
+  Options options;
+  options.compression = kNoCompression;
+  options.write_buffer_size = kCDTKeysPerBuffer * (kCDTValueSize + 24);
+  options.min_write_buffer_number_to_merge = 1;
+  options.num_levels = kCDTNumLevels;
+  options.max_mem_compaction_level = 0;
+  options.level0_file_num_compaction_trigger = 1;
+  options.target_file_size_base = options.write_buffer_size * 2;
+  options.target_file_size_multiplier = 2;
+  options.max_bytes_for_level_base =
+      options.target_file_size_base * options.target_file_size_multiplier;
+  options.max_bytes_for_level_multiplier = 2;
+  options.disable_auto_compactions = false;
+  return options;
+}
+}  // anonymous namespace
+
+TEST(DBTest, CompactionDeletionTrigger) {
+  Options options = DeletionTriggerOptions();
+  options.create_if_missing = true;
+
+  for (int tid = 0; tid < 2; ++tid) {
+    uint64_t db_size[2];
+
+    DestroyAndReopen(&options);
+    Random rnd(301);
+
+    const int kTestSize = kCDTKeysPerBuffer * 512;
+    std::vector<std::string> values;
+    for (int k = 0; k < kTestSize; ++k) {
+      values.push_back(RandomString(&rnd, kCDTValueSize));
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[0] = Size(Key(0), Key(kTestSize - 1));
+
+    for (int k = 0; k < kTestSize; ++k) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[1] = Size(Key(0), Key(kTestSize - 1));
+
+    // must have much smaller db size.
+    ASSERT_GT(db_size[0] / 3, db_size[1]);
+
+    // repeat the test with universal compaction
+    options.compaction_style = kCompactionStyleUniversal;
+    options.num_levels = 1;
+  }
+}
+
+TEST(DBTest, CompactionDeletionTriggerReopen) {
+  for (int tid = 0; tid < 2; ++tid) {
+    uint64_t db_size[3];
+    Options options = DeletionTriggerOptions();
+    options.create_if_missing = true;
+
+    DestroyAndReopen(&options);
+    Random rnd(301);
+
+    // round 1 --- insert key/value pairs.
+    const int kTestSize = kCDTKeysPerBuffer * 512;
+    std::vector<std::string> values;
+    for (int k = 0; k < kTestSize; ++k) {
+      values.push_back(RandomString(&rnd, kCDTValueSize));
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[0] = Size(Key(0), Key(kTestSize - 1));
+    Close();
+
+    // round 2 --- disable auto-compactions and issue deletions.
+    options.create_if_missing = false;
+    options.disable_auto_compactions = true;
+    Reopen(&options);
+
+    for (int k = 0; k < kTestSize; ++k) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    db_size[1] = Size(Key(0), Key(kTestSize - 1));
+    Close();
+    // as auto_compaction is off, we shouldn't see too much reduce
+    // in db size.
+    ASSERT_LT(db_size[0] / 3, db_size[1]);
+
+    // round 3 --- reopen db with auto_compaction on and see if
+    // deletion compensation still work.
+    options.disable_auto_compactions = false;
+    Reopen(&options);
+    // insert relatively small amount of data to trigger auto compaction.
+    for (int k = 0; k < kTestSize / 10; ++k) {
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[2] = Size(Key(0), Key(kTestSize - 1));
+    // this time we're expecting significant drop in size.
+    ASSERT_GT(db_size[0] / 3, db_size[2]);
+
+    // repeat the test with universal compaction
+    options.compaction_style = kCompactionStyleUniversal;
+    options.num_levels = 1;
+  }
+}
+
 // This is a static filter used for filtering
 // kvs during the compaction process.
 static int cfilter_count;

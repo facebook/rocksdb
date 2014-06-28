@@ -731,9 +731,8 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
           fname.c_str(), archived_log_name.c_str(), s.ToString().c_str());
     } else {
       Status s = env_->DeleteFile(fname);
-      Log(options_.info_log, "Delete %s type=%d #%lu -- %s\n",
-          fname.c_str(), type, (unsigned long)number,
-          s.ToString().c_str());
+      Log(options_.info_log, "Delete %s type=%d #%" PRIu64 " -- %s\n",
+          fname.c_str(), type, number, s.ToString().c_str());
     }
   }
 
@@ -1257,8 +1256,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
   // large sequence numbers).
   log::Reader reader(std::move(file), &reporter, true/*checksum*/,
                      0/*initial_offset*/);
-  Log(options_.info_log, "Recovering log #%lu",
-      (unsigned long) log_number);
+  Log(options_.info_log, "Recovering log #%" PRIu64 "", log_number);
 
   // Read all the records and add to a memtable
   std::string scratch;
@@ -1375,8 +1373,8 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mem->GetFirstSequenceNumber();
-  Log(options_.info_log, "[%s] Level-0 table #%lu: started",
-      cfd->GetName().c_str(), (unsigned long)meta.fd.GetNumber());
+  Log(options_.info_log, "[%s] Level-0 table #%" PRIu64 ": started",
+      cfd->GetName().c_str(), meta.fd.GetNumber());
 
   Status s;
   {
@@ -1389,9 +1387,10 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
     mutex_.Lock();
   }
 
-  Log(options_.info_log, "[%s] Level-0 table #%lu: %lu bytes %s",
-      cfd->GetName().c_str(), (unsigned long)meta.fd.GetNumber(),
-      (unsigned long)meta.fd.GetFileSize(), s.ToString().c_str());
+  Log(options_.info_log,
+      "[%s] Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
+      cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
+      s.ToString().c_str());
   delete iter;
 
   pending_outputs_.erase(meta.fd.GetNumber());
@@ -1436,14 +1435,15 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     log_buffer->FlushBufferToLog();
     std::vector<Iterator*> memtables;
     for (MemTable* m : mems) {
-      Log(options_.info_log, "[%s] Flushing memtable with next log file: %lu\n",
-          cfd->GetName().c_str(), (unsigned long)m->GetNextLogNumber());
+      Log(options_.info_log,
+          "[%s] Flushing memtable with next log file: %" PRIu64 "\n",
+          cfd->GetName().c_str(), m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ReadOptions(), true));
     }
     Iterator* iter = NewMergingIterator(&cfd->internal_comparator(),
                                         &memtables[0], memtables.size());
-    Log(options_.info_log, "[%s] Level-0 flush table #%lu: started",
-        cfd->GetName().c_str(), (unsigned long)meta.fd.GetNumber());
+    Log(options_.info_log, "[%s] Level-0 flush table #%" PRIu64 ": started",
+        cfd->GetName().c_str(), meta.fd.GetNumber());
 
     s = BuildTable(dbname_, env_, *cfd->options(), storage_options_,
                    cfd->table_cache(), iter, &meta, cfd->internal_comparator(),
@@ -1451,9 +1451,10 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
                    GetCompressionFlush(*cfd->options()));
     LogFlush(options_.info_log);
     delete iter;
-    Log(options_.info_log, "[%s] Level-0 flush table #%lu: %lu bytes %s",
-        cfd->GetName().c_str(), (unsigned long)meta.fd.GetFileSize(),
-        (unsigned long)meta.fd.GetFileSize(), s.ToString().c_str());
+    Log(options_.info_log,
+        "[%s] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
+        cfd->GetName().c_str(), meta.fd.GetFileSize(), meta.fd.GetFileSize(),
+        s.ToString().c_str());
 
     if (!options_.disableDataSync) {
       db_directory_->Fsync();
@@ -2402,9 +2403,10 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
     s = iter->status();
     delete iter;
     if (s.ok()) {
-      Log(options_.info_log, "[%s] Generated table #%lu: %lu keys, %lu bytes",
-          cfd->GetName().c_str(), (unsigned long)output_number,
-          (unsigned long)current_entries, (unsigned long)current_bytes);
+      Log(options_.info_log, "[%s] Generated table #%" PRIu64 ": %" PRIu64
+                             " keys, %" PRIu64 " bytes",
+          cfd->GetName().c_str(), output_number, current_entries,
+          current_bytes);
     }
   }
   return s;
@@ -2469,9 +2471,8 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
     assert(prev);
   }
   Log(options_.info_log,
-      "Looking for seqid %lu but maxseqid is %lu",
-      (unsigned long)in,
-      (unsigned long)snapshots[snapshots.size()-1]);
+      "Looking for seqid %" PRIu64 " but maxseqid is %" PRIu64 "", in,
+      snapshots[snapshots.size() - 1]);
   assert(0);
   return 0;
 }
@@ -4026,8 +4027,7 @@ Status DBImpl::MakeRoomForWrite(
         DelayLoggingAndReset();
       }
       break;
-    } else if (cfd->imm()->size() ==
-               cfd->options()->max_write_buffer_number - 1) {
+    } else if (cfd->NeedWaitForNumMemtables()) {
       // We have filled up the current memtable, but the previous
       // ones are still being flushed, so we wait.
       DelayLoggingAndReset();
@@ -4048,9 +4048,7 @@ Status DBImpl::MakeRoomForWrite(
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
       cfd->internal_stats()->RecordWriteStall(
           InternalStats::MEMTABLE_COMPACTION, stall);
-    } else if (cfd->current()->NumLevelFiles(0) >=
-               cfd->options()->level0_stop_writes_trigger) {
-      // There are too many level-0 files.
+    } else if (cfd->NeedWaitForNumLevel0Files()) {
       DelayLoggingAndReset();
       Log(options_.info_log, "[%s] wait for fewer level0 files...\n",
           cfd->GetName().c_str());
@@ -4064,12 +4062,10 @@ Status DBImpl::MakeRoomForWrite(
       RecordTick(options_.statistics.get(), STALL_L0_NUM_FILES_MICROS, stall);
       cfd->internal_stats()->RecordWriteStall(InternalStats::LEVEL0_NUM_FILES,
                                               stall);
-    } else if (allow_hard_rate_limit_delay &&
-               cfd->options()->hard_rate_limit > 1.0 &&
-               (score = cfd->current()->MaxCompactionScore()) >
-                   cfd->options()->hard_rate_limit) {
+    } else if (allow_hard_rate_limit_delay && cfd->ExceedsHardRateLimit()) {
       // Delay a write when the compaction score for any level is too large.
       int max_level = cfd->current()->MaxCompactionScoreLevel();
+      score = cfd->current()->MaxCompactionScore();
       mutex_.Unlock();
       uint64_t delayed;
       {
@@ -4090,10 +4086,8 @@ Status DBImpl::MakeRoomForWrite(
         allow_hard_rate_limit_delay = false;
       }
       mutex_.Lock();
-    } else if (allow_soft_rate_limit_delay &&
-               cfd->options()->soft_rate_limit > 0.0 &&
-               (score = cfd->current()->MaxCompactionScore()) >
-                   cfd->options()->soft_rate_limit) {
+    } else if (allow_soft_rate_limit_delay && cfd->ExceedsSoftRateLimit()) {
+      score = cfd->current()->MaxCompactionScore();
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
       mutex_.Unlock();
@@ -4176,8 +4170,9 @@ Status DBImpl::MakeRoomForWrite(
       }
       new_mem->Ref();
       cfd->SetMemtable(new_mem);
-      Log(options_.info_log, "[%s] New memtable created with log file: #%lu\n",
-          cfd->GetName().c_str(), (unsigned long)logfile_number_);
+      Log(options_.info_log,
+          "[%s] New memtable created with log file: #%" PRIu64 "\n",
+          cfd->GetName().c_str(), logfile_number_);
       force = false;  // Do not force another compaction if have room
       MaybeScheduleFlushOrCompaction();
       superversions_to_free->push_back(

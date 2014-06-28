@@ -148,13 +148,6 @@ class MemTableRep {
   //        all the states but those allocated in arena.
   virtual Iterator* GetIterator(Arena* arena = nullptr) = 0;
 
-  // Return an iterator over at least the keys with the specified user key. The
-  // iterator may also allow access to other keys, but doesn't have to. Default:
-  // GetIterator().
-  virtual Iterator* GetIterator(const Slice& user_key) {
-    return GetIterator(nullptr);
-  }
-
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
   // arena: If not null, the arena needs to be used to allocate the Iterator.

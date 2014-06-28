@@ -244,8 +244,6 @@ class HashCuckooRep : public MemTableRep {
   bool QuickInsert(const char* internal_key, const Slice& user_key,
                    int bucket_ids[], const int initial_hash_id);
 
-  // Unhide default implementations of GetIterator
-  using MemTableRep::GetIterator;
   // Returns the pointer to the internal iterator to the buckets where buckets
   // are sorted according to the user specified KeyComparator.  Note that
   // any insert after this function call may affect the sorted nature of

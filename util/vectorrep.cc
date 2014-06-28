@@ -91,9 +91,6 @@ class VectorRep : public MemTableRep {
     virtual void SeekToLast() override;
   };
 
-  // Unhide default implementations of GetIterator()
-  using MemTableRep::GetIterator;
-
   // Return an iterator over the keys in this representation.
   virtual MemTableRep::Iterator* GetIterator(Arena* arena) override;
 
