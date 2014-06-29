@@ -38,10 +38,10 @@ public class BackupableDBOptions extends RocksObject {
       boolean destroyOldData, boolean backupLogFiles, long backupRateLimit,
       long restoreRateLimit) {
     super();
-    
+
     backupRateLimit = (backupRateLimit <= 0) ? 0 : backupRateLimit;
     restoreRateLimit = (restoreRateLimit <= 0) ? 0 : restoreRateLimit;
-    
+
     newBackupableDBOptions(path, shareTableFiles, sync, destroyOldData,
         backupLogFiles, backupRateLimit, restoreRateLimit);
   }
