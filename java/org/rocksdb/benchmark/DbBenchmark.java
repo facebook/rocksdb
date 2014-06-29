@@ -463,7 +463,7 @@ public class DbBenchmark {
       if (compressionType_.equals("snappy")) {
         System.loadLibrary("snappy");
       } else if (compressionType_.equals("zlib")) {
-        System.loadLibrary("zlib");
+        System.loadLibrary("z");
       } else if (compressionType_.equals("bzip2")) {
         System.loadLibrary("bzip2");
       } else if (compressionType_.equals("lz4")) {
