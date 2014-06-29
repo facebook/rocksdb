@@ -26,6 +26,13 @@ public class StatisticsCollector {
   private final StatisticsCollectorCallback _statsCallback;
   private volatile boolean _isRunning = true;
 
+  /**
+   * Constructor for statistics collector.
+   * @param statistics Reference of DB statistics.
+   * @param statsCollectionIntervalInMilliSeconds Statistics collection time 
+   *        period (specified in milliseconds) 
+   * @param statsCallback Reference of statistics callback interface.
+   */
   public StatisticsCollector(Statistics statistics,
       int statsCollectionIntervalInMilliSeconds,
       StatisticsCollectorCallback statsCallback) {
