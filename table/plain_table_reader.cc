@@ -333,7 +333,7 @@ void PlainTableReader::AllocateIndexAndBloom(int num_prefixes,
     uint32_t bloom_total_bits = num_prefixes * bloom_bits_per_key;
     if (bloom_total_bits > 0) {
       enable_bloom_ = true;
-      bloom_.SetTotalBits(bloom_total_bits, options_.bloom_locality,
+      bloom_.SetTotalBits(&arena_, bloom_total_bits, options_.bloom_locality,
                           huge_page_tlb_size, options_.info_log.get());
     }
   }
@@ -465,7 +465,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
         table_properties_->num_entries * bloom_bits_per_key;
     if (num_bloom_bits > 0) {
       enable_bloom_ = true;
-      bloom_.SetTotalBits(num_bloom_bits, options_.bloom_locality,
+      bloom_.SetTotalBits(&arena_, num_bloom_bits, options_.bloom_locality,
                           huge_page_tlb_size, options_.info_log.get());
     }
   }

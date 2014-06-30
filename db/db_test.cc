@@ -436,7 +436,8 @@ class DBTest {
     switch (option_config_) {
       case kHashSkipList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-        options.memtable_factory.reset(NewHashSkipListRepFactory());
+        options.memtable_factory.reset(
+            NewHashSkipListRepFactory(16));
         break;
       case kPlainTableFirstBytePrefix:
         options.table_factory.reset(new PlainTableFactory());
@@ -6691,7 +6692,7 @@ TEST(DBTest, PrefixScan) {
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
   options.create_if_missing = true;
-  options.memtable_factory.reset(NewHashSkipListRepFactory());
+  options.memtable_factory.reset(NewHashSkipListRepFactory(16));
 
   // 11 RAND I/Os
   DestroyAndReopen(&options);
@@ -6848,7 +6849,7 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
-  options.memtable_factory.reset(NewHashSkipListRepFactory());
+  options.memtable_factory.reset(NewHashSkipListRepFactory(16));
   DestroyAndReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 

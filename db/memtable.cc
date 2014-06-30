@@ -55,6 +55,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
   assert(!should_flush_);
   if (prefix_extractor_ && options.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
+        &arena_,
         options.memtable_prefix_bloom_bits, options.bloom_locality,
         options.memtable_prefix_bloom_probes, nullptr,
         options.memtable_prefix_bloom_huge_page_tlb_size,
