@@ -294,7 +294,7 @@ class Version {
   // that on a running system, we need to look at only the first
   // few largest files because a new version is created every few
   // seconds/minutes (because of concurrent compactions).
-  static const int number_of_files_to_sort_ = 50;
+  static const size_t number_of_files_to_sort_ = 50;
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields

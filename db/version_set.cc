@@ -861,7 +861,6 @@ void Version::ComputeCompactionScore(
 }
 
 namespace {
-
 // Compator that is used to sort files based on their size
 // In normal mode: descending size
 bool CompareCompensatedSizeDescending(const Version::Fsize& first,
@@ -869,18 +868,6 @@ bool CompareCompensatedSizeDescending(const Version::Fsize& first,
   return (first.file->compensated_file_size >
       second.file->compensated_file_size);
 }
-// A static compator used to sort files based on their seqno
-// In universal style : descending seqno
-bool CompareSeqnoDescending(const Version::Fsize& first,
-                            const Version::Fsize& second) {
-  if (first.file->smallest_seqno > second.file->smallest_seqno) {
-    assert(first.file->largest_seqno > second.file->largest_seqno);
-    return true;
-  }
-  assert(first.file->largest_seqno <= second.file->largest_seqno);
-  return false;
-}
-
 } // anonymous namespace
 
 void Version::UpdateNumNonEmptyLevels() {
@@ -895,19 +882,15 @@ void Version::UpdateNumNonEmptyLevels() {
 }
 
 void Version::UpdateFilesBySize() {
-  if (cfd_->options()->compaction_style == kCompactionStyleFIFO) {
+  if (cfd_->options()->compaction_style == kCompactionStyleFIFO ||
+      cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     // don't need this
     return;
   }
   // No need to sort the highest level because it is never compacted.
-  int max_level =
-      (cfd_->options()->compaction_style == kCompactionStyleUniversal)
-          ? NumberLevels()
-          : NumberLevels() - 1;
-
-  for (int level = 0; level < max_level; level++) {
+  for (int level = 0; level < NumberLevels() - 1; level++) {
     const std::vector<FileMetaData*>& files = files_[level];
-    std::vector<int>& files_by_size = files_by_size_[level];
+    auto& files_by_size = files_by_size_[level];
     assert(files_by_size.size() == 0);
 
     // populate a temp vector for sorting based on size
@@ -918,18 +901,12 @@ void Version::UpdateFilesBySize() {
     }
 
     // sort the top number_of_files_to_sort_ based on file size
-    if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
-      int num = temp.size();
-      std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
-                        CompareSeqnoDescending);
-    } else {
-      int num = Version::number_of_files_to_sort_;
-      if (num > (int)temp.size()) {
-        num = temp.size();
-      }
-      std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
-                        CompareCompensatedSizeDescending);
+    size_t num = Version::number_of_files_to_sort_;
+    if (num > temp.size()) {
+      num = temp.size();
     }
+    std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+                      CompareCompensatedSizeDescending);
     assert(temp.size() == files.size());
 
     // initialize files_by_size_
