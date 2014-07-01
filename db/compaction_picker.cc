@@ -849,7 +849,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
         "[%s] Universal: size amp picking file %" PRIu64 "[%d] "
         "with size %" PRIu64 " (compensated size %" PRIu64 ")",
         version->cfd_->GetName().c_str(),
-        f->fd.GetNumber(), index,
+        f->fd.GetNumber(), loop,
         f->fd.GetFileSize(), f->compensated_file_size);
   }
   return c;
