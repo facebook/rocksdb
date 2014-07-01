@@ -1591,7 +1591,7 @@ class StressTest {
     }
     switch (FLAGS_rep_factory) {
       case kHashSkipList:
-        options_.memtable_factory.reset(NewHashSkipListRepFactory());
+        options_.memtable_factory.reset(NewHashSkipListRepFactory(10000));
         break;
       case kSkipList:
         // no need to do anything
