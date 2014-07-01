@@ -488,7 +488,8 @@ class DBTest {
         break;
       case kHashLinkList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-        options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0));
+        options.memtable_factory.reset(
+            NewHashLinkListRepFactory(4, 0, 3, true, 4));
         break;
       case kHashCuckoo:
         options.memtable_factory.reset(

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### New Features
+* HashLinklist reduces performance outlier caused by skewed bucket by switching data in the bucket from linked list to skip list. Add parameter threshold_use_skiplist in NewHashLinkListRepFactory().
+
 
 ## 3.2.0 (06/20/2014)
 

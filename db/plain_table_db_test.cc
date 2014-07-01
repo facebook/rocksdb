@@ -62,7 +62,7 @@ class PlainTableDBTest {
   Options CurrentOptions() {
     Options options;
     options.table_factory.reset(NewPlainTableFactory(0, 2, 0.8, 3, 0, kPrefix));
-    options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
+    options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true, 3));
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.allow_mmap_reads = true;
     return options;
