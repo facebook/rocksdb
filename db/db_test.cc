@@ -294,8 +294,8 @@ class DBTest {
  protected:
   // Sequence of option configurations to try
   enum OptionConfig {
-    kDefault,
     kBlockBasedTableWithWholeKeyHashIndex,
+    kDefault,
     kBlockBasedTableWithPrefixHashIndex,
     kPlainTableFirstBytePrefix,
     kPlainTableAllBytesPrefix,
@@ -467,7 +467,7 @@ class DBTest {
         options.db_log_dir = test::TmpDir();
         break;
       case kWalDir:
-        options.wal_dir = test::TmpDir() + "/wal";
+        options.wal_dir = "/tmp/wal";
         break;
       case kManifestFileSize:
         options.max_manifest_file_size = 50; // 50 bytes
