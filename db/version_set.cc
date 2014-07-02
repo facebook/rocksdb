@@ -16,6 +16,7 @@
 #include <set>
 #include <climits>
 #include <unordered_map>
+#include <vector>
 #include <stdio.h>
 
 #include "db/filename.h"
@@ -171,7 +172,7 @@ class Version::LevelFileNumIterator : public Iterator {
       : icmp_(icmp),
         flist_(flist),
         index_(flist->size()),
-        current_value_(0, 0) {  // Marks as invalid
+        current_value_(0, 0, 0) {  // Marks as invalid
   }
   virtual bool Valid() const {
     return index_ < flist_->size();
@@ -276,7 +277,8 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
         *fname, &file, vset_->storage_options_);
   } else {
     s = options->env->NewRandomAccessFile(
-        TableFileName(vset_->dbname_, file_meta->fd.GetNumber()),
+        TableFileName(vset_->options_->db_paths, file_meta->fd.GetNumber(),
+                      file_meta->fd.GetPathId()),
         &file, vset_->storage_options_);
   }
   if (!s.ok()) {
@@ -303,7 +305,9 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
 Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   for (int level = 0; level < num_levels_; level++) {
     for (const auto& file_meta : files_[level]) {
-      auto fname = TableFileName(vset_->dbname_, file_meta->fd.GetNumber());
+      auto fname =
+          TableFileName(vset_->options_->db_paths, file_meta->fd.GetNumber(),
+                        file_meta->fd.GetPathId());
       // 1. If the table is already present in table cache, load table
       // properties from there.
       std::shared_ptr<const TableProperties> table_properties;
@@ -1268,11 +1272,11 @@ int64_t Version::MaxNextLevelOverlappingBytes() {
   return result;
 }
 
-void Version::AddLiveFiles(std::set<uint64_t>* live) {
+void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
   for (int level = 0; level < NumberLevels(); level++) {
     const std::vector<FileMetaData*>& files = files_[level];
     for (const auto& file : files) {
-      live->insert(file->fd.GetNumber());
+      live->push_back(file->fd);
     }
   }
 }
@@ -1425,7 +1429,7 @@ class VersionSet::Builder {
 #endif
   }
 
-  void CheckConsistencyForDeletes(VersionEdit* edit, unsigned int number,
+  void CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
                                   int level) {
 #ifndef NDEBUG
       // a file to be deleted better exist in the previous version
@@ -1466,6 +1470,9 @@ class VersionSet::Builder {
             break;
           }
         }
+      }
+      if (!found) {
+        fprintf(stderr, "not found %ld\n", number);
       }
       assert(found);
 #endif
@@ -2160,17 +2167,15 @@ Status VersionSet::Recover(
     last_sequence_ = last_sequence;
     prev_log_number_ = prev_log_number;
 
-    Log(options_->info_log, "Recovered from manifest file:%s succeeded,"
+    Log(options_->info_log,
+        "Recovered from manifest file:%s succeeded,"
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu,"
         "max_column_family is %u\n",
-        manifest_filename.c_str(),
-        (unsigned long)manifest_file_number_,
-        (unsigned long)next_file_number_,
-        (unsigned long)last_sequence_,
-        (unsigned long)log_number,
-        (unsigned long)prev_log_number_,
+        manifest_filename.c_str(), (unsigned long)manifest_file_number_,
+        (unsigned long)next_file_number_, (unsigned long)last_sequence_,
+        (unsigned long)log_number, (unsigned long)prev_log_number_,
         column_family_set_->GetMaxColumnFamily());
 
     for (auto cfd : *column_family_set_) {
@@ -2557,9 +2562,9 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
       for (int level = 0; level < cfd->NumberLevels(); level++) {
         for (const auto& f : cfd->current()->files_[level]) {
-          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetFileSize(),
-                       f->smallest, f->largest, f->smallest_seqno,
-                       f->largest_seqno);
+          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
+                       f->fd.GetFileSize(), f->smallest, f->largest,
+                       f->smallest_seqno, f->largest_seqno);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());
@@ -2641,7 +2646,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   return result;
 }
 
-void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
+void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   // pre-calculate space requirement
   int64_t total_files = 0;
   for (auto cfd : *column_family_set_) {
@@ -2663,7 +2668,7 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
          v = v->next_) {
       for (int level = 0; level < v->NumberLevels(); level++) {
         for (const auto& f : v->files_[level]) {
-          live_list->push_back(f->fd.GetNumber());
+          live_list->push_back(f->fd);
         }
       }
     }
@@ -2786,7 +2791,14 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
       for (const auto& file : cfd->current()->files_[level]) {
         LiveFileMetaData filemetadata;
         filemetadata.column_family_name = cfd->GetName();
-        filemetadata.name = TableFileName("", file->fd.GetNumber());
+        uint32_t path_id = file->fd.GetPathId();
+        if (path_id < options_->db_paths.size()) {
+          filemetadata.db_path = options_->db_paths[path_id];
+        } else {
+          assert(!options_->db_paths.empty());
+          filemetadata.db_path = options_->db_paths.back();
+        }
+        filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
         filemetadata.level = level;
         filemetadata.size = file->fd.GetFileSize();
         filemetadata.smallestkey = file->smallest.user_key().ToString();

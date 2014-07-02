@@ -214,6 +214,7 @@ DBOptions::DBOptions(const Options& options)
       disableDataSync(options.disableDataSync),
       use_fsync(options.use_fsync),
       db_stats_log_interval(options.db_stats_log_interval),
+      db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
       delete_obsolete_files_period_micros(

@@ -286,6 +286,10 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
     }
   }
 
+  if (opt.db_paths.size() == 0) {
+    opt.db_paths.push_back(db_path_);
+  }
+
   return opt;
 }
 

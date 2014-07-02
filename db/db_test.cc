@@ -98,7 +98,12 @@ class AtomicCounter {
     count_ = 0;
   }
 };
+}  // namespace anon
 
+static std::string Key(int i) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "key%06d", i);
+  return std::string(buf);
 }
 
 // Special Env used to delay background operations
@@ -355,7 +360,10 @@ class DBTest {
 
   ~DBTest() {
     Close();
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    Options options;
+    options.db_paths.push_back(dbname_);
+    options.db_paths.push_back(dbname_ + "_2");
+    ASSERT_OK(DestroyDB(dbname_, options));
     delete env_;
     delete filter_policy_;
   }
@@ -897,6 +905,30 @@ class DBTest {
     return property;
   }
 
+  int GetSstFileCount(std::string path) {
+    std::vector<std::string> files;
+    env_->GetChildren(path, &files);
+
+    int sst_count = 0;
+    uint64_t number;
+    FileType type;
+    for (size_t i = 0; i < files.size(); i++) {
+      if (ParseFileName(files[i], &number, &type) && type == kTableFile) {
+        sst_count++;
+      }
+    }
+    return sst_count;
+  }
+
+  void GenerateNewFile(Random* rnd, int* key_idx) {
+    for (int i = 0; i < 11; i++) {
+      ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 10) ? 1 : 10000)));
+      (*key_idx)++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+
   std::string IterStatus(Iterator* iter) {
     std::string result;
     if (iter->Valid()) {
@@ -1036,12 +1068,6 @@ class DBTest {
   }
 
 };
-
-static std::string Key(int i) {
-  char buf[100];
-  snprintf(buf, sizeof(buf), "key%06d", i);
-  return std::string(buf);
-}
 
 static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
   return options.statistics->getTickerCount(ticker_type);
@@ -3433,6 +3459,13 @@ TEST(DBTest, UniversalCompactionCompressRatio2) {
   }
   ASSERT_LT((int)dbfull()->TEST_GetLevel0TotalSize(),
             120000 * 12 * 0.8 + 120000 * 2);
+}
+
+TEST(DBTest, FailMoreDbPaths) {
+  Options options;
+  options.db_paths.push_back(dbname_);
+  options.db_paths.push_back(dbname_ + "_2");
+  ASSERT_TRUE(TryReopen(&options).IsNotSupported());
 }
 #endif
 

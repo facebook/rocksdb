@@ -55,6 +55,7 @@ class Env;
 // Metadata associated with each SST file.
 struct LiveFileMetaData {
   std::string column_family_name;  // Name of the column family
+  std::string db_path;
   std::string name;                // Name of the file
   int level;               // Level at which this file resides.
   size_t size;             // File size in bytes.

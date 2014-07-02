@@ -50,6 +50,9 @@ class Compaction {
   // What compression for output
   CompressionType OutputCompressionType() const { return output_compression_; }
 
+  // Whether need to write output file to second DB path.
+  uint32_t GetOutputPathId() const { return output_path_id_; }
+
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
@@ -104,8 +107,8 @@ class Compaction {
 
   Compaction(Version* input_version, int level, int out_level,
              uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
-             CompressionType output_compression, bool seek_compaction = false,
-             bool deletion_compaction = false);
+             uint32_t output_path_id, CompressionType output_compression,
+             bool seek_compaction = false, bool deletion_compaction = false);
 
   int level_;
   int out_level_; // levels to which output files are stored
@@ -116,6 +119,7 @@ class Compaction {
   int number_levels_;
   ColumnFamilyData* cfd_;
 
+  uint32_t output_path_id_;
   CompressionType output_compression_;
   bool seek_compaction_;
   // if true, just delete files in inputs_[0]

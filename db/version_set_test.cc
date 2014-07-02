@@ -31,7 +31,7 @@ class FindFileTest {
            SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
     FileMetaData* f = new FileMetaData;
-    f->fd = FileDescriptor(files_.size() + 1, 0);
+    f->fd = FileDescriptor(files_.size() + 1, 0, 0);
     f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
     f->largest = InternalKey(largest, largest_seq, kTypeValue);
     files_.push_back(f);

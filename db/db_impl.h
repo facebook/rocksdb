@@ -198,6 +198,17 @@ class DBImpl : public DB {
   Status TEST_ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
 #endif  // NDEBUG
 
+  // Structure to store information for candidate files to delete.
+  struct CandidateFileInfo {
+    std::string file_name;
+    uint32_t path_id;
+    CandidateFileInfo(std::string name, uint32_t path)
+        : file_name(name), path_id(path) {}
+    bool operator==(const CandidateFileInfo& other) const {
+      return file_name == other.file_name && path_id == other.path_id;
+    }
+  };
+
   // needed for CleanupIteratorState
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
@@ -209,10 +220,10 @@ class DBImpl : public DB {
     // a list of all files that we'll consider deleting
     // (every once in a while this is filled up with all files
     // in the DB directory)
-    std::vector<std::string> candidate_files;
+    std::vector<CandidateFileInfo> candidate_files;
 
     // the list of all live sst files that cannot be deleted
-    std::vector<uint64_t> sst_live;
+    std::vector<FileDescriptor> sst_live;
 
     // a list of sst files that we need to delete
     std::vector<FileMetaData*> sst_delete_files;
@@ -501,7 +512,8 @@ class DBImpl : public DB {
 
   // Set of table files to protect from deletion because they are
   // part of ongoing compactions.
-  std::set<uint64_t> pending_outputs_;
+  // map from pending file number ID to their path IDs.
+  FileNumToPathIdMap pending_outputs_;
 
   // At least one compaction or flush job is pending but not yet scheduled
   // because of the max background thread limit.
