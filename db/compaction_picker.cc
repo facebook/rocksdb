@@ -18,6 +18,31 @@
 namespace rocksdb {
 
 namespace {
+// Determine compression type, based on user options, level of the output
+// file and whether compression is disabled.
+// If enable_compression is false, then compression is always disabled no
+// matter what the values of the other two parameters are.
+// Otherwise, the compression type is determined based on options and level.
+CompressionType GetCompressionType(const Options& options, int level,
+                                   const bool enable_compression = true) {
+  if (!enable_compression) {
+    // disable compression
+    return kNoCompression;
+  }
+  // If the use has specified a different compression level for each level,
+  // then pick the compresison for that level.
+  if (!options.compression_per_level.empty()) {
+    const int n = options.compression_per_level.size() - 1;
+    // It is possible for level_ to be -1; in that case, we use level
+    // 0's compression.  This occurs mostly in backwards compatibility
+    // situations when the builder doesn't know what level the file
+    // belongs to.  Likewise, if level_ is beyond the end of the
+    // specified compression levels, use the last value.
+    return options.compression_per_level[std::max(0, std::min(level, n))];
+  } else {
+    return options.compression;
+  }
+}
 
 uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
@@ -345,7 +370,8 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
   }
   Compaction* c = new Compaction(version, input_level, output_level,
                                  MaxFileSizeForLevel(output_level),
-                                 MaxGrandParentOverlapBytes(input_level));
+                                 MaxGrandParentOverlapBytes(input_level),
+                                 GetCompressionType(*options_, output_level));
 
   c->inputs_[0] = inputs;
   if (ExpandWhileOverlapping(c) == false) {
@@ -465,7 +491,8 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
   assert(level >= 0);
   assert(level + 1 < NumberLevels());
   c = new Compaction(version, level, level + 1, MaxFileSizeForLevel(level + 1),
-                     MaxGrandParentOverlapBytes(level));
+                     MaxGrandParentOverlapBytes(level),
+                     GetCompressionType(*options_, level + 1));
   c->score_ = score;
 
   // Pick the largest file in this level that is not already
@@ -736,9 +763,9 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       }
     }
   }
-  Compaction* c =
-      new Compaction(version, level, level, MaxFileSizeForLevel(level),
-                     LLONG_MAX, false, enable_compression);
+  Compaction* c = new Compaction(
+      version, level, level, MaxFileSizeForLevel(level), LLONG_MAX,
+      GetCompressionType(*options_, level, enable_compression));
   c->score_ = score;
 
   for (unsigned int i = start_index; i < first_index_after; i++) {
@@ -840,7 +867,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   // We always compact all the files, so always compress.
   Compaction* c =
       new Compaction(version, level, level, MaxFileSizeForLevel(level),
-                     LLONG_MAX, false, true);
+                     LLONG_MAX, GetCompressionType(*options_, level));
   c->score_ = score;
   for (unsigned int loop = start_index; loop < files.size(); loop++) {
     f = c->input_version_->files_[level][loop];
@@ -882,7 +909,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(Version* version,
     return nullptr;
   }
 
-  Compaction* c = new Compaction(version, 0, 0, 0, 0, false, false,
+  Compaction* c = new Compaction(version, 0, 0, 0, 0, kNoCompression, false,
                                  true /* is deletion compaction */);
   // delete old files (FIFO)
   for (auto ritr = version->files_[0].rbegin();

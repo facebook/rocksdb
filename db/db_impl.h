@@ -625,15 +625,4 @@ extern Options SanitizeOptions(const std::string& db,
                                const Options& src);
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 
-// Determine compression type, based on user options, level of the output
-// file and whether compression is disabled.
-// If enable_compression is false, then compression is always disabled no
-// matter what the values of the other two parameters are.
-// Otherwise, the compression type is determined based on options and level.
-CompressionType GetCompressionType(const Options& options, int level,
-                                   const bool enable_compression);
-
-// Determine compression type for L0 file written by memtable flush.
-CompressionType GetCompressionFlush(const Options& options);
-
 }  // namespace rocksdb

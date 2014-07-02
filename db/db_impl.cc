@@ -297,27 +297,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   return result;
 }
 
-CompressionType GetCompressionType(const Options& options, int level,
-                                   const bool enable_compression) {
-  if (!enable_compression) {
-    // disable compression
-    return kNoCompression;
-  }
-  // If the use has specified a different compression level for each level,
-  // then pick the compresison for that level.
-  if (!options.compression_per_level.empty()) {
-    const int n = options.compression_per_level.size() - 1;
-    // It is possible for level_ to be -1; in that case, we use level
-    // 0's compression.  This occurs mostly in backwards compatibility
-    // situations when the builder doesn't know what level the file
-    // belongs to.  Likewise, if level_ is beyond the end of the
-    // specified compression levels, use the last value.
-    return options.compression_per_level[std::max(0, std::min(level, n))];
-  } else {
-    return options.compression;
-  }
-}
-
+namespace {
 CompressionType GetCompressionFlush(const Options& options) {
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
@@ -325,12 +305,13 @@ CompressionType GetCompressionFlush(const Options& options) {
 
   bool can_compress;
 
-  if  (options.compaction_style == kCompactionStyleUniversal) {
+  if (options.compaction_style == kCompactionStyleUniversal) {
     can_compress =
         (options.compaction_options_universal.compression_size_percent < 0);
   } else {
     // For leveled compress when min_level_to_compress == 0.
-    can_compress = (GetCompressionType(options, 0, true) != kNoCompression);
+    can_compress = options.compression_per_level.empty() ||
+                   options.compression_per_level[0] != kNoCompression;
   }
 
   if (can_compress) {
@@ -339,6 +320,7 @@ CompressionType GetCompressionFlush(const Options& options) {
     return kNoCompression;
   }
 }
+}  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
     : env_(options.env),
@@ -2343,13 +2325,9 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
         compact->compaction->OutputFilePreallocationSize());
 
     ColumnFamilyData* cfd = compact->compaction->column_family_data();
-    CompressionType compression_type =
-        GetCompressionType(*cfd->options(), compact->compaction->output_level(),
-                           compact->compaction->enable_compression());
-
-    compact->builder.reset(
-        NewTableBuilder(*cfd->options(), cfd->internal_comparator(),
-                        compact->outfile.get(), compression_type));
+    compact->builder.reset(NewTableBuilder(
+        *cfd->options(), cfd->internal_comparator(), compact->outfile.get(),
+        compact->compaction->OutputCompressionType()));
   }
   LogFlush(options_.info_log);
   return s;
