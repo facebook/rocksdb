@@ -65,6 +65,7 @@
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
+#include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
@@ -1604,6 +1605,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     // true, mark DB read-only
     bg_error_ = s;
   }
+  RecordFlushIOStats();
   return s;
 }
 
@@ -1920,11 +1922,28 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   }
 }
 
+void DBImpl::RecordFlushIOStats() {
+  RecordTick(options_.statistics.get(), FLUSH_WRITE_BYTES,
+             iostats_context.bytes_written);
+  IOSTATS_RESET(bytes_written);
+}
+
+void DBImpl::RecordCompactionIOStats() {
+  RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
+             IOSTATS(bytes_read));
+  IOSTATS_RESET(bytes_read);
+  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
+             IOSTATS(bytes_written));
+  IOSTATS_RESET(bytes_written);
+}
+
 void DBImpl::BGWorkFlush(void* db) {
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush();
 }
 
 void DBImpl::BGWorkCompaction(void* db) {
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
   reinterpret_cast<DBImpl*>(db)->BackgroundCallCompaction();
 }
 
@@ -2024,6 +2043,7 @@ void DBImpl::BackgroundCallFlush() {
     // that case, all DB variables will be dealloacated and referencing them
     // will cause trouble.
   }
+  RecordFlushIOStats();
 }
 
 void DBImpl::BackgroundCallCompaction() {
@@ -2559,6 +2579,7 @@ Status DBImpl::ProcessKeyValueCompaction(
 
   while (input->Valid() && !shutting_down_.Acquire_Load() &&
          !cfd->IsDropped()) {
+    RecordCompactionIOStats();
     // FLUSH preempts compaction
     // TODO(icanadi) this currently only checks if flush is necessary on
     // compacting column family. we should also check if flush is necessary on
@@ -2816,6 +2837,8 @@ Status DBImpl::ProcessKeyValueCompaction(
       input->Next();
     }
   }
+
+  RecordCompactionIOStats();
 
   return status;
 }
@@ -3124,21 +3147,17 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   for (int i = 0; i < compact->compaction->num_input_files(0); i++) {
     stats.bytes_readn += compact->compaction->input(0, i)->fd.GetFileSize();
-    RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
-               compact->compaction->input(0, i)->fd.GetFileSize());
   }
 
   for (int i = 0; i < compact->compaction->num_input_files(1); i++) {
     stats.bytes_readnp1 += compact->compaction->input(1, i)->fd.GetFileSize();
-    RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
-               compact->compaction->input(1, i)->fd.GetFileSize());
   }
 
   for (int i = 0; i < num_output_files; i++) {
     stats.bytes_written += compact->outputs[i].file_size;
-    RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
-               compact->outputs[i].file_size);
   }
+
+  RecordCompactionIOStats();
 
   LogFlush(options_.info_log);
   mutex_.Lock();

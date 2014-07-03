@@ -359,6 +359,9 @@ class DBImpl : public DB {
   // Wait for memtable flushed
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
+  void RecordFlushIOStats();
+  void RecordCompactionIOStats();
+
   void MaybeScheduleLogDBDeployStats();
 
 #ifndef ROCKSDB_LITE
