@@ -11,6 +11,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <vector>
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
 #include "util/logging.h"
@@ -66,9 +67,28 @@ std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
   return MakeFileName(name + "/" + ARCHIVAL_DIR, number, "log");
 }
 
-std::string TableFileName(const std::string& name, uint64_t number) {
+std::string MakeTableFileName(const std::string& path, uint64_t number) {
+  return MakeFileName(path, number, "sst");
+}
+
+std::string TableFileName(const std::vector<std::string> db_paths,
+                          uint64_t number, uint32_t path_id) {
   assert(number > 0);
-  return MakeFileName(name, number, "sst");
+  std::string path;
+  if (path_id >= db_paths.size()) {
+    path = db_paths.back();
+  } else {
+    path = db_paths[path_id];
+  }
+  return MakeTableFileName(path, number);
+}
+
+std::string FormatFileNumber(uint64_t number, uint32_t path_id) {
+  if (path_id == 0) {
+    return std::to_string(number);
+  } else {
+    return std::to_string(number) + "(path " + std::to_string(path_id) + ")";
+  }
 }
 
 std::string DescriptorFileName(const std::string& dbname, uint64_t number) {

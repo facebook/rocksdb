@@ -36,10 +36,10 @@ static Slice GetSliceForFileNumber(const uint64_t* file_number) {
                sizeof(*file_number));
 }
 
-TableCache::TableCache(const std::string& dbname, const Options* options,
+TableCache::TableCache(const Options* options,
                        const EnvOptions& storage_options, Cache* const cache)
     : env_(options->env),
-      dbname_(dbname),
+      db_paths_(options->db_paths),
       options_(options),
       storage_options_(storage_options),
       cache_(cache) {}
@@ -60,13 +60,15 @@ Status TableCache::FindTable(const EnvOptions& toptions,
                              const FileDescriptor& fd, Cache::Handle** handle,
                              const bool no_io) {
   Status s;
-  Slice key = GetSliceForFileNumber(&fd.number);
+  uint64_t number = fd.GetNumber();
+  Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
     if (no_io) { // Dont do IO and return a not-found status
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
-    std::string fname = TableFileName(dbname_, fd.GetNumber());
+    std::string fname =
+        TableFileName(db_paths_, fd.GetNumber(), fd.GetPathId());
     unique_ptr<RandomAccessFile> file;
     unique_ptr<TableReader> table_reader;
     s = env_->NewRandomAccessFile(fname, &file, toptions);

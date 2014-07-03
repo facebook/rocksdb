@@ -198,6 +198,17 @@ class DBImpl : public DB {
   Status TEST_ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
 #endif  // NDEBUG
 
+  // Structure to store information for candidate files to delete.
+  struct CandidateFileInfo {
+    std::string file_name;
+    uint32_t path_id;
+    CandidateFileInfo(std::string name, uint32_t path)
+        : file_name(name), path_id(path) {}
+    bool operator==(const CandidateFileInfo& other) const {
+      return file_name == other.file_name && path_id == other.path_id;
+    }
+  };
+
   // needed for CleanupIteratorState
   struct DeletionState {
     inline bool HaveSomethingToDelete() const {
@@ -209,10 +220,10 @@ class DBImpl : public DB {
     // a list of all files that we'll consider deleting
     // (every once in a while this is filled up with all files
     // in the DB directory)
-    std::vector<std::string> candidate_files;
+    std::vector<CandidateFileInfo> candidate_files;
 
     // the list of all live sst files that cannot be deleted
-    std::vector<uint64_t> sst_live;
+    std::vector<FileDescriptor> sst_live;
 
     // a list of sst files that we need to delete
     std::vector<FileMetaData*> sst_delete_files;
@@ -501,7 +512,8 @@ class DBImpl : public DB {
 
   // Set of table files to protect from deletion because they are
   // part of ongoing compactions.
-  std::set<uint64_t> pending_outputs_;
+  // map from pending file number ID to their path IDs.
+  FileNumToPathIdMap pending_outputs_;
 
   // At least one compaction or flush job is pending but not yet scheduled
   // because of the max background thread limit.
@@ -624,16 +636,5 @@ extern Options SanitizeOptions(const std::string& db,
                                const InternalFilterPolicy* ipolicy,
                                const Options& src);
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
-
-// Determine compression type, based on user options, level of the output
-// file and whether compression is disabled.
-// If enable_compression is false, then compression is always disabled no
-// matter what the values of the other two parameters are.
-// Otherwise, the compression type is determined based on options and level.
-CompressionType GetCompressionType(const Options& options, int level,
-                                   const bool enable_compression);
-
-// Determine compression type for L0 file written by memtable flush.
-CompressionType GetCompressionFlush(const Options& options);
 
 }  // namespace rocksdb

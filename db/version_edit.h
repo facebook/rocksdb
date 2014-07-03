@@ -19,21 +19,41 @@ namespace rocksdb {
 
 class VersionSet;
 
+const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
+
+extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
+
 // A copyable structure contains information needed to read data from an SST
 // file. It can contains a pointer to a table reader opened for the file, or
 // file number and size, which can be used to create a new table reader for it.
 // The behavior is undefined when a copied of the structure is used when the
 // file is not in any live version any more.
 struct FileDescriptor {
-  uint64_t number;
-  uint64_t file_size;  // File size in bytes
   // Table reader in table_reader_handle
   TableReader* table_reader;
+  uint64_t packed_number_and_path_id;
+  uint64_t file_size;  // File size in bytes
 
-  FileDescriptor(uint64_t number, uint64_t file_size)
-      : number(number), file_size(file_size), table_reader(nullptr) {}
+  FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
-  uint64_t GetNumber() const { return number; }
+  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t file_size)
+      : table_reader(nullptr),
+        packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
+        file_size(file_size) {}
+
+  FileDescriptor& operator=(const FileDescriptor& fd) {
+    table_reader = fd.table_reader;
+    packed_number_and_path_id = fd.packed_number_and_path_id;
+    file_size = fd.file_size;
+    return *this;
+  }
+
+  uint64_t GetNumber() const {
+    return packed_number_and_path_id & kFileNumberMask;
+  }
+  uint32_t GetPathId() const {
+    return packed_number_and_path_id / (kFileNumberMask + 1);
+  }
   uint64_t GetFileSize() const { return file_size; }
 };
 
@@ -58,7 +78,6 @@ struct FileMetaData {
 
   FileMetaData()
       : refs(0),
-        fd(0, 0),
         being_compacted(false),
         table_reader_handle(nullptr),
         compensated_file_size(0),
@@ -103,15 +122,13 @@ class VersionEdit {
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
-  void AddFile(int level, uint64_t file,
-               uint64_t file_size,
-               const InternalKey& smallest,
-               const InternalKey& largest,
-               const SequenceNumber& smallest_seqno,
+  void AddFile(int level, uint64_t file, uint64_t file_size,
+               uint64_t file_path_id, const InternalKey& smallest,
+               const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
-    f.fd = FileDescriptor(file, file_size);
+    f.fd = FileDescriptor(file, file_size, file_path_id);
     f.smallest = smallest;
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;

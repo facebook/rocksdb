@@ -32,12 +32,13 @@ uint32_t GetTotalBitsForLocality(uint32_t total_bits) {
 }
 }
 
-DynamicBloom::DynamicBloom(uint32_t total_bits, uint32_t locality,
+DynamicBloom::DynamicBloom(Arena* arena, uint32_t total_bits, uint32_t locality,
                            uint32_t num_probes,
                            uint32_t (*hash_func)(const Slice& key),
-                           size_t huge_page_tlb_size, Logger* logger)
+                           size_t huge_page_tlb_size,
+                           Logger* logger)
     : DynamicBloom(num_probes, hash_func) {
-  SetTotalBits(total_bits, locality, huge_page_tlb_size, logger);
+  SetTotalBits(arena, total_bits, locality, huge_page_tlb_size, logger);
 }
 
 DynamicBloom::DynamicBloom(uint32_t num_probes,
@@ -47,8 +48,10 @@ DynamicBloom::DynamicBloom(uint32_t num_probes,
       kNumProbes(num_probes),
       hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {}
 
-void DynamicBloom::SetTotalBits(uint32_t total_bits, uint32_t locality,
-                                size_t huge_page_tlb_size, Logger* logger) {
+void DynamicBloom::SetTotalBits(Arena* arena,
+                                uint32_t total_bits, uint32_t locality,
+                                size_t huge_page_tlb_size,
+                                Logger* logger) {
   kTotalBits = (locality > 0) ? GetTotalBitsForLocality(total_bits)
                               : (total_bits + 7) / 8 * 8;
   kNumBlocks = (locality > 0) ? (kTotalBits / (CACHE_LINE_SIZE * 8)) : 0;
@@ -60,8 +63,9 @@ void DynamicBloom::SetTotalBits(uint32_t total_bits, uint32_t locality,
   if (kNumBlocks > 0) {
     sz += CACHE_LINE_SIZE - 1;
   }
+  assert(arena);
   raw_ = reinterpret_cast<unsigned char*>(
-      arena_.AllocateAligned(sz, huge_page_tlb_size, logger));
+      arena->AllocateAligned(sz, huge_page_tlb_size, logger));
   memset(raw_, 0, sz);
   if (kNumBlocks > 0 && (reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE)) {
     data_ = raw_ + CACHE_LINE_SIZE -

@@ -98,6 +98,7 @@ struct DBImpl::CompactionState {
   // Files produced by compaction
   struct Output {
     uint64_t number;
+    uint32_t path_id;
     uint64_t file_size;
     InternalKey smallest, largest;
     SequenceNumber smallest_seqno, largest_seqno;
@@ -294,30 +295,14 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.wal_dir = result.wal_dir.substr(0, result.wal_dir.size() - 1);
   }
 
+  if (result.db_paths.size() == 0) {
+    result.db_paths.push_back(dbname);
+  }
+
   return result;
 }
 
-CompressionType GetCompressionType(const Options& options, int level,
-                                   const bool enable_compression) {
-  if (!enable_compression) {
-    // disable compression
-    return kNoCompression;
-  }
-  // If the use has specified a different compression level for each level,
-  // then pick the compresison for that level.
-  if (!options.compression_per_level.empty()) {
-    const int n = options.compression_per_level.size() - 1;
-    // It is possible for level_ to be -1; in that case, we use level
-    // 0's compression.  This occurs mostly in backwards compatibility
-    // situations when the builder doesn't know what level the file
-    // belongs to.  Likewise, if level_ is beyond the end of the
-    // specified compression levels, use the last value.
-    return options.compression_per_level[std::max(0, std::min(level, n))];
-  } else {
-    return options.compression;
-  }
-}
-
+namespace {
 CompressionType GetCompressionFlush(const Options& options) {
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
@@ -325,12 +310,13 @@ CompressionType GetCompressionFlush(const Options& options) {
 
   bool can_compress;
 
-  if  (options.compaction_style == kCompactionStyleUniversal) {
+  if (options.compaction_style == kCompactionStyleUniversal) {
     can_compress =
         (options.compaction_options_universal.compression_size_percent < 0);
   } else {
     // For leveled compress when min_level_to_compress == 0.
-    can_compress = (GetCompressionType(options, 0, true) != kNoCompression);
+    can_compress = options.compression_per_level.empty() ||
+                   options.compression_per_level[0] != kNoCompression;
   }
 
   if (can_compress) {
@@ -339,6 +325,7 @@ CompressionType GetCompressionFlush(const Options& options) {
     return kNoCompression;
   }
 }
+}  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
     : env_(options.env),
@@ -591,29 +578,47 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
   }
 
   // don't delete live files
-  deletion_state.sst_live.assign(pending_outputs_.begin(),
-                                 pending_outputs_.end());
+  for (auto pair : pending_outputs_) {
+    deletion_state.sst_live.emplace_back(pair.first, pair.second, 0);
+  }
+  /*  deletion_state.sst_live.insert(pending_outputs_.begin(),
+                                   pending_outputs_.end());*/
   versions_->AddLiveFiles(&deletion_state.sst_live);
 
   if (doing_the_full_scan) {
-    // set of all files in the directory. We'll exclude files that are still
-    // alive in the subsequent processings.
-    env_->GetChildren(
-        dbname_, &deletion_state.candidate_files
-    ); // Ignore errors
+    for (uint32_t path_id = 0; path_id < options_.db_paths.size(); path_id++) {
+      // set of all files in the directory. We'll exclude files that are still
+      // alive in the subsequent processings.
+      std::vector<std::string> files;
+      env_->GetChildren(dbname_, &files);  // Ignore errors
+      for (std::string file : files) {
+        deletion_state.candidate_files.emplace_back(file, path_id);
+      }
+    }
 
     //Add log files in wal_dir
     if (options_.wal_dir != dbname_) {
       std::vector<std::string> log_files;
       env_->GetChildren(options_.wal_dir, &log_files); // Ignore errors
-      deletion_state.candidate_files.insert(
-        deletion_state.candidate_files.end(),
-        log_files.begin(),
-        log_files.end()
-      );
+      for (std::string log_file : log_files) {
+        deletion_state.candidate_files.emplace_back(log_file, 0);
+      }
     }
   }
 }
+
+namespace {
+bool CompareCandidateFile(const rocksdb::DBImpl::CandidateFileInfo& first,
+                          const rocksdb::DBImpl::CandidateFileInfo& second) {
+  if (first.file_name > second.file_name) {
+    return true;
+  } else if (first.file_name < second.file_name) {
+    return false;
+  } else {
+    return (first.path_id > first.path_id);
+  }
+}
+};  // namespace
 
 // Diffs the files listed in filenames and those that do not
 // belong to live files are posibly removed. Also, removes all the
@@ -630,10 +635,12 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
     return;
   }
 
-  // Now, convert live list to an unordered set, WITHOUT mutex held;
+  // Now, convert live list to an unordered map, WITHOUT mutex held;
   // set is slow.
-  std::unordered_set<uint64_t> sst_live(state.sst_live.begin(),
-                                        state.sst_live.end());
+  std::unordered_map<uint64_t, const FileDescriptor*> sst_live_map;
+  for (FileDescriptor& fd : state.sst_live) {
+    sst_live_map[fd.GetNumber()] = &fd;
+  }
 
   auto& candidate_files = state.candidate_files;
   candidate_files.reserve(
@@ -643,26 +650,30 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
   // We may ignore the dbname when generating the file names.
   const char* kDumbDbName = "";
   for (auto file : state.sst_delete_files) {
-    candidate_files.push_back(
-        TableFileName(kDumbDbName, file->fd.GetNumber()).substr(1));
+    candidate_files.emplace_back(
+        MakeTableFileName(kDumbDbName, file->fd.GetNumber()),
+        file->fd.GetPathId());
     delete file;
   }
 
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.push_back(LogFileName(kDumbDbName, file_num).substr(1));
+      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num).substr(1),
+                                   0);
     }
   }
 
   // dedup state.candidate_files so we don't try to delete the same
   // file twice
-  sort(candidate_files.begin(), candidate_files.end());
+  sort(candidate_files.begin(), candidate_files.end(), CompareCandidateFile);
   candidate_files.erase(unique(candidate_files.begin(), candidate_files.end()),
                         candidate_files.end());
 
   std::vector<std::string> old_info_log_files;
 
-  for (const auto& to_delete : candidate_files) {
+  for (const auto& candidate_file : candidate_files) {
+    std::string to_delete = candidate_file.file_name;
+    uint32_t path_id = candidate_file.path_id;
     uint64_t number;
     FileType type;
     // Ignore file if we cannot recognize it.
@@ -682,7 +693,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
         keep = (number >= state.manifest_file_number);
         break;
       case kTableFile:
-        keep = (sst_live.find(number) != sst_live.end());
+        keep = (sst_live_map.find(number) != sst_live_map.end());
         break;
       case kTempFile:
         // Any temp files that are currently being written to must
@@ -690,7 +701,7 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
         // Also, SetCurrentFile creates a temp file when writing out new
         // manifest, which is equal to state.pending_manifest_file_number. We
         // should not delete that file
-        keep = (sst_live.find(number) != sst_live.end()) ||
+        keep = (sst_live_map.find(number) != sst_live_map.end()) ||
                (number == state.pending_manifest_file_number);
         break;
       case kInfoLogFile:
@@ -711,13 +722,16 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
       continue;
     }
 
+    std::string fname;
     if (type == kTableFile) {
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
+      fname = TableFileName(options_.db_paths, number, path_id);
+    } else {
+      fname =
+          ((type == kLogFile) ? options_.wal_dir : dbname_) + "/" + to_delete;
     }
 
-    std::string fname = ((type == kLogFile) ? options_.wal_dir : dbname_) +
-        "/" + to_delete;
     if (type == kLogFile &&
         (options_.WAL_ttl_seconds > 0 || options_.WAL_size_limit_MB > 0)) {
       auto archived_log_name = ArchivedLogFileName(options_.wal_dir, number);
@@ -1102,6 +1116,13 @@ Status DBImpl::Recover(
       return s;
     }
 
+    for (auto db_path : options_.db_paths) {
+      s = env_->CreateDirIfMissing(db_path);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
     s = env_->NewDirectory(dbname_, &db_directory_);
     if (!s.ok()) {
       return s;
@@ -1367,8 +1388,8 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  meta.fd.number = versions_->NewFileNumber();
-  pending_outputs_.insert(meta.fd.GetNumber());
+  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+  pending_outputs_[meta.fd.GetNumber()] = 0;  // path 0 for level 0 file.
   Iterator* iter = mem->NewIterator(ReadOptions(), true);
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
@@ -1399,9 +1420,9 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   // should not be added to the manifest.
   int level = 0;
   if (s.ok() && meta.fd.GetFileSize() > 0) {
-    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetFileSize(),
-                  meta.smallest, meta.largest, meta.smallest_seqno,
-                  meta.largest_seqno);
+    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
+                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
+                  meta.smallest_seqno, meta.largest_seqno);
   }
 
   InternalStats::CompactionStats stats;
@@ -1420,9 +1441,10 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  meta.fd.number = versions_->NewFileNumber();
+
+  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   *filenumber = meta.fd.GetNumber();
-  pending_outputs_.insert(meta.fd.GetNumber());
+  pending_outputs_[meta.fd.GetNumber()] = 0;  // path 0 for level 0 file.
 
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
@@ -1489,9 +1511,9 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
         cfd->options()->compaction_style == kCompactionStyleLevel) {
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
-    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetFileSize(),
-                  meta.smallest, meta.largest, meta.smallest_seqno,
-                  meta.largest_seqno);
+    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
+                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
+                  meta.smallest_seqno, meta.largest_seqno);
   }
 
   InternalStats::CompactionStats stats;
@@ -1547,7 +1569,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     // Replace immutable memtable with the generated Table
     s = cfd->imm()->InstallMemtableFlushResults(
         cfd, mems, versions_.get(), &mutex_, options_.info_log.get(),
-        file_number, pending_outputs_, &deletion_state.memtables_to_free,
+        file_number, &pending_outputs_, &deletion_state.memtables_to_free,
         db_directory_.get(), log_buffer);
   }
 
@@ -1691,9 +1713,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : cfd->current()->files_[level]) {
       edit.DeleteFile(level, f->fd.GetNumber());
-      edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetFileSize(),
-                   f->smallest, f->largest, f->smallest_seqno,
-                   f->largest_seqno);
+      edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
+                   f->fd.GetFileSize(), f->smallest, f->largest,
+                   f->smallest_seqno, f->largest_seqno);
     }
     Log(options_.info_log, "[%s] Apply version edit:\n%s",
         cfd->GetName().c_str(), edit.DebugString().data());
@@ -2190,9 +2212,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
     c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-    c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetFileSize(),
-                       f->smallest, f->largest, f->smallest_seqno,
-                       f->largest_seqno);
+    c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
+                       f->fd.GetFileSize(), f->smallest, f->largest,
+                       f->smallest_seqno, f->largest_seqno);
     status = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
                                     db_directory_.get());
     InstallSuperVersion(c->column_family_data(), deletion_state);
@@ -2298,7 +2320,7 @@ void DBImpl::AllocateCompactionOutputFileNumbers(CompactionState* compact) {
   int filesNeeded = compact->compaction->num_input_files(1);
   for (int i = 0; i < std::max(filesNeeded, 1); i++) {
     uint64_t file_number = versions_->NewFileNumber();
-    pending_outputs_.insert(file_number);
+    pending_outputs_[file_number] = compact->compaction->GetOutputPathId();
     compact->allocated_file_numbers.push_back(file_number);
   }
 }
@@ -2324,18 +2346,20 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   } else {
     mutex_.Lock();
     file_number = versions_->NewFileNumber();
-    pending_outputs_.insert(file_number);
+    pending_outputs_[file_number] = compact->compaction->GetOutputPathId();
     mutex_.Unlock();
   }
   CompactionState::Output out;
   out.number = file_number;
+  out.path_id = compact->compaction->GetOutputPathId();
   out.smallest.Clear();
   out.largest.Clear();
   out.smallest_seqno = out.largest_seqno = 0;
   compact->outputs.push_back(out);
 
   // Make the output file
-  std::string fname = TableFileName(dbname_, file_number);
+  std::string fname = TableFileName(options_.db_paths, file_number,
+                                    compact->compaction->GetOutputPathId());
   Status s = env_->NewWritableFile(fname, &compact->outfile, storage_options_);
 
   if (s.ok()) {
@@ -2343,13 +2367,9 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
         compact->compaction->OutputFilePreallocationSize());
 
     ColumnFamilyData* cfd = compact->compaction->column_family_data();
-    CompressionType compression_type =
-        GetCompressionType(*cfd->options(), compact->compaction->output_level(),
-                           compact->compaction->enable_compression());
-
-    compact->builder.reset(
-        NewTableBuilder(*cfd->options(), cfd->internal_comparator(),
-                        compact->outfile.get(), compression_type));
+    compact->builder.reset(NewTableBuilder(
+        *cfd->options(), cfd->internal_comparator(), compact->outfile.get(),
+        compact->compaction->OutputCompressionType()));
   }
   LogFlush(options_.info_log);
   return s;
@@ -2362,6 +2382,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   assert(compact->builder != nullptr);
 
   const uint64_t output_number = compact->current_output()->number;
+  const uint32_t output_path_id = compact->current_output()->path_id;
   assert(output_number != 0);
 
   // Check for iterator errors
@@ -2397,9 +2418,9 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
     ColumnFamilyData* cfd = compact->compaction->column_family_data();
-    FileDescriptor meta(output_number, current_bytes);
+    FileDescriptor fd(output_number, output_path_id, current_bytes);
     Iterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), storage_options_, cfd->internal_comparator(), meta);
+        ReadOptions(), storage_options_, cfd->internal_comparator(), fd);
     s = iter->status();
     delete iter;
     if (s.ok()) {
@@ -2442,9 +2463,10 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact,
   compact->compaction->AddInputDeletions(compact->compaction->edit());
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
-    compact->compaction->edit()->AddFile(
-        compact->compaction->output_level(), out.number, out.file_size,
-        out.smallest, out.largest, out.smallest_seqno, out.largest_seqno);
+    compact->compaction->edit()->AddFile(compact->compaction->output_level(),
+                                         out.number, out.path_id, out.file_size,
+                                         out.smallest, out.largest,
+                                         out.smallest_seqno, out.largest_seqno);
   }
   return versions_->LogAndApply(compact->compaction->column_family_data(),
                                 compact->compaction->edit(), &mutex_,
@@ -4140,7 +4162,7 @@ Status DBImpl::MakeRoomForWrite(
         // how do we fail if we're not creating new log?
         assert(creating_new_log);
         // Avoid chewing through file number space in a tight loop.
-        versions_->ReuseFileNumber(new_log_number);
+        versions_->ReuseLogFileNumber(new_log_number);
         assert(!new_mem);
         assert(!new_log);
         break;
@@ -4383,14 +4405,15 @@ Status DBImpl::CheckConsistency() {
 
   std::string corruption_messages;
   for (const auto& md : metadata) {
-    std::string file_path = dbname_ + md.name;
+    std::string file_path = md.db_path + "/" + md.name;
+
     uint64_t fsize = 0;
     Status s = env_->GetFileSize(file_path, &fsize);
     if (!s.ok()) {
       corruption_messages +=
           "Can't access " + md.name + ": " + s.ToString() + "\n";
     } else if (fsize != md.size) {
-      corruption_messages += "Sst file size mismatch: " + md.name +
+      corruption_messages += "Sst file size mismatch: " + file_path +
                              ". Size recorded in manifest " +
                              std::to_string(md.size) + ", actual size " +
                              std::to_string(fsize) + "\n";
@@ -4488,6 +4511,11 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+  if (db_options.db_paths.size() > 1) {
+    return Status::NotSupported(
+        "More than one DB paths are not supported yet. ");
+  }
+
   *dbptr = nullptr;
   handles->clear();
 
@@ -4503,6 +4531,15 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 
   DBImpl* impl = new DBImpl(db_options, dbname);
   Status s = impl->env_->CreateDirIfMissing(impl->options_.wal_dir);
+  if (s.ok()) {
+    for (auto path : impl->options_.db_paths) {
+      s = impl->env_->CreateDirIfMissing(path);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+
   if (!s.ok()) {
     delete impl;
     return s;
@@ -4661,6 +4698,21 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         }
         if (result.ok() && !del.ok()) {
           result = del;
+        }
+      }
+    }
+
+    for (auto db_path : options.db_paths) {
+      env->GetChildren(db_path, &filenames);
+      uint64_t number;
+      FileType type;
+      for (size_t i = 0; i < filenames.size(); i++) {
+        if (ParseFileName(filenames[i], &number, &type) &&
+            type == kTableFile) {  // Lock file will be deleted at end
+          Status del = env->DeleteFile(db_path + "/" + filenames[i]);
+          if (result.ok() && !del.ok()) {
+            result = del;
+          }
         }
       }
     }

@@ -54,7 +54,8 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     purge = false;
   }
 
-  std::string fname = TableFileName(dbname, meta->fd.GetNumber());
+  std::string fname = TableFileName(options.db_paths, meta->fd.GetNumber(),
+                                    meta->fd.GetPathId());
   if (iter->Valid()) {
     unique_ptr<WritableFile> file;
     s = env->NewWritableFile(fname, &file, soptions);

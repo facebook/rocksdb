@@ -188,7 +188,7 @@ class Version {
   int64_t MaxNextLevelOverlappingBytes();
 
   // Add all files listed in the current version to *live.
-  void AddLiveFiles(std::set<uint64_t>* live);
+  void AddLiveFiles(std::vector<FileDescriptor>* live);
 
   // Return a human readable string that describes this version's contents.
   std::string DebugString(bool hex = false) const;
@@ -294,7 +294,7 @@ class Version {
   // that on a running system, we need to look at only the first
   // few largest files because a new version is created every few
   // seconds/minutes (because of concurrent compactions).
-  static const int number_of_files_to_sort_ = 50;
+  static const size_t number_of_files_to_sort_ = 50;
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
@@ -399,7 +399,7 @@ class VersionSet {
   // Arrange to reuse "file_number" unless a newer file number has
   // already been allocated.
   // REQUIRES: "file_number" was returned by a call to NewFileNumber().
-  void ReuseFileNumber(uint64_t file_number) {
+  void ReuseLogFileNumber(uint64_t file_number) {
     if (next_file_number_ == file_number + 1) {
       next_file_number_ = file_number;
     }
@@ -440,7 +440,7 @@ class VersionSet {
   Iterator* MakeInputIterator(Compaction* c);
 
   // Add all files listed in any live version to *live.
-  void AddLiveFiles(std::vector<uint64_t>* live_list);
+  void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
   // Return the approximate offset in the database of the data for
   // "key" as of version "v".

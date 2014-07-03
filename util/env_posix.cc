@@ -821,7 +821,7 @@ class PosixWritableFile : public WritableFile {
     }
   }
 
-  virtual Status RangeSync(off64_t offset, off64_t nbytes) {
+  virtual Status RangeSync(off_t offset, off_t nbytes) {
     if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
       return Status::OK();
     } else {

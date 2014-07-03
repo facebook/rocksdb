@@ -30,11 +30,10 @@ TEST(VersionEditTest, EncodeDecode) {
   VersionEdit edit;
   for (int i = 0; i < 4; i++) {
     TestEncodeDecode(edit);
-    edit.AddFile(3, kBig + 300 + i, kBig + 400 + i,
+    edit.AddFile(3, kBig + 300 + i, kBig + 400 + i, 0,
                  InternalKey("foo", kBig + 500 + i, kTypeValue),
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
-                 kBig + 500 + i,
-                 kBig + 600 + i);
+                 kBig + 500 + i, kBig + 600 + i);
     edit.DeleteFile(4, kBig + 700 + i);
   }
 

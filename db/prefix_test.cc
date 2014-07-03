@@ -189,6 +189,10 @@ class PrefixTest {
           options.memtable_factory.reset(
               NewHashLinkListRepFactory(bucket_count, 2 * 1024 * 1024));
           return true;
+        case kHashLinkListTriggerSkipList:
+          options.memtable_factory.reset(
+              NewHashLinkListRepFactory(bucket_count, 0, 3));
+          return true;
         default:
           return false;
       }
@@ -208,6 +212,7 @@ class PrefixTest {
     kHashSkipList,
     kHashLinkList,
     kHashLinkListHugePageTlb,
+    kHashLinkListTriggerSkipList,
     kEnd
   };
   int option_config_;

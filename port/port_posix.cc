@@ -9,10 +9,12 @@
 
 #include "port/port_posix.h"
 
-#include <cstdlib>
 #include <stdio.h>
 #include <assert.h>
+#include <errno.h>
+#include <sys/time.h>
 #include <string.h>
+#include <cstdlib>
 #include "util/logging.h"
 
 namespace rocksdb {
@@ -81,6 +83,27 @@ void CondVar::Wait() {
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
+}
+
+bool CondVar::TimedWait(uint64_t abs_time_us) {
+  struct timespec ts;
+  ts.tv_sec = abs_time_us / 1000000;
+  ts.tv_nsec = (abs_time_us % 1000000) * 1000;
+
+#ifndef NDEBUG
+  mu_->locked_ = false;
+#endif
+  int err = pthread_cond_timedwait(&cv_, &mu_->mu_, &ts);
+#ifndef NDEBUG
+  mu_->locked_ = true;
+#endif
+  if (err == ETIMEDOUT) {
+    return true;
+  }
+  if (err != 0) {
+    PthreadCall("timedwait", err);
+  }
+  return false;
 }
 
 void CondVar::Signal() {

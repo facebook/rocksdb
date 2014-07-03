@@ -297,6 +297,13 @@ class IterKey {
                    parsed_key_suffix.sequence, parsed_key_suffix.type);
   }
 
+  void EncodeLengthPrefixedKey(const Slice& key) {
+    auto size = key.size();
+    EnlargeBufferIfNeeded(size + VarintLength(size));
+    char* ptr = EncodeVarint32(key_, size);
+    memcpy(ptr, key.data(), size);
+  }
+
  private:
   char* key_;
   size_t buf_size_;

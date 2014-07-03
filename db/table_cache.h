@@ -11,6 +11,7 @@
 
 #pragma once
 #include <string>
+#include <vector>
 #include <stdint.h>
 
 #include "db/dbformat.h"
@@ -28,8 +29,8 @@ struct FileDescriptor;
 
 class TableCache {
  public:
-  TableCache(const std::string& dbname, const Options* options,
-             const EnvOptions& storage_options, Cache* cache);
+  TableCache(const Options* options, const EnvOptions& storage_options,
+             Cache* cache);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -84,7 +85,7 @@ class TableCache {
 
  private:
   Env* const env_;
-  const std::string dbname_;
+  const std::vector<std::string> db_paths_;
   const Options* options_;
   const EnvOptions& storage_options_;
   Cache* const cache_;

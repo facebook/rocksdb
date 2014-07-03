@@ -137,6 +137,8 @@ class CondVar {
   explicit CondVar(Mutex* mu);
   ~CondVar();
   void Wait();
+  // Timed condition wait.  Returns true if timeout occurred.
+  bool TimedWait(uint64_t abs_time_us);
   void Signal();
   void SignalAll();
  private:

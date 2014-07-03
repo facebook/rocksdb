@@ -65,8 +65,8 @@ class Repairer {
             NewLRUCache(10, options_.table_cache_numshardbits,
                         options_.table_cache_remove_scan_count_limit)),
         next_file_number_(1) {
-    table_cache_ = new TableCache(dbname_, &options_, storage_options_,
-                                  raw_table_cache_.get());
+    table_cache_ =
+        new TableCache(&options_, storage_options_, raw_table_cache_.get());
     edit_ = new VersionEdit();
   }
 
@@ -116,7 +116,7 @@ class Repairer {
   VersionEdit* edit_;
 
   std::vector<std::string> manifests_;
-  std::vector<uint64_t> table_numbers_;
+  std::vector<FileDescriptor> table_fds_;
   std::vector<uint64_t> logs_;
   std::vector<TableInfo> tables_;
   uint64_t next_file_number_;
@@ -124,35 +124,43 @@ class Repairer {
 
   Status FindFiles() {
     std::vector<std::string> filenames;
-    Status status = env_->GetChildren(dbname_, &filenames);
-    if (!status.ok()) {
-      return status;
-    }
-    if (filenames.empty()) {
-      return Status::Corruption(dbname_, "repair found no files");
-    }
+    bool found_file = false;
+    for (uint32_t path_id = 0; path_id < options_.db_paths.size(); path_id++) {
+      Status status = env_->GetChildren(options_.db_paths[path_id], &filenames);
+      if (!status.ok()) {
+        return status;
+      }
+      if (!filenames.empty()) {
+        found_file = true;
+      }
 
-    uint64_t number;
-    FileType type;
-    for (size_t i = 0; i < filenames.size(); i++) {
-      if (ParseFileName(filenames[i], &number, &type)) {
-        if (type == kDescriptorFile) {
-          manifests_.push_back(filenames[i]);
-        } else {
-          if (number + 1 > next_file_number_) {
-            next_file_number_ = number + 1;
-          }
-          if (type == kLogFile) {
-            logs_.push_back(number);
-          } else if (type == kTableFile) {
-            table_numbers_.push_back(number);
+      uint64_t number;
+      FileType type;
+      for (size_t i = 0; i < filenames.size(); i++) {
+        if (ParseFileName(filenames[i], &number, &type)) {
+          if (type == kDescriptorFile) {
+            assert(path_id == 0);
+            manifests_.push_back(filenames[i]);
           } else {
-            // Ignore other files
+            if (number + 1 > next_file_number_) {
+              next_file_number_ = number + 1;
+            }
+            if (type == kLogFile) {
+              assert(path_id == 0);
+              logs_.push_back(number);
+            } else if (type == kTableFile) {
+              table_fds_.emplace_back(number, path_id, 0);
+            } else {
+              // Ignore other files
+            }
           }
         }
       }
     }
-    return status;
+    if (!found_file) {
+      return Status::Corruption(dbname_, "repair found no files");
+    }
+    return Status::OK();
   }
 
   void ConvertLogFilesToTables() {
@@ -228,7 +236,7 @@ class Repairer {
     // Do not record a version edit for this conversion to a Table
     // since ExtractMetaData() will also generate edits.
     FileMetaData meta;
-    meta.fd.number = next_file_number_++;
+    meta.fd = FileDescriptor(next_file_number_++, 0, 0);
     ReadOptions ro;
     Iterator* iter = mem->NewIterator(ro, true /* enforce_total_order */);
     status = BuildTable(dbname_, env_, options_, storage_options_, table_cache_,
@@ -239,7 +247,7 @@ class Repairer {
     mem = nullptr;
     if (status.ok()) {
       if (meta.fd.GetFileSize() > 0) {
-        table_numbers_.push_back(meta.fd.GetNumber());
+        table_fds_.push_back(meta.fd);
       }
     }
     Log(options_.info_log,
@@ -249,14 +257,17 @@ class Repairer {
   }
 
   void ExtractMetaData() {
-    for (size_t i = 0; i < table_numbers_.size(); i++) {
+    for (size_t i = 0; i < table_fds_.size(); i++) {
       TableInfo t;
-      t.meta.fd.number = table_numbers_[i];
+      t.meta.fd = table_fds_[i];
       Status status = ScanTable(&t);
       if (!status.ok()) {
-        std::string fname = TableFileName(dbname_, table_numbers_[i]);
-        Log(options_.info_log, "Table #%" PRIu64 ": ignoring %s",
-            table_numbers_[i], status.ToString().c_str());
+        std::string fname = TableFileName(
+            options_.db_paths, t.meta.fd.GetNumber(), t.meta.fd.GetPathId());
+        Log(options_.info_log, "Table #%s: ignoring %s",
+            FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId())
+                .c_str(),
+            status.ToString().c_str());
         ArchiveFile(fname);
       } else {
         tables_.push_back(t);
@@ -265,9 +276,13 @@ class Repairer {
   }
 
   Status ScanTable(TableInfo* t) {
-    std::string fname = TableFileName(dbname_, t->meta.fd.GetNumber());
+    std::string fname = TableFileName(options_.db_paths, t->meta.fd.GetNumber(),
+                                      t->meta.fd.GetPathId());
     int counter = 0;
-    Status status = env_->GetFileSize(fname, &t->meta.fd.file_size);
+    uint64_t file_size;
+    Status status = env_->GetFileSize(fname, &file_size);
+    t->meta.fd = FileDescriptor(t->meta.fd.GetNumber(), t->meta.fd.GetPathId(),
+                                file_size);
     if (status.ok()) {
       Iterator* iter = table_cache_->NewIterator(
           ReadOptions(), storage_options_, icmp_, t->meta.fd);
@@ -330,9 +345,9 @@ class Repairer {
     for (size_t i = 0; i < tables_.size(); i++) {
       // TODO(opt): separate out into multiple levels
       const TableInfo& t = tables_[i];
-      edit_->AddFile(0, t.meta.fd.GetNumber(), t.meta.fd.GetFileSize(),
-                     t.meta.smallest, t.meta.largest, t.min_sequence,
-                     t.max_sequence);
+      edit_->AddFile(0, t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
+                     t.meta.fd.GetFileSize(), t.meta.smallest, t.meta.largest,
+                     t.min_sequence, t.max_sequence);
     }
 
     //fprintf(stderr, "NewDescriptor:\n%s\n", edit_.DebugString().c_str());
