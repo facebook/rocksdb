@@ -57,6 +57,10 @@ extern "C" {
 typedef struct rocksdb_t                 rocksdb_t;
 typedef struct rocksdb_cache_t           rocksdb_cache_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
+typedef struct rocksdb_compactionfiltercontext_t
+    rocksdb_compactionfiltercontext_t;
+typedef struct rocksdb_compactionfilterfactory_t
+    rocksdb_compactionfilterfactory_t;
 typedef struct rocksdb_comparator_t      rocksdb_comparator_t;
 typedef struct rocksdb_env_t             rocksdb_env_t;
 typedef struct rocksdb_filelock_t        rocksdb_filelock_t;
@@ -530,6 +534,25 @@ extern rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
         unsigned char* value_changed),
     const char* (*name)(void*));
 extern void rocksdb_compactionfilter_destroy(rocksdb_compactionfilter_t*);
+
+/* Compaction Filter Context */
+
+extern unsigned char rocksdb_compactionfiltercontext_is_full_compaction(
+    rocksdb_compactionfiltercontext_t* context);
+
+extern unsigned char rocksdb_compactionfiltercontext_is_manual_compaction(
+    rocksdb_compactionfiltercontext_t* context);
+
+/* Compaction Filter Factory */
+
+extern rocksdb_compactionfilterfactory_t*
+    rocksdb_compactionfilterfactory_create(
+        void* state, void (*destructor)(void*),
+        rocksdb_compactionfilter_t* (*create_compaction_filter)(
+            void*, rocksdb_compactionfiltercontext_t* context),
+        const char* (*name)(void*));
+extern void rocksdb_compactionfilterfactory_destroy(
+    rocksdb_compactionfilterfactory_t*);
 
 /* Comparator */
 
