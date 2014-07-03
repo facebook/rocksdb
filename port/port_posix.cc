@@ -20,11 +20,12 @@
 namespace rocksdb {
 namespace port {
 
-static void PthreadCall(const char* label, int result) {
-  if (result != 0) {
+static int PthreadCall(const char* label, int result) {
+  if (result != 0 && result != ETIMEDOUT) {
     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
     abort();
   }
+  return result;
 }
 
 Mutex::Mutex(bool adaptive) {
