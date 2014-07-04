@@ -956,6 +956,12 @@ void rocksdb_options_set_compaction_filter(
   opt->rep.compaction_filter = filter;
 }
 
+void rocksdb_options_set_compaction_filter_factory(
+    rocksdb_options_t* opt, rocksdb_compactionfilterfactory_t* factory) {
+  opt->rep.compaction_filter_factory =
+      std::shared_ptr<CompactionFilterFactory>(factory);
+}
+
 void rocksdb_options_set_comparator(
     rocksdb_options_t* opt,
     rocksdb_comparator_t* cmp) {

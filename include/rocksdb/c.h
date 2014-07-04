@@ -347,6 +347,8 @@ extern void rocksdb_options_destroy(rocksdb_options_t*);
 extern void rocksdb_options_set_compaction_filter(
     rocksdb_options_t*,
     rocksdb_compactionfilter_t*);
+extern void rocksdb_options_set_compaction_filter_factory(
+    rocksdb_options_t*, rocksdb_compactionfilterfactory_t*);
 extern void rocksdb_options_set_comparator(
     rocksdb_options_t*,
     rocksdb_comparator_t*);
