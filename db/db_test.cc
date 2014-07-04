@@ -7012,13 +7012,14 @@ TEST(DBTest, SimpleWriteTimeoutTest) {
   options.min_write_buffer_number_to_merge = 3;
   options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   WriteOptions write_opt = WriteOptions();
-  write_opt.timeout_hint_us = 500;
+  write_opt.timeout_hint_us = 0;
   DestroyAndReopen(&options);
   // fill the two write buffer
   ASSERT_OK(Put(Key(1), Key(1) + std::string(100000, 'v'), write_opt));
   ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
   // As the only two write buffers are full in this moment, the third
   // Put is expected to be timed-out.
+  write_opt.timeout_hint_us = 300;
   ASSERT_TRUE(
       Put(Key(3), Key(3) + std::string(100000, 'v'), write_opt).IsTimedOut());
 }
