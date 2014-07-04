@@ -198,7 +198,8 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(
     user_key_size = static_cast<size_t>(tmp_size);
     *bytes_read = key_ptr - start;
   }
-  bool decoded_internal_key_valid;
+  // dummy initial value to avoid compiler complain
+  bool decoded_internal_key_valid = true;
   Slice decoded_internal_key;
   Status s =
       ReadInternalKey(key_ptr, limit, user_key_size, parsed_key, bytes_read,
@@ -227,7 +228,8 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
   bool expect_suffix = false;
   do {
     size_t size = 0;
-    bool decoded_internal_key_valid;
+    // dummy initial value to avoid compiler complain
+    bool decoded_internal_key_valid = true;
     const char* pos = DecodeSize(key_ptr, limit, &entry_type, &size);
     if (pos == nullptr) {
       return Status::Corruption("Unexpected EOF when reading size of the key");
