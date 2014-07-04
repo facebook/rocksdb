@@ -3796,15 +3796,21 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_OTHER, 1);
     return w.status;
   } else if (timed_out) {
+#ifndef NDEBUG
     bool found = false;
+#endif
     for (auto iter = writers_.begin(); iter != writers_.end(); iter++) {
       if (*iter == &w) {
         writers_.erase(iter);
+#ifndef NDEBUG
         found = true;
+#endif
         break;
       }
     }
+#ifndef NDEBUG
     assert(found);
+#endif
     // writers_.front() might still be in cond_wait without a time-out.
     // As a result, we need to signal it to wake it up.  Otherwise no
     // one else will wake him up, and RocksDB will hang.
