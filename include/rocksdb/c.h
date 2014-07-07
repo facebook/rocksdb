@@ -99,8 +99,8 @@ extern rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* options,
     const char* name,
     int num_column_families,
-    const char** column_family_names, 
-    const rocksdb_options_t** column_family_options, 
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     char** errptr);
 
@@ -108,8 +108,8 @@ extern rocksdb_t* rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* options,
     const char* name,
     int num_column_families,
-    const char** column_family_names, 
-    const rocksdb_options_t** column_family_options, 
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     unsigned char error_if_log_file_exist,
     char** errptr);
@@ -119,6 +119,7 @@ char** rocksdb_list_column_families(
     const char* name,
     size_t* lencf,
     char** errptr);
+void rocksdb_list_column_families_destroy(char** list, size_t len);
 
 extern rocksdb_column_family_handle_t* rocksdb_create_column_family(
     rocksdb_t* db,

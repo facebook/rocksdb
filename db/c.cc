@@ -428,8 +428,8 @@ rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* db_options,
     const char* name,
     int num_column_families,
-    const char** column_family_names, 
-    const rocksdb_options_t** column_family_options, 
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     char** errptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -461,7 +461,7 @@ rocksdb_t* rocksdb_open_for_read_only_column_families(
     const char* name,
     int num_column_families,
     const char** column_family_names,
-    const rocksdb_options_t** column_family_options, 
+    const rocksdb_options_t** column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
     unsigned char error_if_log_file_exist,
     char** errptr) {
@@ -505,6 +505,13 @@ char** rocksdb_list_column_families(
     column_families[i] = strdup(fams[i].c_str());
   }
   return column_families;
+}
+
+void rocksdb_list_column_families_destroy(char** list, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    free(output[i]);
+  }
+  free(output);
 }
 
 rocksdb_column_family_handle_t* rocksdb_create_column_family(

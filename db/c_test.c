@@ -580,9 +580,10 @@ int main(int argc, char** argv) {
     CheckEqual("default", column_fams[0], 7);
     CheckEqual("cf1", column_fams[1], 3);
     CheckCondition(cflen == 2);
+    rocksdb_list_column_families_destroy(column_fams, cflen);
 
     rocksdb_options_t* cf_options = rocksdb_options_create();
-    
+
     const char* cf_names[2] = {"default", "cf1"};
     const rocksdb_options_t* cf_opts[2] = {cf_options, cf_options};
     rocksdb_column_family_handle_t* handles[2];
@@ -631,14 +632,15 @@ int main(int argc, char** argv) {
     for (i = 0; i < 2; i++) {
       rocksdb_column_family_handle_destroy(handles[i]);
     }
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    rocksdb_options_destroy(db_options);
+    rocksdb_options_destroy(cf_options);
   }
 
   StartPhase("prefix");
   {
     // Create new database
-    rocksdb_close(db);
-    rocksdb_destroy_db(options, dbname, &err);
-
     rocksdb_filterpolicy_t* policy = rocksdb_filterpolicy_create_bloom(10);
     rocksdb_options_set_filter_policy(options, policy);
     rocksdb_options_set_prefix_extractor(options, rocksdb_slicetransform_create_fixed_prefix(3));
