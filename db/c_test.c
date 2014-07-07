@@ -315,6 +315,24 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_destroy(wb);
   }
 
+  StartPhase("writebatch_rep");
+  {
+    rocksdb_writebatch_t* wb1 = rocksdb_writebatch_create();
+    rocksdb_writebatch_put(wb1, "baz", 3, "d", 1);
+    rocksdb_writebatch_put(wb1, "quux", 4, "e", 1);
+    rocksdb_writebatch_delete(wb1, "quux", 4);
+    size_t repsize1 = 0;
+    const char* rep = rocksdb_writebatch_data(wb1, &repsize1);
+    rocksdb_writebatch_t* wb2 = rocksdb_writebatch_create_from(rep, repsize1);
+    CheckCondition(rocksdb_writebatch_count(wb1) ==
+                   rocksdb_writebatch_count(wb2));
+    size_t repsize2 = 0;
+    CheckCondition(
+        memcmp(rep, rocksdb_writebatch_data(wb2, &repsize2), repsize1) == 0);
+    rocksdb_writebatch_destroy(wb1);
+    rocksdb_writebatch_destroy(wb2);
+  }
+
   StartPhase("iter");
   {
     rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
