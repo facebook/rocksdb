@@ -490,11 +490,11 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       db_name_(dbname),
       db_options_(db_options),
       storage_options_(storage_options),
-      table_cache_(table_cache),
-      spin_lock_(ATOMIC_FLAG_INIT) {
+      table_cache_(table_cache) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
+  spin_lock_.clear();
 }
 
 ColumnFamilySet::~ColumnFamilySet() {
