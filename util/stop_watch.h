@@ -24,7 +24,7 @@ class StopWatch {
 
 
 
-  uint64_t ElapsedMicros() {
+  uint64_t ElapsedMicros() const {
     return env_->NowMicros() - start_time_;
   }
 

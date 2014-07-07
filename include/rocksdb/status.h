@@ -65,6 +65,12 @@ class Status {
                                    const Slice& msg2 = Slice()) {
     return Status(kShutdownInProgress, msg, msg2);
   }
+  static Status TimedOut() {
+    return Status(kTimedOut);
+  }
+  static Status TimedOut(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kTimedOut, msg, msg2);
+  }
 
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
@@ -93,6 +99,8 @@ class Status {
   // Returns true iff the status indicates Incomplete
   bool IsShutdownInProgress() const { return code() == kShutdownInProgress; }
 
+  bool IsTimedOut() const { return code() == kTimedOut; }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
@@ -106,7 +114,8 @@ class Status {
     kIOError = 5,
     kMergeInProgress = 6,
     kIncomplete = 7,
-    kShutdownInProgress = 8
+    kShutdownInProgress = 8,
+    kTimedOut = 9
   };
 
   Code code() const {

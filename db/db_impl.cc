@@ -65,6 +65,7 @@
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
+#include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
@@ -80,7 +81,9 @@ struct DBImpl::Writer {
   WriteBatch* batch;
   bool sync;
   bool disableWAL;
+  bool in_batch_group;
   bool done;
+  uint64_t timeout_hint_us;
   port::CondVar cv;
 
   explicit Writer(port::Mutex* mu) : cv(mu) { }
@@ -1602,6 +1605,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     // true, mark DB read-only
     bg_error_ = s;
   }
+  RecordFlushIOStats();
   return s;
 }
 
@@ -1918,11 +1922,28 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   }
 }
 
+void DBImpl::RecordFlushIOStats() {
+  RecordTick(options_.statistics.get(), FLUSH_WRITE_BYTES,
+             iostats_context.bytes_written);
+  IOSTATS_RESET(bytes_written);
+}
+
+void DBImpl::RecordCompactionIOStats() {
+  RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
+             IOSTATS(bytes_read));
+  IOSTATS_RESET(bytes_read);
+  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
+             IOSTATS(bytes_written));
+  IOSTATS_RESET(bytes_written);
+}
+
 void DBImpl::BGWorkFlush(void* db) {
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush();
 }
 
 void DBImpl::BGWorkCompaction(void* db) {
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
   reinterpret_cast<DBImpl*>(db)->BackgroundCallCompaction();
 }
 
@@ -2022,6 +2043,7 @@ void DBImpl::BackgroundCallFlush() {
     // that case, all DB variables will be dealloacated and referencing them
     // will cause trouble.
   }
+  RecordFlushIOStats();
 }
 
 void DBImpl::BackgroundCallCompaction() {
@@ -2557,6 +2579,7 @@ Status DBImpl::ProcessKeyValueCompaction(
 
   while (input->Valid() && !shutting_down_.Acquire_Load() &&
          !cfd->IsDropped()) {
+    RecordCompactionIOStats();
     // FLUSH preempts compaction
     // TODO(icanadi) this currently only checks if flush is necessary on
     // compacting column family. we should also check if flush is necessary on
@@ -2814,6 +2837,8 @@ Status DBImpl::ProcessKeyValueCompaction(
       input->Next();
     }
   }
+
+  RecordCompactionIOStats();
 
   return status;
 }
@@ -3122,21 +3147,17 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   for (int i = 0; i < compact->compaction->num_input_files(0); i++) {
     stats.bytes_readn += compact->compaction->input(0, i)->fd.GetFileSize();
-    RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
-               compact->compaction->input(0, i)->fd.GetFileSize());
   }
 
   for (int i = 0; i < compact->compaction->num_input_files(1); i++) {
     stats.bytes_readnp1 += compact->compaction->input(1, i)->fd.GetFileSize();
-    RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
-               compact->compaction->input(1, i)->fd.GetFileSize());
   }
 
   for (int i = 0; i < num_output_files; i++) {
     stats.bytes_written += compact->outputs[i].file_size;
-    RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
-               compact->outputs[i].file_size);
   }
+
+  RecordCompactionIOStats();
 
   LogFlush(options_.info_log);
   mutex_.Lock();
@@ -3729,13 +3750,41 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   w.batch = my_batch;
   w.sync = options.sync;
   w.disableWAL = options.disableWAL;
+  w.in_batch_group = false;
+  w.done = false;
+  w.timeout_hint_us = options.timeout_hint_us;
+
+  uint64_t expiration_time = 0;
+  if (w.timeout_hint_us == 0) {
+    w.timeout_hint_us = kNoTimeOut;
+  } else {
+    expiration_time = env_->NowMicros() + w.timeout_hint_us;
+  }
   w.done = false;
 
-  StopWatch sw(env_, options_.statistics.get(), DB_WRITE, false);
   mutex_.Lock();
+  // the following code block pushes the current writer "w" into the writer
+  // queue "writers_" and wait until one of the following conditions met:
+  // 1. the job of "w" has been done by some other writers.
+  // 2. "w" becomes the first writer in "writers_"
+  // 3. "w" timed-out.
   writers_.push_back(&w);
+
+  bool timed_out = false;
   while (!w.done && &w != writers_.front()) {
-    w.cv.Wait();
+    if (expiration_time == 0) {
+      w.cv.Wait();
+    } else if (w.cv.TimedWait(expiration_time)) {
+      if (w.in_batch_group) {
+        // then it means the front writer is currently doing the
+        // write on behalf of this "timed-out" writer.  Then it
+        // should wait until the write completes.
+        expiration_time = 0;
+      } else {
+        timed_out = true;
+        break;
+      }
+    }
   }
 
   if (!options.disableWAL) {
@@ -3746,10 +3795,39 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     mutex_.Unlock();
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_OTHER, 1);
     return w.status;
+  } else if (timed_out) {
+#ifndef NDEBUG
+    bool found = false;
+#endif
+    for (auto iter = writers_.begin(); iter != writers_.end(); iter++) {
+      if (*iter == &w) {
+        writers_.erase(iter);
+#ifndef NDEBUG
+        found = true;
+#endif
+        break;
+      }
+    }
+#ifndef NDEBUG
+    assert(found);
+#endif
+    // writers_.front() might still be in cond_wait without a time-out.
+    // As a result, we need to signal it to wake it up.  Otherwise no
+    // one else will wake him up, and RocksDB will hang.
+    if (!writers_.empty()) {
+      writers_.front()->cv.Signal();
+    }
+    mutex_.Unlock();
+    RecordTick(options_.statistics.get(), WRITE_TIMEDOUT, 1);
+    return Status::TimedOut();
   } else {
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_SELF, 1);
   }
 
+  // Once reaches this point, the current writer "w" will try to do its write
+  // job.  It may also pick up some of the remaining writers in the "writers_"
+  // when it finds suitable, and finish them in the same write batch.
+  // This is how a write job could be done by the other writer.
   assert(!single_column_family_mode_ ||
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
 
@@ -3774,8 +3852,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
 
   if (LIKELY(single_column_family_mode_)) {
     // fast path
-    status = MakeRoomForWrite(default_cf_handle_->cfd(), my_batch == nullptr,
-                              &superversions_to_free, &logs_to_free);
+    status = MakeRoomForWrite(
+        default_cf_handle_->cfd(), my_batch == nullptr,
+        &superversions_to_free, &logs_to_free,
+        expiration_time);
   } else {
     // refcounting cfd in iteration
     bool dead_cfd = false;
@@ -3786,8 +3866,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
           (flush_column_family_if_log_file != 0 &&
            cfd->GetLogNumber() <= flush_column_family_if_log_file);
       // May temporarily unlock and wait.
-      status = MakeRoomForWrite(cfd, force_flush, &superversions_to_free,
-                                &logs_to_free);
+      status = MakeRoomForWrite(
+          cfd, force_flush, &superversions_to_free, &logs_to_free,
+          expiration_time);
       if (cfd->Unref()) {
         dead_cfd = true;
       }
@@ -3883,11 +3964,14 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       }
     }
   }
-  if (options_.paranoid_checks && !status.ok() && bg_error_.ok()) {
+  if (options_.paranoid_checks && !status.ok() &&
+      !status.IsTimedOut() && bg_error_.ok()) {
     bg_error_ = status; // stop compaction & fail any further writes
   }
 
-  while (true) {
+  // Pop out the current writer and all writers being pushed before the
+  // current writer from the writer queue.
+  while (!writers_.empty()) {
     Writer* ready = writers_.front();
     writers_.pop_front();
     if (ready != &w) {
@@ -3904,6 +3988,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   }
   mutex_.Unlock();
 
+  if (status.IsTimedOut()) {
+    RecordTick(options_.statistics.get(), WRITE_TIMEDOUT, 1);
+  }
+
   for (auto& sv : superversions_to_free) {
     delete sv;
   }
@@ -3915,6 +4003,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   return status;
 }
 
+// This function will be called only when the first writer succeeds.
+// All writers in the to-be-built batch group will be processed.
+//
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-nullptr batch
 void DBImpl::BuildBatchGroup(Writer** last_writer,
@@ -3950,6 +4041,12 @@ void DBImpl::BuildBatchGroup(Writer** last_writer,
       break;
     }
 
+    if (w->timeout_hint_us < first->timeout_hint_us) {
+      // Do not include those writes with shorter timeout.  Otherwise, we might
+      // execute a write that should instead be aborted because of timeout.
+      break;
+    }
+
     if (w->batch != nullptr) {
       size += WriteBatchInternal::ByteSize(w->batch);
       if (size > max_size) {
@@ -3959,6 +4056,7 @@ void DBImpl::BuildBatchGroup(Writer** last_writer,
 
       write_batch_group->push_back(w->batch);
     }
+    w->in_batch_group = true;
     *last_writer = w;
   }
 }
@@ -4000,7 +4098,8 @@ uint64_t DBImpl::SlowdownAmount(int n, double bottom, double top) {
 Status DBImpl::MakeRoomForWrite(
     ColumnFamilyData* cfd, bool force,
     autovector<SuperVersion*>* superversions_to_free,
-    autovector<log::Writer*>* logs_to_free) {
+    autovector<log::Writer*>* logs_to_free,
+    uint64_t expiration_time) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
   bool allow_delay = !force;
@@ -4013,11 +4112,15 @@ Status DBImpl::MakeRoomForWrite(
   // might generate a tight feedback loop, constantly scheduling more background
   // work, even if additional background work is not needed
   bool schedule_background_work = true;
+  bool has_timeout = (expiration_time > 0);
 
   while (true) {
     if (!bg_error_.ok()) {
       // Yield previous error
       s = bg_error_;
+      break;
+    } else if (has_timeout && env_->NowMicros() > expiration_time) {
+      s = Status::TimedOut();
       break;
     } else if (allow_delay && cfd->NeedSlowdownForNumLevel0Files()) {
       // We are getting close to hitting a hard limit on the number of
@@ -4063,7 +4166,11 @@ Status DBImpl::MakeRoomForWrite(
       {
         StopWatch sw(env_, options_.statistics.get(),
                      STALL_MEMTABLE_COMPACTION_COUNT);
-        bg_cv_.Wait();
+        if (!has_timeout) {
+          bg_cv_.Wait();
+        } else {
+          bg_cv_.TimedWait(expiration_time);
+        }
         stall = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics.get(),
@@ -4078,10 +4185,15 @@ Status DBImpl::MakeRoomForWrite(
       {
         StopWatch sw(env_, options_.statistics.get(),
                      STALL_L0_NUM_FILES_COUNT);
-        bg_cv_.Wait();
+        if (!has_timeout) {
+          bg_cv_.Wait();
+        } else {
+          bg_cv_.TimedWait(expiration_time);
+        }
         stall = sw.ElapsedMicros();
       }
-      RecordTick(options_.statistics.get(), STALL_L0_NUM_FILES_MICROS, stall);
+      RecordTick(options_.statistics.get(),
+                 STALL_L0_NUM_FILES_MICROS, stall);
       cfd->internal_stats()->RecordWriteStall(InternalStats::LEVEL0_NUM_FILES,
                                               stall);
     } else if (allow_hard_rate_limit_delay && cfd->ExceedsHardRateLimit()) {
@@ -4112,18 +4224,18 @@ Status DBImpl::MakeRoomForWrite(
       score = cfd->current()->MaxCompactionScore();
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
+      uint64_t slowdown = SlowdownAmount(score, cfd->options()->soft_rate_limit,
+                                         cfd->options()->hard_rate_limit);
       mutex_.Unlock();
       {
         StopWatch sw(env_, options_.statistics.get(),
                      SOFT_RATE_LIMIT_DELAY_COUNT);
-        env_->SleepForMicroseconds(
-            SlowdownAmount(score, cfd->options()->soft_rate_limit,
-                           cfd->options()->hard_rate_limit));
-        rate_limit_delay_millis += sw.ElapsedMicros();
+        env_->SleepForMicroseconds(slowdown);
+        slowdown = sw.ElapsedMicros();
+        rate_limit_delay_millis += slowdown;
       }
       allow_soft_rate_limit_delay = false;
       mutex_.Lock();
-
     } else {
       unique_ptr<WritableFile> lfile;
       log::Writer* new_log = nullptr;

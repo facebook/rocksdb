@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <deque>
+#include <limits>
 #include <set>
 #include <utility>
 #include <vector>
@@ -28,6 +29,7 @@
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
 #include "util/stats_logger.h"
+#include "util/stop_watch.h"
 #include "util/thread_local.h"
 #include "db/internal_stats.h"
 
@@ -345,7 +347,8 @@ class DBImpl : public DB {
   Status MakeRoomForWrite(ColumnFamilyData* cfd,
                           bool force /* flush even if there is room? */,
                           autovector<SuperVersion*>* superversions_to_free,
-                          autovector<log::Writer*>* logs_to_free);
+                          autovector<log::Writer*>* logs_to_free,
+                          uint64_t expiration_time);
 
   void BuildBatchGroup(Writer** last_writer,
                        autovector<WriteBatch*>* write_batch_group);
@@ -355,6 +358,9 @@ class DBImpl : public DB {
 
   // Wait for memtable flushed
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
+
+  void RecordFlushIOStats();
+  void RecordCompactionIOStats();
 
   void MaybeScheduleLogDBDeployStats();
 
@@ -578,6 +584,7 @@ class DBImpl : public DB {
   bool flush_on_destroy_; // Used when disableWAL is true.
 
   static const int KEEP_LOG_FILE_NUM = 1000;
+  static const uint64_t kNoTimeOut = std::numeric_limits<uint64_t>::max();
   std::string db_absolute_path_;
 
   // count of the number of contiguous delaying writes

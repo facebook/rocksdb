@@ -7001,6 +7001,129 @@ TEST(DBTest, FIFOCompactionTest) {
     }
   }
 }
+
+TEST(DBTest, SimpleWriteTimeoutTest) {
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.write_buffer_size = 100000;
+  options.max_background_flushes = 0;
+  options.max_write_buffer_number = 2;
+  options.min_write_buffer_number_to_merge = 3;
+  options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
+  WriteOptions write_opt = WriteOptions();
+  write_opt.timeout_hint_us = 0;
+  DestroyAndReopen(&options);
+  // fill the two write buffer
+  ASSERT_OK(Put(Key(1), Key(1) + std::string(100000, 'v'), write_opt));
+  ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
+  // As the only two write buffers are full in this moment, the third
+  // Put is expected to be timed-out.
+  write_opt.timeout_hint_us = 300;
+  ASSERT_TRUE(
+      Put(Key(3), Key(3) + std::string(100000, 'v'), write_opt).IsTimedOut());
+}
+
+// Multi-threaded Timeout Test
+namespace {
+
+static const int kValueSize = 1000;
+static const int kWriteBufferSize = 100000;
+
+struct TimeoutWriterState {
+  int id;
+  DB* db;
+  std::atomic<bool> done;
+  std::map<int, std::string> success_kvs;
+};
+
+static void RandomTimeoutWriter(void* arg) {
+  TimeoutWriterState* state = reinterpret_cast<TimeoutWriterState*>(arg);
+  static const uint64_t kTimerBias = 50;
+  int thread_id = state->id;
+  DB* db = state->db;
+
+  Random rnd(1000 + thread_id);
+  WriteOptions write_opt = WriteOptions();
+  write_opt.timeout_hint_us = 500;
+  int timeout_count = 0;
+  int num_keys = kNumKeys * 5;
+
+  for (int k = 0; k < num_keys; ++k) {
+    int key = k + thread_id * num_keys;
+    std::string value = RandomString(&rnd, kValueSize);
+    // only the second-half is randomized
+    if (k > num_keys / 2) {
+      switch (rnd.Next() % 5) {
+        case 0:
+          write_opt.timeout_hint_us = 500 * thread_id;
+          break;
+        case 1:
+          write_opt.timeout_hint_us = num_keys - k;
+          break;
+        case 2:
+          write_opt.timeout_hint_us = 1;
+          break;
+        default:
+          write_opt.timeout_hint_us = 0;
+          state->success_kvs.insert({key, value});
+      }
+    }
+
+    uint64_t time_before_put = db->GetEnv()->NowMicros();
+    Status s = db->Put(write_opt, Key(key), value);
+    uint64_t put_duration = db->GetEnv()->NowMicros() - time_before_put;
+    if (write_opt.timeout_hint_us == 0 ||
+        put_duration + kTimerBias < write_opt.timeout_hint_us) {
+      ASSERT_OK(s);
+      std::string result;
+    }
+    if (s.IsTimedOut()) {
+      timeout_count++;
+      ASSERT_GT(put_duration + kTimerBias, write_opt.timeout_hint_us);
+    }
+  }
+
+  state->done = true;
+}
+
+TEST(DBTest, MTRandomTimeoutTest) {
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 2;
+  options.compression = kNoCompression;
+  options.level0_slowdown_writes_trigger = 10;
+  options.level0_stop_writes_trigger = 20;
+  options.write_buffer_size = kWriteBufferSize;
+  DestroyAndReopen(&options);
+
+  TimeoutWriterState thread_states[kNumThreads];
+  for (int tid = 0; tid < kNumThreads; ++tid) {
+    thread_states[tid].id = tid;
+    thread_states[tid].db = db_;
+    thread_states[tid].done = false;
+    env_->StartThread(RandomTimeoutWriter, &thread_states[tid]);
+  }
+
+  for (int tid = 0; tid < kNumThreads; ++tid) {
+    while (thread_states[tid].done == false) {
+      env_->SleepForMicroseconds(100000);
+    }
+  }
+
+  Flush();
+
+  for (int tid = 0; tid < kNumThreads; ++tid) {
+    auto& success_kvs = thread_states[tid].success_kvs;
+    for (auto it = success_kvs.begin(); it != success_kvs.end(); ++it) {
+      ASSERT_EQ(Get(Key(it->first)), it->second);
+    }
+  }
+}
+
+}  // anonymous namespace
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
