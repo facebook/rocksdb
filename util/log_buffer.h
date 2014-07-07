@@ -9,6 +9,7 @@
 #include "util/arena.h"
 #include "util/autovector.h"
 #include <ctime>
+#include "port/port.h"
 
 namespace rocksdb {
 
