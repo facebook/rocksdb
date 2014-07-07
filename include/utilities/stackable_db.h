@@ -171,6 +171,11 @@ class StackableDB : public DB {
     return db_->EnableFileDeletions(force);
   }
 
+  virtual void GetLiveFilesMetaData(
+      std::vector<LiveFileMetaData>* metadata) override {
+    db_->GetLiveFilesMetaData(metadata);
+  }
+
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
       return db_->GetLiveFiles(vec, mfs, flush_memtable);
