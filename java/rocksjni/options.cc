@@ -937,6 +937,27 @@ void Java_org_rocksdb_Options_setBlockRestartInterval(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setCompressionType
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setCompressionType(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte compression) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->compression =
+      static_cast<rocksdb::CompressionType>(compression);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    compressionType
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_compressionType(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->compression;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    wholeKeyFiltering
  * Signature: (J)Z
  */

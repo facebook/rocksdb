@@ -1307,6 +1307,34 @@ public class Options extends RocksObject {
   }
   private native void setBlockRestartInterval(
       long handle, int blockRestartInterval);
+      
+  /**
+   * Compress blocks using the specified compression algorithm.  This
+     parameter can be changed dynamically.
+   * 
+   * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
+   * 
+   * @return Compression type.
+   */ 
+  public CompressionType compressionType() {
+    return CompressionType.values()[compressionType(nativeHandle_)];
+  }
+  private native byte compressionType(long handle);
+      
+  /**
+   * Compress blocks using the specified compression algorithm.  This
+     parameter can be changed dynamically.
+   * 
+   * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
+   * 
+   * @param compressionType Compression Type.
+   * @return the reference to the current option.
+   */
+  public Options setCompressionType(CompressionType compressionType) {
+    setCompressionType(nativeHandle_, compressionType.getValue());
+    return this;
+  }
+  private native void setCompressionType(long handle, byte compressionType);
 
   /**
    * If true, place whole keys in the filter (not just prefixes).
