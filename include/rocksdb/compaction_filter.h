@@ -86,7 +86,7 @@ class CompactionFilterV2 {
   //
   // Each entry in the return vector indicates if the corresponding kv should
   // be preserved in the output of this compaction run. The application can
-  // inspect the exisitng values of the keys and make decision based on it.
+  // inspect the existing values of the keys and make decision based on it.
   //
   // When a value is to be preserved, the application has the option
   // to modify the entry in existing_values and pass it back through an entry
@@ -108,7 +108,7 @@ class CompactionFilterV2 {
 };
 
 // Each compaction will create a new CompactionFilter allowing the
-// application to know about different campactions
+// application to know about different compactions
 class CompactionFilterFactory {
  public:
   virtual ~CompactionFilterFactory() { }
@@ -120,7 +120,7 @@ class CompactionFilterFactory {
   virtual const char* Name() const = 0;
 };
 
-// Default implementaion of CompactionFilterFactory which does not
+// Default implementation of CompactionFilterFactory which does not
 // return any filter
 class DefaultCompactionFilterFactory : public CompactionFilterFactory {
  public:
@@ -175,7 +175,7 @@ class CompactionFilterFactoryV2 {
   const SliceTransform* prefix_extractor_;
 };
 
-// Default implementaion of CompactionFilterFactoryV2 which does not
+// Default implementation of CompactionFilterFactoryV2 which does not
 // return any filter
 class DefaultCompactionFilterFactoryV2 : public CompactionFilterFactoryV2 {
  public:

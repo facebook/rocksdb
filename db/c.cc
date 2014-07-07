@@ -35,6 +35,7 @@ using rocksdb::ColumnFamilyDescriptor;
 using rocksdb::ColumnFamilyHandle;
 using rocksdb::ColumnFamilyOptions;
 using rocksdb::CompactionFilter;
+using rocksdb::CompactionFilterFactory;
 using rocksdb::Comparator;
 using rocksdb::CompressionType;
 using rocksdb::DB;
@@ -84,6 +85,10 @@ struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 
+struct rocksdb_compactionfiltercontext_t {
+  CompactionFilter::Context rep;
+};
+
 struct rocksdb_compactionfilter_t : public CompactionFilter {
   void* state_;
   void (*destructor_)(void*);
@@ -125,6 +130,26 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
   virtual const char* Name() const {
     return (*name_)(state_);
   }
+};
+
+struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
+  void* state_;
+  void (*destructor_)(void*);
+  rocksdb_compactionfilter_t* (*create_compaction_filter_)(
+      void*, rocksdb_compactionfiltercontext_t* context);
+  const char* (*name_)(void*);
+
+  virtual ~rocksdb_compactionfilterfactory_t() { (*destructor_)(state_); }
+
+  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) {
+    rocksdb_compactionfiltercontext_t ccontext;
+    ccontext.rep = context;
+    CompactionFilter* cf = (*create_compaction_filter_)(state_, &ccontext);
+    return std::unique_ptr<CompactionFilter>(cf);
+  }
+
+  virtual const char* Name() const { return (*name_)(state_); }
 };
 
 struct rocksdb_comparator_t : public Comparator {
@@ -931,6 +956,12 @@ void rocksdb_options_set_compaction_filter(
   opt->rep.compaction_filter = filter;
 }
 
+void rocksdb_options_set_compaction_filter_factory(
+    rocksdb_options_t* opt, rocksdb_compactionfilterfactory_t* factory) {
+  opt->rep.compaction_filter_factory =
+      std::shared_ptr<CompactionFilterFactory>(factory);
+}
+
 void rocksdb_options_set_comparator(
     rocksdb_options_t* opt,
     rocksdb_comparator_t* cmp) {
@@ -1443,6 +1474,35 @@ rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
 
 void rocksdb_compactionfilter_destroy(rocksdb_compactionfilter_t* filter) {
   delete filter;
+}
+
+unsigned char rocksdb_compactionfiltercontext_is_full_compaction(
+    rocksdb_compactionfiltercontext_t* context) {
+  return context->rep.is_full_compaction;
+}
+
+unsigned char rocksdb_compactionfiltercontext_is_manual_compaction(
+    rocksdb_compactionfiltercontext_t* context) {
+  return context->rep.is_manual_compaction;
+}
+
+rocksdb_compactionfilterfactory_t* rocksdb_compactionfilterfactory_create(
+    void* state, void (*destructor)(void*),
+    rocksdb_compactionfilter_t* (*create_compaction_filter)(
+        void*, rocksdb_compactionfiltercontext_t* context),
+    const char* (*name)(void*)) {
+  rocksdb_compactionfilterfactory_t* result =
+      new rocksdb_compactionfilterfactory_t;
+  result->state_ = state;
+  result->destructor_ = destructor;
+  result->create_compaction_filter_ = create_compaction_filter;
+  result->name_ = name;
+  return result;
+}
+
+void rocksdb_compactionfilterfactory_destroy(
+    rocksdb_compactionfilterfactory_t* factory) {
+  delete factory;
 }
 
 rocksdb_comparator_t* rocksdb_comparator_create(
