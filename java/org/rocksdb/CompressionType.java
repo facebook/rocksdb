@@ -6,20 +6,20 @@
 package org.rocksdb;
 
 public enum CompressionType {
-  NO_COMPRESSION(0),
-  SNAPPY_COMPRESSION(1),
-  ZLIB_COMPRESSION(2),
-  BZLIB2_COMPRESSION(3),
-  LZ4_COMPRESSION(4),
-  LZ4HC_COMPRESSION(5);
+  NO_COMPRESSION((byte) 0),
+  SNAPPY_COMPRESSION((byte) 1),
+  ZLIB_COMPRESSION((byte) 2),
+  BZLIB2_COMPRESSION((byte) 3),
+  LZ4_COMPRESSION((byte) 4),
+  LZ4HC_COMPRESSION((byte) 5);
   
-  private final int value_;
+  private final byte value_;
 
-  private CompressionType(int value) {
+  private CompressionType(byte value) {
     value_ = value;
   }
 
-  public int getValue() {
+  public byte getValue() {
     return value_;
   }
 }

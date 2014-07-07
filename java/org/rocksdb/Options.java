@@ -1328,7 +1328,7 @@ public class Options extends RocksObject {
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
   }
-  private native int compressionType(long handle);
+  private native byte compressionType(long handle);
       
   /**
    * Compress blocks using the specified compression algorithm.  This
@@ -1352,7 +1352,7 @@ public class Options extends RocksObject {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
   }
-  private native void setCompressionType(long handle, int compressionType);
+  private native void setCompressionType(long handle, byte compressionType);
 
   /**
    * If true, place whole keys in the filter (not just prefixes).
