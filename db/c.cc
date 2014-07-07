@@ -509,9 +509,9 @@ char** rocksdb_list_column_families(
 
 void rocksdb_list_column_families_destroy(char** list, size_t len) {
   for (size_t i = 0; i < len; ++i) {
-    free(output[i]);
+    free(list[i]);
   }
-  free(output);
+  free(list);
 }
 
 rocksdb_column_family_handle_t* rocksdb_create_column_family(
