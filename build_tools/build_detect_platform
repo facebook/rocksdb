@@ -21,6 +21,7 @@
 #       -DLEVELDB_PLATFORM_NOATOMIC if it is not
 #       -DSNAPPY                    if the Snappy library is present
 #       -DLZ4                       if the LZ4 library is present
+#       -DNUMA                      if the NUMA library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
@@ -270,6 +271,17 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DLZ4"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llz4"
+    fi
+
+    # Test whether numa is available
+    $CXX $CFLAGS -x c++ - -o /dev/null -lnuma 2>/dev/null  <<EOF
+      #include <numa.h>
+      #inlcude <numaif.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
     fi
 
     # Test whether tcmalloc is available

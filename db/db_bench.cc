@@ -17,6 +17,11 @@ int main() {
 }
 #else
 
+#ifdef NUMA
+#include <numa.h>
+#include <numaif.h>
+#endif
+
 #include <inttypes.h>
 #include <cstddef>
 #include <sys/types.h>
@@ -172,6 +177,14 @@ DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
+
+DEFINE_bool(enable_numa, false,
+            "Make operations aware of NUMA architecture and bind memory "
+            "and cpus corresponding to nodes together. In NUMA, memory "
+            "in same node as CPUs are closer when compared to memory in "
+            "other nodes. Reads can be faster when the process is bound to "
+            "CPU and memory of same node. Use \"$numactl --hardware\" command "
+            "to see NUMA memory architecture.");
 
 DEFINE_int64(write_buffer_size, rocksdb::Options().write_buffer_size,
              "Number of bytes to buffer in memtable before compacting");
@@ -863,6 +876,18 @@ class Benchmark {
               * num_)
              / 1048576.0));
     fprintf(stdout, "Write rate limit: %d\n", FLAGS_writes_per_second);
+    if (FLAGS_enable_numa) {
+      fprintf(stderr, "Running in NUMA enabled mode.\n");
+#ifndef NUMA
+      fprintf(stderr, "NUMA is not defined in the system.\n");
+      exit(1);
+#else
+      if (numa_available() == -1) {
+        fprintf(stderr, "NUMA is not supported by the system.\n");
+        exit(1);
+      }
+#endif
+    }
     switch (FLAGS_compression_type_e) {
       case rocksdb::kNoCompression:
         fprintf(stdout, "Compression: none\n");
@@ -1348,7 +1373,25 @@ class Benchmark {
     shared.start = false;
 
     ThreadArg* arg = new ThreadArg[n];
+
     for (int i = 0; i < n; i++) {
+#ifdef NUMA
+      if (FLAGS_enable_numa) {
+        // Performs a local allocation of memory to threads in numa node.
+        int n_nodes = numa_num_task_nodes();  // Number of nodes in NUMA.
+        numa_exit_on_error = 1;
+        int numa_node = i % n_nodes;
+        bitmask* nodes = numa_allocate_nodemask();
+        numa_bitmask_clearall(nodes);
+        numa_bitmask_setbit(nodes, numa_node);
+        // numa_bind() call binds the process to the node and these
+        // properties are passed on to the thread that is created in
+        // StartThread method called later in the loop.
+        numa_bind(nodes);
+        numa_set_strict(1);
+        numa_free_nodemask(nodes);
+      }
+#endif
       arg[i].bm = this;
       arg[i].method = method;
       arg[i].shared = &shared;

@@ -55,22 +55,27 @@ GFLAGS_LIBS=" $TOOLCHAIN_LIB_BASE/gflags/gflags-1.6/c3f970a/lib/libgflags.a"
 JEMALLOC_INCLUDE=" -I $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-3.4.1/4d53c6f/include/"
 JEMALLOC_LIB=" -Wl,--whole-archive $TOOLCHAIN_LIB_BASE/jemalloc/jemalloc-3.4.1/4d53c6f/lib/libjemalloc.a"
 
+# location of numa
+NUMA_REV=829d10dac0230f99cd7e1778869d2adf3da24b65
+NUMA_INCLUDE=" -I /mnt/gvfs/third-party2/numa/$NUMA_REV/2.0.8/gcc-4.8.1-glibc-2.17/c3f970a/include/"
+NUMA_LIB=" /mnt/gvfs/third-party2/numa/$NUMA_REV/2.0.8/gcc-4.8.1-glibc-2.17/c3f970a/lib/libnuma.a"
+
 # use Intel SSE support for checksum calculations
 export USE_SSE=" -msse -msse4.2 "
 
 CC="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.8.1/cc6c9dc/bin/gcc"
-CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.8.1/cc6c9dc/bin/g++ $JINCLUDE $SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_INCLUDE"
+CXX="$TOOLCHAIN_EXECUTABLES/gcc/gcc-4.8.1/cc6c9dc/bin/g++ $JINCLUDE $SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE"
 AR=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ar
 RANLIB=$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/ranlib
 
 CFLAGS="-B$TOOLCHAIN_EXECUTABLES/binutils/binutils-2.21.1/da39a3e/bin/gold -m64 -mtune=generic"
 CFLAGS+=" $LIBGCC_INCLUDE $GLIBC_INCLUDE"
 CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_ATOMIC_PRESENT -DROCKSDB_FALLOCATE_PRESENT"
-CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4"
+CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
 
 EXEC_LDFLAGS="-Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib/ld.so"
 EXEC_LDFLAGS+=" -Wl,--no-whole-archive $TOOLCHAIN_LIB_BASE/libunwind/libunwind-1.0.1/675d945/lib/libunwind.a"
-EXEC_LDFLAGS+=" $HDFSLIB $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS"
+EXEC_LDFLAGS+=" $HDFSLIB $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"
 
 PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS "
 
