@@ -31,10 +31,14 @@
 #include "rocksdb/table.h"
 
 using rocksdb::Cache;
+using rocksdb::ColumnFamilyDescriptor;
+using rocksdb::ColumnFamilyHandle;
+using rocksdb::ColumnFamilyOptions;
 using rocksdb::CompactionFilter;
 using rocksdb::Comparator;
 using rocksdb::CompressionType;
 using rocksdb::DB;
+using rocksdb::DBOptions;
 using rocksdb::Env;
 using rocksdb::InfoLogLevel;
 using rocksdb::FileLock;
@@ -78,6 +82,7 @@ struct rocksdb_filelock_t        { FileLock*         rep; };
 struct rocksdb_logger_t          { shared_ptr<Logger>  rep; };
 struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
+struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
   void* state_;
@@ -394,6 +399,113 @@ void rocksdb_close(rocksdb_t* db) {
   delete db;
 }
 
+rocksdb_t* rocksdb_open_column_families(
+    const rocksdb_options_t* db_options,
+    const char* name,
+    int num_column_families,
+    const char** column_family_names, 
+    const rocksdb_options_t** column_family_options, 
+    rocksdb_column_family_handle_t** column_family_handles,
+    char** errptr) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i < num_column_families; i++) {
+    column_families.push_back(ColumnFamilyDescriptor(
+        std::string(column_family_names[i]),
+        ColumnFamilyOptions(column_family_options[i]->rep)));
+  }
+
+  DB* db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, DB::Open(DBOptions(db_options->rep),
+          std::string(name), column_families, &handles, &db))) {
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < handles.size(); i++) {
+    rocksdb_column_family_handle_t* c_handle = new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
+rocksdb_t* rocksdb_open_for_read_only_column_families(
+    const rocksdb_options_t* db_options,
+    const char* name,
+    int num_column_families,
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options, 
+    rocksdb_column_family_handle_t** column_family_handles,
+    unsigned char error_if_log_file_exist,
+    char** errptr) {
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (int i = 0; i < num_column_families; i++) {
+    column_families.push_back(ColumnFamilyDescriptor(
+        std::string(column_family_names[i]),
+        ColumnFamilyOptions(column_family_options[i]->rep)));
+  }
+
+  DB* db;
+  std::vector<ColumnFamilyHandle*> handles;
+  if (SaveError(errptr, DB::OpenForReadOnly(DBOptions(db_options->rep),
+          std::string(name), column_families, &handles, &db, error_if_log_file_exist))) {
+    return nullptr;
+  }
+
+  for (size_t i = 0; i < handles.size(); i++) {
+    rocksdb_column_family_handle_t* c_handle = new rocksdb_column_family_handle_t;
+    c_handle->rep = handles[i];
+    column_family_handles[i] = c_handle;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
+char** rocksdb_list_column_families(
+    const rocksdb_options_t* options,
+    const char* name,
+    size_t* lencfs,
+    char** errptr) {
+  std::vector<std::string> fams;
+  SaveError(errptr,
+      DB::ListColumnFamilies(DBOptions(options->rep),
+        std::string(name), &fams));
+
+  *lencfs = fams.size();
+  char** column_families = static_cast<char**>(malloc(sizeof(char*) * fams.size()));
+  for (size_t i = 0; i < fams.size(); i++) {
+    column_families[i] = strdup(fams[i].c_str());
+  }
+  return column_families;
+}
+
+rocksdb_column_family_handle_t* rocksdb_create_column_family(
+    rocksdb_t* db,
+    const rocksdb_options_t* column_family_options,
+    const char* column_family_name,
+    char** errptr) {
+  rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
+  SaveError(errptr,
+      db->rep->CreateColumnFamily(ColumnFamilyOptions(column_family_options->rep),
+        std::string(column_family_name), &(handle->rep)));
+  return handle;
+}
+
+void rocksdb_drop_column_family(
+    rocksdb_t* db,
+    rocksdb_column_family_handle_t* handle,
+    char** errptr) {
+  SaveError(errptr, db->rep->DropColumnFamily(handle->rep));
+}
+
+void rocksdb_column_family_handle_destroy(rocksdb_column_family_handle_t* handle) {
+  delete handle->rep;
+  delete handle;
+}
+
 void rocksdb_put(
     rocksdb_t* db,
     const rocksdb_writeoptions_t* options,
@@ -404,12 +516,34 @@ void rocksdb_put(
             db->rep->Put(options->rep, Slice(key, keylen), Slice(val, vallen)));
 }
 
+void rocksdb_put_cf(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen,
+    const char* val, size_t vallen,
+    char** errptr) {
+  SaveError(errptr,
+            db->rep->Put(options->rep, column_family->rep,
+              Slice(key, keylen), Slice(val, vallen)));
+}
+
 void rocksdb_delete(
     rocksdb_t* db,
     const rocksdb_writeoptions_t* options,
     const char* key, size_t keylen,
     char** errptr) {
   SaveError(errptr, db->rep->Delete(options->rep, Slice(key, keylen)));
+}
+
+void rocksdb_delete_cf(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen,
+    char** errptr) {
+  SaveError(errptr, db->rep->Delete(options->rep, column_family->rep,
+        Slice(key, keylen)));
 }
 
 void rocksdb_merge(
@@ -420,6 +554,18 @@ void rocksdb_merge(
     char** errptr) {
   SaveError(errptr,
             db->rep->Merge(options->rep, Slice(key, keylen), Slice(val, vallen)));
+}
+
+void rocksdb_merge_cf(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen,
+    const char* val, size_t vallen,
+    char** errptr) {
+  SaveError(errptr,
+            db->rep->Merge(options->rep, column_family->rep,
+              Slice(key, keylen), Slice(val, vallen)));
 }
 
 void rocksdb_write(
@@ -451,11 +597,43 @@ char* rocksdb_get(
   return result;
 }
 
+char* rocksdb_get_cf(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen,
+    size_t* vallen,
+    char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = db->rep->Get(options->rep, column_family->rep,
+      Slice(key, keylen), &tmp);
+  if (s.ok()) {
+    *vallen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
 rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db,
     const rocksdb_readoptions_t* options) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
   result->rep = db->rep->NewIterator(options->rep);
+  return result;
+}
+
+rocksdb_iterator_t* rocksdb_create_iterator_cf(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = db->rep->NewIterator(options->rep, column_family->rep);
   return result;
 }
 
@@ -485,6 +663,19 @@ char* rocksdb_property_value(
   }
 }
 
+char* rocksdb_property_value_cf(
+    rocksdb_t* db,
+    rocksdb_column_family_handle_t* column_family,
+    const char* propname) {
+  std::string tmp;
+  if (db->rep->GetProperty(column_family->rep, Slice(propname), &tmp)) {
+    // We use strdup() since we expect human readable output.
+    return strdup(tmp.c_str());
+  } else {
+    return nullptr;
+  }
+}
+
 void rocksdb_approximate_sizes(
     rocksdb_t* db,
     int num_ranges,
@@ -497,6 +688,22 @@ void rocksdb_approximate_sizes(
     ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
   }
   db->rep->GetApproximateSizes(ranges, num_ranges, sizes);
+  delete[] ranges;
+}
+
+void rocksdb_approximate_sizes_cf(
+    rocksdb_t* db,
+    rocksdb_column_family_handle_t* column_family,
+    int num_ranges,
+    const char* const* range_start_key, const size_t* range_start_key_len,
+    const char* const* range_limit_key, const size_t* range_limit_key_len,
+    uint64_t* sizes) {
+  Range* ranges = new Range[num_ranges];
+  for (int i = 0; i < num_ranges; i++) {
+    ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
+    ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
+  }
+  db->rep->GetApproximateSizes(column_family->rep, ranges, num_ranges, sizes);
   delete[] ranges;
 }
 
@@ -515,6 +722,18 @@ const rocksdb_livefiles_t* rocksdb_livefiles(
 
 void rocksdb_compact_range(
     rocksdb_t* db,
+    const char* start_key, size_t start_key_len,
+    const char* limit_key, size_t limit_key_len) {
+  Slice a, b;
+  db->rep->CompactRange(
+      // Pass nullptr Slice if corresponding "const char*" is nullptr
+      (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
+}
+
+void rocksdb_compact_range_cf(
+    rocksdb_t* db,
+    rocksdb_column_family_handle_t* column_family,
     const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len) {
   Slice a, b;
@@ -626,6 +845,14 @@ void rocksdb_writebatch_put(
   b->rep.Put(Slice(key, klen), Slice(val, vlen));
 }
 
+void rocksdb_writebatch_put_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen,
+    const char* val, size_t vlen) {
+  b->rep.Put(column_family->rep, Slice(key, klen), Slice(val, vlen));
+}
+
 void rocksdb_writebatch_merge(
     rocksdb_writebatch_t* b,
     const char* key, size_t klen,
@@ -633,10 +860,25 @@ void rocksdb_writebatch_merge(
   b->rep.Merge(Slice(key, klen), Slice(val, vlen));
 }
 
+void rocksdb_writebatch_merge_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen,
+    const char* val, size_t vlen) {
+  b->rep.Merge(column_family->rep, Slice(key, klen), Slice(val, vlen));
+}
+
 void rocksdb_writebatch_delete(
     rocksdb_writebatch_t* b,
     const char* key, size_t klen) {
   b->rep.Delete(Slice(key, klen));
+}
+
+void rocksdb_writebatch_delete_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen) {
+  b->rep.Delete(column_family->rep, Slice(key, klen));
 }
 
 void rocksdb_writebatch_iterate(

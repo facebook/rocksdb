@@ -75,6 +75,22 @@ static void CheckGet(
   Free(&val);
 }
 
+static void CheckGetCF(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* handle,
+    const char* key,
+    const char* expected) {
+  char* err = NULL;
+  size_t val_len;
+  char* val;
+  val = rocksdb_get_cf(db, options, handle, key, strlen(key), &val_len, &err);
+  CheckNoError(err);
+  CheckEqual(expected, val, val_len);
+  Free(&val);
+}
+
+
 static void CheckIter(rocksdb_iterator_t* iter,
                       const char* key, const char* val) {
   size_t len;
@@ -486,6 +502,82 @@ int main(int argc, char** argv) {
 
   }
 
+  StartPhase("columnfamilies");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err)
+
+    rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(db_options, 1);
+    db = rocksdb_open(db_options, dbname, &err);
+    CheckNoError(err)
+    rocksdb_column_family_handle_t* cfh;
+    cfh = rocksdb_create_column_family(db, db_options, "cf1", &err);
+    rocksdb_column_family_handle_destroy(cfh);
+    CheckNoError(err);
+    rocksdb_close(db);
+
+    size_t cflen;
+    char** column_fams = rocksdb_list_column_families(db_options, dbname, &cflen, &err);
+    CheckNoError(err);
+    // TODO column_families vals seg fault
+    CheckEqual("default", column_fams[0], 7);
+    CheckEqual("cf1", column_fams[1], 3);
+    CheckCondition(cflen == 2);
+
+    rocksdb_options_t* cf_options = rocksdb_options_create();
+    
+    const char* cf_names[2] = {"default", "cf1"};
+    const rocksdb_options_t* cf_opts[2] = {cf_options, cf_options};
+    rocksdb_column_family_handle_t* handles[2];
+    db = rocksdb_open_column_families(db_options, dbname, 2, cf_names, cf_opts, handles, &err);
+    CheckNoError(err);
+
+    rocksdb_put_cf(db, woptions, handles[1], "foo", 3, "hello", 5, &err);
+    CheckNoError(err);
+
+    CheckGetCF(db, roptions, handles[1], "foo", "hello");
+
+    rocksdb_delete_cf(db, woptions, handles[1], "foo", 3, &err);
+    CheckNoError(err);
+
+    CheckGetCF(db, roptions, handles[1], "foo", NULL);
+
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+    rocksdb_writebatch_put_cf(wb, handles[1], "baz", 3, "a", 1);
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put_cf(wb, handles[1], "bar", 3, "b", 1);
+    rocksdb_writebatch_put_cf(wb, handles[1], "box", 3, "c", 1);
+    rocksdb_writebatch_delete_cf(wb, handles[1], "bar", 3);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGetCF(db, roptions, handles[1], "baz", NULL);
+    CheckGetCF(db, roptions, handles[1], "bar", NULL);
+    CheckGetCF(db, roptions, handles[1], "box", "c");
+    rocksdb_writebatch_destroy(wb);
+
+    rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db, roptions, handles[1]);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+
+    int i;
+    for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
+      i++;
+    }
+    CheckCondition(i == 1);
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+
+    rocksdb_drop_column_family(db, handles[1], &err);
+    CheckNoError(err);
+    for (i = 0; i < 2; i++) {
+      rocksdb_column_family_handle_destroy(handles[i]);
+    }
+  }
+
   StartPhase("prefix");
   {
     // Create new database
@@ -532,6 +624,7 @@ int main(int argc, char** argv) {
     rocksdb_iter_destroy(iter);
     rocksdb_filterpolicy_destroy(policy);
   }
+
 
   StartPhase("cleanup");
   rocksdb_close(db);
