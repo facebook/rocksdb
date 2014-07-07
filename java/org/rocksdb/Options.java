@@ -1308,11 +1308,46 @@ public class Options extends RocksObject {
   private native void setBlockRestartInterval(
       long handle, int blockRestartInterval);
       
+  /**
+   * Compress blocks using the specified compression algorithm.  This
+     parameter can be changed dynamically.
+   * 
+   * Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
+   * ~200-500MB/s compression and ~400-800MB/s decompression.
+   * 
+   * Note that these speeds are significantly faster than most 
+   * persistent storage speeds, and therefore it is typically never 
+   * worth switching to kNoCompression.  Even if the input data is
+   * incompressible, the kSnappyCompression implementation will
+   * efficiently detect that and will switch to uncompressed mode.
+   * 
+   * Default: kSnappyCompression, which gives lightweight but fast compression.
+   * 
+   * @return Compression type.
+   */ 
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
   }
   private native int compressionType(long handle);
       
+  /**
+   * Compress blocks using the specified compression algorithm.  This
+     parameter can be changed dynamically.
+   * 
+   * Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
+   * ~200-500MB/s compression and ~400-800MB/s decompression.
+   * 
+   * Note that these speeds are significantly faster than most 
+   * persistent storage speeds, and therefore it is typically never 
+   * worth switching to kNoCompression.  Even if the input data is
+   * incompressible, the kSnappyCompression implementation will
+   * efficiently detect that and will switch to uncompressed mode.
+   * 
+   * Default: kSnappyCompression, which gives lightweight but fast compression.
+   * 
+   * @param compressionType Compression Type.
+   * @return the reference to the current option.
+   */
   public Options setCompressionType(CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
