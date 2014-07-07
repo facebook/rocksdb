@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #pragma once
+#include "rocksdb/port.h"
 #include "rocksdb/statistics.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"

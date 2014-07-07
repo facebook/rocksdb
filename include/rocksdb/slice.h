@@ -23,6 +23,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <string>
+#include "rocksdb/port.h"
 
 namespace rocksdb {
 
