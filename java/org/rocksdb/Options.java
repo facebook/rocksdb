@@ -1307,6 +1307,17 @@ public class Options extends RocksObject {
   }
   private native void setBlockRestartInterval(
       long handle, int blockRestartInterval);
+      
+  public CompressionType compressionType() {
+    return CompressionType.values()[compressionType(nativeHandle_)];
+  }
+  private native int compressionType(long handle);
+      
+  public Options setCompressionType(CompressionType compressionType) {
+    setCompressionType(nativeHandle_, compressionType.getValue());
+    return this;
+  }
+  private native void setCompressionType(long handle, int compressionType);
 
   /**
    * If true, place whole keys in the filter (not just prefixes).

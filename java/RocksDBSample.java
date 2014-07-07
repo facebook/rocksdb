@@ -43,7 +43,8 @@ public class RocksDBSample {
         .setDisableSeekCompaction(true)
         .setBlockSize(64 * SizeUnit.KB)
         .setMaxBackgroundCompactions(10)
-        .setFilter(filter);
+        .setFilter(filter)
+        .setCompressionType(CompressionType.SNAPPY_COMPRESSION);
     Statistics stats = options.statisticsPtr();
 
     assert(options.createIfMissing() == true);
@@ -52,6 +53,7 @@ public class RocksDBSample {
     assert(options.disableSeekCompaction() == true);
     assert(options.blockSize() == 64 * SizeUnit.KB);
     assert(options.maxBackgroundCompactions() == 10);
+    assert(options.compressionType() == CompressionType.SNAPPY_COMPRESSION);
 
     assert(options.memTableFactoryName().equals("SkipListFactory"));
     options.setMemTableConfig(
