@@ -40,8 +40,6 @@ class HashSkipListRep : public MemTableRep {
 
   virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override;
 
-  virtual MemTableRep::Iterator* GetIterator(const Slice& slice) override;
-
   virtual MemTableRep::Iterator* GetDynamicPrefixIterator(
       Arena* arena = nullptr) override;
 
@@ -231,7 +229,9 @@ HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
       transform_(transform),
       compare_(compare),
       arena_(arena) {
-  buckets_ = new port::AtomicPointer[bucket_size];
+  auto mem =
+      arena->AllocateAligned(sizeof(port::AtomicPointer) * bucket_size);
+  buckets_ = new (mem) port::AtomicPointer[bucket_size];
 
   for (size_t i = 0; i < bucket_size_; ++i) {
     buckets_[i].NoBarrier_Store(nullptr);
@@ -239,7 +239,6 @@ HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
 }
 
 HashSkipListRep::~HashSkipListRep() {
-  delete[] buckets_;
 }
 
 HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
@@ -273,7 +272,7 @@ bool HashSkipListRep::Contains(const char* key) const {
 }
 
 size_t HashSkipListRep::ApproximateMemoryUsage() {
-  return sizeof(buckets_);
+  return 0;
 }
 
 void HashSkipListRep::Get(const LookupKey& k, void* callback_args,
@@ -308,14 +307,6 @@ MemTableRep::Iterator* HashSkipListRep::GetIterator(Arena* arena) {
     auto mem = arena->AllocateAligned(sizeof(Iterator));
     return new (mem) Iterator(list, true, new_arena);
   }
-}
-
-MemTableRep::Iterator* HashSkipListRep::GetIterator(const Slice& slice) {
-  auto bucket = GetBucket(transform_->Transform(slice));
-  if (bucket == nullptr) {
-    return new EmptyIterator();
-  }
-  return new Iterator(bucket, false);
 }
 
 MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena) {

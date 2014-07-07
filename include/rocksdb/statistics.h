@@ -115,9 +115,11 @@ enum Tickers {
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
   WRITE_DONE_BY_OTHER,
+  WRITE_TIMEDOUT,        // Number of writes ending up with timed-out.
   WRITE_WITH_WAL,       // Number of Write calls that request WAL
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
+  FLUSH_WRITE_BYTES,    // Bytes written during flush
 
   // Number of table's properties loaded directly from file, without creating
   // table reader object.
@@ -176,7 +178,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
     {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
+    {WRITE_TIMEDOUT, "rocksdb.write.timedout"},
     {WRITE_WITH_WAL, "rocksdb.write.wal"},
+    {FLUSH_WRITE_BYTES, "rocksdb.flush.write.bytes"},
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
     {COMPACT_WRITE_BYTES, "rocksdb.compact.write.bytes"},
     {NUMBER_DIRECT_LOAD_TABLE_PROPERTIES,

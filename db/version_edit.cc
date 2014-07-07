@@ -18,24 +18,29 @@ namespace rocksdb {
 // Tag numbers for serialized VersionEdit.  These numbers are written to
 // disk and should not be changed.
 enum Tag {
-  kComparator           = 1,
-  kLogNumber            = 2,
-  kNextFileNumber       = 3,
-  kLastSequence         = 4,
-  kCompactPointer       = 5,
-  kDeletedFile          = 6,
-  kNewFile              = 7,
+  kComparator = 1,
+  kLogNumber = 2,
+  kNextFileNumber = 3,
+  kLastSequence = 4,
+  kCompactPointer = 5,
+  kDeletedFile = 6,
+  kNewFile = 7,
   // 8 was used for large value refs
-  kPrevLogNumber        = 9,
+  kPrevLogNumber = 9,
 
   // these are new formats divergent from open source leveldb
-  kNewFile2             = 100,  // store smallest & largest seqno
-
-  kColumnFamily         = 200,  // specify column family for version edit
-  kColumnFamilyAdd      = 201,
-  kColumnFamilyDrop     = 202,
-  kMaxColumnFamily      = 203,
+  kNewFile2 = 100,
+  kNewFile3 = 102,
+  kColumnFamily = 200,  // specify column family for version edit
+  kColumnFamilyAdd = 201,
+  kColumnFamilyDrop = 202,
+  kMaxColumnFamily = 203,
 };
+
+uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
+  assert(number <= kFileNumberMask);
+  return number | (path_id * (kFileNumberMask + 1));
+}
 
 void VersionEdit::Clear() {
   comparator_.clear();
@@ -93,9 +98,18 @@ void VersionEdit::EncodeTo(std::string* dst) const {
 
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
-    PutVarint32(dst, kNewFile2);
+    if (f.fd.GetPathId() == 0) {
+      // Use older format to make sure user can roll back the build if they
+      // don't config multiple DB paths.
+      PutVarint32(dst, kNewFile2);
+    } else {
+      PutVarint32(dst, kNewFile3);
+    }
     PutVarint32(dst, new_files_[i].first);  // level
     PutVarint64(dst, f.fd.GetNumber());
+    if (f.fd.GetPathId() != 0) {
+      PutVarint32(dst, f.fd.GetPathId());
+    }
     PutVarint64(dst, f.fd.GetFileSize());
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
@@ -237,7 +251,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetVarint64(&input, &file_size) &&
             GetInternalKey(&input, &f.smallest) &&
             GetInternalKey(&input, &f.largest)) {
-          f.fd = FileDescriptor(number, file_size);
+          f.fd = FileDescriptor(number, 0, file_size);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
@@ -255,7 +269,27 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
             GetInternalKey(&input, &f.largest) &&
             GetVarint64(&input, &f.smallest_seqno) &&
             GetVarint64(&input, &f.largest_seqno)) {
-          f.fd = FileDescriptor(number, file_size);
+          f.fd = FileDescriptor(number, 0, file_size);
+          new_files_.push_back(std::make_pair(level, f));
+        } else {
+          if (!msg) {
+            msg = "new-file2 entry";
+          }
+        }
+        break;
+      }
+
+      case kNewFile3: {
+        uint64_t number;
+        uint32_t path_id;
+        uint64_t file_size;
+        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number) &&
+            GetVarint32(&input, &path_id) && GetVarint64(&input, &file_size) &&
+            GetInternalKey(&input, &f.smallest) &&
+            GetInternalKey(&input, &f.largest) &&
+            GetVarint64(&input, &f.smallest_seqno) &&
+            GetVarint64(&input, &f.largest_seqno)) {
+          f.fd = FileDescriptor(number, path_id, file_size);
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {

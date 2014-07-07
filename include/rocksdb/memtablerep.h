@@ -148,13 +148,6 @@ class MemTableRep {
   //        all the states but those allocated in arena.
   virtual Iterator* GetIterator(Arena* arena = nullptr) = 0;
 
-  // Return an iterator over at least the keys with the specified user key. The
-  // iterator may also allow access to other keys, but doesn't have to. Default:
-  // GetIterator().
-  virtual Iterator* GetIterator(const Slice& user_key) {
-    return GetIterator(nullptr);
-  }
-
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
   // arena: If not null, the arena needs to be used to allocate the Iterator.
@@ -234,9 +227,10 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
     int32_t skiplist_branching_factor = 4
 );
 
-// The factory is to create memtables with a hashed linked list:
-// it contains a fixed array of buckets, each pointing to a sorted single
-// linked list (null if the bucket is empty).
+// The factory is to create memtables based on a hash table:
+// it contains a fixed array of buckets, each pointing to either a linked list
+// or a skip list if number of entries inside the bucket exceeds
+// threshold_use_skiplist.
 // @bucket_count: number of fixed array buckets
 // @huge_page_tlb_size: if <=0, allocate the hash table bytes from malloc.
 //                      Otherwise from huge page TLB. The user needs to reserve
@@ -247,10 +241,13 @@ extern MemTableRepFactory* NewHashSkipListRepFactory(
 //                                    exceeds this number, log about it.
 // @if_log_bucket_dist_when_flash: if true, log distribution of number of
 //                                 entries when flushing.
+// @threshold_use_skiplist: a bucket switches to skip list if number of
+//                          entries exceed this parameter.
 extern MemTableRepFactory* NewHashLinkListRepFactory(
     size_t bucket_count = 50000, size_t huge_page_tlb_size = 0,
     int bucket_entries_logging_threshold = 4096,
-    bool if_log_bucket_dist_when_flash = true);
+    bool if_log_bucket_dist_when_flash = true,
+    uint32_t threshold_use_skiplist = 256);
 
 // This factory creates a cuckoo-hashing based mem-table representation.
 // Cuckoo-hash is a closed-hash strategy, in which all key/value pairs

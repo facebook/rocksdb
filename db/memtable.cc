@@ -55,6 +55,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp, const Options& options)
   assert(!should_flush_);
   if (prefix_extractor_ && options.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
+        &arena_,
         options.memtable_prefix_bloom_bits, options.bloom_locality,
         options.memtable_prefix_bloom_probes, nullptr,
         options.memtable_prefix_bloom_huge_page_tlb_size,
@@ -449,7 +450,7 @@ void MemTable::Update(SequenceNumber seq,
   Slice mem_key = lkey.memtable_key();
 
   std::unique_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(lkey.user_key()));
+      table_->GetDynamicPrefixIterator());
   iter->Seek(lkey.internal_key(), mem_key.data());
 
   if (iter->Valid()) {
@@ -508,7 +509,7 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
   Slice memkey = lkey.memtable_key();
 
   std::unique_ptr<MemTableRep::Iterator> iter(
-    table_->GetIterator(lkey.user_key()));
+      table_->GetDynamicPrefixIterator());
   iter->Seek(lkey.internal_key(), memkey.data());
 
   if (iter->Valid()) {
@@ -583,7 +584,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   // reps). By passing in the user key, we allow efficient iterator creation.
   // The iterator only needs to be ordered within the same user key.
   std::unique_ptr<MemTableRep::Iterator> iter(
-      table_->GetIterator(key.user_key()));
+      table_->GetDynamicPrefixIterator());
   iter->Seek(key.internal_key(), memkey.data());
 
   size_t num_successive_merges = 0;
@@ -610,7 +611,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
 
 void MemTableRep::Get(const LookupKey& k, void* callback_args,
                       bool (*callback_func)(void* arg, const char* entry)) {
-  auto iter = GetIterator(k.user_key());
+  auto iter = GetDynamicPrefixIterator();
   for (iter->Seek(k.internal_key(), k.memtable_key().data());
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {

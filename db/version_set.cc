@@ -16,6 +16,7 @@
 #include <set>
 #include <climits>
 #include <unordered_map>
+#include <vector>
 #include <stdio.h>
 
 #include "db/filename.h"
@@ -43,6 +44,15 @@ static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
   for (size_t i = 0; i < files.size() && files[i]; i++) {
     sum += files[i]->fd.GetFileSize();
+  }
+  return sum;
+}
+
+static uint64_t TotalCompensatedFileSize(
+    const std::vector<FileMetaData*>& files) {
+  uint64_t sum = 0;
+  for (size_t i = 0; i < files.size() && files[i]; i++) {
+    sum += files[i]->compensated_file_size;
   }
   return sum;
 }
@@ -162,7 +172,7 @@ class Version::LevelFileNumIterator : public Iterator {
       : icmp_(icmp),
         flist_(flist),
         index_(flist->size()),
-        current_value_(0, 0) {  // Marks as invalid
+        current_value_(0, 0, 0) {  // Marks as invalid
   }
   virtual bool Valid() const {
     return index_ < flist_->size();
@@ -241,53 +251,72 @@ class Version::LevelFileIteratorState : public TwoLevelIteratorState {
   bool for_compaction_;
 };
 
-Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
+                                   const FileMetaData* file_meta,
+                                   const std::string* fname) {
   auto table_cache = cfd_->table_cache();
   auto options = cfd_->options();
+  Status s = table_cache->GetTableProperties(
+      vset_->storage_options_, cfd_->internal_comparator(), file_meta->fd,
+      tp, true /* no io */);
+  if (s.ok()) {
+    return s;
+  }
+
+  // We only ignore error type `Incomplete` since it's by design that we
+  // disallow table when it's not in table cache.
+  if (!s.IsIncomplete()) {
+    return s;
+  }
+
+  // 2. Table is not present in table cache, we'll read the table properties
+  // directly from the properties block in the file.
+  std::unique_ptr<RandomAccessFile> file;
+  if (fname != nullptr) {
+    s = options->env->NewRandomAccessFile(
+        *fname, &file, vset_->storage_options_);
+  } else {
+    s = options->env->NewRandomAccessFile(
+        TableFileName(vset_->options_->db_paths, file_meta->fd.GetNumber(),
+                      file_meta->fd.GetPathId()),
+        &file, vset_->storage_options_);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  TableProperties* raw_table_properties;
+  // By setting the magic number to kInvalidTableMagicNumber, we can by
+  // pass the magic number check in the footer.
+  s = ReadTableProperties(
+      file.get(), file_meta->fd.GetFileSize(),
+      Footer::kInvalidTableMagicNumber /* table's magic number */,
+      vset_->env_, options->info_log.get(), &raw_table_properties);
+  if (!s.ok()) {
+    return s;
+  }
+  RecordTick(options->statistics.get(),
+             NUMBER_DIRECT_LOAD_TABLE_PROPERTIES);
+
+  *tp = std::shared_ptr<const TableProperties>(raw_table_properties);
+  return s;
+}
+
+Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   for (int level = 0; level < num_levels_; level++) {
     for (const auto& file_meta : files_[level]) {
-      auto fname = TableFileName(vset_->dbname_, file_meta->fd.GetNumber());
+      auto fname =
+          TableFileName(vset_->options_->db_paths, file_meta->fd.GetNumber(),
+                        file_meta->fd.GetPathId());
       // 1. If the table is already present in table cache, load table
       // properties from there.
       std::shared_ptr<const TableProperties> table_properties;
-      Status s = table_cache->GetTableProperties(
-          vset_->storage_options_, cfd_->internal_comparator(), file_meta->fd,
-          &table_properties, true /* no io */);
+      Status s = GetTableProperties(&table_properties, file_meta, &fname);
       if (s.ok()) {
         props->insert({fname, table_properties});
-        continue;
-      }
-
-      // We only ignore error type `Incomplete` since it's by design that we
-      // disallow table when it's not in table cache.
-      if (!s.IsIncomplete()) {
+      } else {
         return s;
       }
-
-      // 2. Table is not present in table cache, we'll read the table properties
-      // directly from the properties block in the file.
-      std::unique_ptr<RandomAccessFile> file;
-      s = options->env->NewRandomAccessFile(fname, &file,
-                                            vset_->storage_options_);
-      if (!s.ok()) {
-        return s;
-      }
-
-      TableProperties* raw_table_properties;
-      // By setting the magic number to kInvalidTableMagicNumber, we can by
-      // pass the magic number check in the footer.
-      s = ReadTableProperties(
-          file.get(), file_meta->fd.GetFileSize(),
-          Footer::kInvalidTableMagicNumber /* table's magic number */,
-          vset_->env_, options->info_log.get(), &raw_table_properties);
-      if (!s.ok()) {
-        return s;
-      }
-      RecordTick(options->statistics.get(),
-                 NUMBER_DIRECT_LOAD_TABLE_PROPERTIES);
-
-      props->insert({fname, std::shared_ptr<const TableProperties>(
-                                raw_table_properties)});
     }
   }
 
@@ -492,7 +521,11 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       compaction_level_(num_levels_),
       version_number_(version_number),
       file_indexer_(num_levels_, cfd == nullptr ?  nullptr
-          : cfd->internal_comparator().user_comparator()) {
+          : cfd->internal_comparator().user_comparator()),
+      total_file_size_(0),
+      total_raw_key_size_(0),
+      total_raw_value_size_(0),
+      num_non_deletions_(0) {
 }
 
 void Version::Get(const ReadOptions& options,
@@ -699,6 +732,58 @@ void Version::PrepareApply(std::vector<uint64_t>& size_being_compacted) {
   UpdateNumNonEmptyLevels();
 }
 
+bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
+  if (file_meta->num_entries > 0) {
+    return false;
+  }
+  std::shared_ptr<const TableProperties> tp;
+  Status s = GetTableProperties(&tp, file_meta);
+  if (!s.ok()) {
+    return false;
+  }
+  if (tp.get() == nullptr) return false;
+  file_meta->num_entries = tp->num_entries;
+  file_meta->num_deletions = GetDeletedKeys(tp->user_collected_properties);
+  file_meta->raw_value_size = tp->raw_value_size;
+  file_meta->raw_key_size = tp->raw_key_size;
+
+  return true;
+}
+
+void Version::UpdateTemporaryStats(const VersionEdit* edit) {
+  static const int kDeletionWeightOnCompaction = 2;
+
+  // incrementally update the average value size by
+  // including newly added files into the global stats
+  int init_count = 0;
+  int total_count = 0;
+  for (int level = 0; level < num_levels_; level++) {
+    for (auto* file_meta : files_[level]) {
+      if (MaybeInitializeFileMetaData(file_meta)) {
+        // each FileMeta will be initialized only once.
+        total_file_size_ += file_meta->fd.GetFileSize();
+        total_raw_key_size_ += file_meta->raw_key_size;
+        total_raw_value_size_ += file_meta->raw_value_size;
+        num_non_deletions_ +=
+            file_meta->num_entries - file_meta->num_deletions;
+        init_count++;
+      }
+      total_count++;
+    }
+  }
+
+  uint64_t average_value_size = GetAverageValueSize();
+
+  // compute the compensated size
+  for (int level = 0; level < num_levels_; level++) {
+    for (auto* file_meta : files_[level]) {
+      file_meta->compensated_file_size = file_meta->fd.GetFileSize() +
+          file_meta->num_deletions * average_value_size *
+          kDeletionWeightOnCompaction;
+    }
+  }
+}
+
 void Version::ComputeCompactionScore(
     std::vector<uint64_t>& size_being_compacted) {
   double max_score = 0;
@@ -728,7 +813,7 @@ void Version::ComputeCompactionScore(
       uint64_t total_size = 0;
       for (unsigned int i = 0; i < files_[level].size(); i++) {
         if (!files_[level][i]->being_compacted) {
-          total_size += files_[level][i]->fd.GetFileSize();
+          total_size += files_[level][i]->compensated_file_size;
           numfiles++;
         }
       }
@@ -747,7 +832,7 @@ void Version::ComputeCompactionScore(
     } else {
       // Compute the ratio of current size to size limit.
       const uint64_t level_bytes =
-          TotalFileSize(files_[level]) - size_being_compacted[level];
+          TotalCompensatedFileSize(files_[level]) - size_being_compacted[level];
       score = static_cast<double>(level_bytes) /
               cfd_->compaction_picker()->MaxBytesForLevel(level);
       if (max_score < score) {
@@ -780,25 +865,13 @@ void Version::ComputeCompactionScore(
 }
 
 namespace {
-
 // Compator that is used to sort files based on their size
 // In normal mode: descending size
-bool CompareSizeDescending(const Version::Fsize& first,
-                           const Version::Fsize& second) {
-  return (first.file->fd.GetFileSize() > second.file->fd.GetFileSize());
+bool CompareCompensatedSizeDescending(const Version::Fsize& first,
+                                      const Version::Fsize& second) {
+  return (first.file->compensated_file_size >
+      second.file->compensated_file_size);
 }
-// A static compator used to sort files based on their seqno
-// In universal style : descending seqno
-bool CompareSeqnoDescending(const Version::Fsize& first,
-                            const Version::Fsize& second) {
-  if (first.file->smallest_seqno > second.file->smallest_seqno) {
-    assert(first.file->largest_seqno > second.file->largest_seqno);
-    return true;
-  }
-  assert(first.file->largest_seqno <= second.file->largest_seqno);
-  return false;
-}
-
 } // anonymous namespace
 
 void Version::UpdateNumNonEmptyLevels() {
@@ -813,19 +886,15 @@ void Version::UpdateNumNonEmptyLevels() {
 }
 
 void Version::UpdateFilesBySize() {
-  if (cfd_->options()->compaction_style == kCompactionStyleFIFO) {
+  if (cfd_->options()->compaction_style == kCompactionStyleFIFO ||
+      cfd_->options()->compaction_style == kCompactionStyleUniversal) {
     // don't need this
     return;
   }
   // No need to sort the highest level because it is never compacted.
-  int max_level =
-      (cfd_->options()->compaction_style == kCompactionStyleUniversal)
-          ? NumberLevels()
-          : NumberLevels() - 1;
-
-  for (int level = 0; level < max_level; level++) {
+  for (int level = 0; level < NumberLevels() - 1; level++) {
     const std::vector<FileMetaData*>& files = files_[level];
-    std::vector<int>& files_by_size = files_by_size_[level];
+    auto& files_by_size = files_by_size_[level];
     assert(files_by_size.size() == 0);
 
     // populate a temp vector for sorting based on size
@@ -836,18 +905,12 @@ void Version::UpdateFilesBySize() {
     }
 
     // sort the top number_of_files_to_sort_ based on file size
-    if (cfd_->options()->compaction_style == kCompactionStyleUniversal) {
-      int num = temp.size();
-      std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
-                        CompareSeqnoDescending);
-    } else {
-      int num = Version::number_of_files_to_sort_;
-      if (num > (int)temp.size()) {
-        num = temp.size();
-      }
-      std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
-                        CompareSizeDescending);
+    size_t num = Version::number_of_files_to_sort_;
+    if (num > temp.size()) {
+      num = temp.size();
     }
+    std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+                      CompareCompensatedSizeDescending);
     assert(temp.size() == files.size());
 
     // initialize files_by_size_
@@ -1209,11 +1272,11 @@ int64_t Version::MaxNextLevelOverlappingBytes() {
   return result;
 }
 
-void Version::AddLiveFiles(std::set<uint64_t>* live) {
+void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
   for (int level = 0; level < NumberLevels(); level++) {
     const std::vector<FileMetaData*>& files = files_[level];
     for (const auto& file : files) {
-      live->insert(file->fd.GetNumber());
+      live->push_back(file->fd);
     }
   }
 }
@@ -1366,7 +1429,7 @@ class VersionSet::Builder {
 #endif
   }
 
-  void CheckConsistencyForDeletes(VersionEdit* edit, unsigned int number,
+  void CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
                                   int level) {
 #ifndef NDEBUG
       // a file to be deleted better exist in the previous version
@@ -1407,6 +1470,9 @@ class VersionSet::Builder {
             break;
           }
         }
+      }
+      if (!found) {
+        fprintf(stderr, "not found %" PRIu64 "\n", number);
       }
       assert(found);
 #endif
@@ -1674,6 +1740,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     if (!edit->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
+      v->UpdateTemporaryStats(edit);
       v->PrepareApply(size_being_compacted);
     }
 
@@ -2100,17 +2167,15 @@ Status VersionSet::Recover(
     last_sequence_ = last_sequence;
     prev_log_number_ = prev_log_number;
 
-    Log(options_->info_log, "Recovered from manifest file:%s succeeded,"
+    Log(options_->info_log,
+        "Recovered from manifest file:%s succeeded,"
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
         "prev_log_number is %lu,"
         "max_column_family is %u\n",
-        manifest_filename.c_str(),
-        (unsigned long)manifest_file_number_,
-        (unsigned long)next_file_number_,
-        (unsigned long)last_sequence_,
-        (unsigned long)log_number,
-        (unsigned long)prev_log_number_,
+        manifest_filename.c_str(), (unsigned long)manifest_file_number_,
+        (unsigned long)next_file_number_, (unsigned long)last_sequence_,
+        (unsigned long)log_number, (unsigned long)prev_log_number_,
         column_family_set_->GetMaxColumnFamily());
 
     for (auto cfd : *column_family_set_) {
@@ -2497,9 +2562,9 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
       for (int level = 0; level < cfd->NumberLevels(); level++) {
         for (const auto& f : cfd->current()->files_[level]) {
-          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetFileSize(),
-                       f->smallest, f->largest, f->smallest_seqno,
-                       f->largest_seqno);
+          edit.AddFile(level, f->fd.GetNumber(), f->fd.GetPathId(),
+                       f->fd.GetFileSize(), f->smallest, f->largest,
+                       f->smallest_seqno, f->largest_seqno);
         }
       }
       edit.SetLogNumber(cfd->GetLogNumber());
@@ -2581,7 +2646,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   return result;
 }
 
-void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
+void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   // pre-calculate space requirement
   int64_t total_files = 0;
   for (auto cfd : *column_family_set_) {
@@ -2603,7 +2668,7 @@ void VersionSet::AddLiveFiles(std::vector<uint64_t>* live_list) {
          v = v->next_) {
       for (int level = 0; level < v->NumberLevels(); level++) {
         for (const auto& f : v->files_[level]) {
-          live_list->push_back(f->fd.GetNumber());
+          live_list->push_back(f->fd);
         }
       }
     }
@@ -2726,7 +2791,14 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
       for (const auto& file : cfd->current()->files_[level]) {
         LiveFileMetaData filemetadata;
         filemetadata.column_family_name = cfd->GetName();
-        filemetadata.name = TableFileName("", file->fd.GetNumber());
+        uint32_t path_id = file->fd.GetPathId();
+        if (path_id < options_->db_paths.size()) {
+          filemetadata.db_path = options_->db_paths[path_id];
+        } else {
+          assert(!options_->db_paths.empty());
+          filemetadata.db_path = options_->db_paths.back();
+        }
+        filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
         filemetadata.level = level;
         filemetadata.size = file->fd.GetFileSize();
         filemetadata.smallestkey = file->smallest.user_key().ToString();

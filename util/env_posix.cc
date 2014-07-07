@@ -39,6 +39,7 @@
 #include "util/logging.h"
 #include "util/posix_logger.h"
 #include "util/random.h"
+#include "util/iostats_context_imp.h"
 #include <signal.h>
 
 // Get nano time for mach systems
@@ -177,6 +178,7 @@ class PosixSequentialFile: public SequentialFile {
     do {
       r = fread_unlocked(scratch, 1, n, file_);
     } while (r == 0 && ferror(file_) && errno == EINTR);
+    IOSTATS_ADD(bytes_read, r);
     *result = Slice(scratch, r);
     if (r < n) {
       if (feof(file_)) {
@@ -240,6 +242,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
     do {
       r = pread(fd_, scratch, n, static_cast<off_t>(offset));
     } while (r < 0 && errno == EINTR);
+    IOSTATS_ADD_IF_POSITIVE(bytes_read, r);
     *result = Slice(scratch, (r < 0) ? 0 : r);
     if (r < 0) {
       // An error: return a non-ok status
@@ -487,6 +490,7 @@ class PosixMmapFile : public WritableFile {
 
       size_t n = (left <= avail) ? left : avail;
       memcpy(dst_, src, n);
+      IOSTATS_ADD(bytes_written, n);
       dst_ += n;
       src += n;
       left -= n;
@@ -693,6 +697,7 @@ class PosixWritableFile : public WritableFile {
           }
           return IOError(filename_, errno);
         }
+        IOSTATS_ADD(bytes_written, done);
         TEST_KILL_RANDOM(rocksdb_kill_odds);
 
         left -= done;
@@ -743,6 +748,7 @@ class PosixWritableFile : public WritableFile {
         }
         return IOError(filename_, errno);
       }
+      IOSTATS_ADD(bytes_written, done);
       TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
       left -= done;
       src += done;
@@ -820,7 +826,7 @@ class PosixWritableFile : public WritableFile {
     }
   }
 
-  virtual Status RangeSync(off64_t offset, off64_t nbytes) {
+  virtual Status RangeSync(off_t offset, off_t nbytes) {
     if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
       return Status::OK();
     } else {
@@ -876,6 +882,7 @@ class PosixRandomRWFile : public RandomRWFile {
         }
         return IOError(filename_, errno);
       }
+      IOSTATS_ADD(bytes_written, done);
 
       left -= done;
       src += done;
@@ -889,6 +896,7 @@ class PosixRandomRWFile : public RandomRWFile {
                       char* scratch) const {
     Status s;
     ssize_t r = pread(fd_, scratch, n, static_cast<off_t>(offset));
+    IOSTATS_ADD_IF_POSITIVE(bytes_read, r);
     *result = Slice(scratch, (r < 0) ? 0 : r);
     if (r < 0) {
       s = IOError(filename_, errno);

@@ -86,7 +86,8 @@ Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels,
 bool ReduceLevelTest::ReduceLevels(int target_level) {
   std::vector<std::string> args = rocksdb::ReduceDBLevelsCommand::PrepareArgs(
       dbname_, target_level, false);
-  LDBCommand* level_reducer = LDBCommand::InitFromCmdLineArgs(args);
+  LDBCommand* level_reducer = LDBCommand::InitFromCmdLineArgs(
+      args, Options(), LDBOptions());
   level_reducer->Run();
   bool is_succeed = level_reducer->GetExecuteState().IsSucceed();
   delete level_reducer;

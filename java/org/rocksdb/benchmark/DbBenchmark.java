@@ -22,6 +22,7 @@
 package org.rocksdb.benchmark;
 
 import java.lang.Runnable;
+import java.lang.Math;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.Collection;
@@ -240,7 +241,8 @@ public class DbBenchmark {
         if (entriesPerBatch_ == 1) {
           for (long i = 0; i < numEntries_; ++i) {
             getKey(key, i, keyRange_);
-            db_.put(writeOpt_, key, DbBenchmark.this.gen_.generate(valueSize_));
+            DbBenchmark.this.gen_.generate(value);
+            db_.put(writeOpt_, key, value);
             stats_.finishedSingleOp(keySize_ + valueSize_);
             writeRateControl(i);
             if (isFinished()) {
@@ -252,7 +254,8 @@ public class DbBenchmark {
             WriteBatch batch = new WriteBatch();
             for (long j = 0; j < entriesPerBatch_; j++) {
               getKey(key, i + j, keyRange_);
-              batch.put(key, DbBenchmark.this.gen_.generate(valueSize_));
+              DbBenchmark.this.gen_.generate(value);
+              db_.put(writeOpt_, key, value);
               stats_.finishedSingleOp(keySize_ + valueSize_);
             }
             db_.write(writeOpt_, batch);
@@ -460,7 +463,7 @@ public class DbBenchmark {
       if (compressionType_.equals("snappy")) {
         System.loadLibrary("snappy");
       } else if (compressionType_.equals("zlib")) {
-        System.loadLibrary("zlib");
+        System.loadLibrary("z");
       } else if (compressionType_.equals("bzip2")) {
         System.loadLibrary("bzip2");
       } else if (compressionType_.equals("lz4")) {
@@ -473,7 +476,6 @@ public class DbBenchmark {
                         "No compression is used.%n",
           compressionType_, e.toString());
       compressionType_ = "none";
-      compressionRatio_ = 1.0;
     }
     gen_ = new RandomGenerator(randSeed_, compressionRatio_);
   }
@@ -1522,24 +1524,54 @@ public class DbBenchmark {
     private final byte[] data_;
     private int dataLength_;
     private int position_;
+    private double compressionRatio_;
     Random rand_;
 
     private RandomGenerator(long seed, double compressionRatio) {
       // We use a limited amount of data over and over again and ensure
       // that it is larger than the compression window (32KB), and also
+      byte[] value = new byte[100];
       // large enough to serve all typical value sizes we want to write.
       rand_ = new Random(seed);
-      dataLength_ = 1048576 + 100;
+      dataLength_ = value.length * 10000;
       data_ = new byte[dataLength_];
-      // TODO(yhchiang): mimic test::CompressibleString?
-      for (int i = 0; i < dataLength_; ++i) {
-        data_[i] = (byte) (' ' + rand_.nextInt(95));
+      compressionRatio_ = compressionRatio;
+      int pos = 0;
+      while (pos < dataLength_) {
+        compressibleBytes(value);
+        System.arraycopy(value, 0, data_, pos,
+                         Math.min(value.length, dataLength_ - pos));
+        pos += value.length;
       }
     }
 
-    private byte[] generate(int length) {
-      position_ = rand_.nextInt(data_.length - length);
-      return Arrays.copyOfRange(data_, position_, position_ + length);
+    private void compressibleBytes(byte[] value) {
+      int baseLength = value.length;
+      if (compressionRatio_ < 1.0d) {
+        baseLength = (int) (compressionRatio_ * value.length + 0.5);
+      }
+      if (baseLength <= 0) {
+        baseLength = 1;
+      }
+      int pos;
+      for (pos = 0; pos < baseLength; ++pos) {
+        value[pos] = (byte) (' ' + rand_.nextInt(95));  // ' ' .. '~'
+      }
+      while (pos < value.length) {
+        System.arraycopy(value, 0, value, pos,
+                         Math.min(baseLength, value.length - pos));
+        pos += baseLength;
+      }
+    }
+
+    private void generate(byte[] value) {
+      if (position_ + value.length > data_.length) {
+        position_ = 0;
+        assert(value.length <= data_.length);
+      }
+      position_ += value.length;
+      System.arraycopy(data_, position_ - value.length,
+                       value, 0, value.length);
     }
   }
 

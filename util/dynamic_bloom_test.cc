@@ -40,17 +40,19 @@ class DynamicBloomTest {
 };
 
 TEST(DynamicBloomTest, EmptyFilter) {
-  DynamicBloom bloom1(100, 0, 2);
+  Arena arena;
+  DynamicBloom bloom1(&arena, 100, 0, 2);
   ASSERT_TRUE(!bloom1.MayContain("hello"));
   ASSERT_TRUE(!bloom1.MayContain("world"));
 
-  DynamicBloom bloom2(CACHE_LINE_SIZE * 8 * 2 - 1, 1, 2);
+  DynamicBloom bloom2(&arena, CACHE_LINE_SIZE * 8 * 2 - 1, 1, 2);
   ASSERT_TRUE(!bloom2.MayContain("hello"));
   ASSERT_TRUE(!bloom2.MayContain("world"));
 }
 
 TEST(DynamicBloomTest, Small) {
-  DynamicBloom bloom1(100, 0, 2);
+  Arena arena;
+  DynamicBloom bloom1(&arena, 100, 0, 2);
   bloom1.Add("hello");
   bloom1.Add("world");
   ASSERT_TRUE(bloom1.MayContain("hello"));
@@ -58,7 +60,7 @@ TEST(DynamicBloomTest, Small) {
   ASSERT_TRUE(!bloom1.MayContain("x"));
   ASSERT_TRUE(!bloom1.MayContain("foo"));
 
-  DynamicBloom bloom2(CACHE_LINE_SIZE * 8 * 2 - 1, 1, 2);
+  DynamicBloom bloom2(&arena, CACHE_LINE_SIZE * 8 * 2 - 1, 1, 2);
   bloom2.Add("hello");
   bloom2.Add("world");
   ASSERT_TRUE(bloom2.MayContain("hello"));
@@ -94,13 +96,14 @@ TEST(DynamicBloomTest, VaryingLengths) {
   for (uint32_t enable_locality = 0; enable_locality < 2; ++enable_locality) {
     for (uint32_t num = 1; num <= 10000; num = NextNum(num)) {
       uint32_t bloom_bits = 0;
+      Arena arena;
       if (enable_locality == 0) {
         bloom_bits = std::max(num * FLAGS_bits_per_key, 64U);
       } else {
         bloom_bits = std::max(num * FLAGS_bits_per_key,
                               enable_locality * CACHE_LINE_SIZE * 8);
       }
-      DynamicBloom bloom(bloom_bits, enable_locality, num_probes);
+      DynamicBloom bloom(&arena, bloom_bits, enable_locality, num_probes);
       for (uint64_t i = 0; i < num; i++) {
         bloom.Add(Key(i, buffer));
         ASSERT_TRUE(bloom.MayContain(Key(i, buffer)));
@@ -148,10 +151,11 @@ TEST(DynamicBloomTest, perf) {
   }
 
   for (uint64_t m = 1; m <= 8; ++m) {
+    Arena arena;
     const uint64_t num_keys = m * 8 * 1024 * 1024;
     fprintf(stderr, "testing %" PRIu64 "M keys\n", m * 8);
 
-    DynamicBloom std_bloom(num_keys * 10, 0, num_probes);
+    DynamicBloom std_bloom(&arena, num_keys * 10, 0, num_probes);
 
     timer.Start();
     for (uint64_t i = 1; i <= num_keys; ++i) {
@@ -175,7 +179,7 @@ TEST(DynamicBloomTest, perf) {
     ASSERT_TRUE(count == num_keys);
 
     // Locality enabled version
-    DynamicBloom blocked_bloom(num_keys * 10, 1, num_probes);
+    DynamicBloom blocked_bloom(&arena, num_keys * 10, 1, num_probes);
 
       timer.Start();
       for (uint64_t i = 1; i <= num_keys; ++i) {

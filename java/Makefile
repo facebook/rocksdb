@@ -10,7 +10,9 @@ clean:
 
 java:
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
-	jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	@cp ../HISTORY.md ./HISTORY-CPP.md
+	jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md
+	@rm -f ./HISTORY-CPP.md
 	javah -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
 
 sample: java
@@ -27,6 +29,7 @@ test: java
 	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.test.BackupableDBTest
 	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.test.OptionsTest
 	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.test.ReadOptionsTest
+	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.test.StatisticsCollectorTest
 
 db_bench: java
 	javac org/rocksdb/benchmark/*.java

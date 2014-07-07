@@ -224,8 +224,7 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
   if (dummy_versions != nullptr) {
     internal_stats_.reset(new InternalStats(
         options_.num_levels, db_options->env, db_options->statistics.get()));
-    table_cache_.reset(
-        new TableCache(dbname, &options_, storage_options, table_cache));
+    table_cache_.reset(new TableCache(&options_, storage_options, table_cache));
     if (options_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(&options_, &internal_comparator_));
@@ -243,6 +242,8 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
     const ColumnFamilyOptions* cf_options = &options_;
     cf_options->Dump(options_.info_log.get());
   }
+
+  RecalculateWriteStallConditions();
 }
 
 // DB mutex held
@@ -295,6 +296,35 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 }
 
+void ColumnFamilyData::RecalculateWriteStallConditions() {
+  need_wait_for_num_memtables_ =
+    (imm()->size() == options()->max_write_buffer_number - 1);
+
+  if (current_ != nullptr) {
+    need_wait_for_num_level0_files_ =
+      (current_->NumLevelFiles(0) >= options()->level0_stop_writes_trigger);
+  } else {
+    need_wait_for_num_level0_files_ = false;
+  }
+
+  RecalculateWriteStallRateLimitsConditions();
+}
+
+void ColumnFamilyData::RecalculateWriteStallRateLimitsConditions() {
+  if (current_ != nullptr) {
+    exceeds_hard_rate_limit_ =
+        (options()->hard_rate_limit > 1.0 &&
+         current_->MaxCompactionScore() > options()->hard_rate_limit);
+
+    exceeds_soft_rate_limit_ =
+        (options()->soft_rate_limit > 0.0 &&
+         current_->MaxCompactionScore() > options()->soft_rate_limit);
+  } else {
+    exceeds_hard_rate_limit_ = false;
+    exceeds_soft_rate_limit_ = false;
+  }
+}
+
 const EnvOptions* ColumnFamilyData::soptions() const {
   return &(column_family_set_->storage_options_);
 }
@@ -316,7 +346,9 @@ void ColumnFamilyData::CreateNewMemtable() {
 }
 
 Compaction* ColumnFamilyData::PickCompaction(LogBuffer* log_buffer) {
-  return compaction_picker_->PickCompaction(current_, log_buffer);
+  auto result = compaction_picker_->PickCompaction(current_, log_buffer);
+  RecalculateWriteStallRateLimitsConditions();
+  return result;
 }
 
 Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
@@ -420,6 +452,9 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   if (column_family_set_->db_options_->allow_thread_local) {
     ResetThreadLocalSuperVersions();
   }
+
+  RecalculateWriteStallConditions();
+
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
     return old_superversion;  // will let caller delete outside of mutex

@@ -98,7 +98,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   }
 
   // Make a set of all of the live *.sst files
-  std::set<uint64_t> live;
+  std::vector<FileDescriptor> live;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     cfd->current()->AddLiveFiles(&live);
   }
@@ -109,7 +109,7 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   // create names of the live files. The names are not absolute
   // paths, instead they are relative to dbname_;
   for (auto live_file : live) {
-    ret.push_back(TableFileName("", live_file));
+    ret.push_back(MakeTableFileName("", live_file.GetNumber()));
   }
 
   ret.push_back(CurrentFileName(""));

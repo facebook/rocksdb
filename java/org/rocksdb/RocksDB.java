@@ -21,7 +21,7 @@ import org.rocksdb.util.Environment;
 public class RocksDB extends RocksObject {
   public static final int NOT_FOUND = -1;
   private static final String[] compressionLibs_ = {
-      "snappy", "zlib", "bzip2", "lz4", "lz4hc"};
+      "snappy", "z", "bzip2", "lz4", "lz4hc"};
 
   /**
    * Loads the necessary library files.
@@ -93,10 +93,7 @@ public class RocksDB extends RocksObject {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     Options options = new Options();
-    db.open(options.nativeHandle_, options.cacheSize_, path);
-    db.transferCppRawPointersOwnershipFrom(options);
-    options.dispose();
-    return db;
+    return open(options, path);
   }
 
   /**

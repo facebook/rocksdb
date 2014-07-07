@@ -1,6 +1,13 @@
 # Rocksdb Change Log
 
-## Unreleased (will be released with 3.2.0)
+## Unreleased
+
+### New Features
+* HashLinklist reduces performance outlier caused by skewed bucket by switching data in the bucket from linked list to skip list. Add parameter threshold_use_skiplist in NewHashLinkListRepFactory().
+* RocksDB is now able to reclaim storage space more effectively during the compaction process.  This is done by compensating the size of each deletion entry by the 2X average value size, which makes compaction to be triggerred by deletion entries more easily.
+* Add TimeOut API to write.  Now WriteOptions have a variable called timeout_hint_us.  With timeout_hint_us set to non-zero, any write associated with this timeout_hint_us may be aborted when it runs longer than the specified timeout_hint_us, and it is guaranteed that any write completes earlier than the specified time-out will not be aborted due to the time-out condition.
+
+## 3.2.0 (06/20/2014)
 
 ### Public API changes
 * We removed seek compaction as a concept from RocksDB because:
@@ -8,17 +15,24 @@
 2) It added some complexity to the important code-paths,
 3) None of our internal customers were really using it.
 Because of that, Options::disable_seek_compaction is now obsolete. It is still a parameter in Options, so it does not break the build, but it does not have any effect. We plan to completely remove it at some point, so we ask users to please remove this option from your code base.
+* Add two paramters to NewHashLinkListRepFactory() for logging on too many entries in a hash bucket when flushing.
+* Added new option BlockBasedTableOptions::hash_index_allow_collision. When enabled, prefix hash index for block-based table will not store prefix and allow hash collision, reducing memory consumption.
+
+### New Features
+* PlainTable now supports a new key encoding: for keys of the same prefix, the prefix is only written once. It can be enabled through encoding_type paramter of NewPlainTableFactory()
+* Add AdaptiveTableFactory, which is used to convert from a DB of PlainTable to BlockBasedTabe, or vise versa. It can be created using NewAdaptiveTableFactory()
+
+### Performance Improvements
+* Tailing Iterator re-implemeted with ForwardIterator + Cascading Search Hint , see ~20% throughput improvement.
 
 ## 3.1.0 (05/21/2014)
 
 ### Public API changes
 * Replaced ColumnFamilyOptions::table_properties_collectors with ColumnFamilyOptions::table_properties_collector_factories
-* Add two paramters to NewHashLinkListRepFactory() for logging on too many entries in a hash bucket when flushing.
 
 ### New Features
 * Hash index for block-based table will be materialized and reconstructed more efficiently. Previously hash index is constructed by scanning the whole table during every table open.
 * FIFO compaction style
-* Add AdaptiveTableFactory, which is used to convert from a DB of PlainTable to BlockBasedTabe, or vise versa. It can be created using NewAdaptiveTableFactory()
 
 ## 3.0.0 (05/05/2014)
 

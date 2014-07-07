@@ -9,6 +9,17 @@
 
 namespace rocksdb {
 
+class DefaultSliceFormatter : public SliceFormatter {
+ public:
+  virtual std::string Format(const Slice& s) const override {
+    return s.ToString();
+  }
+};
+
+LDBOptions::LDBOptions()
+    : key_formatter(new DefaultSliceFormatter()) {
+}
+
 class LDBCommandRunner {
 public:
 
@@ -71,13 +82,15 @@ public:
     fprintf(stderr, "%s\n", ret.c_str());
   }
 
-  static void RunCommand(int argc, char** argv, Options options) {
+  static void RunCommand(int argc, char** argv, Options options,
+                         const LDBOptions& ldb_options) {
     if (argc <= 2) {
       PrintHelp(argv[0]);
       exit(1);
     }
 
-    LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(argc, argv, options);
+    LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(argc, argv, options,
+                                                         ldb_options);
     if (cmdObj == nullptr) {
       fprintf(stderr, "Unknown command\n");
       PrintHelp(argv[0]);
@@ -99,8 +112,9 @@ public:
 };
 
 
-void LDBTool::Run(int argc, char** argv, Options options) {
-  LDBCommandRunner::RunCommand(argc, argv, options);
+void LDBTool::Run(int argc, char** argv, Options options,
+                  const LDBOptions& ldb_options) {
+  LDBCommandRunner::RunCommand(argc, argv, options, ldb_options);
 }
 } // namespace rocksdb
 

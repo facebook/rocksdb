@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <climits>
+#include <vector>
 
 namespace rocksdb {
 
@@ -61,6 +62,7 @@ class CompactionOptionsUniversal {
   // well as  the total size of C1...Ct as total_C, the compaction output file
   // will be compressed iff
   //   total_C / total_size < this percentage
+  // Default: -1
   int compression_size_percent;
 
   // The algorithm used to stop picking files into a single compaction run
@@ -68,14 +70,13 @@ class CompactionOptionsUniversal {
   CompactionStopStyle stop_style;
 
   // Default set of parameters
-  CompactionOptionsUniversal() :
-    size_ratio(1),
-    min_merge_width(2),
-    max_merge_width(UINT_MAX),
-    max_size_amplification_percent(200),
-    compression_size_percent(-1),
-    stop_style(kCompactionStopStyleTotalSize) {
-  }
+  CompactionOptionsUniversal()
+      : size_ratio(1),
+        min_merge_width(2),
+        max_merge_width(UINT_MAX),
+        max_size_amplification_percent(200),
+        compression_size_percent(-1),
+        stop_style(kCompactionStopStyleTotalSize) {}
 };
 
 }  // namespace rocksdb

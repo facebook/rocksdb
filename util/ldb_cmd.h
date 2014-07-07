@@ -13,8 +13,9 @@
 
 #include "db/version_set.h"
 #include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/ldb_tool.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "util/logging.h"
 #include "util/ldb_cmd_execute_result.h"
@@ -54,21 +55,27 @@ public:
 
   static LDBCommand* InitFromCmdLineArgs(
     const vector<string>& args,
-    const Options& options = Options()
+    const Options& options,
+    const LDBOptions& ldb_options
   );
 
   static LDBCommand* InitFromCmdLineArgs(
     int argc,
     char** argv,
-    const Options& options = Options()
+    const Options& options,
+    const LDBOptions& ldb_options
   );
 
   bool ValidateCmdLineOptions();
 
   virtual Options PrepareOptionsForOpenDB();
 
-  virtual void SetOptions(Options options) {
+  virtual void SetDBOptions(Options options) {
     options_ = options;
+  }
+
+  void SetLDBOptions(const LDBOptions& ldb_options) {
+    ldb_options_ = ldb_options;
   }
 
   virtual bool NoDBOpen() {
@@ -291,6 +298,7 @@ protected:
                          const string& option, string* value);
 
   Options options_;
+  LDBOptions ldb_options_;
 
 private:
 

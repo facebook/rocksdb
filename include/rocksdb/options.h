@@ -675,6 +675,13 @@ struct DBOptions {
   // Default value is 1800 (half an hour).
   int db_stats_log_interval;
 
+  // A list paths where SST files can be put into. A compaction style can
+  // determine which of those paths it will put the file to.
+  // If left empty, only one path will be used, which is db_name passed when
+  // opening the DB.
+  // Default: empty
+  std::vector<std::string> db_paths;
+
   // This specifies the info LOG dir.
   // If it is empty, the log files will be in the same dir as data.
   // If it is non empty, the log files will be in the specified dir,
@@ -968,7 +975,18 @@ struct WriteOptions {
   // and the write may got lost after a crash.
   bool disableWAL;
 
-  WriteOptions() : sync(false), disableWAL(false) {}
+  // If non-zero, then associated write waiting longer than the specified
+  // time MAY be aborted and returns Status::TimedOut. A write that takes
+  // less than the specified time is guaranteed to not fail with
+  // Status::TimedOut.
+  //
+  // The number of times a write call encounters a timeout is recorded in
+  // Statistics.WRITE_TIMEDOUT
+  //
+  // Default: 0
+  uint64_t timeout_hint_us;
+
+  WriteOptions() : sync(false), disableWAL(false), timeout_hint_us(0) {}
 };
 
 // Options that control flush operations

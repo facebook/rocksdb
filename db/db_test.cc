@@ -98,7 +98,12 @@ class AtomicCounter {
     count_ = 0;
   }
 };
+}  // namespace anon
 
+static std::string Key(int i) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "key%06d", i);
+  return std::string(buf);
 }
 
 // Special Env used to delay background operations
@@ -355,7 +360,10 @@ class DBTest {
 
   ~DBTest() {
     Close();
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    Options options;
+    options.db_paths.push_back(dbname_);
+    options.db_paths.push_back(dbname_ + "_2");
+    ASSERT_OK(DestroyDB(dbname_, options));
     delete env_;
     delete filter_policy_;
   }
@@ -436,7 +444,8 @@ class DBTest {
     switch (option_config_) {
       case kHashSkipList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-        options.memtable_factory.reset(NewHashSkipListRepFactory());
+        options.memtable_factory.reset(
+            NewHashSkipListRepFactory(16));
         break;
       case kPlainTableFirstBytePrefix:
         options.table_factory.reset(new PlainTableFactory());
@@ -466,7 +475,7 @@ class DBTest {
         options.db_log_dir = test::TmpDir();
         break;
       case kWalDir:
-        options.wal_dir = "/tmp/wal";
+        options.wal_dir = test::TmpDir() + "/wal";
         break;
       case kManifestFileSize:
         options.max_manifest_file_size = 50; // 50 bytes
@@ -487,7 +496,8 @@ class DBTest {
         break;
       case kHashLinkList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-        options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0));
+        options.memtable_factory.reset(
+            NewHashLinkListRepFactory(4, 0, 3, true, 4));
         break;
       case kHashCuckoo:
         options.memtable_factory.reset(
@@ -895,6 +905,30 @@ class DBTest {
     return property;
   }
 
+  int GetSstFileCount(std::string path) {
+    std::vector<std::string> files;
+    env_->GetChildren(path, &files);
+
+    int sst_count = 0;
+    uint64_t number;
+    FileType type;
+    for (size_t i = 0; i < files.size(); i++) {
+      if (ParseFileName(files[i], &number, &type) && type == kTableFile) {
+        sst_count++;
+      }
+    }
+    return sst_count;
+  }
+
+  void GenerateNewFile(Random* rnd, int* key_idx) {
+    for (int i = 0; i < 11; i++) {
+      ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 10) ? 1 : 10000)));
+      (*key_idx)++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+
   std::string IterStatus(Iterator* iter) {
     std::string result;
     if (iter->Valid()) {
@@ -1034,12 +1068,6 @@ class DBTest {
   }
 
 };
-
-static std::string Key(int i) {
-  char buf[100];
-  snprintf(buf, sizeof(buf), "key%06d", i);
-  return std::string(buf);
-}
 
 static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
   return options.statistics->getTickerCount(ticker_type);
@@ -2726,6 +2754,119 @@ TEST(DBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 1);
 }
 
+namespace {
+static const int kCDTValueSize = 1000;
+static const int kCDTKeysPerBuffer = 4;
+static const int kCDTNumLevels = 8;
+Options DeletionTriggerOptions() {
+  Options options;
+  options.compression = kNoCompression;
+  options.write_buffer_size = kCDTKeysPerBuffer * (kCDTValueSize + 24);
+  options.min_write_buffer_number_to_merge = 1;
+  options.num_levels = kCDTNumLevels;
+  options.max_mem_compaction_level = 0;
+  options.level0_file_num_compaction_trigger = 1;
+  options.target_file_size_base = options.write_buffer_size * 2;
+  options.target_file_size_multiplier = 2;
+  options.max_bytes_for_level_base =
+      options.target_file_size_base * options.target_file_size_multiplier;
+  options.max_bytes_for_level_multiplier = 2;
+  options.disable_auto_compactions = false;
+  return options;
+}
+}  // anonymous namespace
+
+TEST(DBTest, CompactionDeletionTrigger) {
+  Options options = DeletionTriggerOptions();
+  options.create_if_missing = true;
+
+  for (int tid = 0; tid < 2; ++tid) {
+    uint64_t db_size[2];
+
+    DestroyAndReopen(&options);
+    Random rnd(301);
+
+    const int kTestSize = kCDTKeysPerBuffer * 512;
+    std::vector<std::string> values;
+    for (int k = 0; k < kTestSize; ++k) {
+      values.push_back(RandomString(&rnd, kCDTValueSize));
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[0] = Size(Key(0), Key(kTestSize - 1));
+
+    for (int k = 0; k < kTestSize; ++k) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[1] = Size(Key(0), Key(kTestSize - 1));
+
+    // must have much smaller db size.
+    ASSERT_GT(db_size[0] / 3, db_size[1]);
+
+    // repeat the test with universal compaction
+    options.compaction_style = kCompactionStyleUniversal;
+    options.num_levels = 1;
+  }
+}
+
+TEST(DBTest, CompactionDeletionTriggerReopen) {
+  for (int tid = 0; tid < 2; ++tid) {
+    uint64_t db_size[3];
+    Options options = DeletionTriggerOptions();
+    options.create_if_missing = true;
+
+    DestroyAndReopen(&options);
+    Random rnd(301);
+
+    // round 1 --- insert key/value pairs.
+    const int kTestSize = kCDTKeysPerBuffer * 512;
+    std::vector<std::string> values;
+    for (int k = 0; k < kTestSize; ++k) {
+      values.push_back(RandomString(&rnd, kCDTValueSize));
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[0] = Size(Key(0), Key(kTestSize - 1));
+    Close();
+
+    // round 2 --- disable auto-compactions and issue deletions.
+    options.create_if_missing = false;
+    options.disable_auto_compactions = true;
+    Reopen(&options);
+
+    for (int k = 0; k < kTestSize; ++k) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    db_size[1] = Size(Key(0), Key(kTestSize - 1));
+    Close();
+    // as auto_compaction is off, we shouldn't see too much reduce
+    // in db size.
+    ASSERT_LT(db_size[0] / 3, db_size[1]);
+
+    // round 3 --- reopen db with auto_compaction on and see if
+    // deletion compensation still work.
+    options.disable_auto_compactions = false;
+    Reopen(&options);
+    // insert relatively small amount of data to trigger auto compaction.
+    for (int k = 0; k < kTestSize / 10; ++k) {
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[2] = Size(Key(0), Key(kTestSize - 1));
+    // this time we're expecting significant drop in size.
+    ASSERT_GT(db_size[0] / 3, db_size[2]);
+
+    // repeat the test with universal compaction
+    options.compaction_style = kCompactionStyleUniversal;
+    options.num_levels = 1;
+  }
+}
+
 // This is a static filter used for filtering
 // kvs during the compaction process.
 static int cfilter_count;
@@ -3318,6 +3459,13 @@ TEST(DBTest, UniversalCompactionCompressRatio2) {
   }
   ASSERT_LT((int)dbfull()->TEST_GetLevel0TotalSize(),
             120000 * 12 * 0.8 + 120000 * 2);
+}
+
+TEST(DBTest, FailMoreDbPaths) {
+  Options options;
+  options.db_paths.push_back(dbname_);
+  options.db_paths.push_back(dbname_ + "_2");
+  ASSERT_TRUE(TryReopen(&options).IsNotSupported());
 }
 #endif
 
@@ -6578,7 +6726,7 @@ TEST(DBTest, PrefixScan) {
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
   options.create_if_missing = true;
-  options.memtable_factory.reset(NewHashSkipListRepFactory());
+  options.memtable_factory.reset(NewHashSkipListRepFactory(16));
 
   // 11 RAND I/Os
   DestroyAndReopen(&options);
@@ -6735,7 +6883,7 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
-  options.memtable_factory.reset(NewHashSkipListRepFactory());
+  options.memtable_factory.reset(NewHashSkipListRepFactory(16));
   DestroyAndReopen(&options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
@@ -6853,6 +7001,128 @@ TEST(DBTest, FIFOCompactionTest) {
     }
   }
 }
+
+TEST(DBTest, SimpleWriteTimeoutTest) {
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.write_buffer_size = 100000;
+  options.max_background_flushes = 0;
+  options.max_write_buffer_number = 2;
+  options.min_write_buffer_number_to_merge = 3;
+  options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
+  WriteOptions write_opt = WriteOptions();
+  write_opt.timeout_hint_us = 500;
+  DestroyAndReopen(&options);
+  // fill the two write buffer
+  ASSERT_OK(Put(Key(1), Key(1) + std::string(100000, 'v'), write_opt));
+  ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
+  // As the only two write buffers are full in this moment, the third
+  // Put is expected to be timed-out.
+  ASSERT_TRUE(
+      Put(Key(3), Key(3) + std::string(100000, 'v'), write_opt).IsTimedOut());
+}
+
+// Multi-threaded Timeout Test
+namespace {
+
+static const int kValueSize = 1000;
+static const int kWriteBufferSize = 100000;
+
+struct TimeoutWriterState {
+  int id;
+  DB* db;
+  std::atomic<bool> done;
+  std::map<int, std::string> success_kvs;
+};
+
+static void RandomTimeoutWriter(void* arg) {
+  TimeoutWriterState* state = reinterpret_cast<TimeoutWriterState*>(arg);
+  static const uint64_t kTimerBias = 50;
+  int thread_id = state->id;
+  DB* db = state->db;
+
+  Random rnd(1000 + thread_id);
+  WriteOptions write_opt = WriteOptions();
+  write_opt.timeout_hint_us = 500;
+  int timeout_count = 0;
+  int num_keys = kNumKeys * 5;
+
+  for (int k = 0; k < num_keys; ++k) {
+    int key = k + thread_id * num_keys;
+    std::string value = RandomString(&rnd, kValueSize);
+    // only the second-half is randomized
+    if (k > num_keys / 2) {
+      switch (rnd.Next() % 5) {
+        case 0:
+          write_opt.timeout_hint_us = 500 * thread_id;
+          break;
+        case 1:
+          write_opt.timeout_hint_us = num_keys - k;
+          break;
+        case 2:
+          write_opt.timeout_hint_us = 1;
+          break;
+        default:
+          write_opt.timeout_hint_us = 0;
+          state->success_kvs.insert({key, value});
+      }
+    }
+
+    uint64_t time_before_put = db->GetEnv()->NowMicros();
+    Status s = db->Put(write_opt, Key(key), value);
+    uint64_t put_duration = db->GetEnv()->NowMicros() - time_before_put;
+    if (write_opt.timeout_hint_us == 0 ||
+        put_duration + kTimerBias < write_opt.timeout_hint_us) {
+      ASSERT_OK(s);
+      std::string result;
+    }
+    if (s.IsTimedOut()) {
+      timeout_count++;
+      ASSERT_GT(put_duration + kTimerBias, write_opt.timeout_hint_us);
+    }
+  }
+
+  state->done = true;
+}
+
+TEST(DBTest, MTRandomTimeoutTest) {
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 2;
+  options.compression = kNoCompression;
+  options.level0_slowdown_writes_trigger = 10;
+  options.level0_stop_writes_trigger = 20;
+  options.write_buffer_size = kWriteBufferSize;
+  DestroyAndReopen(&options);
+
+  TimeoutWriterState thread_states[kNumThreads];
+  for (int tid = 0; tid < kNumThreads; ++tid) {
+    thread_states[tid].id = tid;
+    thread_states[tid].db = db_;
+    thread_states[tid].done = false;
+    env_->StartThread(RandomTimeoutWriter, &thread_states[tid]);
+  }
+
+  for (int tid = 0; tid < kNumThreads; ++tid) {
+    while (thread_states[tid].done == false) {
+      env_->SleepForMicroseconds(100000);
+    }
+  }
+
+  Flush();
+
+  for (int tid = 0; tid < kNumThreads; ++tid) {
+    auto& success_kvs = thread_states[tid].success_kvs;
+    for (auto it = success_kvs.begin(); it != success_kvs.end(); ++it) {
+      ASSERT_EQ(Get(Key(it->first)), it->second);
+    }
+  }
+}
+
+}  // anonymous namespace
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
