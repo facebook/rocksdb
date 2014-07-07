@@ -584,8 +584,12 @@ class DBImpl : public DB {
   bool flush_on_destroy_; // Used when disableWAL is true.
 
   static const int KEEP_LOG_FILE_NUM = 1000;
+#if !defined(_MSC_VER)
   static const uint64_t kNoTimeOut = std::numeric_limits<uint64_t>::max();
-  std::string db_absolute_path_;
+#else
+  static const uint64_t kNoTimeOut = UINT64_MAX;
+#endif
+    std::string db_absolute_path_;
 
   // count of the number of contiguous delaying writes
   int delayed_writes_;
