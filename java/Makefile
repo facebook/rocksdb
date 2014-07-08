@@ -3,6 +3,11 @@ NATIVE_JAVA_CLASSES = org.rocksdb.RocksDB org.rocksdb.Options org.rocksdb.WriteB
 NATIVE_INCLUDE = ./include
 ROCKSDB_JAR = rocksdbjni.jar
 
+ROCKSDBJNILIB = ./librocksdbjni.so
+ifeq ($(PLATFORM), OS_MACOSX)
+  ROCKSDBJNILIB = ./librocksdbjni.jnilib
+endif
+
 clean:
 	-find . -name "*.class" -exec rm {} \;
 	-find . -name "hs*.log" -exec rm {} \;
@@ -11,7 +16,7 @@ clean:
 java:
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
 	@cp ../HISTORY.md ./HISTORY-CPP.md
-	jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md
+	jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
 	@rm -f ./HISTORY-CPP.md
 	javah -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
 
