@@ -22,7 +22,7 @@ class RocksDBJni {
  public:
   // Get the java class id of org.rocksdb.RocksDB.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/RocksDB");
+    jclass jclazz = env->FindClass("org/rocksdb/RocksDB");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -30,7 +30,7 @@ class RocksDBJni {
   // Get the field id of the member variable of org.rocksdb.RocksDB
   // that stores the pointer to rocksdb::DB.
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -55,7 +55,7 @@ class RocksDBExceptionJni {
  public:
   // Get the jclass of org.rocksdb.RocksDBException
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/RocksDBException");
+    jclass jclazz = env->FindClass("org/rocksdb/RocksDBException");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -71,7 +71,7 @@ class RocksDBExceptionJni {
     }
     jstring msg = env->NewStringUTF(s.ToString().c_str());
     // get the constructor id of org.rocksdb.RocksDBException
-    static jmethodID mid = env->GetMethodID(
+    jmethodID mid = env->GetMethodID(
         getJClass(env), "<init>", "(Ljava/lang/String;)V");
     assert(mid != nullptr);
 
@@ -83,7 +83,7 @@ class OptionsJni {
  public:
   // Get the java class id of org.rocksdb.Options.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/Options");
+    jclass jclazz = env->FindClass("org/rocksdb/Options");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -91,7 +91,7 @@ class OptionsJni {
   // Get the field id of the member variable of org.rocksdb.Options
   // that stores the pointer to rocksdb::Options
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -115,7 +115,7 @@ class WriteOptionsJni {
  public:
   // Get the java class id of org.rocksdb.WriteOptions.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/WriteOptions");
+    jclass jclazz = env->FindClass("org/rocksdb/WriteOptions");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -123,7 +123,7 @@ class WriteOptionsJni {
   // Get the field id of the member variable of org.rocksdb.WriteOptions
   // that stores the pointer to rocksdb::WriteOptions
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -148,7 +148,7 @@ class ReadOptionsJni {
  public:
   // Get the java class id of org.rocksdb.ReadOptions.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/ReadOptions");
+    jclass jclazz = env->FindClass("org/rocksdb/ReadOptions");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -156,7 +156,7 @@ class ReadOptionsJni {
   // Get the field id of the member variable of org.rocksdb.ReadOptions
   // that stores the pointer to rocksdb::ReadOptions
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -181,13 +181,13 @@ class ReadOptionsJni {
 class WriteBatchJni {
  public:
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/WriteBatch");
+    jclass jclazz = env->FindClass("org/rocksdb/WriteBatch");
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -211,7 +211,7 @@ class WriteBatchJni {
 class HistogramDataJni {
  public:
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass jclazz) {
-    static jmethodID mid = env->GetMethodID(
+    jmethodID mid = env->GetMethodID(
         jclazz, "<init>", "(DDDDD)V");
     assert(mid != nullptr);
     return mid;
@@ -222,7 +222,7 @@ class BackupableDBOptionsJni {
  public:
   // Get the java class id of org.rocksdb.BackupableDBOptions.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/BackupableDBOptions");
+    jclass jclazz = env->FindClass("org/rocksdb/BackupableDBOptions");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -230,7 +230,7 @@ class BackupableDBOptionsJni {
   // Get the field id of the member variable of org.rocksdb.BackupableDBOptions
   // that stores the pointer to rocksdb::BackupableDBOptions
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -255,7 +255,7 @@ class IteratorJni {
  public:
   // Get the java class id of org.rocksdb.Iteartor.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/RocksIterator");
+    jclass jclazz = env->FindClass("org/rocksdb/RocksIterator");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -263,7 +263,7 @@ class IteratorJni {
   // Get the field id of the member variable of org.rocksdb.Iterator
   // that stores the pointer to rocksdb::Iterator.
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -288,7 +288,7 @@ class FilterJni {
  public:
   // Get the java class id of org.rocksdb.FilterPolicy.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/Filter");
+    jclass jclazz = env->FindClass("org/rocksdb/Filter");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -296,7 +296,7 @@ class FilterJni {
   // Get the field id of the member variable of org.rocksdb.Filter
   // that stores the pointer to rocksdb::FilterPolicy.
   static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
+    jfieldID fid = env->GetFieldID(
         getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
@@ -321,28 +321,28 @@ class ListJni {
  public:
   // Get the java class id of java.util.List.
   static jclass getListClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("java/util/List");
+    jclass jclazz = env->FindClass("java/util/List");
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   // Get the java class id of java.util.ArrayList.
   static jclass getArrayListClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("java/util/ArrayList");
+    jclass jclazz = env->FindClass("java/util/ArrayList");
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   // Get the java class id of java.util.Iterator.
   static jclass getIteratorClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("java/util/Iterator");
+    jclass jclazz = env->FindClass("java/util/Iterator");
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   // Get the java method id of java.util.List.iterator().
   static jmethodID getIteratorMethod(JNIEnv* env) {
-    static jmethodID mid = env->GetMethodID(
+    jmethodID mid = env->GetMethodID(
         getListClass(env), "iterator", "()Ljava/util/Iterator;");
     assert(mid != nullptr);
     return mid;
@@ -350,7 +350,7 @@ class ListJni {
 
   // Get the java method id of java.util.Iterator.hasNext().
   static jmethodID getHasNextMethod(JNIEnv* env) {
-    static jmethodID mid = env->GetMethodID(
+    jmethodID mid = env->GetMethodID(
         getIteratorClass(env), "hasNext", "()Z");
     assert(mid != nullptr);
     return mid;
@@ -358,7 +358,7 @@ class ListJni {
 
   // Get the java method id of java.util.Iterator.next().
   static jmethodID getNextMethod(JNIEnv* env) {
-    static jmethodID mid = env->GetMethodID(
+    jmethodID mid = env->GetMethodID(
         getIteratorClass(env), "next", "()Ljava/lang/Object;");
     assert(mid != nullptr);
     return mid;
@@ -366,7 +366,7 @@ class ListJni {
 
   // Get the java method id of arrayList constructor.
   static jmethodID getArrayListConstructorMethodId(JNIEnv* env, jclass jclazz) {
-    static jmethodID mid = env->GetMethodID(
+    jmethodID mid = env->GetMethodID(
         jclazz, "<init>", "(I)V");
     assert(mid != nullptr);
     return mid;
@@ -374,7 +374,7 @@ class ListJni {
 
   // Get the java method id of java.util.List.add().
   static jmethodID getListAddMethodId(JNIEnv* env) {
-    static jmethodID mid = env->GetMethodID(
+    jmethodID mid = env->GetMethodID(
         getListClass(env), "add", "(Ljava/lang/Object;)Z");
     assert(mid != nullptr);
     return mid;
