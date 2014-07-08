@@ -27,6 +27,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
@@ -35,6 +36,7 @@
 #include "utilities/merge_operators.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/rate_limiter.h"
 #include "util/statistics.h"
 #include "util/testharness.h"
 #include "util/sync_point.h"
@@ -135,6 +137,8 @@ class SpecialEnv : public EnvWrapper {
 
   anon::AtomicCounter sleep_counter_;
 
+  std::atomic<int64_t> bytes_written_;
+
   explicit SpecialEnv(Env* base) : EnvWrapper(base) {
     delay_sstable_sync_.Release_Store(nullptr);
     no_space_.Release_Store(nullptr);
@@ -144,7 +148,8 @@ class SpecialEnv : public EnvWrapper {
     manifest_sync_error_.Release_Store(nullptr);
     manifest_write_error_.Release_Store(nullptr);
     log_write_error_.Release_Store(nullptr);
-   }
+    bytes_written_ = 0;
+  }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
                          const EnvOptions& soptions) {
@@ -163,6 +168,7 @@ class SpecialEnv : public EnvWrapper {
           // Drop writes on the floor
           return Status::OK();
         } else {
+          env_->bytes_written_ += data.size();
           return base_->Append(data);
         }
       }
@@ -173,6 +179,9 @@ class SpecialEnv : public EnvWrapper {
           env_->SleepForMicroseconds(100000);
         }
         return base_->Sync();
+      }
+      void SetIOPriority(Env::IOPriority pri) {
+        base_->SetIOPriority(pri);
       }
     };
     class ManifestFile : public WritableFile {
@@ -7123,6 +7132,67 @@ TEST(DBTest, MTRandomTimeoutTest) {
 }
 
 }  // anonymous namespace
+
+TEST(DBTest, RateLimitingTest) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1 << 20;          // 1MB
+  options.level0_file_num_compaction_trigger = 10;
+  options.target_file_size_base = 1 << 20;      // 1MB
+  options.max_bytes_for_level_base = 10 << 20;  // 10MB
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options.env = env_;
+  DestroyAndReopen(&options);
+
+  // # no rate limiting
+  Random rnd(301);
+  uint64_t start = env_->NowMicros();
+  // Write ~32M data
+  for (int64_t i = 0; i < (32 << 10); ++i) {
+    ASSERT_OK(Put(std::to_string(i), RandomString(&rnd, (1 << 10) + 1)));
+  }
+  uint64_t elapsed = env_->NowMicros() - start;
+  double raw_rate = env_->bytes_written_ * 1000000 / elapsed;
+  Close();
+
+  // # rate limiting with 0.7 x threshold
+  options.rate_limiter.reset(
+      NewRateLimiter(static_cast<int64_t>(0.7 * raw_rate)));
+  env_->bytes_written_ = 0;
+  DestroyAndReopen(&options);
+
+  start = env_->NowMicros();
+  // Write ~32M data
+  for (int64_t i = 0; i < (32 << 10); ++i) {
+    ASSERT_OK(Put(std::to_string(i), RandomString(&rnd, (1 << 10) + 1)));
+  }
+  elapsed = env_->NowMicros() - start;
+  Close();
+  ASSERT_TRUE(options.rate_limiter->GetTotalBytesThrough() ==
+              env_->bytes_written_);
+  double ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
+  fprintf(stderr, "write rate ratio = %.2lf, expected 0.7\n", ratio);
+  ASSERT_TRUE(ratio > 0.6 && ratio < 0.8);
+
+  // # rate limiting with half of the raw_rate
+  options.rate_limiter.reset(
+      NewRateLimiter(static_cast<int64_t>(raw_rate / 2)));
+  env_->bytes_written_ = 0;
+  DestroyAndReopen(&options);
+
+  start = env_->NowMicros();
+  // Write ~32M data
+  for (int64_t i = 0; i < (32 << 10); ++i) {
+    ASSERT_OK(Put(std::to_string(i), RandomString(&rnd, (1 << 10) + 1)));
+  }
+  elapsed = env_->NowMicros() - start;
+  Close();
+  ASSERT_TRUE(options.rate_limiter->GetTotalBytesThrough() ==
+              env_->bytes_written_);
+  ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
+  fprintf(stderr, "write rate ratio = %.2lf, expected 0.5\n", ratio);
+  ASSERT_TRUE(ratio > 0.4 && ratio < 0.6);
+}
 
 }  // namespace rocksdb
 

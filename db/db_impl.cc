@@ -1406,7 +1406,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
     s = BuildTable(dbname_, env_, *cfd->options(), storage_options_,
                    cfd->table_cache(), iter, &meta, cfd->internal_comparator(),
                    newest_snapshot, earliest_seqno_in_memtable,
-                   GetCompressionFlush(*cfd->options()));
+                   GetCompressionFlush(*cfd->options()), Env::IO_HIGH);
     LogFlush(options_.info_log);
     mutex_.Lock();
   }
@@ -1473,7 +1473,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     s = BuildTable(dbname_, env_, *cfd->options(), storage_options_,
                    cfd->table_cache(), iter, &meta, cfd->internal_comparator(),
                    newest_snapshot, earliest_seqno_in_memtable,
-                   GetCompressionFlush(*cfd->options()));
+                   GetCompressionFlush(*cfd->options()), Env::IO_HIGH);
     LogFlush(options_.info_log);
     delete iter;
     Log(options_.info_log,
@@ -2385,6 +2385,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   Status s = env_->NewWritableFile(fname, &compact->outfile, storage_options_);
 
   if (s.ok()) {
+    compact->outfile->SetIOPriority(Env::IO_LOW);
     compact->outfile->SetPreallocationBlockSize(
         compact->compaction->OutputFilePreallocationSize());
 
