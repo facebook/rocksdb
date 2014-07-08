@@ -7135,21 +7135,27 @@ TEST(DBTest, MTRandomTimeoutTest) {
 
 TEST(DBTest, RateLimitingTest) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 1 << 20;          // 1MB
-  options.level0_file_num_compaction_trigger = 10;
-  options.target_file_size_base = 1 << 20;      // 1MB
-  options.max_bytes_for_level_base = 10 << 20;  // 10MB
+  options.write_buffer_size = 1 << 20;         // 1MB
+  options.level0_file_num_compaction_trigger = 2;
+  options.target_file_size_base = 1 << 20;     // 1MB
+  options.max_bytes_for_level_base = 4 << 20;  // 4MB
+  options.max_bytes_for_level_multiplier = 4;
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.env = env_;
+  options.IncreaseParallelism(4);
   DestroyAndReopen(&options);
+
+  WriteOptions wo;
+  wo.disableWAL = true;
 
   // # no rate limiting
   Random rnd(301);
   uint64_t start = env_->NowMicros();
-  // Write ~32M data
-  for (int64_t i = 0; i < (32 << 10); ++i) {
-    ASSERT_OK(Put(std::to_string(i), RandomString(&rnd, (1 << 10) + 1)));
+  // Write ~96M data
+  for (int64_t i = 0; i < (96 << 10); ++i) {
+    ASSERT_OK(Put(RandomString(&rnd, 32),
+                  RandomString(&rnd, (1 << 10) + 1), wo));
   }
   uint64_t elapsed = env_->NowMicros() - start;
   double raw_rate = env_->bytes_written_ * 1000000 / elapsed;
@@ -7162,9 +7168,10 @@ TEST(DBTest, RateLimitingTest) {
   DestroyAndReopen(&options);
 
   start = env_->NowMicros();
-  // Write ~32M data
-  for (int64_t i = 0; i < (32 << 10); ++i) {
-    ASSERT_OK(Put(std::to_string(i), RandomString(&rnd, (1 << 10) + 1)));
+  // Write ~96M data
+  for (int64_t i = 0; i < (96 << 10); ++i) {
+    ASSERT_OK(Put(RandomString(&rnd, 32),
+                  RandomString(&rnd, (1 << 10) + 1), wo));
   }
   elapsed = env_->NowMicros() - start;
   Close();
@@ -7181,9 +7188,10 @@ TEST(DBTest, RateLimitingTest) {
   DestroyAndReopen(&options);
 
   start = env_->NowMicros();
-  // Write ~32M data
-  for (int64_t i = 0; i < (32 << 10); ++i) {
-    ASSERT_OK(Put(std::to_string(i), RandomString(&rnd, (1 << 10) + 1)));
+  // Write ~96M data
+  for (int64_t i = 0; i < (96 << 10); ++i) {
+    ASSERT_OK(Put(RandomString(&rnd, 32),
+                  RandomString(&rnd, (1 << 10) + 1), wo));
   }
   elapsed = env_->NowMicros() - start;
   Close();
