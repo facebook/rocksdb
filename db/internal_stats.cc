@@ -294,9 +294,9 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       snprintf(
           buf, sizeof(buf),
           "Amplification interval: %.1f write, %.1f compaction\n",
-          (double)(interval_bytes_written + wal_bytes) /
+          (double)(interval_bytes_written + interval_wal_bytes) /
               (interval_bytes_new + 1),
-          (double)(interval_bytes_written + interval_bytes_read + wal_bytes) /
+          (double)(interval_bytes_written + interval_bytes_read + interval_wal_bytes) /
               (interval_bytes_new + 1));
       value->append(buf);
 
