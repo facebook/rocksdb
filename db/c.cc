@@ -36,6 +36,7 @@ using rocksdb::ColumnFamilyHandle;
 using rocksdb::ColumnFamilyOptions;
 using rocksdb::CompactionFilter;
 using rocksdb::CompactionFilterFactory;
+using rocksdb::CompactionOptionsFIFO;
 using rocksdb::Comparator;
 using rocksdb::CompressionType;
 using rocksdb::DB;
@@ -73,6 +74,7 @@ struct rocksdb_iterator_t        { Iterator*         rep; };
 struct rocksdb_writebatch_t      { WriteBatch        rep; };
 struct rocksdb_snapshot_t        { const Snapshot*   rep; };
 struct rocksdb_flushoptions_t    { FlushOptions      rep; };
+struct rocksdb_fifo_compaction_options_t { CompactionOptionsFIFO rep; };
 struct rocksdb_readoptions_t     { ReadOptions       rep; };
 struct rocksdb_writeoptions_t    { WriteOptions      rep; };
 struct rocksdb_options_t         { Options           rep; };
@@ -957,6 +959,26 @@ void rocksdb_options_destroy(rocksdb_options_t* options) {
   delete options;
 }
 
+void rocksdb_options_increase_parallelism(
+    rocksdb_options_t* opt, int total_threads) {
+  opt->rep.IncreaseParallelism(total_threads);
+}
+
+void rocksdb_options_optimize_for_point_lookup(
+    rocksdb_options_t* opt) {
+  opt->rep.OptimizeForPointLookup();
+}
+
+void rocksdb_options_optimize_level_style_compaction(
+    rocksdb_options_t* opt, uint64_t memtable_memory_budget) {
+  opt->rep.OptimizeLevelStyleCompaction(memtable_memory_budget);
+}
+
+void rocksdb_options_optimize_universal_style_compaction(
+    rocksdb_options_t* opt, uint64_t memtable_memory_budget) {
+  opt->rep.OptimizeUniversalStyleCompaction(memtable_memory_budget);
+}
+
 void rocksdb_options_set_compaction_filter(
     rocksdb_options_t* opt,
     rocksdb_compactionfilter_t* filter) {
@@ -1445,6 +1467,12 @@ void rocksdb_options_set_universal_compaction_options(rocksdb_options_t *opt, ro
   opt->rep.compaction_options_universal = *(uco->rep);
 }
 
+void rocksdb_options_set_fifo_compaction_options(
+    rocksdb_options_t* opt,
+    rocksdb_fifo_compaction_options_t* fifo) {
+  opt->rep.compaction_options_fifo = fifo->rep;
+}
+
 /*
 TODO:
 DB::OpenForReadOnly
@@ -1801,6 +1829,22 @@ void rocksdb_universal_compaction_options_destroy(
   rocksdb_universal_compaction_options_t* uco) {
   delete uco->rep;
   delete uco;
+}
+
+rocksdb_fifo_compaction_options_t* rocksdb_fifo_compaction_options_create() {
+  rocksdb_fifo_compaction_options_t* result = new rocksdb_fifo_compaction_options_t;
+  result->rep =  CompactionOptionsFIFO();
+  return result;
+}
+
+void rocksdb_fifo_compaction_options_set_max_table_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size) {
+  fifo_opts->rep.max_table_files_size = size;
+}
+
+void rocksdb_fifo_compaction_options_destroy(
+    rocksdb_fifo_compaction_options_t* fifo_opts) {
+  delete fifo_opts;
 }
 
 void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level) {

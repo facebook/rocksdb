@@ -63,6 +63,7 @@ typedef struct rocksdb_compactionfilterfactory_t
     rocksdb_compactionfilterfactory_t;
 typedef struct rocksdb_comparator_t      rocksdb_comparator_t;
 typedef struct rocksdb_env_t             rocksdb_env_t;
+typedef struct rocksdb_fifo_compaction_options_t rocksdb_fifo_compaction_options_t;
 typedef struct rocksdb_filelock_t        rocksdb_filelock_t;
 typedef struct rocksdb_filterpolicy_t    rocksdb_filterpolicy_t;
 typedef struct rocksdb_flushoptions_t    rocksdb_flushoptions_t;
@@ -345,6 +346,14 @@ extern const char* rocksdb_writebatch_data(rocksdb_writebatch_t*, size_t *size);
 
 extern rocksdb_options_t* rocksdb_options_create();
 extern void rocksdb_options_destroy(rocksdb_options_t*);
+extern void rocksdb_options_increase_parallelism(
+    rocksdb_options_t* opt, int total_threads);
+extern void rocksdb_options_optimize_for_point_lookup(
+    rocksdb_options_t* opt);
+extern void rocksdb_options_optimize_level_style_compaction(
+    rocksdb_options_t* opt, uint64_t memtable_memory_budget);
+extern void rocksdb_options_optimize_universal_style_compaction(
+    rocksdb_options_t* opt, uint64_t memtable_memory_budget);
 extern void rocksdb_options_set_compaction_filter(
     rocksdb_options_t*,
     rocksdb_compactionfilter_t*);
@@ -518,10 +527,13 @@ extern void rocksdb_options_set_compression(rocksdb_options_t*, int);
 
 enum {
   rocksdb_level_compaction = 0,
-  rocksdb_universal_compaction = 1
+  rocksdb_universal_compaction = 1,
+  rocksdb_fifo_compaction = 2
 };
 extern void rocksdb_options_set_compaction_style(rocksdb_options_t*, int);
 extern void rocksdb_options_set_universal_compaction_options(rocksdb_options_t*, rocksdb_universal_compaction_options_t*);
+extern void rocksdb_options_set_fifo_compaction_options(rocksdb_options_t* opt,
+    rocksdb_fifo_compaction_options_t* fifo);
 
 /* Compaction Filter */
 
@@ -701,6 +713,12 @@ extern void rocksdb_universal_compaction_options_set_stop_style(
   rocksdb_universal_compaction_options_t*, int);
 extern void rocksdb_universal_compaction_options_destroy(
   rocksdb_universal_compaction_options_t*);
+
+extern rocksdb_fifo_compaction_options_t* rocksdb_fifo_compaction_options_create();
+extern void rocksdb_fifo_compaction_options_set_max_table_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size);
+extern void rocksdb_fifo_compaction_options_destroy(
+    rocksdb_fifo_compaction_options_t* fifo_opts);
 
 extern int rocksdb_livefiles_count(
   const rocksdb_livefiles_t*);
