@@ -112,7 +112,8 @@ TESTS = \
 	deletefile_test \
 	table_test \
 	thread_local_test \
-        geodb_test
+        geodb_test \
+        rate_limiter_test
 
 TOOLS = \
         sst_dump \
@@ -355,6 +356,9 @@ dbformat_test: db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 env_test: util/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/env_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

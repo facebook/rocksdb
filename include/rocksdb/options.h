@@ -34,6 +34,7 @@ class Snapshot;
 class TableFactory;
 class MemTableRepFactory;
 class TablePropertiesCollectorFactory;
+class RateLimiter;
 class Slice;
 class SliceTransform;
 class Statistics;
@@ -997,6 +998,21 @@ struct FlushOptions {
 
   FlushOptions() : wait(true) {}
 };
+
+
+// Create a RateLimiter object, which can be shared among RocksDB instances to
+// control write rate of flush and compaction.
+// @rate_bytes_per_sec: desired total write rate in bytes per second.
+// @refill_period_us: token refill interval in micro-second.
+// @fairness: RateLimiter accepts high-pri requests and low-pri requests.
+// low-pri request is usually blocked in favor of hi-pri request. To prevent
+// low-pri request from being blocked for too long, it can get processed first
+// by 1/fairness chance.
+extern RateLimiter* NewRateLimiter(
+    int64_t rate_bytes_per_sec,
+    int64_t refill_period_us = 100 * 1000,
+    int32_t fairness = 10);
+
 
 }  // namespace rocksdb
 

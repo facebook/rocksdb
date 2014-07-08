@@ -31,7 +31,7 @@ static int PthreadCall(const char* label, int result) {
 Mutex::Mutex(bool adaptive) {
 #ifdef OS_LINUX
   if (!adaptive) {
-    PthreadCall("init mutex", pthread_mutex_init(&mu_, NULL));
+    PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
   } else {
     pthread_mutexattr_t mutex_attr;
     PthreadCall("init mutex attr", pthread_mutexattr_init(&mutex_attr));
@@ -43,7 +43,7 @@ Mutex::Mutex(bool adaptive) {
                 pthread_mutexattr_destroy(&mutex_attr));
   }
 #else // ignore adaptive for non-linux platform
-  PthreadCall("init mutex", pthread_mutex_init(&mu_, NULL));
+  PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
 #endif // OS_LINUX
 }
 
@@ -71,7 +71,7 @@ void Mutex::AssertHeld() {
 
 CondVar::CondVar(Mutex* mu)
     : mu_(mu) {
-    PthreadCall("init cv", pthread_cond_init(&cv_, NULL));
+    PthreadCall("init cv", pthread_cond_init(&cv_, nullptr));
 }
 
 CondVar::~CondVar() { PthreadCall("destroy cv", pthread_cond_destroy(&cv_)); }
@@ -115,7 +115,9 @@ void CondVar::SignalAll() {
   PthreadCall("broadcast", pthread_cond_broadcast(&cv_));
 }
 
-RWMutex::RWMutex() { PthreadCall("init mutex", pthread_rwlock_init(&mu_, NULL)); }
+RWMutex::RWMutex() {
+  PthreadCall("init mutex", pthread_rwlock_init(&mu_, nullptr));
+}
 
 RWMutex::~RWMutex() { PthreadCall("destroy mutex", pthread_rwlock_destroy(&mu_)); }
 

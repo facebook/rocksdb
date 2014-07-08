@@ -194,7 +194,15 @@ class Env {
   // REQUIRES: lock has not already been unlocked.
   virtual Status UnlockFile(FileLock* lock) = 0;
 
+  // Priority for scheduling job in thread pool
   enum Priority { LOW, HIGH, TOTAL };
+
+  // Priority for scheduling job in thread pool
+  enum IOPriority {
+    IO_LOW = 0,
+    IO_HIGH = 1,
+    IO_TOTAL = 2
+  };
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
