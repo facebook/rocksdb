@@ -10,9 +10,8 @@ the CLA and we can cross-check with your GitHub username.
 
 Complete your CLA here: <https://code.facebook.com/cla>
 
-If you don't have a Facebook account, we can send you a PDF that you can
-sign offline. Send us an e-mail or create a new github issue to
-request the CLA in PDF format.
+If you prefer to sign a paper copy, we can send you a PDF.  Send us an 
+e-mail or create a new github issue to request the CLA in PDF format.
 
 ## License
 
