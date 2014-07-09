@@ -22,7 +22,7 @@ class RocksDBJni {
  public:
   // Get the java class id of org.rocksdb.RocksDB.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/RocksDB");
+    jclass jclazz = env->FindClass("org/rocksdb/RocksDB");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -55,7 +55,7 @@ class RocksDBExceptionJni {
  public:
   // Get the jclass of org.rocksdb.RocksDBException
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/RocksDBException");
+    jclass jclazz = env->FindClass("org/rocksdb/RocksDBException");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -83,7 +83,7 @@ class OptionsJni {
  public:
   // Get the java class id of org.rocksdb.Options.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/Options");
+    jclass jclazz = env->FindClass("org/rocksdb/Options");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -115,7 +115,7 @@ class WriteOptionsJni {
  public:
   // Get the java class id of org.rocksdb.WriteOptions.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/WriteOptions");
+    jclass jclazz = env->FindClass("org/rocksdb/WriteOptions");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -148,7 +148,7 @@ class ReadOptionsJni {
  public:
   // Get the java class id of org.rocksdb.ReadOptions.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/ReadOptions");
+    jclass jclazz = env->FindClass("org/rocksdb/ReadOptions");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -181,7 +181,7 @@ class ReadOptionsJni {
 class WriteBatchJni {
  public:
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/WriteBatch");
+    jclass jclazz = env->FindClass("org/rocksdb/WriteBatch");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -211,8 +211,7 @@ class WriteBatchJni {
 class HistogramDataJni {
  public:
   static jmethodID getConstructorMethodId(JNIEnv* env, jclass jclazz) {
-    static jmethodID mid = env->GetMethodID(
-        jclazz, "<init>", "(DDDDD)V");
+    static jmethodID mid = env->GetMethodID(jclazz, "<init>", "(DDDDD)V");
     assert(mid != nullptr);
     return mid;
   }
@@ -222,7 +221,7 @@ class BackupableDBOptionsJni {
  public:
   // Get the java class id of org.rocksdb.BackupableDBOptions.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/BackupableDBOptions");
+    jclass jclazz = env->FindClass("org/rocksdb/BackupableDBOptions");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -255,7 +254,7 @@ class IteratorJni {
  public:
   // Get the java class id of org.rocksdb.Iteartor.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/RocksIterator");
+    jclass jclazz = env->FindClass("org/rocksdb/RocksIterator");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -288,7 +287,7 @@ class FilterJni {
  public:
   // Get the java class id of org.rocksdb.FilterPolicy.
   static jclass getJClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("org/rocksdb/Filter");
+    jclass jclazz = env->FindClass("org/rocksdb/Filter");
     assert(jclazz != nullptr);
     return jclazz;
   }
@@ -321,21 +320,21 @@ class ListJni {
  public:
   // Get the java class id of java.util.List.
   static jclass getListClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("java/util/List");
+    jclass jclazz = env->FindClass("java/util/List");
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   // Get the java class id of java.util.ArrayList.
   static jclass getArrayListClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("java/util/ArrayList");
+    jclass jclazz = env->FindClass("java/util/ArrayList");
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   // Get the java class id of java.util.Iterator.
   static jclass getIteratorClass(JNIEnv* env) {
-    static jclass jclazz = env->FindClass("java/util/Iterator");
+    jclass jclazz = env->FindClass("java/util/Iterator");
     assert(jclazz != nullptr);
     return jclazz;
   }
