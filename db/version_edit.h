@@ -69,8 +69,12 @@ struct FileMetaData {
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
 
-  // stats for compensating deletion entries during compaction
-  uint64_t compensated_file_size;  // File size compensated by deletion entry.
+  // Stats for compensating deletion entries during compaction
+
+  // File size compensated by deletion entry.
+  // This is updated in Version::UpdateTemporaryStats() first time when the
+  // file is created or loaded.  After it is updated, it is immutable.
+  uint64_t compensated_file_size;
   uint64_t num_entries;            // the number of entries.
   uint64_t num_deletions;          // the number of deletion entries.
   uint64_t raw_key_size;           // total uncompressed key size.

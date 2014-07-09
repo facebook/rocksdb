@@ -508,7 +508,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
     int index = file_size[i];
     FileMetaData* f = c->input_version_->files_[level][index];
 
-    // check to verify files are arranged in descending size
+    // Check to verify files are arranged in descending compensated size.
     assert((i == file_size.size() - 1) ||
            (i >= Version::number_of_files_to_sort_ - 1) ||
            (f->compensated_file_size >=

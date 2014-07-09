@@ -526,6 +526,12 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       total_raw_key_size_(0),
       total_raw_value_size_(0),
       num_non_deletions_(0) {
+  if (cfd != nullptr && cfd->current() != nullptr) {
+      total_file_size_ = cfd->current()->total_file_size_;
+      total_raw_key_size_ = cfd->current()->total_raw_key_size_;
+      total_raw_value_size_ = cfd->current()->total_raw_value_size_;
+      num_non_deletions_ = cfd->current()->num_non_deletions_;
+  }
 }
 
 void Version::Get(const ReadOptions& options,
@@ -727,6 +733,7 @@ void Version::Get(const ReadOptions& options,
 }
 
 void Version::PrepareApply(std::vector<uint64_t>& size_being_compacted) {
+  UpdateTemporaryStats();
   ComputeCompactionScore(size_being_compacted);
   UpdateFilesBySize();
   UpdateNumNonEmptyLevels();
@@ -750,7 +757,7 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   return true;
 }
 
-void Version::UpdateTemporaryStats(const VersionEdit* edit) {
+void Version::UpdateTemporaryStats() {
   static const int kDeletionWeightOnCompaction = 2;
 
   // incrementally update the average value size by
@@ -777,9 +784,13 @@ void Version::UpdateTemporaryStats(const VersionEdit* edit) {
   // compute the compensated size
   for (int level = 0; level < num_levels_; level++) {
     for (auto* file_meta : files_[level]) {
-      file_meta->compensated_file_size = file_meta->fd.GetFileSize() +
-          file_meta->num_deletions * average_value_size *
-          kDeletionWeightOnCompaction;
+      // Here we only compute compensated_file_size for those file_meta
+      // which compensated_file_size is uninitialized (== 0).
+      if (file_meta->compensated_file_size == 0) {
+        file_meta->compensated_file_size = file_meta->fd.GetFileSize() +
+            file_meta->num_deletions * average_value_size *
+            kDeletionWeightOnCompaction;
+      }
     }
   }
 }
@@ -1740,7 +1751,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     if (!edit->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
-      v->UpdateTemporaryStats(edit);
       v->PrepareApply(size_being_compacted);
     }
 

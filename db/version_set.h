@@ -254,7 +254,7 @@ class Version {
 
   // Update the temporary stats associated with the current version.
   // This temporary stats will be used in compaction.
-  void UpdateTemporaryStats(const VersionEdit* edit);
+  void UpdateTemporaryStats();
 
   // Sort all files for this version based on their file size and
   // record results in files_by_size_. The largest files are listed first.
