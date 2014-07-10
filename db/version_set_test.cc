@@ -118,7 +118,7 @@ class FindLevelFileTest {
     // add compressd_level_
     size_t num = level_files_.num_files;
     auto& file = level_files_.files[num];
-    file.fd = FileDescriptor(num + 1, 0);
+    file.fd = FileDescriptor(num + 1, 0, 0);
     file.smallest_key = Slice(mem, smallest_slice.size());
     file.largest_key = Slice(mem + smallest_slice.size(),
         largest_slice.size());

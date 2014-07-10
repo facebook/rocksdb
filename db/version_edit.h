@@ -99,7 +99,7 @@ struct FdWithKeyRange {
   Slice largest_key;     // slice that contain largest key
 
   FdWithKeyRange()
-      : fd(0, 0),
+      : fd(),
         smallest_key(),
         largest_key() {
   }
