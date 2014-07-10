@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 
 ## Unreleased
+Removed NewTotalOrderPlainTableFactory because it was useless and was implemented semantically incorrect.
 
 ### New Features
 * HashLinklist reduces performance outlier caused by skewed bucket by switching data in the bucket from linked list to skip list. Add parameter threshold_use_skiplist in NewHashLinkListRepFactory().

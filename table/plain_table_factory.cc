@@ -33,25 +33,13 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
                                index_sparseness_);
 }
 
-extern TableFactory* NewPlainTableFactory(uint32_t user_key_len,
-                                          int bloom_bits_per_key,
-                                          double hash_table_ratio,
-                                          size_t index_sparseness,
-                                          size_t huge_page_tlb_size,
-                                          EncodingType encoding_type) {
-  return new PlainTableFactory(user_key_len, bloom_bits_per_key,
-                               hash_table_ratio, index_sparseness,
-                               huge_page_tlb_size, encoding_type);
-}
-
-extern TableFactory* NewTotalOrderPlainTableFactory(uint32_t user_key_len,
-                                                    int bloom_bits_per_key,
-                                                    size_t index_sparseness,
-                                                    size_t huge_page_tlb_size,
-                                                    bool full_scan_mode) {
-  return new PlainTableFactory(user_key_len, bloom_bits_per_key, 0,
-                               index_sparseness, huge_page_tlb_size, kPlain,
-                               full_scan_mode);
+extern TableFactory* NewPlainTableFactory(
+    uint32_t user_key_len, int bloom_bits_per_key, double hash_table_ratio,
+    size_t index_sparseness, size_t huge_page_tlb_size,
+    EncodingType encoding_type, bool full_scan_mode) {
+  return new PlainTableFactory(
+      user_key_len, bloom_bits_per_key, hash_table_ratio, index_sparseness,
+      huge_page_tlb_size, encoding_type, full_scan_mode);
 }
 
 const std::string PlainTablePropertyNames::kPrefixExtractorName =

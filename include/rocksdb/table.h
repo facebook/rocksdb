@@ -155,35 +155,11 @@ struct PlainTablePropertyNames {
 //                 encoding types can co-exist in the same DB and can be read.
 
 const uint32_t kPlainTableVariableLength = 0;
-extern TableFactory* NewPlainTableFactory(uint32_t user_key_len =
-                                              kPlainTableVariableLength,
-                                          int bloom_bits_per_prefix = 10,
-                                          double hash_table_ratio = 0.75,
-                                          size_t index_sparseness = 16,
-                                          size_t huge_page_tlb_size = 0,
-                                          EncodingType encoding_type = kPlain);
-
-// -- Plain Table
-// This factory of plain table ignores Options.prefix_extractor and assumes no
-// hashable prefix available to the key structure. Lookup will be based on
-// binary search index only. Total order seek() can be issued.
-// @user_key_len: plain table has optimization for fix-sized keys, which can be
-//                specified via user_key_len.  Alternatively, you can pass
-//                `kPlainTableVariableLength` if your keys have variable
-//                lengths.
-// @bloom_bits_per_key: the number of bits used for bloom filer per key. You may
-//                  disable it by passing a zero.
-// @index_sparseness: need to build one index record for how many keys for
-//                    binary search.
-// @huge_page_tlb_size: if <=0, allocate hash indexes and blooms from malloc.
-//                      Otherwise from huge page TLB. The user needs to reserve
-//                      huge pages for it to be allocated, like:
-//                          sysctl -w vm.nr_hugepages=20
-//                      See linux doc Documentation/vm/hugetlbpage.txt
-extern TableFactory* NewTotalOrderPlainTableFactory(
+extern TableFactory* NewPlainTableFactory(
     uint32_t user_key_len = kPlainTableVariableLength,
-    int bloom_bits_per_key = 0, size_t index_sparseness = 16,
-    size_t huge_page_tlb_size = 0, bool full_scan_mode = false);
+    int bloom_bits_per_prefix = 10, double hash_table_ratio = 0.75,
+    size_t index_sparseness = 16, size_t huge_page_tlb_size = 0,
+    EncodingType encoding_type = kPlain, bool full_scan_mode = false);
 
 #endif  // ROCKSDB_LITE
 

@@ -718,7 +718,8 @@ class Harness {
         only_support_prefix_seek_ = false;
         options_.prefix_extractor = nullptr;
         options_.allow_mmap_reads = true;
-        options_.table_factory.reset(NewTotalOrderPlainTableFactory());
+        options_.table_factory.reset(
+            NewPlainTableFactory(kPlainTableVariableLength, 0, 0));
         constructor_ = new TableConstructor(options_.comparator, true);
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));

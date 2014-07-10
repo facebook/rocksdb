@@ -262,16 +262,14 @@ TEST(PlainTableDBTest, Flush) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
     for (int bloom_bits = 0; bloom_bits <= 117; bloom_bits += 117) {
       for (int total_order = 0; total_order <= 1; total_order++) {
-        if (encoding_type == kPrefix && total_order == 1) {
-          continue;
-        }
         Options options = CurrentOptions();
         options.create_if_missing = true;
         // Set only one bucket to force bucket conflict.
         // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
-          options.table_factory.reset(NewTotalOrderPlainTableFactory(
-              0, bloom_bits, 2, huge_page_tlb_size));
+          options.prefix_extractor.reset();
+          options.table_factory.reset(NewPlainTableFactory(
+              0, bloom_bits, 0, 2, huge_page_tlb_size, encoding_type));
         } else {
           options.table_factory.reset(NewPlainTableFactory(
               0, bloom_bits, 0.75, 16, huge_page_tlb_size, encoding_type));
@@ -290,8 +288,8 @@ TEST(PlainTableDBTest, Flush) {
         auto tp = row->second;
         ASSERT_EQ(total_order ? "4" : "12", (tp->user_collected_properties).at(
                                                 "plain_table_hash_table_size"));
-        ASSERT_EQ(total_order ? "9" : "0", (tp->user_collected_properties).at(
-                                               "plain_table_sub_index_size"));
+        ASSERT_EQ("0", (tp->user_collected_properties)
+                           .at("plain_table_sub_index_size"));
 
         ASSERT_EQ("v3", Get("1000000000000foo"));
         ASSERT_EQ("v2", Get("0000000000000bar"));
@@ -487,7 +485,7 @@ std::string MakeLongKey(size_t length, char c) {
 
 TEST(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();
-  options.table_factory.reset(NewTotalOrderPlainTableFactory(0, 0, 16, 0));
+  options.table_factory.reset(NewPlainTableFactory(0, 0, 0));
   options.create_if_missing = true;
   options.prefix_extractor.reset();
   DestroyAndReopen(&options);
@@ -668,7 +666,7 @@ TEST(PlainTableDBTest, HashBucketConflict) {
       // Set only one bucket to force bucket conflict.
       // Test index interval for the same prefix to be 1, 2 and 4
       options.table_factory.reset(
-          NewTotalOrderPlainTableFactory(16, 0, 2 ^ i, huge_page_tlb_size));
+          NewPlainTableFactory(16, 0, 0, 2 ^ i, huge_page_tlb_size));
       DestroyAndReopen(&options);
       ASSERT_OK(Put("5000000000000fo0", "v1"));
       ASSERT_OK(Put("5000000000000fo1", "v2"));
@@ -755,7 +753,7 @@ TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
       // Set only one bucket to force bucket conflict.
       // Test index interval for the same prefix to be 1, 2 and 4
       options.table_factory.reset(
-          NewTotalOrderPlainTableFactory(16, 0, 2 ^ i, huge_page_tlb_size));
+          NewPlainTableFactory(16, 0, 0, 2 ^ i, huge_page_tlb_size));
       DestroyAndReopen(&options);
       ASSERT_OK(Put("5000000000000fo0", "v1"));
       ASSERT_OK(Put("5000000000000fo1", "v2"));
@@ -835,7 +833,7 @@ TEST(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
   // Test index interval for the same prefix to be 1, 2 and 4
-  options.table_factory.reset(NewTotalOrderPlainTableFactory(16, 0, 5));
+  options.table_factory.reset(NewPlainTableFactory(16, 0, 0, 5));
   DestroyAndReopen(&options);
   ASSERT_OK(Put("5000000000000fo0", "v1"));
   ASSERT_OK(Put("5000000000000fo1", "v2"));
