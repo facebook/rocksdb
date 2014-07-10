@@ -33,6 +33,8 @@
 #if defined(LEVELDB_PLATFORM_ANDROID)
 #include <sys/stat.h>
 #endif
+#include <signal.h>
+#include <algorithm>
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "port/port.h"
@@ -41,7 +43,7 @@
 #include "util/posix_logger.h"
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
-#include <signal.h>
+#include "util/rate_limiter.h"
 
 // Get nano time for mach systems
 #ifdef __MACH__
@@ -634,6 +636,7 @@ class PosixWritableFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
 #endif
+  RateLimiter* rate_limiter_;
 
  public:
   PosixWritableFile(const std::string& fname, int fd, size_t capacity,
@@ -647,7 +650,8 @@ class PosixWritableFile : public WritableFile {
         pending_sync_(false),
         pending_fsync_(false),
         last_sync_size_(0),
-        bytes_per_sync_(options.bytes_per_sync) {
+        bytes_per_sync_(options.bytes_per_sync),
+        rate_limiter_(options.rate_limiter) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
@@ -691,7 +695,7 @@ class PosixWritableFile : public WritableFile {
       cursize_ += left;
     } else {
       while (left != 0) {
-        ssize_t done = write(fd_, src, left);
+        ssize_t done = write(fd_, src, RequestToken(left));
         if (done < 0) {
           if (errno == EINTR) {
             continue;
@@ -742,7 +746,7 @@ class PosixWritableFile : public WritableFile {
     size_t left = cursize_;
     char* src = buf_.get();
     while (left != 0) {
-      ssize_t done = write(fd_, src, left);
+      ssize_t done = write(fd_, src, RequestToken(left));
       if (done < 0) {
         if (errno == EINTR) {
           continue;
@@ -838,6 +842,16 @@ class PosixWritableFile : public WritableFile {
     return GetUniqueIdFromFile(fd_, id, max_size);
   }
 #endif
+
+ private:
+  inline size_t RequestToken(size_t bytes) {
+    if (rate_limiter_ && io_priority_ < Env::IO_TOTAL) {
+      bytes = std::min(bytes,
+          static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()));
+      rate_limiter_->Request(bytes, io_priority_);
+    }
+    return bytes;
+  }
 };
 
 class PosixRandomRWFile : public RandomRWFile {

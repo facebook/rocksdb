@@ -69,8 +69,12 @@ struct FileMetaData {
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
 
-  // stats for compensating deletion entries during compaction
-  uint64_t compensated_file_size;  // File size compensated by deletion entry.
+  // Stats for compensating deletion entries during compaction
+
+  // File size compensated by deletion entry.
+  // This is updated in Version::UpdateTemporaryStats() first time when the
+  // file is created or loaded.  After it is updated, it is immutable.
+  uint64_t compensated_file_size;
   uint64_t num_entries;            // the number of entries.
   uint64_t num_deletions;          // the number of deletion entries.
   uint64_t raw_key_size;           // total uncompressed key size.
@@ -85,6 +89,38 @@ struct FileMetaData {
         num_deletions(0),
         raw_key_size(0),
         raw_value_size(0) {}
+};
+
+// A compressed copy of file meta data that just contain
+// smallest and largest key's slice
+struct FdWithKeyRange {
+  FileDescriptor fd;
+  Slice smallest_key;    // slice that contain smallest key
+  Slice largest_key;     // slice that contain largest key
+
+  FdWithKeyRange()
+      : fd(0, 0),
+        smallest_key(),
+        largest_key() {
+  }
+
+  FdWithKeyRange(FileDescriptor fd,
+      Slice smallest_key, Slice largest_key)
+      : fd(fd),
+        smallest_key(smallest_key),
+        largest_key(largest_key) {
+  }
+};
+
+// Data structure to store an array of FdWithKeyRange in one level
+// Actual data is guaranteed to be stored closely
+struct FileLevel {
+  size_t num_files;
+  FdWithKeyRange* files;
+  FileLevel() {
+    num_files = 0;
+    files = nullptr;
+  }
 };
 
 class VersionEdit {

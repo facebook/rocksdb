@@ -35,6 +35,7 @@ class WritableFile;
 class RandomRWFile;
 class Directory;
 struct DBOptions;
+class RateLimiter;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -74,6 +75,9 @@ struct EnvOptions {
   // write. By default, we set it to true for MANIFEST writes and false for
   // WAL writes
   bool fallocate_with_keep_size = true;
+
+  // If not nullptr, write rate limiting is enabled for flush and compaction
+  RateLimiter* rate_limiter = nullptr;
 };
 
 class Env {
@@ -194,7 +198,15 @@ class Env {
   // REQUIRES: lock has not already been unlocked.
   virtual Status UnlockFile(FileLock* lock) = 0;
 
+  // Priority for scheduling job in thread pool
   enum Priority { LOW, HIGH, TOTAL };
+
+  // Priority for scheduling job in thread pool
+  enum IOPriority {
+    IO_LOW = 0,
+    IO_HIGH = 1,
+    IO_TOTAL = 2
+  };
 
   // Arrange to run "(*function)(arg)" once in a background thread, in
   // the thread pool specified by pri. By default, jobs go to the 'LOW'
@@ -371,7 +383,10 @@ class RandomAccessFile {
 // at a time to the file.
 class WritableFile {
  public:
-  WritableFile() : last_preallocated_block_(0), preallocation_block_size_ (0) {
+  WritableFile()
+    : last_preallocated_block_(0),
+      preallocation_block_size_(0),
+      io_priority_(Env::IO_TOTAL) {
   }
   virtual ~WritableFile();
 
@@ -388,6 +403,14 @@ class WritableFile {
    */
   virtual Status Fsync() {
     return Sync();
+  }
+
+  /*
+   * Change the priority in rate limiter if rate limiting is enabled.
+   * If rate limiting is not enabled, this call has no effect.
+   */
+  virtual void SetIOPriority(Env::IOPriority pri) {
+    io_priority_ = pri;
   }
 
   /*
@@ -474,6 +497,9 @@ class WritableFile {
   // No copying allowed
   WritableFile(const WritableFile&);
   void operator=(const WritableFile&);
+
+ protected:
+  Env::IOPriority io_priority_;
 };
 
 // A file abstraction for random reading and writing.

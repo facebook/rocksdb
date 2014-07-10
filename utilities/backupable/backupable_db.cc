@@ -29,9 +29,10 @@
 namespace rocksdb {
 
 namespace {
-class RateLimiter {
+class BackupRateLimiter {
  public:
-  RateLimiter(Env* env, uint64_t max_bytes_per_second, uint64_t bytes_per_check)
+  BackupRateLimiter(Env* env, uint64_t max_bytes_per_second,
+                   uint64_t bytes_per_check)
       : env_(env),
         max_bytes_per_second_(max_bytes_per_second),
         bytes_per_check_(bytes_per_check),
@@ -240,7 +241,7 @@ class BackupEngineImpl : public BackupEngine {
                   Env* src_env,
                   Env* dst_env,
                   bool sync,
-                  RateLimiter* rate_limiter,
+                  BackupRateLimiter* rate_limiter,
                   uint64_t* size = nullptr,
                   uint32_t* checksum_value = nullptr,
                   uint64_t size_limit = 0);
@@ -250,7 +251,7 @@ class BackupEngineImpl : public BackupEngine {
                     bool shared,
                     const std::string& src_dir,
                     const std::string& src_fname,  // starts with "/"
-                    RateLimiter* rate_limiter,
+                    BackupRateLimiter* rate_limiter,
                     uint64_t size_limit = 0,
                     bool shared_checksum = false);
 
@@ -447,11 +448,11 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   s = backup_env_->CreateDir(
       GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)));
 
-  unique_ptr<RateLimiter> rate_limiter;
+  unique_ptr<BackupRateLimiter> rate_limiter;
   if (options_.backup_rate_limit > 0) {
     copy_file_buffer_size_ = options_.backup_rate_limit / 10;
-    rate_limiter.reset(new RateLimiter(db_env_, options_.backup_rate_limit,
-                                       copy_file_buffer_size_));
+    rate_limiter.reset(new BackupRateLimiter(db_env_,
+          options_.backup_rate_limit, copy_file_buffer_size_));
   }
 
   // copy live_files
@@ -636,11 +637,11 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     DeleteChildren(db_dir);
   }
 
-  unique_ptr<RateLimiter> rate_limiter;
+  unique_ptr<BackupRateLimiter> rate_limiter;
   if (options_.restore_rate_limit > 0) {
     copy_file_buffer_size_ = options_.restore_rate_limit / 10;
-    rate_limiter.reset(new RateLimiter(db_env_, options_.restore_rate_limit,
-                                       copy_file_buffer_size_));
+    rate_limiter.reset(new BackupRateLimiter(db_env_,
+          options_.restore_rate_limit, copy_file_buffer_size_));
   }
   Status s;
   for (auto& file : backup.GetFiles()) {
@@ -752,12 +753,13 @@ Status BackupEngineImpl::PutLatestBackupFileContents(uint32_t latest_backup) {
   return s;
 }
 
-Status BackupEngineImpl::CopyFile(const std::string& src,
-                                  const std::string& dst, Env* src_env,
-                                  Env* dst_env, bool sync,
-                                  RateLimiter* rate_limiter, uint64_t* size,
-                                  uint32_t* checksum_value,
-                                  uint64_t size_limit) {
+Status BackupEngineImpl::CopyFile(
+    const std::string& src,
+    const std::string& dst, Env* src_env,
+    Env* dst_env, bool sync,
+    BackupRateLimiter* rate_limiter, uint64_t* size,
+    uint32_t* checksum_value,
+    uint64_t size_limit) {
   Status s;
   unique_ptr<WritableFile> dst_file;
   unique_ptr<SequentialFile> src_file;
@@ -824,7 +826,7 @@ Status BackupEngineImpl::CopyFile(const std::string& src,
 Status BackupEngineImpl::BackupFile(BackupID backup_id, BackupMeta* backup,
                                     bool shared, const std::string& src_dir,
                                     const std::string& src_fname,
-                                    RateLimiter* rate_limiter,
+                                    BackupRateLimiter* rate_limiter,
                                     uint64_t size_limit,
                                     bool shared_checksum) {
 

@@ -7,6 +7,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include "rocksdb/comparator.h"
+#include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/options.h"
@@ -40,6 +41,7 @@ extern Status BuildTable(const std::string& dbname, Env* env,
                          const InternalKeyComparator& internal_comparator,
                          const SequenceNumber newest_snapshot,
                          const SequenceNumber earliest_seqno_in_memtable,
-                         const CompressionType compression);
+                         const CompressionType compression,
+                         const Env::IOPriority io_priority = Env::IO_HIGH);
 
 }  // namespace rocksdb

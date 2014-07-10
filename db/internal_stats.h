@@ -118,12 +118,12 @@ class InternalStats {
 
   void RecordWriteStall(WriteStallType write_stall_type, uint64_t micros) {
     stall_micros_[write_stall_type] += micros;
-    stall_counts_[write_stall_type]++;
+    ++stall_counts_[write_stall_type];
   }
 
   void RecordLevelNSlowdown(int level, uint64_t micros) {
     stall_leveln_slowdown_[level] += micros;
-    stall_leveln_slowdown_count_[level] += micros;
+    ++stall_leveln_slowdown_count_[level];
   }
 
   uint64_t GetBackgroundErrorCount() const { return bg_error_count_; }

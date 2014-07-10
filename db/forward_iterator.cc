@@ -189,6 +189,10 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
     }
 
+    Slice user_key;
+    if (!seek_to_first) {
+      user_key = ExtractUserKey(internal_key);
+    }
     auto* files = sv_->current->files_;
     for (uint32_t i = 0; i < files[0].size(); ++i) {
       if (seek_to_first) {
@@ -196,7 +200,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       } else {
         // If the target key passes over the larget key, we are sure Next()
         // won't go over this file.
-        if (user_comparator_->Compare(ExtractUserKey(internal_key),
+        if (user_comparator_->Compare(user_key,
               files[0][i]->largest.user_key()) > 0) {
           continue;
         }
@@ -206,16 +210,67 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         immutable_min_heap_.push(l0_iters_[i]);
       }
     }
+
+    int32_t search_left_bound = 0;
+    int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
     for (int32_t level = 1; level < sv_->current->NumberLevels(); ++level) {
       if (files[level].empty()) {
+        search_left_bound = 0;
+        search_right_bound = FileIndexer::kLevelMaxIndex;
         continue;
       }
       assert(level_iters_[level - 1] != nullptr);
       uint32_t f_idx = 0;
       if (!seek_to_first) {
-        f_idx = FindFileInRange(
-            files[level], internal_key, 0, files[level].size());
+        // TODO(ljin): remove before committing
+        // f_idx = FindFileInRange(
+        //    files[level], internal_key, 0, files[level].size());
+
+        if (search_left_bound == search_right_bound) {
+          f_idx = search_left_bound;
+        } else if (search_left_bound < search_right_bound) {
+          f_idx = FindFileInRange(
+              files[level], internal_key, search_left_bound,
+              search_right_bound == FileIndexer::kLevelMaxIndex ?
+                files[level].size() : search_right_bound);
+        } else {
+          // search_left_bound > search_right_bound
+          // There are only 2 cases this can happen:
+          // (1) target key is smaller than left most file
+          // (2) target key is larger than right most file
+          assert(search_left_bound == (int32_t)files[level].size() ||
+                 search_right_bound == -1);
+          if (search_right_bound == -1) {
+            assert(search_left_bound == 0);
+            f_idx = 0;
+          } else {
+            sv_->current->file_indexer_.GetNextLevelIndex(
+                level, files[level].size() - 1,
+                1, 1, &search_left_bound, &search_right_bound);
+            continue;
+          }
+        }
+
+        // Prepare hints for the next level
+        if (f_idx < files[level].size()) {
+          int cmp_smallest = user_comparator_->Compare(
+              user_key, files[level][f_idx]->smallest.user_key());
+          int cmp_largest = -1;
+          if (cmp_smallest >= 0) {
+            cmp_smallest = user_comparator_->Compare(
+                user_key, files[level][f_idx]->smallest.user_key());
+          }
+          sv_->current->file_indexer_.GetNextLevelIndex(level, f_idx,
+              cmp_smallest, cmp_largest,
+              &search_left_bound, &search_right_bound);
+        } else {
+          sv_->current->file_indexer_.GetNextLevelIndex(
+              level, files[level].size() - 1,
+              1, 1, &search_left_bound, &search_right_bound);
+        }
       }
+
+      // Seek
       if (f_idx < files[level].size()) {
         level_iters_[level - 1]->SetFileIndex(f_idx);
         seek_to_first ? level_iters_[level - 1]->SeekToFirst() :

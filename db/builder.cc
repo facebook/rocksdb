@@ -40,7 +40,8 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
                   const InternalKeyComparator& internal_comparator,
                   const SequenceNumber newest_snapshot,
                   const SequenceNumber earliest_seqno_in_memtable,
-                  const CompressionType compression) {
+                  const CompressionType compression,
+                  const Env::IOPriority io_priority) {
   Status s;
   meta->fd.file_size = 0;
   meta->smallest_seqno = meta->largest_seqno = 0;
@@ -62,6 +63,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     if (!s.ok()) {
       return s;
     }
+    file->SetIOPriority(io_priority);
 
     TableBuilder* builder =
         NewTableBuilder(options, internal_comparator, file.get(), compression);

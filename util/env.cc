@@ -226,6 +226,7 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->use_mmap_writes = options.allow_mmap_writes;
   env_options->set_fd_cloexec = options.is_fd_close_on_exec;
   env_options->bytes_per_sync = options.bytes_per_sync;
+  env_options->rate_limiter = options.rate_limiter.get();
 }
 
 }
