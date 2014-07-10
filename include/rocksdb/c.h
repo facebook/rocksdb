@@ -133,7 +133,7 @@ extern void rocksdb_drop_column_family(
     rocksdb_column_family_handle_t* handle,
     char** errptr);
 
-extern void rocksdb_column_family_handle_destroy(rocksdb_column_family_handle_t* handle);
+extern void rocksdb_column_family_handle_destroy(rocksdb_column_family_handle_t*);
 
 extern void rocksdb_close(rocksdb_t* db);
 
@@ -372,6 +372,8 @@ extern void rocksdb_options_set_filter_policy(
     rocksdb_options_t*,
     rocksdb_filterpolicy_t*);
 extern void rocksdb_options_set_create_if_missing(
+    rocksdb_options_t*, unsigned char);
+extern void rocksdb_options_set_create_missing_column_families(
     rocksdb_options_t*, unsigned char);
 extern void rocksdb_options_set_error_if_exists(
     rocksdb_options_t*, unsigned char);
