@@ -1000,12 +1000,19 @@ class DocumentDBImpl : public DocumentDB {
                      std::string* value) override {
     return Status::NotSupported("");
   }
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value) override {
+    return Status::NotSupported("");
+  }
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override {
     return Status::NotSupported("");
   }
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override {
+    return nullptr;
+  }
+  virtual Iterator* NewIterator(const ReadOptions& options) override {
     return nullptr;
   }
 
