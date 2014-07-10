@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <limits>
 #include "util/testharness.h"
 #include "util/rate_limiter.h"
@@ -63,10 +65,10 @@ TEST(RateLimiterTest, Rate) {
     auto elapsed = env->NowMicros() - start;
     double rate = arg.limiter->GetTotalBytesThrough()
                   * 1000000.0 / elapsed;
-    fprintf(stderr, "request size [1 - %ld], limit %ld KB/sec, "
-                    "actual rate: %lf KB/sec, elapsed %.2lf seconds\n",
-                    arg.request_size - 1, target / 1024, rate / 1024,
-                    elapsed / 1000000.0);
+    fprintf(stderr, "request size [1 - %" PRIi64 "], limit %" PRIi64
+                    " KB/sec, actual rate: %lf KB/sec, elapsed %.2lf seconds\n",
+            arg.request_size - 1, target / 1024, rate / 1024,
+            elapsed / 1000000.0);
 
     ASSERT_GE(rate / target, 0.95);
     ASSERT_LE(rate / target, 1.05);

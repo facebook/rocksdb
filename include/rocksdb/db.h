@@ -160,6 +160,7 @@ class DB {
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".
+  // If "key" already exists, it will be overwritten.
   // Returns OK on success, and a non-OK status on error.
   // Note: consider setting options.sync = true.
   virtual Status Put(const WriteOptions& options,
@@ -338,15 +339,17 @@ class DB {
   // hosting all the files. In this case, client could set reduce_level
   // to true, to move the files back to the minimum level capable of holding
   // the data set or a given level (specified by non-negative target_level).
+  // Compaction outputs should be placed in options.db_paths[target_path_id].
+  // Behavior is undefined if target_path_id is out of range.
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool reduce_level = false,
-                              int target_level = -1) = 0;
+                              bool reduce_level = false, int target_level = -1,
+                              uint32_t target_path_id = 0) = 0;
   virtual Status CompactRange(const Slice* begin, const Slice* end,
-                              bool reduce_level = false,
-                              int target_level = -1) {
+                              bool reduce_level = false, int target_level = -1,
+                              uint32_t target_path_id = 0) {
     return CompactRange(DefaultColumnFamily(), begin, end, reduce_level,
-                        target_level);
+                        target_level, target_path_id);
   }
 
   // Number of levels used for this DB.

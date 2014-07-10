@@ -71,14 +71,14 @@ std::string MakeTableFileName(const std::string& path, uint64_t number) {
   return MakeFileName(path, number, "sst");
 }
 
-std::string TableFileName(const std::vector<std::string> db_paths,
-                          uint64_t number, uint32_t path_id) {
+std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
+                          uint32_t path_id) {
   assert(number > 0);
   std::string path;
   if (path_id >= db_paths.size()) {
-    path = db_paths.back();
+    path = db_paths.back().path;
   } else {
-    path = db_paths[path_id];
+    path = db_paths[path_id].path;
   }
   return MakeTableFileName(path, number);
 }

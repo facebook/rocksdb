@@ -83,6 +83,14 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATED         = 2, // No inplace update. Merged value set
 };
 
+struct DbPath {
+  std::string path;
+  uint64_t target_size;  // Target size of total files under the path, in byte.
+
+  DbPath() : target_size(0) {}
+  DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
+};
+
 struct Options;
 
 struct ColumnFamilyOptions {
@@ -674,18 +682,34 @@ struct DBOptions {
   // Default: false
   bool use_fsync;
 
-  // This number controls how often a new scribe log about
-  // db deploy stats is written out.
-  // -1 indicates no logging at all.
-  // Default value is 1800 (half an hour).
+  // This options is not used!!
   int db_stats_log_interval;
 
-  // A list paths where SST files can be put into. A compaction style can
-  // determine which of those paths it will put the file to.
+  // A list of paths where SST files can be put into, with its target size.
+  // Newer data is placed into paths specified earlier in the vector while
+  // older data gradually moves to paths specified later in the vector.
+  //
+  // For example, you have a flash device with 10GB allocated for the DB,
+  // as well as a hard drive of 2TB, you should config it to be:
+  //   [{"/flash_path", 10GB}, {"/hard_drive", 2TB}]
+  //
+  // The system will try to guarantee data under each path is close to but
+  // not larger than the target size. But current and future file sizes used
+  // by determining where to place a file are based on best-effort estimation,
+  // which means there is a chance that the actual size under the directory
+  // is slightly more than target size under some workloads. User should give
+  // some buffer room for those cases.
+  //
+  // If none of the paths has sufficient room to place a file, the file will
+  // be placed to the last path anyway, despite to the target size.
+  //
+  // Placing newer data to ealier paths is also best-efforts. User should
+  // expect user files to be placed in higher levels in some extreme cases.
+  //
   // If left empty, only one path will be used, which is db_name passed when
   // opening the DB.
   // Default: empty
-  std::vector<std::string> db_paths;
+  std::vector<DbPath> db_paths;
 
   // This specifies the info LOG dir.
   // If it is empty, the log files will be in the same dir as data.
@@ -1006,12 +1030,22 @@ struct FlushOptions {
 
 // Create a RateLimiter object, which can be shared among RocksDB instances to
 // control write rate of flush and compaction.
-// @rate_bytes_per_sec: desired total write rate in bytes per second.
-// @refill_period_us: token refill interval in micro-second.
+// @rate_bytes_per_sec: this is the only parameter you want to set most of the
+// time. It controls the total write rate of compaction and flush in bytes per
+// second. Currently, RocksDB does not enforce rate limit for anything other
+// than flush and compaction, e.g. write to WAL.
+// @refill_period_us: this controls how often tokens are refilled. For example,
+// when rate_bytes_per_sec is set to 10MB/s and refill_period_us is set to
+// 100ms, then 1MB is refilled every 100ms internally. Larger value can lead to
+// burstier writes while smaller value introduces more CPU overhead.
+// The default should work for most cases.
 // @fairness: RateLimiter accepts high-pri requests and low-pri requests.
-// low-pri request is usually blocked in favor of hi-pri request. To prevent
-// low-pri request from being blocked for too long, it can get processed first
-// by 1/fairness chance.
+// A low-pri request is usually blocked in favor of hi-pri request. Currently,
+// RocksDB assigns low-pri to request from compaciton and high-pri to request
+// from flush. Low-pri requests can get blocked if flush requests come in
+// continuouly. This fairness parameter grants low-pri requests permission by
+// 1/fairness chance even though high-pri requests exist to avoid starvation.
+// You should be good by leaving it at default 10.
 extern RateLimiter* NewRateLimiter(
     int64_t rate_bytes_per_sec,
     int64_t refill_period_us = 100 * 1000,

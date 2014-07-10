@@ -67,6 +67,10 @@ class WriteBatch {
   void Delete(ColumnFamilyHandle* column_family, const Slice& key);
   void Delete(const Slice& key) { Delete(nullptr, key); }
 
+  // variant that takes SliceParts
+  void Delete(ColumnFamilyHandle* column_family, const SliceParts& key);
+  void Delete(const SliceParts& key) { Delete(nullptr, key); }
+
   // Append a blob of arbitrary size to the records in this batch. The blob will
   // be stored in the transaction log but not in any other file. In particular,
   // it will not be persisted to the SST files. When iterating over this

@@ -20,7 +20,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "port/port.h"
-#include "util/stats_logger.h"
 
 namespace rocksdb {
 

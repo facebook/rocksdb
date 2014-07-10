@@ -9,11 +9,12 @@ package org.rocksdb;
  * Options to control the behavior of a database.  It will be used
  * during the creation of a RocksDB (i.e., RocksDB.open()).
  *
- * Note that dispose() must be called before an Options instance
- * become out-of-scope to release the allocated memory in c++.
+ * If dispose() function is not called, then it will be GC'd automatically and
+ * native resources will be released as part of the process.
  */
 public class Options extends RocksObject {
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
+  static final int DEFAULT_NUM_SHARD_BITS = -1;
   /**
    * Construct options for opening a RocksDB.
    *
@@ -23,6 +24,7 @@ public class Options extends RocksObject {
   public Options() {
     super();
     cacheSize_ = DEFAULT_CACHE_SIZE;
+    numShardBits_ = DEFAULT_NUM_SHARD_BITS;
     newOptions();
     env_ = RocksEnv.getDefault();
   }
@@ -166,8 +168,11 @@ public class Options extends RocksObject {
   /**
    * Use the specified filter policy to reduce disk reads.
    *
-   * Note that the caller should not dispose the input filter as
-   * Options.dispose() will dispose this filter.
+   * Filter should not be disposed before options instances using this filter is
+   * disposed. If dispose() function is not called, then filter object will be
+   * GC'd automatically.
+   * 
+   * Filter instance can be re-used in multiple options instances. 
    *
    * @param Filter policy java instance.
    * @return the instance of the current Options.
@@ -215,6 +220,7 @@ public class Options extends RocksObject {
    * If cacheSize is non-positive, then cache will not be used.
    *
    * DEFAULT: 8M
+   * @see setCacheNumShardBits()
    */
   public Options setCacheSize(long cacheSize) {
     cacheSize_ = cacheSize;
@@ -223,9 +229,40 @@ public class Options extends RocksObject {
 
   /**
    * @return the amount of cache in bytes that will be used by RocksDB.
+   *
+   * @see cacheNumShardBits()
    */
   public long cacheSize() {
     return cacheSize_;
+  }
+
+  /**
+   * Controls the number of shards for the block cache.
+   * This is applied only if cacheSize is set to non-negative.
+   *
+   * @param numShardBits the number of shard bits.  The resulting
+   *     number of shards would be 2 ^ numShardBits.  Any negative
+   *     number means use default settings."
+   * @return the reference to the current option.
+   *
+   * @see setCacheSize()
+   */
+  public Options setCacheNumShardBits(int numShardBits) {
+    numShardBits_ = numShardBits;
+    return this;
+  }
+
+  /**
+   * Returns the number of shard bits used in the block cache.
+   * The resulting number of shards would be 2 ^ (returned value).
+   * Any negative number means use default settings.
+   *
+   * @return the number of shard bits used in the block cache.
+   *
+   * @see cacheSize()
+   */
+  public int cacheNumShardBits() {
+    return numShardBits_;
   }
 
   /**
@@ -2397,6 +2434,7 @@ public class Options extends RocksObject {
       long handle, int prefixLength);
 
   long cacheSize_;
+  int numShardBits_;
   Filter filter_;
   RocksEnv env_;
 }

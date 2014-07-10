@@ -12,7 +12,7 @@ package org.rocksdb;
  * StatisticsCollector doesn't make any guarantees about thread safety. 
  * If the same reference of StatisticsCollectorCallback is passed to multiple
  * StatisticsCollector references, then its the responsibility of the 
- * user to make StatisticsCollectorCallback' implementation thread-safe.
+ * user to make StatisticsCollectorCallback's implementation thread-safe.
  * 
  * @param tickerType
  * @param tickerCount

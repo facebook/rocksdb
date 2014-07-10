@@ -7,6 +7,7 @@
 #   CC                          C Compiler path
 #   CXX                         C++ Compiler path
 #   PLATFORM_LDFLAGS            Linker flags
+#   JAVA_LDFLAGS                Linker flags for RocksDBJava
 #   PLATFORM_SHARED_EXT         Extension for shared libraries
 #   PLATFORM_SHARED_LDFLAGS     Flags for building shared library
 #   PLATFORM_SHARED_CFLAGS      Flags for compiling objects for shared library
@@ -157,6 +158,8 @@ case "$TARGET_OS" in
         exit 1
 esac
 
+JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
+
 if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
   "$PWD/build_tools/build_detect_version"
 fi
@@ -215,6 +218,7 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DSNAPPY"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lsnappy"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -lsnappy"
     fi
 
 
@@ -250,6 +254,7 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DZLIB"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lz"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -lz"
     fi
 
     # Test whether bzip library is installed
@@ -260,6 +265,7 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DBZIP2"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbz2"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -lbz2"
     fi
 
     # Test whether lz4 library is installed
@@ -271,6 +277,7 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DLZ4"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llz4"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -llz4"
     fi
 
     # Test whether numa is available
@@ -282,6 +289,7 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
     fi
 
     # Test whether tcmalloc is available
@@ -290,6 +298,7 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
     fi
 fi
 
@@ -306,6 +315,7 @@ if test "$USE_HDFS"; then
   HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
   COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"
   PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $HDFS_LDFLAGS"
+  JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
 # if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 "
@@ -320,6 +330,7 @@ echo "CC=$CC" >> "$OUTPUT"
 echo "CXX=$CXX" >> "$OUTPUT"
 echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
 echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
+echo "JAVA_LDFLAGS=$JAVA_LDFLAGS" >> "$OUTPUT"
 echo "VALGRIND_VER=$VALGRIND_VER" >> "$OUTPUT"
 echo "PLATFORM_CCFLAGS=$PLATFORM_CCFLAGS" >> "$OUTPUT"
 echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> "$OUTPUT"

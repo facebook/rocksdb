@@ -185,7 +185,8 @@ class ColumnFamilyData {
   // See documentation in compaction_picker.h
   Compaction* PickCompaction(LogBuffer* log_buffer);
   Compaction* CompactRange(int input_level, int output_level,
-                           const InternalKey* begin, const InternalKey* end,
+                           uint32_t output_path_id, const InternalKey* begin,
+                           const InternalKey* end,
                            InternalKey** compaction_end);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }

@@ -30,28 +30,13 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
     const Options& options, const InternalKeyComparator& internal_comparator,
     WritableFile* file, CompressionType compression_type) const {
   return new PlainTableBuilder(options, file, user_key_len_, encoding_type_,
-                               index_sparseness_);
+                               index_sparseness_, bloom_bits_per_key_, 6,
+                               huge_page_tlb_size_, hash_table_ratio_,
+                               store_index_in_file_);
 }
 
-extern TableFactory* NewPlainTableFactory(uint32_t user_key_len,
-                                          int bloom_bits_per_key,
-                                          double hash_table_ratio,
-                                          size_t index_sparseness,
-                                          size_t huge_page_tlb_size,
-                                          EncodingType encoding_type) {
-  return new PlainTableFactory(user_key_len, bloom_bits_per_key,
-                               hash_table_ratio, index_sparseness,
-                               huge_page_tlb_size, encoding_type);
-}
-
-extern TableFactory* NewTotalOrderPlainTableFactory(uint32_t user_key_len,
-                                                    int bloom_bits_per_key,
-                                                    size_t index_sparseness,
-                                                    size_t huge_page_tlb_size,
-                                                    bool full_scan_mode) {
-  return new PlainTableFactory(user_key_len, bloom_bits_per_key, 0,
-                               index_sparseness, huge_page_tlb_size, kPlain,
-                               full_scan_mode);
+extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
+  return new PlainTableFactory(options);
 }
 
 const std::string PlainTablePropertyNames::kPrefixExtractorName =
@@ -59,6 +44,12 @@ const std::string PlainTablePropertyNames::kPrefixExtractorName =
 
 const std::string PlainTablePropertyNames::kEncodingType =
     "rocksdb.plain.table.encoding.type";
+
+const std::string PlainTablePropertyNames::kBloomVersion =
+    "rocksdb.plain.table.bloom.version";
+
+const std::string PlainTablePropertyNames::kNumBloomBlocks =
+    "rocksdb.plain.table.bloom.numblocks";
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

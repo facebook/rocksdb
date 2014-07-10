@@ -5,6 +5,10 @@
 
 #pragma once
 
+#include <string>
+
+#include "rocksdb/slice.h"
+
 #include <util/arena.h>
 #include <port/port_posix.h>
 
@@ -57,6 +61,19 @@ class DynamicBloom {
 
   void Prefetch(uint32_t h);
 
+  uint32_t GetNumBlocks() const { return kNumBlocks; }
+
+  Slice GetRawData() const {
+    return Slice(reinterpret_cast<char*>(data_), GetTotalBits() / 8);
+  }
+
+  void SetRawData(unsigned char* raw_data, uint32_t total_bits,
+                  uint32_t num_blocks = 0);
+
+  uint32_t GetTotalBits() const { return kTotalBits; }
+
+  bool IsInitialized() const { return kNumBlocks > 0 || kTotalBits > 0; }
+
  private:
   uint32_t kTotalBits;
   uint32_t kNumBlocks;
@@ -81,7 +98,7 @@ inline void DynamicBloom::Prefetch(uint32_t h) {
 }
 
 inline bool DynamicBloom::MayContainHash(uint32_t h) const {
-  assert(kNumBlocks > 0 || kTotalBits > 0);
+  assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
@@ -98,10 +115,6 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
       h += delta;
     }
   } else {
-    if (kTotalBits == 0) {
-      // Not initialized.
-      return true;
-    }
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
       if (((data_[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
@@ -114,7 +127,7 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
 }
 
 inline void DynamicBloom::AddHash(uint32_t h) {
-  assert(kNumBlocks > 0 || kTotalBits > 0);
+  assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);

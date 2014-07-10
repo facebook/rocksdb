@@ -5,8 +5,10 @@
 
 package org.rocksdb;
 
+import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -20,41 +22,37 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * provided in constructor) reference has been disposed.
  */
 public class StatisticsCollector {
-  private final Statistics _statistics;
-  private final ThreadPoolExecutor _threadPoolExecutor;
+  private final List<StatsCollectorInput> _statsCollectorInputList;
+  private final ExecutorService _executorService;
   private final int _statsCollectionInterval;
-  private final StatisticsCollectorCallback _statsCallback;
   private volatile boolean _isRunning = true;
 
   /**
    * Constructor for statistics collector.
-   * @param statistics Reference of DB statistics.
+   * 
+   * @param statsCollectorInputList List of statistics collector input.
    * @param statsCollectionIntervalInMilliSeconds Statistics collection time 
-   *        period (specified in milliseconds) 
-   * @param statsCallback Reference of statistics callback interface.
+   *        period (specified in milliseconds).
    */
-  public StatisticsCollector(Statistics statistics,
-      int statsCollectionIntervalInMilliSeconds,
-      StatisticsCollectorCallback statsCallback) {
-    _statistics = statistics;
+  public StatisticsCollector(List<StatsCollectorInput> statsCollectorInputList,
+      int statsCollectionIntervalInMilliSeconds) {
+    _statsCollectorInputList = statsCollectorInputList;
     _statsCollectionInterval = statsCollectionIntervalInMilliSeconds;
-    _statsCallback = statsCallback;
 
-    _threadPoolExecutor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
-        new ArrayBlockingQueue<Runnable>(1));
+    _executorService = Executors.newSingleThreadExecutor();
   }
 
   public void start() {
-    _threadPoolExecutor.submit(collectStatistics());
+    _executorService.submit(collectStatistics());
   }
 
   public void shutDown() throws InterruptedException {
     _isRunning = false;
 
-    _threadPoolExecutor.shutdown();
+    _executorService.shutdown();
     // Wait for collectStatistics runnable to finish so that disposal of
     // statistics does not cause any exceptions to be thrown.
-    _threadPoolExecutor.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
+    _executorService.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
   }
 
   private Runnable collectStatistics() {
@@ -64,20 +62,27 @@ public class StatisticsCollector {
       public void run() {
         while (_isRunning) {
           try {
-            // Collect ticker data
-            for(TickerType ticker : TickerType.values()) {
-              long tickerValue = _statistics.getTickerCount(ticker);
-              _statsCallback.tickerCallback(ticker, tickerValue);
-            }
+            for(StatsCollectorInput statsCollectorInput :
+                _statsCollectorInputList) {
+              Statistics statistics = statsCollectorInput.getStatistics();
+              StatisticsCollectorCallback statsCallback =
+                  statsCollectorInput.getCallback();
+              
+                // Collect ticker data
+              for(TickerType ticker : TickerType.values()) {
+                long tickerValue = statistics.getTickerCount(ticker);
+                statsCallback.tickerCallback(ticker, tickerValue);
+              }
 
-            // Collect histogram data
-            for(HistogramType histogramType : HistogramType.values()) {
-              HistogramData histogramData =
-                  _statistics.geHistogramData(histogramType);
-              _statsCallback.histogramCallback(histogramType, histogramData);
-            }
+              // Collect histogram data
+              for(HistogramType histogramType : HistogramType.values()) {
+                HistogramData histogramData =
+                    statistics.geHistogramData(histogramType);
+                statsCallback.histogramCallback(histogramType, histogramData);
+              }
 
-            Thread.sleep(_statsCollectionInterval);
+              Thread.sleep(_statsCollectionInterval);
+            }
           }
           catch (InterruptedException e) {
             Thread.currentThread().interrupt();

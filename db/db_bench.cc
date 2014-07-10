@@ -242,6 +242,10 @@ DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
 DEFINE_int32(block_size, rocksdb::Options().block_size,
              "Number of bytes in a block.");
 
+DEFINE_int32(block_restart_interval, rocksdb::Options().block_restart_interval,
+             "Number of keys between restart points "
+             "for delta encoding of keys.");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -538,6 +542,9 @@ DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
 DEFINE_bool(use_plain_table, false, "if use plain table "
             "instead of block-based table format");
+DEFINE_bool(use_hash_search, false, "if use kHashSearch "
+            "instead of kBinarySearch. "
+            "This is valid if only we use BlockTable");
 
 DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
@@ -1623,8 +1630,9 @@ class Benchmark {
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
     options.block_size = FLAGS_block_size;
+    options.block_restart_interval = FLAGS_block_restart_interval;
     options.filter_policy = filter_policy_;
-    if (FLAGS_use_plain_table) {
+    if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
     }
@@ -1685,8 +1693,22 @@ class Benchmark {
       if (bloom_bits_per_key < 0) {
         bloom_bits_per_key = 0;
       }
+
+      PlainTableOptions plain_table_options;
+      plain_table_options.user_key_len = FLAGS_key_size;
+      plain_table_options.bloom_bits_per_key = bloom_bits_per_key;
+      plain_table_options.hash_table_ratio = 0.75;
       options.table_factory = std::shared_ptr<TableFactory>(
-          NewPlainTableFactory(FLAGS_key_size, bloom_bits_per_key, 0.75));
+          NewPlainTableFactory(plain_table_options));
+    } else {
+      BlockBasedTableOptions block_based_options;
+      if (FLAGS_use_hash_search) {
+        block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
+      } else {
+        block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
+      }
+      options.table_factory.reset(
+          NewBlockBasedTableFactory(block_based_options));
     }
     if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() > 0) {
       if (FLAGS_max_bytes_for_level_multiplier_additional_v.size() !=
