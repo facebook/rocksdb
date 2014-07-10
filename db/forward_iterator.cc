@@ -292,6 +292,9 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       prev_key_.SetKey(internal_key);
       is_prev_set_ = true;
     }
+  } else if (current_ && current_ != mutable_iter_) {
+    // current_ is one of immutable iterators, push it back to the heap
+    immutable_min_heap_.push(current_);
   }
 
   UpdateCurrent();

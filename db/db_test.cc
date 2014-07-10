@@ -6939,6 +6939,41 @@ TEST(DBTest, TailingIteratorIncomplete) {
   ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
 }
 
+TEST(DBTest, TailingIteratorSeekToSame) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 1000;
+  CreateAndReopenWithCF({"pikachu"}, &options);
+
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  const int NROWS = 10000;
+  // Write rows with keys 00000, 00002, 00004 etc.
+  for (int i = 0; i < NROWS; ++i) {
+    char buf[100];
+    snprintf(buf, sizeof(buf), "%05d", 2*i);
+    std::string key(buf);
+    std::string value("value");
+    ASSERT_OK(db_->Put(WriteOptions(), key, value));
+  }
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  // Seek to 00001.  We expect to find 00002.
+  std::string start_key = "00001";
+  iter->Seek(start_key);
+  ASSERT_TRUE(iter->Valid());
+
+  std::string found = iter->key().ToString();
+  ASSERT_EQ("00002", found);
+
+  // Now seek to the same key.  The iterator should remain in the same
+  // position.
+  iter->Seek(found);
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(found, iter->key().ToString());
+}
+
 TEST(DBTest, BlockBasedTablePrefixIndexTest) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
