@@ -7133,6 +7133,9 @@ TEST(DBTest, MTRandomTimeoutTest) {
 
 }  // anonymous namespace
 
+/*
+ * This test is not reliable enough as it heavily depends on disk behavior.
+ *
 TEST(DBTest, RateLimitingTest) {
   Options options = CurrentOptions();
   options.write_buffer_size = 1 << 20;         // 1MB
@@ -7201,6 +7204,7 @@ TEST(DBTest, RateLimitingTest) {
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.5\n", ratio);
   ASSERT_TRUE(ratio > 0.4 && ratio < 0.6);
 }
+*/
 
 }  // namespace rocksdb
 
