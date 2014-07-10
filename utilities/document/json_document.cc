@@ -6,6 +6,8 @@
 
 #include "utilities/json_document.h"
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <cassert>
 #include <string>
 #include <map>
@@ -265,6 +267,58 @@ bool JSONDocument::operator==(const JSONDocument& rhs) const {
   }
   // it can't come to here, but we don't want the compiler to complain
   return false;
+}
+
+std::string JSONDocument::DebugString() const {
+  std::string ret;
+  switch (type_) {
+    case kNull:
+      ret = "null";
+      break;
+    case kArray:
+      ret = "[";
+      for (size_t i = 0; i < data_.a.size(); ++i) {
+        if (i) {
+          ret += ", ";
+        }
+        ret += data_.a[i]->DebugString();
+      }
+      ret += "]";
+      break;
+    case kBool:
+      ret = data_.b ? "true" : "false";
+      break;
+    case kDouble: {
+      char buf[100];
+      snprintf(buf, sizeof(buf), "%lf", data_.d);
+      ret = buf;
+      break;
+    }
+    case kInt64: {
+      char buf[100];
+      snprintf(buf, sizeof(buf), "%" PRIi64, data_.i);
+      ret = buf;
+      break;
+    }
+    case kObject: {
+      bool first = true;
+      ret = "{";
+      for (const auto& iter : data_.o) {
+        ret += first ? "" : ", ";
+        first = false;
+        ret += iter.first + ": ";
+        ret += iter.second->DebugString();
+      }
+      ret += "}";
+      break;
+    }
+    case kString:
+      ret = "\"" + data_.s + "\"";
+      break;
+    default:
+      assert(false);
+  }
+  return ret;
 }
 
 JSONDocument::ItemsIteratorGenerator JSONDocument::Items() const {

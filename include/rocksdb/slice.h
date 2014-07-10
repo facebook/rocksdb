@@ -107,6 +107,7 @@ class Slice {
 struct SliceParts {
   SliceParts(const Slice* _parts, int _num_parts) :
       parts(_parts), num_parts(_num_parts) { }
+  SliceParts() : parts(nullptr), num_parts(0) {}
 
   const Slice* parts;
   int num_parts;
