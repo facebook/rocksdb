@@ -53,6 +53,7 @@ class ColumnFamilySet;
 class TableCache;
 class MergeIteratorBuilder;
 
+
 // Return the smallest index i such that files[i]->largest >= key.
 // Return files.size() if there is no such file.
 // REQUIRES: "files" contains a sorted list of non-overlapping files.
@@ -60,16 +61,24 @@ extern int FindFile(const InternalKeyComparator& icmp,
                     const std::vector<FileMetaData*>& files,
                     const Slice& key);
 
+// Return the smallest index i such that file_level.files[i]->largest >= key.
+// Return file_level.num_files if there is no such file.
+// REQUIRES: "file_level.files" contains a sorted list of
+// non-overlapping files.
+extern int FindFile(const InternalKeyComparator& icmp,
+                    const FileLevel& file_level,
+                    const Slice& key);
+
 // Returns true iff some file in "files" overlaps the user key range
 // [*smallest,*largest].
 // smallest==nullptr represents a key smaller than all keys in the DB.
 // largest==nullptr represents a key largest than all keys in the DB.
-// REQUIRES: If disjoint_sorted_files, files[] contains disjoint ranges
-//           in sorted order.
+// REQUIRES: If disjoint_sorted_files, file_level.files[]
+// contains disjoint ranges in sorted order.
 extern bool SomeFileOverlapsRange(
     const InternalKeyComparator& icmp,
     bool disjoint_sorted_files,
-    const std::vector<FileMetaData*>& files,
+    const FileLevel& file_level,
     const Slice* smallest_user_key,
     const Slice* largest_user_key);
 
@@ -97,6 +106,9 @@ class Version {
   // REQUIRES: If Version is not yet saved to current_, it can be called without
   // a lock. Once a version is saved to current_, call only with mutex held
   void ComputeCompactionScore(std::vector<uint64_t>& size_being_compacted);
+
+  // Generate file_levels_ from files_
+  void GenerateFileLevels();
 
   // Update scores, pre-calculated variables. It needs to be called before
   // applying the version to the version set.
@@ -265,12 +277,15 @@ class Version {
   const Comparator* user_comparator_;
   TableCache* table_cache_;
   const MergeOperator* merge_operator_;
+
+  autovector<FileLevel> file_levels_;   // A copy of list of files per level
   Logger* info_log_;
   Statistics* db_statistics_;
   int num_levels_;              // Number of levels
   int num_non_empty_levels_;    // Number of levels. Any level larger than it
                                 // is guaranteed to be empty.
   VersionSet* vset_;            // VersionSet to which this Version belongs
+  Arena arena_;                 // Used to allocate space for file_levels_
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
@@ -278,6 +293,7 @@ class Version {
   // List of files per level, files in each level are arranged
   // in increasing order of keys
   std::vector<FileMetaData*>* files_;
+
 
   // A list for the same set of files that are stored in files_,
   // but files in each level are now sorted based on file

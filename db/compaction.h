@@ -53,7 +53,7 @@ class Compaction {
   // Whether need to write output file to second DB path.
   uint32_t GetOutputPathId() const { return output_path_id_; }
 
-  // Is this a trivial compaction that can be implemented by just
+    // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
 

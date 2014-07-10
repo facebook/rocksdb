@@ -91,6 +91,38 @@ struct FileMetaData {
         raw_value_size(0) {}
 };
 
+// A compressed copy of file meta data that just contain
+// smallest and largest key's slice
+struct FdWithKeyRange {
+  FileDescriptor fd;
+  Slice smallest_key;    // slice that contain smallest key
+  Slice largest_key;     // slice that contain largest key
+
+  FdWithKeyRange()
+      : fd(0, 0),
+        smallest_key(),
+        largest_key() {
+  }
+
+  FdWithKeyRange(FileDescriptor fd,
+      Slice smallest_key, Slice largest_key)
+      : fd(fd),
+        smallest_key(smallest_key),
+        largest_key(largest_key) {
+  }
+};
+
+// Data structure to store an array of FdWithKeyRange in one level
+// Actual data is guaranteed to be stored closely
+struct FileLevel {
+  size_t num_files;
+  FdWithKeyRange* files;
+  FileLevel() {
+    num_files = 0;
+    files = nullptr;
+  }
+};
+
 class VersionEdit {
  public:
   VersionEdit() { Clear(); }
