@@ -87,7 +87,12 @@ class LevelIterator : public Iterator {
     return file_iter_->value();
   }
   Status status() const override {
-    return status_;
+    if (!status_.ok()) {
+      return status_;
+    } else if (file_iter_ && !file_iter_->status().ok()) {
+      return file_iter_->status();
+    }
+    return Status::OK();
   }
 
  private:
@@ -334,6 +339,23 @@ Status ForwardIterator::status() const {
   } else if (!mutable_iter_->status().ok()) {
     return mutable_iter_->status();
   }
+
+  for (auto *it : imm_iters_) {
+    if (it && !it->status().ok()) {
+      return it->status();
+    }
+  }
+  for (auto *it : l0_iters_) {
+    if (it && !it->status().ok()) {
+      return it->status();
+    }
+  }
+  for (auto *it : level_iters_) {
+    if (it && !it->status().ok()) {
+      return it->status();
+    }
+  }
+
   return Status::OK();
 }
 

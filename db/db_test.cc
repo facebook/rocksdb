@@ -6917,6 +6917,28 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   ASSERT_TRUE(!iter->Valid());
 }
 
+TEST(DBTest, TailingIteratorIncomplete) {
+  CreateAndReopenWithCF({"pikachu"});
+  ReadOptions read_options;
+  read_options.tailing = true;
+  read_options.read_tier = kBlockCacheTier;
+
+  std::string key("key");
+  std::string value("value");
+
+  ASSERT_OK(db_->Put(WriteOptions(), key, value));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  iter->SeekToFirst();
+  // we either see the entry or it's not in cache
+  ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
+
+  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  iter->SeekToFirst();
+  // should still be true after compaction
+  ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
+}
+
 TEST(DBTest, BlockBasedTablePrefixIndexTest) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
