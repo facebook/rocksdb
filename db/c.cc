@@ -1015,6 +1015,11 @@ void rocksdb_options_set_create_if_missing(
   opt->rep.create_if_missing = v;
 }
 
+void rocksdb_options_set_create_missing_column_families(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.create_missing_column_families = v;
+}
+
 void rocksdb_options_set_error_if_exists(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.error_if_exists = v;

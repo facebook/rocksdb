@@ -576,7 +576,6 @@ int main(int argc, char** argv) {
     size_t cflen;
     char** column_fams = rocksdb_list_column_families(db_options, dbname, &cflen, &err);
     CheckNoError(err);
-    // TODO column_families vals seg fault
     CheckEqual("default", column_fams[0], 7);
     CheckEqual("cf1", column_fams[1], 3);
     CheckCondition(cflen == 2);
