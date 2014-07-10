@@ -2355,6 +2355,7 @@ TEST(DBTest, NumImmutableMemTable) {
     std::string big_value(1000000 * 2, 'x');
     std::string num;
     SetPerfLevel(kEnableTime);;
+    ASSERT_TRUE(GetPerfLevel() == kEnableTime);
 
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k1", big_value));
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
@@ -2417,6 +2418,7 @@ TEST(DBTest, NumImmutableMemTable) {
     // break if we change the default skiplist implementation
     ASSERT_EQ(num, "200");
     SetPerfLevel(kDisable);
+    ASSERT_TRUE(GetPerfLevel() == kDisable);
   } while (ChangeCompactOptions());
 }
 

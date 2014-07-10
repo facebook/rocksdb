@@ -22,6 +22,10 @@ void SetPerfLevel(PerfLevel level) {
   perf_level = level;
 }
 
+PerfLevel GetPerfLevel() {
+  return perf_level;
+}
+
 void PerfContext::Reset() {
 #if !defined(NPERF_CONTEXT) && !defined(IOS_CROSS_COMPILE)
   user_key_comparison_count = 0;
