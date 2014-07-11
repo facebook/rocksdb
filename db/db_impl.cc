@@ -1428,7 +1428,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
                   meta.smallest_seqno, meta.largest_seqno);
   }
 
-  InternalStats::CompactionStats stats;
+  InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.fd.GetFileSize();
   stats.files_out_levelnp1 = 1;
@@ -1519,7 +1519,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
                   meta.smallest_seqno, meta.largest_seqno);
   }
 
-  InternalStats::CompactionStats stats;
+  InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.fd.GetFileSize();
   cfd->internal_stats()->AddCompactionStats(level, stats);
@@ -3134,7 +3134,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     db_directory_->Fsync();
   }
 
-  InternalStats::CompactionStats stats;
+  InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
   MeasureTime(options_.statistics.get(), COMPACTION_TIME, stats.micros);
   stats.files_in_leveln = compact->compaction->num_input_files(0);

@@ -13,6 +13,80 @@
 
 namespace rocksdb {
 
+namespace {
+const double kMB = 1048576.0;
+const double kGB = kMB * 1024;
+
+void PrintLevelStatsHeader(char* buf, size_t len) {
+  snprintf(
+      buf, len,
+      "\n** Compaction Stats **\n"
+      "Level Files Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
+      "Write(BG) Wnew(GB) RW-Amp W-Amp Rd(MB/s) Wr(MB/s)  Rn(cnt) "
+      "Rnp1(cnt) Wnp1(cnt) Wnew(cnt)  Comp(sec) Comp(cnt) Avg(sec) "
+      "Stall(sec) Stall(cnt) Avg(ms)\n"
+      "--------------------------------------------------------------------"
+      "--------------------------------------------------------------------"
+      "--------------------------------------------------------------------\n");
+}
+
+void PrintLevelStats(char* buf, size_t len, const std::string& name,
+    int num_files, double total_file_size, double score,
+    double stall_us, uint64_t stalls,
+    const InternalStats::CompactionStats& stats) {
+  int64_t bytes_read = stats.bytes_readn + stats.bytes_readnp1;
+  int64_t bytes_new = stats.bytes_written - stats.bytes_readnp1;
+  double rw_amp = (stats.bytes_readn== 0) ? 0.0
+          : (stats.bytes_written + bytes_read) / (double)stats.bytes_readn;
+  double w_amp = (stats.bytes_readn == 0) ? 0.0
+          : stats.bytes_written / (double)stats.bytes_readn;
+  double elapsed = (stats.micros + 1) / 1000000.0;
+
+  snprintf(buf, len,
+    "%4s %5d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
+    "%8.1f " /* Read(GB) */
+    "%7.1f " /* Rn(GB) */
+    "%8.1f " /* Rnp1(GB) */
+    "%9.1f " /* Write(GB) */
+    "%8.1f " /* Wnew(GB) */
+    "%6.1f " /* RW-Amp */
+    "%5.1f " /* W-Amp */
+    "%8.1f " /* Rd(MB/s) */
+    "%8.1f " /* Wr(MB/s) */
+    "%8d " /* Rn(cnt) */
+    "%9d " /* Rnp1(cnt) */
+    "%9d " /* Wnp1(cnt) */
+    "%9d " /* Wnew(cnt) */
+    "%10.0f " /* Comp(sec) */
+    "%9d " /* Comp(cnt) */
+    "%8.3f " /* Avg(sec) */
+    "%10.2f " /* Sta(sec) */
+    "%10lu " /* Sta(cnt) */
+    "%7.2f\n" /* Avg(ms) */,
+    name.c_str(), num_files, total_file_size / kMB, score,
+    bytes_read / kGB,
+    stats.bytes_readn / kGB,
+    stats.bytes_readnp1 / kGB,
+    stats.bytes_written / kGB,
+    bytes_new / kGB,
+    rw_amp,
+    w_amp,
+    bytes_read / kMB / elapsed,
+    stats.bytes_written / kMB / elapsed,
+    stats.files_in_leveln,
+    stats.files_in_levelnp1,
+    stats.files_out_levelnp1,
+    stats.files_out_levelnp1 - stats.files_in_levelnp1,
+    stats.micros / 1000000.0,
+    stats.count,
+    stats.count == 0 ? 0 : stats.micros / 1000000.0 / stats.count,
+    stall_us / 1000000.0,
+    stalls,
+    stalls == 0 ? 0 : stall_us / 1000.0 / stalls);
+}
+
+}
+
 DBPropertyType GetPropertyType(const Slice& property) {
   Slice in = property;
   Slice prefix("rocksdb.");
@@ -76,7 +150,7 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       for (int level = 0; level < number_levels_; level++) {
         snprintf(buf, sizeof(buf), "%3d %8d %8.0f\n", level,
                  current->NumLevelFiles(level),
-                 current->NumLevelBytes(level) / 1048576.0);
+                 current->NumLevelBytes(level) / kMB);
         value->append(buf);
       }
       return true;
@@ -90,8 +164,6 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       uint64_t write_other = 0;
       uint64_t write_self = 0;
       uint64_t write_with_wal = 0;
-      uint64_t total_bytes_written = 0;
-      uint64_t total_bytes_read = 0;
       uint64_t micros_up = env_->NowMicros() - started_at_;
       // Add "+1" to make sure seconds_up is > 0 and avoid NaN later
       double seconds_up = (micros_up + 1) / 1000000.0;
@@ -111,38 +183,20 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
         write_with_wal = statistics_->getTickerCount(WRITE_WITH_WAL);
       }
 
-      snprintf(
-          buf, sizeof(buf),
-          "                               Compactions\n"
-          "Level  Files Size(MB) Score Time(sec)  Read(MB) Write(MB)    Rn(MB) "
-          " "
-          "Rnp1(MB)  Wnew(MB) RW-Amplify Read(MB/s) Write(MB/s)      Rn     "
-          "Rnp1 "
-          "    Wnp1     NewW    Count   msComp   msStall  Ln-stall Stall-cnt\n"
-          "--------------------------------------------------------------------"
-          "--"
-          "--------------------------------------------------------------------"
-          "--"
-          "----------------------------------------------------------------\n");
+      PrintLevelStatsHeader(buf, sizeof(buf));
       value->append(buf);
+
+      CompactionStats stats_total(0);
+      int total_files = 0;
+      double total_file_size = 0;
+      uint64_t total_stalls = 0;
+      double total_stall_us = 0;
+      int level_printed = 0;
       for (int level = 0; level < number_levels_; level++) {
         int files = current->NumLevelFiles(level);
-        if (compaction_stats_[level].micros > 0 || files > 0) {
-          int64_t bytes_read = compaction_stats_[level].bytes_readn +
-                               compaction_stats_[level].bytes_readnp1;
-          int64_t bytes_new = compaction_stats_[level].bytes_written -
-                              compaction_stats_[level].bytes_readnp1;
-          double amplify =
-              (compaction_stats_[level].bytes_readn == 0)
-                  ? 0.0
-                  : (compaction_stats_[level].bytes_written +
-                     compaction_stats_[level].bytes_readnp1 +
-                     compaction_stats_[level].bytes_readn) /
-                        (double)compaction_stats_[level].bytes_readn;
-
-          total_bytes_read += bytes_read;
-          total_bytes_written += compaction_stats_[level].bytes_written;
-
+        total_files += files;
+        if (stats_[level].micros > 0 || files > 0) {
+          ++level_printed;
           uint64_t stalls = level == 0 ? (stall_counts_[LEVEL0_SLOWDOWN] +
                                           stall_counts_[LEVEL0_NUM_FILES] +
                                           stall_counts_[MEMTABLE_COMPACTION])
@@ -153,39 +207,30 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
                                           stall_micros_[MEMTABLE_COMPACTION])
                                        : stall_leveln_slowdown_[level];
 
-          snprintf(buf, sizeof(buf),
-                   "%3d %8d %8.0f %5.1f %9.0f %9.0f %9.0f %9.0f %9.0f %9.0f "
-                   "%10.1f %9.1f %11.1f %8d %8d %8d %8d %8d %8d %9.1f %9.1f "
-                   "%9lu\n",
-                   level, files, current->NumLevelBytes(level) / 1048576.0,
-                   current->NumLevelBytes(level) /
-                       cfd->compaction_picker()->MaxBytesForLevel(level),
-                   compaction_stats_[level].micros / 1e6,
-                   bytes_read / 1048576.0,
-                   compaction_stats_[level].bytes_written / 1048576.0,
-                   compaction_stats_[level].bytes_readn / 1048576.0,
-                   compaction_stats_[level].bytes_readnp1 / 1048576.0,
-                   bytes_new / 1048576.0, amplify,
-                   // +1 to avoid division by 0
-                   (bytes_read / 1048576.0) /
-                       ((compaction_stats_[level].micros + 1) / 1000000.0),
-                   (compaction_stats_[level].bytes_written / 1048576.0) /
-                       ((compaction_stats_[level].micros + 1) / 1000000.0),
-                   compaction_stats_[level].files_in_leveln,
-                   compaction_stats_[level].files_in_levelnp1,
-                   compaction_stats_[level].files_out_levelnp1,
-                   compaction_stats_[level].files_out_levelnp1 -
-                       compaction_stats_[level].files_in_levelnp1,
-                   compaction_stats_[level].count,
-                   (int)((double)compaction_stats_[level].micros / 1000.0 /
-                         (compaction_stats_[level].count + 1)),
-                   (double)stall_us / 1000.0 / (stalls + 1),
-                   stall_us / 1000000.0, (unsigned long)stalls);
+          stats_total.Add(stats_[level]);
+          total_file_size += current->NumLevelBytes(level);
+          total_stall_us += stall_us;
+          total_stalls += stalls;
           total_slowdown += stall_leveln_slowdown_[level];
           total_slowdown_count += stall_leveln_slowdown_count_[level];
+          double score = current->NumLevelBytes(level) /
+                cfd->compaction_picker()->MaxBytesForLevel(level);
+          PrintLevelStats(buf, sizeof(buf), "L" + std::to_string(level), files,
+              current->NumLevelBytes(level), score, stall_us, stalls,
+              stats_[level]);
           value->append(buf);
         }
       }
+      // Stats summary across levels
+      if (level_printed > 1) {
+        PrintLevelStats(buf, sizeof(buf), "Sum", total_files, total_file_size,
+            0, total_stall_us, total_stalls, stats_total);
+        value->append(buf);
+      }
+
+      uint64_t total_bytes_read =
+          stats_total.bytes_readn + stats_total.bytes_readnp1;
+      uint64_t total_bytes_written = stats_total.bytes_written;
 
       interval_bytes_new = user_bytes_written - last_stats_.ingest_bytes_;
       interval_bytes_read =
@@ -194,7 +239,7 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
           total_bytes_written - last_stats_.compaction_bytes_written_;
       interval_seconds_up = seconds_up - last_stats_.seconds_up_;
 
-      snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
+      snprintf(buf, sizeof(buf), "\nUptime(secs): %.1f total, %.1f interval\n",
                seconds_up, interval_seconds_up);
       value->append(buf);
 
@@ -204,7 +249,7 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
                (unsigned long long)(write_other + write_self),
                (unsigned long long)write_self,
                (write_other + write_self) / (double)(write_self + 1),
-               user_bytes_written / (1048576.0 * 1024));
+               user_bytes_written / kGB);
       value->append(buf);
 
       snprintf(buf, sizeof(buf),
@@ -213,26 +258,26 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
                (unsigned long long)write_with_wal,
                (unsigned long long)wal_synced,
                write_with_wal / (double)(wal_synced + 1),
-               wal_bytes / (1048576.0 * 1024));
+               wal_bytes / kGB);
       value->append(buf);
 
       snprintf(buf, sizeof(buf),
                "Compaction IO cumulative (GB): "
                "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
-               user_bytes_written / (1048576.0 * 1024),
-               total_bytes_read / (1048576.0 * 1024),
-               total_bytes_written / (1048576.0 * 1024),
-               (total_bytes_read + total_bytes_written) / (1048576.0 * 1024));
+               user_bytes_written / kGB,
+               total_bytes_read / kGB,
+               total_bytes_written / kGB,
+               (total_bytes_read + total_bytes_written) / kGB);
       value->append(buf);
 
       snprintf(
           buf, sizeof(buf),
           "Compaction IO cumulative (MB/sec): "
           "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
-          user_bytes_written / 1048576.0 / seconds_up,
-          total_bytes_read / 1048576.0 / seconds_up,
-          total_bytes_written / 1048576.0 / seconds_up,
-          (total_bytes_read + total_bytes_written) / 1048576.0 / seconds_up);
+          user_bytes_written / kMB / seconds_up,
+          total_bytes_read / kMB / seconds_up,
+          total_bytes_written / kMB / seconds_up,
+          (total_bytes_read + total_bytes_written) / kMB / seconds_up);
       value->append(buf);
 
       // +1 to avoid divide by 0 and NaN
@@ -254,7 +299,7 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
                (unsigned long long)interval_write_self,
                (double)(interval_write_other + interval_write_self) /
                    (interval_write_self + 1),
-               (user_bytes_written - last_stats_.ingest_bytes_) / 1048576.0);
+               (user_bytes_written - last_stats_.ingest_bytes_) / kMB);
       value->append(buf);
 
       uint64_t interval_write_with_wal =
@@ -269,24 +314,24 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
                (unsigned long long)interval_write_with_wal,
                (unsigned long long)interval_wal_synced,
                interval_write_with_wal / (double)(interval_wal_synced + 1),
-               interval_wal_bytes / (1048576.0 * 1024));
+               interval_wal_bytes / kGB);
       value->append(buf);
 
       snprintf(buf, sizeof(buf),
                "Compaction IO interval (MB): "
                "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
-               interval_bytes_new / 1048576.0, interval_bytes_read / 1048576.0,
-               interval_bytes_written / 1048576.0,
-               (interval_bytes_read + interval_bytes_written) / 1048576.0);
+               interval_bytes_new / kMB, interval_bytes_read / kMB,
+               interval_bytes_written / kMB,
+               (interval_bytes_read + interval_bytes_written) / kMB);
       value->append(buf);
 
       snprintf(buf, sizeof(buf),
                "Compaction IO interval (MB/sec): "
                "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
-               interval_bytes_new / 1048576.0 / interval_seconds_up,
-               interval_bytes_read / 1048576.0 / interval_seconds_up,
-               interval_bytes_written / 1048576.0 / interval_seconds_up,
-               (interval_bytes_read + interval_bytes_written) / 1048576.0 /
+               interval_bytes_new / kMB / interval_seconds_up,
+               interval_bytes_read / kMB / interval_seconds_up,
+               interval_bytes_written / kMB / interval_seconds_up,
+               (interval_bytes_read + interval_bytes_written) / kMB /
                    interval_seconds_up);
       value->append(buf);
 
