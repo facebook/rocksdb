@@ -75,6 +75,13 @@ Compaction::~Compaction() {
   }
 }
 
+void Compaction::GenerateFileLevels() {
+  input_levels_.resize(2);
+  for (int which = 0; which < 2; which++) {
+    DoGenerateFileLevel(&input_levels_[which], inputs_[which], &arena_);
+  }
+}
+
 bool Compaction::IsTrivialMove() const {
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require

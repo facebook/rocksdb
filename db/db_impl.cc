@@ -2903,6 +2903,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   compact->CleanupMergedBuffer();
   bool prefix_initialized = false;
 
+  // Generate file_levels_ for compaction berfore making Iterator
+  compact->compaction->GenerateFileLevels();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   ColumnFamilyData* cfd = compact->compaction->column_family_data();
   LogToBuffer(

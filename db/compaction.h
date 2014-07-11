@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include "util/arena.h"
+#include "util/autovector.h"
 #include "db/version_set.h"
 
 namespace rocksdb {
@@ -18,6 +20,10 @@ class ColumnFamilyData;
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:
+  // No copying allowed
+  Compaction(const Compaction&) = delete;
+  void operator=(const Compaction&) = delete;
+
   ~Compaction();
 
   // Return the level that is being compacted.  Inputs from "level"
@@ -44,6 +50,9 @@ class Compaction {
 
   std::vector<FileMetaData*>* inputs(int which) { return &inputs_[which]; }
 
+  // Return the input_level file
+  FileLevel* input_levels(int which) { return &input_levels_[which]; }
+
   // Maximum size of files to build during this compaction.
   uint64_t MaxOutputFileSize() const { return max_output_file_size_; }
 
@@ -53,7 +62,11 @@ class Compaction {
   // Whether need to write output file to second DB path.
   uint32_t GetOutputPathId() const { return output_path_id_; }
 
-    // Is this a trivial compaction that can be implemented by just
+  // Generate input_levels_ from inputs_
+  // Should be called when inputs_ is stable
+  void GenerateFileLevels();
+
+  // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
 
@@ -118,6 +131,7 @@ class Compaction {
   VersionEdit* edit_;
   int number_levels_;
   ColumnFamilyData* cfd_;
+  Arena arena_;          // Arena used to allocate space for file_levels_
 
   uint32_t output_path_id_;
   CompressionType output_compression_;
@@ -127,6 +141,9 @@ class Compaction {
 
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData*> inputs_[2];      // The two sets of inputs
+
+  // A copy of inputs_, organized more closely in memory
+  autovector<FileLevel, 2> input_levels_;
 
   // State used to check for number of of overlapping grandparent files
   // (parent == level_ + 1, grandparent == level_ + 2)
