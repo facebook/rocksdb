@@ -1,5 +1,13 @@
 # Rocksdb Change Log
 
+### Unrelease
+### New Features
+* Support Multiple DB paths in universal style compactions
+
+### Public API changes
+* DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size
+
+
 ## 3.3.0 (7/10/2014)
 ### New Features
 * Added JSON API prototype.

@@ -370,8 +370,10 @@ class DBTest {
   ~DBTest() {
     Close();
     Options options;
-    options.db_paths.push_back(dbname_);
-    options.db_paths.push_back(dbname_ + "_2");
+    options.db_paths.emplace_back(dbname_, 0);
+    options.db_paths.emplace_back(dbname_ + "_2", 0);
+    options.db_paths.emplace_back(dbname_ + "_3", 0);
+    options.db_paths.emplace_back(dbname_ + "_4", 0);
     ASSERT_OK(DestroyDB(dbname_, options));
     delete env_;
     delete filter_policy_;
@@ -3474,9 +3476,205 @@ TEST(DBTest, UniversalCompactionCompressRatio2) {
 
 TEST(DBTest, FailMoreDbPaths) {
   Options options;
-  options.db_paths.push_back(dbname_);
-  options.db_paths.push_back(dbname_ + "_2");
+  options.db_paths.emplace_back(dbname_, 10000000);
+  options.db_paths.emplace_back(dbname_ + "_2", 1000000);
+  options.db_paths.emplace_back(dbname_ + "_3", 1000000);
+  options.db_paths.emplace_back(dbname_ + "_4", 1000000);
+  options.db_paths.emplace_back(dbname_ + "_5", 1000000);
   ASSERT_TRUE(TryReopen(&options).IsNotSupported());
+}
+
+TEST(DBTest, UniversalCompactionSecondPathRatio) {
+  Options options;
+  options.db_paths.emplace_back(dbname_, 500 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+  options = CurrentOptions(options);
+
+  std::vector<std::string> filenames;
+  env_->GetChildren(options.db_paths[1].path, &filenames);
+  // Delete archival files.
+  for (size_t i = 0; i < filenames.size(); ++i) {
+    env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]);
+  }
+  env_->DeleteDir(options.db_paths[1].path);
+  Reopen(&options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // First three 110KB files are not going to second path.
+  // After that, (100K, 200K)
+  for (int num = 0; num < 3; num++) {
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  // Another 110KB triggers a compaction to 400K file to second path
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+  // (1, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1,1,4) -> (2, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 2, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(2, GetSstFileCount(dbname_));
+
+  // (1, 1, 2, 4) -> (8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  // (1, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 1, 8) -> (2, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 2, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(2, GetSstFileCount(dbname_));
+
+  // (1, 1, 2, 8) -> (4, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  // (1, 4, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Reopen(&options);
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Destroy(&options);
+}
+
+TEST(DBTest, UniversalCompactionFourPaths) {
+  Options options;
+  options.db_paths.emplace_back(dbname_, 300 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_2", 300 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_3", 500 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_4", 1024 * 1024 * 1024);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 1;
+  options = CurrentOptions(options);
+
+  std::vector<std::string> filenames;
+  env_->GetChildren(options.db_paths[1].path, &filenames);
+  // Delete archival files.
+  for (size_t i = 0; i < filenames.size(); ++i) {
+    env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]);
+  }
+  env_->DeleteDir(options.db_paths[1].path);
+  Reopen(&options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // First three 110KB files are not going to second path.
+  // After that, (100K, 200K)
+  for (int num = 0; num < 3; num++) {
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  // Another 110KB triggers a compaction to 400K file to second path
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
+
+  // (1, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1,1,4) -> (2, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  // (1, 2, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 1, 2, 4) -> (8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
+
+  // (1, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 1, 8) -> (2, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+  // (1, 2, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 1, 2, 8) -> (4, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
+
+  // (1, 4, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Reopen(&options);
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Destroy(&options);
 }
 #endif
 

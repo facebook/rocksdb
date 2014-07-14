@@ -299,7 +299,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
   if (result.db_paths.size() == 0) {
-    result.db_paths.push_back(dbname);
+    result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
   }
 
   return result;
@@ -1105,8 +1105,8 @@ Status DBImpl::Recover(
       return s;
     }
 
-    for (auto db_path : options_.db_paths) {
-      s = env_->CreateDirIfMissing(db_path);
+    for (auto& db_path : options_.db_paths) {
+      s = env_->CreateDirIfMissing(db_path.path);
       if (!s.ok()) {
         return s;
       }
@@ -4609,8 +4609,18 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   if (db_options.db_paths.size() > 1) {
-    return Status::NotSupported(
-        "More than one DB paths are not supported yet. ");
+    for (auto& cfd : column_families) {
+      if (cfd.options.compaction_style != kCompactionStyleUniversal) {
+        return Status::NotSupported(
+            "More than one DB paths are only supported in "
+            "universal compaction style. ");
+      }
+    }
+
+    if (db_options.db_paths.size() > 4) {
+      return Status::NotSupported(
+        "More than four DB paths are not supported yet. ");
+    }
   }
 
   *dbptr = nullptr;
@@ -4629,8 +4639,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   DBImpl* impl = new DBImpl(db_options, dbname);
   Status s = impl->env_->CreateDirIfMissing(impl->options_.wal_dir);
   if (s.ok()) {
-    for (auto path : impl->options_.db_paths) {
-      s = impl->env_->CreateDirIfMissing(path);
+    for (auto db_path : impl->options_.db_paths) {
+      s = impl->env_->CreateDirIfMissing(db_path.path);
       if (!s.ok()) {
         break;
       }
@@ -4798,14 +4808,14 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
-    for (auto db_path : options.db_paths) {
-      env->GetChildren(db_path, &filenames);
+    for (auto& db_path : options.db_paths) {
+      env->GetChildren(db_path.path, &filenames);
       uint64_t number;
       FileType type;
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
-          Status del = env->DeleteFile(db_path + "/" + filenames[i]);
+          Status del = env->DeleteFile(db_path.path + "/" + filenames[i]);
           if (result.ok() && !del.ok()) {
             result = del;
           }

@@ -108,8 +108,9 @@ TEST(FileNameTest, Construction) {
   ASSERT_EQ(192U, number);
   ASSERT_EQ(kLogFile, type);
 
-  fname = TableFileName({"bar"}, 200, 0);
-  std::string fname1 = TableFileName({"foo", "bar"}, 200, 1);
+  fname = TableFileName({DbPath("bar", 0)}, 200, 0);
+  std::string fname1 =
+      TableFileName({DbPath("foo", 0), DbPath("bar", 0)}, 200, 1);
   ASSERT_EQ(fname, fname1);
   ASSERT_EQ("bar/", std::string(fname.data(), 4));
   ASSERT_TRUE(ParseFileName(fname.c_str() + 4, &number, &type));

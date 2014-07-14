@@ -18,6 +18,7 @@
 
 #include <ctime>
 #include <dirent.h>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <stdexcept>
@@ -287,7 +288,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   }
 
   if (opt.db_paths.size() == 0) {
-    opt.db_paths.push_back(db_path_);
+    opt.db_paths.emplace_back(db_path_, std::numeric_limits<uint64_t>::max());
   }
 
   return opt;

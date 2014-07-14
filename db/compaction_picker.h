@@ -145,6 +145,10 @@ class UniversalCompactionPicker : public CompactionPicker {
   // Pick Universal compaction to limit space amplification.
   Compaction* PickCompactionUniversalSizeAmp(Version* version, double score,
                                              LogBuffer* log_buffer);
+
+  // Pick a path ID to place a newly generated file, with its estimated file
+  // size.
+  static uint32_t GetPathId(const Options& options, uint64_t file_size);
 };
 
 class LevelCompactionPicker : public CompactionPicker {

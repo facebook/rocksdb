@@ -635,6 +635,37 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
   return c;
 }
 
+uint32_t UniversalCompactionPicker::GetPathId(const Options& options,
+                                              uint64_t file_size) {
+  // Two conditions need to be satisfied:
+  // (1) the target path needs to be able to hold the file's size
+  // (2) Total size left in this and previous paths need to be not
+  //     smaller than expected future file size before this new file is
+  //     compacted, which is estimated based on size_ratio.
+  // For example, if now we are compacting files of size (1, 1, 2, 4, 8),
+  // we will make sure the target file, probably with size of 16, will be
+  // placed in a path so that eventually when new files are generated and
+  // compacted to (1, 1, 2, 4, 8, 16), all those files can be stored in or
+  // before the path we chose.
+  //
+  // TODO(sdong): now the case of multiple column families is not
+  // considered in this algorithm. So the target size can be violated in
+  // that case. We need to improve it.
+  uint64_t accumulated_size = 0;
+  uint64_t future_size =
+      file_size * (100 - options.compaction_options_universal.size_ratio) / 100;
+  uint32_t p = 0;
+  for (; p < options.db_paths.size() - 1; p++) {
+    uint64_t target_size = options.db_paths[p].target_size;
+    if (target_size > file_size &&
+        accumulated_size + (target_size - file_size) > future_size) {
+      return p;
+    }
+    accumulated_size += target_size;
+  }
+  return p;
+}
+
 //
 // Consider compaction files based on their size differences with
 // the next file in time order.
@@ -765,8 +796,15 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       }
     }
   }
+
+  uint64_t estimated_total_size = 0;
+  for (unsigned int i = 0; i < first_index_after; i++) {
+    estimated_total_size += files[i]->fd.GetFileSize();
+  }
+  uint32_t path_id = GetPathId(*options_, estimated_total_size);
+
   Compaction* c = new Compaction(
-      version, level, level, MaxFileSizeForLevel(level), LLONG_MAX, 0,
+      version, level, level, MaxFileSizeForLevel(level), LLONG_MAX, path_id,
       GetCompressionType(*options_, level, enable_compression));
   c->score_ = score;
 
@@ -865,11 +903,18 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   }
   assert(start_index >= 0 && start_index < files.size() - 1);
 
+  // Estimate total file size
+  uint64_t estimated_total_size = 0;
+  for (unsigned int loop = start_index; loop < files.size(); loop++) {
+    estimated_total_size += files[loop]->fd.GetFileSize();
+  }
+  uint32_t path_id = GetPathId(*options_, estimated_total_size);
+
   // create a compaction request
   // We always compact all the files, so always compress.
   Compaction* c =
       new Compaction(version, level, level, MaxFileSizeForLevel(level),
-                     LLONG_MAX, 0, GetCompressionType(*options_, level));
+                     LLONG_MAX, path_id, GetCompressionType(*options_, level));
   c->score_ = score;
   for (unsigned int loop = start_index; loop < files.size(); loop++) {
     f = c->input_version_->files_[level][loop];

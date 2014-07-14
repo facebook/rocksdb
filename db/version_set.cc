@@ -2857,10 +2857,10 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
         filemetadata.column_family_name = cfd->GetName();
         uint32_t path_id = file->fd.GetPathId();
         if (path_id < options_->db_paths.size()) {
-          filemetadata.db_path = options_->db_paths[path_id];
+          filemetadata.db_path = options_->db_paths[path_id].path;
         } else {
           assert(!options_->db_paths.empty());
-          filemetadata.db_path = options_->db_paths.back();
+          filemetadata.db_path = options_->db_paths.back().path;
         }
         filemetadata.name = MakeTableFileName("", file->fd.GetNumber());
         filemetadata.level = level;
