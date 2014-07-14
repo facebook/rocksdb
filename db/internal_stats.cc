@@ -25,7 +25,7 @@ void PrintLevelStatsHeader(char* buf, size_t len) {
       buf, len,
       "\n** Compaction Stats **\n"
       "Level Files Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
-      "Write(BG) Wnew(GB) RW-Amp W-Amp Rd(MB/s) Wr(MB/s)  Rn(cnt) "
+      "Write(GB) Wnew(GB) RW-Amp W-Amp Rd(MB/s) Wr(MB/s)  Rn(cnt) "
       "Rnp1(cnt) Wnp1(cnt) Wnew(cnt)  Comp(sec) Comp(cnt) Avg(sec) "
       "Stall(sec) Stall(cnt) Avg(ms)\n"
       "--------------------------------------------------------------------"
