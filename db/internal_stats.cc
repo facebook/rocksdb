@@ -7,9 +7,12 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/internal_stats.h"
-#include "db/column_family.h"
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <vector>
+
+#include "db/column_family.h"
 
 namespace rocksdb {
 
@@ -61,7 +64,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
     "%9d " /* Comp(cnt) */
     "%8.3f " /* Avg(sec) */
     "%10.2f " /* Sta(sec) */
-    "%10lu " /* Sta(cnt) */
+    "%10" PRIu64 " " /* Sta(cnt) */
     "%7.2f\n" /* Avg(ms) */,
     name.c_str(), num_files, total_file_size / kMB, score,
     bytes_read / kGB,
