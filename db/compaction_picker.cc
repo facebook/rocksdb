@@ -12,6 +12,7 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <limits>
+#include "db/compaction.h"
 #include "db/filename.h"
 #include "util/log_buffer.h"
 #include "util/statistics.h"
@@ -43,14 +44,6 @@ CompressionType GetCompressionType(const Options& options, int level,
   } else {
     return options.compression;
   }
-}
-
-uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
-  uint64_t sum = 0;
-  for (size_t i = 0; i < files.size() && files[i]; i++) {
-    sum += files[i]->compensated_file_size;
-  }
-  return sum;
 }
 
 // Multiple two operands. If they overflow, return op1.
