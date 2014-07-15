@@ -674,10 +674,7 @@ struct DBOptions {
   // Default: false
   bool use_fsync;
 
-  // This number controls how often a new scribe log about
-  // db deploy stats is written out.
-  // -1 indicates no logging at all.
-  // Default value is 1800 (half an hour).
+  // This options is not used!!
   int db_stats_log_interval;
 
   // A list paths where SST files can be put into. A compaction style can

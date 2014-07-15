@@ -348,9 +348,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       bg_compaction_scheduled_(0),
       bg_manual_only_(0),
       bg_flush_scheduled_(0),
-      bg_logstats_scheduled_(false),
       manual_compaction_(nullptr),
-      logger_(nullptr),
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_last_run_(options.env->NowMicros()),
       purge_wal_files_last_run_(0),
@@ -381,16 +379,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   DumpLeveldbBuildVersion(options_.info_log.get());
   options_.Dump(options_.info_log.get());
 
-  char name[100];
-  Status s = env_->GetHostName(name, 100L);
-  if (s.ok()) {
-    host_name_ = name;
-  } else {
-    Log(options_.info_log, "Can't get hostname, use localhost as host name.");
-    host_name_ = "localhost";
-  }
-  last_log_ts = 0;
-
   LogFlush(options_.info_log);
 }
 
@@ -411,9 +399,7 @@ DBImpl::~DBImpl() {
 
   // Wait for background work to finish
   shutting_down_.Release_Store(this);  // Any non-nullptr value is ok
-  while (bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ ||
-         bg_logstats_scheduled_) {
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
 
@@ -1585,8 +1571,6 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
                 cfd->current()->LevelSummary(&tmp));
 
-    MaybeScheduleLogDBDeployStats();
-
     if (disable_delete_obsolete_files_ == 0) {
       // add to deletion state
       while (alive_log_files_.size() &&
@@ -2101,8 +2085,6 @@ void DBImpl::BackgroundCallCompaction() {
     }
 
     bg_compaction_scheduled_--;
-
-    MaybeScheduleLogDBDeployStats();
 
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
 
@@ -4714,7 +4696,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
           DBImpl::LogFileNumberSize(impl->logfile_number_));
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleFlushOrCompaction();
-      impl->MaybeScheduleLogDBDeployStats();
       s = impl->db_directory_->Fsync();
     }
   }
