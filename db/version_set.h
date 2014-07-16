@@ -283,6 +283,7 @@ class Version {
   int num_levels_;              // Number of levels
   int num_non_empty_levels_;    // Number of levels. Any level larger than it
                                 // is guaranteed to be empty.
+  FileIndexer file_indexer_;
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Arena arena_;                 // Used to allocate space for file_levels_
   Version* next_;               // Next version in linked list
@@ -325,7 +326,6 @@ class Version {
   uint64_t version_number_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
-  FileIndexer file_indexer_;
 
   // total file size
   uint64_t total_file_size_;

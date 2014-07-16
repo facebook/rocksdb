@@ -546,6 +546,8 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       // cfd is nullptr if Version is dummy
       num_levels_(cfd == nullptr ? 0 : cfd->NumberLevels()),
       num_non_empty_levels_(num_levels_),
+      file_indexer_(cfd == nullptr ?  nullptr
+          : cfd->internal_comparator().user_comparator()),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -556,8 +558,6 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
       version_number_(version_number),
-      file_indexer_(num_levels_, cfd == nullptr ?  nullptr
-          : cfd->internal_comparator().user_comparator()),
       total_file_size_(0),
       total_raw_key_size_(0),
       total_raw_value_size_(0),
@@ -782,6 +782,7 @@ void Version::PrepareApply(std::vector<uint64_t>& size_being_compacted) {
   ComputeCompactionScore(size_being_compacted);
   UpdateFilesBySize();
   UpdateNumNonEmptyLevels();
+  file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
   GenerateFileLevels();
 }
 
@@ -1599,8 +1600,6 @@ class VersionSet::Builder {
     }
 
     CheckConsistency(v);
-
-    v->file_indexer_.UpdateIndex(v->files_);
   }
 
   void LoadTableHandlers() {
