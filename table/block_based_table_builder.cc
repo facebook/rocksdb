@@ -612,8 +612,8 @@ static void DeleteCachedBlock(const Slice& key, void* value) {
 // Make a copy of the block contents and insert into compressed block cache
 //
 Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
-                                 const CompressionType type,
-                                 const BlockHandle* handle) {
+                                                  const CompressionType type,
+                                                  const BlockHandle* handle) {
   Rep* r = rep_;
   Cache* block_cache_compressed = r->options.block_cache_compressed.get();
 
@@ -622,8 +622,9 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     Cache::Handle* cache_handle = nullptr;
     size_t size = block_contents.size();
 
-    char* ubuf = new char[size];             // make a new copy
+    char* ubuf = new char[size + 1];  // make a new copy
     memcpy(ubuf, block_contents.data(), size);
+    ubuf[size] = type;
 
     BlockContents results;
     Slice sl(ubuf, size);
