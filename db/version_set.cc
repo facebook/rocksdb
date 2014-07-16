@@ -40,6 +40,263 @@
 
 namespace rocksdb {
 
+namespace {
+
+// Find File in FileLevel data structure
+// Within an index range defined by left and right
+int FindFileInRange(const InternalKeyComparator& icmp,
+    const FileLevel& file_level,
+    const Slice& key,
+    uint32_t left,
+    uint32_t right) {
+  while (left < right) {
+    uint32_t mid = (left + right) / 2;
+    const FdWithKeyRange& f = file_level.files[mid];
+    if (icmp.InternalKeyComparator::Compare(f.largest_key, key) < 0) {
+      // Key at "mid.largest" is < "target".  Therefore all
+      // files at or before "mid" are uninteresting.
+      left = mid + 1;
+    } else {
+      // Key at "mid.largest" is >= "target".  Therefore all files
+      // after "mid" are uninteresting.
+      right = mid;
+    }
+  }
+  return right;
+}
+
+bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
+  if (a->smallest_seqno != b->smallest_seqno) {
+    return a->smallest_seqno > b->smallest_seqno;
+  }
+  if (a->largest_seqno != b->largest_seqno) {
+    return a->largest_seqno > b->largest_seqno;
+  }
+  // Break ties by file number
+  return a->fd.GetNumber() > b->fd.GetNumber();
+}
+
+bool BySmallestKey(FileMetaData* a, FileMetaData* b,
+                   const InternalKeyComparator* cmp) {
+  int r = cmp->Compare(a->smallest, b->smallest);
+  if (r != 0) {
+    return (r < 0);
+  }
+  // Break ties by file number
+  return (a->fd.GetNumber() < b->fd.GetNumber());
+}
+
+// Class to help choose the next file to search for the particular key.
+// Searches and returns files level by level.
+// We can search level-by-level since entries never hop across
+// levels. Therefore we are guaranteed that if we find data
+// in a smaller level, later levels are irrelevant (unless we
+// are MergeInProgress).
+class FilePicker {
+ public:
+  FilePicker(
+      std::vector<FileMetaData*>* files,
+      const Slice& user_key,
+      const Slice& ikey,
+      autovector<FileLevel>* file_levels,
+      unsigned int num_levels,
+      FileIndexer* file_indexer,
+      const Comparator* user_comparator,
+      const InternalKeyComparator* internal_comparator)
+      : num_levels_(num_levels),
+        curr_level_(-1),
+        search_left_bound_(0),
+        search_right_bound_(FileIndexer::kLevelMaxIndex),
+        files_(files),
+        file_levels_(file_levels),
+        user_key_(user_key),
+        ikey_(ikey),
+        file_indexer_(file_indexer),
+        user_comparator_(user_comparator),
+        internal_comparator_(internal_comparator) {
+    // Setup member variables to search first level.
+    search_ended_ = !PrepareNextLevel();
+    if (!search_ended_) {
+      // Prefetch Level 0 table data to avoid cache miss if possible.
+      for (unsigned int i = 0; i < (*file_levels_)[0].num_files; ++i) {
+        auto* r = (*file_levels_)[0].files[i].fd.table_reader;
+        if (r) {
+          r->Prepare(ikey);
+        }
+      }
+    }
+  }
+
+  FdWithKeyRange* GetNextFile() {
+    while (!search_ended_) {  // Loops over different levels.
+      while (curr_index_in_curr_level_ < curr_file_level_->num_files) {
+        // Loops over all files in current level.
+        FdWithKeyRange* f = &curr_file_level_->files[curr_index_in_curr_level_];
+        int cmp_largest = -1;
+
+        // Do key range filtering of files or/and fractional cascading if:
+        // (1) not all the files are in level 0, or
+        // (2) there are more than 3 Level 0 files
+        // If there are only 3 or less level 0 files in the system, we skip
+        // the key range filtering. In this case, more likely, the system is
+        // highly tuned to minimize number of tables queried by each query,
+        // so it is unlikely that key range filtering is more efficient than
+        // querying the files.
+        if (num_levels_ > 1 || curr_file_level_->num_files > 3) {
+          // Check if key is within a file's range. If search left bound and
+          // right bound point to the same find, we are sure key falls in
+          // range.
+          assert(
+              curr_level_ == 0 ||
+              curr_index_in_curr_level_ == start_index_in_curr_level_ ||
+              user_comparator_->Compare(user_key_,
+                ExtractUserKey(f->smallest_key)) <= 0);
+
+          int cmp_smallest = user_comparator_->Compare(user_key_,
+              ExtractUserKey(f->smallest_key));
+          if (cmp_smallest >= 0) {
+            cmp_largest = user_comparator_->Compare(user_key_,
+                ExtractUserKey(f->largest_key));
+          }
+
+          // Setup file search bound for the next level based on the
+          // comparison results
+          if (curr_level_ > 0) {
+            file_indexer_->GetNextLevelIndex(curr_level_,
+                                            curr_index_in_curr_level_,
+                                            cmp_smallest, cmp_largest,
+                                            &search_left_bound_,
+                                            &search_right_bound_);
+          }
+          // Key falls out of current file's range
+          if (cmp_smallest < 0 || cmp_largest > 0) {
+            if (curr_level_ == 0) {
+              ++curr_index_in_curr_level_;
+              continue;
+            } else {
+              // Search next level.
+              break;
+            }
+          }
+        }
+#ifndef NDEBUG
+        // Sanity check to make sure that the files are correctly sorted
+        if (prev_file_) {
+          if (curr_level_ != 0) {
+            int comp_sign = internal_comparator_->Compare(
+                prev_file_->largest_key, f->smallest_key);
+            assert(comp_sign < 0);
+          } else {
+            // level == 0, the current file cannot be newer than the previous
+            // one. Use compressed data structure, has no attribute seqNo
+            assert(curr_index_in_curr_level_ > 0);
+            assert(!NewestFirstBySeqNo(files_[0][curr_index_in_curr_level_],
+                  files_[0][curr_index_in_curr_level_-1]));
+          }
+        }
+        prev_file_ = f;
+#endif
+        if (curr_level_ > 0 && cmp_largest < 0) {
+          // No more files to search in this level.
+          search_ended_ = !PrepareNextLevel();
+        } else {
+          ++curr_index_in_curr_level_;
+        }
+        return f;
+      }
+      // Start searching next level.
+      search_ended_ = !PrepareNextLevel();
+    }
+    // Search ended.
+    return nullptr;
+  }
+
+ private:
+  unsigned int num_levels_;
+  unsigned int curr_level_;
+  int search_left_bound_;
+  int search_right_bound_;
+  std::vector<FileMetaData*>* files_;
+  autovector<FileLevel>* file_levels_;
+  bool search_ended_;
+  FileLevel* curr_file_level_;
+  unsigned int curr_index_in_curr_level_;
+  unsigned int start_index_in_curr_level_;
+  Slice user_key_;
+  Slice ikey_;
+  FileIndexer* file_indexer_;
+  const Comparator* user_comparator_;
+  const InternalKeyComparator* internal_comparator_;
+#ifndef NDEBUG
+  FdWithKeyRange* prev_file_;
+#endif
+
+  // Setup local variables to search next level.
+  // Returns false if there are no more levels to search.
+  bool PrepareNextLevel() {
+    curr_level_++;
+    while (curr_level_ < num_levels_) {
+      curr_file_level_ = &(*file_levels_)[curr_level_];
+      if (curr_file_level_->num_files == 0) {
+        // When current level is empty, the search bound generated from upper
+        // level must be [0, -1] or [0, FileIndexer::kLevelMaxIndex] if it is
+        // also empty.
+        assert(search_left_bound_ == 0);
+        assert(search_right_bound_ == -1 ||
+               search_right_bound_ == FileIndexer::kLevelMaxIndex);
+        // Since current level is empty, it will need to search all files in
+        // the next level
+        search_left_bound_ = 0;
+        search_right_bound_ = FileIndexer::kLevelMaxIndex;
+        curr_level_++;
+        continue;
+      }
+
+      // Some files may overlap each other. We find
+      // all files that overlap user_key and process them in order from
+      // newest to oldest. In the context of merge-operator, this can occur at
+      // any level. Otherwise, it only occurs at Level-0 (since Put/Deletes
+      // are always compacted into a single entry).
+      int32_t start_index;
+      if (curr_level_ == 0) {
+        // On Level-0, we read through all files to check for overlap.
+        start_index = 0;
+      } else {
+        // On Level-n (n>=1), files are sorted. Binary search to find the
+        // earliest file whose largest key >= ikey. Search left bound and
+        // right bound are used to narrow the range.
+        if (search_left_bound_ == search_right_bound_) {
+          start_index = search_left_bound_;
+        } else if (search_left_bound_ < search_right_bound_) {
+          if (search_right_bound_ == FileIndexer::kLevelMaxIndex) {
+            search_right_bound_ = curr_file_level_->num_files - 1;
+          }
+          start_index = FindFileInRange(*internal_comparator_,
+              *curr_file_level_, ikey_,
+              search_left_bound_, search_right_bound_);
+        } else {
+          // search_left_bound > search_right_bound, key does not exist in
+          // this level. Since no comparision is done in this level, it will
+          // need to search all files in the next level.
+          search_left_bound_ = 0;
+          search_right_bound_ = FileIndexer::kLevelMaxIndex;
+          curr_level_++;
+          continue;
+        }
+      }
+      start_index_in_curr_level_ = start_index;
+      curr_index_in_curr_level_ = start_index;
+#ifndef NDEBUG
+      prev_file_ = nullptr;
+#endif
+      return true;
+    }
+    // curr_level_ = num_levels_. So, no more levels to search.
+    return false;
+  }
+};
+}  // anonymous namespace
+
 static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
   for (size_t i = 0; i < files.size() && files[i]; i++) {
@@ -80,29 +337,6 @@ Version::~Version() {
     }
   }
   delete[] files_;
-}
-
-// Find File in FileLevel data structure
-// Within an index range defined by left and right
-int FindFileInRange(const InternalKeyComparator& icmp,
-    const FileLevel& file_level,
-    const Slice& key,
-    uint32_t left,
-    uint32_t right) {
-  while (left < right) {
-    uint32_t mid = (left + right) / 2;
-    const FdWithKeyRange& f = file_level.files[mid];
-    if (icmp.InternalKeyComparator::Compare(f.largest_key, key) < 0) {
-      // Key at "mid.largest" is < "target".  Therefore all
-      // files at or before "mid" are uninteresting.
-      left = mid + 1;
-    } else {
-      // Key at "mid.largest" is >= "target".  Therefore all files
-      // after "mid" are uninteresting.
-      right = mid;
-    }
-  }
-  return right;
 }
 
 int FindFile(const InternalKeyComparator& icmp,
@@ -507,28 +741,6 @@ static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
   return false;
 }
 
-namespace {
-bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->smallest_seqno != b->smallest_seqno) {
-    return a->smallest_seqno > b->smallest_seqno;
-  }
-  if (a->largest_seqno != b->largest_seqno) {
-    return a->largest_seqno > b->largest_seqno;
-  }
-  // Break ties by file number
-  return a->fd.GetNumber() > b->fd.GetNumber();
-}
-bool BySmallestKey(FileMetaData* a, FileMetaData* b,
-                   const InternalKeyComparator* cmp) {
-  int r = cmp->Compare(a->smallest, b->smallest);
-  if (r != 0) {
-    return (r < 0);
-  }
-  // Break ties by file number
-  return (a->fd.GetNumber() < b->fd.GetNumber());
-}
-}  // anonymous namespace
-
 Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
                  uint64_t version_number)
     : cfd_(cfd),
@@ -591,166 +803,32 @@ void Version::Get(const ReadOptions& options,
   saver.logger = info_log_;
   saver.statistics = db_statistics_;
 
-  // We can search level-by-level since entries never hop across
-  // levels. Therefore we are guaranteed that if we find data
-  // in an smaller level, later levels are irrelevant (unless we
-  // are MergeInProgress).
-
-  int32_t search_left_bound = 0;
-  int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
-  for (int level = 0; level < num_non_empty_levels_; ++level) {
-    int num_files = file_levels_[level].num_files;
-    if (num_files == 0) {
-      // When current level is empty, the search bound generated from upper
-      // level must be [0, -1] or [0, FileIndexer::kLevelMaxIndex] if it is
-      // also empty.
-      assert(search_left_bound == 0);
-      assert(search_right_bound == -1 ||
-             search_right_bound == FileIndexer::kLevelMaxIndex);
-      // Since current level is empty, it will need to search all files in the
-      // next level
-      search_left_bound = 0;
-      search_right_bound = FileIndexer::kLevelMaxIndex;
-      continue;
+  FilePicker fp(files_, user_key, ikey, &file_levels_, num_non_empty_levels_,
+      &file_indexer_, user_comparator_, internal_comparator_);
+  FdWithKeyRange* f = fp.GetNextFile();
+  while (f != nullptr) {
+    *status = table_cache_->Get(options, *internal_comparator_, f->fd, ikey,
+                                &saver, SaveValue, MarkKeyMayExist);
+    // TODO: examine the behavior for corrupted key
+    if (!status->ok()) {
+      return;
     }
 
-    // Prefetch table data to avoid cache miss if possible
-    if (level == 0) {
-      for (int i = 0; i < num_files; ++i) {
-        auto* r = file_levels_[0].files[i].fd.table_reader;
-        if (r) {
-          r->Prepare(ikey);
-        }
-      }
-    }
-
-    // Get the list of files to search in this level
-    FdWithKeyRange* files = file_levels_[level].files;
-
-    // Some files may overlap each other. We find
-    // all files that overlap user_key and process them in order from
-    // newest to oldest. In the context of merge-operator,
-    // this can occur at any level. Otherwise, it only occurs
-    // at Level-0 (since Put/Deletes are always compacted into a single entry).
-    int32_t start_index;
-    if (level == 0) {
-      // On Level-0, we read through all files to check for overlap.
-      start_index = 0;
-    } else {
-      // On Level-n (n>=1), files are sorted. Binary search to find the earliest
-      // file whose largest key >= ikey. Search left bound and right bound are
-      // used to narrow the range.
-      if (search_left_bound == search_right_bound) {
-        start_index = search_left_bound;
-      } else if (search_left_bound < search_right_bound) {
-        if (search_right_bound == FileIndexer::kLevelMaxIndex) {
-          search_right_bound = num_files - 1;
-        }
-        start_index = FindFileInRange(cfd_->internal_comparator(),
-            file_levels_[level], ikey,
-            search_left_bound, search_right_bound);
-      } else {
-        // search_left_bound > search_right_bound, key does not exist in this
-        // level. Since no comparision is done in this level, it will need to
-        // search all files in the next level.
-        search_left_bound = 0;
-        search_right_bound = FileIndexer::kLevelMaxIndex;
-        continue;
-      }
-    }
-    // Traverse each relevant file to find the desired key
-#ifndef NDEBUG
-    FdWithKeyRange* prev_file = nullptr;
-#endif
-
-    for (int32_t i = start_index; i < num_files;) {
-      FdWithKeyRange* f = &files[i];
-      assert(f->fd.GetNumber() == files_[level][i]->fd.GetNumber());
-      int cmp_largest = -1;
-
-      // Do key range filtering of files or/and fractional cascading if:
-      // (1) not all the files are in level 0, or
-      // (2) there are more than 3 Level 0 files
-      // If there are only 3 or less level 0 files in the system, we skip the
-      // key range filtering. In this case, more likely, the system is highly
-      // tuned to minimize number of tables queried by each query, so it is
-      // unlikely that key range filtering is more efficient than querying the
-      // files.
-      if (num_non_empty_levels_ > 1 || num_files > 3) {
-        // Check if key is within a file's range. If search left bound and right
-        // bound point to the same find, we are sure key falls in range.
-        assert(
-            level == 0 || i == start_index || user_comparator_->Compare(
-                user_key, ExtractUserKey(f->smallest_key)) <= 0);
-
-        int cmp_smallest = user_comparator_->Compare(user_key,
-                                        ExtractUserKey(f->smallest_key));
-        if (cmp_smallest >= 0) {
-          cmp_largest = user_comparator_->Compare(user_key,
-                                        ExtractUserKey(f->largest_key));
-        }
-
-        // Setup file search bound for the next level based on the comparison
-        // results
-        if (level > 0) {
-          file_indexer_.GetNextLevelIndex(level, i, cmp_smallest, cmp_largest,
-                                          &search_left_bound,
-                                          &search_right_bound);
-        }
-        // Key falls out of current file's range
-        if (cmp_smallest < 0 || cmp_largest > 0) {
-          if (level == 0) {
-            ++i;
-            continue;
-          } else {
-            break;
-          }
-        }
-      }
-
-#ifndef NDEBUG
-      // Sanity check to make sure that the files are correctly sorted
-      if (prev_file) {
-        if (level != 0) {
-          int comp_sign = internal_comparator_->Compare(prev_file->largest_key,
-               f->smallest_key);
-          assert(comp_sign < 0);
-        } else {
-          // level == 0, the current file cannot be newer than the previous one.
-          // Use compressed data structure, has no attribute seqNo
-          assert(i > 0);
-          assert(!NewestFirstBySeqNo(files_[0][i], files_[0][i-1]));
-        }
-      }
-      prev_file = f;
-#endif
-      *status = table_cache_->Get(options, *internal_comparator_, f->fd, ikey,
-                                  &saver, SaveValue, MarkKeyMayExist);
-      // TODO: examine the behavior for corrupted key
-      if (!status->ok()) {
+    switch (saver.state) {
+      case kNotFound:
+        break;      // Keep searching in other files
+      case kFound:
         return;
-      }
-
-      switch (saver.state) {
-        case kNotFound:
-          break;      // Keep searching in other files
-        case kFound:
-          return;
-        case kDeleted:
-          *status = Status::NotFound();  // Use empty error message for speed
-          return;
-        case kCorrupt:
-          *status = Status::Corruption("corrupted key for ", user_key);
-          return;
-        case kMerge:
-          break;
-      }
-      if (level > 0 && cmp_largest < 0) {
+      case kDeleted:
+        *status = Status::NotFound();  // Use empty error message for speed
+        return;
+      case kCorrupt:
+        *status = Status::Corruption("corrupted key for ", user_key);
+        return;
+      case kMerge:
         break;
-      } else {
-        ++i;
-      }
     }
+    f = fp.GetNextFile();
   }
 
   if (kMerge == saver.state) {
