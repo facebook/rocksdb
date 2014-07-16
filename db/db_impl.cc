@@ -1464,7 +1464,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     delete iter;
     Log(options_.info_log,
         "[%s] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
-        cfd->GetName().c_str(), meta.fd.GetFileSize(), meta.fd.GetFileSize(),
+        cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
         s.ToString().c_str());
 
     if (!options_.disableDataSync) {
