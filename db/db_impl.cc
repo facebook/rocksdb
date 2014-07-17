@@ -1614,7 +1614,12 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
 
 Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
                             const Slice* begin, const Slice* end,
-                            bool reduce_level, int target_level) {
+                            bool reduce_level, int target_level,
+                            uint32_t target_path_id) {
+  if (target_path_id >= options_.db_paths.size()) {
+    return Status::InvalidArgument("Invalid target path ID");
+  }
+
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
@@ -1640,9 +1645,10 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     if (cfd->options()->compaction_style == kCompactionStyleUniversal ||
         cfd->options()->compaction_style == kCompactionStyleFIFO ||
         level == max_level_with_files) {
-      s = RunManualCompaction(cfd, level, level, begin, end);
+      s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
     } else {
-      s = RunManualCompaction(cfd, level, level + 1, begin, end);
+      s = RunManualCompaction(cfd, level, level + 1, target_path_id, begin,
+                              end);
     }
     if (!s.ok()) {
       LogFlush(options_.info_log);
@@ -1775,8 +1781,8 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 }
 
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
-                                   int output_level, const Slice* begin,
-                                   const Slice* end) {
+                                   int output_level, uint32_t output_path_id,
+                                   const Slice* begin, const Slice* end) {
   assert(input_level >= 0);
 
   InternalKey begin_storage, end_storage;
@@ -1785,6 +1791,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   manual.cfd = cfd;
   manual.input_level = input_level;
   manual.output_level = output_level;
+  manual.output_path_id = output_path_id;
   manual.done = false;
   manual.in_progress = false;
   // For universal compaction, we enforce every manual compaction to compact
@@ -2177,8 +2184,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   if (is_manual) {
     ManualCompaction* m = manual_compaction_;
     assert(m->in_progress);
-    c.reset(m->cfd->CompactRange(m->input_level, m->output_level, m->begin,
-                                 m->end, &manual_end));
+    c.reset(m->cfd->CompactRange(m->input_level, m->output_level,
+                                 m->output_path_id, m->begin, m->end,
+                                 &manual_end));
     if (!c) {
       m->done = true;
     }

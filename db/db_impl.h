@@ -102,7 +102,8 @@ class DBImpl : public DB {
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1);
+                              bool reduce_level = false, int target_level = -1,
+                              uint32_t target_path_id = 0);
 
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family);
@@ -145,8 +146,8 @@ class DBImpl : public DB {
   virtual Status GetDbIdentity(std::string& identity);
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
-                             int output_level, const Slice* begin,
-                             const Slice* end);
+                             int output_level, uint32_t output_path_id,
+                             const Slice* begin, const Slice* end);
 
 #ifndef ROCKSDB_LITE
   // Extra methods (for testing) that are not in the public DB interface
@@ -531,6 +532,7 @@ class DBImpl : public DB {
     ColumnFamilyData* cfd;
     int input_level;
     int output_level;
+    uint32_t output_path_id;
     bool done;
     Status status;
     bool in_progress;           // compaction request being processed?

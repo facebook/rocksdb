@@ -5252,6 +5252,54 @@ TEST(DBTest, ManualCompaction) {
 
 }
 
+TEST(DBTest, ManualCompactionOutputPathId) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.db_paths.emplace_back(dbname_, 1000000000);
+  options.db_paths.emplace_back(dbname_ + "_2", 1000000000);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = 10;
+  Destroy(&options);
+  DestroyAndReopen(&options);
+  CreateAndReopenWithCF({"pikachu"}, &options);
+  MakeTables(3, "p", "q", 1);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("3", FilesPerLevel(1));
+  ASSERT_EQ(3, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[1].path));
+
+  // Full compaction to DB path 0
+  db_->CompactRange(handles_[1], nullptr, nullptr, false, -1, 1);
+  ASSERT_EQ("1", FilesPerLevel(1));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, &options);
+  ASSERT_EQ("1", FilesPerLevel(1));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+  MakeTables(1, "p", "q", 1);
+  ASSERT_EQ("2", FilesPerLevel(1));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, &options);
+  ASSERT_EQ("2", FilesPerLevel(1));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+  // Full compaction to DB path 0
+  db_->CompactRange(handles_[1], nullptr, nullptr, false, -1, 0);
+  ASSERT_EQ("1", FilesPerLevel(1));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[1].path));
+
+  // Fail when compacting to an invalid path ID
+  ASSERT_TRUE(db_->CompactRange(handles_[1], nullptr, nullptr, false, -1, 2)
+                  .IsInvalidArgument());
+}
+
 TEST(DBTest, DBOpen_Options) {
   std::string dbname = test::TmpDir() + "/db_options_test";
   ASSERT_OK(DestroyDB(dbname, Options()));
@@ -6559,7 +6607,8 @@ class ModelDB: public DB {
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* start, const Slice* end,
-                              bool reduce_level, int target_level) {
+                              bool reduce_level, int target_level,
+                              uint32_t output_path_id) {
     return Status::NotSupported("Not supported operation.");
   }
 

@@ -762,8 +762,9 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       // cfd is nullptr if Version is dummy
       num_levels_(cfd == nullptr ? 0 : cfd->NumberLevels()),
       num_non_empty_levels_(num_levels_),
-      file_indexer_(cfd == nullptr ?  nullptr
-          : cfd->internal_comparator().user_comparator()),
+      file_indexer_(cfd == nullptr
+                        ? nullptr
+                        : cfd->internal_comparator().user_comparator()),
       vset_(vset),
       next_(this),
       prev_(this),

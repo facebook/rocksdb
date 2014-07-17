@@ -15,10 +15,7 @@
 namespace rocksdb {
 
 FileIndexer::FileIndexer(const Comparator* ucmp)
-  : num_levels_(0),
-    ucmp_(ucmp),
-    level_rb_(nullptr) {
-}
+    : num_levels_(0), ucmp_(ucmp), level_rb_(nullptr) {}
 
 uint32_t FileIndexer::NumLevelIndex() {
   return next_level_index_.size();
@@ -47,8 +44,9 @@ void FileIndexer::GetNextLevelIndex(
   const auto& index = index_units[file_index];
 
   if (cmp_smallest < 0) {
-    *left_bound = (level > 0 && file_index > 0) ?
-      index_units[file_index - 1].largest_lb : 0;
+    *left_bound = (level > 0 && file_index > 0)
+                      ? index_units[file_index - 1].largest_lb
+                      : 0;
     *right_bound = index.smallest_rb;
   } else if (cmp_smallest == 0) {
     *left_bound = index.smallest_lb;
@@ -71,23 +69,22 @@ void FileIndexer::GetNextLevelIndex(
   assert(*right_bound <= level_rb_[level + 1]);
 }
 
-void FileIndexer::UpdateIndex(Arena* arena,
-                              const uint32_t num_levels,
+void FileIndexer::UpdateIndex(Arena* arena, const uint32_t num_levels,
                               std::vector<FileMetaData*>* const files) {
   if (files == nullptr) {
     return;
   }
-  if (num_levels == 0) {        // uint_32 0-1 would cause bad behavior
+  if (num_levels == 0) {  // uint_32 0-1 would cause bad behavior
     num_levels_ = num_levels;
     return;
   }
-  assert(level_rb_ == nullptr);      // level_rb_ should be init here
+  assert(level_rb_ == nullptr);  // level_rb_ should be init here
 
   num_levels_ = num_levels;
   next_level_index_.resize(num_levels);
 
   char* mem = arena->AllocateAligned(num_levels_ * sizeof(int32_t));
-  level_rb_ = new (mem)int32_t[num_levels_];
+  level_rb_ = new (mem) int32_t[num_levels_];
   for (size_t i = 0; i < num_levels_; i++) {
     level_rb_[i] = -1;
   }
@@ -104,44 +101,40 @@ void FileIndexer::UpdateIndex(Arena* arena,
     IndexLevel& index_level = next_level_index_[level];
     index_level.num_index = upper_size;
     char* mem = arena->AllocateAligned(upper_size * sizeof(IndexUnit));
-    index_level.index_units = new (mem)IndexUnit[upper_size];
+    index_level.index_units = new (mem) IndexUnit[upper_size];
 
-    CalculateLB(upper_files, lower_files, &index_level,
-        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+    CalculateLB(
+        upper_files, lower_files, &index_level,
+        [this](const FileMetaData * a, const FileMetaData * b)->int {
           return ucmp_->Compare(a->smallest.user_key(), b->largest.user_key());
         },
-        [](IndexUnit* index, int32_t f_idx) {
-          index->smallest_lb = f_idx;
-        });
-    CalculateLB(upper_files, lower_files, &index_level,
-        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+        [](IndexUnit* index, int32_t f_idx) { index->smallest_lb = f_idx; });
+    CalculateLB(
+        upper_files, lower_files, &index_level,
+        [this](const FileMetaData * a, const FileMetaData * b)->int {
           return ucmp_->Compare(a->largest.user_key(), b->largest.user_key());
         },
-        [](IndexUnit* index, int32_t f_idx) {
-          index->largest_lb = f_idx;
-        });
-    CalculateRB(upper_files, lower_files, &index_level,
-        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+        [](IndexUnit* index, int32_t f_idx) { index->largest_lb = f_idx; });
+    CalculateRB(
+        upper_files, lower_files, &index_level,
+        [this](const FileMetaData * a, const FileMetaData * b)->int {
           return ucmp_->Compare(a->smallest.user_key(), b->smallest.user_key());
         },
-        [](IndexUnit* index, int32_t f_idx) {
-          index->smallest_rb = f_idx;
-        });
-    CalculateRB(upper_files, lower_files, &index_level,
-        [this](const FileMetaData* a, const FileMetaData* b) -> int {
+        [](IndexUnit* index, int32_t f_idx) { index->smallest_rb = f_idx; });
+    CalculateRB(
+        upper_files, lower_files, &index_level,
+        [this](const FileMetaData * a, const FileMetaData * b)->int {
           return ucmp_->Compare(a->largest.user_key(), b->smallest.user_key());
         },
-        [](IndexUnit* index, int32_t f_idx) {
-          index->largest_rb = f_idx;
-        });
+        [](IndexUnit* index, int32_t f_idx) { index->largest_rb = f_idx; });
   }
 
   level_rb_[num_levels_ - 1] = files[num_levels_ - 1].size() - 1;
 }
 
-void FileIndexer::CalculateLB(const std::vector<FileMetaData*>& upper_files,
-    const std::vector<FileMetaData*>& lower_files,
-    IndexLevel *index_level,
+void FileIndexer::CalculateLB(
+    const std::vector<FileMetaData*>& upper_files,
+    const std::vector<FileMetaData*>& lower_files, IndexLevel* index_level,
     std::function<int(const FileMetaData*, const FileMetaData*)> cmp_op,
     std::function<void(IndexUnit*, int32_t)> set_index) {
   const int32_t upper_size = upper_files.size();
@@ -177,9 +170,9 @@ void FileIndexer::CalculateLB(const std::vector<FileMetaData*>& upper_files,
   }
 }
 
-void FileIndexer::CalculateRB(const std::vector<FileMetaData*>& upper_files,
-    const std::vector<FileMetaData*>& lower_files,
-    IndexLevel *index_level,
+void FileIndexer::CalculateRB(
+    const std::vector<FileMetaData*>& upper_files,
+    const std::vector<FileMetaData*>& lower_files, IndexLevel* index_level,
     std::function<int(const FileMetaData*, const FileMetaData*)> cmp_op,
     std::function<void(IndexUnit*, int32_t)> set_index) {
   const int32_t upper_size = upper_files.size();

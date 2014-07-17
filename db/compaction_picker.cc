@@ -330,9 +330,9 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
   }
 }
 
-
 Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
                                            int output_level,
+                                           uint32_t output_path_id,
                                            const InternalKey* begin,
                                            const InternalKey* end,
                                            InternalKey** compaction_end) {
@@ -372,10 +372,11 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
       }
     }
   }
-  Compaction* c = new Compaction(version, input_level, output_level,
-                                 MaxFileSizeForLevel(output_level),
-                                 MaxGrandParentOverlapBytes(input_level), 0,
-                                 GetCompressionType(*options_, output_level));
+  assert(output_path_id < static_cast<uint32_t>(options_->db_paths.size()));
+  Compaction* c = new Compaction(
+      version, input_level, output_level, MaxFileSizeForLevel(output_level),
+      MaxGrandParentOverlapBytes(input_level), output_path_id,
+      GetCompressionType(*options_, output_level));
 
   c->inputs_[0].files = inputs;
   if (ExpandWhileOverlapping(c) == false) {
@@ -983,17 +984,19 @@ Compaction* FIFOCompactionPicker::PickCompaction(Version* version,
   return c;
 }
 
-Compaction* FIFOCompactionPicker::CompactRange(Version* version,
-                                               int input_level,
-                                               int output_level,
-                                               const InternalKey* begin,
-                                               const InternalKey* end,
-                                               InternalKey** compaction_end) {
+Compaction* FIFOCompactionPicker::CompactRange(
+    Version* version, int input_level, int output_level,
+    uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
+    InternalKey** compaction_end) {
   assert(input_level == 0);
   assert(output_level == 0);
   *compaction_end = nullptr;
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_->info_log.get());
-  auto c = PickCompaction(version, &log_buffer);
+  Compaction* c = PickCompaction(version, &log_buffer);
+  if (c != nullptr) {
+    assert(output_path_id < static_cast<uint32_t>(options_->db_paths.size()));
+    c->output_path_id_ = output_path_id;
+  }
   log_buffer.FlushBufferToLog();
   return c;
 }

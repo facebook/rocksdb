@@ -352,11 +352,13 @@ Compaction* ColumnFamilyData::PickCompaction(LogBuffer* log_buffer) {
 }
 
 Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
+                                           uint32_t output_path_id,
                                            const InternalKey* begin,
                                            const InternalKey* end,
                                            InternalKey** compaction_end) {
   return compaction_picker_->CompactRange(current_, input_level, output_level,
-                                          begin, end, compaction_end);
+                                          output_path_id, begin, end,
+                                          compaction_end);
 }
 
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(

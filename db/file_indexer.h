@@ -54,8 +54,7 @@ class FileIndexer {
     const uint32_t level, const uint32_t file_index, const int cmp_smallest,
     const int cmp_largest, int32_t* left_bound, int32_t* right_bound);
 
-  void UpdateIndex(Arena* arena,
-                   const uint32_t num_levels,
+  void UpdateIndex(Arena* arena, const uint32_t num_levels,
                    std::vector<FileMetaData*>* const files);
 
   enum {
@@ -119,20 +118,20 @@ class FileIndexer {
     size_t num_index;
     IndexUnit* index_units;
 
-    IndexLevel(): num_index(0), index_units(nullptr) {}
+    IndexLevel() : num_index(0), index_units(nullptr) {}
   };
 
-  void CalculateLB(const std::vector<FileMetaData*>& upper_files,
-    const std::vector<FileMetaData*>& lower_files,
-    IndexLevel* index_level,
-    std::function<int(const FileMetaData*, const FileMetaData*)> cmp_op,
-    std::function<void(IndexUnit*, int32_t)> set_index);
+  void CalculateLB(
+      const std::vector<FileMetaData*>& upper_files,
+      const std::vector<FileMetaData*>& lower_files, IndexLevel* index_level,
+      std::function<int(const FileMetaData*, const FileMetaData*)> cmp_op,
+      std::function<void(IndexUnit*, int32_t)> set_index);
 
-  void CalculateRB(const std::vector<FileMetaData*>& upper_files,
-    const std::vector<FileMetaData*>& lower_files,
-    IndexLevel* index_level,
-    std::function<int(const FileMetaData*, const FileMetaData*)> cmp_op,
-    std::function<void(IndexUnit*, int32_t)> set_index);
+  void CalculateRB(
+      const std::vector<FileMetaData*>& upper_files,
+      const std::vector<FileMetaData*>& lower_files, IndexLevel* index_level,
+      std::function<int(const FileMetaData*, const FileMetaData*)> cmp_op,
+      std::function<void(IndexUnit*, int32_t)> set_index);
 
   autovector<IndexLevel> next_level_index_;
   int32_t* level_rb_;
