@@ -107,7 +107,9 @@ class FilePicker {
         curr_level_(-1),
         search_left_bound_(0),
         search_right_bound_(FileIndexer::kLevelMaxIndex),
+#ifndef NDEBUG
         files_(files),
+#endif
         file_levels_(file_levels),
         user_key_(user_key),
         ikey_(ikey),
@@ -216,7 +218,9 @@ class FilePicker {
   unsigned int curr_level_;
   int search_left_bound_;
   int search_right_bound_;
+#ifndef NDEBUG
   std::vector<FileMetaData*>* files_;
+#endif
   autovector<FileLevel>* file_levels_;
   bool search_ended_;
   FileLevel* curr_file_level_;
