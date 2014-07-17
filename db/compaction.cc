@@ -61,6 +61,9 @@ Compaction::Compaction(Version* input_version, int level, int out_level,
   for (int i = 0; i < number_levels_; i++) {
     level_ptrs_[i] = 0;
   }
+  for (int i = 0; i < 2; ++i) {
+    inputs_[i].level = level_ + i;
+  }
 }
 
 Compaction::~Compaction() {
@@ -78,7 +81,7 @@ Compaction::~Compaction() {
 void Compaction::GenerateFileLevels() {
   input_levels_.resize(2);
   for (int which = 0; which < 2; which++) {
-    DoGenerateFileLevel(&input_levels_[which], inputs_[which], &arena_);
+    DoGenerateFileLevel(&input_levels_[which], inputs_[which].files, &arena_);
   }
 }
 
@@ -158,7 +161,6 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool value) {
   for (int i = 0; i < 2; i++) {
-    std::vector<FileMetaData*> v = inputs_[i];
     for (unsigned int j = 0; j < inputs_[i].size(); j++) {
       assert(value ? !inputs_[i][j]->being_compacted :
                       inputs_[i][j]->being_compacted);
@@ -241,7 +243,7 @@ void Compaction::Summary(char* output, int len) {
     return;
   }
 
-  write += InputSummary(inputs_[0], output + write, len - write);
+  write += InputSummary(inputs_[0].files, output + write, len - write);
   if (write < 0 || write >= len) {
     return;
   }
@@ -251,7 +253,7 @@ void Compaction::Summary(char* output, int len) {
     return;
   }
 
-  write += InputSummary(inputs_[1], output + write, len - write);
+  write += InputSummary(inputs_[1].files, output + write, len - write);
   if (write < 0 || write >= len) {
     return;
   }
@@ -266,7 +268,7 @@ uint64_t Compaction::OutputFilePreallocationSize() {
     preallocation_size =
         cfd_->compaction_picker()->MaxFileSizeForLevel(output_level());
   } else {
-    for (const auto& f : inputs_[0]) {
+    for (const auto& f : inputs_[0].files) {
       preallocation_size += f->fd.GetFileSize();
     }
   }

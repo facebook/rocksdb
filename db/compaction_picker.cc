@@ -194,14 +194,15 @@ bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
   size_t old_size;
   do {
     old_size = c->inputs_[0].size();
-    GetRange(c->inputs_[0], &smallest, &largest);
+    GetRange(c->inputs_[0].files, &smallest, &largest);
     c->inputs_[0].clear();
     c->input_version_->GetOverlappingInputs(
-        level, &smallest, &largest, &c->inputs_[0], hint_index, &hint_index);
+        level, &smallest, &largest, &c->inputs_[0].files,
+        hint_index, &hint_index);
   } while(c->inputs_[0].size() > old_size);
 
   // Get the new range
-  GetRange(c->inputs_[0], &smallest, &largest);
+  GetRange(c->inputs_[0].files, &smallest, &largest);
 
   // If, after the expansion, there are files that are already under
   // compaction, then we must drop/cancel this compaction.
@@ -211,7 +212,7 @@ bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
         "[%s] ExpandWhileOverlapping() failure because zero input files",
         c->column_family_data()->GetName().c_str());
   }
-  if (c->inputs_[0].empty() || FilesInCompaction(c->inputs_[0]) ||
+  if (c->inputs_[0].empty() || FilesInCompaction(c->inputs_[0].files) ||
       (c->level() != c->output_level() &&
        ParentRangeInCompaction(c->input_version_, &smallest, &largest, level,
                                &parent_index))) {
@@ -267,16 +268,17 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
   InternalKey smallest, largest;
 
   // Get the range one last time.
-  GetRange(c->inputs_[0], &smallest, &largest);
+  GetRange(c->inputs_[0].files, &smallest, &largest);
 
   // Populate the set of next-level files (inputs_[1]) to include in compaction
-  c->input_version_->GetOverlappingInputs(level + 1, &smallest, &largest,
-                                          &c->inputs_[1], c->parent_index_,
-                                          &c->parent_index_);
+  c->input_version_->GetOverlappingInputs(
+      level + 1, &smallest, &largest,
+      &c->inputs_[1].files, c->parent_index_,
+      &c->parent_index_);
 
   // Get entire range covered by compaction
   InternalKey all_start, all_limit;
-  GetRange(c->inputs_[0], c->inputs_[1], &all_start, &all_limit);
+  GetRange(c->inputs_[0].files, c->inputs_[1].files, &all_start, &all_limit);
 
   // See if we can further grow the number of inputs in "level" without
   // changing the number of "level+1" files we pick up. We also choose NOT
@@ -287,8 +289,8 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
     std::vector<FileMetaData*> expanded0;
     c->input_version_->GetOverlappingInputs(
         level, &all_start, &all_limit, &expanded0, c->base_index_, nullptr);
-    const uint64_t inputs0_size = TotalCompensatedFileSize(c->inputs_[0]);
-    const uint64_t inputs1_size = TotalCompensatedFileSize(c->inputs_[1]);
+    const uint64_t inputs0_size = TotalCompensatedFileSize(c->inputs_[0].files);
+    const uint64_t inputs1_size = TotalCompensatedFileSize(c->inputs_[1].files);
     const uint64_t expanded0_size = TotalCompensatedFileSize(expanded0);
     uint64_t limit = ExpandedCompactionByteSizeLimit(level);
     if (expanded0.size() > c->inputs_[0].size() &&
@@ -312,9 +314,10 @@ void CompactionPicker::SetupOtherInputs(Compaction* c) {
             inputs1_size);
         smallest = new_start;
         largest = new_limit;
-        c->inputs_[0] = expanded0;
-        c->inputs_[1] = expanded1;
-        GetRange(c->inputs_[0], c->inputs_[1], &all_start, &all_limit);
+        c->inputs_[0].files = expanded0;
+        c->inputs_[1].files = expanded1;
+        GetRange(c->inputs_[0].files, c->inputs_[1].files,
+                 &all_start, &all_limit);
       }
     }
   }
@@ -374,7 +377,7 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
                                  MaxGrandParentOverlapBytes(input_level), 0,
                                  GetCompressionType(*options_, output_level));
 
-  c->inputs_[0] = inputs;
+  c->inputs_[0].files = inputs;
   if (ExpandWhileOverlapping(c) == false) {
     delete c;
     Log(options_->info_log,
@@ -441,18 +444,18 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
   if (level == 0) {
     assert(compactions_in_progress_[0].empty());
     InternalKey smallest, largest;
-    GetRange(c->inputs_[0], &smallest, &largest);
+    GetRange(c->inputs_[0].files, &smallest, &largest);
     // Note that the next call will discard the file we placed in
     // c->inputs_[0] earlier and replace it with an overlapping set
     // which will include the picked file.
     c->inputs_[0].clear();
     c->input_version_->GetOverlappingInputs(0, &smallest, &largest,
-                                            &c->inputs_[0]);
+                                            &c->inputs_[0].files);
 
     // If we include more L0 files in the same compaction run it can
     // cause the 'smallest' and 'largest' key to get extended to a
     // larger range. So, re-invoke GetRange to get the new key range
-    GetRange(c->inputs_[0], &smallest, &largest);
+    GetRange(c->inputs_[0].files, &smallest, &largest);
     if (ParentRangeInCompaction(c->input_version_, &smallest, &largest, level,
                                 &c->parent_index_)) {
       delete c;
@@ -533,7 +536,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
                                 level, &parent_index)) {
       continue;
     }
-    c->inputs_[0].push_back(f);
+    c->inputs_[0].files.push_back(f);
     c->base_index_ = index;
     c->parent_index_ = parent_index;
     break;
@@ -615,7 +618,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
 
   // Is the earliest file part of this compaction?
   FileMetaData* last_file = c->input_version_->files_[level].back();
-  c->bottommost_level_ = c->inputs_[0].back() == last_file;
+  c->bottommost_level_ = c->inputs_[0].files.back() == last_file;
 
   // update statistics
   MeasureTime(options_->statistics.get(), NUM_FILES_IN_SINGLE_COMPACTION,
@@ -810,7 +813,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
 
   for (unsigned int i = start_index; i < first_index_after; i++) {
     FileMetaData* f = c->input_version_->files_[level][i];
-    c->inputs_[0].push_back(f);
+    c->inputs_[0].files.push_back(f);
     LogToBuffer(log_buffer,
                 "[%s] Universal: Picking file %s[%d] "
                 "with size %" PRIu64 " (compensated size %" PRIu64 ")\n",
@@ -918,7 +921,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   c->score_ = score;
   for (unsigned int loop = start_index; loop < files.size(); loop++) {
     f = c->input_version_->files_[level][loop];
-    c->inputs_[0].push_back(f);
+    c->inputs_[0].files.push_back(f);
     LogToBuffer(log_buffer,
         "[%s] Universal: size amp picking file %" PRIu64 "[%d] "
         "with size %" PRIu64 " (compensated size %" PRIu64 ")",
@@ -963,7 +966,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(Version* version,
        ritr != version->files_[0].rend(); ++ritr) {
     auto f = *ritr;
     total_size -= f->compensated_file_size;
-    c->inputs_[0].push_back(f);
+    c->inputs_[0].files.push_back(f);
     char tmp_fsize[16];
     AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
     LogToBuffer(log_buffer, "[%s] FIFO compaction: picking file %" PRIu64

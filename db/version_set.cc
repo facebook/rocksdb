@@ -2830,7 +2830,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   int num = 0;
   for (int which = 0; which < 2; which++) {
     if (c->input_levels(which)->num_files != 0) {
-      if (c->level() + which == 0) {
+      if (c->level(which) == 0) {
         const FileLevel* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(

@@ -14,6 +14,15 @@
 
 namespace rocksdb {
 
+struct CompactionInputFiles {
+  int level;
+  std::vector<FileMetaData*> files;
+  inline bool empty() const { return files.empty(); }
+  inline size_t size() const { return files.size(); }
+  inline void clear() { files.clear(); }
+  inline FileMetaData* operator[](int i) const { return files[i]; }
+};
+
 class Version;
 class ColumnFamilyData;
 
@@ -26,9 +35,9 @@ class Compaction {
 
   ~Compaction();
 
-  // Return the level that is being compacted.  Inputs from "level"
-  // will be merged.
-  int level() const { return level_; }
+  // Returns the level associated to the specified compaction input level.
+  // If input_level is not specified, then input_level is set to 0.
+  int level(int input_level = 0) const { return inputs_[input_level].level; }
 
   // Outputs will go to this level
   int output_level() const { return out_level_; }
@@ -48,7 +57,11 @@ class Compaction {
   // Return the ith input file at "level()+which" ("which" must be 0 or 1).
   FileMetaData* input(int which, int i) const { return inputs_[which][i]; }
 
-  std::vector<FileMetaData*>* inputs(int which) { return &inputs_[which]; }
+  // Returns the list of FileMataData associated with the specified
+  // compaction input level.
+  std::vector<FileMetaData*>* inputs(int which) {
+    return &inputs_[which].files;
+  }
 
   // Return the input_level file
   FileLevel* input_levels(int which) { return &input_levels_[which]; }
@@ -140,7 +153,7 @@ class Compaction {
   bool deletion_compaction_;
 
   // Each compaction reads inputs from "level_" and "level_+1"
-  std::vector<FileMetaData*> inputs_[2];      // The two sets of inputs
+  CompactionInputFiles inputs_[2];      // The two sets of inputs
 
   // A copy of inputs_, organized more closely in memory
   autovector<FileLevel, 2> input_levels_;
