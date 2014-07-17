@@ -2670,7 +2670,7 @@ Status DBImpl::ProcessKeyValueCompaction(
         RecordTick(options_.statistics.get(), COMPACTION_KEY_DROP_NEWER_ENTRY);
       } else if (ikey.type == kTypeDeletion &&
           ikey.sequence <= earliest_snapshot &&
-          compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+          compact->compaction->KeyNotExistsBeyondOutputLevel(ikey.user_key)) {
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers
