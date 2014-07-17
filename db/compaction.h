@@ -57,9 +57,8 @@ class Compaction {
   // compaction input level.
   // The function will return 0 if when "compaction_input_level" < 0
   // or "compaction_input_level" >= "num_input_levels()".
-  int num_input_files(int compaction_input_level) const {
-    if (compaction_input_level >= 0 &&
-        compaction_input_level < inputs_.size()) {
+  int num_input_files(size_t compaction_input_level) const {
+    if (compaction_input_level < inputs_.size()) {
       return inputs_[compaction_input_level].size();
     }
     return 0;
@@ -75,9 +74,8 @@ class Compaction {
   // specified compaction input level.
   // REQUIREMENT: "compaction_input_level" must be >= 0 and
   //              < "input_levels()"
-  FileMetaData* input(int compaction_input_level, int i) const {
-    assert(compaction_input_level < inputs_.size() &&
-           compaction_input_level >= 0);
+  FileMetaData* input(size_t compaction_input_level, int i) const {
+    assert(compaction_input_level < inputs_.size());
     return inputs_[compaction_input_level][i];
   }
 
@@ -85,9 +83,8 @@ class Compaction {
   // input level.
   // REQUIREMENT: "compaction_input_level" must be >= 0 and
   //              < "input_levels()"
-  std::vector<FileMetaData*>* const inputs(int compaction_input_level) {
-    assert(compaction_input_level < inputs_.size() &&
-           compaction_input_level >= 0);
+  std::vector<FileMetaData*>* const inputs(size_t compaction_input_level) {
+    assert(compaction_input_level < inputs_.size());
     return &inputs_[compaction_input_level].files;
   }
 
