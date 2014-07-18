@@ -929,13 +929,10 @@ void Version::ComputeCompactionScore(
   double max_score = 0;
   int max_score_level = 0;
 
-  int num_levels_to_check =
-      (cfd_->options()->compaction_style != kCompactionStyleUniversal &&
-       cfd_->options()->compaction_style != kCompactionStyleFIFO)
-          ? NumberLevels() - 1
-          : 1;
+  int max_input_level =
+      cfd_->compaction_picker()->MaxInputLevel(NumberLevels());
 
-  for (int level = 0; level < num_levels_to_check; level++) {
+  for (int level = 0; level <= max_input_level; level++) {
     double score;
     if (level == 0) {
       // We treat level-0 specially by bounding the number of files
@@ -1084,12 +1081,10 @@ bool Version::NeedsCompaction() const {
   // ending up with nothing to do. We can improve it later.
   // TODO(sdong): improve this function to be accurate for universal
   //              compactions.
-  int num_levels_to_check =
-      (cfd_->options()->compaction_style != kCompactionStyleUniversal &&
-       cfd_->options()->compaction_style != kCompactionStyleFIFO)
-          ? NumberLevels() - 1
-          : 1;
-  for (int i = 0; i < num_levels_to_check; i++) {
+  int max_input_level =
+      cfd_->compaction_picker()->MaxInputLevel(NumberLevels());
+
+  for (int i = 0; i <= max_input_level; i++) {
     if (compaction_score_[i] >= 1) {
       return true;
     }

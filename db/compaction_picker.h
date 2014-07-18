@@ -52,6 +52,10 @@ class CompactionPicker {
                                    const InternalKey* end,
                                    InternalKey** compaction_end);
 
+  // Given the current number of levels, returns the lowest allowed level
+  // for compaction input.
+  virtual int MaxInputLevel(int current_num_levels) const = 0;
+
   // Free up the files that participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
@@ -135,6 +139,11 @@ class UniversalCompactionPicker : public CompactionPicker {
   virtual Compaction* PickCompaction(Version* version,
                                      LogBuffer* log_buffer) override;
 
+  // The maxinum allowed input level.  Always return 0.
+  virtual int MaxInputLevel(int current_num_levels) const override {
+    return 0;
+  }
+
  private:
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionUniversalReadAmp(Version* version, double score,
@@ -159,6 +168,12 @@ class LevelCompactionPicker : public CompactionPicker {
   virtual Compaction* PickCompaction(Version* version,
                                      LogBuffer* log_buffer) override;
 
+  // Returns current_num_levels - 2, meaning the last level cannot be
+  // compaction input level.
+  virtual int MaxInputLevel(int current_num_levels) const override {
+    return current_num_levels - 2;
+  }
+
  private:
   // For the specfied level, pick a compaction.
   // Returns nullptr if there is no compaction to be done.
@@ -180,6 +195,11 @@ class FIFOCompactionPicker : public CompactionPicker {
                                    int output_level, const InternalKey* begin,
                                    const InternalKey* end,
                                    InternalKey** compaction_end) override;
+
+  // The maxinum allowed input level.  Always return 0.
+  virtual int MaxInputLevel(int current_num_levels) const override {
+    return 0;
+  }
 };
 
 }  // namespace rocksdb
