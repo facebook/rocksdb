@@ -157,8 +157,17 @@ Status SstFileReader::SetTableOptionsByMagicNumber(
   } else if (table_magic_number == kPlainTableMagicNumber ||
              table_magic_number == kLegacyPlainTableMagicNumber) {
     options_.allow_mmap_reads = true;
-    options_.table_factory.reset(NewPlainTableFactory(
-        kPlainTableVariableLength, 0, 0, 1, 0, kPlain, true));
+
+    PlainTableOptions plain_table_options;
+    plain_table_options.user_key_len = kPlainTableVariableLength;
+    plain_table_options.bloom_bits_per_key = 0;
+    plain_table_options.hash_table_ratio = 0;
+    plain_table_options.index_sparseness = 1;
+    plain_table_options.huge_page_tlb_size = 0;
+    plain_table_options.encoding_type = kPlain;
+    plain_table_options.full_scan_mode = true;
+
+    options_.table_factory.reset(NewPlainTableFactory(plain_table_options));
     fprintf(stdout, "Sst file format: plain table\n");
   } else {
     char error_msg_buffer[80];

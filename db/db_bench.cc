@@ -1688,8 +1688,13 @@ class Benchmark {
       if (bloom_bits_per_key < 0) {
         bloom_bits_per_key = 0;
       }
-      options.table_factory.reset(
-          NewPlainTableFactory(FLAGS_key_size, bloom_bits_per_key, 0.75));
+
+      PlainTableOptions plain_table_options;
+      plain_table_options.user_key_len = FLAGS_key_size;
+      plain_table_options.bloom_bits_per_key = bloom_bits_per_key;
+      plain_table_options.hash_table_ratio = 0.75;
+      options.table_factory = std::shared_ptr<TableFactory>(
+          NewPlainTableFactory(plain_table_options));
     } else {
       BlockBasedTableOptions block_based_options;
       if (FLAGS_use_hash_search) {

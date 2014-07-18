@@ -261,8 +261,13 @@ int main(int argc, char** argv) {
   if (FLAGS_plain_table) {
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
-    tf = new rocksdb::PlainTableFactory(16, (FLAGS_prefix_len == 16) ? 0 : 8,
-                                        0.75);
+
+    rocksdb::PlainTableOptions plain_table_options;
+    plain_table_options.user_key_len = 16;
+    plain_table_options.bloom_bits_per_key = (FLAGS_prefix_len == 16) ? 0 : 8;
+    plain_table_options.hash_table_ratio = 0.75;
+
+    tf = new rocksdb::PlainTableFactory(plain_table_options);
     options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
         FLAGS_prefix_len));
   } else {

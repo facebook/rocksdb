@@ -1428,9 +1428,13 @@ void rocksdb_options_set_plain_table_factory(
     double hash_table_ratio, size_t index_sparseness) {
   static rocksdb::TableFactory* factory = 0;
   if (!factory) {
-    factory = rocksdb::NewPlainTableFactory(
-        user_key_len, bloom_bits_per_key,
-        hash_table_ratio, index_sparseness);
+    rocksdb::PlainTableOptions options;
+    options.user_key_len = user_key_len;
+    options.bloom_bits_per_key = bloom_bits_per_key;
+    options.hash_table_ratio = hash_table_ratio;
+    options.index_sparseness = index_sparseness;
+
+    factory = rocksdb::NewPlainTableFactory(options);
   }
   opt->rep.table_factory.reset(factory);
 }

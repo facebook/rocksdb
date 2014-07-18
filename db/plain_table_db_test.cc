@@ -61,7 +61,18 @@ class PlainTableDBTest {
   // Return the current option configuration.
   Options CurrentOptions() {
     Options options;
-    options.table_factory.reset(NewPlainTableFactory(0, 2, 0.8, 3, 0, kPrefix));
+
+    PlainTableOptions plain_table_options;
+    plain_table_options.user_key_len = 0;
+    plain_table_options.bloom_bits_per_key = 2;
+    plain_table_options.hash_table_ratio = 0.8;
+    plain_table_options.index_sparseness = 3;
+    plain_table_options.huge_page_tlb_size = 0;
+    plain_table_options.encoding_type = kPrefix;
+    plain_table_options.full_scan_mode = false;
+
+    options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true, 3));
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.allow_mmap_reads = true;
@@ -212,16 +223,11 @@ extern const uint64_t kPlainTableMagicNumber;
 class TestPlainTableFactory : public PlainTableFactory {
  public:
   explicit TestPlainTableFactory(bool* expect_bloom_not_match,
-                                 uint32_t user_key_len, int bloom_bits_per_key,
-                                 double hash_table_ratio,
-                                 size_t index_sparseness,
-                                 size_t huge_page_tlb_size,
-                                 EncodingType encoding_type)
-      : PlainTableFactory(user_key_len, bloom_bits_per_key, hash_table_ratio,
-                          index_sparseness, huge_page_tlb_size, encoding_type),
-        bloom_bits_per_key_(bloom_bits_per_key),
-        hash_table_ratio_(hash_table_ratio),
-        index_sparseness_(index_sparseness),
+                                 const PlainTableOptions& options)
+      : PlainTableFactory(options),
+        bloom_bits_per_key_(options.bloom_bits_per_key),
+        hash_table_ratio_(options.hash_table_ratio),
+        index_sparseness_(options.index_sparseness),
         expect_bloom_not_match_(expect_bloom_not_match) {}
 
   Status NewTableReader(const Options& options, const EnvOptions& soptions,
@@ -268,11 +274,30 @@ TEST(PlainTableDBTest, Flush) {
         // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
           options.prefix_extractor.reset();
-          options.table_factory.reset(NewPlainTableFactory(
-              0, bloom_bits, 0, 2, huge_page_tlb_size, encoding_type));
+
+          PlainTableOptions plain_table_options;
+          plain_table_options.user_key_len = 0;
+          plain_table_options.bloom_bits_per_key = bloom_bits;
+          plain_table_options.hash_table_ratio = 0;
+          plain_table_options.index_sparseness = 2;
+          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+          plain_table_options.encoding_type = encoding_type;
+          plain_table_options.full_scan_mode = false;
+
+          options.table_factory.reset(
+              NewPlainTableFactory(plain_table_options));
         } else {
-          options.table_factory.reset(NewPlainTableFactory(
-              0, bloom_bits, 0.75, 16, huge_page_tlb_size, encoding_type));
+          PlainTableOptions plain_table_options;
+          plain_table_options.user_key_len = 0;
+          plain_table_options.bloom_bits_per_key = bloom_bits;
+          plain_table_options.hash_table_ratio = 0.75;
+          plain_table_options.index_sparseness = 16;
+          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+          plain_table_options.encoding_type = encoding_type;
+          plain_table_options.full_scan_mode = false;
+
+          options.table_factory.reset(
+              NewPlainTableFactory(plain_table_options));
         }
         DestroyAndReopen(&options);
 
@@ -315,13 +340,27 @@ TEST(PlainTableDBTest, Flush2) {
         // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
           options.prefix_extractor = nullptr;
+          PlainTableOptions plain_table_options;
+          plain_table_options.user_key_len = 0;
+          plain_table_options.bloom_bits_per_key = bloom_bits;
+          plain_table_options.hash_table_ratio = 0;
+          plain_table_options.index_sparseness = 2;
+          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+          plain_table_options.encoding_type = encoding_type;
+
           options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, 0, bloom_bits, 0, 2, huge_page_tlb_size,
-              encoding_type));
+              &expect_bloom_not_match, plain_table_options));
         } else {
+          PlainTableOptions plain_table_options;
+          plain_table_options.user_key_len = 0;
+          plain_table_options.bloom_bits_per_key = bloom_bits;
+          plain_table_options.hash_table_ratio = 0.75;
+          plain_table_options.index_sparseness = 16;
+          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+          plain_table_options.encoding_type = encoding_type;
+
           options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, 0, bloom_bits, 0.75, 16,
-              huge_page_tlb_size, encoding_type));
+              &expect_bloom_not_match, plain_table_options));
         }
         DestroyAndReopen(&options);
         ASSERT_OK(Put("0000000000000bar", "b"));
@@ -380,13 +419,28 @@ TEST(PlainTableDBTest, Iterator) {
         // Test index interval for the same prefix to be 1, 2 and 4
         if (total_order) {
           options.prefix_extractor = nullptr;
+
+          PlainTableOptions plain_table_options;
+          plain_table_options.user_key_len = 16;
+          plain_table_options.bloom_bits_per_key = bloom_bits;
+          plain_table_options.hash_table_ratio = 0;
+          plain_table_options.index_sparseness = 2;
+          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+          plain_table_options.encoding_type = encoding_type;
+
           options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, 16, bloom_bits, 0, 2, huge_page_tlb_size,
-              encoding_type));
+              &expect_bloom_not_match, plain_table_options));
         } else {
+          PlainTableOptions plain_table_options;
+          plain_table_options.user_key_len = 16;
+          plain_table_options.bloom_bits_per_key = bloom_bits;
+          plain_table_options.hash_table_ratio = 0.75;
+          plain_table_options.index_sparseness = 16;
+          plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+          plain_table_options.encoding_type = encoding_type;
+
           options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, 16, bloom_bits, 0.75, 16,
-              huge_page_tlb_size, encoding_type));
+              &expect_bloom_not_match, plain_table_options));
         }
         DestroyAndReopen(&options);
 
@@ -485,7 +539,13 @@ std::string MakeLongKey(size_t length, char c) {
 
 TEST(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();
-  options.table_factory.reset(NewPlainTableFactory(0, 0, 0));
+
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 0;
+  plain_table_options.bloom_bits_per_key = 0;
+  plain_table_options.hash_table_ratio = 0;
+
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
   options.create_if_missing = true;
   options.prefix_extractor.reset();
   DestroyAndReopen(&options);
@@ -529,7 +589,16 @@ std::string MakeLongKeyWithPrefix(size_t length, char c) {
 
 TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   Options options = CurrentOptions();
-  options.table_factory.reset(NewPlainTableFactory(16, 0, 0.8, 3, 0, kPrefix));
+
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 16;
+  plain_table_options.bloom_bits_per_key = 0;
+  plain_table_options.hash_table_ratio = 0.8;
+  plain_table_options.index_sparseness = 3;
+  plain_table_options.huge_page_tlb_size = 0;
+  plain_table_options.encoding_type = kPrefix;
+
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
   options.create_if_missing = true;
   DestroyAndReopen(&options);
 
@@ -665,8 +734,16 @@ TEST(PlainTableDBTest, HashBucketConflict) {
       options.create_if_missing = true;
       // Set only one bucket to force bucket conflict.
       // Test index interval for the same prefix to be 1, 2 and 4
-      options.table_factory.reset(
-          NewPlainTableFactory(16, 0, 0, 2 ^ i, huge_page_tlb_size));
+
+      PlainTableOptions plain_table_options;
+      plain_table_options.user_key_len = 16;
+      plain_table_options.bloom_bits_per_key = 0;
+      plain_table_options.hash_table_ratio = 0;
+      plain_table_options.index_sparseness = 2 ^ i;
+      plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+
+      options.table_factory.reset(NewPlainTableFactory(plain_table_options));
+
       DestroyAndReopen(&options);
       ASSERT_OK(Put("5000000000000fo0", "v1"));
       ASSERT_OK(Put("5000000000000fo1", "v2"));
@@ -752,8 +829,15 @@ TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
       options.comparator = &comp;
       // Set only one bucket to force bucket conflict.
       // Test index interval for the same prefix to be 1, 2 and 4
-      options.table_factory.reset(
-          NewPlainTableFactory(16, 0, 0, 2 ^ i, huge_page_tlb_size));
+
+      PlainTableOptions plain_table_options;
+      plain_table_options.user_key_len = 16;
+      plain_table_options.bloom_bits_per_key = 0;
+      plain_table_options.hash_table_ratio = 0;
+      plain_table_options.index_sparseness = 2 ^ i;
+      plain_table_options.huge_page_tlb_size = huge_page_tlb_size;
+
+      options.table_factory.reset(NewPlainTableFactory(plain_table_options));
       DestroyAndReopen(&options);
       ASSERT_OK(Put("5000000000000fo0", "v1"));
       ASSERT_OK(Put("5000000000000fo1", "v2"));
@@ -833,7 +917,13 @@ TEST(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
   // Test index interval for the same prefix to be 1, 2 and 4
-  options.table_factory.reset(NewPlainTableFactory(16, 0, 0, 5));
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 16;
+  plain_table_options.bloom_bits_per_key = 0;
+  plain_table_options.hash_table_ratio = 0;
+  plain_table_options.index_sparseness = 5;
+
+  options.table_factory.reset(NewPlainTableFactory(plain_table_options));
   DestroyAndReopen(&options);
   ASSERT_OK(Put("5000000000000fo0", "v1"));
   ASSERT_OK(Put("5000000000000fo1", "v2"));

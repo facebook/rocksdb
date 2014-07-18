@@ -445,9 +445,10 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
                                        size_t huge_page_tlb_size) {
   assert(props != nullptr);
   table_properties_.reset(props);
+  // options.prefix_extractor is requried for a hash-based look-up.
+  if ((options_.prefix_extractor.get() == nullptr) && (hash_table_ratio != 0)) {
 
   // options.prefix_extractor is requried for a hash-based look-up.
-  if (options_.prefix_extractor.get() == nullptr && hash_table_ratio != 0) {
     return Status::NotSupported(
         "PlainTable requires a prefix extractor enable prefix hash mode.");
   }

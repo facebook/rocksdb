@@ -718,8 +718,16 @@ class Harness {
         only_support_prefix_seek_ = false;
         options_.prefix_extractor = nullptr;
         options_.allow_mmap_reads = true;
-        options_.table_factory.reset(
-            NewPlainTableFactory(kPlainTableVariableLength, 0, 0));
+
+        {
+          PlainTableOptions plain_table_options;
+          plain_table_options.user_key_len = kPlainTableVariableLength;
+          plain_table_options.bloom_bits_per_key = 0;
+          plain_table_options.hash_table_ratio = 0;
+
+          options_.table_factory.reset(
+              NewPlainTableFactory(plain_table_options));
+        }
         constructor_ = new TableConstructor(options_.comparator, true);
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
@@ -1493,7 +1501,12 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
 }
 
 TEST(PlainTableTest, BasicPlainTableProperties) {
-  PlainTableFactory factory(8, 8, 0);
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 8;
+  plain_table_options.bloom_bits_per_key = 8;
+  plain_table_options.hash_table_ratio = 0;
+
+  PlainTableFactory factory(plain_table_options);
   StringSink sink;
   Options options;
   InternalKeyComparator ikc(options.comparator);
