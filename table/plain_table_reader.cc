@@ -3,6 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifndef ROCKSDB_LITE
+
 #include "table/plain_table_reader.h"
 
 #include <string>
@@ -18,6 +19,7 @@
 #include "rocksdb/statistics.h"
 
 #include "table/block.h"
+#include "table/bloom_block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
@@ -38,15 +40,6 @@
 namespace rocksdb {
 
 namespace {
-
-inline uint32_t GetSliceHash(const Slice& s) {
-  return Hash(s.data(), s.size(), 397) ;
-}
-
-inline uint32_t GetBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
-  assert(num_buckets >= 0);
-  return hash % num_buckets;
-}
 
 // Safely getting a uint32_t element from a char array, where, starting from
 // `base`, every 4 bytes are considered as an fixed 32 bit integer.
@@ -103,6 +96,7 @@ PlainTableReader::PlainTableReader(const Options& options,
                                    const TableProperties* table_properties)
     : internal_comparator_(icomparator),
       encoding_type_(encoding_type),
+      full_scan_mode_(false),
       data_end_offset_(table_properties->data_size),
       user_key_len_(table_properties->fixed_key_len),
       prefix_extractor_(options.prefix_extractor.get()),
@@ -126,8 +120,7 @@ Status PlainTableReader::Open(const Options& options,
                               double hash_table_ratio, size_t index_sparseness,
                               size_t huge_page_tlb_size, bool full_scan_mode) {
   assert(options.allow_mmap_reads);
-
-  if (file_size > kMaxFileSize) {
+  if (file_size > PlainTableIndex::kMaxFileSize) {
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
@@ -173,7 +166,6 @@ Status PlainTableReader::Open(const Options& options,
     return s;
   }
 
-  // -- Populate Index
   if (!full_scan_mode) {
     s = new_reader->PopulateIndex(props, bloom_bits_per_key, hash_table_ratio,
                                   index_sparseness, huge_page_tlb_size);
@@ -183,7 +175,7 @@ Status PlainTableReader::Open(const Options& options,
   } else {
     // Flag to indicate it is a full scan mode so that none of the indexes
     // can be used.
-    new_reader->index_size_ = kFullScanModeFlag;
+    new_reader->full_scan_mode_ = true;
   }
 
   *table_reader = std::move(new_reader);
@@ -203,79 +195,15 @@ Iterator* PlainTableReader::NewIterator(const ReadOptions& options,
   }
 }
 
-struct PlainTableReader::IndexRecord {
-  uint32_t hash; // hash of the prefix
-  uint32_t offset; // offset of a row
-  IndexRecord* next;
-};
-
-// Helper class to track all the index records
-class PlainTableReader::IndexRecordList {
- public:
-  explicit IndexRecordList(size_t num_records_per_group)
-      : kNumRecordsPerGroup(num_records_per_group),
-        current_group_(nullptr),
-        num_records_in_current_group_(num_records_per_group) {}
-
-  ~IndexRecordList() {
-    for (size_t i = 0; i < groups_.size(); i++) {
-      delete[] groups_[i];
-    }
-  }
-
-  void AddRecord(murmur_t hash, uint32_t offset) {
-    if (num_records_in_current_group_ == kNumRecordsPerGroup) {
-      current_group_ = AllocateNewGroup();
-      num_records_in_current_group_ = 0;
-    }
-    auto& new_record = current_group_[num_records_in_current_group_++];
-    new_record.hash = hash;
-    new_record.offset = offset;
-    new_record.next = nullptr;
-  }
-
-  size_t GetNumRecords() const {
-    return (groups_.size() - 1) * kNumRecordsPerGroup +
-           num_records_in_current_group_;
-  }
-  IndexRecord* At(size_t index) {
-    return &(groups_[index / kNumRecordsPerGroup][index % kNumRecordsPerGroup]);
-  }
-
- private:
-  IndexRecord* AllocateNewGroup() {
-    IndexRecord* result = new IndexRecord[kNumRecordsPerGroup];
-    groups_.push_back(result);
-    return result;
-  }
-
-  // Each group in `groups_` contains fix-sized records (determined by
-  // kNumRecordsPerGroup). Which can help us minimize the cost if resizing
-  // occurs.
-  const size_t kNumRecordsPerGroup;
-  IndexRecord* current_group_;
-  // List of arrays allocated
-  std::vector<IndexRecord*> groups_;
-  size_t num_records_in_current_group_;
-};
-
-Status PlainTableReader::PopulateIndexRecordList(IndexRecordList* record_list,
-                                                 int* num_prefixes,
-                                                 int bloom_bits_per_key,
-                                                 size_t index_sparseness) {
+Status PlainTableReader::PopulateIndexRecordList(
+    PlainTableIndexBuilder* index_builder, vector<uint32_t>* prefix_hashes) {
   Slice prev_key_prefix_slice;
-  uint32_t prev_key_prefix_hash = 0;
   uint32_t pos = data_start_offset_;
-  int num_keys_per_prefix = 0;
-  bool is_first_record = true;
-  HistogramImpl keys_per_prefix_hist;
-  // Need map to be ordered to make sure sub indexes generated
-  // are in order.
 
-  *num_prefixes = 0;
+  bool is_first_record = true;
+  Slice key_prefix_slice;
   PlainTableKeyDecoder decoder(encoding_type_, user_key_len_,
                                options_.prefix_extractor.get());
-  bool due_index = false;
   while (pos < data_end_offset_) {
     uint32_t key_offset = pos;
     ParsedInternalKey key;
@@ -285,152 +213,53 @@ Status PlainTableReader::PopulateIndexRecordList(IndexRecordList* record_list,
     if (!s.ok()) {
       return s;
     }
+
+    key_prefix_slice = GetPrefix(key);
     if (enable_bloom_) {
-      // total order mode and bloom filter is enabled.
       bloom_.AddHash(GetSliceHash(key.user_key));
-    }
-    Slice key_prefix_slice = GetPrefix(key);
-
-    if (is_first_record || prev_key_prefix_slice != key_prefix_slice) {
-      ++(*num_prefixes);
-      if (!is_first_record) {
-        keys_per_prefix_hist.Add(num_keys_per_prefix);
+    } else {
+      if (is_first_record || prev_key_prefix_slice != key_prefix_slice) {
+        if (!is_first_record) {
+          prefix_hashes->push_back(GetSliceHash(prev_key_prefix_slice));
+        }
+        prev_key_prefix_slice = key_prefix_slice;
       }
-      num_keys_per_prefix = 0;
-      prev_key_prefix_slice = key_prefix_slice;
-      prev_key_prefix_hash = GetSliceHash(key_prefix_slice);
-      due_index = true;
     }
 
-    if (due_index) {
-      if (!seekable) {
-        return Status::Corruption("Key for a prefix is not seekable");
-      }
-      // Add an index key for every kIndexIntervalForSamePrefixKeys keys
-      record_list->AddRecord(prev_key_prefix_hash, key_offset);
-      due_index = false;
+    index_builder->AddKeyPrefix(GetPrefix(key), key_offset);
+
+    if (!seekable && is_first_record) {
+      return Status::Corruption("Key for a prefix is not seekable");
     }
 
-    num_keys_per_prefix++;
-    if (index_sparseness == 0 || num_keys_per_prefix % index_sparseness == 0) {
-      due_index = true;
-    }
     is_first_record = false;
   }
 
-  keys_per_prefix_hist.Add(num_keys_per_prefix);
-  Log(options_.info_log, "Number of Keys per prefix Histogram: %s",
-      keys_per_prefix_hist.ToString().c_str());
-
+  prefix_hashes->push_back(GetSliceHash(key_prefix_slice));
+  index_.InitFromRawData(index_builder->Finish());
   return Status::OK();
 }
 
-void PlainTableReader::AllocateIndexAndBloom(int num_prefixes,
-                                             int bloom_bits_per_key,
-                                             double hash_table_ratio,
-                                             size_t huge_page_tlb_size) {
-  if (prefix_extractor_ != nullptr) {
+void PlainTableReader::AllocateAndFillBloom(int bloom_bits_per_key,
+                                            int num_prefixes,
+                                            size_t huge_page_tlb_size,
+                                            vector<uint32_t>* prefix_hashes) {
+  if (!IsTotalOrderMode()) {
     uint32_t bloom_total_bits = num_prefixes * bloom_bits_per_key;
     if (bloom_total_bits > 0) {
       enable_bloom_ = true;
       bloom_.SetTotalBits(&arena_, bloom_total_bits, options_.bloom_locality,
                           huge_page_tlb_size, options_.info_log.get());
+      FillBloom(prefix_hashes);
     }
-  }
-
-  if (prefix_extractor_ == nullptr || hash_table_ratio <= 0) {
-    // Fall back to pure binary search if the user fails to specify a prefix
-    // extractor.
-    index_size_ = 1;
-  } else {
-    double hash_table_size_multipier = 1.0 / hash_table_ratio;
-    index_size_ = num_prefixes * hash_table_size_multipier + 1;
   }
 }
 
-size_t PlainTableReader::BucketizeIndexesAndFillBloom(
-    IndexRecordList* record_list, std::vector<IndexRecord*>* hash_to_offsets,
-    std::vector<uint32_t>* entries_per_bucket) {
-  bool first = true;
-  uint32_t prev_hash = 0;
-  size_t num_records = record_list->GetNumRecords();
-  for (size_t i = 0; i < num_records; i++) {
-    IndexRecord* index_record = record_list->At(i);
-    uint32_t cur_hash = index_record->hash;
-    if (first || prev_hash != cur_hash) {
-      prev_hash = cur_hash;
-      first = false;
-      if (enable_bloom_ && !IsTotalOrderMode()) {
-        bloom_.AddHash(cur_hash);
-      }
-    }
-    uint32_t bucket = GetBucketIdFromHash(cur_hash, index_size_);
-    IndexRecord* prev_bucket_head = (*hash_to_offsets)[bucket];
-    index_record->next = prev_bucket_head;
-    (*hash_to_offsets)[bucket] = index_record;
-    (*entries_per_bucket)[bucket]++;
+void PlainTableReader::FillBloom(vector<uint32_t>* prefix_hashes) {
+  assert(bloom_.IsInitialized());
+  for (auto prefix_hash : *prefix_hashes) {
+    bloom_.AddHash(prefix_hash);
   }
-  size_t sub_index_size = 0;
-  for (auto entry_count : *entries_per_bucket) {
-    if (entry_count <= 1) {
-      continue;
-    }
-    // Only buckets with more than 1 entry will have subindex.
-    sub_index_size += VarintLength(entry_count);
-    // total bytes needed to store these entries' in-file offsets.
-    sub_index_size += entry_count * kOffsetLen;
-  }
-  return sub_index_size;
-}
-
-void PlainTableReader::FillIndexes(
-    const size_t kSubIndexSize,
-    const std::vector<IndexRecord*>& hash_to_offsets,
-    const std::vector<uint32_t>& entries_per_bucket,
-    size_t huge_page_tlb_size) {
-  Log(options_.info_log, "Reserving %zu bytes for plain table's sub_index",
-      kSubIndexSize);
-  auto total_allocate_size = sizeof(uint32_t) * index_size_ + kSubIndexSize;
-  char* allocated = arena_.AllocateAligned(
-      total_allocate_size, huge_page_tlb_size, options_.info_log.get());
-  index_ = reinterpret_cast<uint32_t*>(allocated);
-  sub_index_ = allocated + sizeof(uint32_t) * index_size_;
-
-  size_t sub_index_offset = 0;
-  for (int i = 0; i < index_size_; i++) {
-    uint32_t num_keys_for_bucket = entries_per_bucket[i];
-    switch (num_keys_for_bucket) {
-    case 0:
-      // No key for bucket
-      index_[i] = data_end_offset_;
-      break;
-    case 1:
-      // point directly to the file offset
-      index_[i] = hash_to_offsets[i]->offset;
-      break;
-    default:
-      // point to second level indexes.
-      index_[i] = sub_index_offset | kSubIndexMask;
-      char* prev_ptr = &sub_index_[sub_index_offset];
-      char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
-      sub_index_offset += (cur_ptr - prev_ptr);
-      char* sub_index_pos = &sub_index_[sub_index_offset];
-      IndexRecord* record = hash_to_offsets[i];
-      int j;
-      for (j = num_keys_for_bucket - 1; j >= 0 && record;
-           j--, record = record->next) {
-        EncodeFixed32(sub_index_pos + j * sizeof(uint32_t), record->offset);
-      }
-      assert(j == -1 && record == nullptr);
-      sub_index_offset += kOffsetLen * num_keys_for_bucket;
-      assert(sub_index_offset <= kSubIndexSize);
-      break;
-    }
-  }
-  assert(sub_index_offset == kSubIndexSize);
-
-  Log(options_.info_log, "hash table size: %d, suffix_map length %zu",
-      index_size_, kSubIndexSize);
 }
 
 Status PlainTableReader::MmapDataFile() {
@@ -445,59 +274,111 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
                                        size_t huge_page_tlb_size) {
   assert(props != nullptr);
   table_properties_.reset(props);
-  // options.prefix_extractor is requried for a hash-based look-up.
-  if ((options_.prefix_extractor.get() == nullptr) && (hash_table_ratio != 0)) {
 
+  BlockContents bloom_block_contents;
+  auto s = ReadMetaBlock(file_.get(), file_size_, kPlainTableMagicNumber,
+                         options_.env, BloomBlockBuilder::kBloomBlock,
+                         &bloom_block_contents);
+  bool index_in_file = s.ok();
+
+  BlockContents index_block_contents;
+  s = ReadMetaBlock(file_.get(), file_size_, kPlainTableMagicNumber,
+                    options_.env, PlainTableIndexBuilder::kPlainTableIndexBlock,
+                    &index_block_contents);
+
+  index_in_file &= s.ok();
+
+  Slice* bloom_block;
+  if (index_in_file) {
+    bloom_block = &bloom_block_contents.data;
+  } else {
+    bloom_block = nullptr;
+  }
+
+  // index_in_file == true only if there are kBloomBlock and
+  // kPlainTableIndexBlock
+  // in file
+
+  Slice* index_block;
+  if (index_in_file) {
+    index_block = &index_block_contents.data;
+  } else {
+    index_block = nullptr;
+  }
+
+  if ((options_.prefix_extractor.get() == nullptr) && (hash_table_ratio != 0)) {
   // options.prefix_extractor is requried for a hash-based look-up.
     return Status::NotSupported(
         "PlainTable requires a prefix extractor enable prefix hash mode.");
   }
 
-  IndexRecordList record_list(kRecordsPerGroup);
   // First, read the whole file, for every kIndexIntervalForSamePrefixKeys rows
   // for a prefix (starting from the first one), generate a record of (hash,
   // offset) and append it to IndexRecordList, which is a data structure created
   // to store them.
-  int num_prefixes;
 
-  // Allocate bloom filter here for total order mode.
-  if (IsTotalOrderMode()) {
-    uint32_t num_bloom_bits =
-        table_properties_->num_entries * bloom_bits_per_key;
-    if (num_bloom_bits > 0) {
-      enable_bloom_ = true;
-      bloom_.SetTotalBits(&arena_, num_bloom_bits, options_.bloom_locality,
-                          huge_page_tlb_size, options_.info_log.get());
+  if (!index_in_file) {
+    // Allocate bloom filter here for total order mode.
+    if (IsTotalOrderMode()) {
+      uint32_t num_bloom_bits =
+          table_properties_->num_entries * bloom_bits_per_key;
+      if (num_bloom_bits > 0) {
+        enable_bloom_ = true;
+        bloom_.SetTotalBits(&arena_, num_bloom_bits, options_.bloom_locality,
+                            huge_page_tlb_size, options_.info_log.get());
+      }
     }
+  } else {
+    enable_bloom_ = true;
+    auto num_blocks_property = props->user_collected_properties.find(
+        PlainTablePropertyNames::kNumBloomBlocks);
+
+    uint32_t num_blocks = 0;
+    if (num_blocks_property != props->user_collected_properties.end()) {
+      Slice temp_slice(num_blocks_property->second);
+      if (!GetVarint32(&temp_slice, &num_blocks)) {
+        num_blocks = 0;
+      }
+    }
+    // cast away const qualifier, because bloom_ won't be changed
+    bloom_.SetRawData(
+        const_cast<unsigned char*>(
+            reinterpret_cast<const unsigned char*>(bloom_block->data())),
+        bloom_block->size() * 8, num_blocks);
   }
 
-  Status s = PopulateIndexRecordList(&record_list, &num_prefixes,
-                                     bloom_bits_per_key, index_sparseness);
-  if (!s.ok()) {
-    return s;
-  }
-  // Calculated hash table and bloom filter size and allocate memory for indexes
-  // and bloom filter based on the number of prefixes.
-  AllocateIndexAndBloom(num_prefixes, bloom_bits_per_key, hash_table_ratio,
-                        huge_page_tlb_size);
+  PlainTableIndexBuilder index_builder(&arena_, options_, index_sparseness,
+                                       hash_table_ratio, huge_page_tlb_size);
 
-  // Bucketize all the index records to a temp data structure, in which for
-  // each bucket, we generate a linked list of IndexRecord, in reversed order.
-  std::vector<IndexRecord*> hash_to_offsets(index_size_, nullptr);
-  std::vector<uint32_t> entries_per_bucket(index_size_, 0);
-  size_t sub_index_size_needed = BucketizeIndexesAndFillBloom(
-      &record_list, &hash_to_offsets, &entries_per_bucket);
-  // From the temp data structure, populate indexes.
-  FillIndexes(sub_index_size_needed, hash_to_offsets, entries_per_bucket,
-              huge_page_tlb_size);
+  std::vector<uint32_t> prefix_hashes;
+  if (!index_in_file) {
+    Status s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    index_.InitFromRawData(*index_block);
+  }
+
+  if (!index_in_file) {
+    // Calculated bloom filter size and allocate memory for
+    // bloom filter based on the number of prefixes, then fill it.
+    AllocateAndFillBloom(bloom_bits_per_key, index_.GetNumPrefixes(),
+                         huge_page_tlb_size, &prefix_hashes);
+  }
 
   // Fill two table properties.
-  // TODO(sdong): after we have the feature of storing index in file, this
-  // properties need to be populated to index_size instead.
-  props->user_collected_properties["plain_table_hash_table_size"] =
-      std::to_string(index_size_ * 4U);
-  props->user_collected_properties["plain_table_sub_index_size"] =
-      std::to_string(sub_index_size_needed);
+  if (!index_in_file) {
+    props->user_collected_properties["plain_table_hash_table_size"] =
+        std::to_string(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
+    props->user_collected_properties["plain_table_sub_index_size"] =
+        std::to_string(index_.GetSubIndexSize());
+  } else {
+    props->user_collected_properties["plain_table_hash_table_size"] =
+        std::to_string(0);
+    props->user_collected_properties["plain_table_sub_index_size"] =
+        std::to_string(0);
+  }
 
   return Status::OK();
 }
@@ -506,24 +387,21 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
                                    uint32_t prefix_hash, bool& prefix_matched,
                                    uint32_t* offset) const {
   prefix_matched = false;
-  int bucket = GetBucketIdFromHash(prefix_hash, index_size_);
-  uint32_t bucket_value = index_[bucket];
-  if (bucket_value == data_end_offset_) {
+  uint32_t prefix_index_offset;
+  auto res = index_.GetOffset(prefix_hash, &prefix_index_offset);
+  if (res == PlainTableIndex::kNoPrefixForBucket) {
     *offset = data_end_offset_;
     return Status::OK();
-  } else if ((bucket_value & kSubIndexMask) == 0) {
-    // point directly to the file
-    *offset = bucket_value;
+  } else if (res == PlainTableIndex::kDirectToFile) {
+    *offset = prefix_index_offset;
     return Status::OK();
   }
 
   // point to sub-index, need to do a binary search
+  uint32_t upper_bound;
+  const char* base_ptr =
+      index_.GetSubIndexBasePtrAndUpperBound(prefix_index_offset, &upper_bound);
   uint32_t low = 0;
-  uint64_t prefix_index_offset = bucket_value ^ kSubIndexMask;
-
-  const char* index_ptr = &sub_index_[prefix_index_offset];
-  uint32_t upper_bound = 0;
-  const char* base_ptr = GetVarint32Ptr(index_ptr, index_ptr + 4, &upper_bound);
   uint32_t high = upper_bound;
   ParsedInternalKey mid_key;
   ParsedInternalKey parsed_target;
@@ -593,9 +471,6 @@ bool PlainTableReader::MatchBloom(uint32_t hash) const {
   return !enable_bloom_ || bloom_.MayContainHash(hash);
 }
 
-Slice PlainTableReader::GetPrefix(const ParsedInternalKey& target) const {
-  return GetPrefixFromUserKey(target.user_key);
-}
 
 Status PlainTableReader::Next(PlainTableKeyDecoder* decoder, uint32_t* offset,
                               ParsedInternalKey* parsed_key,
@@ -650,8 +525,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
   Slice prefix_slice;
   uint32_t prefix_hash;
   if (IsTotalOrderMode()) {
-    if (index_size_ == kFullScanModeFlag) {
-      // Full Scan Mode
+    if (full_scan_mode_) {
       status_ =
           Status::InvalidArgument("Get() is not allowed in full scan mode.");
     }
@@ -682,7 +556,6 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
   if (!ParseInternalKey(target, &parsed_target)) {
     return Status::Corruption(Slice());
   }
-
   Slice found_value;
   PlainTableKeyDecoder decoder(encoding_type_, user_key_len_,
                                options_.prefix_extractor.get());
@@ -747,13 +620,12 @@ void PlainTableIterator::Seek(const Slice& target) {
   // If the user doesn't set prefix seek option and we are not able to do a
   // total Seek(). assert failure.
   if (!use_prefix_seek_) {
-    if (table_->index_size_ == PlainTableReader::kFullScanModeFlag) {
-      // Full Scan Mode.
+    if (table_->full_scan_mode_) {
       status_ =
           Status::InvalidArgument("Seek() is not allowed in full scan mode.");
       offset_ = next_offset_ = table_->data_end_offset_;
       return;
-    } else if (table_->index_size_ > 1) {
+    } else if (table_->GetIndexSize() > 1) {
       assert(false);
       status_ = Status::NotSupported(
           "PlainTable cannot issue non-prefix seek unless in total order "

@@ -151,7 +151,8 @@ class PlainTableFactory : public TableFactory {
         index_sparseness_(options.index_sparseness),
         huge_page_tlb_size_(options.huge_page_tlb_size),
         encoding_type_(options.encoding_type),
-        full_scan_mode_(options.full_scan_mode) {}
+        full_scan_mode_(options.full_scan_mode),
+        store_index_in_file_(options.store_index_in_file) {}
   const char* Name() const override { return "PlainTable"; }
   Status NewTableReader(const Options& options, const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
@@ -173,6 +174,7 @@ class PlainTableFactory : public TableFactory {
   size_t huge_page_tlb_size_;
   EncodingType encoding_type_;
   bool full_scan_mode_;
+  bool store_index_in_file_;
 };
 
 }  // namespace rocksdb

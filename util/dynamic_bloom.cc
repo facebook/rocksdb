@@ -48,6 +48,13 @@ DynamicBloom::DynamicBloom(uint32_t num_probes,
       kNumProbes(num_probes),
       hash_func_(hash_func == nullptr ? &BloomHash : hash_func) {}
 
+void DynamicBloom::SetRawData(unsigned char* raw_data, uint32_t total_bits,
+                              uint32_t num_blocks) {
+  data_ = raw_data;
+  kTotalBits = total_bits;
+  kNumBlocks = num_blocks;
+}
+
 void DynamicBloom::SetTotalBits(Arena* arena,
                                 uint32_t total_bits, uint32_t locality,
                                 size_t huge_page_tlb_size,

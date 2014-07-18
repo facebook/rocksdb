@@ -119,6 +119,8 @@ enum EncodingType : char {
 struct PlainTablePropertyNames {
   static const std::string kPrefixExtractorName;
   static const std::string kEncodingType;
+  static const std::string kBloomVersion;
+  static const std::string kNumBloomBlocks;
 };
 
 const uint32_t kPlainTableVariableLength = 0;
@@ -166,6 +168,11 @@ EncodingType encoding_type = kPlain;
 // @full_scan_mode: mode for reading the whole file one record by one without
 //                  using the index.
   bool full_scan_mode = false;
+
+  // @store_index_in_file: compute plain table index and bloom filter during
+  //                       file building and store it in file. When reading
+  //                       file, index will be mmaped instead of recomputation.
+  bool store_index_in_file = false;
 };
 
 // -- Plain Table with prefix-only seek
