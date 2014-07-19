@@ -3,6 +3,7 @@
 ### Unrelease
 ### New Features
 * Support Multiple DB paths in universal style compactions
+* Add feature of storing plain table index and bloom filter in SST file.
 
 ### Public API changes
 * DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size
