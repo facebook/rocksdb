@@ -5,6 +5,7 @@
 
 package org.rocksdb.test;
 
+import java.util.Collections;
 import org.rocksdb.*;
 
 public class StatisticsCollectorTest {
@@ -21,8 +22,10 @@ public class StatisticsCollectorTest {
     RocksDB db = RocksDB.open(db_path);
 
     StatsCallbackMock callback = new StatsCallbackMock();
-    StatisticsCollector statsCollector = new StatisticsCollector(stats, 100,
-        callback);
+    StatsCollectorInput statsInput = new StatsCollectorInput(stats, callback);
+    
+    StatisticsCollector statsCollector = new StatisticsCollector(
+        Collections.singletonList(statsInput), 100);
     statsCollector.start();
 
     Thread.sleep(1000);
