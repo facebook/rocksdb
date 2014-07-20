@@ -1,12 +1,25 @@
 # Rocksdb Change Log
 
-## Unreleased
-
+### Unrelease
 ### New Features
+* Support Multiple DB paths in universal style compactions
+* Add feature of storing plain table index and bloom filter in SST file.
+
+### Public API changes
+* DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size
+* NewPlainTableFactory instead of bunch of parameters now accepts PlainTableOptions, which is defined in include/rocksdb/table.h
+
+
+## 3.3.0 (7/10/2014)
+### New Features
+* Added JSON API prototype.
 * HashLinklist reduces performance outlier caused by skewed bucket by switching data in the bucket from linked list to skip list. Add parameter threshold_use_skiplist in NewHashLinkListRepFactory().
 * RocksDB is now able to reclaim storage space more effectively during the compaction process.  This is done by compensating the size of each deletion entry by the 2X average value size, which makes compaction to be triggerred by deletion entries more easily.
 * Add TimeOut API to write.  Now WriteOptions have a variable called timeout_hint_us.  With timeout_hint_us set to non-zero, any write associated with this timeout_hint_us may be aborted when it runs longer than the specified timeout_hint_us, and it is guaranteed that any write completes earlier than the specified time-out will not be aborted due to the time-out condition.
 * Add a rate_limiter option, which controls total throughput of flush and compaction. The throughput is specified in bytes/sec. Flush always has precedence over compaction when available bandwidth is constrained.
+
+### Public API changes
+* Removed NewTotalOrderPlainTableFactory because it is not used and implemented semantically incorrect.
 
 ## 3.2.0 (06/20/2014)
 

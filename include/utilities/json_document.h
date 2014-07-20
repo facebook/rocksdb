@@ -99,6 +99,8 @@ class JSONDocument {
 
   bool operator==(const JSONDocument& rhs) const;
 
+  std::string DebugString() const;
+
  private:
   class ItemsIteratorGenerator;
 

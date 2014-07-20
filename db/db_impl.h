@@ -28,7 +28,6 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
-#include "util/stats_logger.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 #include "db/internal_stats.h"
@@ -362,13 +361,6 @@ class DBImpl : public DB {
   void RecordFlushIOStats();
   void RecordCompactionIOStats();
 
-  void MaybeScheduleLogDBDeployStats();
-
-#ifndef ROCKSDB_LITE
-  static void BGLogDBDeployStats(void* db);
-  void LogDBDeployStats();
-#endif  // ROCKSDB_LITE
-
   void MaybeScheduleFlushOrCompaction();
   static void BGWorkCompaction(void* db);
   static void BGWorkFlush(void* db);
@@ -478,7 +470,6 @@ class DBImpl : public DB {
   // * whenever bg_flush_scheduled_ value decreases (i.e. whenever a flush is
   // done, even if it didn't make any progress)
   // * whenever there is an error in background flush or compaction
-  // * whenever bg_logstats_scheduled_ turns to false
   port::CondVar bg_cv_;
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
@@ -501,8 +492,6 @@ class DBImpl : public DB {
   // If true, we have only one (default) column family. We use this to optimize
   // some code-paths
   bool single_column_family_mode_;
-
-  std::string host_name_;
 
   std::unique_ptr<Directory> db_directory_;
 
@@ -536,9 +525,6 @@ class DBImpl : public DB {
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_;
 
-  // Has a background stats log thread scheduled?
-  bool bg_logstats_scheduled_;
-
   // Information for a manual compaction
   struct ManualCompaction {
     ColumnFamilyData* cfd;
@@ -555,10 +541,6 @@ class DBImpl : public DB {
 
   // Have we encountered a background error in paranoid mode?
   Status bg_error_;
-
-  std::unique_ptr<StatsLogger> logger_;
-
-  int64_t volatile last_log_ts;
 
   // shall we disable deletion of obsolete files
   // if 0 the deletion is enabled.

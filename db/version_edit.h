@@ -14,6 +14,8 @@
 #include <string>
 #include "rocksdb/cache.h"
 #include "db/dbformat.h"
+#include "util/arena.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -99,7 +101,7 @@ struct FdWithKeyRange {
   Slice largest_key;     // slice that contain largest key
 
   FdWithKeyRange()
-      : fd(0, 0),
+      : fd(),
         smallest_key(),
         largest_key() {
   }

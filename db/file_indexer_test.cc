@@ -35,16 +35,15 @@ class IntComparator : public Comparator {
   void FindShortSuccessor(std::string* key) const {}
 };
 
-
 struct FileIndexerTest {
  public:
   FileIndexerTest() :
-    kNumLevels(4), indexer(kNumLevels, &ucmp),
+    kNumLevels(4),
     files(new std::vector<FileMetaData*>[kNumLevels]) {
   }
 
   ~FileIndexerTest() {
-    Reset();
+    ClearFiles();
     delete[] files;
   }
 
@@ -59,14 +58,13 @@ struct FileIndexerTest {
     return InternalKey(Slice(reinterpret_cast<char*>(&v), 8), 0, kTypeValue);
   }
 
-  void Reset() {
+  void ClearFiles() {
     for (uint32_t i = 0; i < kNumLevels; ++i) {
       for (auto* f : files[i]) {
         delete f;
       }
       files[i].clear();
     }
-    indexer.ClearIndex();
   }
 
   void GetNextLevelIndex(const uint32_t level, const uint32_t file_index,
@@ -74,23 +72,32 @@ struct FileIndexerTest {
       int32_t* right_index) {
     *left_index = 100;
     *right_index = 100;
-    indexer.GetNextLevelIndex(level, file_index, cmp_smallest, cmp_largest,
+    indexer->GetNextLevelIndex(level, file_index, cmp_smallest, cmp_largest,
         left_index, right_index);
   }
 
+  int32_t left = 100;
+  int32_t right = 100;
   const uint32_t kNumLevels;
   IntComparator ucmp;
-  FileIndexer indexer;
+  FileIndexer* indexer;
 
   std::vector<FileMetaData*>* files;
 };
 
-TEST(FileIndexerTest, next_level_hint) {
-  for (uint32_t i = 0; i < kNumLevels; ++i) {
-    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
-  }
+// Case 0: Empty
+TEST(FileIndexerTest, Empty) {
+  Arena arena;
+  indexer = new FileIndexer(&ucmp);
+  indexer->UpdateIndex(&arena, 0, files);
+  delete indexer;
+}
 
-  // Case 1: no overlap, files are on the left of next level files
+// Case 1: no overlap, files are on the left of next level files
+TEST(FileIndexerTest, no_overlap_left) {
+  Arena arena;
+  uint32_t kNumLevels = 4;
+  indexer = new FileIndexer(&ucmp);
   // level 1
   AddFile(1, 100, 200);
   AddFile(1, 300, 400);
@@ -103,9 +110,7 @@ TEST(FileIndexerTest, next_level_hint) {
   AddFile(3, 2500, 2600);
   AddFile(3, 2601, 2699);
   AddFile(3, 2700, 2800);
-  indexer.UpdateIndex(files);
-  int32_t left = 100;
-  int32_t right = 100;
+  indexer->UpdateIndex(&arena, kNumLevels, files);
   for (uint32_t level = 1; level < 3; ++level) {
     for (uint32_t f = 0; f < 3; ++f) {
       GetNextLevelIndex(level, f, -1, -1, &left, &right);
@@ -125,12 +130,15 @@ TEST(FileIndexerTest, next_level_hint) {
       ASSERT_EQ(2, right);
     }
   }
+  delete indexer;
+  ClearFiles();
+}
 
-  // Case 2: no overlap, files are on the right of next level files
-  Reset();
-  for (uint32_t i = 1; i < kNumLevels; ++i) {
-    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
-  }
+// Case 2: no overlap, files are on the right of next level files
+TEST(FileIndexerTest, no_overlap_right) {
+  Arena arena;
+  uint32_t kNumLevels = 4;
+  indexer = new FileIndexer(&ucmp);
   // level 1
   AddFile(1, 2100, 2200);
   AddFile(1, 2300, 2400);
@@ -143,7 +151,7 @@ TEST(FileIndexerTest, next_level_hint) {
   AddFile(3, 500, 600);
   AddFile(3, 501, 699);
   AddFile(3, 700, 800);
-  indexer.UpdateIndex(files);
+  indexer->UpdateIndex(&arena, kNumLevels, files);
   for (uint32_t level = 1; level < 3; ++level) {
     for (uint32_t f = 0; f < 3; ++f) {
       GetNextLevelIndex(level, f, -1, -1, &left, &right);
@@ -166,11 +174,16 @@ TEST(FileIndexerTest, next_level_hint) {
       ASSERT_EQ(2, right);
     }
   }
+  delete indexer;
+}
 
-  // Case 3: empty L2
-  Reset();
+// Case 3: empty L2
+TEST(FileIndexerTest, empty_L2) {
+  Arena arena;
+  uint32_t kNumLevels = 4;
+  indexer = new FileIndexer(&ucmp);
   for (uint32_t i = 1; i < kNumLevels; ++i) {
-    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
+    ASSERT_EQ(0U, indexer->LevelIndexSize(i));
   }
   // level 1
   AddFile(1, 2100, 2200);
@@ -180,7 +193,7 @@ TEST(FileIndexerTest, next_level_hint) {
   AddFile(3, 500, 600);
   AddFile(3, 501, 699);
   AddFile(3, 700, 800);
-  indexer.UpdateIndex(files);
+  indexer->UpdateIndex(&arena, kNumLevels, files);
   for (uint32_t f = 0; f < 3; ++f) {
     GetNextLevelIndex(1, f, -1, -1, &left, &right);
     ASSERT_EQ(0, left);
@@ -201,13 +214,14 @@ TEST(FileIndexerTest, next_level_hint) {
     ASSERT_EQ(0, left);
     ASSERT_EQ(-1, right);
   }
+  delete indexer;
+  ClearFiles();
+}
 
-
-  // Case 4: mixed
-  Reset();
-  for (uint32_t i = 1; i < kNumLevels; ++i) {
-    ASSERT_EQ(0U, indexer.LevelIndexSize(i));
-  }
+// Case 4: mixed
+TEST(FileIndexerTest, mixed) {
+  Arena arena;
+  indexer = new FileIndexer(&ucmp);
   // level 1
   AddFile(1, 100, 200);
   AddFile(1, 250, 400);
@@ -222,7 +236,7 @@ TEST(FileIndexerTest, next_level_hint) {
   AddFile(3, 0, 50);
   AddFile(3, 100, 200);
   AddFile(3, 201, 250);
-  indexer.UpdateIndex(files);
+  indexer->UpdateIndex(&arena, kNumLevels, files);
   // level 1, 0
   GetNextLevelIndex(1, 0, -1, -1, &left, &right);
   ASSERT_EQ(0, left);
@@ -321,6 +335,8 @@ TEST(FileIndexerTest, next_level_hint) {
     ASSERT_EQ(3, left);
     ASSERT_EQ(2, right);
   }
+  delete indexer;
+  ClearFiles();
 }
 
 }  // namespace rocksdb

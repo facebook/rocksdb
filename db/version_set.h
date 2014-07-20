@@ -53,14 +53,6 @@ class ColumnFamilySet;
 class TableCache;
 class MergeIteratorBuilder;
 
-
-// Return the smallest index i such that files[i]->largest >= key.
-// Return files.size() if there is no such file.
-// REQUIRES: "files" contains a sorted list of non-overlapping files.
-extern int FindFile(const InternalKeyComparator& icmp,
-                    const std::vector<FileMetaData*>& files,
-                    const Slice& key);
-
 // Return the smallest index i such that file_level.files[i]->largest >= key.
 // Return file_level.num_files if there is no such file.
 // REQUIRES: "file_level.files" contains a sorted list of
@@ -81,6 +73,13 @@ extern bool SomeFileOverlapsRange(
     const FileLevel& file_level,
     const Slice* smallest_user_key,
     const Slice* largest_user_key);
+
+// Generate FileLevel from vector<FdWithKeyRange*>
+// Would copy smallest_key and largest_key data to sequential memory
+// arena: Arena used to allocate the memory
+extern void DoGenerateFileLevel(FileLevel* file_level,
+        const std::vector<FileMetaData*>& files,
+        Arena* arena);
 
 class Version {
  public:
@@ -284,6 +283,7 @@ class Version {
   int num_levels_;              // Number of levels
   int num_non_empty_levels_;    // Number of levels. Any level larger than it
                                 // is guaranteed to be empty.
+  FileIndexer file_indexer_;
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Arena arena_;                 // Used to allocate space for file_levels_
   Version* next_;               // Next version in linked list
@@ -293,7 +293,6 @@ class Version {
   // List of files per level, files in each level are arranged
   // in increasing order of keys
   std::vector<FileMetaData*>* files_;
-
 
   // A list for the same set of files that are stored in files_,
   // but files in each level are now sorted based on file
@@ -327,7 +326,6 @@ class Version {
   uint64_t version_number_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
-  FileIndexer file_indexer_;
 
   // total file size
   uint64_t total_file_size_;

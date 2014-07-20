@@ -20,6 +20,9 @@ enum PerfLevel {
 // set the perf stats level
 void SetPerfLevel(PerfLevel level);
 
+// get current perf stats level
+PerfLevel GetPerfLevel();
+
 // A thread local context for gathering performance counter efficiently
 // and transparently.
 

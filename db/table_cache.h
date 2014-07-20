@@ -85,7 +85,7 @@ class TableCache {
 
  private:
   Env* const env_;
-  const std::vector<std::string> db_paths_;
+  const std::vector<DbPath> db_paths_;
   const Options* options_;
   const EnvOptions& storage_options_;
   Cache* const cache_;

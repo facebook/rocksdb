@@ -236,6 +236,23 @@ void WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
   WriteBatchInternal::Delete(this, GetColumnFamilyID(column_family), key);
 }
 
+void WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
+                                const SliceParts& key) {
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeDeletion));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+  PutLengthPrefixedSliceParts(&b->rep_, key);
+}
+
+void WriteBatch::Delete(ColumnFamilyHandle* column_family,
+                        const SliceParts& key) {
+  WriteBatchInternal::Delete(this, GetColumnFamilyID(column_family), key);
+}
+
 void WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
                                const Slice& key, const Slice& value) {
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);

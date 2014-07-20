@@ -273,4 +273,72 @@ Status FindMetaBlock(Iterator* meta_index_iter,
   }
 }
 
+Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
+                     uint64_t table_magic_number, Env* env,
+                     const std::string& meta_block_name,
+                     BlockHandle* block_handle) {
+  Footer footer(table_magic_number);
+  auto s = ReadFooterFromFile(file, file_size, &footer);
+  if (!s.ok()) {
+    return s;
+  }
+
+  auto metaindex_handle = footer.metaindex_handle();
+  BlockContents metaindex_contents;
+  ReadOptions read_options;
+  read_options.verify_checksums = false;
+  s = ReadBlockContents(file, footer, read_options, metaindex_handle,
+                        &metaindex_contents, env, false);
+  if (!s.ok()) {
+    return s;
+  }
+  Block metaindex_block(metaindex_contents);
+
+  std::unique_ptr<Iterator> meta_iter;
+  meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
+
+  return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
+}
+
+Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
+                     uint64_t table_magic_number, Env* env,
+                     const std::string& meta_block_name,
+                     BlockContents* contents) {
+  Footer footer(table_magic_number);
+  auto s = ReadFooterFromFile(file, file_size, &footer);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Reading metaindex block
+  auto metaindex_handle = footer.metaindex_handle();
+  BlockContents metaindex_contents;
+  ReadOptions read_options;
+  read_options.verify_checksums = false;
+  s = ReadBlockContents(file, footer, read_options, metaindex_handle,
+                        &metaindex_contents, env, false);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Finding metablock
+  Block metaindex_block(metaindex_contents);
+
+  std::unique_ptr<Iterator> meta_iter;
+  meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
+
+  BlockHandle block_handle;
+  s = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  // Reading metablock
+  s = ReadBlockContents(file, footer, read_options, block_handle, contents, env,
+                        false);
+
+  return s;
+}
+
 }  // namespace rocksdb

@@ -1202,7 +1202,7 @@ class StressTest {
       }
 
       if (!FLAGS_test_batches_snapshots &&
-          FLAGS_clear_column_family_one_in != 0) {
+          FLAGS_clear_column_family_one_in != 0 && FLAGS_column_families > 1) {
         if (thread->rand.OneIn(FLAGS_clear_column_family_one_in)) {
           // drop column family and then create it again (can't drop default)
           int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;

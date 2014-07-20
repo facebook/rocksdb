@@ -299,7 +299,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
   if (result.db_paths.size() == 0) {
-    result.db_paths.push_back(dbname);
+    result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
   }
 
   return result;
@@ -348,9 +348,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       bg_compaction_scheduled_(0),
       bg_manual_only_(0),
       bg_flush_scheduled_(0),
-      bg_logstats_scheduled_(false),
       manual_compaction_(nullptr),
-      logger_(nullptr),
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_last_run_(options.env->NowMicros()),
       purge_wal_files_last_run_(0),
@@ -381,16 +379,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   DumpLeveldbBuildVersion(options_.info_log.get());
   options_.Dump(options_.info_log.get());
 
-  char name[100];
-  Status s = env_->GetHostName(name, 100L);
-  if (s.ok()) {
-    host_name_ = name;
-  } else {
-    Log(options_.info_log, "Can't get hostname, use localhost as host name.");
-    host_name_ = "localhost";
-  }
-  last_log_ts = 0;
-
   LogFlush(options_.info_log);
 }
 
@@ -411,9 +399,7 @@ DBImpl::~DBImpl() {
 
   // Wait for background work to finish
   shutting_down_.Release_Store(this);  // Any non-nullptr value is ok
-  while (bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ ||
-         bg_logstats_scheduled_) {
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
 
@@ -1119,8 +1105,8 @@ Status DBImpl::Recover(
       return s;
     }
 
-    for (auto db_path : options_.db_paths) {
-      s = env_->CreateDirIfMissing(db_path);
+    for (auto& db_path : options_.db_paths) {
+      s = env_->CreateDirIfMissing(db_path.path);
       if (!s.ok()) {
         return s;
       }
@@ -1428,7 +1414,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
                   meta.smallest_seqno, meta.largest_seqno);
   }
 
-  InternalStats::CompactionStats stats;
+  InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.fd.GetFileSize();
   stats.files_out_levelnp1 = 1;
@@ -1478,7 +1464,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     delete iter;
     Log(options_.info_log,
         "[%s] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
-        cfd->GetName().c_str(), meta.fd.GetFileSize(), meta.fd.GetFileSize(),
+        cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
         s.ToString().c_str());
 
     if (!options_.disableDataSync) {
@@ -1519,7 +1505,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
                   meta.smallest_seqno, meta.largest_seqno);
   }
 
-  InternalStats::CompactionStats stats;
+  InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.fd.GetFileSize();
   cfd->internal_stats()->AddCompactionStats(level, stats);
@@ -1584,8 +1570,6 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     Version::LevelSummaryStorage tmp;
     LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
                 cfd->current()->LevelSummary(&tmp));
-
-    MaybeScheduleLogDBDeployStats();
 
     if (disable_delete_obsolete_files_ == 0) {
       // add to deletion state
@@ -2101,8 +2085,6 @@ void DBImpl::BackgroundCallCompaction() {
     }
 
     bg_compaction_scheduled_--;
-
-    MaybeScheduleLogDBDeployStats();
 
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
 
@@ -2688,7 +2670,7 @@ Status DBImpl::ProcessKeyValueCompaction(
         RecordTick(options_.statistics.get(), COMPACTION_KEY_DROP_NEWER_ENTRY);
       } else if (ikey.type == kTypeDeletion &&
           ikey.sequence <= earliest_snapshot &&
-          compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
+          compact->compaction->KeyNotExistsBeyondOutputLevel(ikey.user_key)) {
         // For this user key:
         // (1) there is no data in higher levels
         // (2) data in lower levels will have larger sequence numbers
@@ -2903,6 +2885,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   compact->CleanupMergedBuffer();
   bool prefix_initialized = false;
 
+  // Generate file_levels_ for compaction berfore making Iterator
+  compact->compaction->GenerateFileLevels();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
   ColumnFamilyData* cfd = compact->compaction->column_family_data();
   LogToBuffer(
@@ -3132,7 +3116,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     db_directory_->Fsync();
   }
 
-  InternalStats::CompactionStats stats;
+  InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
   MeasureTime(options_.statistics.get(), COMPACTION_TIME, stats.micros);
   stats.files_in_leveln = compact->compaction->num_input_files(0);
@@ -4625,8 +4609,18 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
   if (db_options.db_paths.size() > 1) {
-    return Status::NotSupported(
-        "More than one DB paths are not supported yet. ");
+    for (auto& cfd : column_families) {
+      if (cfd.options.compaction_style != kCompactionStyleUniversal) {
+        return Status::NotSupported(
+            "More than one DB paths are only supported in "
+            "universal compaction style. ");
+      }
+    }
+
+    if (db_options.db_paths.size() > 4) {
+      return Status::NotSupported(
+        "More than four DB paths are not supported yet. ");
+    }
   }
 
   *dbptr = nullptr;
@@ -4645,8 +4639,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   DBImpl* impl = new DBImpl(db_options, dbname);
   Status s = impl->env_->CreateDirIfMissing(impl->options_.wal_dir);
   if (s.ok()) {
-    for (auto path : impl->options_.db_paths) {
-      s = impl->env_->CreateDirIfMissing(path);
+    for (auto db_path : impl->options_.db_paths) {
+      s = impl->env_->CreateDirIfMissing(db_path.path);
       if (!s.ok()) {
         break;
       }
@@ -4712,7 +4706,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
           DBImpl::LogFileNumberSize(impl->logfile_number_));
       impl->DeleteObsoleteFiles();
       impl->MaybeScheduleFlushOrCompaction();
-      impl->MaybeScheduleLogDBDeployStats();
       s = impl->db_directory_->Fsync();
     }
   }
@@ -4815,14 +4808,14 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
-    for (auto db_path : options.db_paths) {
-      env->GetChildren(db_path, &filenames);
+    for (auto& db_path : options.db_paths) {
+      env->GetChildren(db_path.path, &filenames);
       uint64_t number;
       FileType type;
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
-          Status del = env->DeleteFile(db_path + "/" + filenames[i]);
+          Status del = env->DeleteFile(db_path.path + "/" + filenames[i]);
           if (result.ok() && !del.ok()) {
             result = del;
           }

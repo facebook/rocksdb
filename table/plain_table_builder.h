@@ -13,6 +13,8 @@
 #include "table/plain_table_key_coding.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "table/bloom_block.h"
+#include "table/plain_table_index.h"
 
 namespace rocksdb {
 
@@ -30,7 +32,10 @@ class PlainTableBuilder: public TableBuilder {
   // that the caller does not know which level the output file will reside.
   PlainTableBuilder(const Options& options, WritableFile* file,
                     uint32_t user_key_size, EncodingType encoding_type,
-                    size_t index_sparseness);
+                    size_t index_sparseness, uint32_t bloom_bits_per_key,
+                    uint32_t num_probes = 6, size_t huge_page_tlb_size = 0,
+                    double hash_table_ratio = 0,
+                    bool store_index_in_file = false);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder();
@@ -62,17 +67,58 @@ class PlainTableBuilder: public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
+  bool SaveIndexInFile() const { return store_index_in_file_; }
+
  private:
+  Arena arena_;
   Options options_;
   std::vector<std::unique_ptr<TablePropertiesCollector>>
       table_properties_collectors_;
+
+  BloomBlockBuilder bloom_block_;
+  std::unique_ptr<PlainTableIndexBuilder> index_builder_;
+
   WritableFile* file_;
   uint64_t offset_ = 0;
+  uint32_t bloom_bits_per_key_;
+  uint32_t huge_page_tlb_size_;
   Status status_;
   TableProperties properties_;
   PlainTableKeyEncoder encoder_;
 
+  bool store_index_in_file_;
+
+  std::vector<uint32_t> keys_or_prefixes_hashes_;
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
+
+  const SliceTransform* prefix_extractor_;
+
+  Slice GetPrefix(const Slice& target) const {
+    assert(target.size() >= 8);  // target is internal key
+    return GetPrefixFromUserKey(GetUserKey(target));
+  }
+
+  Slice GetPrefix(const ParsedInternalKey& target) const {
+    return GetPrefixFromUserKey(target.user_key);
+  }
+
+  Slice GetUserKey(const Slice& key) const {
+    return Slice(key.data(), key.size() - 8);
+  }
+
+  Slice GetPrefixFromUserKey(const Slice& user_key) const {
+    if (!IsTotalOrderMode()) {
+      return prefix_extractor_->Transform(user_key);
+    } else {
+      // Use empty slice as prefix if prefix_extractor is not set.
+      // In that case,
+      // it falls back to pure binary search and
+      // total iterator seek is supported.
+      return Slice();
+    }
+  }
+
+  bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
 
   // No copying allowed
   PlainTableBuilder(const PlainTableBuilder&) = delete;

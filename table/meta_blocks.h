@@ -15,6 +15,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_builder.h"
+#include "table/format.h"
 
 namespace rocksdb {
 
@@ -127,5 +128,19 @@ extern Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found);
 Status FindMetaBlock(Iterator* meta_index_iter,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle);
+
+// Find the meta block
+Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
+                     uint64_t table_magic_number, Env* env,
+                     const std::string& meta_block_name,
+                     BlockHandle* block_handle);
+
+// Read the specified meta block with name meta_block_name
+// from `file` and initialize `contents` with contents of this block.
+// Return Status::OK in case of success.
+Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
+                     uint64_t table_magic_number, Env* env,
+                     const std::string& meta_block_name,
+                     BlockContents* contents);
 
 }  // namespace rocksdb

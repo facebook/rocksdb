@@ -53,7 +53,7 @@ class InternalStats {
   };
 
   InternalStats(int num_levels, Env* env, Statistics* statistics)
-      : compaction_stats_(num_levels),
+      : stats_(num_levels),
         stall_micros_(WRITE_STALLS_ENUM_MAX, 0),
         stall_counts_(WRITE_STALLS_ENUM_MAX, 0),
         stall_leveln_slowdown_(num_levels, 0),
@@ -64,7 +64,7 @@ class InternalStats {
         env_(env),
         started_at_(env->NowMicros()) {}
 
-  // Per level compaction stats.  compaction_stats_[level] stores the stats for
+  // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
     uint64_t micros;
@@ -90,7 +90,7 @@ class InternalStats {
     // Number of compactions done
     int count;
 
-    CompactionStats()
+    explicit CompactionStats(int count = 0)
         : micros(0),
           bytes_readn(0),
           bytes_readnp1(0),
@@ -98,7 +98,7 @@ class InternalStats {
           files_in_leveln(0),
           files_in_levelnp1(0),
           files_out_levelnp1(0),
-          count(0) {}
+          count(count) {}
 
     void Add(const CompactionStats& c) {
       this->micros += c.micros;
@@ -108,12 +108,12 @@ class InternalStats {
       this->files_in_leveln += c.files_in_leveln;
       this->files_in_levelnp1 += c.files_in_levelnp1;
       this->files_out_levelnp1 += c.files_out_levelnp1;
-      this->count += 1;
+      this->count += c.count;
     }
   };
 
   void AddCompactionStats(int level, const CompactionStats& stats) {
-    compaction_stats_[level].Add(stats);
+    stats_[level].Add(stats);
   }
 
   void RecordWriteStall(WriteStallType write_stall_type, uint64_t micros) {
@@ -134,7 +134,7 @@ class InternalStats {
                    std::string* value, ColumnFamilyData* cfd);
 
  private:
-  std::vector<CompactionStats> compaction_stats_;
+  std::vector<CompactionStats> stats_;
 
   // Used to compute per-interval statistics
   struct StatsSnapshot {

@@ -160,6 +160,7 @@ class DB {
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".
+  // If "key" already exists, it will be overwritten.
   // Returns OK on success, and a non-OK status on error.
   // Note: consider setting options.sync = true.
   virtual Status Put(const WriteOptions& options,

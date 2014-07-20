@@ -213,7 +213,14 @@ TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   Options options;
   options.table_properties_collector_factories.emplace_back(
       new RegularKeysStartWithAFactory());
-  options.table_factory = std::make_shared<PlainTableFactory>(8, 8, 0);
+
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 8;
+  plain_table_options.bloom_bits_per_key = 8;
+  plain_table_options.hash_table_ratio = 0;
+
+  options.table_factory =
+      std::make_shared<PlainTableFactory>(plain_table_options);
   test::PlainInternalKeyComparator ikc(options.comparator);
   TestCustomizedTablePropertiesCollector(kPlainTableMagicNumber, true, options,
                                          ikc);
@@ -299,11 +306,15 @@ TEST(TablePropertiesTest, InternalKeyPropertiesCollector) {
       true /* not sanitize */,
       std::make_shared<BlockBasedTableFactory>()
   );
+
+  PlainTableOptions plain_table_options;
+  plain_table_options.user_key_len = 8;
+  plain_table_options.bloom_bits_per_key = 8;
+  plain_table_options.hash_table_ratio = 0;
+
   TestInternalKeyPropertiesCollector(
-      kPlainTableMagicNumber,
-      false /* not sanitize */,
-      std::make_shared<PlainTableFactory>(8, 8, 0)
-  );
+      kPlainTableMagicNumber, false /* not sanitize */,
+      std::make_shared<PlainTableFactory>(plain_table_options));
 }
 
 }  // namespace rocksdb

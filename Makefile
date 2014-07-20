@@ -49,7 +49,7 @@ else
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
 endif
 
-WARNING_FLAGS = -Wall -Werror
+WARNING_FLAGS = -Wall -Werror -Wsign-compare
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual
 
@@ -69,6 +69,7 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
 	db_test \
+	db_iter_test \
 	block_hash_index_test \
 	autovector_test \
 	column_family_test \
@@ -104,6 +105,7 @@ TESTS = \
 	stringappend_test \
 	ttl_test \
 	backupable_db_test \
+	document_db_test \
 	json_document_test \
 	version_edit_test \
 	version_set_test \
@@ -148,7 +150,7 @@ SHARED = $(SHARED1)
 else
 # Update db.h if you change these.
 SHARED_MAJOR = 3
-SHARED_MINOR = 2
+SHARED_MINOR = 3
 SHARED1 = ${LIBNAME}.$(PLATFORM_SHARED_EXT)
 SHARED2 = $(SHARED1).$(SHARED_MAJOR)
 SHARED3 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR)
@@ -321,6 +323,9 @@ crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_test: db/db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
+db_iter_test: db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
 
@@ -344,6 +349,9 @@ prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
+
+document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 json_document_test: utilities/document/json_document_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/document/json_document_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
