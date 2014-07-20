@@ -51,14 +51,14 @@ class GenerateFileLevelTest {
 
 TEST(GenerateFileLevelTest, Empty) {
   DoGenerateFileLevel(&file_level_, files_, &arena_);
-  ASSERT_EQ(0, file_level_.num_files);
+  ASSERT_EQ(0u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
 TEST(GenerateFileLevelTest, Single) {
   Add("p", "q");
   DoGenerateFileLevel(&file_level_, files_, &arena_);
-  ASSERT_EQ(1, file_level_.num_files);
+  ASSERT_EQ(1u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
@@ -69,7 +69,7 @@ TEST(GenerateFileLevelTest, Multiple) {
   Add("300", "350");
   Add("400", "450");
   DoGenerateFileLevel(&file_level_, files_, &arena_);
-  ASSERT_EQ(4, file_level_.num_files);
+  ASSERT_EQ(4u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 

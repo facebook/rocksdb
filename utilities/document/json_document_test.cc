@@ -54,7 +54,7 @@ class JSONDocumentTest {
     ASSERT_TRUE(json.Contains("properties"));
     ASSERT_TRUE(json["properties"].Contains("flags"));
     ASSERT_TRUE(json["properties"]["flags"].IsArray());
-    ASSERT_EQ(3, json["properties"]["flags"].Count());
+    ASSERT_EQ(3u, json["properties"]["flags"].Count());
     ASSERT_TRUE(json["properties"]["flags"][0].IsInt64());
     ASSERT_EQ(10, json["properties"]["flags"][0].GetInt64());
     ASSERT_TRUE(json["properties"]["flags"][1].IsString());
@@ -74,7 +74,7 @@ class JSONDocumentTest {
     ASSERT_EQ(0U, expected.size());
     ASSERT_TRUE(json.Contains("latlong"));
     ASSERT_TRUE(json["latlong"].IsArray());
-    ASSERT_EQ(2, json["latlong"].Count());
+    ASSERT_EQ(2u, json["latlong"].Count());
     ASSERT_TRUE(json["latlong"][0].IsDouble());
     ASSERT_EQ(53.25, json["latlong"][0].GetDouble());
     ASSERT_TRUE(json["latlong"][1].IsDouble());

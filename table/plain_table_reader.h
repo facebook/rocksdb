@@ -26,7 +26,7 @@
 namespace rocksdb {
 
 class Block;
-class BlockContents;
+struct BlockContents;
 class BlockHandle;
 class Footer;
 struct Options;
