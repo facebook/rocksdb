@@ -475,6 +475,7 @@ class DBImpl : public DB {
   unique_ptr<log::Writer> log_;
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
+  InternalStats* default_cf_internal_stats_;
   unique_ptr<ColumnFamilyMemTablesImpl> column_family_memtables_;
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number)

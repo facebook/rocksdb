@@ -510,9 +510,23 @@ void DBImpl::MaybeDumpStats() {
     // atomically. We could see more than one dump during one dump
     // period in rare cases.
     last_stats_dump_time_microsec_ = now_micros;
+
+    DBPropertyType cf_property_type = GetPropertyType("rocksdb.cfstats");
     std::string stats;
-    GetProperty("rocksdb.stats", &stats);
+    {
+      MutexLock l(&mutex_);
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        cfd->internal_stats()->GetProperty(cf_property_type, "rocksdb.cfstats",
+                                           &stats, cfd);
+      }
+      DBPropertyType db_property_type = GetPropertyType("rocksdb.dbstats");
+      default_cf_internal_stats_->GetProperty(
+          db_property_type, "rocksdb.dbstats", &stats,
+          default_cf_handle_->cfd());
+    }
+    Log(options_.info_log, "------- DUMPING STATS -------");
     Log(options_.info_log, "%s", stats.c_str());
+
     PrintStatistics();
   }
 }
@@ -1157,6 +1171,7 @@ Status DBImpl::Recover(
     SequenceNumber max_sequence(0);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
+    default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
 
@@ -1419,6 +1434,8 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   stats.bytes_written = meta.fd.GetFileSize();
   stats.files_out_levelnp1 = 1;
   cfd->internal_stats()->AddCompactionStats(level, stats);
+  cfd->internal_stats()->AddCFStats(
+      InternalStats::BYTES_FLUSHED, meta.fd.GetFileSize());
   RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
              meta.fd.GetFileSize());
   return s;
@@ -1509,6 +1526,8 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.fd.GetFileSize();
   cfd->internal_stats()->AddCompactionStats(level, stats);
+  cfd->internal_stats()->AddCFStats(
+      InternalStats::BYTES_FLUSHED, meta.fd.GetFileSize());
   RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
              meta.fd.GetFileSize());
   return s;
@@ -1979,9 +1998,8 @@ void DBImpl::BackgroundCallFlush() {
         // case this is an environmental problem and we do not want to
         // chew up resources for failed compactions for the duration of
         // the problem.
-        uint64_t error_cnt = default_cf_handle_->cfd()
-                                 ->internal_stats()
-                                 ->BumpAndGetBackgroundErrorCount();
+        uint64_t error_cnt =
+          default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
         mutex_.Unlock();
         Log(options_.info_log,
@@ -2047,9 +2065,8 @@ void DBImpl::BackgroundCallCompaction() {
         // case this is an environmental problem and we do not want to
         // chew up resources for failed compactions for the duration of
         // the problem.
-        uint64_t error_cnt = default_cf_handle_->cfd()
-                                 ->internal_stats()
-                                 ->BumpAndGetBackgroundErrorCount();
+        uint64_t error_cnt =
+          default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
         bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
         mutex_.Unlock();
         log_buffer.FlushBufferToLog();
@@ -3146,8 +3163,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   LogFlush(options_.info_log);
   mutex_.Lock();
-  cfd->internal_stats()->AddCompactionStats(compact->compaction->output_level(),
-                                            stats);
+  cfd->internal_stats()->AddCompactionStats(
+      compact->compaction->output_level(), stats);
 
   // if there were any unused file number (mostly in case of
   // compaction error), free up the entry from pending_putputs
@@ -3774,9 +3791,13 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
 
   if (!options.disableWAL) {
     RecordTick(options_.statistics.get(), WRITE_WITH_WAL, 1);
+    default_cf_internal_stats_->AddDBStats(
+        InternalStats::WRITE_WITH_WAL, 1);
   }
 
   if (w.done) {
+    default_cf_internal_stats_->AddDBStats(
+        InternalStats::WRITE_DONE_BY_OTHER, 1);
     mutex_.Unlock();
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_OTHER, 1);
     return w.status;
@@ -3807,6 +3828,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     return Status::TimedOut();
   } else {
     RecordTick(options_.statistics.get(), WRITE_DONE_BY_SELF, 1);
+    default_cf_internal_stats_->AddDBStats(
+        InternalStats::WRITE_DONE_BY_SELF, 1);
   }
 
   // Once reaches this point, the current writer "w" will try to do its write
@@ -3892,17 +3915,19 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       WriteBatchInternal::SetSequence(updates, current_sequence);
       int my_batch_count = WriteBatchInternal::Count(updates);
       last_sequence += my_batch_count;
+      const uint64_t batch_size = WriteBatchInternal::ByteSize(updates);
       // Record statistics
       RecordTick(options_.statistics.get(),
                  NUMBER_KEYS_WRITTEN, my_batch_count);
       RecordTick(options_.statistics.get(),
                  BYTES_WRITTEN,
-                 WriteBatchInternal::ByteSize(updates));
+                 batch_size);
       if (options.disableWAL) {
         flush_on_destroy_ = true;
       }
       PERF_TIMER_STOP(write_pre_and_post_process_time);
 
+      uint64_t log_size = 0;
       if (!options.disableWAL) {
         PERF_TIMER_START(write_wal_time);
         Slice log_entry = WriteBatchInternal::Contents(updates);
@@ -3910,8 +3935,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         total_log_size_ += log_entry.size();
         alive_log_files_.back().AddSize(log_entry.size());
         log_empty_ = false;
+        log_size = log_entry.size();
         RecordTick(options_.statistics.get(), WAL_FILE_SYNCED, 1);
-        RecordTick(options_.statistics.get(), WAL_FILE_BYTES, log_entry.size());
+        RecordTick(options_.statistics.get(), WAL_FILE_BYTES, log_size);
         if (status.ok() && options.sync) {
           if (options_.use_fsync) {
             StopWatch(env_, options_.statistics.get(), WAL_FILE_SYNC_MICROS);
@@ -3942,8 +3968,19 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
                        last_sequence);
       }
       PERF_TIMER_START(write_pre_and_post_process_time);
-      if (updates == &tmp_batch_) tmp_batch_.Clear();
+      if (updates == &tmp_batch_) {
+        tmp_batch_.Clear();
+      }
       mutex_.Lock();
+      // internal stats
+      default_cf_internal_stats_->AddDBStats(
+          InternalStats::BYTES_WRITTEN, batch_size);
+      if (!options.disableWAL) {
+        default_cf_internal_stats_->AddDBStats(
+            InternalStats::WAL_FILE_SYNCED, 1);
+        default_cf_internal_stats_->AddDBStats(
+            InternalStats::WAL_FILE_BYTES, log_size);
+      }
       if (status.ok()) {
         versions_->SetLastSequence(last_sequence);
       }
@@ -4126,10 +4163,10 @@ Status DBImpl::MakeRoomForWrite(
         delayed = sw.ElapsedMicros();
       }
       RecordTick(options_.statistics.get(), STALL_L0_SLOWDOWN_MICROS, delayed);
-      cfd->internal_stats()->RecordWriteStall(InternalStats::LEVEL0_SLOWDOWN,
-                                              delayed);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
+      cfd->internal_stats()->AddCFStats(
+          InternalStats::LEVEL0_SLOWDOWN, delayed);
       delayed_writes_++;
     } else if (!force && !cfd->mem()->ShouldFlush()) {
       // There is room in current memtable
@@ -4160,7 +4197,7 @@ Status DBImpl::MakeRoomForWrite(
       }
       RecordTick(options_.statistics.get(),
                  STALL_MEMTABLE_COMPACTION_MICROS, stall);
-      cfd->internal_stats()->RecordWriteStall(
+      cfd->internal_stats()->AddCFStats(
           InternalStats::MEMTABLE_COMPACTION, stall);
     } else if (cfd->NeedWaitForNumLevel0Files()) {
       DelayLoggingAndReset();
@@ -4179,11 +4216,11 @@ Status DBImpl::MakeRoomForWrite(
       }
       RecordTick(options_.statistics.get(),
                  STALL_L0_NUM_FILES_MICROS, stall);
-      cfd->internal_stats()->RecordWriteStall(InternalStats::LEVEL0_NUM_FILES,
-                                              stall);
+      cfd->internal_stats()->AddCFStats(
+          InternalStats::LEVEL0_NUM_FILES, stall);
     } else if (allow_hard_rate_limit_delay && cfd->ExceedsHardRateLimit()) {
       // Delay a write when the compaction score for any level is too large.
-      int max_level = cfd->current()->MaxCompactionScoreLevel();
+      const int max_level = cfd->current()->MaxCompactionScoreLevel();
       score = cfd->current()->MaxCompactionScore();
       mutex_.Unlock();
       uint64_t delayed;
@@ -4193,7 +4230,6 @@ Status DBImpl::MakeRoomForWrite(
         env_->SleepForMicroseconds(1000);
         delayed = sw.ElapsedMicros();
       }
-      cfd->internal_stats()->RecordLevelNSlowdown(max_level, delayed);
       // Make sure the following value doesn't round to zero.
       uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
       rate_limit_delay_millis += rate_limit;
@@ -4205,7 +4241,9 @@ Status DBImpl::MakeRoomForWrite(
         allow_hard_rate_limit_delay = false;
       }
       mutex_.Lock();
+      cfd->internal_stats()->RecordLevelNSlowdown(max_level, delayed, false);
     } else if (allow_soft_rate_limit_delay && cfd->ExceedsSoftRateLimit()) {
+      const int max_level = cfd->current()->MaxCompactionScoreLevel();
       score = cfd->current()->MaxCompactionScore();
       // Delay a write when the compaction score for any level is too large.
       // TODO: add statistics
@@ -4221,6 +4259,7 @@ Status DBImpl::MakeRoomForWrite(
       }
       allow_soft_rate_limit_delay = false;
       mutex_.Lock();
+      cfd->internal_stats()->RecordLevelNSlowdown(max_level, slowdown, true);
     } else {
       unique_ptr<WritableFile> lfile;
       log::Writer* new_log = nullptr;
