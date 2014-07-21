@@ -184,6 +184,12 @@ EncodingType encoding_type = kPlain;
 extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options =
                                               PlainTableOptions());
 
+struct CuckooTablePropertyNames {
+  static const std::string kEmptyBucket;
+  static const std::string kNumHashTable;
+  static const std::string kMaxNumBuckets;
+};
+
 #endif  // ROCKSDB_LITE
 
 // A base class for table factories.
