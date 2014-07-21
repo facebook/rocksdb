@@ -69,7 +69,6 @@ class CuckooTableBuilder: public TableBuilder {
 
   unsigned int num_hash_table_;
   WritableFile* file_;
-  const unsigned int key_length_;
   const unsigned int value_length_;
   const unsigned int bucket_size_;
   const double hash_table_ratio_;

@@ -40,7 +40,6 @@ CuckooTableBuilder::CuckooTableBuilder(
       unsigned int))
     : num_hash_table_(std::min((unsigned int) 4, max_num_hash_table)),
       file_(file),
-      key_length_(fixed_key_length),
       value_length_(fixed_value_length),
       bucket_size_(fixed_key_length + fixed_value_length),
       hash_table_ratio_(hash_table_ratio),
