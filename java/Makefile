@@ -1,25 +1,16 @@
-include ./../build_config.mk
-
 NATIVE_JAVA_CLASSES = org.rocksdb.RocksDB org.rocksdb.Options org.rocksdb.WriteBatch org.rocksdb.WriteBatchInternal org.rocksdb.WriteBatchTest org.rocksdb.WriteOptions org.rocksdb.BackupableDB org.rocksdb.BackupableDBOptions org.rocksdb.Statistics org.rocksdb.RocksIterator org.rocksdb.VectorMemTableConfig org.rocksdb.SkipListMemTableConfig org.rocksdb.HashLinkedListMemTableConfig org.rocksdb.HashSkipListMemTableConfig org.rocksdb.PlainTableConfig org.rocksdb.ReadOptions org.rocksdb.Filter org.rocksdb.BloomFilter org.rocksdb.RestoreOptions org.rocksdb.RestoreBackupableDB org.rocksdb.RocksEnv
 
 NATIVE_INCLUDE = ./include
 ROCKSDB_JAR = rocksdbjni.jar
-
-ifeq ($(PLATFORM), OS_MACOSX)
-  ROCKSDBJNILIB = ./librocksdbjni.jnilib
-else
-  ROCKSDBJNILIB = ./librocksdbjni.so
-endif
 
 clean:
 	-find . -name "*.class" -exec rm {} \;
 	-find . -name "hs*.log" -exec rm {} \;
 	rm -f $(ROCKSDB_JAR)
 
-java:   
+java:
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
 	@cp ../HISTORY.md ./HISTORY-CPP.md
-	jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
 	@rm -f ./HISTORY-CPP.md
 	javah -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
 
