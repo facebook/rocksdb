@@ -304,7 +304,7 @@ TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
   ASSERT_OK(cuckoo_builder.status());
   cuckoo_builder.Add(Slice(key_to_reuse1), Slice(value));
   ASSERT_OK(cuckoo_builder.status());
-  ASSERT_EQ(cuckoo_builder.NumEntries(), 1);
+  ASSERT_EQ(cuckoo_builder.NumEntries(), 1U);
   cuckoo_builder.Add(Slice(key_to_reuse2), Slice(value));
   ASSERT_TRUE(cuckoo_builder.status().IsCorruption());
   cuckoo_builder.Abandon();
