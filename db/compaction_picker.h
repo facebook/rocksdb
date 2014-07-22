@@ -48,7 +48,8 @@ class CompactionPicker {
   // Client is responsible for compaction_end storage -- when called,
   // *compaction_end should point to valid InternalKey!
   virtual Compaction* CompactRange(Version* version, int input_level,
-                                   int output_level, const InternalKey* begin,
+                                   int output_level, uint32_t output_path_id,
+                                   const InternalKey* begin,
                                    const InternalKey* end,
                                    InternalKey** compaction_end);
 
@@ -192,7 +193,8 @@ class FIFOCompactionPicker : public CompactionPicker {
                                      LogBuffer* log_buffer) override;
 
   virtual Compaction* CompactRange(Version* version, int input_level,
-                                   int output_level, const InternalKey* begin,
+                                   int output_level, uint32_t output_path_id,
+                                   const InternalKey* begin,
                                    const InternalKey* end,
                                    InternalKey** compaction_end) override;
 

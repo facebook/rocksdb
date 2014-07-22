@@ -236,8 +236,8 @@ Status PlainTableReader::PopulateIndexRecordList(
   }
 
   prefix_hashes->push_back(GetSliceHash(key_prefix_slice));
-  index_.InitFromRawData(index_builder->Finish());
-  return Status::OK();
+  auto s = index_.InitFromRawData(index_builder->Finish());
+  return s;
 }
 
 void PlainTableReader::AllocateAndFillBloom(int bloom_bits_per_key,
@@ -357,7 +357,10 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
       return s;
     }
   } else {
-    index_.InitFromRawData(*index_block);
+    Status s = index_.InitFromRawData(*index_block);
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   if (!index_in_file) {

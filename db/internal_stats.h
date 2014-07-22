@@ -9,8 +9,6 @@
 //
 
 #pragma once
-#include "rocksdb/statistics.h"
-#include "util/statistics.h"
 #include "db/version_set.h"
 
 #include <vector>
@@ -26,7 +24,9 @@ class DBImpl;
 enum DBPropertyType {
   kNumFilesAtLevel,  // Number of files at a specific level
   kLevelStats,       // Return number of files and total sizes of each level
-  kStats,            // Return general statitistics of DB
+  kCFStats,          // Return general statitistics of CF
+  kDBStats,          // Return general statitistics of DB
+  kStats,            // Return general statitistics of both DB and CF
   kSsTables,         // Return a human readable string of current SST files
   kNumImmutableMemTable,   // Return number of immutable mem tables
   kMemtableFlushPending,   // Return 1 if mem table flushing is pending,
@@ -45,38 +45,66 @@ extern DBPropertyType GetPropertyType(const Slice& property);
 
 class InternalStats {
  public:
-  enum WriteStallType {
+  enum InternalCFStatsType {
     LEVEL0_SLOWDOWN,
     MEMTABLE_COMPACTION,
     LEVEL0_NUM_FILES,
     WRITE_STALLS_ENUM_MAX,
+    BYTES_FLUSHED,
+    INTERNAL_CF_STATS_ENUM_MAX,
   };
 
-  InternalStats(int num_levels, Env* env, Statistics* statistics)
-      : stats_(num_levels),
-        stall_micros_(WRITE_STALLS_ENUM_MAX, 0),
-        stall_counts_(WRITE_STALLS_ENUM_MAX, 0),
-        stall_leveln_slowdown_(num_levels, 0),
-        stall_leveln_slowdown_count_(num_levels, 0),
+  enum InternalDBStatsType {
+    WAL_FILE_BYTES,
+    WAL_FILE_SYNCED,
+    BYTES_WRITTEN,
+    WRITE_DONE_BY_OTHER,
+    WRITE_DONE_BY_SELF,
+    WRITE_WITH_WAL,
+    INTERNAL_DB_STATS_ENUM_MAX,
+  };
+
+  InternalStats(int num_levels, Env* env)
+      : db_stats_(INTERNAL_DB_STATS_ENUM_MAX),
+        cf_stats_value_(INTERNAL_CF_STATS_ENUM_MAX),
+        cf_stats_count_(INTERNAL_CF_STATS_ENUM_MAX),
+        comp_stats_(num_levels),
+        stall_leveln_slowdown_hard_(num_levels),
+        stall_leveln_slowdown_count_hard_(num_levels),
+        stall_leveln_slowdown_soft_(num_levels),
+        stall_leveln_slowdown_count_soft_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
-        statistics_(statistics),
         env_(env),
-        started_at_(env->NowMicros()) {}
+        started_at_(env->NowMicros()) {
+    for (int i = 0; i< INTERNAL_DB_STATS_ENUM_MAX; ++i) {
+      db_stats_[i] = 0;
+    }
+    for (int i = 0; i< INTERNAL_CF_STATS_ENUM_MAX; ++i) {
+      cf_stats_value_[i] = 0;
+      cf_stats_count_[i] = 0;
+    }
+    for (int i = 0; i < num_levels; ++i) {
+      stall_leveln_slowdown_hard_[i] = 0;
+      stall_leveln_slowdown_count_hard_[i] = 0;
+      stall_leveln_slowdown_soft_[i] = 0;
+      stall_leveln_slowdown_count_soft_[i] = 0;
+    }
+  }
 
-  // Per level compaction stats.  stats_[level] stores the stats for
+  // Per level compaction stats.  comp_stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
     uint64_t micros;
 
     // Bytes read from level N during compaction between levels N and N+1
-    int64_t bytes_readn;
+    uint64_t bytes_readn;
 
     // Bytes read from level N+1 during compaction between levels N and N+1
-    int64_t bytes_readnp1;
+    uint64_t bytes_readnp1;
 
     // Total bytes written during compaction between levels N and N+1
-    int64_t bytes_written;
+    uint64_t bytes_written;
 
     // Files read from level N during compaction between levels N and N+1
     int files_in_leveln;
@@ -100,6 +128,16 @@ class InternalStats {
           files_out_levelnp1(0),
           count(count) {}
 
+    explicit CompactionStats(const CompactionStats& c)
+        : micros(c.micros),
+          bytes_readn(c.bytes_readn),
+          bytes_readnp1(c.bytes_readnp1),
+          bytes_written(c.bytes_written),
+          files_in_leveln(c.files_in_leveln),
+          files_in_levelnp1(c.files_in_levelnp1),
+          files_out_levelnp1(c.files_out_levelnp1),
+          count(c.count) {}
+
     void Add(const CompactionStats& c) {
       this->micros += c.micros;
       this->bytes_readn += c.bytes_readn;
@@ -110,20 +148,40 @@ class InternalStats {
       this->files_out_levelnp1 += c.files_out_levelnp1;
       this->count += c.count;
     }
+
+    void Subtract(const CompactionStats& c) {
+      this->micros -= c.micros;
+      this->bytes_readn -= c.bytes_readn;
+      this->bytes_readnp1 -= c.bytes_readnp1;
+      this->bytes_written -= c.bytes_written;
+      this->files_in_leveln -= c.files_in_leveln;
+      this->files_in_levelnp1 -= c.files_in_levelnp1;
+      this->files_out_levelnp1 -= c.files_out_levelnp1;
+      this->count -= c.count;
+    }
   };
 
   void AddCompactionStats(int level, const CompactionStats& stats) {
-    stats_[level].Add(stats);
+    comp_stats_[level].Add(stats);
   }
 
-  void RecordWriteStall(WriteStallType write_stall_type, uint64_t micros) {
-    stall_micros_[write_stall_type] += micros;
-    ++stall_counts_[write_stall_type];
+  void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {
+    if (soft) {
+      stall_leveln_slowdown_soft_[level] += micros;
+      ++stall_leveln_slowdown_count_soft_[level];
+    } else {
+      stall_leveln_slowdown_hard_[level] += micros;
+      ++stall_leveln_slowdown_count_hard_[level];
+    }
   }
 
-  void RecordLevelNSlowdown(int level, uint64_t micros) {
-    stall_leveln_slowdown_[level] += micros;
-    ++stall_leveln_slowdown_count_[level];
+  void AddCFStats(InternalCFStatsType type, uint64_t value) {
+    cf_stats_value_[type] += value;
+    ++cf_stats_count_[type];
+  }
+
+  void AddDBStats(InternalDBStatsType type, uint64_t value) {
+    db_stats_[type] += value;
   }
 
   uint64_t GetBackgroundErrorCount() const { return bg_error_count_; }
@@ -134,42 +192,58 @@ class InternalStats {
                    std::string* value, ColumnFamilyData* cfd);
 
  private:
-  std::vector<CompactionStats> stats_;
+  void DumpDBStats(std::string* value);
+  void DumpCFStats(std::string* value, ColumnFamilyData* cfd);
+
+  // Per-DB stats
+  std::vector<uint64_t> db_stats_;
+  // Per-ColumnFamily stats
+  std::vector<uint64_t> cf_stats_value_;
+  std::vector<uint64_t> cf_stats_count_;
+  // Per-ColumnFamily/level compaction stats
+  std::vector<CompactionStats> comp_stats_;
+  // These count the number of microseconds for which MakeRoomForWrite stalls.
+  std::vector<uint64_t> stall_leveln_slowdown_hard_;
+  std::vector<uint64_t> stall_leveln_slowdown_count_hard_;
+  std::vector<uint64_t> stall_leveln_slowdown_soft_;
+  std::vector<uint64_t> stall_leveln_slowdown_count_soft_;
 
   // Used to compute per-interval statistics
-  struct StatsSnapshot {
-    uint64_t compaction_bytes_read_;     // Bytes read by compaction
-    uint64_t compaction_bytes_written_;  // Bytes written by compaction
-    uint64_t ingest_bytes_;              // Bytes written by user
-    uint64_t wal_bytes_;                 // Bytes written to WAL
-    uint64_t wal_synced_;                // Number of times WAL is synced
-    uint64_t write_with_wal_;            // Number of writes that request WAL
+  struct CFStatsSnapshot {
+    // ColumnFamily-level stats
+    CompactionStats comp_stats;
+    uint64_t ingest_bytes;            // Bytes written to L0
+    uint64_t stall_us;                // Stall time in micro-seconds
+    uint64_t stall_count;             // Stall count
+
+    CFStatsSnapshot()
+        : comp_stats(0),
+          ingest_bytes(0),
+          stall_us(0),
+          stall_count(0) {}
+  } cf_stats_snapshot_;
+
+  struct DBStatsSnapshot {
+    // DB-level stats
+    uint64_t ingest_bytes;            // Bytes written by user
+    uint64_t wal_bytes;               // Bytes written to WAL
+    uint64_t wal_synced;              // Number of times WAL is synced
+    uint64_t write_with_wal;          // Number of writes that request WAL
     // These count the number of writes processed by the calling thread or
     // another thread.
-    uint64_t write_other_;
-    uint64_t write_self_;
-    double seconds_up_;
+    uint64_t write_other;
+    uint64_t write_self;
+    double seconds_up;
 
-    StatsSnapshot()
-        : compaction_bytes_read_(0),
-          compaction_bytes_written_(0),
-          ingest_bytes_(0),
-          wal_bytes_(0),
-          wal_synced_(0),
-          write_with_wal_(0),
-          write_other_(0),
-          write_self_(0),
-          seconds_up_(0) {}
-  };
-
-  // Counters from the previous time per-interval stats were computed
-  StatsSnapshot last_stats_;
-
-  // These count the number of microseconds for which MakeRoomForWrite stalls.
-  std::vector<uint64_t> stall_micros_;
-  std::vector<uint64_t> stall_counts_;
-  std::vector<uint64_t> stall_leveln_slowdown_;
-  std::vector<uint64_t> stall_leveln_slowdown_count_;
+    DBStatsSnapshot()
+        : ingest_bytes(0),
+          wal_bytes(0),
+          wal_synced(0),
+          write_with_wal(0),
+          write_other(0),
+          write_self(0),
+          seconds_up(0) {}
+  } db_stats_snapshot_;
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
@@ -178,10 +252,9 @@ class InternalStats {
   // or compaction will cause the counter to increase too.
   uint64_t bg_error_count_;
 
-  int number_levels_;
-  Statistics* statistics_;
+  const int number_levels_;
   Env* env_;
-  uint64_t started_at_;
+  const uint64_t started_at_;
 };
 
 }  // namespace rocksdb

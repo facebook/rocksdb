@@ -16,15 +16,20 @@ inline uint32_t GetBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
 }
 }
 
-void PlainTableIndex::InitFromRawData(Slice data) {
-  assert(GetVarint32(&data, &index_size_));
+Status PlainTableIndex::InitFromRawData(Slice data) {
+  if (!GetVarint32(&data, &index_size_)) {
+    return Status::Corruption("Couldn't read the index size!");
+  }
   assert(index_size_ > 0);
-  assert(GetVarint32(&data, &num_prefixes_));
+  if (!GetVarint32(&data, &num_prefixes_)) {
+    return Status::Corruption("Couldn't read the index size!");
+  }
   sub_index_size_ = data.size() - index_size_ * kOffsetLen;
 
   char* index_data_begin = const_cast<char*>(data.data());
   index_ = reinterpret_cast<uint32_t*>(index_data_begin);
   sub_index_ = reinterpret_cast<char*>(index_ + index_size_);
+  return Status::OK();
 }
 
 PlainTableIndex::IndexSearchResult PlainTableIndex::GetOffset(

@@ -85,7 +85,7 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
        cfd->options()->compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
-  return RunManualCompaction(cfd, level, output_level, begin, end);
+  return RunManualCompaction(cfd, level, output_level, 0, begin, end);
 }
 
 Status DBImpl::TEST_FlushMemTable(bool wait) {

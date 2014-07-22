@@ -7,10 +7,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/internal_stats.h"
-
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <vector>
+#include "db/column_family.h"
 
 #include "db/column_family.h"
 
@@ -20,33 +20,30 @@ namespace {
 const double kMB = 1048576.0;
 const double kGB = kMB * 1024;
 
-void PrintLevelStatsHeader(char* buf, size_t len) {
+void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
   snprintf(
       buf, len,
-      "\n** Compaction Stats **\n"
-      "Level Files Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
+      "\n** Compaction Stats [%s] **\n"
+      "Level   Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
       "Write(GB) Wnew(GB) RW-Amp W-Amp Rd(MB/s) Wr(MB/s)  Rn(cnt) "
       "Rnp1(cnt) Wnp1(cnt) Wnew(cnt)  Comp(sec) Comp(cnt) Avg(sec) "
       "Stall(sec) Stall(cnt) Avg(ms)\n"
       "--------------------------------------------------------------------"
       "--------------------------------------------------------------------"
-      "--------------------------------------------------------------------\n");
+      "--------------------------------------------------------------------\n",
+      cf_name.c_str());
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
-    int num_files, double total_file_size, double score,
-    double stall_us, uint64_t stalls,
+    int num_files, int being_compacted, double total_file_size, double score,
+    double rw_amp, double w_amp, double stall_us, uint64_t stalls,
     const InternalStats::CompactionStats& stats) {
-  int64_t bytes_read = stats.bytes_readn + stats.bytes_readnp1;
-  int64_t bytes_new = stats.bytes_written - stats.bytes_readnp1;
-  double rw_amp = (stats.bytes_readn== 0) ? 0.0
-          : (stats.bytes_written + bytes_read) / (double)stats.bytes_readn;
-  double w_amp = (stats.bytes_readn == 0) ? 0.0
-          : stats.bytes_written / (double)stats.bytes_readn;
+  uint64_t bytes_read = stats.bytes_readn + stats.bytes_readnp1;
+  uint64_t bytes_new = stats.bytes_written - stats.bytes_readnp1;
   double elapsed = (stats.micros + 1) / 1000000.0;
 
   snprintf(buf, len,
-    "%4s %5d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
+    "%4s %5d/%-3d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
     "%8.1f " /* Read(GB) */
     "%7.1f " /* Rn(GB) */
     "%8.1f " /* Rnp1(GB) */
@@ -63,10 +60,10 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
     "%10.0f " /* Comp(sec) */
     "%9d " /* Comp(cnt) */
     "%8.3f " /* Avg(sec) */
-    "%10.2f " /* Sta(sec) */
-    "%10" PRIu64 " " /* Sta(cnt) */
+    "%10.2f " /* Stall(sec) */
+    "%10" PRIu64 " " /* Stall(cnt) */
     "%7.2f\n" /* Avg(ms) */,
-    name.c_str(), num_files, total_file_size / kMB, score,
+    name.c_str(), num_files, being_compacted, total_file_size / kMB, score,
     bytes_read / kGB,
     stats.bytes_readn / kGB,
     stats.bytes_readnp1 / kGB,
@@ -88,6 +85,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
     stalls == 0 ? 0 : stall_us / 1000.0 / stalls);
 }
 
+
 }
 
 DBPropertyType GetPropertyType(const Slice& property) {
@@ -102,6 +100,10 @@ DBPropertyType GetPropertyType(const Slice& property) {
     return kLevelStats;
   } else if (in == "stats") {
     return kStats;
+  } else if (in == "cfstats") {
+    return kCFStats;
+  } else if (in == "dbstats") {
+    return kDBStats;
   } else if (in == "sstables") {
     return kSsTables;
   } else if (in == "num-immutable-mem-table") {
@@ -159,223 +161,20 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       return true;
     }
     case kStats: {
-      char buf[1000];
-
-      uint64_t wal_bytes = 0;
-      uint64_t wal_synced = 0;
-      uint64_t user_bytes_written = 0;
-      uint64_t write_other = 0;
-      uint64_t write_self = 0;
-      uint64_t write_with_wal = 0;
-      uint64_t micros_up = env_->NowMicros() - started_at_;
-      // Add "+1" to make sure seconds_up is > 0 and avoid NaN later
-      double seconds_up = (micros_up + 1) / 1000000.0;
-      uint64_t total_slowdown = 0;
-      uint64_t total_slowdown_count = 0;
-      uint64_t interval_bytes_written = 0;
-      uint64_t interval_bytes_read = 0;
-      uint64_t interval_bytes_new = 0;
-      double interval_seconds_up = 0;
-
-      if (statistics_) {
-        wal_bytes = statistics_->getTickerCount(WAL_FILE_BYTES);
-        wal_synced = statistics_->getTickerCount(WAL_FILE_SYNCED);
-        user_bytes_written = statistics_->getTickerCount(BYTES_WRITTEN);
-        write_other = statistics_->getTickerCount(WRITE_DONE_BY_OTHER);
-        write_self = statistics_->getTickerCount(WRITE_DONE_BY_SELF);
-        write_with_wal = statistics_->getTickerCount(WRITE_WITH_WAL);
+      if (!GetProperty(kCFStats, "rocksdb.cfstats", value, cfd)) {
+        return false;
       }
-
-      PrintLevelStatsHeader(buf, sizeof(buf));
-      value->append(buf);
-
-      CompactionStats stats_total(0);
-      int total_files = 0;
-      double total_file_size = 0;
-      uint64_t total_stalls = 0;
-      double total_stall_us = 0;
-      int level_printed = 0;
-      for (int level = 0; level < number_levels_; level++) {
-        int files = current->NumLevelFiles(level);
-        total_files += files;
-        if (stats_[level].micros > 0 || files > 0) {
-          ++level_printed;
-          uint64_t stalls = level == 0 ? (stall_counts_[LEVEL0_SLOWDOWN] +
-                                          stall_counts_[LEVEL0_NUM_FILES] +
-                                          stall_counts_[MEMTABLE_COMPACTION])
-                                       : stall_leveln_slowdown_count_[level];
-
-          double stall_us = level == 0 ? (stall_micros_[LEVEL0_SLOWDOWN] +
-                                          stall_micros_[LEVEL0_NUM_FILES] +
-                                          stall_micros_[MEMTABLE_COMPACTION])
-                                       : stall_leveln_slowdown_[level];
-
-          stats_total.Add(stats_[level]);
-          total_file_size += current->NumLevelBytes(level);
-          total_stall_us += stall_us;
-          total_stalls += stalls;
-          total_slowdown += stall_leveln_slowdown_[level];
-          total_slowdown_count += stall_leveln_slowdown_count_[level];
-          double score = current->NumLevelBytes(level) /
-                cfd->compaction_picker()->MaxBytesForLevel(level);
-          PrintLevelStats(buf, sizeof(buf), "L" + std::to_string(level), files,
-              current->NumLevelBytes(level), score, stall_us, stalls,
-              stats_[level]);
-          value->append(buf);
-        }
+      if (!GetProperty(kDBStats, "rocksdb.dbstats", value, cfd)) {
+        return false;
       }
-      // Stats summary across levels
-      if (level_printed > 1) {
-        PrintLevelStats(buf, sizeof(buf), "Sum", total_files, total_file_size,
-            0, total_stall_us, total_stalls, stats_total);
-        value->append(buf);
-      }
-
-      uint64_t total_bytes_read =
-          stats_total.bytes_readn + stats_total.bytes_readnp1;
-      uint64_t total_bytes_written = stats_total.bytes_written;
-
-      interval_bytes_new = user_bytes_written - last_stats_.ingest_bytes_;
-      interval_bytes_read =
-          total_bytes_read - last_stats_.compaction_bytes_read_;
-      interval_bytes_written =
-          total_bytes_written - last_stats_.compaction_bytes_written_;
-      interval_seconds_up = seconds_up - last_stats_.seconds_up_;
-
-      snprintf(buf, sizeof(buf), "\nUptime(secs): %.1f total, %.1f interval\n",
-               seconds_up, interval_seconds_up);
-      value->append(buf);
-
-      snprintf(buf, sizeof(buf),
-               "Writes cumulative: %llu total, %llu batches, "
-               "%.1f per batch, %.2f ingest GB\n",
-               (unsigned long long)(write_other + write_self),
-               (unsigned long long)write_self,
-               (write_other + write_self) / (double)(write_self + 1),
-               user_bytes_written / kGB);
-      value->append(buf);
-
-      snprintf(buf, sizeof(buf),
-               "WAL cumulative: %llu WAL writes, %llu WAL syncs, "
-               "%.2f writes per sync, %.2f GB written\n",
-               (unsigned long long)write_with_wal,
-               (unsigned long long)wal_synced,
-               write_with_wal / (double)(wal_synced + 1),
-               wal_bytes / kGB);
-      value->append(buf);
-
-      snprintf(buf, sizeof(buf),
-               "Compaction IO cumulative (GB): "
-               "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
-               user_bytes_written / kGB,
-               total_bytes_read / kGB,
-               total_bytes_written / kGB,
-               (total_bytes_read + total_bytes_written) / kGB);
-      value->append(buf);
-
-      snprintf(
-          buf, sizeof(buf),
-          "Compaction IO cumulative (MB/sec): "
-          "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
-          user_bytes_written / kMB / seconds_up,
-          total_bytes_read / kMB / seconds_up,
-          total_bytes_written / kMB / seconds_up,
-          (total_bytes_read + total_bytes_written) / kMB / seconds_up);
-      value->append(buf);
-
-      // +1 to avoid divide by 0 and NaN
-      snprintf(
-          buf, sizeof(buf),
-          "Amplification cumulative: %.1f write, %.1f compaction\n",
-          (double)(total_bytes_written + wal_bytes) / (user_bytes_written + 1),
-          (double)(total_bytes_written + total_bytes_read + wal_bytes) /
-              (user_bytes_written + 1));
-      value->append(buf);
-
-      uint64_t interval_write_other = write_other - last_stats_.write_other_;
-      uint64_t interval_write_self = write_self - last_stats_.write_self_;
-
-      snprintf(buf, sizeof(buf),
-               "Writes interval: %llu total, %llu batches, "
-               "%.1f per batch, %.1f ingest MB\n",
-               (unsigned long long)(interval_write_other + interval_write_self),
-               (unsigned long long)interval_write_self,
-               (double)(interval_write_other + interval_write_self) /
-                   (interval_write_self + 1),
-               (user_bytes_written - last_stats_.ingest_bytes_) / kMB);
-      value->append(buf);
-
-      uint64_t interval_write_with_wal =
-          write_with_wal - last_stats_.write_with_wal_;
-
-      uint64_t interval_wal_synced = wal_synced - last_stats_.wal_synced_;
-      uint64_t interval_wal_bytes = wal_bytes - last_stats_.wal_bytes_;
-
-      snprintf(buf, sizeof(buf),
-               "WAL interval: %llu WAL writes, %llu WAL syncs, "
-               "%.2f writes per sync, %.2f MB written\n",
-               (unsigned long long)interval_write_with_wal,
-               (unsigned long long)interval_wal_synced,
-               interval_write_with_wal / (double)(interval_wal_synced + 1),
-               interval_wal_bytes / kGB);
-      value->append(buf);
-
-      snprintf(buf, sizeof(buf),
-               "Compaction IO interval (MB): "
-               "%.2f new, %.2f read, %.2f write, %.2f read+write\n",
-               interval_bytes_new / kMB, interval_bytes_read / kMB,
-               interval_bytes_written / kMB,
-               (interval_bytes_read + interval_bytes_written) / kMB);
-      value->append(buf);
-
-      snprintf(buf, sizeof(buf),
-               "Compaction IO interval (MB/sec): "
-               "%.1f new, %.1f read, %.1f write, %.1f read+write\n",
-               interval_bytes_new / kMB / interval_seconds_up,
-               interval_bytes_read / kMB / interval_seconds_up,
-               interval_bytes_written / kMB / interval_seconds_up,
-               (interval_bytes_read + interval_bytes_written) / kMB /
-                   interval_seconds_up);
-      value->append(buf);
-
-      // +1 to avoid divide by 0 and NaN
-      snprintf(
-          buf, sizeof(buf),
-          "Amplification interval: %.1f write, %.1f compaction\n",
-          (double)(interval_bytes_written + interval_wal_bytes) /
-              (interval_bytes_new + 1),
-          (double)(interval_bytes_written + interval_bytes_read + interval_wal_bytes) /
-              (interval_bytes_new + 1));
-      value->append(buf);
-
-      snprintf(buf, sizeof(buf),
-               "Stalls(secs): %.3f level0_slowdown, %.3f level0_numfiles, "
-               "%.3f memtable_compaction, %.3f leveln_slowdown\n",
-               stall_micros_[LEVEL0_SLOWDOWN] / 1000000.0,
-               stall_micros_[LEVEL0_NUM_FILES] / 1000000.0,
-               stall_micros_[MEMTABLE_COMPACTION] / 1000000.0,
-               total_slowdown / 1000000.0);
-      value->append(buf);
-
-      snprintf(buf, sizeof(buf),
-               "Stalls(count): %lu level0_slowdown, %lu level0_numfiles, "
-               "%lu memtable_compaction, %lu leveln_slowdown\n",
-               (unsigned long)stall_counts_[LEVEL0_SLOWDOWN],
-               (unsigned long)stall_counts_[LEVEL0_NUM_FILES],
-               (unsigned long)stall_counts_[MEMTABLE_COMPACTION],
-               (unsigned long)total_slowdown_count);
-      value->append(buf);
-
-      last_stats_.compaction_bytes_read_ = total_bytes_read;
-      last_stats_.compaction_bytes_written_ = total_bytes_written;
-      last_stats_.ingest_bytes_ = user_bytes_written;
-      last_stats_.seconds_up_ = seconds_up;
-      last_stats_.wal_bytes_ = wal_bytes;
-      last_stats_.wal_synced_ = wal_synced;
-      last_stats_.write_with_wal_ = write_with_wal;
-      last_stats_.write_other_ = write_other;
-      last_stats_.write_self_ = write_self;
-
+      return true;
+    }
+    case kCFStats: {
+      DumpCFStats(value, cfd);
+      return true;
+    }
+    case kDBStats: {
+      DumpDBStats(value);
       return true;
     }
     case kSsTables:
@@ -412,6 +211,214 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
     default:
       return false;
   }
+}
+
+void InternalStats::DumpDBStats(std::string* value) {
+  char buf[1000];
+  // DB-level stats, only available from default column family
+  double seconds_up = (env_->NowMicros() - started_at_ + 1) / 1000000.0;
+  double interval_seconds_up = seconds_up - db_stats_snapshot_.seconds_up;
+  snprintf(buf, sizeof(buf),
+           "\n** DB Stats **\nUptime(secs): %.1f total, %.1f interval\n",
+           seconds_up, interval_seconds_up);
+  value->append(buf);
+  // Cumulative
+  uint64_t user_bytes_written = db_stats_[InternalStats::BYTES_WRITTEN];
+  uint64_t write_other = db_stats_[InternalStats::WRITE_DONE_BY_OTHER];
+  uint64_t write_self = db_stats_[InternalStats::WRITE_DONE_BY_SELF];
+  uint64_t wal_bytes = db_stats_[InternalStats::WAL_FILE_BYTES];
+  uint64_t wal_synced = db_stats_[InternalStats::WAL_FILE_SYNCED];
+  uint64_t write_with_wal = db_stats_[InternalStats::WRITE_WITH_WAL];
+  // Data
+  snprintf(buf, sizeof(buf),
+           "Cumulative writes: %" PRIu64 " writes, %" PRIu64 " batches, "
+           "%.1f writes per batch, %.2f GB user ingest\n",
+           write_other + write_self, write_self,
+           (write_other + write_self) / static_cast<double>(write_self + 1),
+           user_bytes_written / kGB);
+  value->append(buf);
+  // WAL
+  snprintf(buf, sizeof(buf),
+           "Cumulative WAL: %" PRIu64 " writes, %" PRIu64 " syncs, "
+           "%.2f writes per sync, %.2f GB written\n",
+           write_with_wal, wal_synced,
+           write_with_wal / static_cast<double>(wal_synced + 1),
+           wal_bytes / kGB);
+  value->append(buf);
+
+  // Interval
+  uint64_t interval_write_other = write_other - db_stats_snapshot_.write_other;
+  uint64_t interval_write_self = write_self - db_stats_snapshot_.write_self;
+  snprintf(buf, sizeof(buf),
+           "Interval writes: %" PRIu64 " writes, %" PRIu64 " batches, "
+           "%.1f writes per batch, %.1f MB user ingest\n",
+           interval_write_other + interval_write_self,
+           interval_write_self,
+           static_cast<double>(interval_write_other + interval_write_self) /
+               (interval_write_self + 1),
+           (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB);
+  value->append(buf);
+
+  uint64_t interval_write_with_wal =
+      write_with_wal - db_stats_snapshot_.write_with_wal;
+  uint64_t interval_wal_synced = wal_synced - db_stats_snapshot_.wal_synced;
+  uint64_t interval_wal_bytes = wal_bytes - db_stats_snapshot_.wal_bytes;
+
+  snprintf(buf, sizeof(buf),
+           "Interval WAL: %" PRIu64 " writes, %" PRIu64 " syncs, "
+           "%.2f writes per sync, %.2f MB written\n",
+           interval_write_with_wal,
+           interval_wal_synced,
+           interval_write_with_wal /
+              static_cast<double>(interval_wal_synced + 1),
+           interval_wal_bytes / kGB);
+  value->append(buf);
+
+  db_stats_snapshot_.seconds_up = seconds_up;
+  db_stats_snapshot_.ingest_bytes = user_bytes_written;
+  db_stats_snapshot_.write_other = write_other;
+  db_stats_snapshot_.write_self = write_self;
+  db_stats_snapshot_.wal_bytes = wal_bytes;
+  db_stats_snapshot_.wal_synced = wal_synced;
+  db_stats_snapshot_.write_with_wal = write_with_wal;
+}
+
+void InternalStats::DumpCFStats(std::string* value, ColumnFamilyData* cfd) {
+  Version* current = cfd->current();
+
+  int num_levels_to_check =
+      (cfd->options()->compaction_style != kCompactionStyleUniversal &&
+       cfd->options()->compaction_style != kCompactionStyleFIFO)
+          ? current->NumberLevels() - 1
+          : 1;
+  // Compaction scores are sorted base on its value. Restore them to the
+  // level order
+  std::vector<double> compaction_score(number_levels_, 0);
+  for (int i = 0; i < num_levels_to_check; ++i) {
+    compaction_score[current->compaction_level_[i]] =
+      current->compaction_score_[i];
+  }
+  // Count # of files being compacted for each level
+  std::vector<int> files_being_compacted(number_levels_, 0);
+  for (int level = 0; level < num_levels_to_check; ++level) {
+    for (auto* f : current->files_[level]) {
+      if (f->being_compacted) {
+        ++files_being_compacted[level];
+      }
+    }
+  }
+
+  char buf[1000];
+  // Per-ColumnFamily stats
+  PrintLevelStatsHeader(buf, sizeof(buf), cfd->GetName());
+  value->append(buf);
+
+  CompactionStats stats_sum(0);
+  int total_files = 0;
+  int total_files_being_compacted = 0;
+  double total_file_size = 0;
+  uint64_t total_slowdown_soft = 0;
+  uint64_t total_slowdown_count_soft = 0;
+  uint64_t total_slowdown_hard = 0;
+  uint64_t total_slowdown_count_hard = 0;
+  uint64_t total_stall_count = 0;
+  double total_stall_us = 0;
+  for (int level = 0; level < number_levels_; level++) {
+    int files = current->NumLevelFiles(level);
+    total_files += files;
+    total_files_being_compacted += files_being_compacted[level];
+    if (comp_stats_[level].micros > 0 || files > 0) {
+      uint64_t stalls = level == 0 ?
+        (cf_stats_count_[LEVEL0_SLOWDOWN] +
+         cf_stats_count_[LEVEL0_NUM_FILES] +
+         cf_stats_count_[MEMTABLE_COMPACTION])
+        : (stall_leveln_slowdown_count_soft_[level] +
+           stall_leveln_slowdown_count_hard_[level]);
+
+      double stall_us = level == 0 ?
+         (cf_stats_value_[LEVEL0_SLOWDOWN] +
+          cf_stats_value_[LEVEL0_NUM_FILES] +
+          cf_stats_value_[MEMTABLE_COMPACTION])
+         : (stall_leveln_slowdown_soft_[level] +
+            stall_leveln_slowdown_hard_[level]);
+
+      stats_sum.Add(comp_stats_[level]);
+      total_file_size += current->NumLevelBytes(level);
+      total_stall_us += stall_us;
+      total_stall_count += stalls;
+      total_slowdown_soft += stall_leveln_slowdown_soft_[level];
+      total_slowdown_count_soft += stall_leveln_slowdown_count_soft_[level];
+      total_slowdown_hard += stall_leveln_slowdown_hard_[level];
+      total_slowdown_count_hard += stall_leveln_slowdown_count_hard_[level];
+      int64_t bytes_read = comp_stats_[level].bytes_readn +
+                           comp_stats_[level].bytes_readnp1;
+      double rw_amp = (comp_stats_[level].bytes_readn == 0) ? 0.0
+          : (comp_stats_[level].bytes_written + bytes_read) /
+            static_cast<double>(comp_stats_[level].bytes_readn);
+      double w_amp = (comp_stats_[level].bytes_readn == 0) ? 0.0
+          : comp_stats_[level].bytes_written /
+            static_cast<double>(comp_stats_[level].bytes_readn);
+      PrintLevelStats(buf, sizeof(buf), "L" + std::to_string(level),
+          files, files_being_compacted[level], current->NumLevelBytes(level),
+          compaction_score[level], rw_amp, w_amp, stall_us, stalls,
+          comp_stats_[level]);
+      value->append(buf);
+    }
+  }
+  uint64_t curr_ingest = cf_stats_value_[BYTES_FLUSHED];
+  // Cumulative summary
+  double rw_amp = (stats_sum.bytes_written + stats_sum.bytes_readn +
+      stats_sum.bytes_readnp1) / static_cast<double>(curr_ingest + 1);
+  double w_amp = stats_sum.bytes_written / static_cast<double>(curr_ingest + 1);
+  // Stats summary across levels
+  PrintLevelStats(buf, sizeof(buf), "Sum", total_files,
+      total_files_being_compacted, total_file_size, 0, rw_amp, w_amp,
+      total_stall_us, total_stall_count, stats_sum);
+  value->append(buf);
+  // Interval summary
+  uint64_t interval_ingest =
+      curr_ingest - cf_stats_snapshot_.ingest_bytes + 1;
+  CompactionStats interval_stats(stats_sum);
+  interval_stats.Subtract(cf_stats_snapshot_.comp_stats);
+  rw_amp = (interval_stats.bytes_written +
+      interval_stats.bytes_readn + interval_stats.bytes_readnp1) /
+      static_cast<double>(interval_ingest);
+  w_amp = interval_stats.bytes_written / static_cast<double>(interval_ingest);
+  PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0,
+      rw_amp, w_amp, total_stall_us - cf_stats_snapshot_.stall_us,
+      total_stall_count - cf_stats_snapshot_.stall_count, interval_stats);
+  value->append(buf);
+
+  snprintf(buf, sizeof(buf),
+           "Flush(GB): accumulative %.3f, interval %.3f\n",
+           curr_ingest / kGB, interval_ingest / kGB);
+  value->append(buf);
+  snprintf(buf, sizeof(buf),
+           "Stalls(secs): %.3f level0_slowdown, %.3f level0_numfiles, "
+           "%.3f memtable_compaction, %.3f leveln_slowdown_soft, "
+           "%.3f leveln_slowdown_hard\n",
+           cf_stats_value_[LEVEL0_SLOWDOWN] / 1000000.0,
+           cf_stats_value_[LEVEL0_NUM_FILES] / 1000000.0,
+           cf_stats_value_[MEMTABLE_COMPACTION] / 1000000.0,
+           total_slowdown_soft / 1000000.0,
+           total_slowdown_hard / 1000000.0);
+  value->append(buf);
+
+  snprintf(buf, sizeof(buf),
+           "Stalls(count): %" PRIu64 " level0_slowdown, "
+           "%" PRIu64 " level0_numfiles, %" PRIu64 " memtable_compaction, "
+           "%" PRIu64 " leveln_slowdown_soft, "
+           "%" PRIu64 " leveln_slowdown_hard\n",
+           cf_stats_count_[LEVEL0_SLOWDOWN],
+           cf_stats_count_[LEVEL0_NUM_FILES],
+           cf_stats_count_[MEMTABLE_COMPACTION],
+           total_slowdown_count_soft, total_slowdown_count_hard);
+  value->append(buf);
+
+  cf_stats_snapshot_.ingest_bytes = curr_ingest;
+  cf_stats_snapshot_.comp_stats = stats_sum;
+  cf_stats_snapshot_.stall_us = total_stall_us;
+  cf_stats_snapshot_.stall_count = total_stall_count;
 }
 
 }  // namespace rocksdb

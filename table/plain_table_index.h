@@ -72,7 +72,7 @@ class PlainTableIndex {
   IndexSearchResult GetOffset(uint32_t prefix_hash,
                               uint32_t* bucket_value) const;
 
-  void InitFromRawData(Slice data);
+  Status InitFromRawData(Slice data);
 
   const char* GetSubIndexBasePtrAndUpperBound(uint32_t offset,
                                               uint32_t* upper_bound) const {

@@ -37,10 +37,8 @@ class IntComparator : public Comparator {
 
 struct FileIndexerTest {
  public:
-  FileIndexerTest() :
-    kNumLevels(4),
-    files(new std::vector<FileMetaData*>[kNumLevels]) {
-  }
+  FileIndexerTest()
+      : kNumLevels(4), files(new std::vector<FileMetaData*>[kNumLevels]) {}
 
   ~FileIndexerTest() {
     ClearFiles();
@@ -73,7 +71,7 @@ struct FileIndexerTest {
     *left_index = 100;
     *right_index = 100;
     indexer->GetNextLevelIndex(level, file_index, cmp_smallest, cmp_largest,
-        left_index, right_index);
+                               left_index, right_index);
   }
 
   int32_t left = 100;
