@@ -67,6 +67,7 @@ class CuckooBuilderTest {
                 CuckooTablePropertyNames::kMaxNumBuckets]);
     GetVarint32(&max_buckets_slice, &max_buckets);
     ASSERT_EQ(expected_max_buckets, max_buckets);
+    delete props;
     // Check contents of the bucket.
     std::string read_data;
     read_data.resize(expected_data.size());
@@ -91,7 +92,6 @@ class CuckooBuilderTest {
   unsigned int bucket_length;
   unsigned int expected_max_buckets;
 };
-
 
 TEST(CuckooBuilderTest, NoCollision) {
   hash_map.clear();
@@ -122,25 +122,25 @@ TEST(CuckooBuilderTest, NoCollision) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/BasicTest_writable_file";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio,
       file_size, num_hash_fun, 100, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
+  ASSERT_OK(cuckoo_builder.status());
   unsigned int key_idx = 0;
   std::string expected_file_data = "";
   for (unsigned int i = 0; i < expected_max_buckets; i++) {
     if (key_idx * num_hash_fun == i && key_idx < num_items) {
-      cuckoo_builder->Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-      ASSERT_EQ(cuckoo_builder->NumEntries(), key_idx + 1);
-      ASSERT_OK(cuckoo_builder->status());
+      cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
+      ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
+      ASSERT_OK(cuckoo_builder.status());
       expected_file_data.append(keys[key_idx] + values[key_idx]);
       ++key_idx;
     } else {
       expected_file_data.append(expected_unused_bucket);
     }
   }
-  ASSERT_OK(cuckoo_builder->Finish());
+  ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data);
 }
@@ -171,25 +171,25 @@ TEST(CuckooBuilderTest, NoCollisionLastLevel) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionLastLevel_writable_file";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), key_length,
       value_length, hash_table_ratio,
       file_size, num_hash_fun, 100, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
+  ASSERT_OK(cuckoo_builder.status());
   unsigned int key_idx = 0;
   std::string expected_file_data = "";
   for (unsigned int i = 0; i < expected_max_buckets; i++) {
     if (key_idx * num_hash_fun == i && key_idx < num_items) {
-      cuckoo_builder->Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-      ASSERT_EQ(cuckoo_builder->NumEntries(), key_idx + 1);
-      ASSERT_OK(cuckoo_builder->status());
+      cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
+      ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
+      ASSERT_OK(cuckoo_builder.status());
       expected_file_data.append(user_keys[key_idx] + values[key_idx]);
       ++key_idx;
     } else {
       expected_file_data.append(expected_unused_bucket);
     }
   }
-  ASSERT_OK(cuckoo_builder->Finish());
+  ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data);
 }
@@ -222,24 +222,24 @@ TEST(CuckooBuilderTest, WithCollision) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollision_writable_file";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), key_length, value_length, hash_table_ratio,
       file_size, num_hash_fun, 100, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
+  ASSERT_OK(cuckoo_builder.status());
   unsigned int key_idx = 0;
   std::string expected_file_data = "";
   for (unsigned int i = 0; i < expected_max_buckets; i++) {
     if (key_idx  == i && key_idx < num_items) {
-      cuckoo_builder->Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-      ASSERT_EQ(cuckoo_builder->NumEntries(), key_idx + 1);
-      ASSERT_OK(cuckoo_builder->status());
+      cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
+      ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
+      ASSERT_OK(cuckoo_builder.status());
       expected_file_data.append(keys[key_idx] + values[key_idx]);
       ++key_idx;
     } else {
       expected_file_data.append(expected_unused_bucket);
     }
   }
-  ASSERT_OK(cuckoo_builder->Finish());
+  ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data);
 }
@@ -266,19 +266,19 @@ TEST(CuckooBuilderTest, FailWithTooManyCollisions) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/FailWithTooManyCollisions_writable";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
       100, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
+  ASSERT_OK(cuckoo_builder.status());
   for (unsigned int key_idx = 0; key_idx < num_items-1; key_idx++) {
-    cuckoo_builder->Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-    ASSERT_OK(cuckoo_builder->status());
-    ASSERT_EQ(cuckoo_builder->NumEntries(), key_idx + 1);
+    cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
+    ASSERT_OK(cuckoo_builder.status());
+    ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
   }
-  cuckoo_builder->Add(Slice(keys.back()), Slice(values.back()));
-  ASSERT_TRUE(cuckoo_builder->status().IsCorruption());
-  cuckoo_builder->Abandon();
+  cuckoo_builder.Add(Slice(keys.back()), Slice(values.back()));
+  ASSERT_TRUE(cuckoo_builder.status().IsCorruption());
+  cuckoo_builder.Abandon();
   writable_file->Close();
 }
 
@@ -297,17 +297,17 @@ TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/FailWhenSameKeyInserted_writable_file";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
       100, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
-  cuckoo_builder->Add(Slice(key_to_reuse1), Slice(value));
-  ASSERT_OK(cuckoo_builder->status());
-  ASSERT_EQ(cuckoo_builder->NumEntries(), 1);
-  cuckoo_builder->Add(Slice(key_to_reuse2), Slice(value));
-  ASSERT_TRUE(cuckoo_builder->status().IsCorruption());
-  cuckoo_builder->Abandon();
+  ASSERT_OK(cuckoo_builder.status());
+  cuckoo_builder.Add(Slice(key_to_reuse1), Slice(value));
+  ASSERT_OK(cuckoo_builder.status());
+  ASSERT_EQ(cuckoo_builder.NumEntries(), 1U);
+  cuckoo_builder.Add(Slice(key_to_reuse2), Slice(value));
+  ASSERT_TRUE(cuckoo_builder.status().IsCorruption());
+  cuckoo_builder.Abandon();
   writable_file->Close();
 }
 
@@ -359,19 +359,19 @@ TEST(CuckooBuilderTest, WithACollisionPath) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPath_writable_file";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), key_length,
       value_length, hash_table_ratio, file_size,
       num_hash_fun, max_search_depth, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
+  ASSERT_OK(cuckoo_builder.status());
   for (unsigned int key_idx = 0; key_idx < num_items; key_idx++) {
-    cuckoo_builder->Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-    ASSERT_OK(cuckoo_builder->status());
-    ASSERT_EQ(cuckoo_builder->NumEntries(), key_idx + 1);
+    cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
+    ASSERT_OK(cuckoo_builder.status());
+    ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
     expected_file_data.replace(expected_bucket_id[key_idx]*bucket_length,
         bucket_length, keys[key_idx] + values[key_idx]);
   }
-  ASSERT_OK(cuckoo_builder->Finish());
+  ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data);
 }
@@ -407,19 +407,19 @@ TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/FailWhenCollisionPathTooLong_writable";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
       max_search_depth, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
+  ASSERT_OK(cuckoo_builder.status());
   for (unsigned int key_idx = 0; key_idx < num_items-1; key_idx++) {
-    cuckoo_builder->Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-    ASSERT_OK(cuckoo_builder->status());
-    ASSERT_EQ(cuckoo_builder->NumEntries(), key_idx + 1);
+    cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
+    ASSERT_OK(cuckoo_builder.status());
+    ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
   }
-  cuckoo_builder->Add(Slice(keys.back()), Slice(values.back()));
-  ASSERT_TRUE(cuckoo_builder->status().IsCorruption());
-  cuckoo_builder->Abandon();
+  cuckoo_builder.Add(Slice(keys.back()), Slice(values.back()));
+  ASSERT_TRUE(cuckoo_builder.status().IsCorruption());
+  cuckoo_builder.Abandon();
   writable_file->Close();
 }
 
@@ -448,19 +448,19 @@ TEST(CuckooBuilderTest, FailWhenTableIsFull) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/FailWhenTabelIsFull_writable";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
-  CuckooTableBuilder* cuckoo_builder = new CuckooTableBuilder(
+  CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
       100, GetSliceHash);
-  ASSERT_OK(cuckoo_builder->status());
+  ASSERT_OK(cuckoo_builder.status());
   for (unsigned int key_idx = 0; key_idx < num_items-1; key_idx++) {
-    cuckoo_builder->Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-    ASSERT_OK(cuckoo_builder->status());
-    ASSERT_EQ(cuckoo_builder->NumEntries(), key_idx + 1);
+    cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
+    ASSERT_OK(cuckoo_builder.status());
+    ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
   }
-  cuckoo_builder->Add(Slice(keys.back()), Slice(values.back()));
-  ASSERT_TRUE(cuckoo_builder->status().IsCorruption());
-  cuckoo_builder->Abandon();
+  cuckoo_builder.Add(Slice(keys.back()), Slice(values.back()));
+  ASSERT_TRUE(cuckoo_builder.status().IsCorruption());
+  cuckoo_builder.Abandon();
   writable_file->Close();
 }
 }  // namespace rocksdb

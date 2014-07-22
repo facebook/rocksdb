@@ -27,11 +27,15 @@
  */
 void Java_org_rocksdb_RocksDB_open(
     JNIEnv* env, jobject jdb, jlong jopt_handle,
-    jlong jcache_size, jstring jdb_path) {
+    jlong jcache_size, jint jnum_shardbits, jstring jdb_path) {
   auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   if (jcache_size > 0) {
     opt->no_block_cache = false;
-    opt->block_cache = rocksdb::NewLRUCache(jcache_size);
+    if (jnum_shardbits >= 1) {
+      opt->block_cache = rocksdb::NewLRUCache(jcache_size, jnum_shardbits);
+    } else {
+      opt->block_cache = rocksdb::NewLRUCache(jcache_size);
+    }
   } else {
     opt->no_block_cache = true;
     opt->block_cache = nullptr;

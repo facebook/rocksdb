@@ -534,6 +534,8 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_flushes));
     options.setCacheSize(
         (Long)flags_.get(Flag.cache_size));
+    options.setCacheNumShardBits(
+        (Integer)flags_.get(Flag.cache_numshardbits));
     options.setBlockSize(
         (Long)flags_.get(Flag.block_size));
     options.setMaxOpenFiles(
@@ -616,7 +618,6 @@ public class DbBenchmark {
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
     options.setMinLevelToCompress((Integer)flags_.get(Flag.min_level_to_compress));
     options.setHdfs((String)flags_.get(Flag.hdfs)); // env
-    options.setCacheNumshardbits((Integer)flags_.get(Flag.cache_numshardbits));
     options.setStatistics((Boolean)flags_.get(Flag.statistics));
     options.setUniversalSizeRatio(
         (Integer)flags_.get(Flag.universal_size_ratio));
