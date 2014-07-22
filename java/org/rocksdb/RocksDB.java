@@ -115,9 +115,7 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     RocksDB db = new RocksDB();
-
     db.open(options.nativeHandle_, options.cacheSize_,
-            options.numShardBits_, path);
             options.numShardBits_, path);
     
     db.storeOptionsInstance(options);
