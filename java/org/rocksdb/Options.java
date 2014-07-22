@@ -9,8 +9,8 @@ package org.rocksdb;
  * Options to control the behavior of a database.  It will be used
  * during the creation of a RocksDB (i.e., RocksDB.open()).
  *
- * Note that dispose() must be called before an Options instance
- * become out-of-scope to release the allocated memory in c++.
+ * If dispose() function is not called, then it will be GC'd automatically and
+ * native resources will be released as part of the process.
  */
 public class Options extends RocksObject {
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
@@ -168,8 +168,11 @@ public class Options extends RocksObject {
   /**
    * Use the specified filter policy to reduce disk reads.
    *
-   * Note that the caller should not dispose the input filter as
-   * Options.dispose() will dispose this filter.
+   * Filter should not be disposed before options instances using this filter is
+   * disposed. If dispose() function is not called, then filter object will be
+   * GC'd automatically.
+   * 
+   * Filter instance can be re-used in multiple options instances. 
    *
    * @param Filter policy java instance.
    * @return the instance of the current Options.
