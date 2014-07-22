@@ -14,6 +14,7 @@ package org.rocksdb;
  */
 public class Options extends RocksObject {
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
+  static final int DEFAULT_NUM_SHARD_BITS = -1;
   /**
    * Construct options for opening a RocksDB.
    *
@@ -23,6 +24,7 @@ public class Options extends RocksObject {
   public Options() {
     super();
     cacheSize_ = DEFAULT_CACHE_SIZE;
+    numShardBits_ = DEFAULT_NUM_SHARD_BITS;
     newOptions();
     env_ = RocksEnv.getDefault();
   }
@@ -215,6 +217,7 @@ public class Options extends RocksObject {
    * If cacheSize is non-positive, then cache will not be used.
    *
    * DEFAULT: 8M
+   * @see setCacheNumShardBits()
    */
   public Options setCacheSize(long cacheSize) {
     cacheSize_ = cacheSize;
@@ -223,9 +226,40 @@ public class Options extends RocksObject {
 
   /**
    * @return the amount of cache in bytes that will be used by RocksDB.
+   *
+   * @see cacheNumShardBits()
    */
   public long cacheSize() {
     return cacheSize_;
+  }
+
+  /**
+   * Controls the number of shards for the block cache.
+   * This is applied only if cacheSize is set to non-negative.
+   *
+   * @param numShardBits the number of shard bits.  The resulting
+   *     number of shards would be 2 ^ numShardBits.  Any negative
+   *     number means use default settings."
+   * @return the reference to the current option.
+   *
+   * @see setCacheSize()
+   */
+  public Options setCacheNumShardBits(int numShardBits) {
+    numShardBits_ = numShardBits;
+    return this;
+  }
+
+  /**
+   * Returns the number of shard bits used in the block cache.
+   * The resulting number of shards would be 2 ^ (returned value).
+   * Any negative number means use default settings.
+   *
+   * @return the number of shard bits used in the block cache.
+   *
+   * @see cacheSize()
+   */
+  public int cacheNumShardBits() {
+    return numShardBits_;
   }
 
   /**
@@ -2397,6 +2431,7 @@ public class Options extends RocksObject {
       long handle, int prefixLength);
 
   long cacheSize_;
+  int numShardBits_;
   Filter filter_;
   RocksEnv env_;
 }

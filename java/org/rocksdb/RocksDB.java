@@ -106,7 +106,8 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     RocksDB db = new RocksDB();
-    db.open(options.nativeHandle_, options.cacheSize_, path);
+    db.open(options.nativeHandle_, options.cacheSize_,
+            options.numShardBits_, path);
     db.transferCppRawPointersOwnershipFrom(options);
     return db;
   }
@@ -330,7 +331,8 @@ public class RocksDB extends RocksObject {
 
   // native methods
   protected native void open(
-      long optionsHandle, long cacheSize, String path) throws RocksDBException;
+      long optionsHandle, long cacheSize, int numShardBits,
+      String path) throws RocksDBException;
   protected native void put(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
