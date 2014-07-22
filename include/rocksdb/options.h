@@ -1027,7 +1027,6 @@ struct FlushOptions {
   FlushOptions() : wait(true) {}
 };
 
-
 // Create a RateLimiter object, which can be shared among RocksDB instances to
 // control write rate of flush and compaction.
 // @rate_bytes_per_sec: this is the only parameter you want to set most of the
@@ -1051,7 +1050,16 @@ extern RateLimiter* NewRateLimiter(
     int64_t refill_period_us = 100 * 1000,
     int32_t fairness = 10);
 
-
+// Get options based on some guidelines. Now only tune parameter based on
+// flush/compaction and fill default parameters for other parameters.
+// total_write_buffer_limit: budget for memory spent for mem tables
+// read_amplification_threshold: comfortable value of read amplification
+// write_amplification_threshold: comfortable value of write amplification.
+// target_db_size: estimated total DB size.
+extern Options GetOptions(size_t total_write_buffer_limit,
+                          int read_amplification_threshold = 8,
+                          int write_amplification_threshold = 32,
+                          uint64_t target_db_size = 68719476736 /* 64GB */);
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
