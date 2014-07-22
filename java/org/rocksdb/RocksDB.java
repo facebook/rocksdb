@@ -118,8 +118,10 @@ public class RocksDB extends RocksObject {
 
     db.open(options.nativeHandle_, options.cacheSize_,
             options.numShardBits_, path);
+            options.numShardBits_, path);
+    
     db.storeOptionsInstance(options);
-
+    
     return db;
   }
   
