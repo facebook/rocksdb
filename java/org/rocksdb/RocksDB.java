@@ -99,6 +99,15 @@ public class RocksDB extends RocksObject {
   /**
    * The factory constructor of RocksDB that opens a RocksDB instance given
    * the path to the database using the specified options and db path.
+   * 
+   * Options instance *should* not be disposed before all DBs using this options
+   * instance have been closed. If user doesn't call options dispose explicitly,
+   * then this options instance will be GC'd automatically.
+   * 
+   * Options instance can be re-used to open multiple DBs if DB statistics is
+   * not used. If DB statistics are required, then its recommended to open DB
+   * with new Options instance as underlying native statistics instance does not
+   * use any locks to prevent concurrent updates.
    */
   public static RocksDB open(Options options, String path)
       throws RocksDBException {
@@ -108,8 +117,14 @@ public class RocksDB extends RocksObject {
     RocksDB db = new RocksDB();
     db.open(options.nativeHandle_, options.cacheSize_,
             options.numShardBits_, path);
-    db.transferCppRawPointersOwnershipFrom(options);
+    
+    db.storeOptionsInstance(options);
+    
     return db;
+  }
+  
+  private void storeOptionsInstance(Options options) {
+    options_ = options;
   }
 
   @Override protected void disposeInternal() {
@@ -318,17 +333,6 @@ public class RocksDB extends RocksObject {
     super();
   }
 
-  /**
-   * Transfer the ownership of all c++ raw-pointers from Options
-   * to RocksDB to ensure the life-time of those raw-pointers
-   * will be at least as long as the life-time of any RocksDB
-   * that uses these raw-pointers.
-   */
-  protected void transferCppRawPointersOwnershipFrom(Options opt) {
-    filter_ = opt.filter_;
-    opt.filter_ = null;
-  }
-
   // native methods
   protected native void open(
       long optionsHandle, long cacheSize, int numShardBits,
@@ -365,5 +369,5 @@ public class RocksDB extends RocksObject {
   protected native long iterator0(long optHandle);
   private native void disposeInternal(long handle);
 
-  protected Filter filter_;
+  protected Options options_;
 }
