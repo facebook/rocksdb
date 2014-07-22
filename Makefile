@@ -448,18 +448,19 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 
 JNI_NATIVE_SOURCES = ./java/rocksjni/*.cc
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
-ROCKSDBJNILIB = ./java/librocksdbjni.so
+ROCKSDBJNILIB = librocksdbjni.so
 
 ifeq ($(PLATFORM), OS_MACOSX)
-ROCKSDBJNILIB = ./java/librocksdbjni.jnilib
+ROCKSDBJNILIB = librocksdbjni.jnilib
 JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 
 rocksdbjava:
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32
 	cd java;$(MAKE) java;
-	rm -f $(ROCKSDBJNILIB)
-	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o $(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(LDFLAGS) $(COVERAGEFLAGS)
+	rm -f ./java/$(ROCKSDBJNILIB)
+	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
+	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
 
 jclean:
 	cd java;$(MAKE) clean;
