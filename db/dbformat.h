@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdio.h>
+#include <string>
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -254,7 +255,37 @@ class IterKey {
 
   Slice GetKey() const { return Slice(key_, key_size_); }
 
+  const size_t Size() { return key_size_; }
+
   void Clear() { key_size_ = 0; }
+
+  // Append "non_shared_data" to its back, from "shared_len"
+  // This function is used in Block::Iter::ParseNextKey
+  // shared_len: bytes in [0, shard_len-1] would be remained
+  // non_shared_data: data to be append, its length must be >= non_shared_len
+  void TrimAppend(const size_t shared_len, const char* non_shared_data,
+                  const size_t non_shared_len) {
+    assert(shared_len <= key_size_);
+
+    size_t total_size = shared_len + non_shared_len;
+    if (total_size <= buf_size_) {
+      key_size_ = total_size;
+    } else {
+      // Need to allocate space, delete previous space
+      char* p = new char[total_size];
+      memcpy(p, key_, shared_len);
+
+      if (key_ != nullptr && key_ != space_) {
+        delete[] key_;
+      }
+
+      key_ = p;
+      key_size_ = total_size;
+      buf_size_ = total_size;
+    }
+
+    memcpy(key_ + shared_len, non_shared_data, non_shared_len);
+  }
 
   void SetKey(const Slice& key) {
     size_t size = key.size();
