@@ -107,6 +107,7 @@ TESTS = \
 	backupable_db_test \
 	document_db_test \
 	json_document_test \
+	spatial_db_test \
 	version_edit_test \
 	version_set_test \
 	file_indexer_test \
@@ -358,6 +359,9 @@ document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARN
 
 json_document_test: utilities/document/json_document_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/document/json_document_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
+
+spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
