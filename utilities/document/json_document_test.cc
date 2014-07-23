@@ -5,9 +5,10 @@
 
 #include <set>
 
+#include "rocksdb/utilities/json_document.h"
+
 #include "util/testutil.h"
 #include "util/testharness.h"
-#include "utilities/json_document.h"
 
 namespace rocksdb {
 namespace {
