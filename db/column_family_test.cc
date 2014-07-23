@@ -857,6 +857,7 @@ TEST(ColumnFamilyTest, NewIteratorsTest) {
 TEST(ColumnFamilyTest, ReadOnlyDBTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
+  ASSERT_OK(Put(0, "a", "b"));
   ASSERT_OK(Put(1, "foo", "bla"));
   ASSERT_OK(Put(2, "foo", "blabla"));
   ASSERT_OK(Put(3, "foo", "blablabla"));
@@ -869,6 +870,29 @@ TEST(ColumnFamilyTest, ReadOnlyDBTest) {
   ASSERT_EQ("NOT_FOUND", Get(0, "foo"));
   ASSERT_EQ("bla", Get(1, "foo"));
   ASSERT_EQ("blablablabla", Get(2, "foo"));
+
+
+  // test newiterators
+  {
+    std::vector<Iterator*> iterators;
+    ASSERT_OK(db_->NewIterators(ReadOptions(), handles_, &iterators));
+    for (auto it : iterators) {
+      it->SeekToFirst();
+    }
+    ASSERT_EQ(IterStatus(iterators[0]), "a->b");
+    ASSERT_EQ(IterStatus(iterators[1]), "foo->bla");
+    ASSERT_EQ(IterStatus(iterators[2]), "foo->blablablabla");
+    for (auto it : iterators) {
+      it->Next();
+    }
+    ASSERT_EQ(IterStatus(iterators[0]), "(invalid)");
+    ASSERT_EQ(IterStatus(iterators[1]), "(invalid)");
+    ASSERT_EQ(IterStatus(iterators[2]), "(invalid)");
+
+    for (auto it : iterators) {
+      delete it;
+    }
+  }
 
   Close();
   // can't open dropped column family
