@@ -62,6 +62,7 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
     level_ptrs_[i] = 0;
   }
   int num_levels = output_level_ - start_level_ + 1;
+  input_levels_.resize(num_levels);
   inputs_.resize(num_levels);
   for (int i = 0; i < num_levels; ++i) {
     inputs_[i].level = start_level_ + i;
