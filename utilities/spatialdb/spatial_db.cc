@@ -59,6 +59,8 @@ bool Variant::operator==(const Variant& rhs) {
     default:
       assert(false);
   }
+  // it will never reach here, but otherwise the compiler complains
+  return false;
 }
 
 bool Variant::operator!=(const Variant& rhs) { return !(*this == rhs); }
