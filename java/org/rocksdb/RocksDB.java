@@ -119,7 +119,6 @@ public class RocksDB extends RocksObject {
             options.numShardBits_, path);
     
     db.storeOptionsInstance(options);
-    
     return db;
   }
   

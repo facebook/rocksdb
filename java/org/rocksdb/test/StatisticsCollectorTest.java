@@ -33,7 +33,7 @@ public class StatisticsCollectorTest {
     assert(callback.tickerCallbackCount > 0);
     assert(callback.histCallbackCount > 0);
 
-    statsCollector.shutDown();
+    statsCollector.shutDown(1000);
 
     db.close();
     opt.dispose();

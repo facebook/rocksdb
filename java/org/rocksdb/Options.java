@@ -1372,6 +1372,30 @@ public class Options extends RocksObject {
     return this;
   }
   private native void setCompressionType(long handle, byte compressionType);
+      
+   /**
+   * Compaction style for DB.
+   * 
+   * @return Compaction style.
+   */ 
+  public CompactionStyle compactionStyle() {
+    return CompactionStyle.values()[compactionStyle(nativeHandle_)];
+  }
+  private native byte compactionStyle(long handle);
+      
+  /**
+   * Set compaction style for DB.
+   * 
+   * Default: LEVEL.
+   * 
+   * @param compactionStyle Compaction style.
+   * @return the reference to the current option.
+   */
+  public Options setCompactionStyle(CompactionStyle compactionStyle) {
+    setCompactionStyle(nativeHandle_, compactionStyle.getValue());
+    return this;
+  }
+  private native void setCompactionStyle(long handle, byte compactionStyle);
 
   /**
    * If true, place whole keys in the filter (not just prefixes).
