@@ -114,9 +114,10 @@ TESTS = \
 	deletefile_test \
 	table_test \
 	thread_local_test \
-        geodb_test \
-        rate_limiter_test \
-	cuckoo_table_builder_test
+	geodb_test \
+  rate_limiter_test \
+	cuckoo_table_builder_test \
+	options_test
 
 TOOLS = \
         sst_dump \
@@ -124,6 +125,7 @@ TOOLS = \
         db_stress \
         ldb \
 	db_repl_stress \
+  options_test \
 	blob_store_bench
 
 PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench $(TOOLS)
@@ -413,6 +415,9 @@ geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 cuckoo_table_builder_test: table/cuckoo_table_builder_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/cuckoo_table_builder_test.o  $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/options_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 	rm -f $@
