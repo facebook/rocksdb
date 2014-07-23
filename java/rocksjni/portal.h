@@ -13,7 +13,7 @@
 #include <jni.h>
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
-#include "utilities/backupable_db.h"
+#include "rocksdb/utilities/backupable_db.h"
 
 namespace rocksdb {
 

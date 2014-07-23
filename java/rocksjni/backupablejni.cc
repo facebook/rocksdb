@@ -15,7 +15,7 @@
 #include "include/org_rocksdb_BackupableDB.h"
 #include "include/org_rocksdb_BackupableDBOptions.h"
 #include "rocksjni/portal.h"
-#include "utilities/backupable_db.h"
+#include "rocksdb/utilities/backupable_db.h"
 
 /*
  * Class:     org_rocksdb_BackupableDB
