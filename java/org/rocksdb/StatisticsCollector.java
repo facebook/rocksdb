@@ -46,13 +46,19 @@ public class StatisticsCollector {
     _executorService.submit(collectStatistics());
   }
 
-  public void shutDown() throws InterruptedException {
+  /**
+   * Shuts down statistics collector.
+   * 
+   * @param shutdownTimeout Time in milli-seconds to wait for shutdown before
+   *        killing the collection process.
+   */
+  public void shutDown(int shutdownTimeout) throws InterruptedException {
     _isRunning = false;
 
-    _executorService.shutdown();
+    _executorService.shutdownNow();
     // Wait for collectStatistics runnable to finish so that disposal of
     // statistics does not cause any exceptions to be thrown.
-    _executorService.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
+    _executorService.awaitTermination(shutdownTimeout, TimeUnit.MILLISECONDS);
   }
 
   private Runnable collectStatistics() {
@@ -62,6 +68,9 @@ public class StatisticsCollector {
       public void run() {
         while (_isRunning) {
           try {
+            if(Thread.currentThread().isInterrupted()) {
+              break;
+            }  
             for(StatsCollectorInput statsCollectorInput :
                 _statsCollectorInputList) {
               Statistics statistics = statsCollectorInput.getStatistics();
@@ -86,7 +95,7 @@ public class StatisticsCollector {
           }
           catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Thread got interrupted!", e);
+            break;
           }
           catch (Exception e) {
             throw new RuntimeException("Error while calculating statistics", e);

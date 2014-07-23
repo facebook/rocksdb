@@ -454,6 +454,7 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 JNI_NATIVE_SOURCES = ./java/rocksjni/*.cc
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ROCKSDBJNILIB = librocksdbjni.so
+ROCKSDB_JAR = rocksdbjni.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDBJNILIB = librocksdbjni.jnilib
