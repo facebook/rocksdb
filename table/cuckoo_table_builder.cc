@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -21,37 +21,38 @@
 #include "util/random.h"
 
 namespace rocksdb {
-const std::string CuckooTablePropertyNames::kEmptyBucket =
-      "rocksdb.cuckoo.bucket.empty.bucket";
+const std::string CuckooTablePropertyNames::kEmptyKey =
+      "rocksdb.cuckoo.bucket.empty.key";
 const std::string CuckooTablePropertyNames::kNumHashTable =
       "rocksdb.cuckoo.hash.num";
 const std::string CuckooTablePropertyNames::kMaxNumBuckets =
       "rocksdb.cuckoo.bucket.maxnum";
+const std::string CuckooTablePropertyNames::kValueLength =
+      "rocksdb.cuckoo.value.length";
 
 // Obtained by running echo rocksdb.table.cuckoo | sha1sum
 extern const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
 
 CuckooTableBuilder::CuckooTableBuilder(
-    WritableFile* file, unsigned int fixed_key_length,
-    unsigned int fixed_value_length, double hash_table_ratio,
-    unsigned int file_size, unsigned int max_num_hash_table,
-    unsigned int max_search_depth,
-    unsigned int (*GetSliceHashPtr)(const Slice&, unsigned int,
-      unsigned int))
-    : num_hash_table_(std::min((unsigned int) 4, max_num_hash_table)),
+    WritableFile* file, uint32_t fixed_key_length,
+    uint32_t fixed_value_length, double hash_table_ratio,
+    uint64_t file_size, uint32_t max_num_hash_table,
+    uint32_t max_search_depth, bool is_last_level,
+    uint64_t (*GetSliceHashPtr)(const Slice&, uint32_t, uint64_t))
+    : num_hash_table_(2),
       file_(file),
       value_length_(fixed_value_length),
-      bucket_size_(fixed_key_length + fixed_value_length),
+      // 8 is the difference between sizes of user key and InternalKey.
+      bucket_size_(fixed_key_length +
+          fixed_value_length - (is_last_level ? 8 : 0)),
       hash_table_ratio_(hash_table_ratio),
       max_num_buckets_(file_size / bucket_size_),
       max_num_hash_table_(max_num_hash_table),
       max_search_depth_(max_search_depth),
+      is_last_level_file_(is_last_level),
       buckets_(max_num_buckets_),
+      make_space_for_key_call_id_(0),
       GetSliceHash(GetSliceHashPtr) {
-  // The bucket_size is currently not optimized for last level.
-  // In last level, the bucket will not contain full key.
-  // TODO(rbs): Find how we can determine if last level or not
-  // before we start adding entries into the table.
   properties_.num_entries = 0;
   // Data is in a huge block.
   properties_.num_data_blocks = 1;
@@ -67,17 +68,17 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     status_ = Status::Corruption("Hash Table is full.");
     return;
   }
-  unsigned int bucket_id;
+  uint64_t bucket_id;
   bool bucket_found = false;
-  autovector<unsigned int> hash_vals;
+  autovector<uint64_t> hash_vals;
   ParsedInternalKey ikey;
   if (!ParseInternalKey(key, &ikey)) {
     status_ = Status::Corruption("Unable to parse key into inernal key.");
     return;
   }
   Slice user_key = ikey.user_key;
-  for (unsigned int hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
-    unsigned int hash_val = GetSliceHash(user_key, hash_cnt, max_num_buckets_);
+  for (uint32_t hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
+    uint64_t hash_val = GetSliceHash(user_key, hash_cnt, max_num_buckets_);
     if (buckets_[hash_val].is_empty) {
       bucket_id = hash_val;
       bucket_found = true;
@@ -98,27 +99,21 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     }
     // We don't really need to rehash the entire table because old hashes are
     // still valid and we only increased the number of hash functions.
-    unsigned int old_num_hash = num_hash_table_;
-    num_hash_table_ = std::min(num_hash_table_ + 1, max_num_hash_table_);
-    for (unsigned int i = old_num_hash; i < num_hash_table_; i++) {
-      unsigned int hash_val = GetSliceHash(user_key, i, max_num_buckets_);
-      if (buckets_[hash_val].is_empty) {
-        bucket_found = true;
-        bucket_id = hash_val;
-        break;
-      } else {
-        hash_vals.push_back(hash_val);
-      }
+    uint64_t hash_val = GetSliceHash(user_key,
+        num_hash_table_, max_num_buckets_);
+    ++num_hash_table_;
+    if (buckets_[hash_val].is_empty) {
+      bucket_found = true;
+      bucket_id = hash_val;
+      break;
+    } else {
+      hash_vals.push_back(hash_val);
     }
   }
   buckets_[bucket_id].key = key;
   buckets_[bucket_id].value = value;
   buckets_[bucket_id].is_empty = false;
 
-  if (ikey.sequence != 0) {
-    // This is not a last level file.
-    is_last_level_file_ = false;
-  }
   properties_.num_entries++;
 
   // We assume that the keys are inserted in sorted order. To identify an
@@ -169,10 +164,11 @@ Status CuckooTableBuilder::Finish() {
     AppendInternalKey(&unused_bucket, ikey);
   }
   properties_.fixed_key_len = unused_bucket.size();
-  unsigned int bucket_size = unused_bucket.size() + value_length_;
-  // Resize to bucket size.
-  unused_bucket.resize(bucket_size, 'a');
+  properties_.user_collected_properties[
+        CuckooTablePropertyNames::kValueLength].assign(
+        reinterpret_cast<const char*>(&value_length_), sizeof(value_length_));
 
+  unused_bucket.resize(bucket_size_, 'a');
   // Write the table.
   for (auto& bucket : buckets_) {
     Status s;
@@ -197,16 +193,20 @@ Status CuckooTableBuilder::Finish() {
     }
   }
 
-  unsigned int offset = buckets_.size() * bucket_size;
+  uint64_t offset = buckets_.size() * bucket_size_;
+  unused_bucket.resize(properties_.fixed_key_len);
   properties_.user_collected_properties[
-    CuckooTablePropertyNames::kEmptyBucket] = unused_bucket;
+    CuckooTablePropertyNames::kEmptyKey] = unused_bucket;
   properties_.user_collected_properties[
-    CuckooTablePropertyNames::kNumHashTable] = std::to_string(num_hash_table_);
-  PutVarint32(&properties_.user_collected_properties[
-    CuckooTablePropertyNames::kMaxNumBuckets], max_num_buckets_);
+    CuckooTablePropertyNames::kNumHashTable].assign(
+        reinterpret_cast<char*>(&num_hash_table_), sizeof(num_hash_table_));
+  properties_.user_collected_properties[
+    CuckooTablePropertyNames::kMaxNumBuckets].assign(
+        reinterpret_cast<const char*>(&max_num_buckets_),
+        sizeof(max_num_buckets_));
 
   // Write meta blocks.
-  MetaIndexBuilder meta_index_builer;
+  MetaIndexBuilder meta_index_builder;
   PropertyBlockBuilder property_block_builder;
 
   property_block_builder.AddTableProperty(properties_);
@@ -221,8 +221,8 @@ Status CuckooTableBuilder::Finish() {
     return s;
   }
 
-  meta_index_builer.Add(kPropertiesBlock, property_block_handle);
-  Slice meta_index_block = meta_index_builer.Finish();
+  meta_index_builder.Add(kPropertiesBlock, property_block_handle);
+  Slice meta_index_block = meta_index_builder.Finish();
 
   BlockHandle meta_index_block_handle;
   meta_index_block_handle.set_offset(offset);
@@ -262,44 +262,52 @@ uint64_t CuckooTableBuilder::FileSize() const {
 }
 
 bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
-    unsigned int *bucket_id, autovector<unsigned int> hash_vals) {
+    uint64_t *bucket_id, autovector<uint64_t> hash_vals) {
   struct CuckooNode {
-    unsigned int bucket_id;
-    unsigned int depth;
+    uint64_t bucket_id;
+    uint32_t depth;
     int parent_pos;
-    CuckooNode(unsigned int bucket_id, unsigned int depth, int parent_pos)
+    CuckooNode(uint64_t bucket_id, uint32_t depth, int parent_pos)
       : bucket_id(bucket_id), depth(depth), parent_pos(parent_pos) {}
   };
   // This is BFS search tree that is stored simply as a vector.
   // Each node stores the index of parent node in the vector.
   std::vector<CuckooNode> tree;
-  // This is a very bad way to keep track of visited nodes.
-  // TODO(rbs): Change this by adding a 'GetKeyPathId' field to the bucket
-  // and use it to track visited nodes.
-  std::vector<bool> buckets_visited(max_num_buckets_, false);
-  for (unsigned int hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
-    unsigned int bucket_id = hash_vals[hash_cnt];
-    buckets_visited[bucket_id] = true;
+  // We want to identify already visited buckets in the current method call so
+  // that we don't add same buckets again for exploration in the tree.
+  // We do this by maintaining a count of current method call, which acts as a
+  // unique id for this invocation of the method. We store this number into
+  // the nodes that we explore in current method call.
+  // It is unlikely for the increment operation to overflow because the maximum
+  // number of times this will be called is <= max_num_hash_table_ +
+  // max_num_buckets_.
+  ++make_space_for_key_call_id_;
+  for (uint32_t hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
+    uint64_t bucket_id = hash_vals[hash_cnt];
+    buckets_[bucket_id].make_space_for_key_call_id =
+      make_space_for_key_call_id_;
     tree.push_back(CuckooNode(bucket_id, 0, -1));
   }
   bool null_found = false;
-  unsigned int curr_pos = 0;
+  uint32_t curr_pos = 0;
   while (!null_found && curr_pos < tree.size()) {
     CuckooNode& curr_node = tree[curr_pos];
     if (curr_node.depth >= max_search_depth_) {
       break;
     }
     CuckooBucket& curr_bucket = buckets_[curr_node.bucket_id];
-    for (unsigned int hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
-      unsigned int child_bucket_id = GetSliceHash(
+    for (uint32_t hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
+      uint64_t child_bucket_id = GetSliceHash(
           ExtractUserKey(curr_bucket.key), hash_cnt, max_num_buckets_);
       if (child_bucket_id == curr_node.bucket_id) {
         continue;
       }
-      if (buckets_visited[child_bucket_id]) {
+      if (buckets_[child_bucket_id].make_space_for_key_call_id ==
+          make_space_for_key_call_id_) {
         continue;
       }
-      buckets_visited[child_bucket_id] = true;
+      buckets_[child_bucket_id].make_space_for_key_call_id =
+        make_space_for_key_call_id_;
       tree.push_back(CuckooNode(child_bucket_id, curr_node.depth + 1,
             curr_pos));
       if (buckets_[child_bucket_id].is_empty) {

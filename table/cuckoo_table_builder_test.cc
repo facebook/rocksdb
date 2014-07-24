@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc. All rights reserved.
+// Copyright (c) 2014, Facebook, Inc. All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -19,20 +19,19 @@ namespace rocksdb {
 extern const uint64_t kCuckooTableMagicNumber;
 
 namespace {
-std::unordered_map<std::string, std::vector<unsigned int>> hash_map;
+std::unordered_map<std::string, std::vector<uint64_t>> hash_map;
 
-void AddHashLookups(const std::string& s, unsigned int bucket_id,
-    unsigned int num_hash_fun) {
-  std::vector<unsigned int> v;
-  for (unsigned int i = 0; i < num_hash_fun; i++) {
+void AddHashLookups(const std::string& s, uint64_t bucket_id,
+    uint32_t num_hash_fun) {
+  std::vector<uint64_t> v;
+  for (uint32_t i = 0; i < num_hash_fun; i++) {
     v.push_back(bucket_id + i);
   }
   hash_map[s] = v;
-  return;
 }
 
-unsigned int GetSliceHash(const Slice& s, unsigned int index,
-    unsigned int max_num_buckets) {
+uint64_t GetSliceHash(const Slice& s, uint32_t index,
+    uint64_t max_num_buckets) {
   return hash_map[s.ToString()][index];
 }
 }  // namespace
@@ -43,7 +42,9 @@ class CuckooBuilderTest {
     env_ = Env::Default();
   }
 
-  void CheckFileContents(const std::string& expected_data) {
+  void CheckFileContents(const std::string& expected_data,
+      std::string expected_unused_bucket, uint64_t expected_max_buckets,
+      uint32_t expected_num_hash_fun) {
     // Read file
     unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env_->NewRandomAccessFile(fname, &read_file, env_options_));
@@ -58,15 +59,22 @@ class CuckooBuilderTest {
     ASSERT_EQ(props->fixed_key_len, key_length);
 
     // Check unused bucket.
-    std::string unused_bucket = props->user_collected_properties[
-      CuckooTablePropertyNames::kEmptyBucket];
-    ASSERT_EQ(expected_unused_bucket, unused_bucket);
+    std::string unused_key = props->user_collected_properties[
+      CuckooTablePropertyNames::kEmptyKey];
+    ASSERT_EQ(expected_unused_bucket.substr(0, key_length), unused_key);
 
-    unsigned int max_buckets;
-    Slice max_buckets_slice = Slice(props->user_collected_properties[
-                CuckooTablePropertyNames::kMaxNumBuckets]);
-    GetVarint32(&max_buckets_slice, &max_buckets);
+    uint32_t value_len_found =
+      *reinterpret_cast<const uint32_t*>(props->user_collected_properties[
+                CuckooTablePropertyNames::kValueLength].data());
+    ASSERT_EQ(value_length, value_len_found);
+    const uint64_t max_buckets =
+      *reinterpret_cast<const uint64_t*>(props->user_collected_properties[
+                CuckooTablePropertyNames::kMaxNumBuckets].data());
     ASSERT_EQ(expected_max_buckets, max_buckets);
+    const uint32_t num_hash_fun_found =
+      *reinterpret_cast<const uint32_t*>(props->user_collected_properties[
+                CuckooTablePropertyNames::kNumHashTable].data());
+    ASSERT_EQ(expected_num_hash_fun, num_hash_fun_found);
     delete props;
     // Check contents of the bucket.
     std::string read_data;
@@ -80,28 +88,25 @@ class CuckooBuilderTest {
   Env* env_;
   const EnvOptions env_options_;
   std::string fname;
-  std::string expected_unused_bucket;
-  unsigned int file_size = 100000;
-  unsigned int num_items = 20;
-  unsigned int num_hash_fun = 64;
+  uint64_t file_size = 100000;
+  uint32_t num_items = 20;
+  uint32_t num_hash_fun = 64;
   double hash_table_ratio = 0.9;
-  unsigned int ikey_length;
-  unsigned int user_key_length;
-  unsigned int key_length;
-  unsigned int value_length;
-  unsigned int bucket_length;
-  unsigned int expected_max_buckets;
+  uint32_t ikey_length;
+  uint32_t user_key_length;
+  uint32_t key_length;
+  uint32_t value_length;
+  uint32_t bucket_length;
 };
 
 TEST(CuckooBuilderTest, NoCollision) {
   hash_map.clear();
-  num_items = 20;
-  num_hash_fun = 64;
+  uint32_t expected_num_hash_fun = 2;
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
-  unsigned int bucket_ids = 0;
-  for (unsigned int i = 0; i < num_items; i++) {
+  uint64_t bucket_ids = 0;
+  for (uint32_t i = 0; i < num_items; i++) {
     user_keys[i] = "keys" + std::to_string(i+100);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
@@ -114,9 +119,10 @@ TEST(CuckooBuilderTest, NoCollision) {
   key_length = ikey_length;
   value_length = values[0].size();
   bucket_length = ikey_length + value_length;
-  expected_max_buckets = file_size / bucket_length;
+  uint64_t expected_max_buckets = file_size / bucket_length;
   std::string expected_unused_user_key = "keys10:";
   ParsedInternalKey ikey(expected_unused_user_key, 0, kTypeValue);
+  std::string expected_unused_bucket;
   AppendInternalKey(&expected_unused_bucket, ikey);
   expected_unused_bucket.resize(bucket_length, 'a');
   unique_ptr<WritableFile> writable_file;
@@ -125,11 +131,11 @@ TEST(CuckooBuilderTest, NoCollision) {
   CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio,
-      file_size, num_hash_fun, 100, GetSliceHash);
+      file_size, num_hash_fun, 100, false, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
-  unsigned int key_idx = 0;
+  uint32_t key_idx = 0;
   std::string expected_file_data = "";
-  for (unsigned int i = 0; i < expected_max_buckets; i++) {
+  for (uint32_t i = 0; i < expected_max_buckets; i++) {
     if (key_idx * num_hash_fun == i && key_idx < num_items) {
       cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
       ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
@@ -142,16 +148,18 @@ TEST(CuckooBuilderTest, NoCollision) {
   }
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
-  CheckFileContents(expected_file_data);
+  CheckFileContents(expected_file_data, expected_unused_bucket,
+      expected_max_buckets, expected_num_hash_fun);
 }
 
 TEST(CuckooBuilderTest, NoCollisionLastLevel) {
   hash_map.clear();
+  uint32_t expected_num_hash_fun = 2;
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
-  unsigned int bucket_ids = 0;
-  for (unsigned int i = 0; i < num_items; i++) {
+  uint64_t bucket_ids = 0;
+  for (uint32_t i = 0; i < num_items; i++) {
     user_keys[i] = "keys" + std::to_string(i+100);
     // Set zero sequence number in all keys.
     ParsedInternalKey ikey(user_keys[i], 0, kTypeValue);
@@ -165,20 +173,20 @@ TEST(CuckooBuilderTest, NoCollisionLastLevel) {
   key_length = user_key_length;
   value_length = values[0].size();
   bucket_length = key_length + value_length;
-  expected_max_buckets = file_size / bucket_length;
-  expected_unused_bucket = "keys10:";
+  uint64_t expected_max_buckets = file_size / bucket_length;
+  std::string expected_unused_bucket = "keys10:";
   expected_unused_bucket.resize(bucket_length, 'a');
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionLastLevel_writable_file";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder cuckoo_builder(
-      writable_file.get(), key_length,
+      writable_file.get(), ikey_length,
       value_length, hash_table_ratio,
-      file_size, num_hash_fun, 100, GetSliceHash);
+      file_size, num_hash_fun, 100, true, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
-  unsigned int key_idx = 0;
+  uint32_t key_idx = 0;
   std::string expected_file_data = "";
-  for (unsigned int i = 0; i < expected_max_buckets; i++) {
+  for (uint32_t i = 0; i < expected_max_buckets; i++) {
     if (key_idx * num_hash_fun == i && key_idx < num_items) {
       cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
       ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
@@ -191,7 +199,8 @@ TEST(CuckooBuilderTest, NoCollisionLastLevel) {
   }
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
-  CheckFileContents(expected_file_data);
+  CheckFileContents(expected_file_data, expected_unused_bucket,
+      expected_max_buckets, expected_num_hash_fun);
 }
 
 TEST(CuckooBuilderTest, WithCollision) {
@@ -199,10 +208,11 @@ TEST(CuckooBuilderTest, WithCollision) {
   hash_map.clear();
   num_hash_fun = 20;
   num_items = num_hash_fun;
+  uint32_t expected_num_hash_fun = num_hash_fun;
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
-  for (unsigned int i = 0; i < num_items; i++) {
+  for (uint32_t i = 0; i < num_items; i++) {
     user_keys[i] = "keys" + std::to_string(i+100);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
@@ -214,9 +224,10 @@ TEST(CuckooBuilderTest, WithCollision) {
   value_length = values[0].size();
   key_length = ikey_length;
   bucket_length = key_length + value_length;
-  expected_max_buckets = file_size / bucket_length;
+  uint64_t expected_max_buckets = file_size / bucket_length;
   std::string expected_unused_user_key = "keys10:";
   ParsedInternalKey ikey(expected_unused_user_key, 0, kTypeValue);
+  std::string expected_unused_bucket;
   AppendInternalKey(&expected_unused_bucket, ikey);
   expected_unused_bucket.resize(bucket_length, 'a');
   unique_ptr<WritableFile> writable_file;
@@ -224,11 +235,11 @@ TEST(CuckooBuilderTest, WithCollision) {
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder cuckoo_builder(
       writable_file.get(), key_length, value_length, hash_table_ratio,
-      file_size, num_hash_fun, 100, GetSliceHash);
+      file_size, num_hash_fun, 100, false, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
-  unsigned int key_idx = 0;
+  uint32_t key_idx = 0;
   std::string expected_file_data = "";
-  for (unsigned int i = 0; i < expected_max_buckets; i++) {
+  for (uint32_t i = 0; i < expected_max_buckets; i++) {
     if (key_idx  == i && key_idx < num_items) {
       cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
       ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
@@ -241,7 +252,8 @@ TEST(CuckooBuilderTest, WithCollision) {
   }
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
-  CheckFileContents(expected_file_data);
+  CheckFileContents(expected_file_data, expected_unused_bucket,
+      expected_max_buckets, expected_num_hash_fun);
 }
 
 TEST(CuckooBuilderTest, FailWithTooManyCollisions) {
@@ -253,7 +265,7 @@ TEST(CuckooBuilderTest, FailWithTooManyCollisions) {
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
-  for (unsigned int i = 0; i < num_items; i++) {
+  for (uint32_t i = 0; i < num_items; i++) {
     user_keys[i] = "keys" + std::to_string(i+100);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
@@ -269,9 +281,9 @@ TEST(CuckooBuilderTest, FailWithTooManyCollisions) {
   CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
-      100, GetSliceHash);
+      100, false, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
-  for (unsigned int key_idx = 0; key_idx < num_items-1; key_idx++) {
+  for (uint32_t key_idx = 0; key_idx < num_items-1; key_idx++) {
     cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
     ASSERT_OK(cuckoo_builder.status());
     ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
@@ -300,7 +312,7 @@ TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
   CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
-      100, GetSliceHash);
+      100, false, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
   cuckoo_builder.Add(Slice(key_to_reuse1), Slice(value));
   ASSERT_OK(cuckoo_builder.status());
@@ -316,14 +328,14 @@ TEST(CuckooBuilderTest, WithACollisionPath) {
   // Have two hash functions. Insert elements with overlapping hashes.
   // Finally insert an element which will displace all the current elements.
   num_hash_fun = 2;
-
-  unsigned int max_search_depth = 100;
+  uint32_t expected_num_hash_fun = num_hash_fun;
+  uint32_t max_search_depth = 100;
   num_items = max_search_depth + 2;
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
-  std::vector<unsigned int> expected_bucket_id(num_items);
-  for (unsigned int i = 0; i < num_items - 1; i++) {
+  std::vector<uint64_t> expected_bucket_id(num_items);
+  for (uint32_t i = 0; i < num_items - 1; i++) {
     user_keys[i] = "keys" + std::to_string(i+100);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
@@ -346,13 +358,14 @@ TEST(CuckooBuilderTest, WithACollisionPath) {
   key_length = ikey_length;
   bucket_length = key_length + value_length;
 
-  expected_max_buckets = file_size / bucket_length;
+  uint64_t expected_max_buckets = file_size / bucket_length;
   std::string expected_unused_user_key = "keys10:";
   ikey = ParsedInternalKey(expected_unused_user_key, 0, kTypeValue);
+  std::string expected_unused_bucket;
   AppendInternalKey(&expected_unused_bucket, ikey);
   expected_unused_bucket.resize(bucket_length, 'a');
   std::string expected_file_data = "";
-  for (unsigned int i = 0; i < expected_max_buckets; i++) {
+  for (uint32_t i = 0; i < expected_max_buckets; i++) {
     expected_file_data += expected_unused_bucket;
   }
 
@@ -362,9 +375,9 @@ TEST(CuckooBuilderTest, WithACollisionPath) {
   CuckooTableBuilder cuckoo_builder(
       writable_file.get(), key_length,
       value_length, hash_table_ratio, file_size,
-      num_hash_fun, max_search_depth, GetSliceHash);
+      num_hash_fun, max_search_depth, false, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
-  for (unsigned int key_idx = 0; key_idx < num_items; key_idx++) {
+  for (uint32_t key_idx = 0; key_idx < num_items; key_idx++) {
     cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
     ASSERT_OK(cuckoo_builder.status());
     ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
@@ -373,7 +386,8 @@ TEST(CuckooBuilderTest, WithACollisionPath) {
   }
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
-  CheckFileContents(expected_file_data);
+  CheckFileContents(expected_file_data, expected_unused_bucket,
+      expected_max_buckets, expected_num_hash_fun);
 }
 
 TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
@@ -382,12 +396,12 @@ TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   // Finally insert an element which will displace all the current elements.
   num_hash_fun = 2;
 
-  unsigned int max_search_depth = 100;
+  uint32_t max_search_depth = 100;
   num_items = max_search_depth + 3;
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
-  for (unsigned int i = 0; i < num_items - 1; i++) {
+  for (uint32_t i = 0; i < num_items - 1; i++) {
     user_keys[i] = "keys" + std::to_string(i+100);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
@@ -410,9 +424,9 @@ TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
-      max_search_depth, GetSliceHash);
+      max_search_depth, false, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
-  for (unsigned int key_idx = 0; key_idx < num_items-1; key_idx++) {
+  for (uint32_t key_idx = 0; key_idx < num_items-1; key_idx++) {
     cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
     ASSERT_OK(cuckoo_builder.status());
     ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);
@@ -431,7 +445,7 @@ TEST(CuckooBuilderTest, FailWhenTableIsFull) {
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
-  for (unsigned int i = 0; i < num_items; i++) {
+  for (uint32_t i = 0; i < num_items; i++) {
     user_keys[i] = "keys" + std::to_string(i+1000);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
@@ -451,9 +465,9 @@ TEST(CuckooBuilderTest, FailWhenTableIsFull) {
   CuckooTableBuilder cuckoo_builder(
       writable_file.get(), ikey_length,
       value_length, hash_table_ratio, file_size, num_hash_fun,
-      100, GetSliceHash);
+      100, false, GetSliceHash);
   ASSERT_OK(cuckoo_builder.status());
-  for (unsigned int key_idx = 0; key_idx < num_items-1; key_idx++) {
+  for (uint32_t key_idx = 0; key_idx < num_items-1; key_idx++) {
     cuckoo_builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
     ASSERT_OK(cuckoo_builder.status());
     ASSERT_EQ(cuckoo_builder.NumEntries(), key_idx + 1);

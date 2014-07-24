@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc. All rights reserved.
+// Copyright (c) 2014, Facebook, Inc. All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -10,11 +10,11 @@
 
 namespace rocksdb {
 
-static const unsigned int kMaxNumHashTable  = 64;
+static const uint32_t kMaxNumHashTable  = 64;
 
-unsigned int GetSliceMurmurHash(const Slice& s, unsigned int index,
-    unsigned int max_num_buckets) {
-  static constexpr unsigned int seeds[kMaxNumHashTable] = {
+uint64_t GetSliceMurmurHash(const Slice& s, uint32_t index,
+    uint64_t max_num_buckets) {
+  static constexpr uint32_t seeds[kMaxNumHashTable] = {
     816922183, 506425713, 949485004, 22513986, 421427259, 500437285,
     888981693, 847587269, 511007211, 722295391, 934013645, 566947683,
     193618736, 428277388, 770956674, 819994962, 755946528, 40807421,

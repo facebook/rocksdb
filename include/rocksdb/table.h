@@ -185,7 +185,8 @@ extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options =
                                               PlainTableOptions());
 
 struct CuckooTablePropertyNames {
-  static const std::string kEmptyBucket;
+  static const std::string kEmptyKey;
+  static const std::string kValueLength;
   static const std::string kNumHashTable;
   static const std::string kMaxNumBuckets;
 };

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -16,22 +16,14 @@
 
 namespace rocksdb {
 
-struct CuckooBucket {
-  CuckooBucket(): is_empty(true) {}
-  Slice key;
-  Slice value;
-  bool is_empty;
-};
-
 class CuckooTableBuilder: public TableBuilder {
  public:
   CuckooTableBuilder(
-      WritableFile* file, unsigned int fixed_key_length,
-      unsigned int fixed_value_length, double hash_table_ratio,
-      unsigned int file_size, unsigned int max_num_hash_table,
-      unsigned int max_search_depth,
-      unsigned int (*GetSliceHash)(const Slice&, unsigned int,
-        unsigned int));
+      WritableFile* file, uint32_t fixed_key_length,
+      uint32_t fixed_value_length, double hash_table_ratio,
+      uint64_t file_size, uint32_t max_num_hash_table,
+      uint32_t max_search_depth, bool is_last_level,
+      uint64_t (*GetSliceHash)(const Slice&, uint32_t, uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~CuckooTableBuilder();
@@ -64,23 +56,32 @@ class CuckooTableBuilder: public TableBuilder {
   uint64_t FileSize() const override;
 
  private:
-  bool MakeSpaceForKey(const Slice& key, unsigned int* bucket_id,
-      autovector<unsigned int> hash_vals);
+  struct CuckooBucket {
+    CuckooBucket(): is_empty(true), make_space_for_key_call_id(0) {}
+    Slice key;
+    Slice value;
+    bool is_empty;
+    uint64_t make_space_for_key_call_id;
+  };
 
-  unsigned int num_hash_table_;
+  bool MakeSpaceForKey(const Slice& key, uint64_t* bucket_id,
+      autovector<uint64_t> hash_vals);
+
+  uint32_t num_hash_table_;
   WritableFile* file_;
-  const unsigned int value_length_;
-  const unsigned int bucket_size_;
+  const uint32_t value_length_;
+  const uint32_t bucket_size_;
   const double hash_table_ratio_;
-  const unsigned int max_num_buckets_;
-  const unsigned int max_num_hash_table_;
-  const unsigned int max_search_depth_;
+  const uint64_t max_num_buckets_;
+  const uint32_t max_num_hash_table_;
+  const uint32_t max_search_depth_;
+  const bool is_last_level_file_;
   Status status_;
   std::vector<CuckooBucket> buckets_;
-  bool is_last_level_file_ = true;
   TableProperties properties_;
-  unsigned int (*GetSliceHash)(const Slice& s, unsigned int index,
-    unsigned int max_num_buckets);
+  uint64_t make_space_for_key_call_id_;
+  uint64_t (*GetSliceHash)(const Slice& s, uint32_t index,
+    uint64_t max_num_buckets);
   std::string unused_user_key_ = "";
   std::string prev_key_;
 
