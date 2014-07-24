@@ -14,8 +14,8 @@
 #include <stdexcept>
 #include <vector>
 
-#include "utilities/geo_db.h"
-#include "utilities/stackable_db.h"
+#include "rocksdb/utilities/geo_db.h"
+#include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 

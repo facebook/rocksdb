@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #ifndef ROCKSDB_LITE
 
-#include "utilities/json_document.h"
+#include "rocksdb/utilities/json_document.h"
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>

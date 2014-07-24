@@ -9,7 +9,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/backupable_db.h"
+#include "rocksdb/utilities/backupable_db.h"
 #include "db/filename.h"
 #include "util/coding.h"
 #include "util/crc32c.h"

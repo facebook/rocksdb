@@ -36,7 +36,7 @@ int main() {
 #include "db/version_set.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/cache.h"
-#include "utilities/db_ttl.h"
+#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/env.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"

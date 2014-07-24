@@ -22,6 +22,7 @@
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "db/dbformat.h"
 
 namespace rocksdb {
 
@@ -94,7 +95,7 @@ class Block::Iter : public Iterator {
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
   uint32_t restart_index_;  // Index of restart block in which current_ falls
-  std::string key_;
+  IterKey key_;
   Slice value_;
   Status status_;
   BlockHashIndex* hash_index_;
@@ -115,7 +116,7 @@ class Block::Iter : public Iterator {
   }
 
   void SeekToRestartPoint(uint32_t index) {
-    key_.clear();
+    key_.Clear();
     restart_index_ = index;
     // current_ will be fixed by ParseNextKey();
 
@@ -143,7 +144,7 @@ class Block::Iter : public Iterator {
   virtual Status status() const { return status_; }
   virtual Slice key() const {
     assert(Valid());
-    return key_;
+    return key_.GetKey();
   }
   virtual Slice value() const {
     assert(Valid());
@@ -193,7 +194,7 @@ class Block::Iter : public Iterator {
     // Linear search (within restart block) for first key >= target
 
     while (true) {
-      if (!ParseNextKey() || Compare(key_, target) >= 0) {
+      if (!ParseNextKey() || Compare(key_.GetKey(), target) >= 0) {
         return;
       }
     }
@@ -215,7 +216,7 @@ class Block::Iter : public Iterator {
     current_ = restarts_;
     restart_index_ = num_restarts_;
     status_ = Status::Corruption("bad entry in block");
-    key_.clear();
+    key_.Clear();
     value_.clear();
   }
 
@@ -233,12 +234,11 @@ class Block::Iter : public Iterator {
     // Decode next entry
     uint32_t shared, non_shared, value_length;
     p = DecodeEntry(p, limit, &shared, &non_shared, &value_length);
-    if (p == nullptr || key_.size() < shared) {
+    if (p == nullptr || key_.Size() < shared) {
       CorruptionError();
       return false;
     } else {
-      key_.resize(shared);
-      key_.append(p, non_shared);
+      key_.TrimAppend(shared, p, non_shared);
       value_ = Slice(p + non_shared, value_length);
       while (restart_index_ + 1 < num_restarts_ &&
              GetRestartPoint(restart_index_ + 1) < current_) {

@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-### Unrelease
+### Unreleased
 ### New Features
 * Support Multiple DB paths in universal style compactions
 * Add feature of storing plain table index and bloom filter in SST file.
@@ -8,6 +8,7 @@
 ### Public API changes
 * DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size
 * NewPlainTableFactory instead of bunch of parameters now accepts PlainTableOptions, which is defined in include/rocksdb/table.h
+* Moved include/utilities/*.h to include/rocksdb/utilities/*.h
 
 
 ## 3.3.0 (7/10/2014)

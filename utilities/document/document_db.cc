@@ -5,17 +5,17 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/document_db.h"
+#include "rocksdb/utilities/document_db.h"
 
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/json_document.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "port/port.h"
-#include "utilities/json_document.h"
 
 namespace rocksdb {
 

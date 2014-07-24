@@ -130,8 +130,8 @@ void OptimizeForLevel(int read_amplification_threshold,
 
     // Try to enlarge the buffer up to 1GB, if still have sufficient headroom.
     file_num_buffer *=
-        std::pow(2, std::max(0, std::min(3, level0_stop_writes_trigger -
-                                                file_num_buffer - 2)));
+        1 << std::max(0, std::min(3, level0_stop_writes_trigger -
+                                       file_num_buffer - 2));
 
     options->level0_stop_writes_trigger = level0_stop_writes_trigger;
     options->level0_slowdown_writes_trigger = level0_stop_writes_trigger - 2;
