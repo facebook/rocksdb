@@ -685,12 +685,12 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
     Iterator* iter = base_db->NewIterator(ReadOptions(), handles[0]);
     iter->SeekToLast();
     if (iter->Valid()) {
-      uint64_t last_id;
-      bool ok = GetFixed64BigEndian(iter->key(), &last_id);
-      if (!ok) {
+      uint64_t last_id = 0;
+      if (!GetFixed64BigEndian(iter->key(), &last_id)) {
         s = Status::Corruption("Invalid key in data column family");
+      } else {
+        next_id = last_id + 1;
       }
-      next_id = last_id + 1;
     } else {
       next_id = 1;
     }
