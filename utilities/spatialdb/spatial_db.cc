@@ -15,9 +15,40 @@
 #include "rocksdb/utilities/stackable_db.h"
 #include "rocksdb/utilities/spatial_db.h"
 #include "util/coding.h"
+#include "utilities/spatialdb/utils.h"
 
 namespace rocksdb {
 namespace spatial {
+
+// Column families are used to store element's data and spatial indexes. We use
+// [default] column family to store the element data. This is the format of
+// [default] column family:
+// * id (fixed 64 big endian) -> blob (length prefixed slice) feature_set
+// (serialized)
+// We have one additional column family for each spatial index. The name of the
+// column family is [spatial$<spatial_index_name>]. The format is:
+// * quad_key (fixed 64 bit big endian) id (fixed 64 bit big endian) -> ""
+// We store information about indexes in [metadata] column family. Format is:
+// * spatial$<spatial_index_name> -> bbox (4 double encodings) tile_bits
+// (varint32)
+
+namespace {
+const std::string kMetadataColumnFamilyName("metadata");
+inline std::string GetSpatialIndexColumnFamilyName(
+    const std::string& spatial_index_name) {
+  return "spatial$" + spatial_index_name;
+}
+inline bool GetSpatialIndexName(const std::string& column_family_name,
+                                Slice* dst) {
+  *dst = Slice(column_family_name);
+  if (dst->starts_with("spatial$")) {
+    dst->remove_prefix(8);  // strlen("spatial$")
+    return true;
+  }
+  return false;
+}
+
+}  // namespace
 
 Variant::Variant(const Variant& v) : type_(v.type_) {
   switch (v.type_) {
@@ -100,8 +131,7 @@ void FeatureSet::Serialize(std::string* output) const {
         PutVarint64(output, iter.second.get_int());
         break;
       case Variant::kDouble: {
-        double d = iter.second.get_double();
-        output->append(reinterpret_cast<char*>(&d), sizeof(double));
+        PutDouble(output, iter.second.get_double());
         break;
       }
       case Variant::kString:
@@ -145,13 +175,11 @@ bool FeatureSet::Deserialize(const Slice& input) {
         break;
       }
       case Variant::kDouble: {
-        if (s.size() < sizeof(double)) {
+        double d;
+        if (!GetDouble(&s, &d)) {
           return false;
         }
-        double d;
-        memcpy(&d, s.data(), sizeof(double));
         map_.insert({key.ToString(), Variant(d)});
-        s.remove_prefix(sizeof(double));
         break;
       }
       case Variant::kString: {
@@ -168,72 +196,6 @@ bool FeatureSet::Deserialize(const Slice& input) {
   }
   return true;
 }
-
-namespace {
-// indexing idea from http://msdn.microsoft.com/en-us/library/bb259689.aspx
-inline uint64_t GetTileFromCoord(double x, double start, double end,
-                                 uint32_t tile_bits) {
-  if (x < start) {
-    return 0;
-  }
-  uint64_t tiles = static_cast<uint64_t>(1) << tile_bits;
-  uint64_t r = ((x - start) / (end - start)) * tiles;
-  return std::min(r, tiles - 1);
-}
-inline uint64_t GetQuadKeyFromTile(uint64_t tile_x, uint64_t tile_y,
-                                   uint32_t tile_bits) {
-  uint64_t quad_key = 0;
-  for (uint32_t i = 0; i < tile_bits; ++i) {
-    uint32_t mask = (1LL << i);
-    quad_key |= (tile_x & mask) << i;
-    quad_key |= (tile_y & mask) << (i + 1);
-  }
-  return quad_key;
-}
-inline BoundingBox<uint64_t> GetTileBoundingBox(
-    const SpatialIndexOptions& spatial_index, BoundingBox<double> bbox) {
-  return BoundingBox<uint64_t>(
-      GetTileFromCoord(bbox.min_x, spatial_index.bbox.min_x,
-                       spatial_index.bbox.max_x, spatial_index.tile_bits),
-      GetTileFromCoord(bbox.min_y, spatial_index.bbox.min_y,
-                       spatial_index.bbox.max_y, spatial_index.tile_bits),
-      GetTileFromCoord(bbox.max_x, spatial_index.bbox.min_x,
-                       spatial_index.bbox.max_x, spatial_index.tile_bits),
-      GetTileFromCoord(bbox.max_y, spatial_index.bbox.min_y,
-                       spatial_index.bbox.max_y, spatial_index.tile_bits));
-}
-
-// big endian can be compared using memcpy
-inline void PutFixed64BigEndian(std::string* dst, uint64_t value) {
-  char buf[sizeof(value)];
-  buf[0] = (value >> 56) & 0xff;
-  buf[1] = (value >> 48) & 0xff;
-  buf[2] = (value >> 40) & 0xff;
-  buf[3] = (value >> 32) & 0xff;
-  buf[4] = (value >> 24) & 0xff;
-  buf[5] = (value >> 16) & 0xff;
-  buf[6] = (value >> 8) & 0xff;
-  buf[7] = value & 0xff;
-  dst->append(buf, sizeof(buf));
-}
-// big endian can be compared using memcpy
-inline bool GetFixed64BigEndian(const Slice& input, uint64_t* value) {
-  if (input.size() < sizeof(uint64_t)) {
-    return false;
-  }
-  auto ptr = input.data();
-  *value = (static_cast<uint64_t>(static_cast<unsigned char>(ptr[0])) << 56) |
-           (static_cast<uint64_t>(static_cast<unsigned char>(ptr[1])) << 48) |
-           (static_cast<uint64_t>(static_cast<unsigned char>(ptr[2])) << 40) |
-           (static_cast<uint64_t>(static_cast<unsigned char>(ptr[3])) << 32) |
-           (static_cast<uint64_t>(static_cast<unsigned char>(ptr[4])) << 24) |
-           (static_cast<uint64_t>(static_cast<unsigned char>(ptr[5])) << 16) |
-           (static_cast<uint64_t>(static_cast<unsigned char>(ptr[6])) << 8) |
-           static_cast<uint64_t>(static_cast<unsigned char>(ptr[7]));
-  return true;
-}
-
-}  // namespace
 
 class SpatialIndexCursor : public Cursor {
  public:
@@ -432,14 +394,6 @@ class ErrorCursor : public Cursor {
   FeatureSet trash_;
 };
 
-// Column families are used to store element's data and spatial indexes. We use
-// [default] column family to store the element data. This is the format of
-// [default] column family:
-// * id (fixed 64 big endian) -> blob (length prefixed slice) feature_set
-// (serialized)
-// We have one additional column family for each spatial index. The name of the
-// column family is [spatial$<spatial_index_name>]. The format is:
-// * quad_key (fixed 64 bit big endian) id (fixed 64 bit big endian) -> ""
 class SpatialDBImpl : public SpatialDB {
  public:
   // * db -- base DB that needs to be forwarded to StackableDB
@@ -518,10 +472,18 @@ class SpatialDBImpl : public SpatialDB {
   virtual Status Compact() override {
     Status s, t;
     for (auto& iter : name_to_index_) {
+      t = Flush(FlushOptions(), iter.second.column_family);
+      if (!t.ok()) {
+        s = t;
+      }
       t = CompactRange(iter.second.column_family, nullptr, nullptr);
       if (!t.ok()) {
         s = t;
       }
+    }
+    t = Flush(FlushOptions(), data_column_family_);
+    if (!t.ok()) {
+      s = t;
     }
     t = CompactRange(data_column_family_, nullptr, nullptr);
     if (!t.ok()) {
@@ -580,24 +542,119 @@ Options GetRocksDBOptionsFromOptions(const SpatialDBOptions& options) {
 }
 }  // namespace
 
-Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
-                       const std::vector<SpatialIndexOptions>& spatial_indexes,
-                       SpatialDB** db, bool read_only) {
+class MetadataStorage {
+ public:
+  MetadataStorage(DB* db, ColumnFamilyHandle* cf) : db_(db), cf_(cf) {}
+  ~MetadataStorage() {}
+
+  // format: <min_x double> <min_y double> <max_x double> <max_y double>
+  // <tile_bits varint32>
+  Status AddIndex(const SpatialIndexOptions& index) {
+    std::string encoded_index;
+    PutDouble(&encoded_index, index.bbox.min_x);
+    PutDouble(&encoded_index, index.bbox.min_y);
+    PutDouble(&encoded_index, index.bbox.max_x);
+    PutDouble(&encoded_index, index.bbox.max_y);
+    PutVarint32(&encoded_index, index.tile_bits);
+    return db_->Put(WriteOptions(), cf_,
+                    GetSpatialIndexColumnFamilyName(index.name), encoded_index);
+  }
+
+  Status GetIndex(const std::string& name, SpatialIndexOptions* dst) {
+    std::string value;
+    Status s = db_->Get(ReadOptions(), cf_,
+                        GetSpatialIndexColumnFamilyName(name), &value);
+    if (!s.ok()) {
+      return s;
+    }
+    dst->name = name;
+    Slice encoded_index(value);
+    bool ok = GetDouble(&encoded_index, &(dst->bbox.min_x));
+    ok = ok && GetDouble(&encoded_index, &(dst->bbox.min_y));
+    ok = ok && GetDouble(&encoded_index, &(dst->bbox.max_x));
+    ok = ok && GetDouble(&encoded_index, &(dst->bbox.max_y));
+    ok = ok && GetVarint32(&encoded_index, &(dst->tile_bits));
+    return ok ? Status::OK() : Status::Corruption("Index encoding corrupted");
+  }
+
+ private:
+  DB* db_;
+  ColumnFamilyHandle* cf_;
+};
+
+Status SpatialDB::Create(
+    const SpatialDBOptions& options, const std::string& name,
+    const std::vector<SpatialIndexOptions>& spatial_indexes) {
   Options rocksdb_options = GetRocksDBOptionsFromOptions(options);
   rocksdb_options.create_if_missing = true;
   rocksdb_options.create_missing_column_families = true;
+  rocksdb_options.error_if_exists = true;
 
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(ColumnFamilyDescriptor(
       kDefaultColumnFamilyName, ColumnFamilyOptions(rocksdb_options)));
+  column_families.push_back(ColumnFamilyDescriptor(
+      kMetadataColumnFamilyName, ColumnFamilyOptions(rocksdb_options)));
 
   for (const auto& index : spatial_indexes) {
-    column_families.emplace_back("spatial$" + index.name,
+    column_families.emplace_back(GetSpatialIndexColumnFamilyName(index.name),
+                                 ColumnFamilyOptions(rocksdb_options));
+  }
+
+  std::vector<ColumnFamilyHandle*> handles;
+  DB* base_db;
+  Status s = DB::Open(DBOptions(rocksdb_options), name, column_families,
+                      &handles, &base_db);
+  if (!s.ok()) {
+    return s;
+  }
+  MetadataStorage metadata(base_db, handles[1]);
+  for (const auto& index : spatial_indexes) {
+    s = metadata.AddIndex(index);
+    if (!s.ok()) {
+      break;
+    }
+  }
+
+  for (auto h : handles) {
+    delete h;
+  }
+  delete base_db;
+
+  return s;
+}
+
+Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
+                       SpatialDB** db, bool read_only) {
+  Options rocksdb_options = GetRocksDBOptionsFromOptions(options);
+
+  Status s;
+  std::vector<std::string> existing_column_families;
+  std::vector<std::string> spatial_indexes;
+  s = DB::ListColumnFamilies(DBOptions(rocksdb_options), name,
+                             &existing_column_families);
+  if (!s.ok()) {
+    return s;
+  }
+  for (const auto& cf_name : existing_column_families) {
+    Slice spatial_index;
+    if (GetSpatialIndexName(cf_name, &spatial_index)) {
+      spatial_indexes.emplace_back(spatial_index.data(), spatial_index.size());
+    }
+  }
+
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(ColumnFamilyDescriptor(
+      kDefaultColumnFamilyName, ColumnFamilyOptions(rocksdb_options)));
+  column_families.push_back(ColumnFamilyDescriptor(
+      kMetadataColumnFamilyName, ColumnFamilyOptions(rocksdb_options)));
+
+  for (const auto& index : spatial_indexes) {
+    column_families.emplace_back(GetSpatialIndexColumnFamilyName(index),
                                  ColumnFamilyOptions(rocksdb_options));
   }
   std::vector<ColumnFamilyHandle*> handles;
   DB* base_db;
-  Status s;
   if (read_only) {
     s = DB::OpenForReadOnly(DBOptions(rocksdb_options), name, column_families,
                             &handles, &base_db);
@@ -609,14 +666,21 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
     return s;
   }
 
+  MetadataStorage metadata(base_db, handles[1]);
+
   std::vector<std::pair<const SpatialIndexOptions&, ColumnFamilyHandle*>>
       index_cf;
-  assert(handles.size() == spatial_indexes.size() + 1);
+  assert(handles.size() == spatial_indexes.size() + 2);
   for (size_t i = 0; i < spatial_indexes.size(); ++i) {
-    index_cf.emplace_back(spatial_indexes[i], handles[i + 1]);
+    SpatialIndexOptions index_options;
+    s = metadata.GetIndex(spatial_indexes[i], &index_options);
+    if (!s.ok()) {
+      break;
+    }
+    index_cf.emplace_back(index_options, handles[i + 2]);
   }
   uint64_t next_id;
-  {
+  if (s.ok()) {
     // find next_id
     Iterator* iter = base_db->NewIterator(ReadOptions(), handles[0]);
     iter->SeekToLast();
@@ -624,7 +688,7 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
       uint64_t last_id;
       bool ok = GetFixed64BigEndian(iter->key(), &last_id);
       if (!ok) {
-        return Status::Corruption("Invalid key in data column family");
+        s = Status::Corruption("Invalid key in data column family");
       }
       next_id = last_id + 1;
     } else {
@@ -632,7 +696,16 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
     }
     delete iter;
   }
+  if (!s.ok()) {
+    for (auto h : handles) {
+      delete h;
+    }
+    delete db;
+    return s;
+  }
 
+  // I don't need metadata column family any more, so delete it
+  delete handles[1];
   *db = new SpatialDBImpl(base_db, handles[0], index_cf, next_id);
   return Status::OK();
 }

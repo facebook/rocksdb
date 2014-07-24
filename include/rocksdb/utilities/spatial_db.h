@@ -196,13 +196,15 @@ struct SpatialIndexOptions {
 
 class SpatialDB : public StackableDB {
  public:
-  // Open the SpatialDB. List of spatial_indexes need to include all indexes
-  // that already exist in the DB (if the DB already exists). It can include new
-  // indexes, which will be created and initialized as empty (data will not be
-  // re-indexed). The resulting db object will be returned through db parameter.
-  // TODO(icanadi) read_only = true doesn't yet work because of #4743185
+  // Creates the SpatialDB with specified list of indexes.
+  // REQUIRED: db doesn't exist
+  static Status Create(const SpatialDBOptions& options, const std::string& name,
+                       const std::vector<SpatialIndexOptions>& spatial_indexes);
+
+  // Open the existing SpatialDB.  The resulting db object will be returned
+  // through db parameter.
+  // REQUIRED: db was created using SpatialDB::Create
   static Status Open(const SpatialDBOptions& options, const std::string& name,
-                     const std::vector<SpatialIndexOptions>& spatial_indexes,
                      SpatialDB** db, bool read_only = false);
 
   explicit SpatialDB(DB* db) : StackableDB(db) {}

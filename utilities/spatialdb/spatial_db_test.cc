@@ -94,43 +94,33 @@ TEST(SpatialDBTest, FeatureSetSerializeTest) {
 }
 
 TEST(SpatialDBTest, TestNextID) {
-  ASSERT_OK(SpatialDB::Open(
+  ASSERT_OK(SpatialDB::Create(
       SpatialDBOptions(), dbname_,
-      {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)},
-      &db_));
+      {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)}));
 
+  ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(5, 5, 10, 10),
                         "one", FeatureSet(), {"simple"}));
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(10, 10, 15, 15),
                         "two", FeatureSet(), {"simple"}));
   delete db_;
 
-  ASSERT_OK(SpatialDB::Open(
-      SpatialDBOptions(), dbname_,
-      {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)},
-      &db_));
-
+  ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(55, 55, 65, 65),
                         "three", FeatureSet(), {"simple"}));
-
   delete db_;
 
-  ASSERT_OK(SpatialDB::Open(
-      SpatialDBOptions(), dbname_,
-      {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)},
-      &db_));
-
+  ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
   AssertCursorResults(BoundingBox<double>(0, 0, 100, 100), "simple",
                       {"one", "two", "three"});
-
   delete db_;
 }
 
 TEST(SpatialDBTest, FeatureSetTest) {
-  ASSERT_OK(SpatialDB::Open(
+  ASSERT_OK(SpatialDB::Create(
       SpatialDBOptions(), dbname_,
-      {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)},
-      &db_));
+      {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)}));
+  ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
 
   FeatureSet fs;
   fs.Set("a", std::string("b"));
@@ -161,10 +151,10 @@ TEST(SpatialDBTest, FeatureSetTest) {
 }
 
 TEST(SpatialDBTest, SimpleTest) {
-  ASSERT_OK(SpatialDB::Open(
+  ASSERT_OK(SpatialDB::Create(
       SpatialDBOptions(), dbname_,
-      {SpatialIndexOptions("index", BoundingBox<double>(0, 0, 128, 128), 3)},
-      &db_));
+      {SpatialIndexOptions("index", BoundingBox<double>(0, 0, 128, 128), 3)}));
+  ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
 
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(33, 17, 63, 79),
                         "one", FeatureSet(), {"index"}));
@@ -229,9 +219,10 @@ TEST(SpatialDBTest, RandomizedTest) {
   std::vector<std::pair<std::string, BoundingBox<int>>> elements;
 
   BoundingBox<double> spatial_index_bounds(0, 0, (1LL << 32), (1LL << 32));
-  ASSERT_OK(SpatialDB::Open(
+  ASSERT_OK(SpatialDB::Create(
       SpatialDBOptions(), dbname_,
-      {SpatialIndexOptions("index", spatial_index_bounds, 7)}, &db_));
+      {SpatialIndexOptions("index", spatial_index_bounds, 7)}));
+  ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
   double step = (1LL << 32) / (1 << 7);
 
   for (int i = 0; i < 1000; ++i) {
