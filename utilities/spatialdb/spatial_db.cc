@@ -402,11 +402,11 @@ class SpatialDBImpl : public SpatialDB {
   // families that correspond to those spatial indexes
   // * next_id -- next ID in auto-incrementing ID. This is usually
   // `max_id_currenty_in_db + 1`
-  SpatialDBImpl(DB* db, ColumnFamilyHandle* data_column_family,
-                const std::vector<
-                    std::pair<const SpatialIndexOptions&, ColumnFamilyHandle*>>
-                    spatial_indexes,
-                uint64_t next_id)
+  SpatialDBImpl(
+      DB* db, ColumnFamilyHandle* data_column_family,
+      const std::vector<std::pair<SpatialIndexOptions, ColumnFamilyHandle*>>&
+          spatial_indexes,
+      uint64_t next_id)
       : SpatialDB(db),
         data_column_family_(data_column_family),
         next_id_(next_id) {
@@ -668,8 +668,7 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
 
   MetadataStorage metadata(base_db, handles[1]);
 
-  std::vector<std::pair<const SpatialIndexOptions&, ColumnFamilyHandle*>>
-      index_cf;
+  std::vector<std::pair<SpatialIndexOptions, ColumnFamilyHandle*>> index_cf;
   assert(handles.size() == spatial_indexes.size() + 2);
   for (size_t i = 0; i < spatial_indexes.size(); ++i) {
     SpatialIndexOptions index_options;
