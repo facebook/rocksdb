@@ -2825,10 +2825,12 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
-  const int space = (c->level() == 0 ? c->input_levels(0)->num_files + 1 : 2);
+  const int space = (c->level() == 0 ?
+      c->input_levels(0)->num_files + c->num_input_levels() - 1:
+      c->num_input_levels());
   Iterator** list = new Iterator*[space];
   int num = 0;
-  for (int which = 0; which < 2; which++) {
+  for (int which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
       if (c->level(which) == 0) {
         const FileLevel* flevel = c->input_levels(which);
