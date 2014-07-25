@@ -678,7 +678,7 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
     }
     index_cf.emplace_back(index_options, handles[i + 2]);
   }
-  uint64_t next_id;
+  uint64_t next_id = 1;
   if (s.ok()) {
     // find next_id
     Iterator* iter = base_db->NewIterator(ReadOptions(), handles[0]);
@@ -690,8 +690,6 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
       } else {
         next_id = last_id + 1;
       }
-    } else {
-      next_id = 1;
     }
     delete iter;
   }
