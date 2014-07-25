@@ -44,7 +44,7 @@ class CuckooBuilderTest {
 
   void CheckFileContents(const std::string& expected_data,
       std::string expected_unused_bucket, uint64_t expected_max_buckets,
-      uint32_t expected_num_hash_fun) {
+      uint32_t expected_num_hash_fun, bool expected_is_last_level) {
     // Read file
     unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env_->NewRandomAccessFile(fname, &read_file, env_options_));
@@ -75,6 +75,10 @@ class CuckooBuilderTest {
       *reinterpret_cast<const uint32_t*>(props->user_collected_properties[
                 CuckooTablePropertyNames::kNumHashTable].data());
     ASSERT_EQ(expected_num_hash_fun, num_hash_fun_found);
+    const bool is_last_level_found =
+      *reinterpret_cast<const bool*>(props->user_collected_properties[
+                CuckooTablePropertyNames::kIsLastLevel].data());
+    ASSERT_EQ(expected_is_last_level, is_last_level_found);
     delete props;
     // Check contents of the bucket.
     std::string read_data;
@@ -149,7 +153,7 @@ TEST(CuckooBuilderTest, NoCollision) {
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data, expected_unused_bucket,
-      expected_max_buckets, expected_num_hash_fun);
+      expected_max_buckets, expected_num_hash_fun, false);
 }
 
 TEST(CuckooBuilderTest, NoCollisionLastLevel) {
@@ -200,7 +204,7 @@ TEST(CuckooBuilderTest, NoCollisionLastLevel) {
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data, expected_unused_bucket,
-      expected_max_buckets, expected_num_hash_fun);
+      expected_max_buckets, expected_num_hash_fun, true);
 }
 
 TEST(CuckooBuilderTest, WithCollision) {
@@ -253,7 +257,7 @@ TEST(CuckooBuilderTest, WithCollision) {
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data, expected_unused_bucket,
-      expected_max_buckets, expected_num_hash_fun);
+      expected_max_buckets, expected_num_hash_fun, false);
 }
 
 TEST(CuckooBuilderTest, FailWithTooManyCollisions) {
@@ -326,11 +330,12 @@ TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
 TEST(CuckooBuilderTest, WithACollisionPath) {
   hash_map.clear();
   // Have two hash functions. Insert elements with overlapping hashes.
-  // Finally insert an element which will displace all the current elements.
+  // Finally insert an element with hash value somewhere in the middle
+  // so that it displaces all the elements after that.
   num_hash_fun = 2;
   uint32_t expected_num_hash_fun = num_hash_fun;
   uint32_t max_search_depth = 100;
-  num_items = max_search_depth + 2;
+  num_items = 2*max_search_depth + 2;
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
@@ -342,16 +347,20 @@ TEST(CuckooBuilderTest, WithACollisionPath) {
     values[i] = "value" + std::to_string(i+100);
     // Make all hash values collide with the next element.
     AddHashLookups(user_keys[i], i, num_hash_fun);
-    expected_bucket_id[i] = i+1;
+    if (i <= max_search_depth) {
+      expected_bucket_id[i] = i;
+    } else {
+      expected_bucket_id[i] = i+1;
+    }
   }
-  expected_bucket_id[0] = 0;
   user_keys.back() = "keys" + std::to_string(num_items + 99);
   ParsedInternalKey ikey(user_keys.back(), num_items + 1000, kTypeValue);
   AppendInternalKey(&keys.back(), ikey);
   values.back() = "value" + std::to_string(num_items+100);
-  // Make both hash values collide with first element.
-  AddHashLookups(user_keys.back(), 0, num_hash_fun);
-  expected_bucket_id.back() = 1;
+  // Make hash values collide with first and middle elements.
+  // Inserting at 0 will fail after exceeding search depth limit.
+  hash_map[user_keys.back()] = {0, max_search_depth + 1};
+  expected_bucket_id.back() = max_search_depth + 1;
 
   ikey_length = keys[0].size();
   value_length = values[0].size();
@@ -387,7 +396,7 @@ TEST(CuckooBuilderTest, WithACollisionPath) {
   ASSERT_OK(cuckoo_builder.Finish());
   writable_file->Close();
   CheckFileContents(expected_file_data, expected_unused_bucket,
-      expected_max_buckets, expected_num_hash_fun);
+      expected_max_buckets, expected_num_hash_fun, false);
 }
 
 TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
@@ -397,7 +406,7 @@ TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   num_hash_fun = 2;
 
   uint32_t max_search_depth = 100;
-  num_items = max_search_depth + 3;
+  num_items = 2*max_search_depth + 3;
   std::vector<std::string> user_keys(num_items);
   std::vector<std::string> keys(num_items);
   std::vector<std::string> values(num_items);
@@ -412,9 +421,9 @@ TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   user_keys.back() = "keys" + std::to_string(num_items + 99);
   ParsedInternalKey ikey(user_keys.back(), num_items + 1000, kTypeValue);
   AppendInternalKey(&keys.back(), ikey);
-  Slice(values.back()) = "value" + std::to_string(num_items+100);
-  // Make both hash values collide with first element.
-  AddHashLookups(user_keys.back(), 0, num_hash_fun);
+  values.back() = "value" + std::to_string(num_items+100);
+  // Make hash values collide with middle element.
+  hash_map[user_keys.back()] = {0, max_search_depth + 1};
 
   ikey_length = keys[0].size();
   value_length = values[0].size();

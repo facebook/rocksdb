@@ -116,9 +116,10 @@ TESTS = \
 	table_test \
 	thread_local_test \
 	geodb_test \
-  rate_limiter_test \
+ 	rate_limiter_test \
 	cuckoo_table_builder_test \
-	options_test
+	options_test \
+	cuckoo_table_reader_test
 
 TOOLS = \
         sst_dump \
@@ -419,6 +420,9 @@ geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 cuckoo_table_builder_test: table/cuckoo_table_builder_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/cuckoo_table_builder_test.o  $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+cuckoo_table_reader_test: table/cuckoo_table_reader_test.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS)
+	$(CXX) table/cuckoo_table_reader_test.o  $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/options_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

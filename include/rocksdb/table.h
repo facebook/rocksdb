@@ -189,6 +189,7 @@ struct CuckooTablePropertyNames {
   static const std::string kValueLength;
   static const std::string kNumHashTable;
   static const std::string kMaxNumBuckets;
+  static const std::string kIsLastLevel;
 };
 
 #endif  // ROCKSDB_LITE

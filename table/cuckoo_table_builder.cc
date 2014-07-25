@@ -29,6 +29,8 @@ const std::string CuckooTablePropertyNames::kMaxNumBuckets =
       "rocksdb.cuckoo.bucket.maxnum";
 const std::string CuckooTablePropertyNames::kValueLength =
       "rocksdb.cuckoo.value.length";
+const std::string CuckooTablePropertyNames::kIsLastLevel =
+      "rocksdb.cuckoo.file.islastlevel";
 
 // Obtained by running echo rocksdb.table.cuckoo | sha1sum
 extern const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
@@ -170,11 +172,13 @@ Status CuckooTableBuilder::Finish() {
 
   unused_bucket.resize(bucket_size_, 'a');
   // Write the table.
+  uint32_t num_added = 0;
   for (auto& bucket : buckets_) {
     Status s;
     if (bucket.is_empty) {
       s = file_->Append(Slice(unused_bucket));
     } else {
+      ++num_added;
       if (is_last_level_file_) {
         Slice user_key = ExtractUserKey(bucket.key);
         s = file_->Append(user_key);
@@ -192,6 +196,7 @@ Status CuckooTableBuilder::Finish() {
       return s;
     }
   }
+  assert(num_added == NumEntries());
 
   uint64_t offset = buckets_.size() * bucket_size_;
   unused_bucket.resize(properties_.fixed_key_len);
@@ -204,6 +209,10 @@ Status CuckooTableBuilder::Finish() {
     CuckooTablePropertyNames::kMaxNumBuckets].assign(
         reinterpret_cast<const char*>(&max_num_buckets_),
         sizeof(max_num_buckets_));
+  properties_.user_collected_properties[
+    CuckooTablePropertyNames::kIsLastLevel].assign(
+        reinterpret_cast<const char*>(&is_last_level_file_),
+        sizeof(is_last_level_file_));
 
   // Write meta blocks.
   MetaIndexBuilder meta_index_builder;
@@ -266,7 +275,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
   struct CuckooNode {
     uint64_t bucket_id;
     uint32_t depth;
-    int parent_pos;
+    uint32_t parent_pos;
     CuckooNode(uint64_t bucket_id, uint32_t depth, int parent_pos)
       : bucket_id(bucket_id), depth(depth), parent_pos(parent_pos) {}
   };
@@ -286,7 +295,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
     uint64_t bucket_id = hash_vals[hash_cnt];
     buckets_[bucket_id].make_space_for_key_call_id =
       make_space_for_key_call_id_;
-    tree.push_back(CuckooNode(bucket_id, 0, -1));
+    tree.push_back(CuckooNode(bucket_id, 0, 0));
   }
   bool null_found = false;
   uint32_t curr_pos = 0;
@@ -299,9 +308,6 @@ bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
     for (uint32_t hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
       uint64_t child_bucket_id = GetSliceHash(
           ExtractUserKey(curr_bucket.key), hash_cnt, max_num_buckets_);
-      if (child_bucket_id == curr_node.bucket_id) {
-        continue;
-      }
       if (buckets_[child_bucket_id].make_space_for_key_call_id ==
           make_space_for_key_call_id_) {
         continue;
@@ -319,17 +325,19 @@ bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
   }
 
   if (null_found) {
-    int bucket_to_replace_pos = tree.size()-1;
+    uint32_t bucket_to_replace_pos = tree.size()-1;
     while (bucket_to_replace_pos >= 0) {
       CuckooNode& curr_node = tree[bucket_to_replace_pos];
-      if (curr_node.parent_pos != -1) {
-        buckets_[curr_node.bucket_id] = buckets_[curr_node.parent_pos];
+      if (bucket_to_replace_pos >= num_hash_table_) {
+        buckets_[curr_node.bucket_id] =
+          buckets_[tree[curr_node.parent_pos].bucket_id];
         bucket_to_replace_pos = curr_node.parent_pos;
       } else {
         *bucket_id = curr_node.bucket_id;
         return true;
       }
     }
+    assert(false);
     return true;
   } else {
     return false;
