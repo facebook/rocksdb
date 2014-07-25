@@ -21,14 +21,14 @@ class RateLimiterTest {
 };
 
 TEST(RateLimiterTest, StartStop) {
-  std::unique_ptr<RateLimiter> limiter(new RateLimiter(100, 100, 10));
+  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(100, 100, 10));
 }
 
 TEST(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int64_t target_rate, int burst)
-      : limiter(new RateLimiter(target_rate, 100 * 1000, 10)),
+      : limiter(new GenericRateLimiter(target_rate, 100 * 1000, 10)),
         request_size(target_rate / 10),
         burst(burst) {}
     std::unique_ptr<RateLimiter> limiter;

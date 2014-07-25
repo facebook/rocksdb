@@ -9,29 +9,34 @@
 
 #pragma once
 
-#include <thread>
 #include <deque>
-
 #include "port/port_posix.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "rocksdb/env.h"
+#include "rocksdb/rate_limiter.h"
 
 namespace rocksdb {
 
-class RateLimiter {
+class GenericRateLimiter : public RateLimiter {
  public:
-  RateLimiter(int64_t refill_bytes, int64_t refill_period_us, int32_t fairness);
+  GenericRateLimiter(int64_t refill_bytes,
+      int64_t refill_period_us, int32_t fairness);
 
-  ~RateLimiter();
+  virtual ~GenericRateLimiter();
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes < GetSingleBurstBytes()
-  void Request(const int64_t bytes, const Env::IOPriority pri);
+  virtual void Request(const int64_t bytes, const Env::IOPriority pri) override;
 
-  int64_t GetTotalBytesThrough(
-      const Env::IOPriority pri = Env::IO_TOTAL) const {
+  virtual int64_t GetSingleBurstBytes() const override {
+    // const var
+    return refill_bytes_per_period_;
+  }
+
+  virtual int64_t GetTotalBytesThrough(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
       return total_bytes_through_[Env::IO_LOW] +
@@ -40,22 +45,13 @@ class RateLimiter {
     return total_bytes_through_[pri];
   }
 
-  int64_t GetTotalRequests(const Env::IOPriority pri = Env::IO_TOTAL) const {
+  virtual int64_t GetTotalRequests(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
     MutexLock g(&request_mutex_);
     if (pri == Env::IO_TOTAL) {
       return total_requests_[Env::IO_LOW] + total_requests_[Env::IO_HIGH];
     }
     return total_requests_[pri];
-  }
-
-  int64_t GetSingleBurstBytes() const {
-    // const var
-    return refill_bytes_per_period_;
-  }
-
-  int64_t GetAvailableBytes() const {
-    MutexLock g(&request_mutex_);
-    return available_bytes_;
   }
 
  private:

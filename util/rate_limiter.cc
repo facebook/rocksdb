@@ -14,7 +14,7 @@ namespace rocksdb {
 
 
 // Pending request
-struct RateLimiter::Req {
+struct GenericRateLimiter::Req {
   explicit Req(int64_t bytes, port::Mutex* mu) :
     bytes(bytes), cv(mu), granted(false) {}
   int64_t bytes;
@@ -23,7 +23,9 @@ struct RateLimiter::Req {
 };
 
 
-RateLimiter::RateLimiter(int64_t rate_bytes_per_sec, int64_t refill_period_us,
+GenericRateLimiter::GenericRateLimiter(
+    int64_t rate_bytes_per_sec,
+    int64_t refill_period_us,
     int32_t fairness)
   : refill_period_us_(refill_period_us),
     refill_bytes_per_period_(rate_bytes_per_sec * refill_period_us / 1000000.0),
@@ -42,7 +44,7 @@ RateLimiter::RateLimiter(int64_t rate_bytes_per_sec, int64_t refill_period_us,
   total_bytes_through_[1] = 0;
 }
 
-RateLimiter::~RateLimiter() {
+GenericRateLimiter::~GenericRateLimiter() {
   MutexLock g(&request_mutex_);
   stop_ = true;
   requests_to_wait_ = queue_[Env::IO_LOW].size() + queue_[Env::IO_HIGH].size();
@@ -57,7 +59,7 @@ RateLimiter::~RateLimiter() {
   }
 }
 
-void RateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
+void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
   assert(bytes < refill_bytes_per_period_);
 
   MutexLock g(&request_mutex_);
@@ -163,7 +165,7 @@ void RateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
   } while (!r.granted);
 }
 
-void RateLimiter::Refill() {
+void GenericRateLimiter::Refill() {
   next_refill_us_ = env_->NowMicros() + refill_period_us_;
   // Carry over the left over quota from the last period
   if (available_bytes_ < refill_bytes_per_period_) {
@@ -192,9 +194,10 @@ void RateLimiter::Refill() {
   }
 }
 
-RateLimiter* NewRateLimiter(
+RateLimiter* NewGenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
-  return new RateLimiter(rate_bytes_per_sec, refill_period_us, fairness);
+  return new GenericRateLimiter(
+      rate_bytes_per_sec, refill_period_us, fairness);
 }
 
 }  // namespace rocksdb
