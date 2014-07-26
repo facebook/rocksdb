@@ -3378,6 +3378,13 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   return s;
 }
 
+namespace {
+struct MultiGetColumnFamilyData {
+  ColumnFamilyData* cfd;
+  SuperVersion* super_version;
+}; 
+}
+
 std::vector<Status> DBImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
@@ -3388,10 +3395,6 @@ std::vector<Status> DBImpl::MultiGet(
 
   SequenceNumber snapshot;
 
-  struct MultiGetColumnFamilyData {
-    ColumnFamilyData* cfd;
-    SuperVersion* super_version;
-  };
   std::unordered_map<uint32_t, MultiGetColumnFamilyData*> multiget_cf_data;
   // fill up and allocate outside of mutex
   for (auto cf : column_family) {
@@ -4583,7 +4586,11 @@ Status DBImpl::GetDbIdentity(std::string& identity) {
   if (!s.ok()) {
     return s;
   }
+#if !defined(_MSC_VER)
   char buffer[file_size];
+#else
+  char * buffer = static_cast<char*>(alloca(file_size));
+#endif
   Slice id;
   s = idfile->Read(file_size, &id, buffer);
   if (!s.ok()) {
@@ -4895,8 +4902,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 //
 // A global method that can dump out the build version
 void DumpLeveldbBuildVersion(Logger * log) {
-#if !defined(IOS_CROSS_COMPILE)
-  // if we compile with Xcode, we don't run build_detect_vesion, so we don't generate util/build_version.cc
+#if !defined(IOS_CROSS_COMPILE) && !defined(ROCKSDB_PLATFORM_WIN)
+  // if we compile with Xcode or Visual Studio, we don't run build_detect_version, so we don't generate util/build_version.cc
   Log(log, "Git sha %s", rocksdb_build_git_sha);
   Log(log, "Compile time %s %s",
       rocksdb_build_compile_time, rocksdb_build_compile_date);

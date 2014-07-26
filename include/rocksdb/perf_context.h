@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <string>
+#include "rocksdb/port.h"
 
 namespace rocksdb {
 
