@@ -276,6 +276,7 @@ Options SanitizeOptions(const std::string& dbname,
 
 DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   DBOptions result = src;
+
   // result.max_open_files means an "infinite" open files.
   if (result.max_open_files != -1) {
     ClipToRange(&result.max_open_files, 20, 1000000);

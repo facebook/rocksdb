@@ -86,4 +86,5 @@ inline void SetTickerCount(Statistics* statistics, uint32_t ticker_type,
     statistics->setTickerCount(ticker_type, count);
   }
 }
+
 }
