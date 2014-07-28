@@ -566,8 +566,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   if (!s.ok()) {
     return s;
   }
-  RecordTick(options->statistics.get(),
-             NUMBER_DIRECT_LOAD_TABLE_PROPERTIES);
+  RecordTick(options->statistics.get(), NUMBER_DIRECT_LOAD_TABLE_PROPERTIES);
 
   *tp = std::shared_ptr<const TableProperties>(raw_table_properties);
   return s;

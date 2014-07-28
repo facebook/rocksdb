@@ -20,12 +20,12 @@ namespace rocksdb {
  *  1. Any ticker should be added before TICKER_ENUM_MAX.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
  */
-enum Tickers {
+enum Tickers : uint32_t {
   // total block cache misses
   // REQUIRES: BLOCK_CACHE_MISS == BLOCK_CACHE_INDEX_MISS +
   //                               BLOCK_CACHE_FILTER_MISS +
   //                               BLOCK_CACHE_DATA_MISS;
-  BLOCK_CACHE_MISS,
+  BLOCK_CACHE_MISS = 0,
   // total block cache hit
   // REQUIRES: BLOCK_CACHE_HIT == BLOCK_CACHE_INDEX_HIT +
   //                              BLOCK_CACHE_FILTER_HIT +
@@ -198,8 +198,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
  * Add a string representation in HistogramsNameMap below
  * And increment HISTOGRAM_ENUM_MAX
  */
-enum Histograms {
-  DB_GET,
+enum Histograms : uint32_t {
+  DB_GET = 0,
   DB_WRITE,
   COMPACTION_TIME,
   TABLE_SYNC_MICROS,
@@ -256,14 +256,21 @@ class Statistics {
  public:
   virtual ~Statistics() {}
 
-  virtual long getTickerCount(Tickers tickerType) = 0;
-  virtual void recordTick(Tickers tickerType, uint64_t count = 0) = 0;
-  virtual void setTickerCount(Tickers tickerType, uint64_t count) = 0;
-  virtual void measureTime(Histograms histogramType, uint64_t time) = 0;
+  virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
+  virtual void histogramData(uint32_t type,
+                             HistogramData* const data) const = 0;
 
-  virtual void histogramData(Histograms type, HistogramData* const data) = 0;
+  virtual void recordTick(uint32_t tickerType, uint64_t count = 0) = 0;
+  virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
+  virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;
+
   // String representation of the statistic object.
-  std::string ToString();
+  virtual std::string ToString() const = 0;
+
+  // Override this function to disable particular histogram collection
+  virtual bool HistEnabledForType(uint32_t type) const {
+    return type < HISTOGRAM_ENUM_MAX;
+  }
 };
 
 // Create a concrete DBStatistics object

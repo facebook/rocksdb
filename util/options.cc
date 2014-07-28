@@ -25,6 +25,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
+#include "util/statistics.h"
 
 namespace rocksdb {
 

@@ -5,43 +5,82 @@
 //
 #include "util/statistics.h"
 #include "rocksdb/statistics.h"
+#include "port/likely.h"
 #include <algorithm>
 #include <cstdio>
 
 namespace rocksdb {
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<StatisticsImpl>();
+  return std::make_shared<StatisticsImpl>(nullptr, false);
 }
 
-StatisticsImpl::StatisticsImpl() {}
+StatisticsImpl::StatisticsImpl(
+    std::shared_ptr<Statistics> stats,
+    bool enable_internal_stats)
+  : stats_shared_(stats),
+    stats_(stats.get()),
+    enable_internal_stats_(enable_internal_stats) {
+}
 
 StatisticsImpl::~StatisticsImpl() {}
 
-long StatisticsImpl::getTickerCount(Tickers tickerType) {
-  assert(tickerType < TICKER_ENUM_MAX);
+uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
+  assert(
+    enable_internal_stats_ ?
+      tickerType < INTERNAL_TICKER_ENUM_MAX :
+      tickerType < TICKER_ENUM_MAX);
+  // Return its own ticker version
   return tickers_[tickerType].value;
 }
 
-void StatisticsImpl::setTickerCount(Tickers tickerType, uint64_t count) {
-  assert(tickerType < TICKER_ENUM_MAX);
-  tickers_[tickerType].value = count;
-}
-
-void StatisticsImpl::recordTick(Tickers tickerType, uint64_t count) {
-  assert(tickerType < TICKER_ENUM_MAX);
-  tickers_[tickerType].value += count;
-}
-
-void StatisticsImpl::measureTime(Histograms histogramType, uint64_t value) {
-  assert(histogramType < HISTOGRAM_ENUM_MAX);
-  histograms_[histogramType].Add(value);
-}
-
-void StatisticsImpl::histogramData(Histograms histogramType,
-                                   HistogramData* const data) {
-  assert(histogramType < HISTOGRAM_ENUM_MAX);
+void StatisticsImpl::histogramData(uint32_t histogramType,
+                                   HistogramData* const data) const {
+  assert(
+    enable_internal_stats_ ?
+      histogramType < INTERNAL_TICKER_ENUM_MAX :
+      histogramType < TICKER_ENUM_MAX);
+  // Return its own ticker version
   histograms_[histogramType].Data(data);
+}
+
+void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
+  assert(
+    enable_internal_stats_ ?
+      tickerType < INTERNAL_TICKER_ENUM_MAX :
+      tickerType < TICKER_ENUM_MAX);
+  if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
+    tickers_[tickerType].value = count;
+  }
+  if (stats_ && tickerType < TICKER_ENUM_MAX) {
+    stats_->setTickerCount(tickerType, count);
+  }
+}
+
+void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
+  assert(
+    enable_internal_stats_ ?
+      tickerType < INTERNAL_TICKER_ENUM_MAX :
+      tickerType < TICKER_ENUM_MAX);
+  if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
+    tickers_[tickerType].value += count;
+  }
+  if (stats_ && tickerType < TICKER_ENUM_MAX) {
+    stats_->recordTick(tickerType, count);
+  }
+}
+
+void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
+  assert(
+    enable_internal_stats_ ?
+      histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
+      histogramType < HISTOGRAM_ENUM_MAX);
+  if (histogramType < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
+    histograms_[histogramType].Add(value);
+  }
+  if (stats_ && histogramType < HISTOGRAM_ENUM_MAX) {
+    stats_->measureTime(histogramType, value);
+  }
 }
 
 namespace {
@@ -49,46 +88,44 @@ namespace {
 // a buffer size used for temp string buffers
 const int kBufferSize = 200;
 
-std::string HistogramToString (
-    Statistics* dbstats,
-    const Histograms& histogram_type,
-    const std::string& name) {
-
-  char buffer[kBufferSize];
-  HistogramData histogramData;
-  dbstats->histogramData(histogram_type, &histogramData);
-  snprintf(
-      buffer,
-      kBufferSize,
-      "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f\n",
-      name.c_str(),
-      histogramData.median,
-      histogramData.percentile95,
-      histogramData.percentile99
-  );
-  return std::string(buffer);
-};
-
-std::string TickerToString(Statistics* dbstats, const Tickers& ticker,
-                           const std::string& name) {
-  char buffer[kBufferSize];
-  snprintf(buffer, kBufferSize, "%s COUNT : %ld\n",
-            name.c_str(), dbstats->getTickerCount(ticker));
-  return std::string(buffer);
-};
 } // namespace
 
-std::string Statistics::ToString() {
+std::string StatisticsImpl::ToString() const {
   std::string res;
   res.reserve(20000);
   for (const auto& t : TickersNameMap) {
-    res.append(TickerToString(this, t.first, t.second));
+    if (t.first < TICKER_ENUM_MAX || enable_internal_stats_) {
+      char buffer[kBufferSize];
+      snprintf(buffer, kBufferSize, "%s COUNT : %ld\n",
+               t.second.c_str(), getTickerCount(t.first));
+      res.append(buffer);
+    }
   }
   for (const auto& h : HistogramsNameMap) {
-    res.append(HistogramToString(this, h.first, h.second));
+    if (h.first < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
+      char buffer[kBufferSize];
+      HistogramData hData;
+      histogramData(h.first, &hData);
+      snprintf(
+          buffer,
+          kBufferSize,
+          "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f\n",
+          h.second.c_str(),
+          hData.median,
+          hData.percentile95,
+          hData.percentile99);
+      res.append(buffer);
+    }
   }
   res.shrink_to_fit();
   return res;
+}
+
+bool StatisticsImpl::HistEnabledForType(uint32_t type) const {
+  if (LIKELY(!enable_internal_stats_)) {
+    return type < HISTOGRAM_ENUM_MAX;
+  }
+  return true;
 }
 
 } // namespace rocksdb

@@ -12,30 +12,31 @@ namespace rocksdb {
 // Records the statistic into the corresponding histogram.
 class StopWatch {
  public:
-  explicit StopWatch(
-    Env * const env,
-    Statistics* statistics = nullptr,
-    const Histograms histogram_name = DB_GET,
-    bool auto_start = true) :
-      env_(env),
-      start_time_((!auto_start && !statistics) ? 0 : env->NowMicros()),
+  StopWatch(Env * const env, Statistics* statistics,
+            const uint32_t hist_type, bool force_enable = false)
+    : env_(env),
       statistics_(statistics),
-      histogram_name_(histogram_name) {}
-
-
+      hist_type_(hist_type),
+      enabled_(statistics && statistics->HistEnabledForType(hist_type)),
+      start_time_(enabled_ || force_enable ? env->NowMicros() : 0) {
+  }
 
   uint64_t ElapsedMicros() const {
     return env_->NowMicros() - start_time_;
   }
 
-  ~StopWatch() { MeasureTime(statistics_, histogram_name_, ElapsedMicros()); }
+  ~StopWatch() {
+    if (enabled_) {
+      statistics_->measureTime(hist_type_, ElapsedMicros());
+    }
+  }
 
  private:
   Env* const env_;
-  const uint64_t start_time_;
   Statistics* statistics_;
-  const Histograms histogram_name_;
-
+  const uint32_t hist_type_;
+  bool enabled_;
+  const uint64_t start_time_;
 };
 
 // a nano second precision stopwatch

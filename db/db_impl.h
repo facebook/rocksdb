@@ -290,6 +290,7 @@ class DBImpl : public DB {
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
   const DBOptions options_;
+  Statistics* stats_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
                                 SuperVersion* super_version,

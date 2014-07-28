@@ -870,10 +870,9 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
                               statistics, ro, &block);
 
     if (block.value == nullptr && !no_io && ro.fill_cache) {
-      Histograms histogram = READ_BLOCK_GET_MICROS;
       Block* raw_block = nullptr;
       {
-        StopWatch sw(rep->options.env, statistics, histogram);
+        StopWatch sw(rep->options.env, statistics, READ_BLOCK_GET_MICROS);
         s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
                               &raw_block, rep->options.env,
                               block_cache_compressed == nullptr);

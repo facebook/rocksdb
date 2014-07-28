@@ -5,29 +5,51 @@
 //
 #pragma once
 #include "rocksdb/statistics.h"
+
+#include <vector>
+#include <atomic>
+#include <string>
+
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "port/likely.h"
 
-#include <vector>
-#include <atomic>
-
 
 namespace rocksdb {
 
+enum TickersInternal : uint32_t {
+  INTERNAL_TICKER_ENUM_START = TICKER_ENUM_MAX,
+  INTERNAL_TICKER_ENUM_MAX
+};
+
+enum HistogramsInternal : uint32_t {
+  INTERNAL_HISTOGRAM_START = HISTOGRAM_ENUM_MAX,
+  INTERNAL_HISTOGRAM_ENUM_MAX
+};
+
+
 class StatisticsImpl : public Statistics {
  public:
-  StatisticsImpl();
+  StatisticsImpl(std::shared_ptr<Statistics> stats,
+                 bool enable_internal_stats);
   virtual ~StatisticsImpl();
 
-  virtual long getTickerCount(Tickers tickerType);
-  virtual void setTickerCount(Tickers tickerType, uint64_t count);
-  virtual void recordTick(Tickers tickerType, uint64_t count);
-  virtual void measureTime(Histograms histogramType, uint64_t value);
-  virtual void histogramData(Histograms histogramType,
-                             HistogramData* const data);
+  virtual uint64_t getTickerCount(uint32_t ticker_type) const override;
+  virtual void histogramData(uint32_t histogram_type,
+                             HistogramData* const data) const override;
+
+  virtual void setTickerCount(uint32_t ticker_type, uint64_t count) override;
+  virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
+  virtual void measureTime(uint32_t histogram_type, uint64_t value) override;
+
+  virtual std::string ToString() const override;
+  virtual bool HistEnabledForType(uint32_t type) const override;
 
  private:
+  std::shared_ptr<Statistics> stats_shared_;
+  Statistics* stats_;
+  bool enable_internal_stats_;
+
   struct Ticker {
     Ticker() : value(uint_fast64_t()) {}
 
@@ -38,29 +60,30 @@ class StatisticsImpl : public Statistics {
     char padding[64 - sizeof(std::atomic_uint_fast64_t)];
   };
 
-  Ticker tickers_[TICKER_ENUM_MAX] __attribute__((aligned(64)));
-  HistogramImpl histograms_[HISTOGRAM_ENUM_MAX] __attribute__((aligned(64)));
+  Ticker tickers_[INTERNAL_TICKER_ENUM_MAX] __attribute__((aligned(64)));
+  HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX]
+      __attribute__((aligned(64)));
 };
 
 // Utility functions
-inline void MeasureTime(Statistics* statistics, Histograms histogramType,
+inline void MeasureTime(Statistics* statistics, uint32_t histogram_type,
                         uint64_t value) {
   if (statistics) {
-    statistics->measureTime(histogramType, value);
+    statistics->measureTime(histogram_type, value);
   }
 }
 
-inline void RecordTick(Statistics* statistics, Tickers ticker,
+inline void RecordTick(Statistics* statistics, uint32_t ticker_type,
                        uint64_t count = 1) {
   if (statistics) {
-    statistics->recordTick(ticker, count);
+    statistics->recordTick(ticker_type, count);
   }
 }
 
-inline void SetTickerCount(Statistics* statistics, Tickers ticker,
+inline void SetTickerCount(Statistics* statistics, uint32_t ticker_type,
                            uint64_t count) {
   if (statistics) {
-    statistics->setTickerCount(ticker, count);
+    statistics->setTickerCount(ticker_type, count);
   }
 }
 }

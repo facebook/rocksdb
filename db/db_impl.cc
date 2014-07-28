@@ -334,6 +334,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
     : env_(options.env),
       dbname_(dbname),
       options_(SanitizeOptions(dbname, options)),
+      stats_(options_.statistics.get()),
       db_lock_(nullptr),
       mutex_(options.use_adaptive_mutex),
       shutting_down_(nullptr),
@@ -1221,8 +1222,7 @@ Status DBImpl::Recover(
       versions_->MarkFileNumberUsed(log);
       s = RecoverLogFile(log, &max_sequence, read_only);
     }
-    SetTickerCount(options_.statistics.get(), SEQUENCE_NUMBER,
-                   versions_->LastSequence());
+    SetTickerCount(stats_, SEQUENCE_NUMBER, versions_->LastSequence());
   }
 
   for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -1436,8 +1436,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   cfd->internal_stats()->AddCompactionStats(level, stats);
   cfd->internal_stats()->AddCFStats(
       InternalStats::BYTES_FLUSHED, meta.fd.GetFileSize());
-  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
-             meta.fd.GetFileSize());
+  RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
   return s;
 }
 
@@ -1528,8 +1527,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
   cfd->internal_stats()->AddCompactionStats(level, stats);
   cfd->internal_stats()->AddCFStats(
       InternalStats::BYTES_FLUSHED, meta.fd.GetFileSize());
-  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
-             meta.fd.GetFileSize());
+  RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
   return s;
 }
 
@@ -1933,17 +1931,14 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 }
 
 void DBImpl::RecordFlushIOStats() {
-  RecordTick(options_.statistics.get(), FLUSH_WRITE_BYTES,
-             iostats_context.bytes_written);
+  RecordTick(stats_, FLUSH_WRITE_BYTES, iostats_context.bytes_written);
   IOSTATS_RESET(bytes_written);
 }
 
 void DBImpl::RecordCompactionIOStats() {
-  RecordTick(options_.statistics.get(), COMPACT_READ_BYTES,
-             IOSTATS(bytes_read));
+  RecordTick(stats_, COMPACT_READ_BYTES, IOSTATS(bytes_read));
   IOSTATS_RESET(bytes_read);
-  RecordTick(options_.statistics.get(), COMPACT_WRITE_BYTES,
-             IOSTATS(bytes_written));
+  RecordTick(stats_, COMPACT_WRITE_BYTES, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
 
@@ -2206,7 +2201,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
         c.reset(cfd->PickCompaction(log_buffer));
         if (c != nullptr) {
           // update statistics
-          MeasureTime(options_.statistics.get(), NUM_FILES_IN_SINGLE_COMPACTION,
+          MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
                       c->inputs(0)->size());
           break;
         }
@@ -2431,12 +2426,10 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   // Finish and check for file errors
   if (s.ok() && !options_.disableDataSync) {
     if (options_.use_fsync) {
-      StopWatch sw(env_, options_.statistics.get(),
-                   COMPACTION_OUTFILE_SYNC_MICROS, false);
+      StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
       s = compact->outfile->Fsync();
     } else {
-      StopWatch sw(env_, options_.statistics.get(),
-                   COMPACTION_OUTFILE_SYNC_MICROS, false);
+      StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
       s = compact->outfile->Sync();
     }
   }
@@ -2668,7 +2661,7 @@ Status DBImpl::ProcessKeyValueCompaction(
             ParseInternalKey(key, &ikey);
             // no value associated with delete
             value.clear();
-            RecordTick(options_.statistics.get(), COMPACTION_KEY_DROP_USER);
+            RecordTick(stats_, COMPACTION_KEY_DROP_USER);
           } else if (value_changed) {
             value = compaction_filter_value;
           }
@@ -2692,7 +2685,7 @@ Status DBImpl::ProcessKeyValueCompaction(
         // TODO: why not > ?
         assert(last_sequence_for_key >= ikey.sequence);
         drop = true;    // (A)
-        RecordTick(options_.statistics.get(), COMPACTION_KEY_DROP_NEWER_ENTRY);
+        RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY);
       } else if (ikey.type == kTypeDeletion &&
           ikey.sequence <= earliest_snapshot &&
           compact->compaction->KeyNotExistsBeyondOutputLevel(ikey.user_key)) {
@@ -2704,7 +2697,7 @@ Status DBImpl::ProcessKeyValueCompaction(
         //     few iterations of this loop (by rule (A) above).
         // Therefore this deletion marker is obsolete and can be dropped.
         drop = true;
-        RecordTick(options_.statistics.get(), COMPACTION_KEY_DROP_OBSOLETE);
+        RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE);
       } else if (ikey.type == kTypeMerge) {
         // We know the merge type entry is not hidden, otherwise we would
         // have hit (A)
@@ -2894,7 +2887,7 @@ void DBImpl::CallCompactionFilterV2(CompactionState* compact,
 
       // no value associated with delete
       compact->existing_value_buf_[i].clear();
-      RecordTick(options_.statistics.get(), COMPACTION_KEY_DROP_USER);
+      RecordTick(stats_, COMPACTION_KEY_DROP_USER);
     } else if (compact->value_changed_buf_[i]) {
       compact->existing_value_buf_[i] =
         Slice(compact->new_value_buf_[new_value_idx++]);
@@ -3143,9 +3136,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros - imm_micros;
-  MeasureTime(options_.statistics.get(), COMPACTION_TIME, stats.micros);
   stats.files_in_leveln = compact->compaction->num_input_files(0);
   stats.files_in_levelnp1 = compact->compaction->num_input_files(1);
+  MeasureTime(stats_, COMPACTION_TIME, stats.micros);
 
   int num_output_files = compact->outputs.size();
   if (compact->builder != nullptr) {
@@ -3306,7 +3299,7 @@ void DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
 Status DBImpl::GetImpl(const ReadOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        std::string* value, bool* value_found) {
-  StopWatch sw(env_, options_.statistics.get(), DB_GET, false);
+  StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_AUTO(get_snapshot_time);
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -3341,16 +3334,16 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   PERF_TIMER_STOP(get_snapshot_time);
   if (sv->mem->Get(lkey, value, &s, merge_context, *cfd->options())) {
     // Done
-    RecordTick(options_.statistics.get(), MEMTABLE_HIT);
+    RecordTick(stats_, MEMTABLE_HIT);
   } else if (sv->imm->Get(lkey, value, &s, merge_context, *cfd->options())) {
     // Done
-    RecordTick(options_.statistics.get(), MEMTABLE_HIT);
+    RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_START(get_from_output_files_time);
 
     sv->current->Get(options, lkey, value, &s, &merge_context, value_found);
     PERF_TIMER_STOP(get_from_output_files_time);
-    RecordTick(options_.statistics.get(), MEMTABLE_MISS);
+    RecordTick(stats_, MEMTABLE_MISS);
   }
 
   PERF_TIMER_START(get_post_process_time);
@@ -3367,13 +3360,13 @@ Status DBImpl::GetImpl(const ReadOptions& options,
       sv->Cleanup();
       mutex_.Unlock();
       delete sv;
-      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
+      RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
     }
-    RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_RELEASES);
+    RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
   }
 
-  RecordTick(options_.statistics.get(), NUMBER_KEYS_READ);
-  RecordTick(options_.statistics.get(), BYTES_READ, value->size());
+  RecordTick(stats_, NUMBER_KEYS_READ);
+  RecordTick(stats_, BYTES_READ, value->size());
   PERF_TIMER_STOP(get_post_process_time);
   return s;
 }
@@ -3383,7 +3376,7 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
 
-  StopWatch sw(env_, options_.statistics.get(), DB_MULTIGET, false);
+  StopWatch sw(env_, stats_, DB_MULTIGET);
   PERF_TIMER_AUTO(get_snapshot_time);
 
   SequenceNumber snapshot;
@@ -3481,9 +3474,9 @@ std::vector<Status> DBImpl::MultiGet(
     delete mgd.second;
   }
 
-  RecordTick(options_.statistics.get(), NUMBER_MULTIGET_CALLS);
-  RecordTick(options_.statistics.get(), NUMBER_MULTIGET_KEYS_READ, num_keys);
-  RecordTick(options_.statistics.get(), NUMBER_MULTIGET_BYTES_READ, bytes_read);
+  RecordTick(stats_, NUMBER_MULTIGET_CALLS);
+  RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
+  RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
 
   return stat_list;
@@ -3798,7 +3791,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   }
 
   if (!options.disableWAL) {
-    RecordTick(options_.statistics.get(), WRITE_WITH_WAL, 1);
+    RecordTick(stats_, WRITE_WITH_WAL);
     default_cf_internal_stats_->AddDBStats(
         InternalStats::WRITE_WITH_WAL, 1);
   }
@@ -3807,7 +3800,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     default_cf_internal_stats_->AddDBStats(
         InternalStats::WRITE_DONE_BY_OTHER, 1);
     mutex_.Unlock();
-    RecordTick(options_.statistics.get(), WRITE_DONE_BY_OTHER, 1);
+    RecordTick(stats_, WRITE_DONE_BY_OTHER);
     return w.status;
   } else if (timed_out) {
 #ifndef NDEBUG
@@ -3832,10 +3825,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       writers_.front()->cv.Signal();
     }
     mutex_.Unlock();
-    RecordTick(options_.statistics.get(), WRITE_TIMEDOUT, 1);
+    RecordTick(stats_, WRITE_TIMEDOUT);
     return Status::TimedOut();
   } else {
-    RecordTick(options_.statistics.get(), WRITE_DONE_BY_SELF, 1);
+    RecordTick(stats_, WRITE_DONE_BY_SELF);
     default_cf_internal_stats_->AddDBStats(
         InternalStats::WRITE_DONE_BY_SELF, 1);
   }
@@ -3925,11 +3918,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
       last_sequence += my_batch_count;
       const uint64_t batch_size = WriteBatchInternal::ByteSize(updates);
       // Record statistics
-      RecordTick(options_.statistics.get(),
-                 NUMBER_KEYS_WRITTEN, my_batch_count);
-      RecordTick(options_.statistics.get(),
-                 BYTES_WRITTEN,
-                 batch_size);
+      RecordTick(stats_, NUMBER_KEYS_WRITTEN, my_batch_count);
+      RecordTick(stats_, BYTES_WRITTEN, WriteBatchInternal::ByteSize(updates));
       if (options.disableWAL) {
         flush_on_destroy_ = true;
       }
@@ -3944,14 +3934,14 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         alive_log_files_.back().AddSize(log_entry.size());
         log_empty_ = false;
         log_size = log_entry.size();
-        RecordTick(options_.statistics.get(), WAL_FILE_SYNCED, 1);
-        RecordTick(options_.statistics.get(), WAL_FILE_BYTES, log_size);
+        RecordTick(stats_, WAL_FILE_SYNCED);
+        RecordTick(stats_, WAL_FILE_BYTES, log_size);
         if (status.ok() && options.sync) {
           if (options_.use_fsync) {
-            StopWatch(env_, options_.statistics.get(), WAL_FILE_SYNC_MICROS);
+            StopWatch(env_, stats_, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Fsync();
           } else {
-            StopWatch(env_, options_.statistics.get(), WAL_FILE_SYNC_MICROS);
+            StopWatch(env_, stats_, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Sync();
           }
         }
@@ -3972,8 +3962,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
 
         PERF_TIMER_STOP(write_memtable_time);
 
-        SetTickerCount(options_.statistics.get(), SEQUENCE_NUMBER,
-                       last_sequence);
+        SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
       }
       PERF_TIMER_START(write_pre_and_post_process_time);
       if (updates == &tmp_batch_) {
@@ -4019,7 +4008,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   mutex_.Unlock();
 
   if (status.IsTimedOut()) {
-    RecordTick(options_.statistics.get(), WRITE_TIMEDOUT, 1);
+    RecordTick(stats_, WRITE_TIMEDOUT);
   }
 
   for (auto& sv : superversions_to_free) {
@@ -4166,11 +4155,11 @@ Status DBImpl::MakeRoomForWrite(
       mutex_.Unlock();
       uint64_t delayed;
       {
-        StopWatch sw(env_, options_.statistics.get(), STALL_L0_SLOWDOWN_COUNT);
+        StopWatch sw(env_, stats_, STALL_L0_SLOWDOWN_COUNT, true);
         env_->SleepForMicroseconds(slowdown);
         delayed = sw.ElapsedMicros();
       }
-      RecordTick(options_.statistics.get(), STALL_L0_SLOWDOWN_MICROS, delayed);
+      RecordTick(stats_, STALL_L0_SLOWDOWN_MICROS, delayed);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
       cfd->internal_stats()->AddCFStats(
@@ -4194,8 +4183,7 @@ Status DBImpl::MakeRoomForWrite(
       }
       uint64_t stall;
       {
-        StopWatch sw(env_, options_.statistics.get(),
-                     STALL_MEMTABLE_COMPACTION_COUNT);
+        StopWatch sw(env_, stats_, STALL_MEMTABLE_COMPACTION_COUNT, true);
         if (!has_timeout) {
           bg_cv_.Wait();
         } else {
@@ -4203,8 +4191,7 @@ Status DBImpl::MakeRoomForWrite(
         }
         stall = sw.ElapsedMicros();
       }
-      RecordTick(options_.statistics.get(),
-                 STALL_MEMTABLE_COMPACTION_MICROS, stall);
+      RecordTick(stats_, STALL_MEMTABLE_COMPACTION_MICROS, stall);
       cfd->internal_stats()->AddCFStats(
           InternalStats::MEMTABLE_COMPACTION, stall);
     } else if (cfd->NeedWaitForNumLevel0Files()) {
@@ -4213,8 +4200,7 @@ Status DBImpl::MakeRoomForWrite(
           cfd->GetName().c_str());
       uint64_t stall;
       {
-        StopWatch sw(env_, options_.statistics.get(),
-                     STALL_L0_NUM_FILES_COUNT);
+        StopWatch sw(env_, stats_, STALL_L0_NUM_FILES_COUNT, true);
         if (!has_timeout) {
           bg_cv_.Wait();
         } else {
@@ -4222,8 +4208,7 @@ Status DBImpl::MakeRoomForWrite(
         }
         stall = sw.ElapsedMicros();
       }
-      RecordTick(options_.statistics.get(),
-                 STALL_L0_NUM_FILES_MICROS, stall);
+      RecordTick(stats_, STALL_L0_NUM_FILES_MICROS, stall);
       cfd->internal_stats()->AddCFStats(
           InternalStats::LEVEL0_NUM_FILES, stall);
     } else if (allow_hard_rate_limit_delay && cfd->ExceedsHardRateLimit()) {
@@ -4233,16 +4218,14 @@ Status DBImpl::MakeRoomForWrite(
       mutex_.Unlock();
       uint64_t delayed;
       {
-        StopWatch sw(env_, options_.statistics.get(),
-                     HARD_RATE_LIMIT_DELAY_COUNT);
+        StopWatch sw(env_, stats_, HARD_RATE_LIMIT_DELAY_COUNT, true);
         env_->SleepForMicroseconds(1000);
         delayed = sw.ElapsedMicros();
       }
       // Make sure the following value doesn't round to zero.
       uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
       rate_limit_delay_millis += rate_limit;
-      RecordTick(options_.statistics.get(),
-                 RATE_LIMIT_DELAY_MILLIS, rate_limit);
+      RecordTick(stats_, RATE_LIMIT_DELAY_MILLIS, rate_limit);
       if (cfd->options()->rate_limit_delay_max_milliseconds > 0 &&
           rate_limit_delay_millis >=
               (unsigned)cfd->options()->rate_limit_delay_max_milliseconds) {
@@ -4259,8 +4242,7 @@ Status DBImpl::MakeRoomForWrite(
                                          cfd->options()->hard_rate_limit);
       mutex_.Unlock();
       {
-        StopWatch sw(env_, options_.statistics.get(),
-                     SOFT_RATE_LIMIT_DELAY_COUNT);
+        StopWatch sw(env_, stats_, SOFT_RATE_LIMIT_DELAY_COUNT, true);
         env_->SleepForMicroseconds(slowdown);
         slowdown = sw.ElapsedMicros();
         rate_limit_delay_millis += slowdown;
@@ -4434,7 +4416,7 @@ Status DBImpl::GetUpdatesSince(
     SequenceNumber seq, unique_ptr<TransactionLogIterator>* iter,
     const TransactionLogIterator::ReadOptions& read_options) {
 
-  RecordTick(options_.statistics.get(), GET_UPDATES_SINCE_CALLS);
+  RecordTick(stats_, GET_UPDATES_SINCE_CALLS);
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
   }

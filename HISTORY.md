@@ -9,7 +9,7 @@
 * DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size
 * NewPlainTableFactory instead of bunch of parameters now accepts PlainTableOptions, which is defined in include/rocksdb/table.h
 * Moved include/utilities/*.h to include/rocksdb/utilities/*.h
-
+* Statistics APIs now take uint32_t as type instead of Tickers. Also make two access functions getTickerCount and histogramData const
 
 ## 3.3.0 (7/10/2014)
 ### New Features

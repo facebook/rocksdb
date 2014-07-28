@@ -436,8 +436,8 @@ class MemTableInserter : public WriteBatch::Handler {
           // Failed to merge!
         RecordTick(options->statistics.get(), NUMBER_MERGE_FAILURES);
 
-          // Store the delta in memtable
-          perform_merge = false;
+        // Store the delta in memtable
+        perform_merge = false;
       } else {
         // 3) Add value to memtable
         mem->Add(sequence_, kTypeValue, key, new_value);

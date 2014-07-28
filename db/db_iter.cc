@@ -70,7 +70,7 @@ class DBIter: public Iterator {
         valid_(false),
         current_entry_is_merged_(false),
         statistics_(options.statistics.get()) {
-    RecordTick(statistics_, NO_ITERATORS, 1);
+    RecordTick(statistics_, NO_ITERATORS);
     max_skip_ = options.max_sequential_skip_in_iterations;
   }
   virtual ~DBIter() {

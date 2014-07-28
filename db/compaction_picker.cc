@@ -622,8 +622,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
   c->bottommost_level_ = c->inputs_[0].files.back() == last_file;
 
   // update statistics
-  MeasureTime(options_->statistics.get(), NUM_FILES_IN_SINGLE_COMPACTION,
-              c->inputs_[0].size());
+  MeasureTime(options_->statistics.get(),
+              NUM_FILES_IN_SINGLE_COMPACTION, c->inputs_[0].size());
 
   // mark all the files that are being compacted
   c->MarkFilesBeingCompacted(true);
