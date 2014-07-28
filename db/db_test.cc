@@ -2486,6 +2486,7 @@ TEST(DBTest, GetProperty) {
 
   std::string big_value(1000000 * 2, 'x');
   std::string num;
+  uint64_t int_num;
   SetPerfLevel(kEnableTime);
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
@@ -2512,6 +2513,17 @@ TEST(DBTest, GetProperty) {
   ASSERT_EQ(num, "0");
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
   ASSERT_EQ(num, "4");
+  // Verify the same set of properties through GetIntProperty
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.num-immutable-mem-table", &int_num));
+  ASSERT_EQ(int_num, 2U);
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.mem-table-flush-pending", &int_num));
+  ASSERT_EQ(int_num, 1U);
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.compaction-pending", &int_num));
+  ASSERT_EQ(int_num, 0);
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &int_num));
+  ASSERT_EQ(int_num, 4);
 
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
@@ -6602,6 +6614,11 @@ class ModelDB: public DB {
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) {
+    return false;
+  }
+  using DB::GetIntProperty;
+  virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property, uint64_t* value) override {
     return false;
   }
   using DB::GetApproximateSizes;

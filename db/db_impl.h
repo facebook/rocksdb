@@ -96,6 +96,9 @@ class DBImpl : public DB {
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value);
+  using DB::GetIntProperty;
+  virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property, uint64_t* value) override;
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes);

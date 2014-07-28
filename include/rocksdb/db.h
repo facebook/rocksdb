@@ -307,6 +307,14 @@ class DB {
     return GetProperty(DefaultColumnFamily(), property, value);
   }
 
+  // Similar to GetProperty(), but only works for a subset of properties whose
+  // return value is an integer. Return the value by integer.
+  virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property, uint64_t* value) = 0;
+  virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
+    return GetIntProperty(DefaultColumnFamily(), property, value);
+  }
+
   // For each i in [0,n-1], store in "sizes[i]", the approximate
   // file system space used by keys in "[range[i].start .. range[i].limit)".
   //

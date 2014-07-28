@@ -107,7 +107,13 @@ class StackableDB : public DB {
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override {
-      return db_->GetProperty(column_family, property, value);
+    return db_->GetProperty(column_family, property, value);
+  }
+
+  using DB::GetIntProperty;
+  virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property, uint64_t* value) override {
+    return db_->GetIntProperty(column_family, property, value);
   }
 
   using DB::GetApproximateSizes;

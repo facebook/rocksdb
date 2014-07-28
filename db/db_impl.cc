@@ -4372,6 +4372,15 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
   return cfd->internal_stats()->GetProperty(property_type, property, value);
 }
 
+bool DBImpl::GetIntProperty(ColumnFamilyHandle* column_family,
+                            const Slice& property, uint64_t* value) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+  DBPropertyType property_type = GetPropertyType(property);
+  MutexLock l(&mutex_);
+  return cfd->internal_stats()->GetIntProperty(property_type, property, value);
+}
+
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
                                  const Range* range, int n, uint64_t* sizes) {
   // TODO(opt): better implementation

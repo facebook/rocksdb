@@ -21,13 +21,15 @@ namespace rocksdb {
 class MemTableList;
 class DBImpl;
 
-enum DBPropertyType {
+enum DBPropertyType : uint32_t {
+  kUnknown,
   kNumFilesAtLevel,  // Number of files at a specific level
   kLevelStats,       // Return number of files and total sizes of each level
   kCFStats,          // Return general statitistics of CF
   kDBStats,          // Return general statitistics of DB
   kStats,            // Return general statitistics of both DB and CF
   kSsTables,         // Return a human readable string of current SST files
+  kStartIntTypes,    // ---- Dummy value to indicate the start of integer values
   kNumImmutableMemTable,   // Return number of immutable mem tables
   kMemtableFlushPending,   // Return 1 if mem table flushing is pending,
                            // otherwise 0.
@@ -39,7 +41,6 @@ enum DBPropertyType {
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
                                    // the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
-  kUnknown,
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property);
@@ -192,6 +193,9 @@ class InternalStats {
 
   bool GetProperty(DBPropertyType property_type, const Slice& property,
                    std::string* value);
+
+  bool GetIntProperty(DBPropertyType property_type, const Slice& property,
+                      uint64_t* value) const;
 
  private:
   void DumpDBStats(std::string* value);

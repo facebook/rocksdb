@@ -126,6 +126,15 @@ DBPropertyType GetPropertyType(const Slice& property) {
 
 bool InternalStats::GetProperty(DBPropertyType property_type,
                                 const Slice& property, std::string* value) {
+  if (property_type > kStartIntTypes) {
+    uint64_t int_value;
+    bool ret_value = GetIntProperty(property_type, property, &int_value);
+    if (ret_value) {
+      *value = std::to_string(int_value);
+    }
+    return ret_value;
+  }
+
   Version* current = cfd_->current();
   Slice in = property;
 
@@ -179,40 +188,51 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
     case kSsTables:
       *value = current->DebugString();
       return true;
+    default:
+      return false;
+  }
+}
+
+bool InternalStats::GetIntProperty(DBPropertyType property_type,
+                                   const Slice& property,
+                                   uint64_t* value) const {
+  Version* current = cfd_->current();
+
+  switch (property_type) {
     case kNumImmutableMemTable:
-      *value = std::to_string(cfd_->imm()->size());
+      *value = cfd_->imm()->size();
       return true;
     case kMemtableFlushPending:
       // Return number of mem tables that are ready to flush (made immutable)
-      *value = std::to_string(cfd_->imm()->IsFlushPending() ? 1 : 0);
+      *value = (cfd_->imm()->IsFlushPending() ? 1 : 0);
       return true;
     case kCompactionPending:
       // 1 if the system already determines at least one compacdtion is needed.
       // 0 otherwise,
-      *value = std::to_string(current->NeedsCompaction() ? 1 : 0);
+      *value = (current->NeedsCompaction() ? 1 : 0);
       return true;
     case kBackgroundErrors:
       // Accumulated number of  errors in background flushes or compactions.
-      *value = std::to_string(GetBackgroundErrorCount());
+      *value = GetBackgroundErrorCount();
       return true;
     case kCurSizeActiveMemTable:
       // Current size of the active memtable
-      *value = std::to_string(cfd_->mem()->ApproximateMemoryUsage());
+      *value = cfd_->mem()->ApproximateMemoryUsage();
       return true;
     case kNumEntriesInMutableMemtable:
       // Current size of the active memtable
-      *value = std::to_string(cfd_->mem()->GetNumEntries());
+      *value = cfd_->mem()->GetNumEntries();
       return true;
     case kNumEntriesInImmutableMemtable:
       // Current size of the active memtable
-      *value = std::to_string(cfd_->imm()->current()->GetTotalNumEntries());
+      *value = cfd_->imm()->current()->GetTotalNumEntries();
       return true;
     case kEstimatedNumKeys:
       // Estimate number of entries in the column family:
       // Use estimated entries in tables + total entries in memtables.
-      *value = std::to_string(cfd_->mem()->GetNumEntries() +
-                              cfd_->imm()->current()->GetTotalNumEntries() +
-                              current->GetEstimatedActiveKeys());
+      *value = cfd_->mem()->GetNumEntries() +
+               cfd_->imm()->current()->GetTotalNumEntries() +
+               current->GetEstimatedActiveKeys();
       return true;
     default:
       return false;
