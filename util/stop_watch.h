@@ -9,25 +9,31 @@
 
 namespace rocksdb {
 // Auto-scoped.
-// Records the statistic into the corresponding histogram.
+// Records the measure time into the corresponding histogram if statistics
+// is not nullptr. It is also saved into *elapsed if the pointer is not nullptr.
 class StopWatch {
  public:
   StopWatch(Env * const env, Statistics* statistics,
-            const uint32_t hist_type, bool force_enable = false)
+            const uint32_t hist_type,
+            uint64_t* elapsed = nullptr)
     : env_(env),
       statistics_(statistics),
       hist_type_(hist_type),
-      enabled_(statistics && statistics->HistEnabledForType(hist_type)),
-      start_time_(enabled_ || force_enable ? env->NowMicros() : 0) {
+      elapsed_(elapsed),
+      stats_enabled_(statistics && statistics->HistEnabledForType(hist_type)),
+      start_time_((stats_enabled_ || elapsed != nullptr) ?
+                  env->NowMicros() : 0) {
   }
 
-  uint64_t ElapsedMicros() const {
-    return env_->NowMicros() - start_time_;
-  }
 
   ~StopWatch() {
-    if (enabled_) {
-      statistics_->measureTime(hist_type_, ElapsedMicros());
+    if (elapsed_) {
+      *elapsed_ = env_->NowMicros() - start_time_;
+    }
+    if (stats_enabled_) {
+      statistics_->measureTime(hist_type_,
+          (elapsed_ != nullptr) ? *elapsed_ :
+                                  (env_->NowMicros() - start_time_));
     }
   }
 
@@ -35,7 +41,8 @@ class StopWatch {
   Env* const env_;
   Statistics* statistics_;
   const uint32_t hist_type_;
-  bool enabled_;
+  uint64_t* elapsed_;
+  bool stats_enabled_;
   const uint64_t start_time_;
 };
 

@@ -4156,9 +4156,8 @@ Status DBImpl::MakeRoomForWrite(
       mutex_.Unlock();
       uint64_t delayed;
       {
-        StopWatch sw(env_, stats_, STALL_L0_SLOWDOWN_COUNT, true);
+        StopWatch sw(env_, stats_, STALL_L0_SLOWDOWN_COUNT, &delayed);
         env_->SleepForMicroseconds(slowdown);
-        delayed = sw.ElapsedMicros();
       }
       RecordTick(stats_, STALL_L0_SLOWDOWN_MICROS, delayed);
       allow_delay = false;  // Do not delay a single write more than once
@@ -4184,13 +4183,12 @@ Status DBImpl::MakeRoomForWrite(
       }
       uint64_t stall;
       {
-        StopWatch sw(env_, stats_, STALL_MEMTABLE_COMPACTION_COUNT, true);
+        StopWatch sw(env_, stats_, STALL_MEMTABLE_COMPACTION_COUNT, &stall);
         if (!has_timeout) {
           bg_cv_.Wait();
         } else {
           bg_cv_.TimedWait(expiration_time);
         }
-        stall = sw.ElapsedMicros();
       }
       RecordTick(stats_, STALL_MEMTABLE_COMPACTION_MICROS, stall);
       cfd->internal_stats()->AddCFStats(
@@ -4201,13 +4199,12 @@ Status DBImpl::MakeRoomForWrite(
           cfd->GetName().c_str());
       uint64_t stall;
       {
-        StopWatch sw(env_, stats_, STALL_L0_NUM_FILES_COUNT, true);
+        StopWatch sw(env_, stats_, STALL_L0_NUM_FILES_COUNT, &stall);
         if (!has_timeout) {
           bg_cv_.Wait();
         } else {
           bg_cv_.TimedWait(expiration_time);
         }
-        stall = sw.ElapsedMicros();
       }
       RecordTick(stats_, STALL_L0_NUM_FILES_MICROS, stall);
       cfd->internal_stats()->AddCFStats(
@@ -4219,9 +4216,8 @@ Status DBImpl::MakeRoomForWrite(
       mutex_.Unlock();
       uint64_t delayed;
       {
-        StopWatch sw(env_, stats_, HARD_RATE_LIMIT_DELAY_COUNT, true);
+        StopWatch sw(env_, stats_, HARD_RATE_LIMIT_DELAY_COUNT, &delayed);
         env_->SleepForMicroseconds(1000);
-        delayed = sw.ElapsedMicros();
       }
       // Make sure the following value doesn't round to zero.
       uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
@@ -4241,16 +4237,16 @@ Status DBImpl::MakeRoomForWrite(
       // TODO: add statistics
       uint64_t slowdown = SlowdownAmount(score, cfd->options()->soft_rate_limit,
                                          cfd->options()->hard_rate_limit);
+      uint64_t elapsed = 0;
       mutex_.Unlock();
       {
-        StopWatch sw(env_, stats_, SOFT_RATE_LIMIT_DELAY_COUNT, true);
+        StopWatch sw(env_, stats_, SOFT_RATE_LIMIT_DELAY_COUNT, &elapsed);
         env_->SleepForMicroseconds(slowdown);
-        slowdown = sw.ElapsedMicros();
         rate_limit_delay_millis += slowdown;
       }
       allow_soft_rate_limit_delay = false;
       mutex_.Lock();
-      cfd->internal_stats()->RecordLevelNSlowdown(max_level, slowdown, true);
+      cfd->internal_stats()->RecordLevelNSlowdown(max_level, elapsed, true);
     } else {
       unique_ptr<WritableFile> lfile;
       log::Writer* new_log = nullptr;
