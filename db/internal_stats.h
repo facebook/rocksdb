@@ -64,7 +64,7 @@ class InternalStats {
     INTERNAL_DB_STATS_ENUM_MAX,
   };
 
-  InternalStats(int num_levels, Env* env)
+  InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd)
       : db_stats_(INTERNAL_DB_STATS_ENUM_MAX),
         cf_stats_value_(INTERNAL_CF_STATS_ENUM_MAX),
         cf_stats_count_(INTERNAL_CF_STATS_ENUM_MAX),
@@ -76,6 +76,7 @@ class InternalStats {
         bg_error_count_(0),
         number_levels_(num_levels),
         env_(env),
+        cfd_(cfd),
         started_at_(env->NowMicros()) {
     for (int i = 0; i< INTERNAL_DB_STATS_ENUM_MAX; ++i) {
       db_stats_[i] = 0;
@@ -189,11 +190,11 @@ class InternalStats {
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
 
   bool GetProperty(DBPropertyType property_type, const Slice& property,
-                   std::string* value, ColumnFamilyData* cfd);
+                   std::string* value);
 
  private:
   void DumpDBStats(std::string* value);
-  void DumpCFStats(std::string* value, ColumnFamilyData* cfd);
+  void DumpCFStats(std::string* value);
 
   // Per-DB stats
   std::vector<uint64_t> db_stats_;
@@ -254,6 +255,7 @@ class InternalStats {
 
   const int number_levels_;
   Env* env_;
+  ColumnFamilyData* cfd_;
   const uint64_t started_at_;
 };
 

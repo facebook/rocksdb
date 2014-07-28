@@ -125,9 +125,8 @@ DBPropertyType GetPropertyType(const Slice& property) {
 }
 
 bool InternalStats::GetProperty(DBPropertyType property_type,
-                                const Slice& property, std::string* value,
-                                ColumnFamilyData* cfd) {
-  Version* current = cfd->current();
+                                const Slice& property, std::string* value) {
+  Version* current = cfd_->current();
   Slice in = property;
 
   switch (property_type) {
@@ -161,16 +160,16 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       return true;
     }
     case kStats: {
-      if (!GetProperty(kCFStats, "rocksdb.cfstats", value, cfd)) {
+      if (!GetProperty(kCFStats, "rocksdb.cfstats", value)) {
         return false;
       }
-      if (!GetProperty(kDBStats, "rocksdb.dbstats", value, cfd)) {
+      if (!GetProperty(kDBStats, "rocksdb.dbstats", value)) {
         return false;
       }
       return true;
     }
     case kCFStats: {
-      DumpCFStats(value, cfd);
+      DumpCFStats(value);
       return true;
     }
     case kDBStats: {
@@ -181,11 +180,11 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       *value = current->DebugString();
       return true;
     case kNumImmutableMemTable:
-      *value = std::to_string(cfd->imm()->size());
+      *value = std::to_string(cfd_->imm()->size());
       return true;
     case kMemtableFlushPending:
       // Return number of mem tables that are ready to flush (made immutable)
-      *value = std::to_string(cfd->imm()->IsFlushPending() ? 1 : 0);
+      *value = std::to_string(cfd_->imm()->IsFlushPending() ? 1 : 0);
       return true;
     case kCompactionPending:
       // 1 if the system already determines at least one compacdtion is needed.
@@ -198,15 +197,15 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       return true;
     case kCurSizeActiveMemTable:
       // Current size of the active memtable
-      *value = std::to_string(cfd->mem()->ApproximateMemoryUsage());
+      *value = std::to_string(cfd_->mem()->ApproximateMemoryUsage());
       return true;
     case kNumEntriesInMutableMemtable:
       // Current size of the active memtable
-      *value = std::to_string(cfd->mem()->GetNumEntries());
+      *value = std::to_string(cfd_->mem()->GetNumEntries());
       return true;
     case kNumEntriesInImmutableMemtable:
       // Current size of the active memtable
-      *value = std::to_string(cfd->imm()->current()->GetTotalNumEntries());
+      *value = std::to_string(cfd_->imm()->current()->GetTotalNumEntries());
       return true;
     default:
       return false;
@@ -283,12 +282,12 @@ void InternalStats::DumpDBStats(std::string* value) {
   db_stats_snapshot_.write_with_wal = write_with_wal;
 }
 
-void InternalStats::DumpCFStats(std::string* value, ColumnFamilyData* cfd) {
-  Version* current = cfd->current();
+void InternalStats::DumpCFStats(std::string* value) {
+  Version* current = cfd_->current();
 
   int num_levels_to_check =
-      (cfd->options()->compaction_style != kCompactionStyleUniversal &&
-       cfd->options()->compaction_style != kCompactionStyleFIFO)
+      (cfd_->options()->compaction_style != kCompactionStyleUniversal &&
+       cfd_->options()->compaction_style != kCompactionStyleFIFO)
           ? current->NumberLevels() - 1
           : 1;
   // Compaction scores are sorted base on its value. Restore them to the
@@ -310,7 +309,7 @@ void InternalStats::DumpCFStats(std::string* value, ColumnFamilyData* cfd) {
 
   char buf[1000];
   // Per-ColumnFamily stats
-  PrintLevelStatsHeader(buf, sizeof(buf), cfd->GetName());
+  PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName());
   value->append(buf);
 
   CompactionStats stats_sum(0);

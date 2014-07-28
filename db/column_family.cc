@@ -223,7 +223,7 @@ ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
   // if dummy_versions is nullptr, then this is a dummy column family.
   if (dummy_versions != nullptr) {
     internal_stats_.reset(
-        new InternalStats(options_.num_levels, db_options->env));
+        new InternalStats(options_.num_levels, db_options->env, this));
     table_cache_.reset(new TableCache(&options_, storage_options, table_cache));
     if (options_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(

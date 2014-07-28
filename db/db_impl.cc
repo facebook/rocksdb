@@ -514,17 +514,16 @@ void DBImpl::MaybeDumpStats() {
     last_stats_dump_time_microsec_ = now_micros;
 
     DBPropertyType cf_property_type = GetPropertyType("rocksdb.cfstats");
+    DBPropertyType db_property_type = GetPropertyType("rocksdb.dbstats");
     std::string stats;
     {
       MutexLock l(&mutex_);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
-        cfd->internal_stats()->GetProperty(cf_property_type, "rocksdb.cfstats",
-                                           &stats, cfd);
+        cfd->internal_stats()->GetProperty(
+            cf_property_type, "rocksdb.cfstats", &stats);
       }
-      DBPropertyType db_property_type = GetPropertyType("rocksdb.dbstats");
       default_cf_internal_stats_->GetProperty(
-          db_property_type, "rocksdb.dbstats", &stats,
-          default_cf_handle_->cfd());
+          db_property_type, "rocksdb.dbstats", &stats);
     }
     Log(options_.info_log, "------- DUMPING STATS -------");
     Log(options_.info_log, "%s", stats.c_str());
@@ -4370,8 +4369,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
   auto cfd = cfh->cfd();
   DBPropertyType property_type = GetPropertyType(property);
   MutexLock l(&mutex_);
-  return cfd->internal_stats()->GetProperty(property_type, property, value,
-                                            cfd);
+  return cfd->internal_stats()->GetProperty(property_type, property, value);
 }
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
