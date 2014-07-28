@@ -593,6 +593,14 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   return Status::OK();
 }
 
+uint64_t Version::GetEstimatedActiveKeys() {
+  // Estimation will be not accurate when:
+  // (1) there is merge keys
+  // (2) keys are directly overwritten
+  // (3) deletion on non-existing keys
+  return num_non_deletions_ - num_deletions_;
+}
+
 void Version::AddIterators(const ReadOptions& read_options,
                            const EnvOptions& soptions,
                            std::vector<Iterator*>* iters) {
@@ -749,9 +757,8 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
     : cfd_(cfd),
       internal_comparator_((cfd == nullptr) ? nullptr
                                             : &cfd->internal_comparator()),
-      user_comparator_((cfd == nullptr)
-                           ? nullptr
-                           : internal_comparator_->user_comparator()),
+      user_comparator_(
+          (cfd == nullptr) ? nullptr : internal_comparator_->user_comparator()),
       table_cache_((cfd == nullptr) ? nullptr : cfd->table_cache()),
       merge_operator_((cfd == nullptr) ? nullptr
                                        : cfd->options()->merge_operator.get()),
@@ -777,12 +784,14 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       total_file_size_(0),
       total_raw_key_size_(0),
       total_raw_value_size_(0),
-      num_non_deletions_(0) {
+      num_non_deletions_(0),
+      num_deletions_(0) {
   if (cfd != nullptr && cfd->current() != nullptr) {
       total_file_size_ = cfd->current()->total_file_size_;
       total_raw_key_size_ = cfd->current()->total_raw_key_size_;
       total_raw_value_size_ = cfd->current()->total_raw_value_size_;
       num_non_deletions_ = cfd->current()->num_non_deletions_;
+      num_deletions_ = cfd->current()->num_deletions_;
   }
 }
 
@@ -902,6 +911,7 @@ void Version::UpdateTemporaryStats() {
         total_raw_value_size_ += file_meta->raw_value_size;
         num_non_deletions_ +=
             file_meta->num_entries - file_meta->num_deletions;
+        num_deletions_ += file_meta->num_deletions;
         init_count++;
       }
       total_count++;

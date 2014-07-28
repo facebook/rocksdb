@@ -12,8 +12,6 @@
 #include <vector>
 #include "db/column_family.h"
 
-#include "db/column_family.h"
-
 namespace rocksdb {
 
 namespace {
@@ -120,6 +118,8 @@ DBPropertyType GetPropertyType(const Slice& property) {
     return kNumEntriesInMutableMemtable;
   } else if (in == "num-entries-imm-mem-tables") {
     return kNumEntriesInImmutableMemtable;
+  } else if (in == "estimate-num-keys") {
+    return kEstimatedNumKeys;
   }
   return kUnknown;
 }
@@ -206,6 +206,13 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
     case kNumEntriesInImmutableMemtable:
       // Current size of the active memtable
       *value = std::to_string(cfd_->imm()->current()->GetTotalNumEntries());
+      return true;
+    case kEstimatedNumKeys:
+      // Estimate number of entries in the column family:
+      // Use estimated entries in tables + total entries in memtables.
+      *value = std::to_string(cfd_->mem()->GetNumEntries() +
+                              cfd_->imm()->current()->GetTotalNumEntries() +
+                              current->GetEstimatedActiveKeys());
       return true;
     default:
       return false;

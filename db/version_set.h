@@ -232,6 +232,8 @@ class Version {
   // tables' propertis, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
 
+  uint64_t GetEstimatedActiveKeys();
+
   // used to sort files by size
   struct Fsize {
     int index;
@@ -336,7 +338,8 @@ class Version {
   uint64_t total_raw_value_size_;
   // total number of non-deletion entries
   uint64_t num_non_deletions_;
-
+  // total number of deletion entries
+  uint64_t num_deletions_;
 
   ~Version();
 

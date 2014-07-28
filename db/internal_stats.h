@@ -38,6 +38,7 @@ enum DBPropertyType {
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
                                    // the immutable mem tables.
+  kEstimatedNumKeys,  // Estimated total number of keys in the database.
   kUnknown,
 };
 

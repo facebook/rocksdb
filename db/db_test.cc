@@ -2495,11 +2495,14 @@ TEST(DBTest, GetProperty) {
   ASSERT_EQ(num, "0");
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
   ASSERT_EQ(num, "0");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
+  ASSERT_EQ(num, "1");
   perf_context.Reset();
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
   ASSERT_EQ(num, "1");
+  ASSERT_OK(dbfull()->Delete(writeOpt, "k-non-existing"));
   ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
   ASSERT_EQ(num, "2");
@@ -2507,6 +2510,8 @@ TEST(DBTest, GetProperty) {
   ASSERT_EQ(num, "1");
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
   ASSERT_EQ(num, "0");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
+  ASSERT_EQ(num, "4");
 
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
@@ -2519,6 +2524,8 @@ TEST(DBTest, GetProperty) {
   ASSERT_EQ(num, "0");
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
   ASSERT_EQ(num, "1");
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
+  ASSERT_EQ(num, "4");
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
 }
