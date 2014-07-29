@@ -86,7 +86,9 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
       bucket_found = true;
       break;
     } else {
-      if (user_key.compare(ExtractUserKey(buckets_[hash_val].key)) == 0) {
+      if (user_key.compare(
+            is_last_level_file_ ? Slice(buckets_[hash_val].key)
+            : ExtractUserKey(Slice(buckets_[hash_val].key))) == 0) {
         status_ = Status::Corruption("Same key is being inserted again.");
         return;
       }
@@ -112,8 +114,12 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
       hash_vals.push_back(hash_val);
     }
   }
-  buckets_[bucket_id].key = key;
-  buckets_[bucket_id].value = value;
+  if (is_last_level_file_) {
+    buckets_[bucket_id].key.assign(user_key.data(), user_key.size());
+  } else {
+    buckets_[bucket_id].key.assign(key.data(), key.size());
+  }
+  buckets_[bucket_id].value.assign(value.data(), value.size());
   buckets_[bucket_id].is_empty = false;
 
   properties_.num_entries++;
@@ -149,12 +155,18 @@ Status CuckooTableBuilder::Finish() {
     if (prev_key_.empty()) {
       return Status::Corruption("Unable to find unused key");
     }
+    // Try to find the key next to prev_key_ by handling carryovers.
     std::string new_user_key = prev_key_;
-    new_user_key.back()++;
-    // We ignore carry-overs and check that it is larger than previous key.
-    if (new_user_key > prev_key_) {
-      unused_user_key_ = new_user_key;
-    } else {
+    int curr_pos = new_user_key.size() - 1;
+    while (curr_pos >= 0) {
+      ++new_user_key[curr_pos];
+      if (new_user_key > prev_key_) {
+        unused_user_key_ = new_user_key;
+        break;
+      }
+      --curr_pos;
+    }
+    if (curr_pos < 0) {
       return Status::Corruption("Unable to find unused key");
     }
   }
@@ -179,17 +191,9 @@ Status CuckooTableBuilder::Finish() {
       s = file_->Append(Slice(unused_bucket));
     } else {
       ++num_added;
-      if (is_last_level_file_) {
-        Slice user_key = ExtractUserKey(bucket.key);
-        s = file_->Append(user_key);
-        if (s.ok()) {
-          s = file_->Append(bucket.value);
-        }
-      } else {
-        s = file_->Append(bucket.key);
-        if (s.ok()) {
-          s = file_->Append(bucket.value);
-        }
+      s = file_->Append(Slice(bucket.key));
+      if (s.ok()) {
+        s = file_->Append(Slice(bucket.value));
       }
     }
     if (!s.ok()) {
@@ -307,7 +311,9 @@ bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
     CuckooBucket& curr_bucket = buckets_[curr_node.bucket_id];
     for (uint32_t hash_cnt = 0; hash_cnt < num_hash_table_; ++hash_cnt) {
       uint64_t child_bucket_id = GetSliceHash(
-          ExtractUserKey(curr_bucket.key), hash_cnt, max_num_buckets_);
+          is_last_level_file_ ? curr_bucket.key
+          : ExtractUserKey(Slice(curr_bucket.key)),
+          hash_cnt, max_num_buckets_);
       if (buckets_[child_bucket_id].make_space_for_key_call_id ==
           make_space_for_key_call_id_) {
         continue;

@@ -236,18 +236,6 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
 
 // Performance tests
 namespace {
-void GenerateKeys(uint64_t num, std::vector<std::string>* keys,
-    uint32_t user_key_length) {
-  for (uint64_t i = 0; i < num; ++i) {
-    std::string new_key(reinterpret_cast<char*>(&i), sizeof(i));
-    new_key = std::string(user_key_length - new_key.size(), 'k') + new_key;
-    ParsedInternalKey ikey(new_key, num, kTypeValue);
-    std::string full_key;
-    AppendInternalKey(&full_key, ikey);
-    keys->push_back(full_key);
-  }
-}
-
 bool DoNothing(void* arg, const ParsedInternalKey& k, const Slice& v) {
   // Deliberately empty.
   return false;
@@ -266,6 +254,7 @@ bool CheckValue(void* cnt_ptr, const ParsedInternalKey& k, const Slice& v) {
 void BM_CuckooRead(uint64_t num, uint32_t key_length,
     uint32_t value_length, uint64_t num_reads, double hash_ratio) {
   assert(value_length <= key_length);
+  assert(8 <= key_length);
   std::vector<std::string> keys;
   Options options;
   options.allow_mmap_reads = true;
@@ -277,21 +266,26 @@ void BM_CuckooRead(uint64_t num, uint32_t key_length,
   }
   std::string fname = FLAGS_file_dir + "/cuckoo_read_benchmark";
 
-  GenerateKeys(num, &keys, key_length);
   uint64_t predicted_file_size =
     num * (key_length + value_length) / hash_ratio + 1024;
 
   unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
   CuckooTableBuilder builder(
-      writable_file.get(), keys[0].size(), value_length, hash_ratio,
+      writable_file.get(), key_length + 8, value_length, hash_ratio,
       predicted_file_size, kMaxNumHashTable, 1000, true, GetSliceMurmurHash);
   ASSERT_OK(builder.status());
-  for (uint32_t key_idx = 0; key_idx < num; ++key_idx) {
+  for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.
-    builder.Add(Slice(keys[key_idx]), Slice(&keys[key_idx][0], value_length));
+    std::string new_key(reinterpret_cast<char*>(&key_idx), sizeof(key_idx));
+    new_key = std::string(key_length - new_key.size(), 'k') + new_key;
+    ParsedInternalKey ikey(new_key, num, kTypeValue);
+    std::string full_key;
+    AppendInternalKey(&full_key, ikey);
+    builder.Add(Slice(full_key), Slice(&full_key[0], value_length));
     ASSERT_EQ(builder.NumEntries(), key_idx + 1);
     ASSERT_OK(builder.status());
+    keys.push_back(full_key);
   }
   ASSERT_OK(builder.Finish());
   ASSERT_EQ(num, builder.NumEntries());

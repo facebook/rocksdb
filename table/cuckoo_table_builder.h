@@ -58,8 +58,8 @@ class CuckooTableBuilder: public TableBuilder {
  private:
   struct CuckooBucket {
     CuckooBucket(): is_empty(true), make_space_for_key_call_id(0) {}
-    Slice key;
-    Slice value;
+    std::string key;
+    std::string value;
     bool is_empty;
     uint64_t make_space_for_key_call_id;
   };
