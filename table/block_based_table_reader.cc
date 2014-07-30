@@ -135,7 +135,9 @@ class BlockBasedTable::IndexReader {
   virtual ~IndexReader() {}
 
   // Create an iterator for index access.
-  virtual Iterator* NewIterator() = 0;
+  // An iter is passed in, if it is not null, update this one and return it
+  // If it is null, create a new Iterator
+  virtual Iterator* NewIterator(BlockIter* iter = nullptr) = 0;
 
   // The size of the index.
   virtual size_t size() const = 0;
@@ -168,8 +170,8 @@ class BinarySearchIndexReader : public IndexReader {
     return s;
   }
 
-  virtual Iterator* NewIterator() override {
-    return index_block_->NewIterator(comparator_);
+  virtual Iterator* NewIterator(BlockIter* iter = nullptr) override {
+    return index_block_->NewIterator(comparator_, iter);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -284,8 +286,8 @@ class HashIndexReader : public IndexReader {
     return Status::OK();
   }
 
-  virtual Iterator* NewIterator() override {
-    return index_block_->NewIterator(comparator_);
+  virtual Iterator* NewIterator(BlockIter* iter = nullptr) override {
+    return index_block_->NewIterator(comparator_, iter);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -779,10 +781,11 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   return { filter, cache_handle };
 }
 
-Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
+Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
+        BlockIter* input_iter) {
   // index reader has already been pre-populated.
   if (rep_->index_reader) {
-    return rep_->index_reader->NewIterator();
+    return rep_->index_reader->NewIterator(input_iter);
   }
 
   bool no_io = read_options.read_tier == kBlockCacheTier;
@@ -796,7 +799,12 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
                         BLOCK_CACHE_INDEX_HIT, statistics);
 
   if (cache_handle == nullptr && no_io) {
-    return NewErrorIterator(Status::Incomplete("no blocking io"));
+    if (input_iter != nullptr) {
+      input_iter->SetStatus(Status::Incomplete("no blocking io"));
+      return input_iter;
+    } else {
+      return NewErrorIterator(Status::Incomplete("no blocking io"));
+    }
   }
 
   IndexReader* index_reader = nullptr;
@@ -811,7 +819,12 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
     if (!s.ok()) {
       // make sure if something goes wrong, index_reader shall remain intact.
       assert(index_reader == nullptr);
-      return NewErrorIterator(s);
+      if (input_iter != nullptr) {
+        input_iter->SetStatus(s);
+        return input_iter;
+      } else {
+        return NewErrorIterator(s);
+      }
     }
 
     cache_handle = block_cache->Insert(key, index_reader, index_reader->size(),
@@ -820,7 +833,8 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
   }
 
   assert(cache_handle);
-  auto iter = index_reader->NewIterator();
+  Iterator* iter;
+  iter = index_reader->NewIterator(input_iter);
   iter->RegisterCleanup(&ReleaseCachedEntry, block_cache, cache_handle);
 
   return iter;
@@ -828,8 +842,11 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options) {
 
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
+// If input_iter is null, new a iterator
+// If input_iter is not null, update this iter and return it
 Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
-    const ReadOptions& ro, const Slice& index_value) {
+    const ReadOptions& ro, const Slice& index_value,
+    BlockIter* input_iter) {
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->options.block_cache.get();
   Cache* block_cache_compressed = rep->options.
@@ -843,7 +860,12 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
   Status s = handle.DecodeFrom(&input);
 
   if (!s.ok()) {
-    return NewErrorIterator(s);
+    if (input_iter != nullptr) {
+      input_iter->SetStatus(s);
+      return input_iter;
+    } else {
+      return NewErrorIterator(s);
+    }
   }
 
   // If either block cache is enabled, we'll try to read from it.
@@ -889,7 +911,12 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
   if (block.value == nullptr) {
     if (no_io) {
       // Could not read from block_cache and can't do IO
-      return NewErrorIterator(Status::Incomplete("no blocking io"));
+      if (input_iter != nullptr) {
+        input_iter->SetStatus(Status::Incomplete("no blocking io"));
+        return input_iter;
+      } else {
+        return NewErrorIterator(Status::Incomplete("no blocking io"));
+      }
     }
     s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
                           &block.value, rep->options.env);
@@ -897,15 +924,20 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
 
   Iterator* iter;
   if (block.value != nullptr) {
-    iter = block.value->NewIterator(&rep->internal_comparator);
+    iter = block.value->NewIterator(&rep->internal_comparator, input_iter);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
-                            block.cache_handle);
+          block.cache_handle);
     } else {
       iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);
     }
   } else {
-    iter = NewErrorIterator(s);
+    if (input_iter != nullptr) {
+      input_iter->SetStatus(s);
+      iter = input_iter;
+    } else {
+      iter = NewErrorIterator(s);
+    }
   }
   return iter;
 }
@@ -1023,12 +1055,14 @@ Status BlockBasedTable::Get(
                            const Slice& v),
     void (*mark_key_may_exist_handler)(void* handle_context)) {
   Status s;
-  Iterator* iiter = NewIndexIterator(read_options);
+  BlockIter iiter;
+  NewIndexIterator(read_options, &iiter);
+
   auto filter_entry = GetFilter(read_options.read_tier == kBlockCacheTier);
   FilterBlockReader* filter = filter_entry.value;
   bool done = false;
-  for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-    Slice handle_value = iiter->value();
+  for (iiter.Seek(key); iiter.Valid() && !done; iiter.Next()) {
+    Slice handle_value = iiter.value();
 
     BlockHandle handle;
     bool may_not_exist_in_filter =
@@ -1043,39 +1077,43 @@ Status BlockBasedTable::Get(
       RecordTick(rep_->options.statistics.get(), BLOOM_FILTER_USEFUL);
       break;
     } else {
-      unique_ptr<Iterator> block_iter(
-          NewDataBlockIterator(rep_, read_options, iiter->value()));
+      BlockIter biter;
+      NewDataBlockIterator(rep_, read_options, iiter.value(), &biter);
 
-      if (read_options.read_tier && block_iter->status().IsIncomplete()) {
+      if (read_options.read_tier && biter.status().IsIncomplete()) {
         // couldn't get block from block_cache
         // Update Saver.state to Found because we are only looking for whether
         // we can guarantee the key is not there when "no_io" is set
         (*mark_key_may_exist_handler)(handle_context);
         break;
       }
+      if (!biter.status().ok()) {
+        s = biter.status();
+        break;
+      }
 
       // Call the *saver function on each entry/block until it returns false
-      for (block_iter->Seek(key); block_iter->Valid(); block_iter->Next()) {
+      for (biter.Seek(key); biter.Valid(); biter.Next()) {
         ParsedInternalKey parsed_key;
-        if (!ParseInternalKey(block_iter->key(), &parsed_key)) {
+        if (!ParseInternalKey(biter.key(), &parsed_key)) {
           s = Status::Corruption(Slice());
         }
 
         if (!(*result_handler)(handle_context, parsed_key,
-                               block_iter->value())) {
+                               biter.value())) {
           done = true;
           break;
         }
       }
-      s = block_iter->status();
+      s = biter.status();
     }
   }
 
   filter_entry.Release(rep_->options.block_cache.get());
   if (s.ok()) {
-    s = iiter->status();
+    s = iiter.status();
   }
-  delete iiter;
+
   return s;
 }
 

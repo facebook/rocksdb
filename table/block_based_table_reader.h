@@ -23,6 +23,7 @@
 namespace rocksdb {
 
 class Block;
+class BlockIter;
 class BlockHandle;
 class Cache;
 class FilterBlockReader;
@@ -111,8 +112,10 @@ class BlockBasedTable : public TableReader {
   bool compaction_optimized_;
 
   class BlockEntryIteratorState;
+  // input_iter: if it is not null, update this one and return it as Iterator
   static Iterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                        const Slice& index_value);
+                                        const Slice& index_value,
+                                        BlockIter* input_iter = nullptr);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -120,6 +123,8 @@ class BlockBasedTable : public TableReader {
   CachableEntry<FilterBlockReader> GetFilter(bool no_io = false) const;
 
   // Get the iterator from the index reader.
+  // If input_iter is not set, return new Iterator
+  // If input_iter is set, update it and return it as Iterator
   //
   // Note: ErrorIterator with Status::Incomplete shall be returned if all the
   // following conditions are met:
@@ -127,7 +132,8 @@ class BlockBasedTable : public TableReader {
   //  2. index is not present in block cache.
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
-  Iterator* NewIndexIterator(const ReadOptions& read_options);
+  Iterator* NewIndexIterator(const ReadOptions& read_options,
+                             BlockIter* input_iter = nullptr);
 
   // Read block cache from block caches (if set): block_cache and
   // block_cache_compressed.
