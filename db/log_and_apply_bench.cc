@@ -42,6 +42,11 @@ void BM_LogAndApply(int iters, int num_base_files) {
 
     Options options;
     EnvOptions sopt;
+    // Notice we are using the default options not through SanitizeOptions().
+    // We might want to initialize some options manually if needed.
+    options.db_paths.emplace_back(dbname, 0);
+    // The parameter of table cache is passed in as null, so any file I/O
+    // operation is likely to fail.
     vset = new VersionSet(dbname, &options, sopt, nullptr);
     std::vector<ColumnFamilyDescriptor> dummy;
     dummy.push_back(ColumnFamilyDescriptor());

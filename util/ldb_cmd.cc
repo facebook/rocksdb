@@ -556,6 +556,10 @@ void ManifestDumpCommand::DoCommand() {
   std::shared_ptr<Cache> tc(NewLRUCache(
       options.max_open_files - 10, options.table_cache_numshardbits,
       options.table_cache_remove_scan_count_limit));
+  // Notice we are using the default options not through SanitizeOptions(),
+  // if VersionSet::DumpManifest() depends on any option done by
+  // SanitizeOptions(), we need to initialize it manually.
+  options.db_paths.emplace_back("dummy", 0);
   VersionSet* versions = new VersionSet(dbname, &options, sopt, tc.get());
   Status s = versions->DumpManifest(options, file, verbose_, is_key_hex_);
   if (!s.ok()) {
