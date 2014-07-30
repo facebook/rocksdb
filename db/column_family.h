@@ -248,9 +248,9 @@ class ColumnFamilyData {
 
  private:
   friend class ColumnFamilySet;
-  ColumnFamilyData(const std::string& dbname, uint32_t id,
-                   const std::string& name, Version* dummy_versions,
-                   Cache* table_cache, const ColumnFamilyOptions& options,
+  ColumnFamilyData(uint32_t id, const std::string& name,
+                   Version* dummy_versions, Cache* table_cache,
+                   const ColumnFamilyOptions& options,
                    const DBOptions* db_options,
                    const EnvOptions& storage_options,
                    ColumnFamilySet* column_family_set);

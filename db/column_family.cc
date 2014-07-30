@@ -191,8 +191,7 @@ void SuperVersionUnrefHandle(void* ptr) {
 }
 }  // anonymous namespace
 
-ColumnFamilyData::ColumnFamilyData(const std::string& dbname, uint32_t id,
-                                   const std::string& name,
+ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* dummy_versions, Cache* table_cache,
                                    const ColumnFamilyOptions& options,
                                    const DBOptions* db_options,
@@ -485,7 +484,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const EnvOptions& storage_options,
                                  Cache* table_cache)
     : max_column_family_(0),
-      dummy_cfd_(new ColumnFamilyData(dbname, 0, "", nullptr, nullptr,
+      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr,
                                       ColumnFamilyOptions(), db_options,
                                       storage_options_, nullptr)),
       default_cfd_cache_(nullptr),
@@ -556,8 +555,8 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const ColumnFamilyOptions& options) {
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd =
-      new ColumnFamilyData(db_name_, id, name, dummy_versions, table_cache_,
-                           options, db_options_, storage_options_, this);
+      new ColumnFamilyData(id, name, dummy_versions, table_cache_, options,
+                           db_options_, storage_options_, this);
   Lock();
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
