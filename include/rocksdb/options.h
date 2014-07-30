@@ -487,7 +487,9 @@ struct ColumnFamilyOptions {
       TablePropertiesCollectorFactories;
   TablePropertiesCollectorFactories table_properties_collector_factories;
 
-  // Allows thread-safe inplace updates.
+  // Allows thread-safe inplace updates. If this is true, there is no way to
+  // achieve point-in-time consistency using snapshot or iterator (assuming
+  // concurrent updates).
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable
