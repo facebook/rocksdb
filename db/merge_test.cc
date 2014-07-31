@@ -460,6 +460,39 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
       }
     }
   }
+
+  {
+    cout << "Test merge-operator not set after reopen\n";
+    {
+      auto db = OpenDb(dbname);
+      MergeBasedCounters counters(db, 0);
+      counters.add("test-key", 1);
+      counters.add("test-key", 1);
+      counters.add("test-key", 1);
+      db->CompactRange(nullptr, nullptr);
+    }
+
+    DB* reopen_db;
+    ASSERT_OK(DB::Open(Options(), dbname, &reopen_db));
+    std::string value;
+    ASSERT_TRUE(!(reopen_db->Get(ReadOptions(), "test-key", &value).ok()));
+    delete reopen_db;
+    DestroyDB(dbname, Options());
+  }
+
+  {
+    cout << "Test merge-operator not set after reopen (recovery case)\n";
+    {
+      auto db = OpenDb(dbname);
+      MergeBasedCounters counters(db, 0);
+      counters.add("test-key", 1);
+      counters.add("test-key", 1);
+      counters.add("test-key", 1);
+    }
+
+    DB* reopen_db;
+    ASSERT_TRUE(DB::Open(Options(), dbname, &reopen_db).IsInvalidArgument());
+  }
 }
 }  // namespace
 

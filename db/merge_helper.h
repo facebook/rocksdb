@@ -78,13 +78,16 @@ class MergeHelper {
   //   IMPORTANT 2: The entries were traversed in order from BACK to FRONT.
   //                So keys().back() was the first key seen by iterator.
   // TODO: Re-style this comment to be like the first one
-  bool IsSuccess() { return success_; }
-  Slice key() { assert(success_); return Slice(keys_.back()); }
-  Slice value() { assert(success_); return Slice(operands_.back()); }
-  const std::deque<std::string>& keys() { assert(!success_); return keys_; }
-  const std::deque<std::string>& values() {
+  bool IsSuccess() const { return success_; }
+  Slice key() const { assert(success_); return Slice(keys_.back()); }
+  Slice value() const { assert(success_); return Slice(operands_.back()); }
+  const std::deque<std::string>& keys() const {
+    assert(!success_); return keys_;
+  }
+  const std::deque<std::string>& values() const {
     assert(!success_); return operands_;
   }
+  bool HasOperator() const { return user_merge_operator_ != nullptr; }
 
  private:
   const Comparator* user_comparator_;

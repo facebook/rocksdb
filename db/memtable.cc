@@ -390,6 +390,16 @@ static bool SaveValue(void* arg, const char* entry) {
         return false;
       }
       case kTypeMerge: {
+        if (!merge_operator) {
+          *(s->status) = Status::InvalidArgument(
+              "merge_operator is not properly initialized.");
+          // Normally we continue the loop (return true) when we see a merge
+          // operator.  But in case of an error, we should stop the loop
+          // immediately and pretend we have found the value to stop further
+          // seek.  Otherwise, the later call will override this error status.
+          *(s->found_final_value) = true;
+          return false;
+        }
         std::string merge_result;  // temporary area for merge results later
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->merge_in_progress) = true;

@@ -24,10 +24,12 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
                              bool at_bottom, Statistics* stats, int* steps) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
+  assert(HasOperator());
   keys_.clear();
   operands_.clear();
   keys_.push_front(iter->key().ToString());
   operands_.push_front(iter->value().ToString());
+  assert(user_merge_operator_);
 
   success_ = false;   // Will become true if we hit Put/Delete or bottom
 

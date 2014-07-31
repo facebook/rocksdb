@@ -113,6 +113,10 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
           is_first_key = false;
 
           if (this_ikey.type == kTypeMerge) {
+            if (!merge.HasOperator()) {
+              return Status::InvalidArgument(
+                  "merge_operator is not properly initialized.");
+            }
             // Handle merge-type keys using the MergeHelper
             // TODO: pass statistics to MergeUntil
             merge.MergeUntil(iter, 0 /* don't worry about snapshot */);

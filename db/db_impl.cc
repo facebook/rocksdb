@@ -1139,7 +1139,6 @@ Status DBImpl::Recover(
 
     if (!env_->FileExists(CurrentFileName(dbname_))) {
       if (options_.create_if_missing) {
-        // TODO: add merge_operator name check
         s = NewDB();
         is_new_db = true;
         if (!s.ok()) {
@@ -2699,6 +2698,12 @@ Status DBImpl::ProcessKeyValueCompaction(
         drop = true;
         RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE);
       } else if (ikey.type == kTypeMerge) {
+        if (!merge.HasOperator()) {
+          LogToBuffer(log_buffer, "Options::merge_operator is null.");
+          status = Status::InvalidArgument(
+              "merge_operator is not properly initialized.");
+          break;
+        }
         // We know the merge type entry is not hidden, otherwise we would
         // have hit (A)
         // We encapsulate the merge related state machine in a different

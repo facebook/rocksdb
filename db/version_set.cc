@@ -845,6 +845,11 @@ void Version::Get(const ReadOptions& options,
   }
 
   if (kMerge == saver.state) {
+    if (!merge_operator_) {
+      *status =  Status::InvalidArgument(
+          "merge_operator is not properly initialized.");
+      return;
+    }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
     if (merge_operator_->FullMerge(user_key, nullptr,
