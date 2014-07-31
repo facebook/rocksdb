@@ -33,6 +33,7 @@ extern const uint64_t kPlainTableMagicNumber;
 const uint64_t kLegacyPlainTableMagicNumber = 0;
 const uint64_t kPlainTableMagicNumber = 0;
 #endif
+const uint32_t DefaultStackBufferSize = 5000;
 
 void BlockHandle::EncodeTo(std::string* dst) const {
   // Sanity check that all fields have been set
@@ -203,40 +204,30 @@ Status ReadFooterFromFile(RandomAccessFile* file,
   return footer->DecodeFrom(&footer_input);
 }
 
-Status ReadBlockContents(RandomAccessFile* file,
-                         const Footer& footer,
-                         const ReadOptions& options,
-                         const BlockHandle& handle,
-                         BlockContents* result,
-                         Env* env,
-                         bool do_uncompress) {
-  result->data = Slice();
-  result->cachable = false;
-  result->heap_allocated = false;
-
-  // Read the block contents as well as the type/crc footer.
-  // See table_builder.cc for the code that built this structure.
+// Read a block and check its CRC
+// contents is the result of reading.
+// According to the implementation of file->Read, contents may not point to buf
+Status ReadBlock(RandomAccessFile* file, const Footer& footer,
+                       const ReadOptions& options, const BlockHandle& handle,
+                       Slice* contents,  // result of reading,
+                       char* buf) {
   size_t n = static_cast<size_t>(handle.size());
-  char* buf = new char[n + kBlockTrailerSize];
-  Slice contents;
 
   PERF_TIMER_AUTO(block_read_time);
-  Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
+  Status s = file->Read(handle.offset(), n + kBlockTrailerSize, contents, buf);
   PERF_TIMER_MEASURE(block_read_time);
   PERF_COUNTER_ADD(block_read_count, 1);
   PERF_COUNTER_ADD(block_read_byte, n + kBlockTrailerSize);
 
   if (!s.ok()) {
-    delete[] buf;
     return s;
   }
-  if (contents.size() != n + kBlockTrailerSize) {
-    delete[] buf;
+  if (contents->size() != n + kBlockTrailerSize) {
     return Status::Corruption("truncated block read");
   }
 
   // Check the crc of the type and the block contents
-  const char* data = contents.data();    // Pointer to where Read put the data
+  const char* data = contents->data();  // Pointer to where Read put the data
   if (options.verify_checksums) {
     uint32_t value = DecodeFixed32(data + n + 1);
     uint32_t actual = 0;
@@ -255,12 +246,27 @@ Status ReadBlockContents(RandomAccessFile* file,
       s = Status::Corruption("block checksum mismatch");
     }
     if (!s.ok()) {
-      delete[] buf;
       return s;
     }
-    PERF_TIMER_MEASURE(block_checksum_time);
+    PERF_TIMER_STOP(block_checksum_time);
   }
+  return s;
+}
 
+// Decompress a block according to params
+// May need to malloc a space for cache usage
+Status DecompressBlock(BlockContents* result, size_t block_size,
+                             bool do_uncompress, const char* buf,
+                             const Slice& contents, bool use_stack_buf) {
+  Status s;
+  size_t n = block_size;
+  const char* data = contents.data();
+
+  result->data = Slice();
+  result->cachable = false;
+  result->heap_allocated = false;
+
+  PERF_TIMER_AUTO(block_decompress_time);
   rocksdb::CompressionType compression_type =
       static_cast<rocksdb::CompressionType>(data[n]);
   // If the caller has requested that the block not be uncompressed
@@ -269,12 +275,19 @@ Status ReadBlockContents(RandomAccessFile* file,
       // File implementation gave us pointer to some other data.
       // Use it directly under the assumption that it will be live
       // while the file is open.
-      delete[] buf;
       result->data = Slice(data, n);
       result->heap_allocated = false;
       result->cachable = false;  // Do not double-cache
     } else {
-      result->data = Slice(buf, n);
+      if (use_stack_buf) {
+        // Need to allocate space in heap for cache usage
+        char* new_buf = new char[n];
+        memcpy(new_buf, buf, n);
+        result->data = Slice(new_buf, n);
+      } else {
+        result->data = Slice(buf, n);
+      }
+
       result->heap_allocated = true;
       result->cachable = true;
     }
@@ -282,10 +295,71 @@ Status ReadBlockContents(RandomAccessFile* file,
     s = Status::OK();
   } else {
     s = UncompressBlockContents(data, n, result);
-    delete[] buf;
   }
   PERF_TIMER_STOP(block_decompress_time);
   return s;
+}
+
+// Read and Decompress block
+// Use buf in stack as temp reading buffer
+Status ReadAndDecompressFast(RandomAccessFile* file, const Footer& footer,
+                             const ReadOptions& options,
+                             const BlockHandle& handle, BlockContents* result,
+                             Env* env, bool do_uncompress) {
+  Status s;
+  Slice contents;
+  size_t n = static_cast<size_t>(handle.size());
+  char buf[DefaultStackBufferSize];
+
+  s = ReadBlock(file, footer, options, handle, &contents, buf);
+  if (!s.ok()) {
+    return s;
+  }
+  s = DecompressBlock(result, n, do_uncompress, buf, contents, true);
+  if (!s.ok()) {
+    return s;
+  }
+  return s;
+}
+
+// Read and Decompress block
+// Use buf in heap as temp reading buffer
+Status ReadAndDecompress(RandomAccessFile* file, const Footer& footer,
+                         const ReadOptions& options, const BlockHandle& handle,
+                         BlockContents* result, Env* env, bool do_uncompress) {
+  Status s;
+  Slice contents;
+  size_t n = static_cast<size_t>(handle.size());
+  char* buf = new char[n + kBlockTrailerSize];
+
+  s = ReadBlock(file, footer, options, handle, &contents, buf);
+  if (!s.ok()) {
+    delete[] buf;
+    return s;
+  }
+  s = DecompressBlock(result, n, do_uncompress, buf, contents, false);
+  if (!s.ok()) {
+    delete[] buf;
+    return s;
+  }
+
+  if (result->data.data() != buf) {
+    delete[] buf;
+  }
+  return s;
+}
+
+Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
+                         const ReadOptions& options, const BlockHandle& handle,
+                         BlockContents* result, Env* env, bool do_uncompress) {
+  size_t n = static_cast<size_t>(handle.size());
+  if (do_uncompress && n + kBlockTrailerSize < DefaultStackBufferSize) {
+    return ReadAndDecompressFast(file, footer, options, handle, result, env,
+                                 do_uncompress);
+  } else {
+    return ReadAndDecompress(file, footer, options, handle, result, env,
+                             do_uncompress);
+  }
 }
 
 //
