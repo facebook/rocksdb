@@ -113,10 +113,13 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
           is_first_key = false;
 
           if (this_ikey.type == kTypeMerge) {
-            if (!merge.HasOperator()) {
-              return Status::InvalidArgument(
-                  "merge_operator is not properly initialized.");
-            }
+            // TODO(tbd): Add a check here to prevent RocksDB from crash when
+            // reopening a DB w/o properly specifying the merge operator.  But
+            // currently we observed a memory leak on failing in RocksDB
+            // recovery, so we decide to let it crash instead of causing
+            // memory leak for now before we have identified the real cause
+            // of the memory leak.
+
             // Handle merge-type keys using the MergeHelper
             // TODO: pass statistics to MergeUntil
             merge.MergeUntil(iter, 0 /* don't worry about snapshot */);
