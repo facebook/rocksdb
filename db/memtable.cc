@@ -394,7 +394,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = Status::InvalidArgument(
               "merge_operator is not properly initialized.");
           // Normally we continue the loop (return true) when we see a merge
-          // operator.  But in case of an error, we should stop the loop
+          // operand.  But in case of an error, we should stop the loop
           // immediately and pretend we have found the value to stop further
           // seek.  Otherwise, the later call will override this error status.
           *(s->found_final_value) = true;
