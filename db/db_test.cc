@@ -2521,9 +2521,9 @@ TEST(DBTest, GetProperty) {
       dbfull()->GetIntProperty("rocksdb.mem-table-flush-pending", &int_num));
   ASSERT_EQ(int_num, 1U);
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.compaction-pending", &int_num));
-  ASSERT_EQ(int_num, 0);
+  ASSERT_EQ(int_num, 0U);
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &int_num));
-  ASSERT_EQ(int_num, 4);
+  ASSERT_EQ(int_num, 4U);
 
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
