@@ -4,6 +4,7 @@
 ### New Features
 * Support Multiple DB paths in universal style compactions
 * Add feature of storing plain table index and bloom filter in SST file.
+* CompactRange() will never output compacted files to level 0. This used to be the case when all the compaction input files were at level 0.
 
 ### Public API changes
 * DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size

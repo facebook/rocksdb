@@ -1638,10 +1638,12 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   }
   for (int level = 0; level <= max_level_with_files; level++) {
     // in case the compaction is unversal or if we're compacting the
-    // bottom-most level, the output level will be the same as input one
+    // bottom-most level, the output level will be the same as input one.
+    // level 0 can never be the bottommost level (i.e. if all files are in level
+    // 0, we will compact to level 1)
     if (cfd->options()->compaction_style == kCompactionStyleUniversal ||
         cfd->options()->compaction_style == kCompactionStyleFIFO ||
-        level == max_level_with_files) {
+        (level == max_level_with_files && level > 0)) {
       s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
     } else {
       s = RunManualCompaction(cfd, level, level + 1, target_path_id, begin,
