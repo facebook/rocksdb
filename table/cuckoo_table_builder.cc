@@ -274,6 +274,16 @@ uint64_t CuckooTableBuilder::FileSize() const {
   }
 }
 
+// This method is invoked when there is no place to insert the target key.
+// It searches for a set of elements that can be moved to accommodate target
+// key. The search is a BFS graph traversal with first level (hash_vals)
+// being all the buckets target key could go to.
+// Then, from each node (curr_node), we find all the buckets that curr_node
+// could go to. They form the children of curr_node in the tree.
+// We continue the traversal until we find an empty bucket, in which case, we
+// move all elements along the path from first level to this empty bucket, to
+// make space for target key which is inserted at first level (*bucket_id).
+// If tree depth exceedes max depth, we return false indicating failure.
 bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
     uint64_t *bucket_id, autovector<uint64_t> hash_vals) {
   struct CuckooNode {
@@ -331,23 +341,21 @@ bool CuckooTableBuilder::MakeSpaceForKey(const Slice& key,
   }
 
   if (null_found) {
+    // There is an empty node in tree.back(). Now, traverse the path from this
+    // empty node to top of the tree and at every node in the path, replace
+    // child with the parent. Stop when first level is reached in the tree
+    // (happens when 0 <= bucket_to_replace_pos < num_hash_table_) and return
+    // this location in first level for target key to be inserted.
     uint32_t bucket_to_replace_pos = tree.size()-1;
-    while (bucket_to_replace_pos >= 0) {
+    while (bucket_to_replace_pos >= num_hash_table_) {
       CuckooNode& curr_node = tree[bucket_to_replace_pos];
-      if (bucket_to_replace_pos >= num_hash_table_) {
-        buckets_[curr_node.bucket_id] =
-          buckets_[tree[curr_node.parent_pos].bucket_id];
-        bucket_to_replace_pos = curr_node.parent_pos;
-      } else {
-        *bucket_id = curr_node.bucket_id;
-        return true;
-      }
+      buckets_[curr_node.bucket_id] =
+        buckets_[tree[curr_node.parent_pos].bucket_id];
+      bucket_to_replace_pos = curr_node.parent_pos;
     }
-    assert(false);
-    return true;
-  } else {
-    return false;
+    *bucket_id = tree[bucket_to_replace_pos].bucket_id;
   }
+  return null_found;
 }
 
 }  // namespace rocksdb

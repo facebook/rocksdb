@@ -24,7 +24,6 @@ CuckooTableReader::CuckooTableReader(
     uint64_t file_size,
     uint64_t (*GetSliceHashPtr)(const Slice&, uint32_t, uint64_t))
     : file_(std::move(file)),
-      file_size_(file_size),
       GetSliceHash(GetSliceHashPtr) {
   if (!options.allow_mmap_reads) {
     status_ = Status::InvalidArgument("File is not mmaped");

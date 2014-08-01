@@ -11,6 +11,8 @@ int main() {
 }
 #else
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <gflags/gflags.h>
 #include <vector>
 #include <string>
@@ -304,8 +306,8 @@ void BM_CuckooRead(uint64_t num, uint32_t key_length,
     reader.GetTableProperties()->user_collected_properties;
   const uint32_t num_hash_fun = *reinterpret_cast<const uint32_t*>(
       user_props.at(CuckooTablePropertyNames::kNumHashTable).data());
-  fprintf(stderr, "With %lu items and hash table ratio %f, number of hash"
-      " functions used: %u.\n", num, hash_ratio, num_hash_fun);
+  fprintf(stderr, "With %" PRIu64 " items and hash table ratio %f, number of"
+      " hash functions used: %u.\n", num, hash_ratio, num_hash_fun);
   ReadOptions r_options;
   for (auto& key : keys) {
     int cnt = 0;

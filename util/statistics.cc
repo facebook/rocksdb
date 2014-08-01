@@ -4,6 +4,9 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #include "util/statistics.h"
+
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include "rocksdb/statistics.h"
 #include "port/likely.h"
 #include <algorithm>
@@ -96,7 +99,7 @@ std::string StatisticsImpl::ToString() const {
   for (const auto& t : TickersNameMap) {
     if (t.first < TICKER_ENUM_MAX || enable_internal_stats_) {
       char buffer[kBufferSize];
-      snprintf(buffer, kBufferSize, "%s COUNT : %ld\n",
+      snprintf(buffer, kBufferSize, "%s COUNT : %" PRIu64 "\n",
                t.second.c_str(), getTickerCount(t.first));
       res.append(buffer);
     }
