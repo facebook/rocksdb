@@ -13,6 +13,7 @@
 #include <vector>
 #include <algorithm>
 #include <set>
+#include <unordered_set>
 
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -244,23 +245,62 @@ std::string FeatureSet::DebugString() const {
 
 class SpatialIndexCursor : public Cursor {
  public:
+  // tile_box is inclusive
   SpatialIndexCursor(Iterator* spatial_iterator, Iterator* data_iterator,
                      const BoundingBox<uint64_t>& tile_bbox, uint32_t tile_bits)
-      : spatial_iterator_(spatial_iterator),
-        data_iterator_(data_iterator),
-        tile_bbox_(tile_bbox),
-        tile_bits_(tile_bits),
+      : data_iterator_(data_iterator),
         valid_(true) {
-    current_x_ = tile_bbox.min_x;
-    current_y_ = tile_bbox.min_y;
-    UpdateQuadKey();
-    ReSeek();
-    if (valid_) {
-      // this is the first ID returned, so I don't care about return value of
-      // Dedup
-      Dedup();
+    // calculate quad keys we'll need to query
+    std::vector<uint64_t> quad_keys;
+    quad_keys.reserve((tile_bbox.max_x - tile_bbox.min_x + 1) *
+                      (tile_bbox.max_y - tile_bbox.min_y + 1));
+    for (uint64_t x = tile_bbox.min_x; x <= tile_bbox.max_x; ++x) {
+      for (uint64_t y = tile_bbox.min_y; y <= tile_bbox.max_y; ++y) {
+        quad_keys.push_back(GetQuadKeyFromTile(x, y, tile_bits));
+      }
     }
+    std::sort(quad_keys.begin(), quad_keys.end());
+
+    // load primary key ids for all quad keys
+    for (auto quad_key : quad_keys) {
+      std::string encoded_quad_key;
+      PutFixed64BigEndian(&encoded_quad_key, quad_key);
+      Slice slice_quad_key(encoded_quad_key);
+
+      // If CheckQuadKey is true, there is no need to reseek, since
+      // spatial_iterator is already pointing at the correct quad key. This is
+      // an optimization.
+      if (!CheckQuadKey(spatial_iterator, slice_quad_key)) {
+        spatial_iterator->Seek(slice_quad_key);
+      }
+
+      while (CheckQuadKey(spatial_iterator, slice_quad_key)) {
+        // extract ID from spatial_iterator
+        uint64_t id;
+        bool ok = GetFixed64BigEndian(
+            Slice(spatial_iterator->key().data() + sizeof(uint64_t),
+                  sizeof(uint64_t)),
+            &id);
+        if (!ok) {
+          valid_ = false;
+          status_ = Status::Corruption("Spatial index corruption");
+          break;
+        }
+        primary_key_ids_.insert(id);
+        spatial_iterator->Next();
+      }
+    }
+
+    if (!spatial_iterator->status().ok()) {
+      status_ = spatial_iterator->status();
+      valid_ = false;
+    }
+    delete spatial_iterator;
+
+    valid_ = valid_ && primary_key_ids_.size() > 0;
+
     if (valid_) {
+      primary_keys_iterator_ = primary_key_ids_.begin();
       ExtractData();
     }
   }
@@ -270,28 +310,13 @@ class SpatialIndexCursor : public Cursor {
   virtual void Next() override {
     assert(valid_);
 
-    // this do-while loop deals only with deduplication
-    do {
-      spatial_iterator_->Next();
-      if (ExtractID()) {
-        // OK, found what we needed
-        continue;
-      }
-
-      // move to the next tile
-      Increment();
-
-      if (ExtractID()) {
-        // no need to reseek, found what we needed
-        continue;
-      }
-      // reseek, find next good tile
-      ReSeek();
-    } while (valid_ && !Dedup() && valid_);
-
-    if (valid_) {
-      ExtractData();
+    ++primary_keys_iterator_;
+    if (primary_keys_iterator_ == primary_key_ids_.end()) {
+      valid_ = false;
+      return;
     }
+
+    ExtractData();
   }
 
   virtual const Slice blob() override { return current_blob_; }
@@ -303,88 +328,44 @@ class SpatialIndexCursor : public Cursor {
     if (!status_.ok()) {
       return status_;
     }
-    if (!spatial_iterator_->status().ok()) {
-      return spatial_iterator_->status();
-    }
     return data_iterator_->status();
   }
 
  private:
-  // returns true if OK, false if already returned (duplicate)
-  bool Dedup() {
-    assert(valid_);
-    uint64_t id;
-    bool ok = GetFixed64BigEndian(current_id_, &id);
-    if (!ok) {
-      valid_ = false;
-      status_ = Status::Corruption("Spatial index corruption");
-      return false;
-    }
-    if (returned_ids_.find(id) != returned_ids_.end()) {
-      return false;
-    }
-    returned_ids_.insert(id);
-    return true;
-  }
-  void ReSeek() {
-    while (valid_) {
-      spatial_iterator_->Seek(current_quad_key_);
-      if (ExtractID()) {
-        // found what we're looking for!
-        break;
-      }
-      Increment();
-    }
-  }
-
-  void Increment() {
-    ++current_x_;
-    if (current_x_ > tile_bbox_.max_x) {
-      current_x_ = tile_bbox_.min_x;
-      ++current_y_;
-    }
-    if (current_y_ > tile_bbox_.max_y) {
-      valid_ = false;
-    } else {
-      UpdateQuadKey();
-    }
-  }
-  void UpdateQuadKey() {
-    current_quad_key_.clear();
-    PutFixed64BigEndian(&current_quad_key_,
-                        GetQuadKeyFromTile(current_x_, current_y_, tile_bits_));
-  }
   // * returns true if spatial iterator is on the current quad key and all is
-  // well. Caller will call Next() to get new data
-  // * returns false if spatial iterator is not on current, or invalid or status
-  // bad. Caller will need to reseek to get new data
-  bool ExtractID() {
-    if (!spatial_iterator_->Valid()) {
-      // caller needs to reseek
+  // well
+  // * returns false if spatial iterator is not on current, or iterator is
+  // invalid or corruption
+  bool CheckQuadKey(Iterator* spatial_iterator, const Slice& quad_key) {
+    if (!spatial_iterator->Valid()) {
       return false;
     }
-    if (spatial_iterator_->key().size() != 2 * sizeof(uint64_t)) {
+    if (spatial_iterator->key().size() != 2 * sizeof(uint64_t)) {
       status_ = Status::Corruption("Invalid spatial index key");
       valid_ = false;
       return false;
     }
-    Slice quad_key(spatial_iterator_->key().data(), sizeof(uint64_t));
-    if (quad_key != current_quad_key_) {
+    Slice spatial_iterator_quad_key(spatial_iterator->key().data(),
+                                    sizeof(uint64_t));
+    if (spatial_iterator_quad_key != quad_key) {
       // caller needs to reseek
       return false;
     }
     // if we come to here, we have found the quad key
-    current_id_ = Slice(spatial_iterator_->key().data() + sizeof(uint64_t),
-                        sizeof(uint64_t));
     return true;
   }
+
   // doesn't return anything, but sets valid_ and status_ on corruption
   void ExtractData() {
     assert(valid_);
-    data_iterator_->Seek(current_id_);
+    std::string encoded_id;
+    PutFixed64BigEndian(&encoded_id, *primary_keys_iterator_);
 
-    if (!data_iterator_->Valid() || data_iterator_->key() != current_id_) {
-      status_ = Status::Corruption("Inconsistency in data column family");
+    data_iterator_->Seek(encoded_id);
+
+    if (!data_iterator_->Valid() ||
+        data_iterator_->key() != Slice(encoded_id)) {
+      status_ = Status::Corruption("Index inconsistency");
       valid_ = false;
       return;
     }
@@ -393,28 +374,22 @@ class SpatialIndexCursor : public Cursor {
     current_feature_set_.Clear();
     if (!GetLengthPrefixedSlice(&data, &current_blob_) ||
         !current_feature_set_.Deserialize(data)) {
-      status_ = Status::Corruption("Data column family corruption");
+      status_ = Status::Corruption("Primary key column family corruption");
       valid_ = false;
       return;
     }
   }
 
-  unique_ptr<Iterator> spatial_iterator_;
   unique_ptr<Iterator> data_iterator_;
-  BoundingBox<uint64_t> tile_bbox_;
-  uint32_t tile_bits_;
-  uint64_t current_x_;
-  uint64_t current_y_;
-  std::string current_quad_key_;
-  Slice current_id_;
   bool valid_;
   Status status_;
 
   FeatureSet current_feature_set_;
   Slice current_blob_;
 
-  // used for deduplicating results
-  std::set<uint64_t> returned_ids_;
+  // This is loaded from spatial iterator.
+  std::unordered_set<uint64_t> primary_key_ids_;
+  std::unordered_set<uint64_t>::iterator primary_keys_iterator_;
 };
 
 class ErrorCursor : public Cursor {
