@@ -120,10 +120,13 @@ class FeatureSet {
   iterator end() const { return map_.end(); }
 
   void Clear();
+  size_t Size() const { return map_.size(); }
 
   void Serialize(std::string* output) const;
   // REQUIRED: empty FeatureSet
   bool Deserialize(const Slice& input);
+
+  std::string DebugString() const;
 
  private:
   map map_;

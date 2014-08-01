@@ -5,6 +5,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "rocksdb/utilities/spatial_db.h"
+
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -13,7 +17,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
-#include "rocksdb/utilities/spatial_db.h"
 #include "util/coding.h"
 #include "utilities/spatialdb/utils.h"
 
@@ -195,6 +198,48 @@ bool FeatureSet::Deserialize(const Slice& input) {
     }
   }
   return true;
+}
+
+std::string FeatureSet::DebugString() const {
+  std::string out = "{";
+  bool comma = false;
+  for (const auto& iter : map_) {
+    if (comma) {
+      out.append(", ");
+    } else {
+      comma = true;
+    }
+    out.append("\"" + iter.first + "\": ");
+    switch (iter.second.type()) {
+      case Variant::kNull:
+        out.append("null");
+      case Variant::kBool:
+        if (iter.second.get_bool()) {
+          out.append("true");
+        } else {
+          out.append("false");
+        }
+        break;
+      case Variant::kInt: {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%" PRIu64, iter.second.get_int());
+        out.append(buf);
+        break;
+      }
+      case Variant::kDouble: {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%lf", iter.second.get_double());
+        out.append(buf);
+        break;
+      }
+      case Variant::kString:
+        out.append("\"" + iter.second.get_string() + "\"");
+        break;
+      default:
+        assert(false);
+    }
+  }
+  return out + "}";
 }
 
 class SpatialIndexCursor : public Cursor {
