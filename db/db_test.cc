@@ -3729,7 +3729,43 @@ TEST(DBTest, UniversalCompactionFourPaths) {
 
   Destroy(&options);
 }
+
 #endif
+
+void CheckDbMeta(const DatabaseMetaData& db_meta) {
+  uint64_t db_size = 0;
+  for (auto cf_meta : db_meta.column_families) {
+    uint64_t cf_size = 0;
+    for (auto level_meta : cf_meta.levels) {
+      uint64_t level_size = 0;
+      for (auto file_meta : level_meta.files) {
+        ASSERT_LE(level_meta.smallest_seqno, file_meta.smallest_seqno);
+        ASSERT_GE(level_meta.largest_seqno, file_meta.largest_seqno);
+        level_size += file_meta.size;
+      }
+      ASSERT_EQ(level_meta.size, level_size);
+      cf_size += level_size;
+    }
+    ASSERT_EQ(cf_meta.size, cf_size);
+    db_size += cf_size;
+  }
+  ASSERT_EQ(db_meta.size, db_size);
+}
+
+TEST(DBTest, DatabaseMetaDataTest) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+
+  Random rnd(301);
+  int key_index = 0;
+  DatabaseMetaData db_meta;
+  for (int i = 0; i < 100; ++i) {
+    GenerateNewFile(&rnd, &key_index);
+    db_->GetDatabaseMetaData(&db_meta);
+    CheckDbMeta(db_meta);
+  }
+}
 
 TEST(DBTest, ConvertCompactionStyle) {
   Random rnd(301);

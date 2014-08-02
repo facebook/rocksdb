@@ -478,8 +478,9 @@ class VersionSet {
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
-  void GetLiveFilesMetaData(
-    std::vector<LiveFileMetaData> *metadata);
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
+
+  void GetDatabaseMetaData(DatabaseMetaData* metadata);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 

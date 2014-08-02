@@ -11,13 +11,14 @@
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include <stdio.h>
 #include <algorithm>
 #include <map>
 #include <set>
 #include <climits>
 #include <unordered_map>
 #include <vector>
-#include <stdio.h>
+#include <string>
 
 #include "db/filename.h"
 #include "db/log_reader.h"
@@ -2969,6 +2970,57 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     }
   }
 }
+
+void VersionSet::GetDatabaseMetaData(DatabaseMetaData *db_meta) {
+  assert(db_meta);
+  db_meta->column_families.clear();
+  db_meta->size = 0;
+
+  for (auto cfd : *column_family_set_) {
+    uint64_t cf_size = 0;
+    std::vector<LevelMetaData> levels;
+    for (int level = 0; level < cfd->NumberLevels(); level++) {
+      uint64_t level_size = 0;
+      SequenceNumber smallest_seqno =
+          std::numeric_limits<SequenceNumber>::max();
+      SequenceNumber largest_seqno =
+          std::numeric_limits<SequenceNumber>::min();
+      std::vector<SstFileMetaData> files;
+      for (const auto& file : cfd->current()->files_[level]) {
+        level_size += file->fd.GetFileSize();
+        uint32_t path_id = file->fd.GetPathId();
+        std::string file_path;
+        if (path_id < options_->db_paths.size()) {
+          file_path = options_->db_paths[path_id].path;
+        } else {
+          assert(!options_->db_paths.empty());
+          file_path = options_->db_paths.back().path;
+        }
+        files.push_back(SstFileMetaData(
+            file->fd.GetFileSize(),
+            MakeTableFileName("", file->fd.GetNumber()),
+            file_path,
+            file->smallest_seqno,
+            file->largest_seqno,
+            file->smallest.user_key().ToString(),
+            file->largest.user_key().ToString()));
+        if (smallest_seqno > file->smallest_seqno) {
+          smallest_seqno = file->smallest_seqno;
+        }
+        if (largest_seqno < file->largest_seqno) {
+          largest_seqno = file->largest_seqno;
+        }
+      }
+      levels.push_back(LevelMetaData(
+          level_size, level, smallest_seqno, largest_seqno, files));
+      cf_size += level_size;
+    }
+    db_meta->column_families.push_back(
+        ColumnFamilyMetaData(cf_size, cfd->GetName(), levels));
+    db_meta->size += cf_size;
+  }
+}
+
 
 void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files) {
   files->insert(files->end(), obsolete_files_.begin(), obsolete_files_.end());
