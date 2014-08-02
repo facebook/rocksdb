@@ -182,6 +182,10 @@ class StackableDB : public DB {
     db_->GetLiveFilesMetaData(metadata);
   }
 
+  virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) override {
+    db_->GetDatabaseMetaData(metadata);
+  }
+
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
       return db_->GetLiveFiles(vec, mfs, flush_memtable);

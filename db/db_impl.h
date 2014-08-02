@@ -140,6 +140,8 @@ class DBImpl : public DB {
   virtual Status DeleteFile(std::string name);
 
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
+
+  virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) override;
 #endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes

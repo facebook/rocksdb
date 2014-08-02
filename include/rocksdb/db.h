@@ -15,6 +15,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include "rocksdb/metadata.h"
 #include "rocksdb/version.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -465,6 +466,9 @@ class DB {
   // Returns a list of all table files with their level, start key
   // and end key
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {}
+
+  // Returns the meta data of database describing the current state of the DB.
+  virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) {}
 
 #endif  // ROCKSDB_LITE
 

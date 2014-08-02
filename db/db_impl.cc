@@ -4534,6 +4534,12 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   MutexLock l(&mutex_);
   versions_->GetLiveFilesMetaData(metadata);
 }
+
+void DBImpl::GetDatabaseMetaData(DatabaseMetaData* db_meta) {
+  db_meta->name = GetName();
+  versions_->GetDatabaseMetaData(db_meta, &mutex_);
+}
+
 #endif  // ROCKSDB_LITE
 
 Status DBImpl::CheckConsistency() {
