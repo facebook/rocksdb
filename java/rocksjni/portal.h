@@ -16,6 +16,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksjni/comparatorjnicallback.h"
 
 namespace rocksdb {
 
@@ -362,6 +363,136 @@ class ColumnFamilyHandleJni {
   }
 };
 
+class AbstractComparatorJni {
+ public:
+  // Get the java class id of org.rocksdb.Comparator.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/AbstractComparator");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.Comparator
+  // that stores the pointer to rocksdb::Comparator.
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the java method `name` of org.rocksdb.Comparator.
+  static jmethodID getNameMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "name", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `compare` of org.rocksdb.Comparator.
+  static jmethodID getCompareMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "compare", "(Lorg/rocksdb/AbstractSlice;Lorg/rocksdb/AbstractSlice;)I");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `findShortestSeparator` of org.rocksdb.Comparator.
+  static jmethodID getFindShortestSeparatorMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "findShortestSeparator", "(Ljava/lang/String;Lorg/rocksdb/AbstractSlice;)Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `findShortSuccessor` of org.rocksdb.Comparator.
+  static jmethodID getFindShortSuccessorMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "findShortSuccessor", "(Ljava/lang/String;)Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the pointer to ComparatorJniCallback.
+  static rocksdb::BaseComparatorJniCallback* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::BaseComparatorJniCallback*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the ComparatorJniCallback pointer to the java side.
+  static void setHandle(
+      JNIEnv* env, jobject jobj, const rocksdb::BaseComparatorJniCallback* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
+class AbstractSliceJni {
+ public:
+  // Get the java class id of org.rocksdb.Slice.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/AbstractSlice");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.Slice
+  // that stores the pointer to rocksdb::Slice.
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to Slice.
+  static rocksdb::Slice* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::Slice*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the Slice pointer to the java side.
+  static void setHandle(
+      JNIEnv* env, jobject jobj, const rocksdb::Slice* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
+class SliceJni {
+ public:
+  // Get the java class id of org.rocksdb.Slice.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/Slice");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  static jobject construct0(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(getJClass(env), "<init>", "()V");
+    assert(mid != nullptr);
+    return env->NewObject(getJClass(env), mid);
+  }
+};
+
+class DirectSliceJni {
+ public:
+  // Get the java class id of org.rocksdb.DirectSlice.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/DirectSlice");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  static jobject construct0(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(getJClass(env), "<init>", "()V");
+    assert(mid != nullptr);
+    return env->NewObject(getJClass(env), mid);
+  }
+};
+
 class ListJni {
  public:
   // Get the java class id of java.util.List.
@@ -425,5 +556,21 @@ class ListJni {
     return mid;
   }
 };
+
+class JniUtil {
+  public:
+
+    /**
+     * Copies a jstring to a std::string
+     * and releases the original jstring
+     */
+    static std::string copyString(JNIEnv* env, jstring js) {
+      const char *utf = env->GetStringUTFChars(js, NULL);
+      std::string name(utf);
+      env->ReleaseStringUTFChars(js, utf);
+      return name;
+    }
+};
+
 }  // namespace rocksdb
 #endif  // JAVA_ROCKSJNI_PORTAL_H_

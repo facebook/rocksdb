@@ -166,6 +166,17 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setComparatorHandle
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setComparatorHandle(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle) {
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->comparator =
+      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    maxWriteBufferNumber
  * Signature: (J)I
  */
