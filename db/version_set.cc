@@ -1881,6 +1881,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // This is fine because everything inside of this block is serialized --
     // only one thread can be here at the same time
     if (new_descriptor_log) {
+      // create manifest file
+      Log(options_->info_log,
+          "Creating manifest %" PRIu64 "\n", pending_manifest_file_number_);
       unique_ptr<WritableFile> descriptor_file;
       s = env_->NewWritableFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_),
@@ -2002,6 +2005,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         column_family_data->GetName().c_str());
     delete v;
     if (new_descriptor_log) {
+      Log(options_->info_log,
+        "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
+        manifest_file_number_, pending_manifest_file_number_);
       descriptor_log_.reset();
       env_->DeleteFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_));

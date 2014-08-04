@@ -208,9 +208,8 @@ Status ReadFooterFromFile(RandomAccessFile* file,
 // contents is the result of reading.
 // According to the implementation of file->Read, contents may not point to buf
 Status ReadBlock(RandomAccessFile* file, const Footer& footer,
-                       const ReadOptions& options, const BlockHandle& handle,
-                       Slice* contents,  // result of reading,
-                       char* buf) {
+                  const ReadOptions& options, const BlockHandle& handle,
+                  Slice* contents,  /* result of reading */ char* buf) {
   size_t n = static_cast<size_t>(handle.size());
 
   PERF_TIMER_AUTO(block_read_time);
@@ -256,8 +255,8 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
 // Decompress a block according to params
 // May need to malloc a space for cache usage
 Status DecompressBlock(BlockContents* result, size_t block_size,
-                             bool do_uncompress, const char* buf,
-                             const Slice& contents, bool use_stack_buf) {
+                          bool do_uncompress, const char* buf,
+                          const Slice& contents, bool use_stack_buf) {
   Status s;
   size_t n = block_size;
   const char* data = contents.data();

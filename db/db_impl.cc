@@ -450,6 +450,7 @@ Status DBImpl::NewDB() {
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
 
+  Log(options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
   unique_ptr<WritableFile> file;
   Status s = env_->NewWritableFile(
