@@ -347,10 +347,19 @@ TEST(PlainTableDBTest, Flush) {
                 NewPlainTableFactory(plain_table_options));
           }
           DestroyAndReopen(&options);
+          uint64_t int_num;
+          ASSERT_TRUE(dbfull()->GetIntProperty(
+              "rocksdb.estimate-table-readers-mem", &int_num));
+          ASSERT_EQ(int_num, 0U);
+
           ASSERT_OK(Put("1000000000000foo", "v1"));
           ASSERT_OK(Put("0000000000000bar", "v2"));
           ASSERT_OK(Put("1000000000000foo", "v3"));
           dbfull()->TEST_FlushMemTable();
+
+          ASSERT_TRUE(dbfull()->GetIntProperty(
+              "rocksdb.estimate-table-readers-mem", &int_num));
+          ASSERT_GT(int_num, 0U);
 
           TablePropertiesCollection ptc;
           reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);

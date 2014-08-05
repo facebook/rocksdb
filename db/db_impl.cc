@@ -514,17 +514,21 @@ void DBImpl::MaybeDumpStats() {
     // period in rare cases.
     last_stats_dump_time_microsec_ = now_micros;
 
-    DBPropertyType cf_property_type = GetPropertyType("rocksdb.cfstats");
-    DBPropertyType db_property_type = GetPropertyType("rocksdb.dbstats");
+    bool tmp1 = false;
+    bool tmp2 = false;
+    DBPropertyType cf_property_type =
+        GetPropertyType("rocksdb.cfstats", &tmp1, &tmp2);
+    DBPropertyType db_property_type =
+        GetPropertyType("rocksdb.dbstats", &tmp1, &tmp2);
     std::string stats;
     {
       MutexLock l(&mutex_);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
-        cfd->internal_stats()->GetProperty(
-            cf_property_type, "rocksdb.cfstats", &stats);
+        cfd->internal_stats()->GetStringProperty(cf_property_type,
+                                                 "rocksdb.cfstats", &stats);
       }
-      default_cf_internal_stats_->GetProperty(
-          db_property_type, "rocksdb.dbstats", &stats);
+      default_cf_internal_stats_->GetStringProperty(db_property_type,
+                                                    "rocksdb.dbstats", &stats);
     }
     Log(options_.info_log, "------- DUMPING STATS -------");
     Log(options_.info_log, "%s", stats.c_str());
@@ -3321,15 +3325,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   }
 
   // Acquire SuperVersion
-  SuperVersion* sv = nullptr;
-  // TODO(ljin): consider using GetReferencedSuperVersion() directly
-  if (LIKELY(options_.allow_thread_local)) {
-    sv = cfd->GetThreadLocalSuperVersion(&mutex_);
-  } else {
-    mutex_.Lock();
-    sv = cfd->GetSuperVersion()->Ref();
-    mutex_.Unlock();
-  }
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
@@ -3356,22 +3352,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
 
   PERF_TIMER_START(get_post_process_time);
 
-  bool unref_sv = true;
-  if (LIKELY(options_.allow_thread_local)) {
-    unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
-  }
-
-  if (unref_sv) {
-    // Release SuperVersion
-    if (sv->Unref()) {
-      mutex_.Lock();
-      sv->Cleanup();
-      mutex_.Unlock();
-      delete sv;
-      RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
-    }
-    RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
-  }
+  ReturnAndCleanupSuperVersion(cfd, sv);
 
   RecordTick(stats_, NUMBER_KEYS_READ);
   RecordTick(stats_, BYTES_READ, value->size());
@@ -4372,21 +4353,92 @@ const Options& DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
 
 bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
                          const Slice& property, std::string* value) {
+  bool is_int_property;
+  bool need_out_of_mutex;
+  DBPropertyType property_type =
+      GetPropertyType(property, &is_int_property, &need_out_of_mutex);
+
   value->clear();
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
-  DBPropertyType property_type = GetPropertyType(property);
-  MutexLock l(&mutex_);
-  return cfd->internal_stats()->GetProperty(property_type, property, value);
+  if (is_int_property) {
+    uint64_t int_value;
+    bool ret_value = GetIntPropertyInternal(column_family, property_type,
+                                            need_out_of_mutex, &int_value);
+    if (ret_value) {
+      *value = std::to_string(int_value);
+    }
+    return ret_value;
+  } else {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    auto cfd = cfh->cfd();
+    MutexLock l(&mutex_);
+    return cfd->internal_stats()->GetStringProperty(property_type, property,
+                                                    value);
+  }
 }
 
 bool DBImpl::GetIntProperty(ColumnFamilyHandle* column_family,
                             const Slice& property, uint64_t* value) {
+  bool is_int_property;
+  bool need_out_of_mutex;
+  DBPropertyType property_type =
+      GetPropertyType(property, &is_int_property, &need_out_of_mutex);
+  if (!is_int_property) {
+    return false;
+  }
+  return GetIntPropertyInternal(column_family, property_type, need_out_of_mutex,
+                                value);
+}
+
+bool DBImpl::GetIntPropertyInternal(ColumnFamilyHandle* column_family,
+                                    DBPropertyType property_type,
+                                    bool need_out_of_mutex, uint64_t* value) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-  DBPropertyType property_type = GetPropertyType(property);
-  MutexLock l(&mutex_);
-  return cfd->internal_stats()->GetIntProperty(property_type, property, value);
+
+  if (!need_out_of_mutex) {
+    MutexLock l(&mutex_);
+    return cfd->internal_stats()->GetIntProperty(property_type, value);
+  } else {
+    SuperVersion* sv = GetAndRefSuperVersion(cfd);
+
+    bool ret = cfd->internal_stats()->GetIntPropertyOutOfMutex(
+        property_type, sv->current, value);
+
+    ReturnAndCleanupSuperVersion(cfd, sv);
+
+    return ret;
+  }
+}
+
+SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
+  // TODO(ljin): consider using GetReferencedSuperVersion() directly
+  if (LIKELY(options_.allow_thread_local)) {
+    return cfd->GetThreadLocalSuperVersion(&mutex_);
+  } else {
+    MutexLock l(&mutex_);
+    return cfd->GetSuperVersion()->Ref();
+  }
+}
+
+void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
+                                          SuperVersion* sv) {
+  bool unref_sv = true;
+  if (LIKELY(options_.allow_thread_local)) {
+    unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
+  }
+
+  if (unref_sv) {
+    // Release SuperVersion
+    if (sv->Unref()) {
+      {
+        MutexLock l(&mutex_);
+        sv->Cleanup();
+      }
+      delete sv;
+      RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
+    }
+    RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
+  }
 }
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,

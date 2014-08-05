@@ -74,6 +74,7 @@ class FilterBlockReader {
     bool delete_contents_after_use = false);
   bool KeyMayMatch(uint64_t block_offset, const Slice& key);
   bool PrefixMayMatch(uint64_t block_offset, const Slice& prefix);
+  size_t ApproximateMemoryUsage() const;
 
  private:
   const FilterPolicy* policy_;

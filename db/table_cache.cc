@@ -185,6 +185,29 @@ Status TableCache::GetTableProperties(
   return s;
 }
 
+size_t TableCache::GetMemoryUsageByTableReader(
+    const EnvOptions& toptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& fd) {
+  Status s;
+  auto table_reader = fd.table_reader;
+  // table already been pre-loaded?
+  if (table_reader) {
+    return table_reader->ApproximateMemoryUsage();
+  }
+
+  Cache::Handle* table_handle = nullptr;
+  s = FindTable(toptions, internal_comparator, fd, &table_handle, true);
+  if (!s.ok()) {
+    return 0;
+  }
+  assert(table_handle);
+  auto table = GetTableReaderFromHandle(table_handle);
+  auto ret = table->ApproximateMemoryUsage();
+  ReleaseHandle(table_handle);
+  return ret;
+}
+
 void TableCache::Evict(Cache* cache, uint64_t file_number) {
   cache->Erase(GetSliceForFileNumber(&file_number));
 }

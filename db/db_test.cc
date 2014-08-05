@@ -1186,6 +1186,10 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   ASSERT_EQ(2, /* only index/filter were added */
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
   ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  uint64_t int_num;
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
+  ASSERT_EQ(int_num, 0U);
 
   // Make sure filter block is in cache.
   std::string value;
@@ -2489,6 +2493,10 @@ TEST(DBTest, GetProperty) {
   uint64_t int_num;
   SetPerfLevel(kEnableTime);
 
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
+  ASSERT_EQ(int_num, 0U);
+
   ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
   ASSERT_EQ(num, "0");
@@ -2525,6 +2533,10 @@ TEST(DBTest, GetProperty) {
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &int_num));
   ASSERT_EQ(int_num, 4U);
 
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
+  ASSERT_EQ(int_num, 0U);
+
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
   dbfull()->TEST_WaitForFlushMemTable();
@@ -2538,8 +2550,29 @@ TEST(DBTest, GetProperty) {
   ASSERT_EQ(num, "1");
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
   ASSERT_EQ(num, "4");
+
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
+  ASSERT_GT(int_num, 0U);
+
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+
+  dbfull()->TEST_WaitForFlushMemTable();
+  options.max_open_files = 10;
+  Reopen(&options);
+  // After reopening, no table reader is loaded, so no memory for table readers
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
+  ASSERT_EQ(int_num, 0U);
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &int_num));
+  ASSERT_GT(int_num, 0U);
+
+  // After reading a key, at least one table reader is loaded.
+  Get("k5");
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
+  ASSERT_GT(int_num, 0U);
 }
 
 TEST(DBTest, FLUSH) {

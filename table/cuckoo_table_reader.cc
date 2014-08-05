@@ -268,5 +268,8 @@ Iterator* CuckooTableReader::NewIterator(const ReadOptions&, Arena* arena) {
   }
   return iter;
 }
+
+size_t CuckooTableReader::ApproximateMemoryUsage() const { return 0; }
+
 }  // namespace rocksdb
 #endif

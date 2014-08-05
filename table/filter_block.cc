@@ -184,4 +184,7 @@ bool FilterBlockReader::MayMatch(uint64_t block_offset, const Slice& entry) {
   return true;  // Errors are treated as potential matches
 }
 
+size_t FilterBlockReader::ApproximateMemoryUsage() const {
+  return num_ * 4 + 5 + (offset_ - data_);
+}
 }

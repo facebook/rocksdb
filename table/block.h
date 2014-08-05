@@ -50,6 +50,9 @@ class Block {
   void SetBlockHashIndex(BlockHashIndex* hash_index);
   void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
 
+  // Report an approximation of how much memory has been used.
+  size_t ApproximateMemoryUsage() const;
+
  private:
   const char* data_;
   size_t size_;

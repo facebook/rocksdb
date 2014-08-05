@@ -234,6 +234,8 @@ class Version {
 
   uint64_t GetEstimatedActiveKeys();
 
+  size_t GetMemoryUsageByTableReaders();
+
   // used to sort files by size
   struct Fsize {
     int index;

@@ -142,6 +142,10 @@ class BlockBasedTable::IndexReader {
   // The size of the index.
   virtual size_t size() const = 0;
 
+  // Report an approximation of how much memory has been used other than memory
+  // that was allocated in block cache.
+  virtual size_t ApproximateMemoryUsage() const = 0;
+
  protected:
   const Comparator* comparator_;
 };
@@ -175,6 +179,11 @@ class BinarySearchIndexReader : public IndexReader {
   }
 
   virtual size_t size() const override { return index_block_->size(); }
+
+  virtual size_t ApproximateMemoryUsage() const override {
+    assert(index_block_);
+    return index_block_->ApproximateMemoryUsage();
+  }
 
  private:
   BinarySearchIndexReader(const Comparator* comparator, Block* index_block)
@@ -291,6 +300,12 @@ class HashIndexReader : public IndexReader {
   }
 
   virtual size_t size() const override { return index_block_->size(); }
+
+  virtual size_t ApproximateMemoryUsage() const override {
+    assert(index_block_);
+    return index_block_->ApproximateMemoryUsage() +
+           prefixes_contents_.data.size();
+  }
 
  private:
   HashIndexReader(const Comparator* comparator, Block* index_block)
@@ -542,6 +557,17 @@ void BlockBasedTable::SetupForCompaction() {
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
     const {
   return rep_->table_properties;
+}
+
+size_t BlockBasedTable::ApproximateMemoryUsage() const {
+  size_t usage = 0;
+  if (rep_->filter) {
+    usage += rep_->filter->ApproximateMemoryUsage();
+  }
+  if (rep_->index_reader) {
+    usage += rep_->index_reader->ApproximateMemoryUsage();
+  }
+  return usage;
 }
 
 // Load the meta-block from the file. On success, return the loaded meta block

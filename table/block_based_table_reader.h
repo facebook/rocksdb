@@ -96,6 +96,8 @@ class BlockBasedTable : public TableReader {
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
+  size_t ApproximateMemoryUsage() const override;
+
   ~BlockBasedTable();
 
   bool TEST_filter_block_preloaded() const;

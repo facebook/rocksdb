@@ -86,12 +86,17 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
 
 }
 
-DBPropertyType GetPropertyType(const Slice& property) {
+DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
+                               bool* need_out_of_mutex) {
+  assert(is_int_property != nullptr);
+  assert(need_out_of_mutex != nullptr);
   Slice in = property;
   Slice prefix("rocksdb.");
+  *need_out_of_mutex = false;
   if (!in.starts_with(prefix)) return kUnknown;
   in.remove_prefix(prefix.size());
 
+  *is_int_property = false;
   if (in.starts_with("num-files-at-level")) {
     return kNumFilesAtLevel;
   } else if (in == "levelstats") {
@@ -104,7 +109,10 @@ DBPropertyType GetPropertyType(const Slice& property) {
     return kDBStats;
   } else if (in == "sstables") {
     return kSsTables;
-  } else if (in == "num-immutable-mem-table") {
+  }
+
+  *is_int_property = true;
+  if (in == "num-immutable-mem-table") {
     return kNumImmutableMemTable;
   } else if (in == "mem-table-flush-pending") {
     return kMemtableFlushPending;
@@ -120,21 +128,32 @@ DBPropertyType GetPropertyType(const Slice& property) {
     return kNumEntriesInImmutableMemtable;
   } else if (in == "estimate-num-keys") {
     return kEstimatedNumKeys;
+  } else if (in == "estimate-table-readers-mem") {
+    *need_out_of_mutex = true;
+    return kEstimatedUsageByTableReaders;
   }
   return kUnknown;
 }
 
-bool InternalStats::GetProperty(DBPropertyType property_type,
-                                const Slice& property, std::string* value) {
-  if (property_type > kStartIntTypes) {
-    uint64_t int_value;
-    bool ret_value = GetIntProperty(property_type, property, &int_value);
-    if (ret_value) {
-      *value = std::to_string(int_value);
-    }
-    return ret_value;
+bool InternalStats::GetIntPropertyOutOfMutex(DBPropertyType property_type,
+                                             Version* version,
+                                             uint64_t* value) const {
+  assert(value != nullptr);
+  if (property_type != kEstimatedUsageByTableReaders) {
+    return false;
   }
+  if (version == nullptr) {
+    *value = 0;
+  } else {
+    *value = version->GetMemoryUsageByTableReaders();
+  }
+  return true;
+}
 
+bool InternalStats::GetStringProperty(DBPropertyType property_type,
+                                      const Slice& property,
+                                      std::string* value) {
+  assert(value != nullptr);
   Version* current = cfd_->current();
   Slice in = property;
 
@@ -169,10 +188,10 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
       return true;
     }
     case kStats: {
-      if (!GetProperty(kCFStats, "rocksdb.cfstats", value)) {
+      if (!GetStringProperty(kCFStats, "rocksdb.cfstats", value)) {
         return false;
       }
-      if (!GetProperty(kDBStats, "rocksdb.dbstats", value)) {
+      if (!GetStringProperty(kDBStats, "rocksdb.dbstats", value)) {
         return false;
       }
       return true;
@@ -194,7 +213,6 @@ bool InternalStats::GetProperty(DBPropertyType property_type,
 }
 
 bool InternalStats::GetIntProperty(DBPropertyType property_type,
-                                   const Slice& property,
                                    uint64_t* value) const {
   Version* current = cfd_->current();
 

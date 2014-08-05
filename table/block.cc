@@ -359,4 +359,15 @@ void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
   prefix_index_.reset(prefix_index);
 }
 
+size_t Block::ApproximateMemoryUsage() const {
+  size_t usage = size();
+  if (hash_index_) {
+    usage += hash_index_->ApproximateMemoryUsage();
+  }
+  if (prefix_index_) {
+    usage += prefix_index_->ApproximateMemoryUsage();
+  }
+  return usage;
+}
+
 }  // namespace rocksdb

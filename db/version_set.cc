@@ -593,6 +593,18 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
   return Status::OK();
 }
 
+size_t Version::GetMemoryUsageByTableReaders() {
+  size_t total_usage = 0;
+  for (auto& file_level : file_levels_) {
+    for (size_t i = 0; i < file_level.num_files; i++) {
+      total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
+          vset_->storage_options_, cfd_->internal_comparator(),
+          file_level.files[i].fd);
+    }
+  }
+  return total_usage;
+}
+
 uint64_t Version::GetEstimatedActiveKeys() {
   // Estimation will be not accurate when:
   // (1) there is merge keys

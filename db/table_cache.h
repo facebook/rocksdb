@@ -80,6 +80,13 @@ class TableCache {
                             std::shared_ptr<const TableProperties>* properties,
                             bool no_io = false);
 
+  // Return total memory usage of the table reader of the file.
+  // 0 of table reader of the file is not loaded.
+  size_t GetMemoryUsageByTableReader(
+      const EnvOptions& toptions,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& fd);
+
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
 

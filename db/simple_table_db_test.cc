@@ -92,6 +92,8 @@ public:
 
   uint64_t ApproximateOffsetOf(const Slice& key) override;
 
+  virtual size_t ApproximateMemoryUsage() const override { return 0; }
+
   void SetupForCompaction() override;
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override;

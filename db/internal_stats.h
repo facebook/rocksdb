@@ -41,9 +41,12 @@ enum DBPropertyType : uint32_t {
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
                                    // the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
+  kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
 };
 
-extern DBPropertyType GetPropertyType(const Slice& property);
+extern DBPropertyType GetPropertyType(const Slice& property,
+                                      bool* is_int_property,
+                                      bool* need_out_of_mutex);
 
 class InternalStats {
  public:
@@ -191,11 +194,13 @@ class InternalStats {
 
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
 
-  bool GetProperty(DBPropertyType property_type, const Slice& property,
-                   std::string* value);
+  bool GetStringProperty(DBPropertyType property_type, const Slice& property,
+                         std::string* value);
 
-  bool GetIntProperty(DBPropertyType property_type, const Slice& property,
-                      uint64_t* value) const;
+  bool GetIntProperty(DBPropertyType property_type, uint64_t* value) const;
+
+  bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
+                                uint64_t* value) const;
 
  private:
   void DumpDBStats(std::string* value);

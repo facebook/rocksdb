@@ -52,6 +52,9 @@ class TableReader {
   // Prepare work that can be done before the real Get()
   virtual void Prepare(const Slice& target) {}
 
+  // Report an approximation of how much memory has been used.
+  virtual size_t ApproximateMemoryUsage() const = 0;
+
   // Calls (*result_handler)(handle_context, ...) repeatedly, starting with
   // the entry found after a call to Seek(key), until result_handler returns
   // false, where k is the actual internal key for a row found and v as the

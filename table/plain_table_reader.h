@@ -78,6 +78,10 @@ class PlainTableReader: public TableReader {
     return table_properties_;
   }
 
+  virtual size_t ApproximateMemoryUsage() const override {
+    return arena_.MemoryAllocatedBytes();
+  }
+
   PlainTableReader(const Options& options, unique_ptr<RandomAccessFile>&& file,
                    const EnvOptions& storage_options,
                    const InternalKeyComparator& internal_comparator,

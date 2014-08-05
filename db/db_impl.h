@@ -611,6 +611,16 @@ class DBImpl : public DB {
   void InstallSuperVersion(ColumnFamilyData* cfd,
                            DeletionState& deletion_state);
 
+  // Find Super version and reference it. Based on options, it might return
+  // the thread local cached one.
+  inline SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd);
+
+  // Un-reference the super version and return it to thread local cache if
+  // needed. If it is the last reference of the super version. Clean it up
+  // after un-referencing it.
+  inline void ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
+                                           SuperVersion* sv);
+
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
@@ -623,6 +633,10 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, std::string* value,
                  bool* value_found = nullptr);
+
+  bool GetIntPropertyInternal(ColumnFamilyHandle* column_family,
+                              DBPropertyType property_type,
+                              bool need_out_of_mutex, uint64_t* value);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if
