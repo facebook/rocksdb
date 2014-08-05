@@ -22,6 +22,7 @@ int main() {
 #include "table/cuckoo_table_builder.h"
 #include "table/cuckoo_table_reader.h"
 #include "table/cuckoo_table_factory.h"
+#include "util/arena.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -96,6 +97,10 @@ class CuckooReaderTest {
     values.resize(num_items);
   }
 
+  std::string NumToStr(int64_t i) {
+    return std::string(reinterpret_cast<char*>(&i), sizeof(i));
+  }
+
   void CreateCuckooFile(bool is_last_level) {
     unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
@@ -105,8 +110,8 @@ class CuckooReaderTest {
     ASSERT_OK(builder.status());
     for (uint32_t key_idx = 0; key_idx < num_items; ++key_idx) {
       builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
-      ASSERT_EQ(builder.NumEntries(), key_idx + 1);
       ASSERT_OK(builder.status());
+      ASSERT_EQ(builder.NumEntries(), key_idx + 1);
     }
     ASSERT_OK(builder.Finish());
     ASSERT_EQ(num_items, builder.NumEntries());
@@ -123,7 +128,6 @@ class CuckooReaderTest {
         file_size,
         GetSliceHash);
     ASSERT_OK(reader.status());
-
     for (uint32_t i = 0; i < num_items; ++i) {
       ValuesToAssert v(user_keys[i], values[i]);
       ASSERT_OK(reader.Get(
@@ -132,10 +136,70 @@ class CuckooReaderTest {
     }
   }
 
+  void CheckIterator() {
+    unique_ptr<RandomAccessFile> read_file;
+    ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
+    CuckooTableReader reader(
+        options,
+        std::move(read_file),
+        file_size,
+        GetSliceHash);
+    ASSERT_OK(reader.status());
+    Iterator* it = reader.NewIterator(ReadOptions(), nullptr);
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(!it->Valid());
+    it->SeekToFirst();
+    int cnt = 0;
+    while (it->Valid()) {
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(Slice(keys[cnt]) == it->key());
+      ASSERT_TRUE(Slice(values[cnt]) == it->value());
+      ++cnt;
+      it->Next();
+    }
+    ASSERT_EQ(cnt, num_items);
+
+    it->SeekToLast();
+    cnt = num_items - 1;
+    ASSERT_TRUE(it->Valid());
+    while (it->Valid()) {
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(Slice(keys[cnt]) == it->key());
+      ASSERT_TRUE(Slice(values[cnt]) == it->value());
+      --cnt;
+      it->Prev();
+    }
+    ASSERT_EQ(cnt, -1);
+
+    cnt = num_items / 2;
+    it->Seek(keys[cnt]);
+    while (it->Valid()) {
+      ASSERT_OK(it->status());
+      ASSERT_TRUE(Slice(keys[cnt]) == it->key());
+      ASSERT_TRUE(Slice(values[cnt]) == it->value());
+      ++cnt;
+      it->Next();
+    }
+    ASSERT_EQ(cnt, num_items);
+    delete it;
+
+    Arena arena;
+    it = reader.NewIterator(ReadOptions(), &arena);
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(!it->Valid());
+    it->Seek(keys[num_items/2]);
+    ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(keys[num_items/2] == it->key());
+    ASSERT_TRUE(values[num_items/2] == it->value());
+    ASSERT_OK(it->status());
+    it->~Iterator();
+  }
+
   std::vector<std::string> keys;
   std::vector<std::string> user_keys;
   std::vector<std::string> values;
-  uint32_t num_items;
+  uint64_t num_items;
   std::string fname;
   uint64_t file_size;
   Options options;
@@ -144,13 +208,14 @@ class CuckooReaderTest {
 };
 
 TEST(CuckooReaderTest, WhenKeyExists) {
-  SetUp(10);
+  SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_WhenKeyExists";
-  for (uint32_t i = 0; i < num_items; i++) {
-    user_keys[i] = "keys" + std::to_string(i+100);
+  for (uint64_t i = 0; i < num_items; i++) {
+    user_keys[i] = "key" + NumToStr(i);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
-    values[i] = "value" + std::to_string(i+100);
+    values[i] = "value" + NumToStr(i);
+    // Give disjoint hash values.
     AddHashLookups(user_keys[i], i * kNumHashFunc, kNumHashFunc);
   }
   CreateCuckooFile(false);
@@ -170,15 +235,33 @@ TEST(CuckooReaderTest, WhenKeyExists) {
   CheckReader();
 }
 
+TEST(CuckooReaderTest, CheckIterator) {
+  SetUp(2*kNumHashFunc);
+  fname = test::TmpDir() + "/CuckooReader_CheckIterator";
+  for (uint64_t i = 0; i < num_items; i++) {
+    user_keys[i] = "key" + NumToStr(i);
+    ParsedInternalKey ikey(user_keys[i], 0, kTypeValue);
+    AppendInternalKey(&keys[i], ikey);
+    values[i] = "value" + NumToStr(i);
+    // Give disjoint hash values, in reverse order.
+    AddHashLookups(user_keys[i], (num_items-i-1)*kNumHashFunc, kNumHashFunc);
+  }
+  CreateCuckooFile(false);
+  CheckIterator();
+  // Last level file.
+  CreateCuckooFile(true);
+  CheckIterator();
+}
+
 TEST(CuckooReaderTest, WhenKeyNotFound) {
   // Add keys with colliding hash values.
   SetUp(kNumHashFunc / 2);
   fname = test::TmpDir() + "/CuckooReader_WhenKeyNotFound";
-  for (uint32_t i = 0; i < num_items; i++) {
-    user_keys[i] = "keys" + std::to_string(i+100);
+  for (uint64_t i = 0; i < num_items; i++) {
+    user_keys[i] = "key" + NumToStr(i);
     ParsedInternalKey ikey(user_keys[i], i + 1000, kTypeValue);
     AppendInternalKey(&keys[i], ikey);
-    values[i] = "value" + std::to_string(i+100);
+    values[i] = "value" + NumToStr(i);
     // Make all hash values collide.
     AddHashLookups(user_keys[i], 0, kNumHashFunc);
   }
@@ -193,7 +276,7 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
       GetSliceHash);
   ASSERT_OK(reader.status());
   // Search for a key with colliding hash values.
-  std::string not_found_user_key = "keys" + std::to_string(num_items + 100);
+  std::string not_found_user_key = "key" + NumToStr(num_items);
   std::string not_found_key;
   AddHashLookups(not_found_user_key, 0, kNumHashFunc);
   ParsedInternalKey ikey(not_found_user_key, 1000, kTypeValue);
@@ -204,10 +287,10 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
   ASSERT_EQ(0, v.call_count);
   ASSERT_OK(reader.status());
   // Search for a key with an independent hash value.
-  std::string not_found_user_key2 = "keys" + std::to_string(num_items + 101);
-  std::string not_found_key2;
+  std::string not_found_user_key2 = "key" + NumToStr(num_items + 1);
   AddHashLookups(not_found_user_key2, kNumHashFunc, kNumHashFunc);
   ParsedInternalKey ikey2(not_found_user_key2, 1000, kTypeValue);
+  std::string not_found_key2;
   AppendInternalKey(&not_found_key2, ikey2);
   ASSERT_OK(reader.Get(
         ReadOptions(), Slice(not_found_key2), &v, AssertValues, nullptr));
@@ -215,21 +298,21 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
   ASSERT_OK(reader.status());
 
   // Test read with corrupted key.
-  not_found_key2.pop_back();
-  ASSERT_TRUE(!ParseInternalKey(not_found_key2, &ikey));
+  Slice corrupt_key("corrupt_ikey");
+  ASSERT_TRUE(!ParseInternalKey(corrupt_key, &ikey));
   ASSERT_TRUE(reader.Get(
-        ReadOptions(), Slice(not_found_key2), &v,
+        ReadOptions(), corrupt_key, &v,
         AssertValues, nullptr).IsCorruption());
   ASSERT_EQ(0, v.call_count);
   ASSERT_OK(reader.status());
 
   // Test read when key is unused key.
-  std::string unused_user_key = "keys10:";
+  std::string unused_key =
+    reader.GetTableProperties()->user_collected_properties.at(
+    CuckooTablePropertyNames::kEmptyKey);
   // Add hash values that map to empty buckets.
-  AddHashLookups(unused_user_key, kNumHashFunc, kNumHashFunc);
-  std::string unused_key;
-  ParsedInternalKey ikey3(unused_user_key, 1000, kTypeValue);
-  AppendInternalKey(&unused_key, ikey3);
+  AddHashLookups(ExtractUserKey(unused_key).ToString(),
+      kNumHashFunc, kNumHashFunc);
   ASSERT_OK(reader.Get(
         ReadOptions(), Slice(unused_key), &v, AssertValues, nullptr));
   ASSERT_EQ(0, v.call_count);
@@ -318,6 +401,10 @@ void BM_CuckooRead(uint64_t num, uint32_t key_length,
   std::random_shuffle(keys.begin(), keys.end());
 
   uint64_t time_now = env->NowMicros();
+  reader.NewIterator(ReadOptions(), nullptr);
+  fprintf(stderr, "Time taken for preparing iterator for %lu items: %lu ms.\n",
+      num, (env->NowMicros() - time_now)/1000);
+  time_now = env->NowMicros();
   for (uint64_t i = 0; i < num_reads; ++i) {
     reader.Get(r_options, Slice(keys[i % num]), nullptr, DoNothing, nullptr);
   }

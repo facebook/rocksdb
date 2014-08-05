@@ -11,6 +11,8 @@
 #ifndef ROCKSDB_LITE
 #include <string>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
@@ -30,7 +32,7 @@ class CuckooTableReader: public TableReader {
       uint64_t (*GetSliceHash)(const Slice&, uint32_t, uint64_t));
   ~CuckooTableReader() {}
 
-  std::shared_ptr<const TableProperties> GetTableProperties() const {
+  std::shared_ptr<const TableProperties> GetTableProperties() const override {
     return table_props_;
   }
 
@@ -40,17 +42,20 @@ class CuckooTableReader: public TableReader {
       const ReadOptions& readOptions, const Slice& key, void* handle_context,
       bool (*result_handler)(void* arg, const ParsedInternalKey& k,
                              const Slice& v),
-      void (*mark_key_may_exist_handler)(void* handle_context) = nullptr);
+      void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
+    override;
 
-  Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr);
+  Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
   // Following methods are not implemented for Cuckoo Table Reader
-  uint64_t ApproximateOffsetOf(const Slice& key) { return 0; }
-  void SetupForCompaction() {}
-  void Prepare(const Slice& target) {}
+  uint64_t ApproximateOffsetOf(const Slice& key) override { return 0; }
+  void SetupForCompaction() override {}
+  void Prepare(const Slice& target) override {}
   // End of methods not implemented.
 
  private:
+  friend class CuckooTableIterator;
+  void LoadAllKeys(std::vector<std::pair<Slice, uint32_t>>* key_to_bucket_id);
   std::unique_ptr<RandomAccessFile> file_;
   Slice file_data_;
   bool is_last_level_;
