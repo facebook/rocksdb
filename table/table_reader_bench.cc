@@ -144,14 +144,12 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           // Query one existing key;
           std::string key = MakeKey(r1, r2, through_db);
           uint64_t start_time = Now(env, measured_by_nanosecond);
-          port::MemoryBarrier();
           if (!through_db) {
             s = table_reader->Get(read_options, key, arg, DummySaveValue,
                                   nullptr);
           } else {
             s = db->Get(read_options, key, &result);
           }
-          port::MemoryBarrier();
           hist.Add(Now(env, measured_by_nanosecond) - start_time);
         } else {
           int r2_len;
@@ -167,7 +165,6 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string end_key = MakeKey(r1, r2 + r2_len, through_db);
           uint64_t total_time = 0;
           uint64_t start_time = Now(env, measured_by_nanosecond);
-          port::MemoryBarrier();
           Iterator* iter;
           if (!through_db) {
             iter = table_reader->NewIterator(read_options);
@@ -180,7 +177,6 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
               break;
             }
             // verify key;
-            port::MemoryBarrier();
             total_time += Now(env, measured_by_nanosecond) - start_time;
             assert(Slice(MakeKey(r1, r2 + count, through_db)) == iter->key());
             start_time = Now(env, measured_by_nanosecond);
@@ -195,7 +191,6 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             assert(false);
           }
           delete iter;
-          port::MemoryBarrier();
           total_time += Now(env, measured_by_nanosecond) - start_time;
           hist.Add(total_time);
         }
