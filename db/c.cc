@@ -231,7 +231,7 @@ struct rocksdb_compactionfilterfactoryv2_t : public CompactionFilterFactoryV2 {
   void (*destructor_)(void*);
   const char* (*name_)(void*);
   rocksdb_compactionfilterv2_t* (*create_compaction_filter_v2_)(
-      const rocksdb_compactionfiltercontext_t* context);
+      void* state, const rocksdb_compactionfiltercontext_t* context);
 
   rocksdb_compactionfilterfactoryv2_t(const SliceTransform* prefix_extractor)
       : CompactionFilterFactoryV2(prefix_extractor) {
@@ -251,7 +251,7 @@ struct rocksdb_compactionfilterfactoryv2_t : public CompactionFilterFactoryV2 {
     c_context.rep.is_full_compaction = context.is_full_compaction;
     c_context.rep.is_manual_compaction = context.is_manual_compaction;
     return std::unique_ptr<CompactionFilterV2>(
-        (*create_compaction_filter_v2_)(&c_context));
+        (*create_compaction_filter_v2_)(state_, &c_context));
   }
 };
 
@@ -1683,7 +1683,7 @@ rocksdb_compactionfilterfactoryv2_t* rocksdb_compactionfilterfactoryv2_create(
     rocksdb_slicetransform_t* prefix_extractor,
     void (*destructor)(void*),
     rocksdb_compactionfilterv2_t* (*create_compaction_filter_v2)(
-        const rocksdb_compactionfiltercontext_t* context),
+        void* state, const rocksdb_compactionfiltercontext_t* context),
     const char* (*name)(void*)) {
   rocksdb_compactionfilterfactoryv2_t* result = new rocksdb_compactionfilterfactoryv2_t(prefix_extractor);
   result->state_ = state;

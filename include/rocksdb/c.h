@@ -604,7 +604,7 @@ extern rocksdb_compactionfilterfactoryv2_t* rocksdb_compactionfilterfactoryv2_cr
     rocksdb_slicetransform_t* prefix_extractor,
     void (*destructor)(void*),
     rocksdb_compactionfilterv2_t* (*create_compaction_filter_v2)(
-        const rocksdb_compactionfiltercontext_t* context),
+        void*, const rocksdb_compactionfiltercontext_t* context),
     const char* (*name)(void*));
 extern void rocksdb_compactionfilterfactoryv2_destroy(rocksdb_compactionfilterfactoryv2_t*);
 

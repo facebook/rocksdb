@@ -2838,7 +2838,7 @@ void DBImpl::CallCompactionFilterV2(CompactionState* compact,
   }
 
   // Assemble slice vectors for user keys and existing values.
-  // We also keep traack of our parsed internal key structs because
+  // We also keep track of our parsed internal key structs because
   // we may need to access the sequence number in the event that
   // keys are garbage collected during the filter process.
   std::vector<ParsedInternalKey> ikey_buf;
