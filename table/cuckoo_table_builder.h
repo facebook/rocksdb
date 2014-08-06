@@ -6,7 +6,9 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 #include <stdint.h>
+#include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 #include "rocksdb/status.h"
 #include "table/table_builder.h"
@@ -19,14 +21,12 @@ namespace rocksdb {
 class CuckooTableBuilder: public TableBuilder {
  public:
   CuckooTableBuilder(
-      WritableFile* file, uint32_t fixed_key_length,
-      uint32_t fixed_value_length, double hash_table_ratio,
-      uint64_t file_size, uint32_t max_num_hash_table,
-      uint32_t max_search_depth, bool is_last_level,
-      uint64_t (*GetSliceHash)(const Slice&, uint32_t, uint64_t));
+      WritableFile* file, double hash_table_ratio, uint32_t max_num_hash_table,
+      uint32_t max_search_depth,
+      uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
-  ~CuckooTableBuilder();
+  ~CuckooTableBuilder() {}
 
   // Add key,value to the table being constructed.
   // REQUIRES: key is after any previously added key according to comparator.
@@ -34,7 +34,7 @@ class CuckooTableBuilder: public TableBuilder {
   void Add(const Slice& key, const Slice& value) override;
 
   // Return non-ok iff some error has been detected.
-  Status status() const override;
+  Status status() const override { return status_; }
 
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
@@ -57,35 +57,37 @@ class CuckooTableBuilder: public TableBuilder {
 
  private:
   struct CuckooBucket {
-    CuckooBucket(): is_empty(true), make_space_for_key_call_id(0) {}
-    std::string key;
-    std::string value;
-    bool is_empty;
-    uint64_t make_space_for_key_call_id;
+    CuckooBucket()
+      : vector_idx(kMaxVectorIdx), make_space_for_key_call_id(0) {}
+    uint32_t vector_idx;
+    // This number will not exceed kvs_.size() + max_num_hash_table_.
+    // We assume number of items is <= 2^32.
+    uint32_t make_space_for_key_call_id;
   };
+  static const uint32_t kMaxVectorIdx = std::numeric_limits<int32_t>::max();
 
-  bool MakeSpaceForKey(const Slice& key, uint64_t* bucket_id,
-      autovector<uint64_t> hash_vals);
+  bool MakeSpaceForKey(
+      const autovector<uint64_t>& hash_vals,
+      const uint64_t call_id,
+      std::vector<CuckooBucket>* buckets,
+      uint64_t* bucket_id);
+  Status MakeHashTable(std::vector<CuckooBucket>* buckets);
 
   uint32_t num_hash_table_;
   WritableFile* file_;
-  const uint32_t value_length_;
-  const uint32_t bucket_size_;
   const double hash_table_ratio_;
-  const uint64_t max_num_buckets_;
   const uint32_t max_num_hash_table_;
   const uint32_t max_search_depth_;
-  const bool is_last_level_file_;
+  bool is_last_level_file_;
   Status status_;
-  std::vector<CuckooBucket> buckets_;
+  std::vector<std::pair<std::string, std::string>> kvs_;
   TableProperties properties_;
-  uint64_t make_space_for_key_call_id_;
-  uint64_t (*GetSliceHash)(const Slice& s, uint32_t index,
+  bool has_seen_first_key_;
+  uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
     uint64_t max_num_buckets);
   std::string unused_user_key_ = "";
-  std::string prev_key_;
 
-  bool closed_ = false;  // Either Finish() or Abandon() has been called.
+  bool closed_;  // Either Finish() or Abandon() has been called.
 
   // No copying allowed
   CuckooTableBuilder(const CuckooTableBuilder&) = delete;

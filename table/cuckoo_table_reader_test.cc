@@ -101,12 +101,11 @@ class CuckooReaderTest {
     return std::string(reinterpret_cast<char*>(&i), sizeof(i));
   }
 
-  void CreateCuckooFile(bool is_last_level) {
+  void CreateCuckooFileAndCheckReader() {
     unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
     CuckooTableBuilder builder(
-        writable_file.get(), keys[0].size(), values[0].size(), 0.9,
-        10000, kNumHashFunc, 100, is_last_level, GetSliceHash);
+        writable_file.get(), 0.9, kNumHashFunc, 100, GetSliceHash);
     ASSERT_OK(builder.status());
     for (uint32_t key_idx = 0; key_idx < num_items; ++key_idx) {
       builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
@@ -117,9 +116,8 @@ class CuckooReaderTest {
     ASSERT_EQ(num_items, builder.NumEntries());
     file_size = builder.FileSize();
     ASSERT_OK(writable_file->Close());
-  }
 
-  void CheckReader() {
+    // Check reader now.
     unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     CuckooTableReader reader(
@@ -133,6 +131,14 @@ class CuckooReaderTest {
       ASSERT_OK(reader.Get(
             ReadOptions(), Slice(keys[i]), &v, AssertValues, nullptr));
       ASSERT_EQ(1, v.call_count);
+    }
+  }
+  void UpdateKeys(bool with_zero_seqno) {
+    for (uint32_t i = 0; i < num_items; i++) {
+      ParsedInternalKey ikey(user_keys[i],
+          with_zero_seqno ? 0 : i + 1000, kTypeValue);
+      keys[i].clear();
+      AppendInternalKey(&keys[i], ikey);
     }
   }
 
@@ -216,23 +222,22 @@ TEST(CuckooReaderTest, WhenKeyExists) {
     AppendInternalKey(&keys[i], ikey);
     values[i] = "value" + NumToStr(i);
     // Give disjoint hash values.
-    AddHashLookups(user_keys[i], i * kNumHashFunc, kNumHashFunc);
+    AddHashLookups(user_keys[i], i, kNumHashFunc);
   }
-  CreateCuckooFile(false);
-  CheckReader();
+  CreateCuckooFileAndCheckReader();
   // Last level file.
-  CreateCuckooFile(true);
-  CheckReader();
+  UpdateKeys(true);
+  CreateCuckooFileAndCheckReader();
   // Test with collision. Make all hash values collide.
   hash_map.clear();
   for (uint32_t i = 0; i < num_items; i++) {
     AddHashLookups(user_keys[i], 0, kNumHashFunc);
   }
-  CreateCuckooFile(false);
-  CheckReader();
+  UpdateKeys(false);
+  CreateCuckooFileAndCheckReader();
   // Last level file.
-  CreateCuckooFile(true);
-  CheckReader();
+  UpdateKeys(true);
+  CreateCuckooFileAndCheckReader();
 }
 
 TEST(CuckooReaderTest, CheckIterator) {
@@ -244,18 +249,19 @@ TEST(CuckooReaderTest, CheckIterator) {
     AppendInternalKey(&keys[i], ikey);
     values[i] = "value" + NumToStr(i);
     // Give disjoint hash values, in reverse order.
-    AddHashLookups(user_keys[i], (num_items-i-1)*kNumHashFunc, kNumHashFunc);
+    AddHashLookups(user_keys[i], num_items-i-1, kNumHashFunc);
   }
-  CreateCuckooFile(false);
+  CreateCuckooFileAndCheckReader();
   CheckIterator();
   // Last level file.
-  CreateCuckooFile(true);
+  UpdateKeys(true);
+  CreateCuckooFileAndCheckReader();
   CheckIterator();
 }
 
 TEST(CuckooReaderTest, WhenKeyNotFound) {
   // Add keys with colliding hash values.
-  SetUp(kNumHashFunc / 2);
+  SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_WhenKeyNotFound";
   for (uint64_t i = 0; i < num_items; i++) {
     user_keys[i] = "key" + NumToStr(i);
@@ -265,8 +271,7 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
     // Make all hash values collide.
     AddHashLookups(user_keys[i], 0, kNumHashFunc);
   }
-  CreateCuckooFile(false);
-  CheckReader();
+  CreateCuckooFileAndCheckReader();
   unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   CuckooTableReader reader(
@@ -351,20 +356,17 @@ void BM_CuckooRead(uint64_t num, uint32_t key_length,
   }
   std::string fname = FLAGS_file_dir + "/cuckoo_read_benchmark";
 
-  uint64_t predicted_file_size =
-    num * (key_length + value_length) / hash_ratio + 1024;
-
   unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
   CuckooTableBuilder builder(
-      writable_file.get(), key_length + 8, value_length, hash_ratio,
-      predicted_file_size, kMaxNumHashTable, 1000, true, GetSliceMurmurHash);
+      writable_file.get(), hash_ratio,
+      kMaxNumHashTable, 1000, GetSliceMurmurHash);
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.
     std::string new_key(reinterpret_cast<char*>(&key_idx), sizeof(key_idx));
     new_key = std::string(key_length - new_key.size(), 'k') + new_key;
-    ParsedInternalKey ikey(new_key, num, kTypeValue);
+    ParsedInternalKey ikey(new_key, 0, kTypeValue);
     std::string full_key;
     AppendInternalKey(&full_key, ikey);
     builder.Add(Slice(full_key), Slice(&full_key[0], value_length));

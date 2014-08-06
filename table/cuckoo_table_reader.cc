@@ -28,9 +28,9 @@ CuckooTableReader::CuckooTableReader(
     const Options& options,
     std::unique_ptr<RandomAccessFile>&& file,
     uint64_t file_size,
-    uint64_t (*GetSliceHashPtr)(const Slice&, uint32_t, uint64_t))
+    uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
     : file_(std::move(file)),
-      GetSliceHash(GetSliceHashPtr) {
+      get_slice_hash_(get_slice_hash) {
   if (!options.allow_mmap_reads) {
     status_ = Status::InvalidArgument("File is not mmaped");
   }
@@ -90,7 +90,7 @@ Status CuckooTableReader::Get(
     return Status::Corruption("Unable to parse key into inernal key.");
   }
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_fun_; ++hash_cnt) {
-    uint64_t hash_val = GetSliceHash(ikey.user_key, hash_cnt, num_buckets_);
+    uint64_t hash_val = get_slice_hash_(ikey.user_key, hash_cnt, num_buckets_);
     assert(hash_val < num_buckets_);
     uint64_t offset = hash_val * bucket_length_;
     const char* bucket = &file_data_.data()[offset];
