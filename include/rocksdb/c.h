@@ -61,6 +61,10 @@ typedef struct rocksdb_compactionfiltercontext_t
     rocksdb_compactionfiltercontext_t;
 typedef struct rocksdb_compactionfilterfactory_t
     rocksdb_compactionfilterfactory_t;
+typedef struct rocksdb_compactionfilterv2_t
+    rocksdb_compactionfilterv2_t;
+typedef struct rocksdb_compactionfilterfactoryv2_t
+    rocksdb_compactionfilterfactoryv2_t;
 typedef struct rocksdb_comparator_t      rocksdb_comparator_t;
 typedef struct rocksdb_env_t             rocksdb_env_t;
 typedef struct rocksdb_fifo_compaction_options_t rocksdb_fifo_compaction_options_t;
@@ -359,11 +363,15 @@ extern void rocksdb_options_set_compaction_filter(
     rocksdb_compactionfilter_t*);
 extern void rocksdb_options_set_compaction_filter_factory(
     rocksdb_options_t*, rocksdb_compactionfilterfactory_t*);
+extern void rocksdb_options_set_compaction_filter_factory_v2(
+    rocksdb_options_t*,
+    rocksdb_compactionfilterfactoryv2_t*);
 extern void rocksdb_options_set_comparator(
     rocksdb_options_t*,
     rocksdb_comparator_t*);
-extern void rocksdb_options_set_merge_operator(rocksdb_options_t*,
-                                               rocksdb_mergeoperator_t*);
+extern void rocksdb_options_set_merge_operator(
+    rocksdb_options_t*,
+    rocksdb_mergeoperator_t*);
 extern void rocksdb_options_set_compression_per_level(
   rocksdb_options_t* opt,
   int* level_values,
@@ -570,6 +578,35 @@ extern rocksdb_compactionfilterfactory_t*
         const char* (*name)(void*));
 extern void rocksdb_compactionfilterfactory_destroy(
     rocksdb_compactionfilterfactory_t*);
+
+/* Compaction Filter V2 */
+
+extern rocksdb_compactionfilterv2_t* rocksdb_compactionfilterv2_create(
+    void* state,
+    void (*destructor)(void*),
+    // num_keys specifies the number of array entries in every *list parameter.
+    // New values added to the new_values_list should be malloc'd and will be
+    // freed by the caller. Specify true in the to_delete_list to remove an
+    // entry during compaction; false to keep it.
+    void (*filter)(
+        void*, int level, size_t num_keys,
+        const char* const* keys_list, const size_t* keys_list_sizes,
+        const char* const* existing_values_list, const size_t* existing_values_list_sizes,
+        char** new_values_list, size_t* new_values_list_sizes,
+        unsigned char* to_delete_list),
+    const char* (*name)(void*));
+extern void rocksdb_compactionfilterv2_destroy(rocksdb_compactionfilterv2_t*);
+
+/* Compaction Filter Factory V2 */
+
+extern rocksdb_compactionfilterfactoryv2_t* rocksdb_compactionfilterfactoryv2_create(
+    void* state,
+    rocksdb_slicetransform_t* prefix_extractor,
+    void (*destructor)(void*),
+    rocksdb_compactionfilterv2_t* (*create_compaction_filter_v2)(
+        const rocksdb_compactionfiltercontext_t* context),
+    const char* (*name)(void*));
+extern void rocksdb_compactionfilterfactoryv2_destroy(rocksdb_compactionfilterfactoryv2_t*);
 
 /* Comparator */
 

@@ -36,6 +36,9 @@ using rocksdb::ColumnFamilyHandle;
 using rocksdb::ColumnFamilyOptions;
 using rocksdb::CompactionFilter;
 using rocksdb::CompactionFilterFactory;
+using rocksdb::CompactionFilterV2;
+using rocksdb::CompactionFilterFactoryV2;
+using rocksdb::CompactionFilterContext;
 using rocksdb::CompactionOptionsFIFO;
 using rocksdb::Comparator;
 using rocksdb::CompressionType;
@@ -152,6 +155,104 @@ struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
   }
 
   virtual const char* Name() const { return (*name_)(state_); }
+};
+
+struct rocksdb_compactionfilterv2_t : public CompactionFilterV2 {
+  void* state_;
+  void (*destructor_)(void*);
+  const char* (*name_)(void*);
+  void (*filter_)(void*, int level, size_t num_keys,
+                  const char* const* keys_list, const size_t* keys_list_sizes,
+                  const char* const* existing_values_list, const size_t* existing_values_list_sizes,
+                  char** new_values_list, size_t* new_values_list_sizes,
+                  unsigned char* to_delete_list);
+
+  virtual ~rocksdb_compactionfilterv2_t() {
+    (*destructor_)(state_);
+  }
+
+  virtual const char* Name() const {
+    return (*name_)(state_);
+  }
+
+  virtual std::vector<bool> Filter(int level,
+                                   const SliceVector& keys,
+                                   const SliceVector& existing_values,
+                                   std::vector<std::string>* new_values,
+                                   std::vector<bool>* values_changed) const {
+    // Make a vector pointing to the underlying key data.
+    size_t num_keys = keys.size();
+    std::vector<const char*> keys_list(num_keys);
+    std::vector<size_t> keys_list_sizes(num_keys);
+    for (size_t i = 0; i < num_keys; ++i) {
+      keys_list[i] = keys[i].data();
+      keys_list_sizes[i] = keys[i].size();
+    }
+    // Make a vector pointing to the underlying value data.
+    std::vector<const char*> existing_values_list(num_keys);
+    std::vector<size_t> existing_values_list_sizes(num_keys);
+    for (size_t i = 0; i < num_keys; ++i) {
+      existing_values_list[i] = existing_values[i].data();
+      existing_values_list_sizes[i] = existing_values[i].size();
+    }
+    // Make a vector which will accept newly-allocated char* arrays
+    // which we will take ownership of and assign to strings in new_values.
+    new_values->clear();
+    std::vector<char*> new_values_list(num_keys);
+    std::vector<size_t> new_values_list_sizes(num_keys);
+    // Resize values_changed to hold all keys.
+    values_changed->resize(num_keys);
+    // Make a vector for bools indicating a value should be deleted
+    // on compaction (true) or maintained (false).
+    std::vector<unsigned char> to_delete_list(num_keys);
+
+    (*filter_)(
+        state_, level, num_keys, &keys_list[0], &keys_list_sizes[0],
+        &existing_values_list[0], &existing_values_list_sizes[0],
+        &new_values_list[0], &new_values_list_sizes[0], &to_delete_list[0]);
+
+    // Now, we transfer any changed values, setting values_changed and
+    // initializing new_values in the event a value changed.
+    std::vector<bool> to_delete(num_keys);
+    for (size_t i = 0; i < num_keys; ++i) {
+      to_delete[i] = to_delete_list[i];
+      (*values_changed)[i] = new_values_list[i] != nullptr;
+      if ((*values_changed)[i]) {
+        new_values->push_back(std::string(new_values_list[i], new_values_list_sizes[i]));
+        free(new_values_list[i]);
+      }
+    }
+    return to_delete;
+  }
+};
+
+struct rocksdb_compactionfilterfactoryv2_t : public CompactionFilterFactoryV2 {
+  void* state_;
+  void (*destructor_)(void*);
+  const char* (*name_)(void*);
+  rocksdb_compactionfilterv2_t* (*create_compaction_filter_v2_)(
+      const rocksdb_compactionfiltercontext_t* context);
+
+  rocksdb_compactionfilterfactoryv2_t(const SliceTransform* prefix_extractor)
+      : CompactionFilterFactoryV2(prefix_extractor) {
+  }
+
+  virtual ~rocksdb_compactionfilterfactoryv2_t() {
+    (*destructor_)(state_);
+  }
+
+  virtual const char* Name() const {
+    return (*name_)(state_);
+  }
+
+  virtual std::unique_ptr<CompactionFilterV2> CreateCompactionFilterV2(
+      const CompactionFilterContext& context) {
+    struct rocksdb_compactionfiltercontext_t c_context;
+    c_context.rep.is_full_compaction = context.is_full_compaction;
+    c_context.rep.is_manual_compaction = context.is_manual_compaction;
+    return std::unique_ptr<CompactionFilterV2>(
+        (*create_compaction_filter_v2_)(&c_context));
+  }
 };
 
 struct rocksdb_comparator_t : public Comparator {
@@ -1004,6 +1105,12 @@ void rocksdb_options_set_merge_operator(
   opt->rep.merge_operator = std::shared_ptr<MergeOperator>(merge_operator);
 }
 
+void rocksdb_options_set_compaction_filter_factory_v2(
+    rocksdb_options_t* opt,
+    rocksdb_compactionfilterfactoryv2_t* compaction_filter_factory_v2) {
+  opt->rep.compaction_filter_factory_v2 = std::shared_ptr<CompactionFilterFactoryV2>(compaction_filter_factory_v2);
+}
+
 void rocksdb_options_set_filter_policy(
     rocksdb_options_t* opt,
     rocksdb_filterpolicy_t* policy) {
@@ -1547,6 +1654,46 @@ rocksdb_compactionfilterfactory_t* rocksdb_compactionfilterfactory_create(
 
 void rocksdb_compactionfilterfactory_destroy(
     rocksdb_compactionfilterfactory_t* factory) {
+  delete factory;
+}
+
+rocksdb_compactionfilterv2_t* rocksdb_compactionfilterv2_create(
+    void* state,
+    void (*destructor)(void*),
+    void (*filter)(void*, int level, size_t num_keys,
+                   const char* const* keys_list, const size_t* keys_list_sizes,
+                   const char* const* existing_values_list, const size_t* existing_values_list_sizes,
+                   char** new_values_list, size_t* new_values_list_sizes,
+                   unsigned char* to_delete_list),
+    const char* (*name)(void*)) {
+  rocksdb_compactionfilterv2_t* result = new rocksdb_compactionfilterv2_t;
+  result->state_ = state;
+  result->destructor_ = destructor;
+  result->filter_ = filter;
+  result->name_ = name;
+  return result;
+}
+
+void rocksdb_compactionfilterv2_destroy(rocksdb_compactionfilterv2_t* filter) {
+  delete filter;
+}
+
+rocksdb_compactionfilterfactoryv2_t* rocksdb_compactionfilterfactoryv2_create(
+    void* state,
+    rocksdb_slicetransform_t* prefix_extractor,
+    void (*destructor)(void*),
+    rocksdb_compactionfilterv2_t* (*create_compaction_filter_v2)(
+        const rocksdb_compactionfiltercontext_t* context),
+    const char* (*name)(void*)) {
+  rocksdb_compactionfilterfactoryv2_t* result = new rocksdb_compactionfilterfactoryv2_t(prefix_extractor);
+  result->state_ = state;
+  result->destructor_ = destructor;
+  result->create_compaction_filter_v2_ = create_compaction_filter_v2;
+  result->name_ = name;
+  return result;
+}
+
+void rocksdb_compactionfilterfactoryv2_destroy(rocksdb_compactionfilterfactoryv2_t* factory) {
   delete factory;
 }
 
