@@ -93,10 +93,10 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
   Slice in = property;
   Slice prefix("rocksdb.");
   *need_out_of_mutex = false;
+  *is_int_property = false;
   if (!in.starts_with(prefix)) return kUnknown;
   in.remove_prefix(prefix.size());
 
-  *is_int_property = false;
   if (in.starts_with("num-files-at-level")) {
     return kNumFilesAtLevel;
   } else if (in == "levelstats") {

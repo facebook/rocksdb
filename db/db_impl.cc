@@ -4353,8 +4353,8 @@ const Options& DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
 
 bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
                          const Slice& property, std::string* value) {
-  bool is_int_property;
-  bool need_out_of_mutex;
+  bool is_int_property = false;
+  bool need_out_of_mutex = false;
   DBPropertyType property_type =
       GetPropertyType(property, &is_int_property, &need_out_of_mutex);
 
@@ -4378,8 +4378,8 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
 
 bool DBImpl::GetIntProperty(ColumnFamilyHandle* column_family,
                             const Slice& property, uint64_t* value) {
-  bool is_int_property;
-  bool need_out_of_mutex;
+  bool is_int_property = false;
+  bool need_out_of_mutex = false;
   DBPropertyType property_type =
       GetPropertyType(property, &is_int_property, &need_out_of_mutex);
   if (!is_int_property) {
