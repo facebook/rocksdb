@@ -163,7 +163,7 @@ class CuckooReaderTest {
       ++cnt;
       it->Next();
     }
-    ASSERT_EQ(cnt, num_items);
+    ASSERT_EQ(static_cast<uint32_t>(cnt), num_items);
 
     it->SeekToLast();
     cnt = num_items - 1;
@@ -186,7 +186,7 @@ class CuckooReaderTest {
       ++cnt;
       it->Next();
     }
-    ASSERT_EQ(cnt, num_items);
+    ASSERT_EQ(static_cast<uint32_t>(cnt), num_items);
     delete it;
 
     Arena arena;
@@ -404,7 +404,7 @@ void BM_CuckooRead(uint64_t num, uint32_t key_length,
 
   uint64_t time_now = env->NowMicros();
   reader.NewIterator(ReadOptions(), nullptr);
-  fprintf(stderr, "Time taken for preparing iterator for %lu items: %lu ms.\n",
+  fprintf(stderr, "Time taken for preparing iterator for %" PRIu64 " items: %" PRIu64 " ms.\n",
       num, (env->NowMicros() - time_now)/1000);
   time_now = env->NowMicros();
   for (uint64_t i = 0; i < num_reads; ++i) {
