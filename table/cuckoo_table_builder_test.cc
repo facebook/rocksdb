@@ -383,10 +383,10 @@ TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
   ASSERT_OK(builder.status());
 
   builder.Add(Slice(GetInternalKey(user_key, false)), Slice("value1"));
-  ASSERT_EQ(builder.NumEntries(), 1);
+  ASSERT_EQ(builder.NumEntries(), 1u);
   ASSERT_OK(builder.status());
   builder.Add(Slice(GetInternalKey(user_key, true)), Slice("value2"));
-  ASSERT_EQ(builder.NumEntries(), 2);
+  ASSERT_EQ(builder.NumEntries(), 2u);
   ASSERT_OK(builder.status());
 
   ASSERT_TRUE(builder.Finish().IsNotSupported());
