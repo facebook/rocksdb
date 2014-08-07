@@ -267,10 +267,10 @@ static const char* CompactionFilterFactoryV2Name(void* arg) {
   return "TestCompactionFilterFactoryV2";
 }
 static rocksdb_compactionfilterv2_t* CompactionFilterFactoryV2Create(
-    const rocksdb_compactionfiltercontext_t* context) {
-  return rocksdb_compactionfilterv2_create(
-      NULL, CompactionFilterV2Destroy, CompactionFilterV2Filter,
-      CompactionFilterV2Name);
+    void* state, const rocksdb_compactionfiltercontext_t* context) {
+  return rocksdb_compactionfilterv2_create(state, CompactionFilterV2Destroy,
+                                           CompactionFilterV2Filter,
+                                           CompactionFilterV2Name);
 }
 
 // Custom merge operator
