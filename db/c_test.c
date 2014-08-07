@@ -262,7 +262,9 @@ static void CompactionFilterV2Filter(
 }
 
 // Custom compaction filter factory V2.
-static void CompactionFilterFactoryV2Destroy(void* arg) { }
+static void CompactionFilterFactoryV2Destroy(void* arg) {
+  rocksdb_slicetransform_destroy((rocksdb_slicetransform_t*)arg);
+}
 static const char* CompactionFilterFactoryV2Name(void* arg) {
   return "TestCompactionFilterFactoryV2";
 }
@@ -585,7 +587,7 @@ int main(int argc, char** argv) {
     rocksdb_slicetransform_t* prefix_extractor;
     prefix_extractor = rocksdb_slicetransform_create_fixed_prefix(3);
     factory = rocksdb_compactionfilterfactoryv2_create(
-        NULL, prefix_extractor, CompactionFilterFactoryV2Destroy,
+        prefix_extractor, prefix_extractor, CompactionFilterFactoryV2Destroy,
         CompactionFilterFactoryV2Create, CompactionFilterFactoryV2Name);
     // Create new database
     rocksdb_close(db);
