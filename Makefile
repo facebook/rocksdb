@@ -234,8 +234,14 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
 	done
 
+unity.cc:	
+	$(shell (export ROCKSDB_ROOT="$(CURDIR)"; "$(CURDIR)/build_tools/unity" "$(CURDIR)/unity.cc"))
+
+unity: unity.cc unity.o
+	$(CXX) unity.o $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 clean:
-	-rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk
+	-rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk unity.cc
 	-rm -rf ios-x86/* ios-arm/*
 	-find . -name "*.[od]" -exec rm {} \;
 	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;

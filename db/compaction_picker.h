@@ -204,4 +204,7 @@ class FIFOCompactionPicker : public CompactionPicker {
   }
 };
 
+// Utility function
+extern uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files);
+
 }  // namespace rocksdb

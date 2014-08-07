@@ -18,6 +18,14 @@
 
 namespace rocksdb {
 
+uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
+  uint64_t sum = 0;
+  for (size_t i = 0; i < files.size() && files[i]; i++) {
+    sum += files[i]->compensated_file_size;
+  }
+  return sum;
+}
+
 namespace {
 // Determine compression type, based on user options, level of the output
 // file and whether compression is disabled.
@@ -43,14 +51,6 @@ CompressionType GetCompressionType(const Options& options, int level,
   } else {
     return options.compression;
   }
-}
-
-uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
-  uint64_t sum = 0;
-  for (size_t i = 0; i < files.size() && files[i]; i++) {
-    sum += files[i]->compensated_file_size;
-  }
-  return sum;
 }
 
 // Multiple two operands. If they overflow, return op1.

@@ -25,7 +25,7 @@ CompactionStyle PickCompactionStyle(size_t write_buffer_size,
   // Otherwise, calculate a score based on threshold and expected value of
   // two styles, weighing reads 4X important than writes.
   int expected_levels = static_cast<int>(ceil(
-      log(target_db_size / write_buffer_size) / log(kBytesForLevelMultiplier)));
+      ::log(target_db_size / write_buffer_size) / ::log(kBytesForLevelMultiplier)));
 
   int expected_max_files_universal =
       static_cast<int>(ceil(log2(target_db_size / write_buffer_size)));
@@ -111,8 +111,8 @@ void OptimizeForLevel(int read_amplification_threshold,
                       int write_amplification_threshold,
                       uint64_t target_db_size, Options* options) {
   int expected_levels_one_level0_file =
-      static_cast<int>(ceil(log(target_db_size / options->write_buffer_size) /
-                            log(kBytesForLevelMultiplier)));
+      static_cast<int>(ceil(::log(target_db_size / options->write_buffer_size) /
+                            ::log(kBytesForLevelMultiplier)));
 
   int level0_stop_writes_trigger =
       read_amplification_threshold - expected_levels_one_level0_file;
