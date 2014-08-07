@@ -1834,6 +1834,11 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   assert(!manual.in_progress);
   assert(bg_manual_only_ > 0);
   --bg_manual_only_;
+  if (bg_manual_only_ == 0) {
+    // an automatic compaction should have been scheduled might have be
+    // preempted by the manual compactions. Need to schedule it back.
+    MaybeScheduleFlushOrCompaction();
+  }
   return manual.status;
 }
 
