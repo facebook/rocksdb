@@ -309,31 +309,31 @@ class DBTest {
  protected:
   // Sequence of option configurations to try
   enum OptionConfig {
-    kBlockBasedTableWithWholeKeyHashIndex,
-    kDefault,
-    kBlockBasedTableWithPrefixHashIndex,
-    kPlainTableFirstBytePrefix,
-    kPlainTableAllBytesPrefix,
-    kVectorRep,
-    kHashLinkList,
-    kHashCuckoo,
-    kMergePut,
-    kFilter,
-    kUncompressed,
-    kNumLevel_3,
-    kDBLogDir,
-    kWalDir,
-    kManifestFileSize,
-    kCompactOnFlush,
-    kPerfOptions,
-    kDeletesFilterFirst,
-    kHashSkipList,
-    kUniversalCompaction,
-    kCompressedBlockCache,
-    kInfiniteMaxOpenFiles,
-    kxxHashChecksum,
-    kFIFOCompaction,
-    kEnd
+    kDefault = 0,
+    kBlockBasedTableWithPrefixHashIndex = 1,
+    kBlockBasedTableWithWholeKeyHashIndex = 2,
+    kPlainTableFirstBytePrefix = 3,
+    kPlainTableAllBytesPrefix = 4,
+    kVectorRep = 5,
+    kHashLinkList = 6,
+    kHashCuckoo = 7,
+    kMergePut = 8,
+    kFilter = 9,
+    kUncompressed = 10,
+    kNumLevel_3 = 11,
+    kDBLogDir = 12,
+    kWalDir = 13,
+    kManifestFileSize = 14,
+    kCompactOnFlush = 15,
+    kPerfOptions = 16,
+    kDeletesFilterFirst = 17,
+    kHashSkipList = 18,
+    kUniversalCompaction = 19,
+    kCompressedBlockCache = 20,
+    kInfiniteMaxOpenFiles = 21,
+    kxxHashChecksum = 22,
+    kFIFOCompaction = 23,
+    kEnd = 24
   };
   int option_config_;
 
@@ -405,7 +405,7 @@ class DBTest {
               || option_config_ == kPlainTableFirstBytePrefix)) {
         continue;
       }
-      if ((skip_mask & kSkipPlainTable) &&
+      if ((skip_mask & kSkipHashIndex) &&
           (option_config_ == kBlockBasedTableWithPrefixHashIndex ||
            option_config_ == kBlockBasedTableWithWholeKeyHashIndex)) {
         continue;
@@ -4809,7 +4809,7 @@ TEST(DBTest, ApproximateSizes) {
     }
     // ApproximateOffsetOf() is not yet implemented in plain table format.
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
-                         kSkipPlainTable));
+                         kSkipPlainTable | kSkipHashIndex));
 }
 
 TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
@@ -6759,7 +6759,14 @@ class ModelDB: public DB {
       iter_ = map_->lower_bound(k.ToString());
     }
     virtual void Next() { ++iter_; }
-    virtual void Prev() { --iter_; }
+    virtual void Prev() {
+      if (iter_ == map_->begin()) {
+        iter_ = map_->end();
+        return;
+      }
+      --iter_;
+    }
+
     virtual Slice key() const { return iter_->first; }
     virtual Slice value() const { return iter_->second; }
     virtual Status status() const { return Status::OK(); }
@@ -6887,8 +6894,14 @@ TEST(DBTest, Randomized) {
       }
 
       if ((step % 100) == 0) {
-        ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
-        ASSERT_TRUE(CompareIterators(step, &model, db_, model_snap, db_snap));
+        // For DB instances that use the hash index + block-based table, the
+        // iterator will be invalid right when seeking a non-existent key, right
+        // than return a key that is close to it.
+        if (option_config_ != kBlockBasedTableWithWholeKeyHashIndex &&
+            option_config_ != kBlockBasedTableWithPrefixHashIndex) {
+          ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
+          ASSERT_TRUE(CompareIterators(step, &model, db_, model_snap, db_snap));
+        }
 
         // Save a snapshot from each DB this time that we'll use next
         // time we compare things, to make sure the current state is
@@ -6902,12 +6915,18 @@ TEST(DBTest, Randomized) {
         model_snap = model.GetSnapshot();
         db_snap = db_->GetSnapshot();
       }
+
+      if ((step % 2000) == 0) {
+        fprintf(stdout,
+                "DBTest.Randomized, option ID: %d, step: %d out of %d\n",
+                option_config_, step, N);
+      }
     }
     if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
     if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
     // skip cuckoo hash as it does not support snapshot.
-  } while (ChangeOptions(kSkipDeletesFilterFirst |
-                         kSkipNoSeekToLast | kSkipHashCuckoo));
+  } while (ChangeOptions(kSkipDeletesFilterFirst | kSkipNoSeekToLast |
+                         kSkipHashCuckoo));
 }
 
 TEST(DBTest, MultiGetSimple) {

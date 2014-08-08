@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <deque>
 #include <string>
+#include <limits>
 
 #include "db/filename.h"
 #include "db/dbformat.h"
@@ -71,6 +72,7 @@ class DBIter: public Iterator {
         current_entry_is_merged_(false),
         statistics_(options.statistics.get()) {
     RecordTick(statistics_, NO_ITERATORS);
+    has_prefix_extractor_ = (options.prefix_extractor.get() != nullptr);
     max_skip_ = options.max_sequential_skip_in_iterations;
   }
   virtual ~DBIter() {
@@ -130,6 +132,7 @@ class DBIter: public Iterator {
     }
   }
 
+  bool has_prefix_extractor_;
   bool arena_mode_;
   Env* const env_;
   Logger* logger_;
@@ -565,6 +568,11 @@ void DBIter::Seek(const Slice& target) {
 }
 
 void DBIter::SeekToFirst() {
+  // Don't use iter_::Seek() if we set a prefix extractor
+  // because prefix seek wiil be used.
+  if (has_prefix_extractor_) {
+    max_skip_ = std::numeric_limits<uint64_t>::max();
+  }
   direction_ = kForward;
   ClearSavedValue();
   PERF_TIMER_AUTO(seek_internal_seek_time);
@@ -578,6 +586,11 @@ void DBIter::SeekToFirst() {
 }
 
 void DBIter::SeekToLast() {
+  // Don't use iter_::Seek() if we set a prefix extractor
+  // because prefix seek wiil be used.
+  if (has_prefix_extractor_) {
+    max_skip_ = std::numeric_limits<uint64_t>::max();
+  }
   direction_ = kReverse;
   ClearSavedValue();
   PERF_TIMER_AUTO(seek_internal_seek_time);
