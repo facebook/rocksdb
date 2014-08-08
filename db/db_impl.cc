@@ -2022,13 +2022,13 @@ void DBImpl::BackgroundCallFlush() {
     if (madeProgress || bg_schedule_needed_) {
       MaybeScheduleFlushOrCompaction();
     }
+    RecordFlushIOStats();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
     // that case, all DB variables will be dealloacated and referencing them
     // will cause trouble.
   }
-  RecordFlushIOStats();
 }
 
 void DBImpl::BackgroundCallCompaction() {
