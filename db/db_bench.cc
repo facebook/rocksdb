@@ -30,7 +30,6 @@ int main() {
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -1703,6 +1702,11 @@ class Benchmark {
     } else {
       BlockBasedTableOptions block_based_options;
       if (FLAGS_use_hash_search) {
+        if (FLAGS_prefix_size == 0) {
+          fprintf(stderr,
+              "prefix_size not assigned when enable use_hash_search \n");
+          exit(1);
+        }
         block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
