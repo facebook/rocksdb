@@ -265,7 +265,10 @@ class Statistics {
   virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;
 
   // String representation of the statistic object.
-  virtual std::string ToString() const = 0;
+  virtual std::string ToString() const {
+    // Do nothing by default
+    return std::string("ToString(): not implemented");
+  }
 
   // Override this function to disable particular histogram collection
   virtual bool HistEnabledForType(uint32_t type) const {
