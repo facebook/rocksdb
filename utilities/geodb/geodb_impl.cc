@@ -307,7 +307,7 @@ Status GeoDBImpl::searchQuadIds(const GeoPosition& position,
 
   // how many level of details to look for
   int numberOfTilesAtMaxDepth = floor((bottomRight.x - topLeft.x) / 256);
-  int zoomLevelsToRise = floor(log(numberOfTilesAtMaxDepth) / log(2));
+  int zoomLevelsToRise = floor(::log(numberOfTilesAtMaxDepth) / ::log(2));
   zoomLevelsToRise++;
   int levels = std::max(0, Detail - zoomLevelsToRise);
 
@@ -344,7 +344,7 @@ GeoDBImpl::Pixel GeoDBImpl::PositionToPixel(const GeoPosition& pos,
   double latitude = clip(pos.latitude, MinLatitude, MaxLatitude);
   double x = (pos.longitude + 180) / 360;
   double sinLatitude = sin(latitude * PI / 180);
-  double y = 0.5 - log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * PI);
+  double y = 0.5 - ::log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * PI);
   double mapSize = MapSize(levelOfDetail);
   double X = floor(clip(x * mapSize + 0.5, 0, mapSize - 1));
   double Y = floor(clip(y * mapSize + 0.5, 0, mapSize - 1));

@@ -16,8 +16,6 @@
 
 namespace rocksdb {
 
-namespace {
-
 inline uint32_t Hash(const Slice& s) {
   return rocksdb::Hash(s.data(), s.size(), 0);
 }
@@ -25,8 +23,6 @@ inline uint32_t Hash(const Slice& s) {
 inline uint32_t PrefixToBucket(const Slice& prefix, uint32_t num_buckets) {
   return Hash(prefix) % num_buckets;
 }
-
-
 
 // The prefix block index is simply a bucket array, with each entry pointing to
 // the blocks that span the prefixes hashed to this bucket.
@@ -64,7 +60,6 @@ inline uint32_t EncodeIndex(uint32_t index) {
   return index | kBlockArrayMask;
 }
 
-
 // temporary storage for prefix information during index building
 struct PrefixRecord {
   Slice prefix;
@@ -73,8 +68,6 @@ struct PrefixRecord {
   uint32_t num_blocks;
   PrefixRecord* next;
 };
-
-}  // anonymous namespace
 
 class BlockPrefixIndex::Builder {
  public:

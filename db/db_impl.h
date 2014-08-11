@@ -647,4 +647,11 @@ extern Options SanitizeOptions(const std::string& db,
                                const Options& src);
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 
+// Fix user-supplied options to be reasonable
+template <class T, class V>
+static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
+  if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
+  if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
+}
+
 }  // namespace rocksdb

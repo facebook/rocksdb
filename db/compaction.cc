@@ -18,7 +18,7 @@
 
 namespace rocksdb {
 
-static uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
+uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
   for (size_t i = 0; i < files.size() && files[i]; i++) {
     sum += files[i]->fd.GetFileSize();

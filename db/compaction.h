@@ -231,4 +231,7 @@ class Compaction {
   void ResetNextCompactionIndex();
 };
 
+// Utility function
+extern uint64_t TotalFileSize(const std::vector<FileMetaData*>& files);
+
 }  // namespace rocksdb
