@@ -1865,21 +1865,23 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   w.done = false;
   w.timeout_hint_us = kNoTimeOut;
 
-  WriteContext context;
-  mutex_.Lock();
-  Status s = BeginWrite(&w, 0);
-  assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+  Status s;
+  {
+    WriteContext context;
+    MutexLock guard_lock(&mutex_);
+    s = BeginWrite(&w, 0);
+    assert(s.ok() && !w.done);  // No timeout and nobody should do our job
 
-  // SetNewMemtableAndNewLogFile() will release and reacquire mutex
-  // during execution
-  s = SetNewMemtableAndNewLogFile(cfd, &context);
-  cfd->imm()->FlushRequested();
-  MaybeScheduleFlushOrCompaction();
+    // SetNewMemtableAndNewLogFile() will release and reacquire mutex
+    // during execution
+    s = SetNewMemtableAndNewLogFile(cfd, &context);
+    cfd->imm()->FlushRequested();
+    MaybeScheduleFlushOrCompaction();
 
-  assert(!writers_.empty());
-  assert(writers_.front() == &w);
-  EndWrite(&w, &w, s);
-  mutex_.Unlock();
+    assert(!writers_.empty());
+    assert(writers_.front() == &w);
+    EndWrite(&w, &w, s);
+  }
 
 
   if (s.ok() && options.wait) {
