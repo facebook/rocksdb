@@ -309,6 +309,7 @@ class DBImpl : public DB {
   friend struct SuperVersion;
   struct CompactionState;
   struct Writer;
+  struct WriteContext;
 
   Status NewDB();
 
@@ -347,12 +348,37 @@ class DBImpl : public DB {
 
   uint64_t SlowdownAmount(int n, double bottom, double top);
 
-  // TODO(icanadi) free superversion_to_free and old_log outside of mutex
+  // Before applying write operation (such as DBImpl::Write, DBImpl::Flush)
+  // thread should grab the mutex_ and be the first on writers queue.
+  // BeginWrite is used for it.
+  // Be aware! Writer's job can be done by other thread (see DBImpl::Write
+  // for examples), so check it via w.done before applying changes.
+  //
+  // Writer* w:                writer to be placed in the queue
+  // uint64_t expiration_time: maximum time to be in the queue
+  // See also: EndWrite
+  Status BeginWrite(Writer* w, uint64_t expiration_time);
+
+  // After doing write job, we need to remove already used writers from
+  // writers_ queue and notify head of the queue about it.
+  // EndWrite is used for this.
+  //
+  // Writer* w:           Writer, that was added by BeginWrite function
+  // Writer* last_writer: Since we can join a few Writers (as DBImpl::Write
+  //                      does)
+  //                      we should pass last_writer as a parameter to
+  //                      EndWrite
+  //                      (if you don't touch other writers, just pass w)
+  // Status status:       Status of write operation
+  // See also: BeginWrite
+  void EndWrite(Writer* w, Writer* last_writer, Status status);
+
   Status MakeRoomForWrite(ColumnFamilyData* cfd,
-                          bool force /* flush even if there is room? */,
-                          autovector<SuperVersion*>* superversions_to_free,
-                          autovector<log::Writer*>* logs_to_free,
+                          WriteContext* context,
                           uint64_t expiration_time);
+
+  Status SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
+                                     WriteContext* context);
 
   void BuildBatchGroup(Writer** last_writer,
                        autovector<WriteBatch*>* write_batch_group);

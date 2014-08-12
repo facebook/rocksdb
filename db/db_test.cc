@@ -5898,7 +5898,8 @@ TEST(DBTest, CompactOnFlush) {
 }
 
 namespace {
-std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
+std::vector<std::uint64_t> ListSpecificFiles(
+    Env* env, const std::string& path, const FileType expected_file_type) {
   std::vector<std::string> files;
   std::vector<uint64_t> log_files;
   env->GetChildren(path, &files);
@@ -5906,14 +5907,44 @@ std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
   FileType type;
   for (size_t i = 0; i < files.size(); ++i) {
     if (ParseFileName(files[i], &number, &type)) {
-      if (type == kLogFile) {
+      if (type == expected_file_type) {
         log_files.push_back(number);
       }
     }
   }
   return std::move(log_files);
 }
+
+std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
+  return ListSpecificFiles(env, path, kLogFile);
+}
+
+std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path) {
+  return ListSpecificFiles(env, path, kTableFile);
+}
 }  // namespace
+
+TEST(DBTest, FlushOneColumnFamily) {
+  Options options;
+  CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
+                         "alyosha", "popovich"},
+                        &options);
+
+  ASSERT_OK(Put(0, "Default", "Default"));
+  ASSERT_OK(Put(1, "pikachu", "pikachu"));
+  ASSERT_OK(Put(2, "ilya", "ilya"));
+  ASSERT_OK(Put(3, "muromec", "muromec"));
+  ASSERT_OK(Put(4, "dobrynia", "dobrynia"));
+  ASSERT_OK(Put(5, "nikitich", "nikitich"));
+  ASSERT_OK(Put(6, "alyosha", "alyosha"));
+  ASSERT_OK(Put(7, "popovich", "popovich"));
+
+  for (int i = 0; i < 8; ++i) {
+    Flush(i);
+    auto tables = ListTableFiles(env_, dbname_);
+    ASSERT_EQ(tables.size(), i + 1);
+  }
+}
 
 TEST(DBTest, WALArchivalTtl) {
   do {

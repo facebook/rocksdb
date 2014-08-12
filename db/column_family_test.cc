@@ -913,7 +913,9 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   }
   int num_writable_file_start = env_->GetNumberOfNewWritableFileCalls();
   // this will trigger the flushes
-  ASSERT_OK(db_->Write(WriteOptions(), nullptr));
+  for (size_t i = 0; i <= 4; ++i) {
+    ASSERT_OK(Flush(i));
+  }
 
   for (int i = 0; i < 4; ++i) {
     dbfull()->TEST_WaitForFlushMemTable(handles_[i]);
