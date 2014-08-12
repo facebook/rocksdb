@@ -213,8 +213,11 @@ Status CuckooTableBuilder::Finish() {
     }
   }
   assert(num_added == NumEntries());
+  properties_.raw_key_size = num_added * properties_.fixed_key_len;
+  properties_.raw_value_size = num_added * value_length;
 
   uint64_t offset = buckets.size() * bucket_size;
+  properties_.data_size = offset;
   unused_bucket.resize(properties_.fixed_key_len);
   properties_.user_collected_properties[
     CuckooTablePropertyNames::kEmptyKey] = unused_bucket;
@@ -330,7 +333,8 @@ bool CuckooTableBuilder::MakeSpaceForKey(
   uint32_t curr_pos = 0;
   while (!null_found && curr_pos < tree.size()) {
     CuckooNode& curr_node = tree[curr_pos];
-    if (curr_node.depth >= max_search_depth_) {
+    uint32_t curr_depth = curr_node.depth;
+    if (curr_depth >= max_search_depth_) {
       break;
     }
     CuckooBucket& curr_bucket = (*buckets)[curr_node.bucket_id];
@@ -345,7 +349,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(
       }
       (*buckets)[child_bucket_id].make_space_for_key_call_id =
         make_space_for_key_call_id;
-      tree.push_back(CuckooNode(child_bucket_id, curr_node.depth + 1,
+      tree.push_back(CuckooNode(child_bucket_id, curr_depth + 1,
             curr_pos));
       if ((*buckets)[child_bucket_id].vector_idx == kMaxVectorIdx) {
         null_found = true;

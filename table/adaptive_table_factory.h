@@ -28,7 +28,8 @@ class AdaptiveTableFactory : public TableFactory {
   explicit AdaptiveTableFactory(
       std::shared_ptr<TableFactory> table_factory_to_write,
       std::shared_ptr<TableFactory> block_based_table_factory,
-      std::shared_ptr<TableFactory> plain_table_factory);
+      std::shared_ptr<TableFactory> plain_table_factory,
+      std::shared_ptr<TableFactory> cuckoo_table_factory);
   const char* Name() const override { return "AdaptiveTableFactory"; }
   Status NewTableReader(const Options& options, const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
@@ -44,6 +45,7 @@ class AdaptiveTableFactory : public TableFactory {
   std::shared_ptr<TableFactory> table_factory_to_write_;
   std::shared_ptr<TableFactory> block_based_table_factory_;
   std::shared_ptr<TableFactory> plain_table_factory_;
+  std::shared_ptr<TableFactory> cuckoo_table_factory_;
 };
 
 }  // namespace rocksdb

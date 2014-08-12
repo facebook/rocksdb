@@ -89,6 +89,10 @@ Status CuckooTableReader::Get(
   if (!ParseInternalKey(key, &ikey)) {
     return Status::Corruption("Unable to parse key into inernal key.");
   }
+  if ((is_last_level_ && key.size() != key_length_ + 8) ||
+      (!is_last_level_ && key.size() != key_length_)) {
+    return Status::InvalidArgument("Length of key is invalid.");
+  }
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_fun_; ++hash_cnt) {
     uint64_t hash_val = get_slice_hash_(ikey.user_key, hash_cnt, num_buckets_);
     assert(hash_val < num_buckets_);
@@ -101,7 +105,15 @@ Status CuckooTableReader::Get(
     // per user key and we don't support sanpshot.
     if (ikey.user_key.compare(Slice(bucket, ikey.user_key.size())) == 0) {
       Slice value = Slice(&bucket[key_length_], value_length_);
-      result_handler(handle_context, ikey, value);
+      if (is_last_level_) {
+        ParsedInternalKey found_ikey(Slice(bucket, key_length_), 0, kTypeValue);
+        result_handler(handle_context, found_ikey, value);
+      } else {
+        Slice full_key(bucket, key_length_);
+        ParsedInternalKey found_ikey;
+        ParseInternalKey(full_key, &found_ikey);
+        result_handler(handle_context, found_ikey, value);
+      }
       // We don't support merge operations. So, we return here.
       return Status::OK();
     }

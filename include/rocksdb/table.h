@@ -192,6 +192,9 @@ struct CuckooTablePropertyNames {
   static const std::string kIsLastLevel;
 };
 
+extern TableFactory* NewCuckooTableFactory(double hash_table_ratio = 0.9,
+    uint32_t max_search_depth = 100);
+
 #endif  // ROCKSDB_LITE
 
 // A base class for table factories.
@@ -263,7 +266,8 @@ class TableFactory {
 extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write = nullptr,
     std::shared_ptr<TableFactory> block_based_table_factory = nullptr,
-    std::shared_ptr<TableFactory> plain_table_factory = nullptr);
+    std::shared_ptr<TableFactory> plain_table_factory = nullptr,
+    std::shared_ptr<TableFactory> cuckoo_table_factory = nullptr);
 
 #endif  // ROCKSDB_LITE
 

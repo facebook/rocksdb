@@ -51,6 +51,8 @@ class CuckooBuilderTest {
           kCuckooTableMagicNumber, env_, nullptr, &props));
     ASSERT_EQ(props->num_entries, keys.size());
     ASSERT_EQ(props->fixed_key_len, keys.empty() ? 0 : keys[0].size());
+    ASSERT_EQ(props->data_size, keys.size()*expected_unused_bucket.size());
+    ASSERT_EQ(props->raw_key_size, keys.size()*props->fixed_key_len);
 
     // Check unused bucket.
     std::string unused_key = props->user_collected_properties[
@@ -62,6 +64,7 @@ class CuckooBuilderTest {
       *reinterpret_cast<const uint32_t*>(props->user_collected_properties[
                 CuckooTablePropertyNames::kValueLength].data());
     ASSERT_EQ(values.empty() ? 0 : values[0].size(), value_len_found);
+    ASSERT_EQ(props->raw_value_size, values.size()*value_len_found);
     const uint64_t max_buckets =
       *reinterpret_cast<const uint64_t*>(props->user_collected_properties[
                 CuckooTablePropertyNames::kMaxNumBuckets].data());

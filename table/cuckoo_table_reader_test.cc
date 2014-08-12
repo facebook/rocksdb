@@ -37,6 +37,7 @@ DEFINE_bool(enable_perf, false, "Run Benchmark Tests too.");
 namespace rocksdb {
 
 extern const uint64_t kCuckooTableMagicNumber;
+extern const uint64_t kMaxNumHashTable;
 
 namespace {
 const uint32_t kNumHashFunc = 10;
@@ -308,6 +309,22 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
   ASSERT_TRUE(reader.Get(
         ReadOptions(), corrupt_key, &v,
         AssertValues, nullptr).IsCorruption());
+  ASSERT_EQ(0, v.call_count);
+  ASSERT_OK(reader.status());
+
+  // Test read with key of invalid length.
+  IterKey k;
+  k.SetInternalKey("very_long_key", 0, kTypeValue);
+  ASSERT_TRUE(reader.Get(
+        ReadOptions(), k.GetKey(), &v,
+        AssertValues, nullptr).IsInvalidArgument());
+  ASSERT_EQ(0, v.call_count);
+  ASSERT_OK(reader.status());
+  k.Clear();
+  k.SetInternalKey("s", 0, kTypeValue);
+  ASSERT_TRUE(reader.Get(
+        ReadOptions(), k.GetKey(), &v,
+        AssertValues, nullptr).IsInvalidArgument());
   ASSERT_EQ(0, v.call_count);
   ASSERT_OK(reader.status());
 
