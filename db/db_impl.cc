@@ -271,6 +271,12 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     }
   }
 
+  if (!result.rate_limiter) {
+    if (result.bytes_per_sync == 0) {
+      result.bytes_per_sync = 1024 * 1024;
+    }
+  }
+
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;

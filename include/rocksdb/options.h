@@ -636,6 +636,7 @@ struct DBOptions {
 
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
+  // If rate limiter is enabled, bytes_per_sync is set to 1MB by default.
   // Default: nullptr
   std::shared_ptr<RateLimiter> rate_limiter;
 
@@ -857,12 +858,6 @@ struct DBOptions {
   // Default: false
   bool use_adaptive_mutex;
 
-  // Allows OS to incrementally sync files to disk while they are being
-  // written, asynchronously, in the background.
-  // Issue one request for every bytes_per_sync written. 0 turns it off.
-  // Default: 0
-  uint64_t bytes_per_sync;
-
   // Allow RocksDB to use thread local storage to optimize performance.
   // Default: true
   bool allow_thread_local;
@@ -873,6 +868,16 @@ struct DBOptions {
   explicit DBOptions(const Options& options);
 
   void Dump(Logger* log) const;
+
+  // Allows OS to incrementally sync files to disk while they are being
+  // written, asynchronously, in the background.
+  // Issue one request for every bytes_per_sync written. 0 turns it off.
+  // Default: 0
+  //
+  // You may consider using rate_limiter to regulate write rate to device.
+  // When rate limiter is enabled, it automatically enables bytes_per_sync
+  // to 1MB.
+  uint64_t bytes_per_sync;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
