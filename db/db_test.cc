@@ -5939,10 +5939,10 @@ TEST(DBTest, FlushOneColumnFamily) {
   ASSERT_OK(Put(6, "alyosha", "alyosha"));
   ASSERT_OK(Put(7, "popovich", "popovich"));
 
-  for (int i = 0; i < 8; ++i) {
+  for (size_t i = 0; i < 8; ++i) {
     Flush(i);
     auto tables = ListTableFiles(env_, dbname_);
-    ASSERT_EQ(tables.size(), i + 1);
+    ASSERT_EQ(tables.size(), i + 1U);
   }
 }
 
