@@ -364,6 +364,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
   DumpLeveldbBuildVersion(options_.info_log.get());
+  DumpDBFileSummary(options_, dbname_);
   options_.Dump(options_.info_log.get());
 
   LogFlush(options_.info_log);

@@ -680,4 +680,8 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
 
+// Dump db file summary, implemented in util/
+extern void DumpDBFileSummary(const DBOptions& options,
+                              const std::string& dbname);
+
 }  // namespace rocksdb
