@@ -598,14 +598,6 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
         deletion_state.candidate_files.emplace_back(log_file, 0);
       }
     }
-    // Add info log files in db_log_dir
-    if (options_.db_log_dir.empty() && options_.db_log_dir != dbname_) {
-      std::vector<std::string> info_log_files;
-      env_->GetChildren(options_.db_log_dir, &info_log_files);  // Ignore errors
-      for (std::string log_file : info_log_files) {
-        deletion_state.candidate_files.emplace_back(log_file, 0);
-      }
-    }
   }
 }
 
