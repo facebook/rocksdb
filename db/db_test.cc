@@ -6736,6 +6736,26 @@ class ModelDB: public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  using DB::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+  
+  using DB::ScheduleCompactFiles;
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) { return 1; }
 
@@ -6767,6 +6787,14 @@ class ModelDB: public DB {
                        ColumnFamilyHandle* column_family) {
     Status ret;
     return ret;
+  }
+  
+  virtual Status AddListener(EventListener* listener) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
+  virtual Status RemoveListener(EventListener* listener) override {
+    return Status::NotSupported("Not supported operation.");
   }
 
   virtual Status DisableFileDeletions() {

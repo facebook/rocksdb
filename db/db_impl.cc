@@ -1662,6 +1662,163 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   return s;
 }
 
+Status DBImpl::GetCompactionInputsFromFileNumbers(
+    const std::vector<uint64_t>& input_file_numbers,
+    const Version* version, const CompactionOptions& compact_options,
+    autovector<CompactionInputFiles>* input_files) {
+  if (input_file_numbers.size() == 0) {
+    return Status::InvalidArgument(
+        "Compaction must include at least one file.");
+  }
+  assert(input_files);
+
+  size_t file_count = 0;
+  autovector<CompactionInputFiles> matched_input_files;
+  matched_input_files.resize(version->NumberLevels());
+  for (auto fn : input_file_numbers) {
+    bool found = false;
+    for (int level = 0; level < version->NumberLevels(); ++level) {
+      for (auto file : version->files_[level]) {
+        if (file->fd.GetNumber() == fn) {
+          found = true;
+          matched_input_files[level].files.push_back(file);
+          file_count++;
+          break;
+        }
+      }
+      if (found == true) {
+        break;
+      }
+    }
+    if (found == false) {
+      char buffer[256];
+      sprintf(buffer, "Cannot find matched file for %llu", fn);
+      return Status::InvalidArgument(buffer);
+    }
+  }
+  if (file_count == 0) {
+    return Status::InvalidArgument(
+        "Number of input files to CompactFiles() must be > 0.");
+  }
+
+  for (int level = 0; level < version->NumberLevels(); ++level) {
+    matched_input_files[level].level = level;
+    if (matched_input_files[level].files.size() > 0) {
+      input_files->emplace_back(std::move(matched_input_files[level]));
+    }
+  }
+
+  return Status::OK();
+}
+    
+
+Status DBImpl::CompactFiles(
+    const CompactionOptions& compact_options,
+    ColumnFamilyHandle* column_family,
+    const std::vector<uint64_t>& input_file_numbers,
+    const int output_level, const int output_path_id) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+  MutexLock l(&mutex_);
+  auto version = cfd->current();
+  version->Ref();
+  
+  autovector<CompactionInputFiles> input_files;
+
+  Status s = GetCompactionInputsFromFileNumbers(
+      input_file_numbers, version, compact_options, &input_files);
+  if (!s.ok()) {
+    version->Unref();
+    return s;
+  }
+
+  unique_ptr<Compaction> c;
+
+  // Or, optionally, we could merge these two function?
+  if (cfd->compaction_picker()) {
+    bool adjusted = false;
+    c.reset(cfd->compaction_picker()->FormCompaction(
+          compact_options, input_files,
+          output_level, version, &adjusted, &s));
+    if (!s.ok()) {
+      version->Unref();
+      return s;
+    }
+    if (adjusted) {
+      Log(options_.info_log, "Input to CompactFiles() has been adjusted.");
+      // TODO(yhchiang): consider better way to return such status
+      // to the developers.
+    }
+  }
+
+  if (output_path_id < 0) {
+    // find the best fit path_id here
+    version->Unref();
+    return Status::NotSupported(
+        "Automatic output path selection is not "
+        "yet supported in CompactFiles()");
+    // c->SetOutputPathId(FindBestSuitablePathId(c));
+  } else {
+    c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
+  }
+
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_.info_log.get());
+  DeletionState deletion_state(true);
+  CompactionState* compact = new CompactionState(c.get());
+  Status status = DoCompactionWork(compact, deletion_state, &log_buffer);
+
+  CleanupCompaction(compact, status);
+  c->ReleaseCompactionFiles(status);
+  c->ReleaseInputs();
+  version->Unref();
+  return status;
+}
+
+Status DBImpl::ScheduleCompactFiles(
+    std::string* job_id,
+    const CompactionOptions& compact_options,
+    ColumnFamilyHandle* column_family,
+    const std::vector<uint64_t>& input_file_numbers,
+    const int output_level, const int output_path_id) {
+  CompactionJob* job = new CompactionJob();
+  job->db = this;
+  job->id = env_->GenerateUniqueId();
+  if (job_id != nullptr) {
+    *job_id = job->id;
+  }
+  job->cf_handle = column_family;
+  job->input_file_numbers = input_file_numbers;
+  job->output_level = output_level;
+  job->output_path_id = output_path_id;
+  job->compact_options = compact_options;
+  env_->Schedule(&DBImpl::BGWorkCompactFiles, job, Env::Priority::LOW);
+  return Status::OK();
+}
+
+void DBImpl::BGWorkCompactFiles(void* job) {
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
+  CompactionJob* compact_job = reinterpret_cast<CompactionJob*>(job);
+  Status s = compact_job->db->CompactFiles(
+      compact_job->compact_options,
+      compact_job->cf_handle,
+      compact_job->input_file_numbers,
+      compact_job->output_level,
+      compact_job->output_path_id);
+  compact_job->db->NotifyOnBackgroundCompactFilesCompleted(
+      compact_job->id, s);
+  delete compact_job;
+}
+
+void DBImpl::NotifyOnBackgroundCompactFilesCompleted(
+    const std::string& job_id, const Status& s) {
+  MutexLock l(&listener_mutex_);
+
+  for (auto listener : listeners_) {
+    // make defensive string copy here for job_id
+    listener->OnBackgroundCompactFilesCompleted(this, job_id, s);
+  }
+}
+
 // return the same level if it cannot be moved
 int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd, int level) {
   mutex_.AssertHeld();
@@ -2072,6 +2229,8 @@ void DBImpl::BackgroundCallFlush() {
       MaybeScheduleFlushOrCompaction();
     }
     RecordFlushIOStats();
+    // TODO(yhchiang): notify with the column family being flushed.
+    NotifyOnFlushCompleted();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
@@ -4641,6 +4800,31 @@ void DBImpl::GetDatabaseMetaData(DatabaseMetaData* db_meta) {
   MutexLock l(&mutex_);
   db_meta->name = GetName();
   versions_->GetDatabaseMetaData(db_meta);
+}
+
+Status DBImpl::AddListener(EventListener* listener) {
+  MutexLock l(&listener_mutex_);
+  auto iter = std::find(listeners_.begin(), listeners_.end(), listener);
+  if (iter != listeners_.end()) {
+    return Status::InvalidArgument(
+        "The input listener has already been added.");
+  }
+  listeners_.push_back(listener);
+  return Status::OK();
+}
+
+Status DBImpl::RemoveListener(EventListener* listener) {
+  MutexLock l(&listener_mutex_);
+  listeners_.remove(listener);
+  return Status::OK();
+}
+
+void DBImpl::NotifyOnFlushCompleted() {
+  MutexLock l(&listener_mutex_);
+
+  for (auto listener : listeners_) {
+    listener->OnFlushCompleted(this);
+  }
 }
 
 #endif  // ROCKSDB_LITE

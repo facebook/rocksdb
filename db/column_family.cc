@@ -221,10 +221,19 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
     } else if (options_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(&options_, &internal_comparator_));
-    } else {
-      assert(options_.compaction_style == kCompactionStyleFIFO);
+    } else if (options_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
           new FIFOCompactionPicker(&options_, &internal_comparator_));
+    /*  // TODO(yhchiang): enable pull mode custom compaction picker
+    } else if (options_.compaction_style == kCompactionStyleCustom) {
+      compaction_picker_.reset(
+          new CustomCompactionPicker(
+              &options_, &internal_comparator_,
+              custom_compactor);
+    */
+    } else {
+      assert(options_.compaction_style == kCompactionStyleNone);
+      compaction_picker_.reset(nullptr);
     }
 
     Log(options_.info_log, "Options for column family \"%s\":\n",

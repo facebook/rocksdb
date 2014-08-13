@@ -107,6 +107,21 @@ class DBImpl : public DB {
                               const Slice* begin, const Slice* end,
                               bool reduce_level = false, int target_level = -1,
                               uint32_t target_path_id = 0);
+  
+  using DB::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1);
+
+  using DB::ScheduleCompactFiles;
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1);
 
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family);
@@ -142,6 +157,13 @@ class DBImpl : public DB {
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) override;
+  
+  using DB::AddListener;
+  virtual Status AddListener(EventListener* listener) override;
+
+  using DB::RemoveListener;
+  virtual Status RemoveListener(EventListener* listener) override;
+
 #endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes
@@ -393,6 +415,23 @@ class DBImpl : public DB {
 
   void RecordFlushIOStats();
   void RecordCompactionIOStats();
+  
+  struct CompactionJob {
+    DBImpl* db;
+    ColumnFamilyHandle* cf_handle;
+    std::vector<uint64_t> input_file_numbers;
+    int output_level;
+    int output_path_id;
+    CompactionOptions compact_options;
+    std::string id;
+  };
+
+  Status GetCompactionInputsFromFileNumbers(
+    const std::vector<uint64_t>& input_file_numbers,
+    const Version* version, const CompactionOptions& compact_options,
+    autovector<CompactionInputFiles>* input_files);
+
+  static void BGWorkCompactFiles(void* compaction_job);
 
   void MaybeScheduleFlushOrCompaction();
   static void BGWorkCompaction(void* db);
@@ -440,6 +479,9 @@ class DBImpl : public DB {
                                   LogBuffer* log_buffer);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
+  void NotifyOnFlushCompleted();
+  void NotifyOnBackgroundCompactFilesCompleted(
+      const std::string& job_id, const Status& s);
 
 #ifdef ROCKSDB_LITE
   void PurgeObsoleteWALFiles() {
@@ -618,6 +660,12 @@ class DBImpl : public DB {
 
   // Indicate DB was opened successfully
   bool opened_successfully_;
+
+  // The mutex for listeners_.
+  port::Mutex listener_mutex_;
+
+  // The list of registered event listeners.
+  std::list<EventListener*> listeners_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

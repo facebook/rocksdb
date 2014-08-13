@@ -31,6 +31,17 @@ class ColumnFamilyData;
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:
+  Compaction(Version* input_version,
+    autovector<CompactionInputFiles>& inputs,
+    int start_level, int output_level,
+    uint64_t max_grandparent_overlap_bytes,
+    const CompactionOptions& options);
+
+  Compaction(Version* input_version, int start_level, int out_level,
+             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
+             uint32_t output_path_id, CompressionType output_compression,
+             bool seek_compaction = false, bool deletion_compaction = false);
+
   // No copying allowed
   Compaction(const Compaction&) = delete;
   void operator=(const Compaction&) = delete;
@@ -151,6 +162,8 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool IsManualCompaction() { return is_manual_compaction_; }
 
+  void SetOutputPathId(uint32_t path_id) { output_path_id_ = path_id; }
+
   // Returns the size in bytes that the output file should be preallocated to.
   // In level compaction, that is max_file_size_. In universal compaction, that
   // is the sum of all input file sizes.
@@ -161,11 +174,6 @@ class Compaction {
   friend class UniversalCompactionPicker;
   friend class FIFOCompactionPicker;
   friend class LevelCompactionPicker;
-
-  Compaction(Version* input_version, int start_level, int out_level,
-             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
-             uint32_t output_path_id, CompressionType output_compression,
-             bool seek_compaction = false, bool deletion_compaction = false);
 
   const int start_level_;    // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored

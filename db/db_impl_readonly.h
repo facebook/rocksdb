@@ -74,9 +74,30 @@ class DBImplReadOnly : public DBImpl {
                               uint32_t target_path_id = 0) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
+  using DBImpl::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  
+  using DBImpl::ScheduleCompactFiles;
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
   virtual Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   virtual Status EnableFileDeletions(bool force) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
@@ -88,6 +109,14 @@ class DBImplReadOnly : public DBImpl {
   using DBImpl::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+  
+  virtual Status AddListener(EventListener* listener) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
+  virtual Status RemoveListener(EventListener* listener) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 

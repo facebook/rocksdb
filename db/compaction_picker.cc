@@ -129,13 +129,13 @@ uint64_t CompactionPicker::MaxFileSizeForLevel(int level) const {
   return max_file_size_[level];
 }
 
-uint64_t CompactionPicker::MaxGrandParentOverlapBytes(int level) {
+uint64_t CompactionPicker::MaxGrandParentOverlapBytes(int level) const {
   uint64_t result = MaxFileSizeForLevel(level);
   result *= options_->max_grandparent_overlap_factor;
   return result;
 }
 
-double CompactionPicker::MaxBytesForLevel(int level) {
+double CompactionPicker::MaxBytesForLevel(int level) const {
   // Note: the result for level zero is not really used since we set
   // the level-0 compaction threshold based on number of files.
   assert(level >= 0);
@@ -405,6 +405,24 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
 
   return c;
 }
+  
+Compaction* CompactionPicker::FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const {
+  uint64_t max_grandparent_overlap_bytes =
+      output_level + 1 < NumberLevels() ?
+          MaxGrandParentOverlapBytes(output_level + 1) :
+          std::numeric_limits<uint64_t>::max();
+  *status = Status::OK();
+  assert(input_files.size());
+  return new Compaction(version, input_files,
+      input_files[0].level, output_level,
+      max_grandparent_overlap_bytes, compact_options);
+}
 
 Compaction* LevelCompactionPicker::PickCompaction(Version* version,
                                                   LogBuffer* log_buffer) {
@@ -478,6 +496,18 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
   compactions_in_progress_[level].insert(c);
 
   return c;
+}
+
+Compaction* LevelCompactionPicker::FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const {
+  return CompactionPicker::FormCompaction(
+      compact_options, input_files, output_level,
+      version, adjusted, status);
 }
 
 Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
@@ -637,6 +667,18 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
       (c->inputs_[0].size() == c->input_version_->files_[0].size());
 
   return c;
+}
+
+Compaction* UniversalCompactionPicker::FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const {
+  return CompactionPicker::FormCompaction(
+      compact_options, input_files, output_level,
+      version, adjusted, status);
 }
 
 uint32_t UniversalCompactionPicker::GetPathId(const Options& options,
@@ -982,6 +1024,18 @@ Compaction* FIFOCompactionPicker::PickCompaction(Version* version,
   compactions_in_progress_[0].insert(c);
 
   return c;
+}
+
+Compaction* FIFOCompactionPicker::FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const {
+  return CompactionPicker::FormCompaction(
+      compact_options, input_files, output_level,
+      version, adjusted, status);
 }
 
 Compaction* FIFOCompactionPicker::CompactRange(

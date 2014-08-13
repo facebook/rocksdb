@@ -23,6 +23,7 @@ namespace rocksdb {
 class LogBuffer;
 class Compaction;
 class Version;
+struct CompactionInputFiles;
 
 class CompactionPicker {
  public:
@@ -57,6 +58,24 @@ class CompactionPicker {
   // for compaction input.
   virtual int MaxInputLevel(int current_num_levels) const = 0;
 
+  // Form a valid compaction based on a set of compaction input files and
+  // output level.  The funtion will return a non-null Compaction on success.
+  // Otherwise, nullptr will be returned and "status" will contain relevant
+  // information.
+  //
+  // When compact_options.adjustable is set to true, then in case the
+  // specified compaction input cannot form a valid compaction, it will
+  // try to adjust the input to be a valid compaction.  If there exists
+  // such adjustment, then "adjusted" will set to true and a non-null
+  // Compaction will be returned.
+  virtual Compaction* FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const;
+
   // Free up the files that participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
@@ -67,10 +86,10 @@ class CompactionPicker {
   // Returns maximum total overlap bytes with grandparent
   // level (i.e., level+2) before we stop building a single
   // file in level->level+1 compaction.
-  uint64_t MaxGrandParentOverlapBytes(int level);
+  uint64_t MaxGrandParentOverlapBytes(int level) const;
 
   // Returns maximum total bytes of data on a given level.
-  double MaxBytesForLevel(int level);
+  double MaxBytesForLevel(int level) const;
 
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level) const;
@@ -145,6 +164,14 @@ class UniversalCompactionPicker : public CompactionPicker {
     return 0;
   }
 
+  virtual Compaction* FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const override;
+
  private:
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionUniversalReadAmp(Version* version, double score,
@@ -175,6 +202,14 @@ class LevelCompactionPicker : public CompactionPicker {
     return current_num_levels - 2;
   }
 
+  virtual Compaction* FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const override;
+
  private:
   // For the specfied level, pick a compaction.
   // Returns nullptr if there is no compaction to be done.
@@ -197,6 +232,13 @@ class FIFOCompactionPicker : public CompactionPicker {
                                    const InternalKey* begin,
                                    const InternalKey* end,
                                    InternalKey** compaction_end) override;
+  virtual Compaction* FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const override;
 
   // The maxinum allowed input level.  Always return 0.
   virtual int MaxInputLevel(int current_num_levels) const override {

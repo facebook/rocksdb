@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include "rocksdb/version.h"
+#include "rocksdb/compactor.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
@@ -54,7 +55,12 @@ enum CompressionType : char {
 enum CompactionStyle : char {
   kCompactionStyleLevel = 0x0,      // level based compaction style
   kCompactionStyleUniversal = 0x1,  // Universal compaction style
-  kCompactionStyleFIFO = 0x2,       // FIFO compaction style
+  kCompactionStyleFIFO = 0x2,    // FIFO compaction style
+  kCompactionStyleCustom = 0x3,  // Use the custom compactor specified
+                                 // in the custom_compactor option.
+  kCompactionStyleNone = 0x4,  // Disable background compaction. Compaction
+                               // jobs are submitted via CompactFiles()
+                               // or ScheduleCompactFiles().
 };
 
 struct CompactionOptionsFIFO {
@@ -443,6 +449,11 @@ struct ColumnFamilyOptions {
 
   // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style;
+
+  // Custom compactor.
+  // This option will be used only when compaction_style is set to
+  // kCompactionStyleCustom.
+  std::shared_ptr<Compactor> custom_compactor;
 
   // If true, compaction will verify checksum on every read that happens
   // as part of compaction
@@ -1043,6 +1054,20 @@ extern Options GetOptions(size_t total_write_buffer_limit,
                           int read_amplification_threshold = 8,
                           int write_amplification_threshold = 32,
                           uint64_t target_db_size = 68719476736 /* 64GB */);
+
+// CompactionOptions are used in CompactFiles() call.
+struct CompactionOptions {
+  // Compaction output compression type
+  // Default: snappy
+  CompressionType compression;
+  // Compaction will create files of size `output_file_size_limit`.
+  // Default: MAX, which means that compaction will create a single file
+  uint64_t output_file_size_limit;
+
+  CompactionOptions()
+      : compression(kSnappyCompression),
+        output_file_size_limit(std::numeric_limits<uint64_t>::max()) {}
+};
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

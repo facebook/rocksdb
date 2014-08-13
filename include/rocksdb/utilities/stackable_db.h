@@ -131,6 +131,29 @@ class StackableDB : public DB {
     return db_->CompactRange(column_family, begin, end, reduce_level,
                              target_level, target_path_id);
   }
+  
+  using DB::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return db_->CompactFiles(
+        compact_options, column_family, input_file_numbers,
+        output_level, output_path_id);
+  }
+
+  using DB::ScheduleCompactFiles;
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return db_->ScheduleCompactFiles(
+        job_id, compact_options, column_family,
+        input_file_numbers, output_level, output_path_id);
+  }
 
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
@@ -167,6 +190,14 @@ class StackableDB : public DB {
   virtual Status Flush(const FlushOptions& fopts,
                        ColumnFamilyHandle* column_family) override {
     return db_->Flush(fopts, column_family);
+  }
+  
+  virtual Status AddListener(EventListener* listener) override {
+    return db_->AddListener(listener);
+  }
+
+  virtual Status RemoveListener(EventListener* listener) override {
+    return db_->RemoveListener(listener);
   }
 
   virtual Status DisableFileDeletions() override {

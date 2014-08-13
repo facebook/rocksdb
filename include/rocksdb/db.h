@@ -21,8 +21,21 @@
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/listener.h"
 
 namespace rocksdb {
+
+struct Options;
+struct DBOptions;
+struct ColumnFamilyOptions;
+struct ReadOptions;
+struct WriteOptions;
+struct FlushOptions;
+struct CompactionOptions;
+struct TableProperties;
+class WriteBatch;
+class Env;
+class EventListener;
 
 using std::unique_ptr;
 
@@ -44,14 +57,6 @@ struct ColumnFamilyDescriptor {
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
-
-struct Options;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
-struct TableProperties;
-class WriteBatch;
-class Env;
 
 // Metadata associated with each SST file.
 struct LiveFileMetaData {
@@ -361,6 +366,35 @@ class DB {
                         target_level, target_path_id);
   }
 
+  // Compact the specified files.  Files are specified via their file numbers.
+  // 
+  // Different from ScheduleCompactFiles, the compaction
+  // will be done in the CALLER's CURRENT thread.  To schedule a compaction job in
+  // background, ScheduleCompactFiles should be used.
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) = 0;
+
+  // Schedule a background compaction job which will compact the specified
+  // files in a background thread provided by RocksDB internal.  Files are
+  // specified via their file numbers.
+  //
+  // If the returned value indicates Status::OK(), then "job_id" will be
+  // filled.  When the scheduled compaction job is completed (either finished
+  // or aborted), it will notify all the registerred EventListener via
+  // OnBackgroundCompactFilesCompleted() with "job_id" and its status.
+  //
+  // If developers would like to use their own thread to do compaction,
+  // then CompactFiles() should be used.
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) = 0;
+
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
@@ -469,6 +503,22 @@ class DB {
 
   // Returns the meta data of database describing the current state of the DB.
   virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) {}
+  
+  // Adds the specified listener to hear special events of the current DB.
+  //
+  // Note that it is the caller's responsibility to properly manage
+  // the life-cycle of the input "listener", and "listener" MUST NOT
+  // be deleted before it has been removed via RemoveListener() or
+  // DB has been deleted.
+  virtual Status AddListener(EventListener* listener) = 0;
+
+  // Removes the specified listener from the current DB.
+  //
+  // Note that it is the caller's responsibility to properly manage
+  // the life-cycle of the input "listener", and "listener" MUST NOT
+  // be deleted before it has been removed via RemoveListener() or
+  // DB has been deleted.
+  virtual Status RemoveListener(EventListener* listener) = 0;
 
 #endif  // ROCKSDB_LITE
 
