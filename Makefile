@@ -116,7 +116,8 @@ TESTS = \
 	table_test \
 	thread_local_test \
 	geodb_test \
- 	rate_limiter_test \
+	rate_limiter_test \
+	cuckoo_table_builder_test \
 	options_test \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \
@@ -235,7 +236,7 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
 	done
 
-unity.cc:	
+unity.cc:
 	$(shell (export ROCKSDB_ROOT="$(CURDIR)"; "$(CURDIR)/build_tools/unity" "$(CURDIR)/unity.cc"))
 
 unity: unity.cc unity.o

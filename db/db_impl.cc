@@ -35,7 +35,6 @@
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
-#include "db/tailing_iter.h"
 #include "db/forward_iterator.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
@@ -3704,7 +3703,10 @@ Status DBImpl::NewIterators(
 #else
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      iterators->push_back(new TailingIterator(env_, this, options, cfd));
+      auto iter = new ForwardIterator(this, options, cfd);
+      iterators->push_back(
+          NewDBIterator(env_, *cfd->options(), cfd->user_comparator(), iter,
+                        kMaxSequenceNumber));
     }
 #endif
   } else {
