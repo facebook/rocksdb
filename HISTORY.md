@@ -13,6 +13,7 @@
 * Statistics APIs now take uint32_t as type instead of Tickers. Also make two access functions getTickerCount and histogramData const
 * Add DB property rocksdb.estimate-num-keys, estimated number of live keys in DB.
 * Add DB::GetIntProperty(), which returns DB properties that are integer as uint64_t.
+* The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
 
 ## 3.3.0 (7/10/2014)
 ### New Features
