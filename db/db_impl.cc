@@ -4797,9 +4797,8 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 }
 
 void DBImpl::GetDatabaseMetaData(DatabaseMetaData* db_meta) {
-  MutexLock l(&mutex_);
   db_meta->name = GetName();
-  versions_->GetDatabaseMetaData(db_meta);
+  versions_->GetDatabaseMetaData(db_meta, &mutex_);
 }
 
 Status DBImpl::AddListener(EventListener* listener) {

@@ -2971,23 +2971,40 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
-void VersionSet::GetDatabaseMetaData(DatabaseMetaData *db_meta) {
+void VersionSet::GetDatabaseMetaData(
+    DatabaseMetaData *db_meta, port::Mutex* mutex) {
   assert(db_meta);
+  assert(mutex);
   db_meta->column_families.clear();
   db_meta->size = 0;
+  db_meta->compensated_size = 0;
 
+  autovector<ColumnFamilyData*, 1> cfds;
+  autovector<Version*, 1> versions;
+
+  mutex->Lock();
   for (auto cfd : *column_family_set_) {
+    cfd->Ref();
+    cfd->current()->Ref();
+    cfds.push_back(cfd);
+    versions.push_back(cfd->current());
+  }
+  mutex->Unlock();
+
+  assert(versions.size() == cfds.size());
+  for (size_t i = 0; i < cfds.size(); ++i) {
+    ColumnFamilyData* cfd = cfds[i];
+    Version* current = versions[i];
+    current->UpdateTemporaryStats();
+
     uint64_t cf_size = 0;
+    uint64_t cf_csize = 0;
     std::vector<LevelMetaData> levels;
     for (int level = 0; level < cfd->NumberLevels(); level++) {
       uint64_t level_size = 0;
-      SequenceNumber smallest_seqno =
-          std::numeric_limits<SequenceNumber>::max();
-      SequenceNumber largest_seqno =
-          std::numeric_limits<SequenceNumber>::min();
+      uint64_t level_csize = 0;
       std::vector<SstFileMetaData> files;
-      for (const auto& file : cfd->current()->files_[level]) {
-        level_size += file->fd.GetFileSize();
+      for (const auto& file : current->files_[level]) {
         uint32_t path_id = file->fd.GetPathId();
         std::string file_path;
         if (path_id < options_->db_paths.size()) {
@@ -2996,31 +3013,36 @@ void VersionSet::GetDatabaseMetaData(DatabaseMetaData *db_meta) {
           assert(!options_->db_paths.empty());
           file_path = options_->db_paths.back().path;
         }
-        files.push_back(SstFileMetaData(
+        files.emplace_back(
+            file->fd.GetNumber(),
+            MakeTableFileName(file_path, file->fd.GetNumber()),
             file->fd.GetFileSize(),
-            MakeTableFileName("", file->fd.GetNumber()),
-            file_path,
+            file->compensated_file_size,
             file->smallest_seqno,
             file->largest_seqno,
             file->smallest.user_key().ToString(),
-            file->largest.user_key().ToString()));
-        if (smallest_seqno > file->smallest_seqno) {
-          smallest_seqno = file->smallest_seqno;
-        }
-        if (largest_seqno < file->largest_seqno) {
-          largest_seqno = file->largest_seqno;
-        }
+            file->largest.user_key().ToString());
+        level_size += file->fd.GetFileSize();
+        level_csize += file->compensated_file_size;
       }
-      levels.push_back(LevelMetaData(
-          level_size, level, smallest_seqno, largest_seqno, files));
+      levels.emplace_back(
+          level, level_size, level_csize, std::move(files));
       cf_size += level_size;
+      cf_csize += level_csize;
     }
-    db_meta->column_families.push_back(
-        ColumnFamilyMetaData(cf_size, cfd->GetName(), levels));
+    db_meta->column_families.emplace_back(
+        cfd->GetName(), cf_size, cf_csize, std::move(levels));
     db_meta->size += cf_size;
+    db_meta->compensated_size += cf_csize;
   }
-}
 
+  mutex->Lock();
+  for (size_t i = 0; i < cfds.size(); ++i) {
+    cfds[i]->Unref();
+    versions[i]->Unref();
+  }
+  mutex->Unlock();
+}
 
 void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files) {
   files->insert(files->end(), obsolete_files_.begin(), obsolete_files_.end());

@@ -9,8 +9,7 @@
 
 #include "rocksdb/types.h"
 
-#ifndef INCLUDE_ROCKSDB_METADATA_H_
-#define INCLUDE_ROCKSDB_METADATA_H_
+#pragma once
 
 namespace rocksdb {
 struct DatabaseMetaData;
@@ -18,64 +17,94 @@ struct ColumnFamilyMetaData;
 struct LevelMetaData;
 struct SstFileMetaData;
 
+// The metadata that describes a database.
 struct DatabaseMetaData {
-  DatabaseMetaData() : size(0), name("") {}
+  DatabaseMetaData() : size(0), compensated_size(0), name("") {}
 
-  uint64_t size;              // The size of the DB in bytes.
-  std::string name;           // The name of the DB.
-
-  // Meta-data of all column families belonging to this DB.
+  // The DB size in bytes, which is equal to the sum of the size of
+  // its "column_families".
+  uint64_t size;
+  // The compensated DB size in bytes, which is equal to the sum of the
+  // compensated_size of its "column_families".
+  // The compensated_size of each file is computed by giving 2X
+  // average-value size to each deletion entry.
+  uint64_t compensated_size;
+  // The name of the DB.
+  std::string name;
+  // The meta-data of all column families belonging to this DB.
   std::vector<ColumnFamilyMetaData> column_families;
 };
 
+// The metadata that describes a column family.
 struct ColumnFamilyMetaData {
-  ColumnFamilyMetaData(uint64_t size, const std::string& name,
-                       const std::vector<LevelMetaData>& levels) :
-      size(size), name(name), levels(levels) {}
+  ColumnFamilyMetaData(const std::string& name,
+                       uint64_t size, uint64_t compensated_size,
+                       const std::vector<LevelMetaData>&& levels) :
+      size(size), compensated_size(compensated_size),
+      name(name), levels(levels) {}
 
-  const uint64_t size;                      // The size of the CF in bytes.
-  const std::string name;                   // Name of the column family
-  const std::vector<LevelMetaData> levels;  // All levels in this CF.
+  // The size of this column family in bytes, which is equal to the sum of
+  // the file size of its "levels".
+  const uint64_t size;
+  // The compensated size of this column family in bytes, which is equal to
+  // the sum of the compensated_size of its "levels".
+  // The compensated_size of each file is computed by giving 2X
+  // average-value size to each deletion entry.
+  const uint64_t compensated_size;
+  // The name of the column family.
+  const std::string name;
+  // The metadata of all levels in this column family.
+  const std::vector<LevelMetaData> levels;
 };
 
+// The metadata that describes a level.
 struct LevelMetaData {
-  LevelMetaData(uint64_t size, int level,
-                SequenceNumber smallest_seqno, SequenceNumber largest_seqno,
-                const std::vector<SstFileMetaData>& files) :
-      size(size), level(level),
-      smallest_seqno(smallest_seqno), largest_seqno(largest_seqno),
+  LevelMetaData(int level, uint64_t size, uint64_t compensated_size,
+                const std::vector<SstFileMetaData>&& files) :
+      level(level), size(size), compensated_size(compensated_size),
       files(files) {}
 
-  const uint64_t size;                  // File size in bytes.
-  const int level;                      // The level which this meta describes.
-
-  const SequenceNumber smallest_seqno;       // Smallest seqno in file
-  const SequenceNumber largest_seqno;        // Largest seqno in file
-
-  const std::vector<SstFileMetaData> files;  // All sst files in this level.
+  // The level which this meta data describes.
+  const int level;
+  // The size of this level in bytes, which is equal to the sum of
+  // the file size of its "files".
+  const uint64_t size;
+  // The compensated size of this level in bytes, which is equal to
+  // the sum of the compensated_size of its "files".
+  // The compensated_size of each file is computed by giving 2X
+  // average-value size to each deletion entry.
+  const uint64_t compensated_size;
+  // The metadata of all sst files in this level.
+  const std::vector<SstFileMetaData> files;
 };
 
+// The metadata that describes a SST file.
 struct SstFileMetaData {
-  SstFileMetaData(uint64_t size, const std::string& name,
+  SstFileMetaData(uint64_t file_number,
                   const std::string& path,
+                  uint64_t size, uint64_t compensated_size,
                   SequenceNumber smallest_seqno,
                   SequenceNumber largest_seqno,
                   const std::string& smallestkey,
                   const std::string& largestkey) :
-    size(size), name(name), path(path),
-    smallest_seqno(smallest_seqno), largest_seqno(largest_seqno),
+    file_number(file_number), size(size), compensated_size(size),
+    path(path), smallest_seqno(smallest_seqno), largest_seqno(largest_seqno),
     smallestkey(smallestkey), largestkey(largestkey) {}
 
-  const uint64_t size;                  // File size in bytes.
-  const std::string name;               // Name of the file
-  const std::string path;               // The directory where the file locates.
+  // The number that can uniquely identify the current file inside same DB.
+  const uint64_t file_number;
+  // File size in bytes.
+  const uint64_t size;
+  // The compensated file size in bytes, computed by giving 2X average-value
+  // size to each deletion entry.
+  const uint64_t compensated_size;
+  // The full path where the file locates.
+  const std::string path;
 
-  const SequenceNumber smallest_seqno;  // Smallest seqno in file
-  const SequenceNumber largest_seqno;   // Largest seqno in file
+  const SequenceNumber smallest_seqno;  // Smallest sequence number in file.
+  const SequenceNumber largest_seqno;   // Largest sequence number in file.
   const std::string smallestkey;     // Smallest user defined key in the file.
   const std::string largestkey;      // Largest user defined key in the file.
 };
 
 }  // namespace rocksdb
-
-#endif  // INCLUDE_ROCKSDB_METADATA_H_

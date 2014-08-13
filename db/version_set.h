@@ -480,7 +480,8 @@ class VersionSet {
 
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
-  void GetDatabaseMetaData(DatabaseMetaData* metadata);
+  void GetDatabaseMetaData(DatabaseMetaData* metadata,
+                           port::Mutex* mutex);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 

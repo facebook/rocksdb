@@ -3734,22 +3734,32 @@ TEST(DBTest, UniversalCompactionFourPaths) {
 
 void CheckDbMeta(const DatabaseMetaData& db_meta) {
   uint64_t db_size = 0;
+  uint64_t db_csize = 0;
   for (auto cf_meta : db_meta.column_families) {
     uint64_t cf_size = 0;
+    uint64_t cf_csize = 0;
     for (auto level_meta : cf_meta.levels) {
       uint64_t level_size = 0;
+      uint64_t level_csize = 0;
       for (auto file_meta : level_meta.files) {
-        ASSERT_LE(level_meta.smallest_seqno, file_meta.smallest_seqno);
-        ASSERT_GE(level_meta.largest_seqno, file_meta.largest_seqno);
         level_size += file_meta.size;
+        level_csize += file_meta.compensated_size;
       }
       ASSERT_EQ(level_meta.size, level_size);
+      ASSERT_EQ(level_meta.compensated_size, level_csize);
+      ASSERT_GE(level_meta.compensated_size, level_meta.size);
       cf_size += level_size;
+      cf_csize += level_csize;
     }
     ASSERT_EQ(cf_meta.size, cf_size);
+    ASSERT_EQ(cf_meta.compensated_size, cf_csize);
+    ASSERT_GE(cf_meta.compensated_size, cf_meta.size);
     db_size += cf_size;
+    db_csize += cf_csize;
   }
   ASSERT_EQ(db_meta.size, db_size);
+  ASSERT_EQ(db_meta.compensated_size, db_csize);
+  ASSERT_GE(db_meta.compensated_size, db_meta.size);
 }
 
 TEST(DBTest, DatabaseMetaDataTest) {
@@ -5975,10 +5985,10 @@ TEST(DBTest, FlushOneColumnFamily) {
   ASSERT_OK(Put(6, "alyosha", "alyosha"));
   ASSERT_OK(Put(7, "popovich", "popovich"));
 
-  for (int i = 0; i < 8; ++i) {
+  for (size_t i = 0; i < 8; ++i) {
     Flush(i);
     auto tables = ListTableFiles(env_, dbname_);
-    ASSERT_EQ(tables.size(), i + 1);
+    ASSERT_EQ(tables.size(), i + 1U);
   }
 }
 
