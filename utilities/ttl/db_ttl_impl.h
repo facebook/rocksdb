@@ -13,8 +13,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/merge_operator.h"
-#include "utilities/utility_db.h"
-#include "utilities/db_ttl.h"
+#include "rocksdb/utilities/utility_db.h"
+#include "rocksdb/utilities/db_ttl.h"
 #include "db/db_impl.h"
 
 namespace rocksdb {

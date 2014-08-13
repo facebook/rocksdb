@@ -76,12 +76,42 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options,
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
-  Iterator* internal_iter = NewInternalIterator(options, cfd, super_version);
-  return NewDBIterator(
-      env_, *cfd->options(), cfd->user_comparator(), internal_iter,
+  auto db_iter = NewArenaWrappedDbIterator(
+      env_, *cfd->options(), cfd->user_comparator(),
       (options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
            : latest_snapshot));
+  auto internal_iter =
+      NewInternalIterator(options, cfd, super_version, db_iter->GetArena());
+  db_iter->SetIterUnderDBIter(internal_iter);
+  return db_iter;
+}
+
+Status DBImplReadOnly::NewIterators(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<Iterator*>* iterators) {
+  if (iterators == nullptr) {
+    return Status::InvalidArgument("iterators not allowed to be nullptr");
+  }
+  iterators->clear();
+  iterators->reserve(column_families.size());
+  SequenceNumber latest_snapshot = versions_->LastSequence();
+
+  for (auto cfh : column_families) {
+    auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+    auto db_iter = NewArenaWrappedDbIterator(
+        env_, *cfd->options(), cfd->user_comparator(),
+        options.snapshot != nullptr
+            ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
+            : latest_snapshot);
+    auto internal_iter = NewInternalIterator(
+        options, cfd, cfd->GetSuperVersion()->Ref(), db_iter->GetArena());
+    db_iter->SetIterUnderDBIter(internal_iter);
+    iterators->push_back(db_iter);
+  }
+
+  return Status::OK();
 }
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,

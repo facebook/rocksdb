@@ -5,8 +5,9 @@
 
 #include <algorithm>
 
-#include "utilities/json_document.h"
-#include "utilities/document_db.h"
+#include "rocksdb/utilities/json_document.h"
+#include "rocksdb/utilities/document_db.h"
+
 #include "util/testharness.h"
 #include "util/testutil.h"
 

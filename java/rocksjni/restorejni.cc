@@ -16,7 +16,7 @@
 #include "include/org_rocksdb_RestoreOptions.h"
 #include "include/org_rocksdb_RestoreBackupableDB.h"
 #include "rocksjni/portal.h"
-#include "utilities/backupable_db.h"
+#include "rocksdb/utilities/backupable_db.h"
 /*
  * Class:     org_rocksdb_RestoreOptions
  * Method:    newRestoreOptions

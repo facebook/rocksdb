@@ -4,7 +4,7 @@
 
 #include <memory>
 #include "rocksdb/compaction_filter.h"
-#include "utilities/db_ttl.h"
+#include "rocksdb/utilities/db_ttl.h"
 #include "util/testharness.h"
 #include "util/logging.h"
 #include <map>

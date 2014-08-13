@@ -110,6 +110,45 @@ TEST(FormatTest, InternalKeyShortestSuccessor) {
             ShortSuccessor(IKey("\xff\xff", 100, kTypeValue)));
 }
 
+TEST(FormatTest, IterKeyOperation) {
+  IterKey k;
+  const char p[] = "abcdefghijklmnopqrstuvwxyz";
+  const char q[] = "0123456789";
+
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string(""));
+
+  k.TrimAppend(0, p, 3);
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string("abc"));
+
+  k.TrimAppend(1, p, 3);
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string("aabc"));
+
+  k.TrimAppend(0, p, 26);
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string("abcdefghijklmnopqrstuvwxyz"));
+
+  k.TrimAppend(26, q, 10);
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string("abcdefghijklmnopqrstuvwxyz0123456789"));
+
+  k.TrimAppend(36, q, 1);
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string("abcdefghijklmnopqrstuvwxyz01234567890"));
+
+  k.TrimAppend(26, q, 1);
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string("abcdefghijklmnopqrstuvwxyz0"));
+
+  // Size going up, memory allocation is triggered
+  k.TrimAppend(27, p, 26);
+  ASSERT_EQ(std::string(k.GetKey().data(), k.GetKey().size()),
+            std::string("abcdefghijklmnopqrstuvwxyz0"
+              "abcdefghijklmnopqrstuvwxyz"));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

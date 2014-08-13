@@ -11,10 +11,10 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/utilities/db_ttl.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
-#include "utilities/db_ttl.h"
 #include "util/testharness.h"
 #include "util/random.h"
 
