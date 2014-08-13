@@ -124,7 +124,7 @@ TEST(CuckooTableDBTest, Flush) {
   TablePropertiesCollection ptc;
   reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
   ASSERT_EQ(1U, ptc.size());
-  ASSERT_EQ(3, ptc.begin()->second->num_entries);
+  ASSERT_EQ(3U, ptc.begin()->second->num_entries);
   ASSERT_EQ("1", FilesPerLevel());
 
   ASSERT_EQ("v1", Get("key1"));
@@ -143,8 +143,8 @@ TEST(CuckooTableDBTest, Flush) {
   reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
   ASSERT_EQ(2U, ptc.size());
   auto row = ptc.begin();
-  ASSERT_EQ(3, row->second->num_entries);
-  ASSERT_EQ(3, (++row)->second->num_entries);
+  ASSERT_EQ(3U, row->second->num_entries);
+  ASSERT_EQ(3U, (++row)->second->num_entries);
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_EQ("v1", Get("key1"));
   ASSERT_EQ("v2", Get("key2"));
@@ -160,9 +160,9 @@ TEST(CuckooTableDBTest, Flush) {
   reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
   ASSERT_EQ(3U, ptc.size());
   row = ptc.begin();
-  ASSERT_EQ(3, row->second->num_entries);
-  ASSERT_EQ(3, (++row)->second->num_entries);
-  ASSERT_EQ(3, (++row)->second->num_entries);
+  ASSERT_EQ(3U, row->second->num_entries);
+  ASSERT_EQ(3U, (++row)->second->num_entries);
+  ASSERT_EQ(3U, (++row)->second->num_entries);
   ASSERT_EQ("3", FilesPerLevel());
   ASSERT_EQ("v1", Get("key1"));
   ASSERT_EQ("v2", Get("key2"));
@@ -183,7 +183,7 @@ TEST(CuckooTableDBTest, FlushWithDuplicateKeys) {
   TablePropertiesCollection ptc;
   reinterpret_cast<DB*>(dbfull())->GetPropertiesOfAllTables(&ptc);
   ASSERT_EQ(1U, ptc.size());
-  ASSERT_EQ(2, ptc.begin()->second->num_entries);
+  ASSERT_EQ(2U, ptc.begin()->second->num_entries);
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_EQ("v3", Get("key1"));
   ASSERT_EQ("v2", Get("key2"));
