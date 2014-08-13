@@ -265,9 +265,10 @@ class Repairer {
       if (!status.ok()) {
         std::string fname = TableFileName(
             options_.db_paths, t.meta.fd.GetNumber(), t.meta.fd.GetPathId());
-        Log(options_.info_log, "Table #%s: ignoring %s",
-            FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId())
-                .c_str(),
+        char file_num_buf[kFormatFileNumberBufSize];
+        FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
+                         file_num_buf, sizeof(file_num_buf));
+        Log(options_.info_log, "Table #%s: ignoring %s", file_num_buf,
             status.ToString().c_str());
         ArchiveFile(fname);
       } else {

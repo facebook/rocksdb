@@ -6,8 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
+#define __STDC_FORMAT_MACROS
 #include "db/filename.h"
+#include <inttypes.h>
 
 #include <ctype.h>
 #include <stdio.h>
@@ -83,11 +84,17 @@ std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
   return MakeTableFileName(path, number);
 }
 
-std::string FormatFileNumber(uint64_t number, uint32_t path_id) {
+const size_t kFormatFileNumberBufSize = 38;
+
+void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
+                      size_t out_buf_size) {
   if (path_id == 0) {
-    return std::to_string(number);
+    snprintf(out_buf, out_buf_size, "%" PRIu64, number);
   } else {
-    return std::to_string(number) + "(path " + std::to_string(path_id) + ")";
+    snprintf(out_buf, out_buf_size, "%" PRIu64
+                                    "(path "
+                                    "%" PRIu32 ")",
+             number, path_id);
   }
 }
 

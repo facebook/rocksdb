@@ -1393,7 +1393,7 @@ const char* Version::LevelFileSummary(FileSummaryStorage* scratch,
   for (const auto& f : files_[level]) {
     int sz = sizeof(scratch->buffer) - len;
     char sztxt[16];
-    AppendHumanBytes(f->fd.GetFileSize(), sztxt, 16);
+    AppendHumanBytes(f->fd.GetFileSize(), sztxt, sizeof(sztxt));
     int ret = snprintf(scratch->buffer + len, sz,
                        "#%" PRIu64 "(seq=%" PRIu64 ",sz=%s,%d) ",
                        f->fd.GetNumber(), f->smallest_seqno, sztxt,

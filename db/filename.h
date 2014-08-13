@@ -61,7 +61,11 @@ extern std::string MakeTableFileName(const std::string& name, uint64_t number);
 extern std::string TableFileName(const std::vector<DbPath>& db_paths,
                                  uint64_t number, uint32_t path_id);
 
-extern std::string FormatFileNumber(uint64_t number, uint32_t path_id);
+// Sufficient buffer size for FormatFileNumber.
+extern const size_t kFormatFileNumberBufSize;
+
+extern void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
+                             size_t out_buf_size);
 
 // Return the name of the descriptor file for the db named by
 // "dbname" and the specified incarnation number.  The result will be
