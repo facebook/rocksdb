@@ -585,7 +585,8 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
-      env_->GetChildren(dbname_, &files);  // Ignore errors
+      env_->GetChildren(options_.db_paths[path_id].path,
+                        &files);  // Ignore errors
       for (std::string file : files) {
         deletion_state.candidate_files.emplace_back(file, path_id);
       }
@@ -596,6 +597,14 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
       std::vector<std::string> log_files;
       env_->GetChildren(options_.wal_dir, &log_files); // Ignore errors
       for (std::string log_file : log_files) {
+        deletion_state.candidate_files.emplace_back(log_file, 0);
+      }
+    }
+    // Add info log files in db_log_dir
+    if (!options_.db_log_dir.empty() && options_.db_log_dir != dbname_) {
+      std::vector<std::string> info_log_files;
+      env_->GetChildren(options_.db_log_dir, &info_log_files);  // Ignore errors
+      for (std::string log_file : info_log_files) {
         deletion_state.candidate_files.emplace_back(log_file, 0);
       }
     }
@@ -665,14 +674,14 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
                         candidate_files.end());
 
   std::vector<std::string> old_info_log_files;
-
+  InfoLogPrefix info_log_prefix(!options_.db_log_dir.empty(), dbname_);
   for (const auto& candidate_file : candidate_files) {
     std::string to_delete = candidate_file.file_name;
     uint32_t path_id = candidate_file.path_id;
     uint64_t number;
     FileType type;
     // Ignore file if we cannot recognize it.
-    if (!ParseFileName(to_delete, &number, &type)) {
+    if (!ParseFileName(to_delete, &number, info_log_prefix.prefix, &type)) {
       continue;
     }
 
@@ -747,16 +756,17 @@ void DBImpl::PurgeObsoleteFiles(DeletionState& state) {
 
   // Delete old info log files.
   size_t old_info_log_file_count = old_info_log_files.size();
-  // NOTE: Currently we only support log purge when options_.db_log_dir is
-  // located in `dbname` directory.
-  if (old_info_log_file_count >= options_.keep_log_file_num &&
-      options_.db_log_dir.empty()) {
+  if (old_info_log_file_count >= options_.keep_log_file_num) {
     std::sort(old_info_log_files.begin(), old_info_log_files.end());
     size_t end = old_info_log_file_count - options_.keep_log_file_num;
     for (unsigned int i = 0; i <= end; i++) {
       std::string& to_delete = old_info_log_files.at(i);
-      Log(options_.info_log, "Delete info log file %s\n", to_delete.c_str());
-      Status s = env_->DeleteFile(dbname_ + "/" + to_delete);
+      std::string full_path_to_delete =
+          (options_.db_log_dir.empty() ? dbname_ : options_.db_log_dir) + "/" +
+          to_delete;
+      Log(options_.info_log, "Delete info log file %s\n",
+          full_path_to_delete.c_str());
+      Status s = env_->DeleteFile(full_path_to_delete);
       if (!s.ok()) {
         Log(options_.info_log, "Delete info log file %s FAILED -- %s\n",
             to_delete.c_str(), s.ToString().c_str());

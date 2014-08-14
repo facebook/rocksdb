@@ -6054,6 +6054,37 @@ TEST(DBTest, WALArchivalSizeLimit) {
   } while (ChangeCompactOptions());
 }
 
+TEST(DBTest, PurgeInfoLogs) {
+  Options options = CurrentOptions();
+  options.keep_log_file_num = 5;
+  options.create_if_missing = true;
+  for (int mode = 0; mode <= 1; mode++) {
+    if (mode == 1) {
+      options.db_log_dir = dbname_ + "_logs";
+      env_->CreateDirIfMissing(options.db_log_dir);
+    } else {
+      options.db_log_dir = "";
+    }
+    for (int i = 0; i < 8; i++) {
+      Reopen(&options);
+    }
+
+    std::vector<std::string> files;
+    env_->GetChildren(options.db_log_dir.empty() ? dbname_ : options.db_log_dir,
+                      &files);
+    int info_log_count = 0;
+    for (std::string file : files) {
+      if (file.find("LOG") != std::string::npos) {
+        if (mode == 1) {
+          env_->DeleteFile(options.db_log_dir + "/" + file);
+        }
+        info_log_count++;
+      }
+    }
+    ASSERT_EQ(5, info_log_count);
+  }
+}
+
 namespace {
 SequenceNumber ReadRecords(
     std::unique_ptr<TransactionLogIterator>& iter,
