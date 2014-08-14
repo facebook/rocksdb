@@ -83,7 +83,7 @@ class DBImplReadOnly : public DBImpl {
       const int output_level, const int output_path_id = -1) {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
-  
+
   using DBImpl::ScheduleCompactFiles;
   virtual Status ScheduleCompactFiles(
       std::string* job_id,
@@ -111,7 +111,7 @@ class DBImplReadOnly : public DBImpl {
                        ColumnFamilyHandle* column_family) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
-  
+
   virtual Status AddListener(EventListener* listener) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }

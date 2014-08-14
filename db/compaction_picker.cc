@@ -405,7 +405,7 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
 
   return c;
 }
-  
+
 Compaction* CompactionPicker::FormCompaction(
       const CompactionOptions& compact_options,
       autovector<CompactionInputFiles>& input_files,

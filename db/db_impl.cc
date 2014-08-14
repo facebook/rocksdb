@@ -1604,6 +1604,9 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
     bg_error_ = s;
   }
   RecordFlushIOStats();
+  if (s.ok()) {
+    NotifyOnFlushCompleted(cfd, file_number);
+  }
   return s;
 }
 
@@ -1691,7 +1694,8 @@ Status DBImpl::GetCompactionInputsFromFileNumbers(
     }
     if (found == false) {
       char buffer[256];
-      sprintf(buffer, "Cannot find matched file for %llu", fn);
+      snprintf(buffer, sizeof(buffer),
+          "Cannot find matched file for %llu", fn);
       return Status::InvalidArgument(buffer);
     }
   }
@@ -1709,7 +1713,7 @@ Status DBImpl::GetCompactionInputsFromFileNumbers(
 
   return Status::OK();
 }
-    
+
 
 Status DBImpl::CompactFiles(
     const CompactionOptions& compact_options,
@@ -1721,7 +1725,7 @@ Status DBImpl::CompactFiles(
   MutexLock l(&mutex_);
   auto version = cfd->current();
   version->Ref();
-  
+
   autovector<CompactionInputFiles> input_files;
 
   Status s = GetCompactionInputsFromFileNumbers(
@@ -2228,8 +2232,6 @@ void DBImpl::BackgroundCallFlush() {
       MaybeScheduleFlushOrCompaction();
     }
     RecordFlushIOStats();
-    // TODO(yhchiang): notify with the column family being flushed.
-    NotifyOnFlushCompleted();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
@@ -4820,11 +4822,15 @@ Status DBImpl::RemoveListener(EventListener* listener) {
   return Status::OK();
 }
 
-void DBImpl::NotifyOnFlushCompleted() {
+void DBImpl::NotifyOnFlushCompleted(
+    ColumnFamilyData* cfd, uint64_t file_number) {
   MutexLock l(&listener_mutex_);
 
   for (auto listener : listeners_) {
-    listener->OnFlushCompleted(this);
+    listener->OnFlushCompleted(
+        this, cfd->GetName(),
+        // Use path 0 as fulled memtables are first flushed into path 0.
+        MakeTableFileName(options_.db_paths[0].path, file_number));
   }
 }
 

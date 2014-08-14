@@ -13,6 +13,7 @@
 #include <limits>
 #include <set>
 #include <utility>
+#include <list>
 #include <vector>
 #include <string>
 
@@ -107,7 +108,7 @@ class DBImpl : public DB {
                               const Slice* begin, const Slice* end,
                               bool reduce_level = false, int target_level = -1,
                               uint32_t target_path_id = 0);
-  
+
   using DB::CompactFiles;
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
@@ -157,7 +158,7 @@ class DBImpl : public DB {
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) override;
-  
+
   using DB::AddListener;
   virtual Status AddListener(EventListener* listener) override;
 
@@ -415,7 +416,7 @@ class DBImpl : public DB {
 
   void RecordFlushIOStats();
   void RecordCompactionIOStats();
-  
+
   struct CompactionJob {
     DBImpl* db;
     ColumnFamilyHandle* cf_handle;
@@ -479,7 +480,7 @@ class DBImpl : public DB {
                                   LogBuffer* log_buffer);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
-  void NotifyOnFlushCompleted();
+  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
   void NotifyOnBackgroundCompactFilesCompleted(
       const std::string& job_id, const Status& s);
 

@@ -131,7 +131,7 @@ class StackableDB : public DB {
     return db_->CompactRange(column_family, begin, end, reduce_level,
                              target_level, target_path_id);
   }
-  
+
   using DB::CompactFiles;
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
@@ -191,7 +191,7 @@ class StackableDB : public DB {
                        ColumnFamilyHandle* column_family) override {
     return db_->Flush(fopts, column_family);
   }
-  
+
   virtual Status AddListener(EventListener* listener) override {
     return db_->AddListener(listener);
   }

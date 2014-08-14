@@ -6754,7 +6754,7 @@ class ModelDB: public DB {
       const int output_level, const int output_path_id = -1) override {
     return Status::NotSupported("Not supported operation.");
   }
-  
+
   using DB::ScheduleCompactFiles;
   virtual Status ScheduleCompactFiles(
       std::string* job_id,
@@ -6798,7 +6798,7 @@ class ModelDB: public DB {
     Status ret;
     return ret;
   }
-  
+
   virtual Status AddListener(EventListener* listener) override {
     return Status::NotSupported("Not supported operation.");
   }

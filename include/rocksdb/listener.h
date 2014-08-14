@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <string>
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -29,7 +30,11 @@ class EventListener {
   //
   // @param db a pointer to the rocksdb instance which just flushed
   //     a memtable to disk.
-  virtual void OnFlushCompleted(DB* db) {}
+  // @param column_family_id the id of the flushed column family.
+  // @param file_path the path to the newly created file.
+  virtual void OnFlushCompleted(
+      DB* db, const std::string& column_family_name,
+      const std::string& file_path) {}
 
   // A call-back function to RocksDB which will be called whenever a
   // compact-file request submitted via DB::ScheduleCompactFiles() has
