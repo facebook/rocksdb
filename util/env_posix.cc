@@ -21,6 +21,7 @@
 #include <sys/stat.h>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
+#include <sys/syscall.h>
 #endif
 #include <sys/time.h>
 #include <sys/types.h>
@@ -28,10 +29,6 @@
 #include <unistd.h>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
-#include <fcntl.h>
-#endif
-#if defined(LEVELDB_PLATFORM_ANDROID)
-#include <sys/stat.h>
 #endif
 #include <signal.h>
 #include <algorithm>
@@ -1398,6 +1395,13 @@ class PosixEnv : public Env {
     thread_pools_[pri].SetBackgroundThreads(num);
   }
 
+  virtual void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+    assert(pool >= Priority::LOW && pool <= Priority::HIGH);
+#ifdef OS_LINUX
+    thread_pools_[pool].LowerIOPriority();
+#endif
+  }
+
   virtual std::string TimeToString(uint64_t secondsSince1970) {
     const time_t seconds = (time_t)secondsSince1970;
     struct tm t;
@@ -1480,7 +1484,8 @@ class PosixEnv : public Env {
           bgthreads_(0),
           queue_(),
           queue_len_(0),
-          exit_all_threads_(false) {
+          exit_all_threads_(false),
+          low_io_priority_(false) {
       PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
       PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
     }
@@ -1494,6 +1499,14 @@ class PosixEnv : public Env {
       for (const auto tid : bgthreads_) {
         pthread_join(tid, nullptr);
       }
+    }
+
+    void LowerIOPriority() {
+#ifdef OS_LINUX
+      PthreadCall("lock", pthread_mutex_lock(&mu_));
+      low_io_priority_ = true;
+      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+#endif
     }
 
     // Return true if there is at least one thread needs to terminate.
@@ -1514,6 +1527,7 @@ class PosixEnv : public Env {
     }
 
     void BGThread(size_t thread_id) {
+      bool low_io_priority = false;
       while (true) {
         // Wait until there is an item that is ready to run
         PthreadCall("lock", pthread_mutex_lock(&mu_));
@@ -1549,7 +1563,31 @@ class PosixEnv : public Env {
         queue_.pop_front();
         queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
+        bool decrease_io_priority = (low_io_priority != low_io_priority_);
         PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+
+#ifdef OS_LINUX
+        if (decrease_io_priority) {
+          #define IOPRIO_CLASS_SHIFT               (13)
+          #define IOPRIO_PRIO_VALUE(class, data)   \
+              (((class) << IOPRIO_CLASS_SHIFT) | data)
+          // Put schedule into IOPRIO_CLASS_IDLE class (lowest)
+          // These system calls only have an effect when used in conjunction
+          // with an I/O scheduler that supports I/O priorities. As at
+          // kernel 2.6.17 the only such scheduler is the Completely
+          // Fair Queuing (CFQ) I/O scheduler.
+          // To change scheduler:
+          //  echo cfq > /sys/block/<device_name>/queue/schedule
+          // Tunables to consider:
+          //  /sys/block/<device_name>/queue/slice_idle
+          //  /sys/block/<device_name>/queue/slice_sync
+          syscall(SYS_ioprio_set,
+                  1,  // IOPRIO_WHO_PROCESS
+                  0,  // current thread
+                  IOPRIO_PRIO_VALUE(3, 0));
+          low_io_priority = true;
+        }
+#endif
         (*function)(arg);
       }
     }
@@ -1657,6 +1695,7 @@ class PosixEnv : public Env {
     BGQueue queue_;
     std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
     bool exit_all_threads_;
+    bool low_io_priority_;
   };
 
   std::vector<ThreadPool> thread_pools_;
