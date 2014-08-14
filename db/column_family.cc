@@ -233,7 +233,8 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
     */
     } else {
       assert(options_.compaction_style == kCompactionStyleNone);
-      compaction_picker_.reset(nullptr);
+      compaction_picker_.reset(new PluggableCompactionPicker(
+          &options_, &internal_comparator_, nullptr));
     }
 
     Log(options_.info_log, "Options for column family \"%s\":\n",

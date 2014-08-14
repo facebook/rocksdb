@@ -13,6 +13,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
+#include "rocksdb/compactor.h"
 
 #include <vector>
 #include <memory>
@@ -244,6 +245,56 @@ class FIFOCompactionPicker : public CompactionPicker {
   virtual int MaxInputLevel(int current_num_levels) const override {
     return 0;
   }
+};
+
+class PluggableCompactionPicker : public CompactionPicker {
+ public:
+  PluggableCompactionPicker(
+      const Options* options,
+      const InternalKeyComparator* icmp,
+      const std::shared_ptr<Compactor>& compactor )
+      : CompactionPicker(options, icmp), compactor_(compactor) {}
+
+  virtual Compaction* PickCompaction(Version* version,
+                                     LogBuffer* log_buffer) override {
+    // TODO(yhchiang): complete this function
+    if (compactor_ == nullptr) {
+      return nullptr;
+    }
+    return nullptr;
+  }
+
+  virtual Compaction* CompactRange(Version* version, int input_level,
+                                   int output_level, uint32_t output_path_id,
+                                   const InternalKey* begin,
+                                   const InternalKey* end,
+                                   InternalKey** compaction_end) override {
+    // TODO(yhchiang): complete this function
+    if (compactor_ == nullptr) {
+      return nullptr;
+    }
+    return nullptr;
+  }
+
+  virtual Compaction* FormCompaction(
+      const CompactionOptions& compact_options,
+      autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version,
+      bool* adjusted,
+      Status* status) const override {
+    return CompactionPicker::FormCompaction(
+        compact_options, input_files, output_level,
+        version, adjusted, status);
+  }
+
+  // The maxinum allowed input level.  Always return 0.
+  virtual int MaxInputLevel(int current_num_levels) const override {
+    return current_num_levels - 2;
+  }
+
+ protected:
+  std::shared_ptr<Compactor> compactor_;
 };
 
 // Utility function

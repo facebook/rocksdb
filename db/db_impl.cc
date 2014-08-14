@@ -4825,12 +4825,19 @@ Status DBImpl::RemoveListener(EventListener* listener) {
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, uint64_t file_number) {
   MutexLock l(&listener_mutex_);
+  bool triggered_flush_slowdown =
+      (cfd->current()->NumLevelFiles(0) >=
+       cfd->options()->level0_slowdown_writes_trigger);
+  bool triggered_flush_stop =
+      (cfd->current()->NumLevelFiles(0) >=
+       cfd->options()->level0_stop_writes_trigger);
 
   for (auto listener : listeners_) {
     listener->OnFlushCompleted(
         this, cfd->GetName(),
         // Use path 0 as fulled memtables are first flushed into path 0.
-        MakeTableFileName(options_.db_paths[0].path, file_number));
+        MakeTableFileName(options_.db_paths[0].path, file_number),
+        triggered_flush_slowdown, triggered_flush_stop);
   }
 }
 

@@ -150,13 +150,23 @@ class TestFlushListener : public EventListener {
  public:
   void OnFlushCompleted(
       DB* db, const std::string& name,
-      const std::string& file_path) override {
+      const std::string& file_path,
+      bool triggered_writes_slowdown,
+      bool triggered_writes_stop) override {
     flushed_dbs_.push_back(db);
     flushed_column_family_names_.push_back(name);
+    if (triggered_writes_slowdown) {
+      slowdown_count++;
+    }
+    if (triggered_writes_stop) {
+      stop_count++;
+    }
   }
 
   std::vector<std::string> flushed_column_family_names_;
   std::vector<DB*> flushed_dbs_;
+  int slowdown_count;
+  int stop_count;
 };
 
 TEST(EventListenerTest, OnSingleDBFlushTest) {
@@ -299,6 +309,34 @@ TEST(EventListenerTest, MultiDBMultiListeners) {
   for (auto db : dbs) {
     delete db;
   }
+}
+
+TEST(EventListenerTest, DisableBGCompaction) {
+  Options options;
+  const int kSlowdownTrigger = 5;
+  const int kStopTrigger = 10;
+  options.level0_slowdown_writes_trigger = kSlowdownTrigger;
+  options.level0_stop_writes_trigger = kStopTrigger;
+  // BG compaction is disabled.  Number of L0 files will simply keeps
+  // increasing in this test.
+  options.compaction_style = kCompactionStyleNone;
+  options.compression = kNoCompression;
+  options.write_buffer_size = 100000;  // Small write buffer
+
+  TestFlushListener listener;
+
+  CreateAndReopenWithCF({"pikachu"}, &options);
+  db_->AddListener(&listener);
+  WriteOptions wopts;
+  wopts.timeout_hint_us = 100000;
+  for (int i = 0; i < 20; ++i) {
+    Put(1, std::to_string(i), std::string(100000, 'x'), wopts);
+    std::string num;
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &num));
+  }
+  ASSERT_EQ(listener.slowdown_count, kStopTrigger - kSlowdownTrigger + 1);
+  ASSERT_EQ(listener.stop_count, 1);
 }
 
 }  // namespace rocksdb
