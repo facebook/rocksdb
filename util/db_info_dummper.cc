@@ -23,8 +23,8 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
   }
 
   auto* env = options.env;
-  uint64_t number;
-  FileType type;
+  uint64_t number = 0;
+  FileType type = kInfoLogFile;
 
   std::vector<std::string> files;
   uint64_t file_num = 0;
@@ -38,7 +38,9 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
   }
   std::sort(files.begin(), files.end());
   for (std::string file : files) {
-    ParseFileName(file, &number, &type);
+    if (!ParseFileName(file, &number, &type)) {
+      continue;
+    }
     switch (type) {
       case kCurrentFile:
         Log(options.info_log, "CURRENT file:  %s\n", file.c_str());
@@ -78,9 +80,10 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
       }
       std::sort(files.begin(), files.end());
       for (std::string file : files) {
-        ParseFileName(file, &number, &type);
-        if (type == kTableFile && ++file_num < 10) {
-          file_info.append(file).append(" ");
+        if (ParseFileName(file, &number, &type)) {
+          if (type == kTableFile && ++file_num < 10) {
+            file_info.append(file).append(" ");
+          }
         }
       }
     }
@@ -99,13 +102,14 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
     }
     wal_info.clear();
     for (std::string file : files) {
-      ParseFileName(file, &number, &type);
-      if (type == kLogFile) {
-        env->GetFileSize(options.wal_dir + "/" + file, &file_size);
-        char str[8];
-        snprintf(str, sizeof(str), "%lu", file_size);
-        wal_info.append(file).append(" size: ").
-            append(str, sizeof(str)).append(" ;");
+      if (ParseFileName(file, &number, &type)) {
+        if (type == kLogFile) {
+          env->GetFileSize(options.wal_dir + "/" + file, &file_size);
+          char str[8];
+          snprintf(str, sizeof(str), "%lu", file_size);
+          wal_info.append(file).append(" size: ").
+              append(str, sizeof(str)).append(" ;");
+        }
       }
     }
   }
