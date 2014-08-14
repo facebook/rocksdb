@@ -366,10 +366,11 @@ class DB {
                         target_level, target_path_id);
   }
 
-  // Compact the specified files.  Files are specified via their file numbers.
-  // 
-  // Different from ScheduleCompactFiles, the compaction
-  // will be done in the CALLER's CURRENT thread.  To schedule a compaction job in
+  // Compact the specified files.  Files are specified via their file
+  // numbers.
+  //
+  // Different from ScheduleCompactFiles, the compaction will be done
+  // in the CALLER's CURRENT thread.  To schedule a compaction job in
   // background, ScheduleCompactFiles should be used.
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
@@ -382,9 +383,9 @@ class DB {
   // specified via their file numbers.
   //
   // If the returned value indicates Status::OK(), then "job_id" will be
-  // filled.  When the scheduled compaction job is completed (either finished
-  // or aborted), it will notify all the registerred EventListener via
-  // OnBackgroundCompactFilesCompleted() with "job_id" and its status.
+  // filled.  When the scheduled compaction job is completed (either
+  // finished or aborted), it will notify all the registerred EventListener
+  // via OnBackgroundCompactFilesCompleted() with "job_id" and its status.
   //
   // If developers would like to use their own thread to do compaction,
   // then CompactFiles() should be used.
@@ -503,7 +504,7 @@ class DB {
 
   // Returns the meta data of database describing the current state of the DB.
   virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) {}
-  
+
   // Adds the specified listener to hear special events of the current DB.
   //
   // Note that it is the caller's responsibility to properly manage

@@ -10,10 +10,11 @@
 #define STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
 
 #include <stddef.h>
+#include <stdint.h>
 #include <string>
 #include <memory>
 #include <vector>
-#include <stdint.h>
+#include <limits>
 
 #include "rocksdb/version.h"
 #include "rocksdb/compactor.h"
