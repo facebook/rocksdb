@@ -391,6 +391,12 @@ DBImpl::~DBImpl() {
     bg_cv_.Wait();
   }
 
+  // Clear event listeners
+  {
+    MutexLock l(&listener_mutex_);
+    listeners_.clear();
+  }
+
   if (default_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
     mutex_.Unlock();
@@ -1725,7 +1731,12 @@ Status DBImpl::CompactFiles(
     const int output_level, const int output_path_id) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+
   MutexLock l(&mutex_);
+  if (shutting_down_.Acquire_Load()) {
+    return Status::ShutdownInProgress();
+  }
+
   auto version = cfd->current();
   version->Ref();
 
@@ -1734,7 +1745,6 @@ Status DBImpl::CompactFiles(
   Status s = GetCompactionInputsFromFileNumbers(
       input_file_numbers, version, compact_options, &input_files);
   if (!s.ok()) {
-    version->Unref();
     return s;
   }
 
@@ -1748,6 +1758,7 @@ Status DBImpl::CompactFiles(
           output_level, version, &adjusted, &s));
     if (!s.ok()) {
       version->Unref();
+      assert(c == nullptr);
       return s;
     }
     if (adjusted) {
@@ -1768,15 +1779,28 @@ Status DBImpl::CompactFiles(
     c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
   }
 
+  bg_compaction_scheduled_++;
+
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, options_.info_log.get());
   DeletionState deletion_state(true);
   CompactionState* compact = new CompactionState(c.get());
+  // May unlock and lock inside DoCompactionWork
   Status status = DoCompactionWork(compact, deletion_state, &log_buffer);
 
   CleanupCompaction(compact, status);
   c->ReleaseCompactionFiles(status);
   c->ReleaseInputs();
+  bg_compaction_scheduled_--;
   version->Unref();
+  if (bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
+    // signal if
+    // * madeProgress -- need to wakeup MakeRoomForWrite
+    // * bg_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
+    // * bg_manual_only_ > 0 -- need to wakeup RunManualCompaction
+    // If none of this is true, there is no need to signal since nobody is
+    // waiting for it
+    bg_cv_.SignalAll();
+  }
   return status;
 }
 
@@ -1810,14 +1834,17 @@ void DBImpl::BGWorkCompactFiles(void* job) {
       compact_job->input_file_numbers,
       compact_job->output_level,
       compact_job->output_path_id);
-  compact_job->db->NotifyOnBackgroundCompactFilesCompleted(
-      compact_job->id, s);
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(compact_job->db);
+  db_impl->NotifyOnBackgroundCompactFilesCompleted(compact_job->id, s);
   delete compact_job;
 }
 
 void DBImpl::NotifyOnBackgroundCompactFilesCompleted(
     const std::string& job_id, const Status& s) {
   MutexLock l(&listener_mutex_);
+  if (shutting_down_.Acquire_Load()) {
+    return;
+  }
 
   for (auto listener : listeners_) {
     // make defensive string copy here for job_id
@@ -4810,6 +4837,9 @@ void DBImpl::GetDatabaseMetaData(DatabaseMetaData* db_meta) {
 
 Status DBImpl::AddListener(EventListener* listener) {
   MutexLock l(&listener_mutex_);
+  if (shutting_down_.Acquire_Load()) {
+    return Status::ShutdownInProgress();
+  }
   auto iter = std::find(listeners_.begin(), listeners_.end(), listener);
   if (iter != listeners_.end()) {
     return Status::InvalidArgument(
@@ -4821,6 +4851,9 @@ Status DBImpl::AddListener(EventListener* listener) {
 
 Status DBImpl::RemoveListener(EventListener* listener) {
   MutexLock l(&listener_mutex_);
+  if (shutting_down_.Acquire_Load()) {
+    return Status::ShutdownInProgress();
+  }
   listeners_.remove(listener);
   return Status::OK();
 }
@@ -4828,6 +4861,9 @@ Status DBImpl::RemoveListener(EventListener* listener) {
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, uint64_t file_number) {
   MutexLock l(&listener_mutex_);
+  if (shutting_down_.Acquire_Load()) {
+    return;
+  }
   bool triggered_flush_slowdown =
       (cfd->current()->NumLevelFiles(0) >=
        cfd->options()->level0_slowdown_writes_trigger);

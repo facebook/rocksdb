@@ -49,6 +49,10 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
 
 uint32_t ColumnFamilyHandleImpl::GetID() const { return cfd()->GetID(); }
 
+const std::string& ColumnFamilyHandleImpl::GetName() const {
+  return cfd()->GetName();
+}
+
 ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
                                     const InternalFilterPolicy* ipolicy,
                                     const ColumnFamilyOptions& src) {

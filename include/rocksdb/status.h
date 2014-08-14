@@ -61,6 +61,9 @@ class Status {
   static Status Incomplete(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIncomplete, msg, msg2);
   }
+  static Status ShutdownInProgress() {
+    return Status(kShutdownInProgress);
+  }
   static Status ShutdownInProgress(const Slice& msg,
                                    const Slice& msg2 = Slice()) {
     return Status(kShutdownInProgress, msg, msg2);

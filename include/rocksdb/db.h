@@ -42,6 +42,7 @@ using std::unique_ptr;
 class ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
+  virtual const std::string& GetName() const = 0;
 };
 extern const std::string kDefaultColumnFamilyName;
 
@@ -70,6 +71,18 @@ struct LiveFileMetaData {
   SequenceNumber smallest_seqno; // smallest seqno in file
   SequenceNumber largest_seqno;  // largest seqno in file
 };
+
+// A structure that describes a compaction job.
+struct CompactionJob {
+  DB* db;
+  ColumnFamilyHandle* cf_handle;
+  int output_level;
+  int output_path_id;
+  std::vector<uint64_t> input_file_numbers;
+  CompactionOptions compact_options;
+  std::string id;
+};
+
 
 // Abstract handle to particular state of a DB.
 // A Snapshot is an immutable object and can therefore be safely
@@ -377,6 +390,15 @@ class DB {
       ColumnFamilyHandle* column_family,
       const std::vector<uint64_t>& input_file_numbers,
       const int output_level, const int output_path_id = -1) = 0;
+
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) {
+    return CompactFiles(compact_options, DefaultColumnFamily(),
+                        input_file_numbers, output_level, output_path_id);
+  }
+
 
   // Schedule a background compaction job which will compact the specified
   // files in a background thread provided by RocksDB internal.  Files are

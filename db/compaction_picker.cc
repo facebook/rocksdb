@@ -413,15 +413,28 @@ Compaction* CompactionPicker::FormCompaction(
       Version* version,
       bool* adjusted,
       Status* status) const {
+  *status = Status::OK();
+  for (auto cinputs : input_files) {
+    for (auto file_meta : cinputs.files) {
+      if (file_meta->being_compacted) {
+        *status = Status::Aborted("Some files are currently being compacted.");
+      }
+    }
+  }
+  if (!status->ok()) {
+    return nullptr;
+  }
+
   uint64_t max_grandparent_overlap_bytes =
       output_level + 1 < NumberLevels() ?
           MaxGrandParentOverlapBytes(output_level + 1) :
           std::numeric_limits<uint64_t>::max();
-  *status = Status::OK();
   assert(input_files.size());
-  return new Compaction(version, input_files,
+  auto c = new Compaction(version, input_files,
       input_files[0].level, output_level,
       max_grandparent_overlap_bytes, compact_options);
+  c->MarkFilesBeingCompacted(true);
+  return c;
 }
 
 Compaction* LevelCompactionPicker::PickCompaction(Version* version,

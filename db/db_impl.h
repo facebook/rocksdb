@@ -417,16 +417,6 @@ class DBImpl : public DB {
   void RecordFlushIOStats();
   void RecordCompactionIOStats();
 
-  struct CompactionJob {
-    DBImpl* db;
-    ColumnFamilyHandle* cf_handle;
-    std::vector<uint64_t> input_file_numbers;
-    int output_level;
-    int output_path_id;
-    CompactionOptions compact_options;
-    std::string id;
-  };
-
   Status GetCompactionInputsFromFileNumbers(
     const std::vector<uint64_t>& input_file_numbers,
     const Version* version, const CompactionOptions& compact_options,

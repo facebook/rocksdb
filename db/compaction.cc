@@ -79,8 +79,21 @@ Compaction::Compaction(Version* input_version,
       max_output_file_size_(options.output_file_size_limit),
       max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
       input_version_(input_version),
+      number_levels_(input_version_->NumberLevels()),
       cfd_(input_version_->cfd_),
-      inputs_(inputs) {
+      inputs_(inputs),
+      grandparent_index_(0),
+      seen_key_(false),
+      overlapped_bytes_(0),
+      base_index_(-1),
+      parent_index_(-1),
+      score_(0),
+      bottommost_level_(false),
+      is_full_compaction_(false),
+      is_manual_compaction_(false),
+      level_ptrs_(std::vector<size_t>(number_levels_)) {
+  cfd_->Ref();
+  input_version_->Ref();
   edit_ = new VersionEdit();
   edit_->SetColumnFamily(cfd_->GetID());
   for (int i = 0; i < number_levels_; i++) {
