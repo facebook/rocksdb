@@ -40,7 +40,26 @@ void Java_org_rocksdb_BackupableDB_open(
  */
 void Java_org_rocksdb_BackupableDB_createNewBackup(
     JNIEnv* env, jobject jbdb, jlong jhandle, jboolean jflag) {
-  reinterpret_cast<rocksdb::BackupableDB*>(jhandle)->CreateNewBackup(jflag);
+  rocksdb::Status s =
+      reinterpret_cast<rocksdb::BackupableDB*>(jhandle)->CreateNewBackup(jflag);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDB
+ * Method:    purgeOldBackups
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_BackupableDB_purgeOldBackups(
+    JNIEnv* env, jobject jbdb, jlong jhandle, jboolean jnumBackupsToKeep) {
+  rocksdb::Status s =
+      reinterpret_cast<rocksdb::BackupableDB*>(jhandle)->
+      PurgeOldBackups(jnumBackupsToKeep);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////
