@@ -86,10 +86,12 @@ struct SstFileMetaData {
                   SequenceNumber smallest_seqno,
                   SequenceNumber largest_seqno,
                   const std::string& smallestkey,
-                  const std::string& largestkey) :
+                  const std::string& largestkey,
+                  bool being_compacted) :
     file_number(file_number), size(size), compensated_size(size),
     path(path), smallest_seqno(smallest_seqno), largest_seqno(largest_seqno),
-    smallestkey(smallestkey), largestkey(largestkey) {}
+    smallestkey(smallestkey), largestkey(largestkey),
+    being_compacted(being_compacted) {}
 
   // The number that can uniquely identify the current file inside same DB.
   const uint64_t file_number;
@@ -105,6 +107,7 @@ struct SstFileMetaData {
   const SequenceNumber largest_seqno;   // Largest sequence number in file.
   const std::string smallestkey;     // Smallest user defined key in the file.
   const std::string largestkey;      // Largest user defined key in the file.
+  bool being_compacted;  // true if the file is currently being compacted.
 };
 
 }  // namespace rocksdb

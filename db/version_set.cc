@@ -3021,7 +3021,8 @@ void VersionSet::GetDatabaseMetaData(
             file->smallest_seqno,
             file->largest_seqno,
             file->smallest.user_key().ToString(),
-            file->largest.user_key().ToString());
+            file->largest.user_key().ToString(),
+            file->being_compacted);
         level_size += file->fd.GetFileSize();
         level_csize += file->compensated_file_size;
       }
