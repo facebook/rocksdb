@@ -138,7 +138,7 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
     const BlockBasedTableOptions& table_opt,
-    const Slice& contents, bool delete_contents_after_use)
+    const Slice& contents)
     : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
       whole_key_filtering_(table_opt.whole_key_filtering),
@@ -155,9 +155,14 @@ BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
   data_ = contents.data();
   offset_ = data_ + last_word;
   num_ = (n - 5 - last_word) / 4;
-  if (delete_contents_after_use) {
-    filter_data.reset(contents.data());
-  }
+}
+
+BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
+    const SliceTransform* prefix_extractor,
+    const BlockBasedTableOptions& table_opt,
+    BlockContents &&contents)
+    : BlockBasedFilterBlockReader (prefix_extractor, table_opt, contents.data) {
+  contents_ = std::move(contents);
 }
 
 bool BlockBasedFilterBlockReader::KeyMayMatch(const Slice& key,

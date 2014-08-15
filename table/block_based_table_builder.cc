@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "db/dbformat.h"
 
@@ -634,18 +635,13 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     Cache::Handle* cache_handle = nullptr;
     size_t size = block_contents.size();
 
-    char* ubuf = new char[size + 1];  // make a new copy
-    memcpy(ubuf, block_contents.data(), size);
+    std::unique_ptr<char[]> ubuf(new char[size+1]);
+    memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 
-    BlockContents results;
-    Slice sl(ubuf, size);
-    results.data = sl;
-    results.cachable = true; // XXX
-    results.heap_allocated = true;
-    results.compression_type = type;
+    BlockContents results(std::move(ubuf), size, true, type);
 
-    Block* block = new Block(results);
+    Block* block = new Block(std::move(results));
 
     // make cache key by appending the file offset to the cache prefix id
     char* end = EncodeVarint64(

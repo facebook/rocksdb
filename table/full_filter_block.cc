@@ -56,16 +56,21 @@ FullFilterBlockReader::FullFilterBlockReader(
     const SliceTransform* prefix_extractor,
     const BlockBasedTableOptions& table_opt,
     const Slice& contents,
-    FilterBitsReader* filter_bits_reader, bool delete_contents_after_use)
+    FilterBitsReader* filter_bits_reader)
     : prefix_extractor_(prefix_extractor),
       whole_key_filtering_(table_opt.whole_key_filtering),
       contents_(contents) {
   assert(filter_bits_reader != nullptr);
   filter_bits_reader_.reset(filter_bits_reader);
+}
 
-  if (delete_contents_after_use) {
-    filter_data_.reset(contents.data());
-  }
+FullFilterBlockReader::FullFilterBlockReader(
+    const SliceTransform* prefix_extractor,
+    const BlockBasedTableOptions& table_opt,
+    BlockContents&& contents,
+    FilterBitsReader* filter_bits_reader)
+    : FullFilterBlockReader(prefix_extractor, table_opt, contents.data, filter_bits_reader) {
+  block_contents_ = std::move(contents);
 }
 
 bool FullFilterBlockReader::KeyMayMatch(const Slice& key,

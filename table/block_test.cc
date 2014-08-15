@@ -92,8 +92,7 @@ TEST(BlockTest, SimpleTest) {
   BlockContents contents;
   contents.data = rawblock;
   contents.cachable = false;
-  contents.heap_allocated = false;
-  Block reader(contents);
+  Block reader(std::move(contents));
 
   // read contents of block sequentially
   int count = 0;
@@ -143,12 +142,11 @@ BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
   BlockContents contents;
   contents.data = rawblock;
   contents.cachable = false;
-  contents.heap_allocated = false;
 
   return contents;
 }
 
-void CheckBlockContents(BlockContents contents, const int max_key,
+void CheckBlockContents(const BlockContents &contents, const int max_key,
                         const std::vector<std::string> &keys,
                         const std::vector<std::string> &values) {
   const size_t prefix_size = 6;
