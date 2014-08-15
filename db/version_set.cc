@@ -879,12 +879,16 @@ void Version::PrepareApply(std::vector<uint64_t>& size_being_compacted) {
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
-  if (file_meta->num_entries > 0) {
+  if (file_meta->init_stats_from_file) {
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
   Status s = GetTableProperties(&tp, file_meta);
+  file_meta->init_stats_from_file = true;
   if (!s.ok()) {
+    Log(vset_->options_->info_log,
+        "Unable to load table properties for file %" PRIu64 " --- %s\n",
+        file_meta->fd.GetNumber(), s.ToString().c_str());
     return false;
   }
   if (tp.get() == nullptr) return false;

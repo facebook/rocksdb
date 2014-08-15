@@ -253,8 +253,7 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
     s = ReadProperties(meta_iter->value(), file, footer, env, info_log,
                        properties);
   } else {
-    s = Status::Corruption("Unable to read the property block.");
-    Log(WARN_LEVEL, info_log, "Cannot find Properties block from file.");
+    s = Status::NotFound();
   }
 
   return s;

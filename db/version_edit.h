@@ -81,6 +81,8 @@ struct FileMetaData {
   uint64_t num_deletions;          // the number of deletion entries.
   uint64_t raw_key_size;           // total uncompressed key size.
   uint64_t raw_value_size;         // total uncompressed value size.
+  bool init_stats_from_file;   // true if the data-entry stats of this file
+                               // has initialized from file.
 
   FileMetaData()
       : refs(0),
@@ -90,7 +92,8 @@ struct FileMetaData {
         num_entries(0),
         num_deletions(0),
         raw_key_size(0),
-        raw_value_size(0) {}
+        raw_value_size(0),
+        init_stats_from_file(false) {}
 };
 
 // A compressed copy of file meta data that just contain
