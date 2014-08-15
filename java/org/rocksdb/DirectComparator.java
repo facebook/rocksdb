@@ -16,10 +16,10 @@ package org.rocksdb;
  */
 public abstract class DirectComparator extends AbstractComparator<DirectSlice> {
 
-  public DirectComparator() {
+  public DirectComparator(final ComparatorOptions copt) {
     super();
-    createNewDirectComparator0();
+    createNewDirectComparator0(copt.nativeHandle_);
   }
 
-  private native void createNewDirectComparator0();
+  private native void createNewDirectComparator0(final long comparatorOptionsHandle);
 }

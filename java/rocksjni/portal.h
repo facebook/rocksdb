@@ -363,6 +363,33 @@ class ColumnFamilyHandleJni {
   }
 };
 
+class ComparatorOptionsJni {
+  public:
+    // Get the java class id of org.rocksdb.ComparatorOptions.
+    static jclass getJClass(JNIEnv* env) {
+      jclass jclazz = env->FindClass("org/rocksdb/ComparatorOptions");
+      assert(jclazz != nullptr);
+      return jclazz;
+    }
+
+    // Get the field id of the member variable of org.rocksdb.ComparatorOptions
+    // that stores the pointer to rocksdb::ComparatorJniCallbackOptions.
+    static jfieldID getHandleFieldID(JNIEnv* env) {
+      static jfieldID fid = env->GetFieldID(
+          getJClass(env), "nativeHandle_", "J");
+      assert(fid != nullptr);
+      return fid;
+    }
+
+    // Pass the ComparatorJniCallbackOptions pointer to the java side.
+    static void setHandle(
+        JNIEnv* env, jobject jobj, const rocksdb::ComparatorJniCallbackOptions* op) {
+      env->SetLongField(
+          jobj, getHandleFieldID(env),
+          reinterpret_cast<jlong>(op));
+    }
+};
+
 class AbstractComparatorJni {
  public:
   // Get the java class id of org.rocksdb.Comparator.

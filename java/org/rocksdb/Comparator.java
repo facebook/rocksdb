@@ -16,10 +16,10 @@ package org.rocksdb;
  */
 public abstract class Comparator extends AbstractComparator<Slice> {
 
-  public Comparator() {
+  public Comparator(final ComparatorOptions copt) {
     super();
-    createNewComparator0();
+    createNewComparator0(copt.nativeHandle_);
   }
 
-  private native void createNewComparator0();
+  private native void createNewComparator0(final long comparatorOptionsHandle);
 }

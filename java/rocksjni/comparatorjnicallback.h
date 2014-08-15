@@ -12,11 +12,39 @@
 #include <jni.h>
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
+#include "port/port.h"
 
 namespace rocksdb {
+
+struct ComparatorJniCallbackOptions {
+  // Use adaptive mutex, which spins in the user space before resorting
+  // to kernel. This could reduce context switch when the mutex is not
+  // heavily contended. However, if the mutex is hot, we could end up
+  // wasting spin time.
+  // Default: false
+  bool use_adaptive_mutex;
+
+  ComparatorJniCallbackOptions() : use_adaptive_mutex(false) {
+  }
+};
+
+/**
+ * This class acts as a bridge between C++
+ * and Java. The methods in this class will be
+ * called back from the RocksDB storage engine (C++)
+ * we then callback to the appropriate Java method
+ * this enables Comparators to be implemented in Java.
+ *
+ * The design of this Comparator caches the Java Slice
+ * objects that are used in the compare and findShortestSeparator
+ * method callbacks. Instead of creating new objects for each callback
+ * of those functions, by reuse via setHandle we are a lot
+ * faster; Unfortunately this means that we have to
+ * introduce locking in regions of those methods via mutex_.
+ */
 class BaseComparatorJniCallback : public Comparator {
   public:
-    BaseComparatorJniCallback(JNIEnv* env, jobject jComparator);
+    BaseComparatorJniCallback(JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt);
     virtual ~BaseComparatorJniCallback();
     virtual const char* Name() const;
     virtual int Compare(const Slice& a, const Slice& b) const;
@@ -24,6 +52,7 @@ class BaseComparatorJniCallback : public Comparator {
     virtual void FindShortSuccessor(std::string* key) const;
 
   private:
+    port::Mutex* mutex_;
     JavaVM* m_jvm;
     jobject m_jComparator;
     std::string m_name;
@@ -40,12 +69,12 @@ class BaseComparatorJniCallback : public Comparator {
 
 class ComparatorJniCallback : public BaseComparatorJniCallback {
     public:
-      ComparatorJniCallback(JNIEnv* env, jobject jComparator);
+      ComparatorJniCallback(JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt);
 };
 
 class DirectComparatorJniCallback : public BaseComparatorJniCallback {
     public:
-      DirectComparatorJniCallback(JNIEnv* env, jobject jComparator);
+      DirectComparatorJniCallback(JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt);
 };
 }  // namespace rocksdb
 

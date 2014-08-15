@@ -11,7 +11,11 @@
 
 namespace rocksdb {
 BaseComparatorJniCallback::BaseComparatorJniCallback(
-    JNIEnv* env, jobject jComparator) {
+    JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt) {
+
+  //mutex is used for synchronisation when we are re-using
+  //the global java slice objects
+  mutex_ = new port::Mutex(copt->use_adaptive_mutex);
 
   // Note: Comparator methods may be accessed by multiple threads,
   // so we ref the jvm not the env
@@ -51,10 +55,13 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 
   JNIEnv* m_env = getJniEnv();
 
+  mutex_->Lock();
+
   AbstractSliceJni::setHandle(m_env, m_jSliceA, &a);
   AbstractSliceJni::setHandle(m_env, m_jSliceB, &b);
-
   jint result = m_env->CallIntMethod(m_jComparator, m_jCompareMethodId, m_jSliceA, m_jSliceB);
+
+  mutex_->Unlock();
 
   m_jvm->DetachCurrentThread();
 
@@ -72,9 +79,12 @@ void BaseComparatorJniCallback::FindShortestSeparator(std::string* start, const 
   const char* startUtf = start->c_str();
   jstring jsStart = m_env->NewStringUTF(startUtf);
 
-  AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit);
+  mutex_->Lock();
 
+  AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit);
   jstring jsResultStart = (jstring)m_env->CallObjectMethod(m_jComparator, m_jFindShortestSeparatorMethodId, jsStart, m_jSliceLimit);
+
+  mutex_->Unlock();
 
   m_env->DeleteLocalRef(jsStart);
 
@@ -110,13 +120,6 @@ void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
 }
 
 BaseComparatorJniCallback::~BaseComparatorJniCallback() {
-
-  // NOTE: we do not need to delete m_name here,
-  // I am not yet sure why, but doing so causes the error:
-  //   java(13051,0x109f54000) malloc: *** error for object 0x109f52fa9: pointer being freed was not allocated
-  //   *** set a breakpoint in malloc_error_break to debug
-  //delete[] m_name;
-
   JNIEnv* m_env = getJniEnv();
   
   m_env->DeleteGlobalRef(m_jComparator);
@@ -131,7 +134,7 @@ BaseComparatorJniCallback::~BaseComparatorJniCallback() {
 }
 
 ComparatorJniCallback::ComparatorJniCallback(
-    JNIEnv* env, jobject jComparator) : BaseComparatorJniCallback(env, jComparator) {
+    JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt) : BaseComparatorJniCallback(env, jComparator, copt) {
 
   m_jSliceA = env->NewGlobalRef(SliceJni::construct0(env));
   m_jSliceB = env->NewGlobalRef(SliceJni::construct0(env));
@@ -139,7 +142,7 @@ ComparatorJniCallback::ComparatorJniCallback(
 }
 
 DirectComparatorJniCallback::DirectComparatorJniCallback(
-    JNIEnv* env, jobject jComparator) : BaseComparatorJniCallback(env, jComparator) {
+    JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt) : BaseComparatorJniCallback(env, jComparator, copt) {
 
   m_jSliceA = env->NewGlobalRef(DirectSliceJni::construct0(env));
   m_jSliceB = env->NewGlobalRef(DirectSliceJni::construct0(env));
