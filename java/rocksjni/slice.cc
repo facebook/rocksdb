@@ -130,16 +130,19 @@ void Java_org_rocksdb_Slice_createNewSlice0(
 void Java_org_rocksdb_Slice_createNewSlice1(
     JNIEnv * env, jobject jobj, jbyteArray data) {
 
+  const int len = env->GetArrayLength(data);
+
   jboolean isCopy;
   jbyte* ptrData = env->GetByteArrayElements(data, &isCopy);
+  const char* buf = new char[len];
+  memcpy((void*)buf, ptrData, len);
 
-  const rocksdb::Slice* slice = new rocksdb::Slice((const char*)ptrData, env->GetArrayLength(data));
+  const rocksdb::Slice* slice = new rocksdb::Slice(buf, env->GetArrayLength(data));
   rocksdb::AbstractSliceJni::setHandle(env, jobj, slice);
 
-  env->ReleaseByteArrayElements(data, ptrData, JNI_COMMIT);
+  env->ReleaseByteArrayElements(data, ptrData, JNI_ABORT);
 
-  //TODO where do we free ptrData later?
-  //do we need to call env->ReleaseByteArrayElements(data, ptrData, JNI_ABORT) in the org.rocksdb.Slice#dispose() method?
+  //NOTE: buf will be deleted in the org.rocksdb.Slice#dispose method
 }
 
 /*
@@ -154,6 +157,17 @@ jbyteArray Java_org_rocksdb_Slice_data0(
   const jbyteArray data = env->NewByteArray(len);
   env->SetByteArrayRegion(data, 0, len, (jbyte*)slice->data());
   return data;
+}
+
+/*
+ * Class:     org_rocksdb_Slice
+ * Method:    disposeInternalBuf
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_Slice_disposeInternalBuf(
+    JNIEnv * env, jobject jobj, jlong handle) {
+    const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+    delete [] slice->data_;
 }
 
 //</editor-fold>
