@@ -318,6 +318,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   Log(log, "              Options.comparator: %s", comparator->Name());
   Log(log, "          Options.merge_operator: %s",
       merge_operator ? merge_operator->Name() : "None");
+  Log(log, "       Options.compaction_filter: %s",
+      compaction_filter ? compaction_filter->Name() : "None");
   Log(log, "       Options.compaction_filter_factory: %s",
       compaction_filter_factory->Name());
   Log(log, "       Options.compaction_filter_factory_v2: %s",

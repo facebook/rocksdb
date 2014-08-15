@@ -61,7 +61,11 @@ extern std::string MakeTableFileName(const std::string& name, uint64_t number);
 extern std::string TableFileName(const std::vector<DbPath>& db_paths,
                                  uint64_t number, uint32_t path_id);
 
-extern std::string FormatFileNumber(uint64_t number, uint32_t path_id);
+// Sufficient buffer size for FormatFileNumber.
+extern const size_t kFormatFileNumberBufSize;
+
+extern void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
+                             size_t out_buf_size);
 
 // Return the name of the descriptor file for the db named by
 // "dbname" and the specified incarnation number.  The result will be
@@ -81,6 +85,16 @@ extern std::string LockFileName(const std::string& dbname);
 // Return the name of a temporary file owned by the db named "dbname".
 // The result will be prefixed with "dbname".
 extern std::string TempFileName(const std::string& dbname, uint64_t number);
+
+// A helper structure for prefix of info log names.
+struct InfoLogPrefix {
+  char buf[260];
+  Slice prefix;
+  // Prefix with DB absolute path encoded
+  explicit InfoLogPrefix(bool has_log_dir, const std::string& db_absolute_path);
+  // Default Prefix
+  explicit InfoLogPrefix();
+};
 
 // Return the name of the info log file for "dbname".
 extern std::string InfoLogFileName(const std::string& dbname,
@@ -103,10 +117,13 @@ extern std::string IdentityFileName(const std::string& dbname);
 // If filename is a rocksdb file, store the type of the file in *type.
 // The number encoded in the filename is stored in *number.  If the
 // filename was successfully parsed, returns true.  Else return false.
-extern bool ParseFileName(const std::string& filename,
-                          uint64_t* number,
-                          FileType* type,
+// info_log_name_prefix is the path of info logs.
+extern bool ParseFileName(const std::string& filename, uint64_t* number,
+                          const Slice& info_log_name_prefix, FileType* type,
                           WalFileType* log_type = nullptr);
+// Same as previous function, but skip info log files.
+extern bool ParseFileName(const std::string& filename, uint64_t* number,
+                          FileType* type, WalFileType* log_type = nullptr);
 
 // Make the CURRENT file point to the descriptor file with the
 // specified number.

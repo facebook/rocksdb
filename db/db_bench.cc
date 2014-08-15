@@ -507,6 +507,8 @@ DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
 DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
              "per prefix, 0 means no special handling of the prefix, "
              "i.e. use the prefix comes with the generated random number.");
+DEFINE_bool(enable_io_prio, false, "Lower the background flush/compaction "
+            "threads' IO priority");
 
 enum RepFactory {
   kSkipList,
@@ -1639,6 +1641,10 @@ class Benchmark {
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_open_files = FLAGS_open_files;
     options.statistics = dbstats;
+    if (FLAGS_enable_io_prio) {
+      FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
+      FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
+    }
     options.env = FLAGS_env;
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;

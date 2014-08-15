@@ -201,7 +201,7 @@ class Env {
   // Priority for scheduling job in thread pool
   enum Priority { LOW, HIGH, TOTAL };
 
-  // Priority for scheduling job in thread pool
+  // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {
     IO_LOW = 0,
     IO_HIGH = 1,
@@ -271,6 +271,9 @@ class Env {
   // for this environment. 'LOW' is the default pool.
   // default number: 1
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
+
+  // Lower IO priority for threads from the specified pool.
+  virtual void LowerThreadPoolIOPriority(Priority pool = LOW) {}
 
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
@@ -778,6 +781,9 @@ class EnvWrapper : public Env {
   }
   void SetBackgroundThreads(int num, Priority pri) {
     return target_->SetBackgroundThreads(num, pri);
+  }
+  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+    target_->LowerThreadPoolIOPriority(pool);
   }
   std::string TimeToString(uint64_t time) {
     return target_->TimeToString(time);

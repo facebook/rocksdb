@@ -67,26 +67,26 @@ class autovector {
     iterator_impl& operator=(const iterator_impl&) = default;
 
     // -- Advancement
-    // iterator++
+    // ++iterator
     self_type& operator++() {
       ++index_;
       return *this;
     }
 
-    // ++iterator
+    // iterator++
     self_type operator++(int) {
       auto old = *this;
       ++index_;
       return old;
     }
 
-    // iterator--
+    // --iterator
     self_type& operator--() {
       --index_;
       return *this;
     }
 
-    // --iterator
+    // iterator--
     self_type operator--(int) {
       auto old = *this;
       --index_;

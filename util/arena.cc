@@ -76,17 +76,17 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   }
 }
 
-char* Arena::AllocateAligned(size_t bytes, size_t huage_page_size,
+char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
                              Logger* logger) {
   assert((kAlignUnit & (kAlignUnit - 1)) ==
          0);  // Pointer size should be a power of 2
 
 #ifdef MAP_HUGETLB
-  if (huage_page_size > 0 && bytes > 0) {
+  if (huge_page_size > 0 && bytes > 0) {
     // Allocate from a huge page TBL table.
     assert(logger != nullptr);  // logger need to be passed in.
     size_t reserved_size =
-        ((bytes - 1U) / huage_page_size + 1U) * huage_page_size;
+        ((bytes - 1U) / huge_page_size + 1U) * huge_page_size;
     assert(reserved_size >= bytes);
     void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
                       (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
