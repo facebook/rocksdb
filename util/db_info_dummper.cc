@@ -6,6 +6,8 @@
 // Must not be included from any .h files to avoid polluting the namespace
 // with macros.
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <stdio.h>
 #include <string>
 #include <algorithm>
@@ -50,13 +52,13 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
         break;
       case kDescriptorFile:
         env->GetFileSize(dbname + "/" + file, &file_size);
-        Log(options.info_log, "MANIFEST file:  %s size: %lu Bytes\n",
+        Log(options.info_log, "MANIFEST file:  %s size: %" PRIu64 " Bytes\n",
             file.c_str(), file_size);
         break;
       case kLogFile:
         env->GetFileSize(dbname + "/" + file, &file_size);
         char str[8];
-        snprintf(str, sizeof(str), "%lu", file_size);
+        snprintf(str, sizeof(str), "%" PRIu64, file_size);
         wal_info.append(file).append(" size: ").
             append(str, sizeof(str)).append(" ;");
         break;
@@ -87,7 +89,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
         }
       }
     }
-    Log(options.info_log, "SST files in %s dir, Total Num: %lu, files: %s\n",
+    Log(options.info_log, "SST files in %s dir, Total Num: %" PRIu64 ", files: %s\n",
         db_path.path.c_str(), file_num, file_info.c_str());
     file_num = 0;
     file_info.clear();
@@ -106,7 +108,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
         if (type == kLogFile) {
           env->GetFileSize(options.wal_dir + "/" + file, &file_size);
           char str[8];
-          snprintf(str, sizeof(str), "%lu", file_size);
+          snprintf(str, sizeof(str), "%" PRIu64, file_size);
           wal_info.append(file).append(" size: ").
               append(str, sizeof(str)).append(" ;");
         }

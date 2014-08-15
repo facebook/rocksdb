@@ -1587,6 +1587,8 @@ class PosixEnv : public Env {
                   IOPRIO_PRIO_VALUE(3, 0));
           low_io_priority = true;
         }
+#else
+        (void)decrease_io_priority; // avoid 'unused variable' error
 #endif
         (*function)(arg);
       }
