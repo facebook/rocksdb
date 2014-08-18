@@ -543,6 +543,8 @@ DEFINE_string(memtablerep, "skip_list", "");
 DEFINE_int64(hash_bucket_count, 1024 * 1024, "hash bucket count");
 DEFINE_bool(use_plain_table, false, "if use plain table "
             "instead of block-based table format");
+DEFINE_bool(use_cuckoo_table, false, "if use cuckoo table format");
+DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
             "instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
@@ -1705,6 +1707,13 @@ class Benchmark {
       plain_table_options.hash_table_ratio = 0.75;
       options.table_factory = std::shared_ptr<TableFactory>(
           NewPlainTableFactory(plain_table_options));
+    } else if (FLAGS_use_cuckoo_table) {
+      if (FLAGS_cuckoo_hash_ratio > 1 || FLAGS_cuckoo_hash_ratio < 0) {
+        fprintf(stderr, "Invalid cuckoo_hash_ratio\n");
+        exit(1);
+      }
+      options.table_factory = std::shared_ptr<TableFactory>(
+          NewCuckooTableFactory(FLAGS_cuckoo_hash_ratio));
     } else {
       BlockBasedTableOptions block_based_options;
       if (FLAGS_use_hash_search) {
