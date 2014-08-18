@@ -2,6 +2,12 @@
 
 ### Unreleased
 ### New Features
+
+### Public API changes
+
+
+## 3.4.0 (8/18/2014)
+### New Features
 * Support Multiple DB paths in universal style compactions
 * Add feature of storing plain table index and bloom filter in SST file.
 * CompactRange() will never output compacted files to level 0. This used to be the case when all the compaction input files were at level 0.
