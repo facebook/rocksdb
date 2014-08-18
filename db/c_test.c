@@ -613,7 +613,7 @@ int main(int argc, char** argv) {
         CFV2PrefixExtractorInDomain, CFV2PrefixExtractorInRange,
         CFV2PrefixExtractorName);
     factory = rocksdb_compactionfilterfactoryv2_create(
-        NULL, prefix_extractor, CompactionFilterFactoryV2Destroy,
+        prefix_extractor, prefix_extractor, CompactionFilterFactoryV2Destroy,
         CompactionFilterFactoryV2Create, CompactionFilterFactoryV2Name);
     // Create new database
     rocksdb_close(db);
