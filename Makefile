@@ -175,7 +175,7 @@ endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg
+	dbg rocksdbjavastatic rocksdbjava
 
 all: $(LIBRARY) $(PROGRAMS) $(TESTS)
 
@@ -479,6 +479,36 @@ ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDBJNILIB = librocksdbjni.jnilib
 JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
+
+
+rocksdbjavastatic:
+	#build zlib 
+	curl -O http://zlib.net/zlib-1.2.8.tar.gz
+	tar xvzf zlib-1.2.8.tar.gz
+	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
+	cp zlib-1.2.8/libz.a .
+	rm -rf zlib-1.2.8.tar.gz zlib-1.2.8
+	
+	#build bzip
+	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+	tar xvzf bzip2-1.0.6.tar.gz
+	cd bzip2-1.0.6 && make CFLAGS='-fPIC -Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64'
+	cp bzip2-1.0.6/libbz2.a .
+	rm -rf bzip2-1.0.6.tar.gz bzip2-1.0.6
+
+	#build snappy
+	curl -O https://snappy.googlecode.com/files/snappy-1.1.1.tar.gz
+	tar xvzf snappy-1.1.1.tar.gz
+	cd snappy-1.1.1 && ./configure --with-pic --enable-static 
+	cd snappy-1.1.1 && make
+	cp snappy-1.1.1/.libs/libsnappy.a .
+	rm -rf snappy-1.1.1 snappy-1.1.1.tar.gz
+	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j
+	cd java;$(MAKE) java;
+	rm -f ./java/$(ROCKSDBJNILIB)
+	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
+	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
+	
 
 rocksdbjava:
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32
