@@ -261,6 +261,29 @@ static void CompactionFilterV2Filter(
   }
 }
 
+// Custom prefix extractor for compaction filter V2 which extracts first 3 characters.
+static void CFV2PrefixExtractorDestroy(void* arg) { }
+static char* CFV2PrefixExtractorTransform(void* arg, const char* key, size_t length, size_t* dst_length) {
+  // Verify keys are maximum length 4; this verifies fix for a
+  // prior bug which was passing the RocksDB-encoded key with
+  // logical timestamp suffix instead of parsed user key.
+  if (length > 4) {
+    fprintf(stderr, "%s:%d: %s: key %s is not user key\n", __FILE__, __LINE__, phase, key);
+    abort();
+  }
+  *dst_length = length < 3 ? length : 3;
+  return (char*)key;
+}
+static unsigned char CFV2PrefixExtractorInDomain(void* state, const char* key, size_t length) {
+  return 1;
+}
+static unsigned char CFV2PrefixExtractorInRange(void* state, const char* key, size_t length) {
+  return 1;
+}
+static const char* CFV2PrefixExtractorName(void* state) {
+  return "TestCFV2PrefixExtractor";
+}
+
 // Custom compaction filter factory V2.
 static void CompactionFilterFactoryV2Destroy(void* arg) {
   rocksdb_slicetransform_destroy((rocksdb_slicetransform_t*)arg);
@@ -585,9 +608,12 @@ int main(int argc, char** argv) {
   {
     rocksdb_compactionfilterfactoryv2_t* factory;
     rocksdb_slicetransform_t* prefix_extractor;
-    prefix_extractor = rocksdb_slicetransform_create_fixed_prefix(3);
+    prefix_extractor = rocksdb_slicetransform_create(
+        NULL, CFV2PrefixExtractorDestroy, CFV2PrefixExtractorTransform,
+        CFV2PrefixExtractorInDomain, CFV2PrefixExtractorInRange,
+        CFV2PrefixExtractorName);
     factory = rocksdb_compactionfilterfactoryv2_create(
-        prefix_extractor, prefix_extractor, CompactionFilterFactoryV2Destroy,
+        NULL, prefix_extractor, CompactionFilterFactoryV2Destroy,
         CompactionFilterFactoryV2Create, CompactionFilterFactoryV2Name);
     // Create new database
     rocksdb_close(db);

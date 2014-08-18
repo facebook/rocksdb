@@ -3038,19 +3038,19 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       Slice key = backup_input->key();
       Slice value = backup_input->value();
 
-      const SliceTransform* transformer =
-          cfd->options()->compaction_filter_factory_v2->GetPrefixExtractor();
-      const auto key_prefix = transformer->Transform(key);
-      if (!prefix_initialized) {
-        compact->cur_prefix_ = key_prefix.ToString();
-        prefix_initialized = true;
-      }
       if (!ParseInternalKey(key, &ikey)) {
         // log error
         Log(options_.info_log, "[%s] Failed to parse key: %s",
             cfd->GetName().c_str(), key.ToString().c_str());
         continue;
       } else {
+        const SliceTransform* transformer =
+            cfd->options()->compaction_filter_factory_v2->GetPrefixExtractor();
+        const auto key_prefix = transformer->Transform(ikey.user_key);
+        if (!prefix_initialized) {
+          compact->cur_prefix_ = key_prefix.ToString();
+          prefix_initialized = true;
+        }
         // If the prefix remains the same, keep buffering
         if (key_prefix.compare(Slice(compact->cur_prefix_)) == 0) {
           // Apply the compaction filter V2 to all the kv pairs sharing
