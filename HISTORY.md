@@ -2,6 +2,7 @@
 
 ### Unreleased
 ### New Features
+* Add include/utilities/write_batch_with_index.h, providing a utilitiy class to query data out of WriteBatch when building it.
 
 ### Public API changes
 * The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.

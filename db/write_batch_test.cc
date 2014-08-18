@@ -15,6 +15,7 @@
 #include "db/write_batch_internal.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 
@@ -305,6 +306,88 @@ TEST(WriteBatchTest, ColumnFamiliesBatchTest) {
 
   TestHandler handler;
   batch.Iterate(&handler);
+  ASSERT_EQ(
+      "Put(foo, bar)"
+      "PutCF(2, twofoo, bar2)"
+      "PutCF(8, eightfoo, bar8)"
+      "DeleteCF(8, eightfoo)"
+      "MergeCF(3, threethree, 3three)"
+      "Put(foo, bar)"
+      "Merge(omom, nom)",
+      handler.seen);
+}
+
+TEST(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 20);
+  ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
+  batch.Put(&zero, Slice("foo"), Slice("bar"));
+  batch.Put(&two, Slice("twofoo"), Slice("bar2"));
+  batch.Put(&eight, Slice("eightfoo"), Slice("bar8"));
+  batch.Delete(&eight, Slice("eightfoo"));
+  batch.Merge(&three, Slice("threethree"), Slice("3three"));
+  batch.Put(&zero, Slice("foo"), Slice("bar"));
+  batch.Merge(Slice("omom"), Slice("nom"));
+
+  std::unique_ptr<WBWIIterator> iter;
+
+  iter.reset(batch.NewIterator(&eight));
+  iter->Seek("eightfoo");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(WriteType::kPutRecord, iter->Entry().type);
+  ASSERT_EQ("eightfoo", iter->Entry().key.ToString());
+  ASSERT_EQ("bar8", iter->Entry().value.ToString());
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(WriteType::kDeleteRecord, iter->Entry().type);
+  ASSERT_EQ("eightfoo", iter->Entry().key.ToString());
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+
+  iter.reset(batch.NewIterator());
+  iter->Seek("gggg");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(WriteType::kMergeRecord, iter->Entry().type);
+  ASSERT_EQ("omom", iter->Entry().key.ToString());
+  ASSERT_EQ("nom", iter->Entry().value.ToString());
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+
+  iter.reset(batch.NewIterator(&zero));
+  iter->Seek("foo");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(WriteType::kPutRecord, iter->Entry().type);
+  ASSERT_EQ("foo", iter->Entry().key.ToString());
+  ASSERT_EQ("bar", iter->Entry().value.ToString());
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(WriteType::kPutRecord, iter->Entry().type);
+  ASSERT_EQ("foo", iter->Entry().key.ToString());
+  ASSERT_EQ("bar", iter->Entry().value.ToString());
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(WriteType::kMergeRecord, iter->Entry().type);
+  ASSERT_EQ("omom", iter->Entry().key.ToString());
+  ASSERT_EQ("nom", iter->Entry().value.ToString());
+
+  iter->Next();
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+
+  TestHandler handler;
+  batch.GetWriteBatch()->Iterate(&handler);
   ASSERT_EQ(
       "Put(foo, bar)"
       "PutCF(2, twofoo, bar2)"

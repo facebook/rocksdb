@@ -401,4 +401,12 @@ class InternalKeySliceTransform : public SliceTransform {
   const SliceTransform* const transform_;
 };
 
+// Read record from a write batch piece from input.
+// tag, column_family, key, value and blob are return values. Callers own the
+// Slice they point to.
+// Tag is defined as ValueType.
+// input will be advanced to after the record.
+extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
+                                       uint32_t* column_family, Slice* key,
+                                       Slice* value, Slice* blob);
 }  // namespace rocksdb

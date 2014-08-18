@@ -457,4 +457,6 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   ColumnFamilyHandleInternal handle_;
 };
 
+extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
+
 }  // namespace rocksdb

@@ -30,6 +30,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/hash.h"
@@ -6429,13 +6430,26 @@ static void MTThreadBody(void* arg) {
       // into each of the CFs
       // We add some padding for force compactions.
       int unique_id = rnd.Uniform(1000000);
-      WriteBatch batch;
-      for (int cf = 0; cf < kColumnFamilies; ++cf) {
-        snprintf(valbuf, sizeof(valbuf), "%d.%d.%d.%d.%-1000d", key, id,
-                 static_cast<int>(counter), cf, unique_id);
-        batch.Put(t->state->test->handles_[cf], Slice(keybuf), Slice(valbuf));
+
+      // Half of the time directly use WriteBatch. Half of the time use
+      // WriteBatchWithIndex.
+      if (rnd.OneIn(2)) {
+        WriteBatch batch;
+        for (int cf = 0; cf < kColumnFamilies; ++cf) {
+          snprintf(valbuf, sizeof(valbuf), "%d.%d.%d.%d.%-1000d", key, id,
+                   static_cast<int>(counter), cf, unique_id);
+          batch.Put(t->state->test->handles_[cf], Slice(keybuf), Slice(valbuf));
+        }
+        ASSERT_OK(db->Write(WriteOptions(), &batch));
+      } else {
+        WriteBatchWithIndex batch(db->GetOptions().comparator);
+        for (int cf = 0; cf < kColumnFamilies; ++cf) {
+          snprintf(valbuf, sizeof(valbuf), "%d.%d.%d.%d.%-1000d", key, id,
+                   static_cast<int>(counter), cf, unique_id);
+          batch.Put(t->state->test->handles_[cf], Slice(keybuf), Slice(valbuf));
+        }
+        ASSERT_OK(db->Write(WriteOptions(), batch.GetWriteBatch()));
       }
-      ASSERT_OK(db->Write(WriteOptions(), &batch));
     } else {
       // Read a value and verify that it matches the pattern written above
       // and that writes to all column families were atomic (unique_id is the

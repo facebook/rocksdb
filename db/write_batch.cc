@@ -27,6 +27,7 @@
 #include "rocksdb/merge_operator.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
+#include "db/column_family.h"
 #include "db/memtable.h"
 #include "db/snapshot.h"
 #include "db/write_batch_internal.h"
@@ -80,6 +81,58 @@ int WriteBatch::Count() const {
   return WriteBatchInternal::Count(this);
 }
 
+Status ReadRecordFromWriteBatch(Slice* input, char* tag,
+                                uint32_t* column_family, Slice* key,
+                                Slice* value, Slice* blob) {
+  assert(key != nullptr && value != nullptr);
+  *tag = (*input)[0];
+  input->remove_prefix(1);
+  *column_family = 0;  // default
+  switch (*tag) {
+    case kTypeColumnFamilyValue:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch Put");
+      }
+    // intentional fallthrough
+    case kTypeValue:
+      if (!GetLengthPrefixedSlice(input, key) ||
+          !GetLengthPrefixedSlice(input, value)) {
+        return Status::Corruption("bad WriteBatch Put");
+      }
+      break;
+    case kTypeColumnFamilyDeletion:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch Delete");
+      }
+    // intentional fallthrough
+    case kTypeDeletion:
+      if (!GetLengthPrefixedSlice(input, key)) {
+        return Status::Corruption("bad WriteBatch Delete");
+      }
+      break;
+    case kTypeColumnFamilyMerge:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch Merge");
+      }
+    // intentional fallthrough
+    case kTypeMerge:
+      if (!GetLengthPrefixedSlice(input, key) ||
+          !GetLengthPrefixedSlice(input, value)) {
+        return Status::Corruption("bad WriteBatch Merge");
+      }
+      break;
+    case kTypeLogData:
+      assert(blob != nullptr);
+      if (!GetLengthPrefixedSlice(input, blob)) {
+        return Status::Corruption("bad WriteBatch Blob");
+      }
+      break;
+    default:
+      return Status::Corruption("unknown WriteBatch tag");
+  }
+  return Status::OK();
+}
+
 Status WriteBatch::Iterate(Handler* handler) const {
   Slice input(rep_);
   if (input.size() < kHeader) {
@@ -91,57 +144,33 @@ Status WriteBatch::Iterate(Handler* handler) const {
   int found = 0;
   Status s;
   while (s.ok() && !input.empty() && handler->Continue()) {
-    char tag = input[0];
-    input.remove_prefix(1);
+    char tag = 0;
     uint32_t column_family = 0;  // default
+
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
+                                 &blob);
+    if (!s.ok()) {
+      return s;
+    }
+
     switch (tag) {
       case kTypeColumnFamilyValue:
-        if (!GetVarint32(&input, &column_family)) {
-          return Status::Corruption("bad WriteBatch Put");
-        }
-      // intentional fallthrough
       case kTypeValue:
-        if (GetLengthPrefixedSlice(&input, &key) &&
-            GetLengthPrefixedSlice(&input, &value)) {
-          s = handler->PutCF(column_family, key, value);
-          found++;
-        } else {
-          return Status::Corruption("bad WriteBatch Put");
-        }
+        s = handler->PutCF(column_family, key, value);
+        found++;
         break;
       case kTypeColumnFamilyDeletion:
-        if (!GetVarint32(&input, &column_family)) {
-          return Status::Corruption("bad WriteBatch Delete");
-        }
-      // intentional fallthrough
       case kTypeDeletion:
-        if (GetLengthPrefixedSlice(&input, &key)) {
-          s = handler->DeleteCF(column_family, key);
-          found++;
-        } else {
-          return Status::Corruption("bad WriteBatch Delete");
-        }
+        s = handler->DeleteCF(column_family, key);
+        found++;
         break;
       case kTypeColumnFamilyMerge:
-        if (!GetVarint32(&input, &column_family)) {
-          return Status::Corruption("bad WriteBatch Merge");
-        }
-      // intentional fallthrough
       case kTypeMerge:
-        if (GetLengthPrefixedSlice(&input, &key) &&
-            GetLengthPrefixedSlice(&input, &value)) {
-          s = handler->MergeCF(column_family, key, value);
-          found++;
-        } else {
-          return Status::Corruption("bad WriteBatch Merge");
-        }
+        s = handler->MergeCF(column_family, key, value);
+        found++;
         break;
       case kTypeLogData:
-        if (GetLengthPrefixedSlice(&input, &blob)) {
-          handler->LogData(blob);
-        } else {
-          return Status::Corruption("bad WriteBatch Blob");
-        }
+        handler->LogData(blob);
         break;
       default:
         return Status::Corruption("unknown WriteBatch tag");
@@ -185,17 +214,6 @@ void WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
   PutLengthPrefixedSlice(&b->rep_, key);
   PutLengthPrefixedSlice(&b->rep_, value);
 }
-
-namespace {
-inline uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {
-  uint32_t column_family_id = 0;
-  if (column_family != nullptr) {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-    column_family_id = cfh->GetID();
-  }
-  return column_family_id;
-}
-}  // namespace
 
 void WriteBatch::Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) {

@@ -152,6 +152,7 @@ class WriteBatch {
  private:
   friend class WriteBatchInternal;
 
+ protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
 
   // Intentionally copyable

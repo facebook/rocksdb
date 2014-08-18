@@ -631,4 +631,13 @@ ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
   return &handle_;
 }
 
+uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {
+  uint32_t column_family_id = 0;
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    column_family_id = cfh->GetID();
+  }
+  return column_family_id;
+}
+
 }  // namespace rocksdb
