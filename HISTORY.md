@@ -2,6 +2,12 @@
 
 ### Unreleased
 ### New Features
+
+### Public API changes
+* The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
+
+## 3.4.0 (8/18/2014)
+### New Features
 * Support Multiple DB paths in universal style compactions
 * Add feature of storing plain table index and bloom filter in SST file.
 * CompactRange() will never output compacted files to level 0. This used to be the case when all the compaction input files were at level 0.
@@ -13,7 +19,6 @@
 * Statistics APIs now take uint32_t as type instead of Tickers. Also make two access functions getTickerCount and histogramData const
 * Add DB property rocksdb.estimate-num-keys, estimated number of live keys in DB.
 * Add DB::GetIntProperty(), which returns DB properties that are integer as uint64_t.
-* The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
 
 ## 3.3.0 (7/10/2014)
 ### New Features
