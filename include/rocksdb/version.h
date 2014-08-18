@@ -6,7 +6,7 @@
 
 // Also update Makefile if you change these
 #define ROCKSDB_MAJOR 3
-#define ROCKSDB_MINOR 4
+#define ROCKSDB_MINOR 5
 #define ROCKSDB_PATCH 0
 
 // Do not use these. We made the mistake of declaring macros starting with
