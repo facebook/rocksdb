@@ -19,7 +19,7 @@ import org.rocksdb.NativeLibraryLoader;
  * All methods of this class could potentially throw RocksDBException, which
  * indicates sth wrong at the rocksdb library side and the call failed.
  */
-public class RocksDB extends org.rocksdb.RocksObject
+public class RocksDB extends RocksObject
 {
 
   public static final int NOT_FOUND = -1;
