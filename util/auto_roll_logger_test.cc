@@ -145,13 +145,13 @@ TEST(AutoRollLoggerTest, RollLogFileBySize) {
 }
 
 TEST(AutoRollLoggerTest, RollLogFileByTime) {
-    size_t time = 1;
+    size_t time = 2;
     size_t log_size = 1024 * 5;
 
     InitTestDb();
     // -- Test the existence of file during the server restart.
     ASSERT_TRUE(!env->FileExists(kLogFile));
-    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 1);
+    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, time);
     ASSERT_TRUE(env->FileExists(kLogFile));
 
     RollLogFileByTimeTest(&logger, time, kSampleMessage + ":RollLogFileByTime");
@@ -184,7 +184,7 @@ TEST(AutoRollLoggerTest,
 }
 
 TEST(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
-  size_t time = 1, log_max_size = 1024 * 5;
+  size_t time = 2, log_max_size = 1024 * 5;
 
   InitTestDb();
 
@@ -222,7 +222,7 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
   // Only roll by Time
   InitTestDb();
   options.max_log_file_size = 0;
-  options.log_file_time_to_roll = 1;
+  options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
   auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
@@ -233,7 +233,7 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
   // roll by both Time and size
   InitTestDb();
   options.max_log_file_size = 1024 * 5;
-  options.log_file_time_to_roll = 1;
+  options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
   auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
