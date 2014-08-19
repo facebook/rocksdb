@@ -93,7 +93,7 @@ TEST(BlockTest, SimpleTest) {
   contents.data = rawblock;
   contents.cachable = false;
   contents.heap_allocated = false;
-  Block reader(contents);
+  Block reader(std::move(contents));
 
   // read contents of block sequentially
   int count = 0;
@@ -149,13 +149,13 @@ BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
   return contents;
 }
 
-void CheckBlockContents(BlockContents contents, const int max_key,
+void CheckBlockContents(BlockContents &contents, const int max_key,
                         const std::vector<std::string> &keys,
                         const std::vector<std::string> &values) {
   const size_t prefix_size = 6;
   // create block reader
-  Block reader1(contents);
-  Block reader2(contents);
+  Block reader1(std::move(contents));
+  Block reader2(std::move(contents));
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));

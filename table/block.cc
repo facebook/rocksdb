@@ -297,8 +297,9 @@ uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
-Block::Block(const BlockContents& contents)
-    : data_(contents.data.data()),
+Block::Block(BlockContents&& contents)
+    : contents_(std::move(contents)),
+      data_(contents.data.data()),
       size_(contents.data.size()),
       owned_(contents.heap_allocated),
       cachable_(contents.cachable),

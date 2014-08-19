@@ -15,6 +15,8 @@
 #include "rocksdb/options.h"
 #include "db/dbformat.h"
 
+#include "format.h"
+
 namespace rocksdb {
 
 struct BlockContents;
@@ -26,7 +28,7 @@ class BlockPrefixIndex;
 class Block {
  public:
   // Initialize the block with the specified contents.
-  explicit Block(const BlockContents& contents);
+  explicit Block(BlockContents&& contents);
 
   ~Block();
 
@@ -54,6 +56,7 @@ class Block {
   size_t ApproximateMemoryUsage() const;
 
  private:
+  BlockContents contents_;
   const char* data_;
   size_t size_;
   uint32_t restart_offset_;     // Offset in data_ of restart array
