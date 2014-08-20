@@ -555,6 +555,10 @@ public:
                                 const InternalKeyComparator& internal_key,
                                 WritableFile* file,
                                 CompressionType compression_type) const;
+
+  virtual Status SanitizeDBOptions(DBOptions* db_opts) const override {
+    return Status::OK();
+  }
 };
 
 Status SimpleTableFactory::NewTableReader(
