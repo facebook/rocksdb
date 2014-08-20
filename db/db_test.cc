@@ -6076,13 +6076,28 @@ TEST(DBTest, PurgeInfoLogs) {
     int info_log_count = 0;
     for (std::string file : files) {
       if (file.find("LOG") != std::string::npos) {
-        if (mode == 1) {
-          env_->DeleteFile(options.db_log_dir + "/" + file);
-        }
         info_log_count++;
       }
     }
     ASSERT_EQ(5, info_log_count);
+
+    Destroy(&options);
+    // For mode (1), test DestoryDB() to delete all the logs under DB dir.
+    // For mode (2), no info log file should have been put under DB dir.
+    std::vector<std::string> db_files;
+    env_->GetChildren(dbname_, &db_files);
+    for (std::string file : db_files) {
+      ASSERT_TRUE(file.find("LOG") == std::string::npos);
+    }
+
+    if (mode == 1) {
+      // Cleaning up
+      env_->GetChildren(options.db_log_dir, &files);
+      for (std::string file : files) {
+        env_->DeleteFile(options.db_log_dir + "/" + file);
+      }
+      env_->DeleteDir(options.db_log_dir);
+    }
   }
 }
 

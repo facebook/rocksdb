@@ -4939,8 +4939,9 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   if (result.ok()) {
     uint64_t number;
     FileType type;
+    InfoLogPrefix info_log_prefix(!options.db_log_dir.empty(), dbname);
     for (size_t i = 0; i < filenames.size(); i++) {
-      if (ParseFileName(filenames[i], &number, &type) &&
+      if (ParseFileName(filenames[i], &number, info_log_prefix.prefix, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
         Status del;
         if (type == kMetaDatabase) {
