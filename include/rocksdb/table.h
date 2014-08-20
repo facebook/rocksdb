@@ -253,6 +253,12 @@ class TableFactory {
   virtual TableBuilder* NewTableBuilder(
       const Options& options, const InternalKeyComparator& internal_comparator,
       WritableFile* file, CompressionType compression_type) const = 0;
+
+  // Sanitizes the specified DB Options.
+  //
+  // If the function cannot find a way to sanitize the input DB Options,
+  // a non-ok Status will be returned.
+  virtual Status SanitizeDBOptions(DBOptions* db_opts) const = 0;
 };
 
 #ifndef ROCKSDB_LITE

@@ -40,6 +40,11 @@ class CuckooTableFactory : public TableFactory {
       const InternalKeyComparator& icomparator, WritableFile* file,
       CompressionType compression_type) const override;
 
+  // Sanitizes the specified DB Options.
+  Status SanitizeDBOptions(DBOptions* db_opts) const override {
+    return Status::OK();
+  }
+
  private:
   const double hash_table_ratio_;
   const uint32_t max_search_depth_;

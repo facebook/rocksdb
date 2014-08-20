@@ -43,6 +43,11 @@ class BlockBasedTableFactory : public TableFactory {
       const Options& options, const InternalKeyComparator& internal_comparator,
       WritableFile* file, CompressionType compression_type) const override;
 
+  // Sanitizes the specified DB Options.
+  Status SanitizeDBOptions(DBOptions* db_opts) const override {
+    return Status::OK();
+  }
+
  private:
   BlockBasedTableOptions table_options_;
 };

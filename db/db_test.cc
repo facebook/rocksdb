@@ -7679,6 +7679,18 @@ TEST(DBTest, RateLimitingTest) {
   ASSERT_TRUE(ratio < 0.6);
 }
 
+TEST(DBTest, TableOptionsSanitizeTest) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(&options);
+  ASSERT_EQ(db_->GetOptions().allow_mmap_reads, false);
+
+  options.table_factory.reset(new PlainTableFactory());
+  options.prefix_extractor.reset(NewNoopTransform());
+  Destroy(&options);
+  ASSERT_TRUE(TryReopen(&options).IsNotSupported());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

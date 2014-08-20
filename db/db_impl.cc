@@ -291,6 +291,19 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   return result;
 }
 
+Status SanitizeDBOptionsByCFOptions(
+    DBOptions* db_opts,
+    const std::vector<ColumnFamilyDescriptor>& column_families) {
+  Status s;
+  for (auto cf : column_families) {
+    s = cf.options.table_factory->SanitizeDBOptions(db_opts);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return Status::OK();
+}
+
 namespace {
 CompressionType GetCompressionFlush(const Options& options) {
   // Compressing memtable flushes might not help unless the sequential load
@@ -4743,7 +4756,11 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
-  Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
+  Status s = SanitizeDBOptionsByCFOptions(&db_options, column_families);
+  if (!s.ok()) {
+    return s;
+  }
+  s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to

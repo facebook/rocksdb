@@ -41,6 +41,16 @@ class AdaptiveTableFactory : public TableFactory {
                                 CompressionType compression_type) const
       override;
 
+  // Sanitizes the specified DB Options.
+  Status SanitizeDBOptions(DBOptions* db_opts) const override {
+    if (db_opts->allow_mmap_reads == false) {
+      return Status::NotSupported(
+          "AdaptiveTable with allow_mmap_reads == false is not supported.");
+    }
+    return Status::OK();
+  }
+
+
  private:
   std::shared_ptr<TableFactory> table_factory_to_write_;
   std::shared_ptr<TableFactory> block_based_table_factory_;
