@@ -560,8 +560,8 @@ void ManifestDumpCommand::DoCommand() {
   // if VersionSet::DumpManifest() depends on any option done by
   // SanitizeOptions(), we need to initialize it manually.
   options.db_paths.emplace_back("dummy", 0);
-  VersionSet* versions = new VersionSet(dbname, &options, sopt, tc.get());
-  Status s = versions->DumpManifest(options, file, verbose_, is_key_hex_);
+  VersionSet versions(dbname, &options, sopt, tc.get());
+  Status s = versions.DumpManifest(options, file, verbose_, is_key_hex_);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
            s.ToString().c_str());
