@@ -758,6 +758,7 @@ int main(int argc, char** argv) {
   {
     // Create new database
     rocksdb_filterpolicy_t* policy = rocksdb_filterpolicy_create_bloom(10);
+    rocksdb_options_set_allow_mmap_reads(options, 1);
     rocksdb_options_set_filter_policy(options, policy);
     rocksdb_options_set_prefix_extractor(options, rocksdb_slicetransform_create_fixed_prefix(3));
     rocksdb_options_set_hash_skip_list_rep(options, 5000, 4, 4);
