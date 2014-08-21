@@ -162,6 +162,7 @@ struct BlockContents {
   bool cachable;        // True iff data can be cached
   bool heap_allocated;  // True iff caller should delete[] data.data()
   CompressionType compression_type;
+  std::unique_ptr<char[]> allocation;
 };
 
 // Read the block identified by "handle" from "file".  On failure
